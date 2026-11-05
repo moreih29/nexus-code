@@ -7,6 +7,7 @@
  * terminal the command came from. Where it goes is ./placement's call.
  */
 
+import i18next from "i18next";
 import { askCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
@@ -17,28 +18,36 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { useWorkspacesStore } from "@/state/stores/workspaces";
-import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
+import { useTerminalStore } from "@/state/stores/terminal";
+import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
+import type { CliUiOp } from "../../../shared/cli/ui";
+import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
+import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
+import { saveModel } from "../editor/save/service";
 import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
+import { workingFileOfDiff } from "../editor/tabs/diff-working-file";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
+import type { EditorInput } from "../editor/types";
 import { runningProgram } from "../terminal/close-confirm";
+import {
+  loadInstalledShells,
+  type ShellEntry,
+  shellEntries,
+  shellNamed,
+} from "../terminal/installed-shells";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace, removeTask, startTask } from "../workspace/tasks";
+import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
-export type CliUiHandler<K extends CliUiOp> = (
-  args: CliUiOps[K]["args"],
-) => Promise<CliUiOps[K]["result"]>;
-
-/** A failure the CLI shows the agent as is. */
-export class UiRequestError extends Error {}
+export { type CliUiHandler, UiRequestError } from "./handler";
 
 /**
  * How long Enter waits after pasted text. Sent with the paste, it can reach
@@ -70,6 +79,20 @@ function navigableUrl(input: string): string {
   );
 }
 
+/** The file an editor tab, or a diff tab's working-tree side, edits. */
+function fileOfTab(workspaceId: string, tab: Tab): EditorInput {
+  if (tab.type === "editor") return tab.props;
+  if (tab.type === "editor.diff") {
+    const filePath = workingFileOfDiff(tab.props);
+    if (filePath !== null) return { workspaceId, filePath };
+    throw new UiRequestError("that diff shows no working-tree file, so it has nothing to save");
+  }
+  if (tab.type === "untitled") {
+    throw new UiRequestError("it has no file yet; save it in the app to name one");
+  }
+  throw new UiRequestError("only an editor or a diff has a file to save");
+}
+
 export function hasUnsavedChanges(workspaceId: string, tab: Tab): boolean {
   if (tab.type === "untitled") {
     return isDirty(untitledCacheUriFor(workspaceId, tab.props.untitledIndex));
@@ -85,7 +108,10 @@ async function callOrFail(result: Promise<{ ok: boolean; message?: string }>): P
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const actionHandlers: {
-  [K in Exclude<CliUiOp, "tabs.list" | "terminal.read" | LayoutOp>]: CliUiHandler<K>;
+  [K in Exclude<
+    CliUiOp,
+    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp
+  >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
     const open = findTabs(
@@ -132,11 +158,49 @@ export const actionHandlers: {
     return { tabId };
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, placement }) => {
-    const tabId = openTab(workspaceId, { type: "terminal", props: { cwd } }, placement);
+  "commit.open": async ({ workspaceId, rev, placement }) => {
+    // `^{commit}` takes a tag to the commit it names, which is what the tab shows.
+    const found = await ipcCallResult("git", "commitDetail", {
+      workspaceId,
+      sha: `${rev}^{commit}`,
+    });
+    if (!found.ok) {
+      throw new UiRequestError(
+        /unknown revision|bad revision|ambiguous argument|not a valid|bad object/i.test(
+          found.message ?? "",
+        )
+          ? `no commit is named "${rev}"`
+          : (found.message ?? "the commit could not be read"),
+      );
+    }
+    const { sha, subject } = found.value;
+    const open = findTabs(workspaceId, (tab) => tab.type === "git.commit" && tab.props.sha === sha);
+    const tabId =
+      showOpenTab(workspaceId, open, placement) ??
+      openTab(workspaceId, { type: "git.commit", props: { workspaceId, sha } }, placement);
+    return { tabId, sha, subject };
+  },
+
+  "terminal.open": async ({ workspaceId, cwd, title, command, shell, placement }) => {
+    const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
+    const props = { cwd, ...(choice ? { shell: choice } : {}) };
+    const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);
     return { tabId };
+  },
+
+  "terminal.shells": async () => {
+    const { entries, defaultShell } = await shellMenu();
+    return {
+      shells: entries.map((entry) => ({
+        name: entry.name,
+        kind: entry.choice.kind,
+        id: entry.choice.id,
+        path: entry.path,
+        isDefault: sameShellChoice(entry.choice, defaultShell),
+      })),
+    };
   },
 
   "terminal.input": async ({ tabId, text, mode, enter }) => {
@@ -178,6 +242,37 @@ export const actionHandlers: {
     }
     await closeTabWithConfirm(workspaceId, tabId);
     return {};
+  },
+
+  "tab.save": async ({ workspaceId, tabId }) => {
+    const input = fileOfTab(workspaceId, tabRecord(workspaceId, tabId));
+    const result = await saveModel(input);
+    switch (result.kind) {
+      case "saved":
+      case "not-dirty":
+        return { filePath: input.filePath, saved: result.kind === "saved" };
+      case "no-model":
+        // Not loaded since the app started: nothing typed in it to save.
+        return { filePath: input.filePath, saved: false };
+      case "conflict":
+        throw new UiRequestError(
+          'the file changed on disk since it was opened; saving it in the app lets the user choose which to keep, and "nexus tab revert" takes what is on disk',
+        );
+      case "read-only":
+        throw new UiRequestError("it is read-only");
+      case "superseded":
+        throw new UiRequestError("another save of it started first; try again");
+      case "error":
+        throw new UiRequestError(`it could not be saved: ${result.message}`);
+    }
+  },
+
+  "tab.revert": async ({ workspaceId, tabId }) => {
+    const tab = tabRecord(workspaceId, tabId);
+    const input = fileOfTab(workspaceId, tab);
+    if (!hasUnsavedChanges(workspaceId, tab)) return { filePath: input.filePath, reverted: false };
+    await reloadModelFromDisk(input);
+    return { filePath: input.filePath, reverted: !hasUnsavedChanges(workspaceId, tab) };
   },
 
   "browser.open": async ({ workspaceId, url, placement }) => {
@@ -250,6 +345,21 @@ export const actionHandlers: {
     return {};
   },
 
+  "workspace.remove": async ({ workspaceId }) => {
+    const tasks = tasksOf(useWorkspacesStore.getState().workspaces, workspaceId);
+    const unsaved = [workspaceId, ...tasks.map((task) => task.id)].reduce(
+      (sum, id) => sum + countUnsavedBuffers(id),
+      0,
+    );
+    if (unsaved > 0) {
+      throw new UiRequestError(
+        `it has ${unsaved} unsaved file${unsaved === 1 ? "" : "s"}; save or close them in the app`,
+      );
+    }
+    await callOrFail(ipcCallResult("workspace", "remove", { id: workspaceId }));
+    return {};
+  },
+
   "consent.ask": async ({ fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs }) => {
     const workspaces = useWorkspacesStore.getState().workspaces;
     const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
@@ -264,3 +374,22 @@ export const actionHandlers: {
     return { answer };
   },
 };
+
+/** The shells "New terminal with" lists, and the one a new terminal runs. */
+async function shellMenu(): Promise<{ entries: ShellEntry[]; defaultShell: ShellChoice }> {
+  const installed = await loadInstalledShells();
+  const { customShells, shell } = useTerminalStore.getState();
+  return {
+    entries: shellEntries(i18next.t, installed, customShells),
+    defaultShell: shell ?? { kind: "detected", id: installed.systemDefault.id },
+  };
+}
+
+/** The shell `name` picks, or an error that lists the names to pick from. */
+async function shellByName(name: string): Promise<ShellEntry> {
+  const { entries } = await shellMenu();
+  const entry = shellNamed(entries, name);
+  if (entry) return entry;
+  const names = entries.map((e) => e.name).join(", ");
+  throw new UiRequestError(`no shell is named "${name}"; this machine has ${names}`);
+}

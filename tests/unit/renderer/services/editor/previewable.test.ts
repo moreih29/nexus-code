@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  defaultViewMode,
   isImageFile,
   isPreviewable,
   previewEngineFor,
@@ -19,6 +20,17 @@ describe("isPreviewable", () => {
 
   it("classifies svg files as supported", () => {
     expect(isPreviewable("/r/logo.svg")).toBe("supported");
+  });
+
+  it("classifies json files as supported", () => {
+    expect(isPreviewable("/r/package.json")).toBe("supported");
+    expect(isPreviewable("/r/.github/workflows/ci.yml")).toBe("supported");
+    expect(isPreviewable("/r/compose.YAML")).toBe("supported");
+    expect(isPreviewable("/r/settings.JSONC")).toBe("supported");
+  });
+
+  it("classifies notebooks as supported", () => {
+    expect(isPreviewable("/r/analysis.ipynb")).toBe("supported");
   });
 
   it("singles out .mdx as mdx-disabled (preview refused for security)", () => {
@@ -41,6 +53,11 @@ describe("previewEngineFor", () => {
     expect(previewEngineFor("/r/index.html")).toBe("html");
     expect(previewEngineFor("/r/page.htm")).toBe("html");
     expect(previewEngineFor("/r/logo.svg")).toBe("svg");
+    expect(previewEngineFor("/r/package.json")).toBe("json");
+    expect(previewEngineFor("/r/tsconfig.jsonc")).toBe("json");
+    expect(previewEngineFor("/r/ci.yml")).toBe("yaml");
+    expect(previewEngineFor("/r/compose.yaml")).toBe("yaml");
+    expect(previewEngineFor("/r/analysis.IPYNB")).toBe("notebook");
   });
 
   it("throws on non-previewable paths (defensive — callers must filter)", () => {
@@ -68,5 +85,22 @@ describe("isImageFile", () => {
     expect(isImageFile("/r/index.ts")).toBe(false);
     expect(isImageFile("/r/README.md")).toBe(false);
     expect(isImageFile("/r/no-extension")).toBe(false);
+  });
+});
+
+describe("defaultViewMode", () => {
+  it("opens a file with a preview in it, and anything else in its source", () => {
+    expect(defaultViewMode("/r/README.md")).toBe("preview");
+    expect(defaultViewMode("/r/index.html")).toBe("preview");
+    expect(defaultViewMode("/r/icon.svg")).toBe("preview");
+    expect(defaultViewMode("/r/analysis.ipynb")).toBe("preview");
+    expect(defaultViewMode("/r/page.mdx")).toBe("raw");
+    expect(defaultViewMode("/r/index.ts")).toBe("raw");
+  });
+
+  it("opens JSON in its source, its tree a switch away", () => {
+    expect(defaultViewMode("/r/package.json")).toBe("raw");
+    expect(defaultViewMode("/r/tsconfig.jsonc")).toBe("raw");
+    expect(defaultViewMode("/r/ci.yml")).toBe("raw");
   });
 });

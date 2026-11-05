@@ -34,18 +34,21 @@ class FakeWebContents {
     setPermissionRequestHandler: () => {},
     webRequest: { onBeforeRequest: () => {} },
   };
-  private readonly listeners = new Map<string, Listener[]>();
+  private readonly handlers = new Map<string, Listener[]>();
   closed = false;
 
   on(event: string, listener: Listener): this {
-    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+    this.handlers.set(event, [...(this.handlers.get(event) ?? []), listener]);
     return this;
   }
   once(event: string, listener: Listener): this {
     return this.on(event, listener);
   }
   emit(event: string, ...args: unknown[]): void {
-    for (const listener of this.listeners.get(event) ?? []) listener(...args);
+    for (const listener of this.handlers.get(event) ?? []) listener(...args);
+  }
+  listeners(event: string): Listener[] {
+    return this.handlers.get(event) ?? [];
   }
   setWindowOpenHandler(): void {}
   setBackgroundThrottling(): void {}

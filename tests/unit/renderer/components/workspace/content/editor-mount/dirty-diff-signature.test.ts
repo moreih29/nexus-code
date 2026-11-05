@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-const { baselineSignature, hasStagedChanges } = await import(
+const { baselineSignature, hasStagedChanges, isUnchangedInStatus } = await import(
   "../../../../../../../src/renderer/components/workspace/content/editor-mount/install-dirty-diff"
 );
 const { GitStatusSchema } = await import("../../../../../../../src/shared/git/types");
@@ -52,5 +52,21 @@ describe("hasStagedChanges", () => {
     expect(
       hasStagedChanges(status({ working: [{ relPath: "src/a.ts", xy: ".M" }] }), "src/a.ts"),
     ).toBe(false);
+  });
+});
+
+describe("isUnchangedInStatus", () => {
+  test("holds only while the file has no entry at all", () => {
+    expect(isUnchangedInStatus(status(), "src/a.ts")).toBe(true);
+    expect(
+      isUnchangedInStatus(status({ working: [{ relPath: "other.ts", xy: ".M" }] }), "src/a.ts"),
+    ).toBe(true);
+    for (const key of ["merge", "staged", "working", "untracked"]) {
+      const entry = { relPath: "src/a.ts", xy: key === "untracked" ? "??" : ".M" };
+      expect(isUnchangedInStatus(status({ [key]: [entry] }), "src/a.ts")).toBe(false);
+    }
+    const renamed = status({ staged: [{ relPath: "src/b.ts", oldRelPath: "src/a.ts", xy: "R." }] });
+    expect(isUnchangedInStatus(renamed, "src/a.ts")).toBe(false);
+    expect(isUnchangedInStatus(status(), null)).toBe(false);
   });
 });

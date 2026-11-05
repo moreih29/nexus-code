@@ -1,5 +1,5 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
-import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
   type CliContext,
@@ -11,6 +11,7 @@ import {
   shortId,
 } from "../context";
 import { table } from "../format";
+import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { WORKSPACE_FLAG } from "./flags";
 
@@ -413,11 +414,84 @@ const worktreeRemove: CliCommand = {
   },
 };
 
+/** A folder on the host `beside`'s workspace is on, reached the same way. */
+function locationBeside(beside: WorkspaceLocation, folder: string): WorkspaceLocation {
+  return beside.kind === "local"
+    ? { kind: "local", rootPath: folder }
+    : { ...beside, remotePath: folder };
+}
+
+const workspaceAdd: CliCommand = {
+  path: ["workspace", "add"],
+  summary: "Add a folder to the app as a workspace, on this terminal's host",
+  args: "<folder>",
+  details:
+    "As Add Workspace in the app: the folder, from this terminal's directory, goes at the end\n" +
+    "of the sidebar, named after it unless --name. An SSH or WSL terminal adds a folder on its\n" +
+    "own host, reached as its workspace is. It connects once it is first shown, so --show it\n" +
+    "or click it. A folder already in the list gives that workspace.",
+  flags: {
+    name: { type: "string", value: "NAME", description: "The name the sidebar shows" },
+    show: { type: "boolean", description: "Show it to the user" },
+  },
+  async run(ctx, { positionals, flags }) {
+    const [input] = exactArgs(positionals, "folder") as [string];
+    const caller = resolveWorkspace(ctx, undefined);
+    const location = locationBeside(caller.location, absolutePath(ctx, caller, input));
+    const name = (flags.name as string | undefined)?.trim() || undefined;
+    const { workspace, added } = await ctx.services.addWorkspace(location, name);
+    if (flags.show === true) await ctx.services.ui("workspace.show", { workspaceId: workspace.id });
+    const what = added ? "Added" : "Already listed";
+    return output(
+      `${what}: ${workspace.name} (${shortId(workspace.id)}) ${describeLocation(workspace)}`,
+      { ...workspaceJson(ctx, workspace), added },
+    );
+  },
+};
+
+const workspaceRemove: CliCommand = {
+  path: ["workspace", "remove"],
+  summary: "Remove a workspace and its worktrees' tasks from the app, keeping the folders",
+  args: "<workspace>",
+  details:
+    "As Remove Workspace in the app: its terminals and those of its worktrees close, programs\n" +
+    "running in them included, and they leave the sidebar. No folder is deleted: the\n" +
+    "worktrees stay on disk with their branches. It is refused with unsaved files, and for\n" +
+    "this terminal's own workspace. The user is asked first, as for other changes outside\n" +
+    "this terminal's workspace. A worktree goes with nexus worktree remove.",
+  async run(ctx, { positionals }) {
+    const [selector] = exactArgs(positionals, "workspace") as [string];
+    const target = resolveWorkspace(ctx, selector);
+    if (target.task) {
+      throw new CliError(`${target.name} is a worktree; remove it with nexus worktree remove`);
+    }
+    const family = worktreeFamily(ctx, target);
+    if (family.some((w) => w.id === ctx.caller.workspaceId)) {
+      throw new CliError("this terminal is in that workspace; remove it from another terminal");
+    }
+    await mayChange(ctx, target, { kind: "workspaceRemove" });
+    await ctx.services.ui("workspace.remove", { workspaceId: target.id }, TASK_TIMEOUT_MS);
+    const tasks = family.length - 1;
+    const withTasks = tasks > 0 ? ` with its ${tasks} worktree task${tasks === 1 ? "" : "s"}` : "";
+    return output(
+      `Removed workspace ${target.name} (${shortId(target.id)})${withTasks}; folders are kept.`,
+      {
+        id: target.id,
+        name: target.name,
+        location: target.location,
+        tasks: family.slice(1).map((w) => w.id),
+      },
+    );
+  },
+};
+
 export const workspaceCommands: CliCommand[] = [
   status,
   workspaceList,
   workspaceCurrent,
   workspaceSwitch,
+  workspaceAdd,
+  workspaceRemove,
   worktreeList,
   worktreeSwitch,
   worktreeNew,

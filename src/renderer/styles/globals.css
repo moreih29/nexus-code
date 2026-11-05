@@ -589,6 +589,28 @@
   opacity: 1;
 }
 
+/* A ```mermaid block's diagram: its own width, shrunk to the column. */
+.md-preview .md-mermaid {
+  display: flex;
+  justify-content: center;
+  min-height: 2em;
+}
+.md-preview .md-mermaid > img {
+  max-width: 100%;
+  height: auto;
+}
+/* mermaid's message points at the error with a caret under the line. */
+.md-preview .md-mermaid-failed > p {
+  margin: 0 0 0.5em 0;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  color: var(--state-error-fg);
+}
+.md-preview .md-mermaid-failed > pre {
+  margin: 0;
+}
+
 /* Syntax highlighting (rehype-highlight / highlight.js classes) mapped onto
    the same 15-role palette Monaco uses, so preview code blocks match the
    editor per theme. Tokens are emitted as --syntax-* by generate-theme-css. */

@@ -1,0 +1,72 @@
+import { describe, expect, it } from "bun:test";
+import {
+  parseStyle,
+  sanitizeRichText,
+} from "../../../../../src/renderer/services/editor/preview/rich-text";
+
+describe("sanitizeRichText", () => {
+  it("keeps text elements and their typographic styles", () => {
+    expect(
+      sanitizeRichText(
+        '<p style="text-align: center;margin-top: 0em;"><span style="color: #404040;font-size: 44pt;font-family: Calibri;">Sub&nbsp;title</span><br></p>',
+      ),
+    ).toEqual([
+      {
+        tag: "p",
+        style: { "text-align": "center", "margin-top": "0em" },
+        children: [
+          {
+            tag: "span",
+            style: { color: "#404040", "font-size": "44pt", "font-family": "Calibri" },
+            children: ["Sub title"],
+          },
+          { tag: "br", style: {}, children: [] },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps lists as lists", () => {
+    expect(sanitizeRichText("<ul><li><p>one</p></li></ul>")).toEqual([
+      {
+        tag: "ul",
+        style: {},
+        children: [
+          { tag: "li", style: {}, children: [{ tag: "p", style: {}, children: ["one"] }] },
+        ],
+      },
+    ]);
+  });
+
+  it("drops what could run or load, keeping the text of what it drops", () => {
+    expect(
+      sanitizeRichText(
+        '<p onclick="x()"><img src=x onerror="alert(1)"><a href="javascript:alert(1)">link</a><script>alert(2)</script><iframe src="https://e.x">in</iframe></p>',
+      ),
+    ).toEqual([{ tag: "p", style: {}, children: ["link", "in"] }]);
+  });
+
+  it("reads a < that starts no tag as text", () => {
+    expect(sanitizeRichText("<p>a < b &amp; 1<2</p>")).toEqual([
+      { tag: "p", style: {}, children: ["a < b & 1<2"] },
+    ]);
+  });
+
+  it("closes what is left open, and ignores a stray end", () => {
+    expect(sanitizeRichText("<p><b>bold</p>after</i>")).toEqual([
+      { tag: "p", style: {}, children: [{ tag: "b", style: {}, children: ["bold"] }] },
+      "after",
+    ]);
+  });
+});
+
+describe("parseStyle", () => {
+  it("keeps only allowed properties with safe values", () => {
+    expect(
+      parseStyle(
+        'color: red; position: fixed; background-color: url(x); font-family: "A;B", serif; background-image: url(https://e.x/t.png); font-size: 12pt !important',
+      ),
+    ).toEqual({ color: "red", "font-family": '"A;B", serif', "font-size": "12pt" });
+    expect(parseStyle("color: expression(alert(1)); text-shadow: 1px 1px <b>")).toEqual({});
+  });
+});

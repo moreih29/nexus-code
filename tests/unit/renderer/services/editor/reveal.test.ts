@@ -25,6 +25,7 @@ import {
   requestEditorReveal,
 } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
 import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/testing";
+import { type EditorTab, useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 interface StubEditor {
   focus: ReturnType<typeof mock>;
@@ -275,5 +276,79 @@ describe("registerRevealTarget — the same file in two splits", () => {
     registerRevealTarget(input, right as never, "tab-right");
     expect(right.setSelection).toHaveBeenLastCalledWith(RANGE_A);
     expect(left.setSelection).not.toHaveBeenCalled();
+  });
+});
+
+describe("a reveal in a tab showing the file's preview", () => {
+  const doc = { workspaceId: "ws-1", filePath: "/repo/README.md" };
+
+  function editorTab(id: string, filePath: string, viewMode?: "raw" | "preview"): EditorTab {
+    return {
+      id,
+      type: "editor",
+      props: { workspaceId: doc.workspaceId, filePath },
+      title: "README.md",
+      defaultTitle: "README.md",
+      isPreview: false,
+      isPinned: false,
+      ...(viewMode ? { viewMode } : {}),
+    };
+  }
+
+  /** Runs `run` with animation frames held, and gives what draws them, frames they ask included. */
+  function withFrames(run: () => void): () => void {
+    const frames: FrameRequestCallback[] = [];
+    const saved = globalThis.requestAnimationFrame;
+    const held = (cb: FrameRequestCallback) => frames.push(cb);
+    const holding = (body: () => void) => {
+      globalThis.requestAnimationFrame = held;
+      try {
+        body();
+      } finally {
+        globalThis.requestAnimationFrame = saved;
+      }
+    };
+    holding(run);
+    return () =>
+      holding(() => {
+        while (frames.length > 0) frames.shift()?.(0);
+      });
+  }
+
+  it("switches the tab to its source, then reveals once the editor is laid out", () => {
+    __resetPendingEditorRevealsForTests();
+    useTabsStore.setState({
+      byWorkspace: { [doc.workspaceId]: { md: editorTab("md", doc.filePath) } },
+    });
+    const editor = { ...makeStubEditor(), layout: mock(() => {}) };
+    registerRevealTarget(doc, editor as never, "md");
+
+    const flush = withFrames(() => requestEditorReveal({ ...doc, range: RANGE_A, tabId: "md" }));
+    const tab = useTabsStore.getState().byWorkspace[doc.workspaceId]?.md as EditorTab;
+    expect(tab.viewMode).toBe("raw");
+    expect(editor.setSelection).not.toHaveBeenCalled();
+    flush();
+    expect(editor.layout).toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+  });
+
+  it("reveals at once in a tab already showing the source", () => {
+    __resetPendingEditorRevealsForTests();
+    useTabsStore.setState({
+      byWorkspace: {
+        [doc.workspaceId]: {
+          md: editorTab("md", doc.filePath, "raw"),
+          ts: editorTab("ts", "/repo/a.ts"),
+        },
+      },
+    });
+    const md = makeStubEditor();
+    const ts = makeStubEditor();
+    registerRevealTarget(doc, md as never, "md");
+    registerRevealTarget({ ...doc, filePath: "/repo/a.ts" }, ts as never, "ts");
+    requestEditorReveal({ ...doc, range: RANGE_A, tabId: "md" });
+    requestEditorReveal({ ...doc, filePath: "/repo/a.ts", range: RANGE_B, tabId: "ts" });
+    expect(md.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+    expect(ts.setSelection).toHaveBeenLastCalledWith(RANGE_B);
   });
 });

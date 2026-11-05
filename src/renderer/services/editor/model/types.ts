@@ -8,8 +8,8 @@
 
 import type * as Monaco from "monaco-editor";
 import type { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
-import type { FileContent } from "../../../../shared/fs/types";
 import type { TextDocumentContentChangeEvent } from "../../../../shared/lsp";
+import type { TextEncoding } from "../encoding/text-encoding";
 import type { FileErrorCode } from "../../../utils/file-error";
 import type { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
 import type { monacoContentChangesToLsp } from "../lsp/monaco-converters";
@@ -48,12 +48,18 @@ export interface ModelEntry {
   phase: SharedModelPhase;
   model: Monaco.editor.ITextModel | null;
   errorCode?: FileErrorCode;
+  /**
+   * The model's text the last time it was in sync with disk, as the model
+   * reads it back: Monaco gives every line of a file with mixed line endings
+   * the same one, so this may differ from the bytes read.
+   */
   lastLoadedValue: string;
   /**
-   * How the file was last read. The agent strips a UTF-8 BOM on read, so a
-   * save writes it back for "utf8-bom".
+   * The encoding the file was last read or saved in, which a save writes
+   * in: the agent strips a UTF-8 BOM on read, so a save writes it back for
+   * "utf8-bom".
    */
-  encoding?: FileContent["encoding"];
+  encoding?: TextEncoding;
   loadPromise: Promise<void>;
   contentDisposable?: Monaco.IDisposable;
   fsUnsubscribe?: () => void;

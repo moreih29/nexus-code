@@ -309,8 +309,8 @@
     "reload": "새로 고침",
     "left": "좌측",
     "right": "우측",
-    "left_missing": "좌측이 없음",
-    "right_missing": "우측이 없음",
+    "left_missing": "좌측이 없어 빈 파일로 표시합니다.",
+    "right_missing": "우측이 없어 빈 파일로 표시합니다.",
     "no_display_binary": "diff에서 이진 파일을 표시할 수 없습니다.",
     "view_mode_label": "보기 모드",
     "view_raw": "원본",
@@ -410,6 +410,39 @@
     "close_running_title": "실행 중인 프로세스를 종료할까요?",
     "close_running_description": "이 터미널에서 “{{name}}”이(가) 아직 실행 중입니다. 터미널을 닫으면 종료됩니다.",
     "close_running_confirm": "종료"
+  },
+  "previewFind": {
+    "placeholder": "찾기",
+    "count": "{{current}}/{{total}}",
+    "none": "결과 없음",
+    "matchCase": "대/소문자 구분",
+    "previous": "이전 항목 (Shift+Enter)",
+    "next": "다음 항목 (Enter)",
+    "close": "닫기 (Escape)"
+  },
+  "encoding": {
+    "segmentTitle": "인코딩: {{name}}",
+    "menuTitle": "인코딩",
+    "reopen": "다른 인코딩으로 다시 열기",
+    "saveWith": "다른 인코딩으로 저장",
+    "reopenDirty": "파일을 다시 열려면 수정 내용을 저장하거나 되돌리세요.",
+    "group": {
+      "unicode": "유니코드",
+      "korean": "한국어",
+      "japanese": "일본어",
+      "chineseSimplified": "중국어 간체",
+      "chineseTraditional": "중국어 번체",
+      "western": "서유럽어",
+      "centralEuropean": "중앙 유럽어",
+      "cyrillic": "키릴 문자",
+      "greek": "그리스어",
+      "turkish": "튀르키예어",
+      "hebrew": "히브리어",
+      "arabic": "아랍어",
+      "baltic": "발트어",
+      "vietnamese": "베트남어",
+      "thai": "태국어"
+    }
   },
   "lsp": {
     "language": {
@@ -642,7 +675,25 @@
   },
   "preview": {
     "truncated": "미리보기가 {{kb}} KB에서 잘렸습니다. 전체 파일을 보려면 원본으로 전환하세요.",
+    "table_empty": "행이 없습니다.",
     "html_title": "HTML 미리보기"
+  },
+  "jsonPreview": {
+    "label": "{{format}} 트리",
+    "expand_all": "모두 펼치기",
+    "collapse_all": "모두 접기",
+    "keys_one": "키 {{count}}개",
+    "keys_other": "키 {{count}}개",
+    "items_one": "항목 {{count}}개",
+    "items_other": "항목 {{count}}개",
+    "empty": "빈 파일입니다.",
+    "too_large": "{{mb}} MB가 넘는 파일은 트리로 보여주지 않습니다. 원본으로 전환하세요.",
+    "syntax_error": "{{format}} 형식으로 읽을 수 없습니다: {{line}}행 {{column}}열. 원본으로 전환해 확인하세요.",
+    "load_failed": "YAML 읽기 모듈을 불러오지 못했습니다. 원본으로 전환해 확인하세요."
+  },
+  "notebookPreview": {
+    "not_json": "이 노트북을 읽을 수 없습니다: JSON이 아닙니다. 원본으로 전환해 확인하세요.",
+    "unsupported": "nbformat 4 이상의 노트북만 미리 볼 수 있습니다."
   },
   "imagePreview": {
     "workspace_not_found": "워크스페이스를 찾을 수 없습니다.",
@@ -650,13 +701,56 @@
     "load_failed": "이미지를 불러올 수 없습니다.",
     "too_large": "이미지가 너무 커서 미리볼 수 없습니다 (최대 {{maxMb}}MB)."
   },
+  "fontPreview": {
+    "outside_workspace": "워크스페이스 밖의 폰트라 미리 볼 수 없습니다.",
+    "load_failed": "이 폰트를 불러올 수 없습니다. 브라우저가 읽지 못하는 형식일 수 있습니다.",
+    "sample_label": "예시 문장"
+  },
+  "mediaPreview": {
+    "outside_workspace": "워크스페이스 밖의 파일이라 재생할 수 없습니다.",
+    "load_failed": "이 파일을 재생할 수 없습니다. 지원하지 않는 형식일 수 있습니다."
+  },
+  "pdfPreview": {
+    "outside_workspace": "워크스페이스 밖의 PDF라 미리 볼 수 없습니다.",
+    "load_failed": "이 PDF를 열 수 없습니다.",
+    "too_large": "PDF가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "password": "비밀번호로 보호된 PDF라 미리 볼 수 없습니다.",
+    "zoom_in": "확대",
+    "zoom_out": "축소",
+    "fit_width": "너비에 맞추기"
+  },
+  "spreadsheetPreview": {
+    "outside_workspace": "워크스페이스 밖의 스프레드시트라 미리 볼 수 없습니다.",
+    "load_failed": "이 스프레드시트를 읽을 수 없습니다.",
+    "too_large": "스프레드시트가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "sheets": "시트",
+    "empty_sheet": "이 시트에는 값이 없습니다.",
+    "chart_sheet": "차트 시트는 미리보기에서 그리지 않습니다.",
+    "columns_clipped": "처음 {{count}}개 열만 표시합니다."
+  },
+  "docxPreview": {
+    "outside_workspace": "워크스페이스 밖의 문서라 미리 볼 수 없습니다.",
+    "load_failed": "이 문서를 읽을 수 없습니다.",
+    "too_large": "문서가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB)."
+  },
+  "pptxPreview": {
+    "outside_workspace": "워크스페이스 밖의 프레젠테이션이라 미리 볼 수 없습니다.",
+    "load_failed": "이 프레젠테이션을 읽을 수 없습니다.",
+    "too_large": "프레젠테이션이 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB).",
+    "slide_number": "슬라이드 {{number}} / {{count}}",
+    "chart": "차트 (미리보기에서 그리지 않음)",
+    "media": "비디오 또는 오디오 (미리보기에서 재생하지 않음)"
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",
     "copied": "복사됨",
     "expand_section": "섹션 펼치기",
     "collapse_section": "섹션 접기",
-    "copy_link": "이 섹션 링크 복사"
+    "copy_link": "이 섹션 링크 복사",
+    "mermaid_alt": "Mermaid 다이어그램",
+    "mermaid_error": "다이어그램을 그릴 수 없습니다: {{message}}",
+    "mermaid_unshown": "다이어그램을 그렸지만 표시할 수 없습니다."
   },
   "resize": {
     "sidebar": "사이드바 크기 조정",

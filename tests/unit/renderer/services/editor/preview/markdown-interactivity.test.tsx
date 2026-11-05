@@ -77,6 +77,16 @@ describe("code blocks", () => {
     expect(html).toContain(`aria-label="${i18next.t("markdown.copy_code")}"`);
   });
 
+  test("a mermaid block is a diagram, not its source, and keeps its copy button", () => {
+    const html = renderToStaticMarkup(
+      <MarkdownPreview {...BASE_PROPS} source={"```mermaid\nflowchart LR\n  A --> B\n```\n"} />,
+    );
+    // The diagram is drawn after mount; the static render holds its place.
+    expect(html).toContain('class="md-mermaid"');
+    expect(html).not.toContain("<pre");
+    expect(html).toContain(`aria-label="${i18next.t("markdown.copy_code")}"`);
+  });
+
   test("fenced block with a language hint is syntax-highlighted", () => {
     const html = renderToStaticMarkup(
       <MarkdownPreview {...BASE_PROPS} source={"```python\ndef f(x):\n    return x  # c\n```\n"} />,

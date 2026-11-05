@@ -102,6 +102,7 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-error-bg": tokens["state.error.bg"],
     // Warning state (e.g. Caps Lock hint on the SSH password field, permissionPending tint)
     "--state-warning-fg": tokens["state.warning.fg"],
+    "--state-warning-border": tokens["state.warning.border"],
     "--state-warning-bg": tokens["state.warning.bg"],
     // Border / input / ring — island internal hairline
     "--border": tokens["surface.island.border"],

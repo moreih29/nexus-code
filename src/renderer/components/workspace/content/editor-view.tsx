@@ -8,9 +8,15 @@ import { useMonacoThemeName } from "../../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
-import { isPreviewable, previewEngineFor } from "../../../services/editor/preview/previewable";
+import { delimiterFor } from "../../../services/editor/preview/delimited";
+import {
+  defaultViewMode,
+  isPreviewable,
+  previewEngineFor,
+} from "../../../services/editor/preview/previewable";
 import { toggleTaskMarker } from "../../../services/editor/preview/task-toggle";
 import { useGitSession, useGitStore } from "../../../state/stores/git";
+import { usePreviewDefaultsStore } from "../../../state/stores/preview-defaults";
 import { useTabsStore } from "../../../state/stores/tabs";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
@@ -18,9 +24,14 @@ import { fileErrorMessage } from "../../../utils/file-error";
 import { relPath } from "../../../utils/path";
 import { HtmlPreview } from "../../editor/preview/html-preview";
 import { ImagePreview } from "../../editor/preview/image-preview";
+import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
+import { NotebookPreview } from "../../editor/preview/notebook-preview";
+import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { SvgPreview } from "../../editor/preview/svg-preview";
+import { TablePreview } from "../../editor/preview/table-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
+import { YamlTreePreview } from "../../editor/preview/yaml-tree-preview";
 import { EmptyState } from "../../ui/empty-state";
 import { ConflictResolvedBanner } from "./conflict-resolved-banner";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
@@ -206,8 +217,10 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
       ? s.byWorkspace[workspaceId]?.[tabId]
       : null,
   );
+  const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const viewMode =
-    storedViewMode && storedViewMode.type === "editor" ? (storedViewMode.viewMode ?? "raw") : "raw";
+    (storedViewMode?.type === "editor" ? storedViewMode.viewMode : undefined) ??
+    defaultViewMode(filePath, viewDefaults);
   const setViewMode = useTabsStore((s) => s.setViewMode);
 
   // Live markdown/html/svg source — subscribed only when actually previewing,
@@ -339,7 +352,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
       </div>
 
       {showPreview && (
-        <div className="flex-1 min-h-0">
+        <PreviewFindScope className="flex-1 min-h-0">
           <PreviewPane
             filePath={filePath}
             workspaceId={workspaceId}
@@ -347,7 +360,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
             source={previewSource}
             onToggleTask={readOnly ? undefined : onToggleTask}
           />
-        </div>
+        </PreviewFindScope>
       )}
     </div>
   );
@@ -463,5 +476,20 @@ function PreviewPane({
       );
     case "svg":
       return <SvgPreview source={source} />;
+    case "table":
+      return <TablePreview source={source} delimiter={delimiterFor(filePath)} />;
+    case "json":
+      return <JsonTreePreview source={source} />;
+    case "yaml":
+      return <YamlTreePreview source={source} />;
+    case "notebook":
+      return (
+        <NotebookPreview
+          source={source}
+          workspaceId={workspaceId}
+          currentFileAbsPath={filePath}
+          workspaceRootAbsPath={workspaceRootAbsPath}
+        />
+      );
   }
 }

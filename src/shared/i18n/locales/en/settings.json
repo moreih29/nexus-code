@@ -175,7 +175,12 @@
     "fontDetected": "Detected on this system.",
     "fontNotFound": "Not found on this system — the preview will use the fallback font.",
     "ariaFontSize": "Editor font size",
-    "ariaFontFamily": "Font family"
+    "ariaFontFamily": "Font family",
+    "openIn": {
+      "label": "Open files in",
+      "aria": "View {{format}} files open in",
+      "hint": "The view a file with a preview opens in. A view switched to in a tab stays with that tab."
+    }
   },
   "terminal": {
     "shell": {
@@ -272,9 +277,12 @@
       "action": {
         "open": "open {{detail}}",
         "diff": "open the changes of {{detail}}",
+        "commit": "open the commit {{detail}}",
         "terminalNew": "open a terminal",
         "terminalInput": "type into the terminal \"{{detail}}\"",
         "tabClose": "close the tab \"{{detail}}\"",
+        "tabSave": "save the tab \"{{detail}}\"",
+        "tabRevert": "drop the unsaved changes of the tab \"{{detail}}\"",
         "browserOpen": "open {{detail}} in a browser tab",
         "browserNavigate": "move the browser tab \"{{detail}}\"",
         "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\"",
@@ -284,7 +292,8 @@
         "tabPin": "pin or unpin the tab \"{{detail}}\"",
         "worktreeNew": "create the task \"{{detail}}\"",
         "worktreeRemove": "delete the task and its worktree folder",
-        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch"
+        "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
+        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders"
       }
     }
   },

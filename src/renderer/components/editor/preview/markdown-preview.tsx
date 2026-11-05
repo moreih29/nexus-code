@@ -73,6 +73,7 @@ import {
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { copyText } from "../../../utils/clipboard";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
+import { MermaidDiagram } from "./mermaid-diagram";
 
 const log = createLogger("markdown-preview");
 
@@ -88,6 +89,11 @@ interface MarkdownPreviewProps {
    * (read-only file), checkboxes render disabled — same as plain react-markdown.
    */
   onToggleTask?: (modelLine: number) => void;
+  /**
+   * Images given with the source, by the source an image names them with:
+   * a notebook's outputs, which are no files to load.
+   */
+  images?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -114,6 +120,7 @@ export function MarkdownPreview({
   currentFileAbsPath,
   workspaceRootAbsPath,
   onToggleTask,
+  images,
 }: MarkdownPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -147,9 +154,12 @@ export function MarkdownPreview({
     // clobber prefix while their links keep the original fragment, so fall
     // back to the prefixed id the way github.com does. Footnotes are
     // prefixed twice (remark-rehype, then sanitize) and resolve the same way.
+    // Jupyter links a heading by its text as written ("#Data-Cleaning"),
+    // which rehype-slug lowercases.
     const target =
       container.querySelector(`[id="${cssEscape(id)}"]`) ??
-      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`);
+      container.querySelector(`[id="${cssEscape(`user-content-${id}`)}"]`) ??
+      container.querySelector(`[id="${cssEscape(id.toLowerCase())}"]`);
     if (target && target instanceof HTMLElement) {
       target.scrollIntoView({ behavior: "auto", block: "start" });
     }
@@ -236,7 +246,7 @@ export function MarkdownPreview({
       },
       img({ src, alt, ...rest }) {
         const rawSrc = typeof src === "string" ? src : "";
-        const resolved = resolveImageSrc(rawSrc, workspaceId, imageCtx);
+        const resolved = images?.get(rawSrc) ?? resolveImageSrc(rawSrc, workspaceId, imageCtx);
         if (resolved === null) {
           // Blocked or empty — surface a tiny inline placeholder so the user
           // sees that an image was intended but not loaded.
@@ -261,7 +271,7 @@ export function MarkdownPreview({
       h5: MdHeading,
       h6: MdHeading,
     }),
-    [imageCtx, onLinkClick, workspaceId],
+    [imageCtx, images, onLinkClick, workspaceId],
   );
 
   // Parsing and highlighting happen while <ReactMarkdown> renders. Reusing the
@@ -384,7 +394,10 @@ function MdInput({
   return <input {...rest} type={type} checked={Boolean(checked)} disabled readOnly />;
 }
 
-/** Code block with a hover "Copy" button. View-only — never edits the source. */
+/**
+ * Code block with a hover "Copy" button. View-only — never edits the source.
+ * A ```mermaid block shows its diagram, the button still copying its source.
+ */
 function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -410,9 +423,16 @@ function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.Re
       >
         {copied ? t("markdown.copied") : t("markdown.copy")}
       </button>
-      <pre {...rest}>{children}</pre>
+      {isMermaid(node) ? <MermaidDiagram code={code} /> : <pre {...rest}>{children}</pre>}
     </div>
   );
+}
+
+/** Whether a <pre> holds a ```mermaid block. */
+function isMermaid(pre: RmNode | undefined): boolean {
+  const code = pre?.children?.[0] as RmNode | undefined;
+  const className = code?.tagName === "code" ? code.properties?.className : undefined;
+  return Array.isArray(className) && className.includes("language-mermaid");
 }
 
 /**

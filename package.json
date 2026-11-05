@@ -1,7 +1,7 @@
 {
   "name": "nexus-code",
   "productName": "NexusCode",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Multi-workspace VSCode-style editor. Monaco editor + terminal in one window.",
   "homepage": "https://github.com/moreih29/nexus-code",
   "license": "MIT",
@@ -81,14 +81,21 @@
     "@vitejs/plugin-react": "^4.5.2",
     "bash-language-server": "5.8.1",
     "dockerfile-language-server-nodejs": "0.15.0",
+    "docx-preview": "^0.4.1",
     "electron": "^45.1.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
+    "fflate": "^0.8.3",
     "material-icon-theme": "^5.35.0",
+    "mermaid": "^11.17.2",
     "monaco-editor": "0.55.1",
+    "numfmt": "^4.1.2",
+    "pdfjs-dist": "^6.4.299",
+    "pptxtojson": "^2.2.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
     "vite-plugin-svgr": "^5.2.0",
+    "yaml": "2.8.3",
     "yaml-language-server": "1.25.0"
   }
 }

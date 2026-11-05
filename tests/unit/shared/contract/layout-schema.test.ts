@@ -153,6 +153,32 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("keeps an editor tab's source or preview mode across a restart", () => {
+    const editor = {
+      id: "88888888-8888-4888-a888-888888888888",
+      type: "editor" as const,
+      title: "README.md",
+      props: { filePath: "/README.md", workspaceId: WS_ID },
+    };
+    const parsed = WorkspaceLayoutSnapshotSchema.parse({
+      ...snapshot,
+      tabs: [
+        { ...editor, viewMode: "raw" },
+        { ...editor, id: TAB_ID },
+      ],
+    });
+    expect(parsed.tabs.map((tab) => ("viewMode" in tab ? tab.viewMode : undefined))).toEqual([
+      "raw",
+      undefined,
+    ]);
+    expect(
+      WorkspaceLayoutSnapshotSchema.safeParse({
+        ...snapshot,
+        tabs: [{ ...editor, viewMode: "split" }],
+      }).success,
+    ).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

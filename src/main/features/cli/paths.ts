@@ -3,6 +3,7 @@
  * Windows paths for a workspace whose root is a Windows path, POSIX paths
  * otherwise.
  */
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import { toSlashPath } from "../../../shared/fs/drive-path";
@@ -67,12 +68,34 @@ export function workspaceFile(
   input: string,
 ): WorkspaceFile {
   const p = hostPath(workspace);
-  const rel = p.relative(workspace.rootPath, absolutePath(ctx, workspace, input));
-  if (rel === "" || rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel)) {
+  const absolute = absolutePath(ctx, workspace, input);
+  const outside = (rel: string) =>
+    rel === "" || rel === ".." || rel.startsWith(`..${p.sep}`) || p.isAbsolute(rel);
+  let rel = p.relative(workspace.rootPath, absolute);
+  // A terminal's directory is its real path: on macOS a workspace at
+  // /tmp/app is at /private/tmp/app there. A local folder's paths are
+  // compared again with links followed.
+  if (outside(rel) && workspace.location.kind === "local" && p === path) {
+    rel = p.relative(followed(workspace.rootPath), followed(absolute));
+  }
+  if (outside(rel)) {
     throw new CliError(`${input} is not a file inside ${workspace.name} (${workspace.rootPath})`);
   }
   const relPath = rel.split(p.sep).join("/");
   return { relPath, filePath: `${rendererRoot(workspace)}/${relPath}` };
+}
+
+/**
+ * `file` with links followed, on this computer: those of the folders it is
+ * in that are there, for a file not made yet.
+ */
+function followed(file: string): string {
+  const parent = path.dirname(file);
+  try {
+    return realpathSync.native(file);
+  } catch {
+    return parent === file ? file : path.join(followed(parent), path.basename(file));
+  }
 }
 
 /**

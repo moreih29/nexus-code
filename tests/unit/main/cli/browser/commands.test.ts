@@ -52,6 +52,42 @@ describe("reading a page", () => {
     expect(app.browser.calls.at(-1)?.args).toEqual([{ full: true }]);
   });
 
+  test("screenshot --element cuts the picture to one element, and is not --full", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["browser", "screenshot", "--element", "e7"]);
+    expect(result.exitCode).toBe(0);
+    expect(app.browser.calls.at(-1)?.args).toEqual([{ full: false, element: "e7" }]);
+    const both = await nexus(app, ["browser", "screenshot", "--element", "e7", "--full"]);
+    expect(both.stderr).toContain("give --full or --element, not both");
+  });
+
+  test("inspect prints the element as pick does and saves its picture", async () => {
+    const app = fakeApp();
+    app.time.now = 1_000;
+    const result = await nexus(app, ["browser", "inspect", "e7"]);
+    expect(result.stdout).toBe(
+      "[element] http://localhost:5173/login\n" +
+        '  button "Sign in" (ref e7)\n' +
+        "  selector: #login > button.primary\n" +
+        "  box: 120x32 at (412, 388)\n" +
+        '  html: <button class="primary" type="submit">Sign in</button>\n' +
+        "  screenshot: /tmp/nexus-inspect-aaaaaaaa-1000.png\n",
+    );
+    expect(result.files).toEqual([
+      { path: "/tmp/nexus-inspect-aaaaaaaa-1000.png", base64: "cG5n" },
+    ]);
+    const data = JSON.parse(
+      (await nexus(app, ["browser", "inspect", "#login button", "--json"])).stdout,
+    );
+    expect(data.element).toMatchObject({ ref: "e7", selector: "#login > button.primary" });
+    expect(data.element.png).toBeUndefined();
+    expect(app.browser.calls.at(-1)).toEqual({
+      op: "inspect",
+      tabId: BROWSER_TAB,
+      args: ["#login button"],
+    });
+  });
+
   test("a Windows terminal's screenshot path follows Windows rules", async () => {
     const app = fakeApp();
     const result = await nexus(app, ["browser", "screenshot", "--out", "a.png"], {
@@ -121,6 +157,80 @@ describe("driving a page", () => {
     ]);
   });
 
+  test("hover, drag and scroll pass the elements and the way to the driver", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "hover", "e3"])).stdout).toBe("Hovered over e3.\n");
+    await nexus(app, ["browser", "hover", "e3", "--force"]);
+    await nexus(app, ["browser", "drag", "e1", "#trash"]);
+    await nexus(app, ["browser", "scroll", "down"]);
+    await nexus(app, ["browser", "scroll", "Left", "--by", "120", "--within", "e5"]);
+    await nexus(app, ["browser", "scroll", "bottom"]);
+    await nexus(app, ["browser", "scroll", "#footer"]);
+    expect(app.browser.calls.map((c) => [c.op, ...c.args])).toEqual([
+      ["hover", "e3", { force: false }],
+      ["hover", "e3", { force: true }],
+      ["drag", "e1", "#trash"],
+      ["scroll", { kind: "by", way: "down" }, undefined],
+      ["scroll", { kind: "by", way: "left", amount: 120 }, "e5"],
+      ["scroll", { kind: "end", end: "bottom" }, undefined],
+      ["scroll", { kind: "to", target: "#footer" }, undefined],
+    ]);
+  });
+
+  test("scroll takes --by only with a way, and --within not with an element", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "scroll", "top", "--by", "10"])).stderr).toContain(
+      "--by goes with up, down, left or right",
+    );
+    expect((await nexus(app, ["browser", "scroll", "up", "--by", "0"])).stderr).toContain(
+      "--by is a distance above 0",
+    );
+    expect((await nexus(app, ["browser", "scroll", "e4", "--within", "e2"])).stderr).toContain(
+      "--within goes with a way or an end, not an element",
+    );
+    expect((await nexus(app, ["browser", "drag", "e1"])).exitCode).toBe(2);
+    expect(app.browser.calls).toEqual([]);
+  });
+
+  test("upload gives the input files from this directory, and only a local terminal's", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["browser", "upload", "#avatar", "me.png", "/tmp/cv.pdf"], {
+      cwd: "/w/app/assets",
+    });
+    expect(result.exitCode).toBe(0);
+    expect(app.browser.calls.at(-1)?.args).toEqual([
+      "#avatar",
+      ["/w/app/assets/me.png", "/tmp/cv.pdf"],
+    ]);
+    await nexus(app, ["browser", "upload", "#avatar", ""]);
+    expect(app.browser.calls.at(-1)?.args).toEqual(["#avatar", []]);
+    expect((await nexus(app, ["browser", "upload", "#avatar"])).exitCode).toBe(2);
+    app.workspaces[0] = {
+      ...(app.workspaces[0] as (typeof app.workspaces)[number]),
+      location: { kind: "ssh", host: "box", remotePath: "/srv/app" },
+    };
+    const remote = await nexus(app, ["browser", "upload", "#avatar", "me.png"]);
+    expect(remote.stderr).toContain("upload takes files of the computer the app runs on");
+  });
+
+  test("dialog shows the page's dialog, and accept or dismiss answers it", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["browser", "dialog"])).stdout).toBe("The page shows no dialog.\n");
+    app.browser.dialog = { type: "confirm", message: "Delete it?", url: "http://localhost:5173/" };
+    expect((await nexus(app, ["browser", "dialog"])).stdout).toBe(
+      'The page shows a confirm dialog: "Delete it?". Answer it with nexus browser dialog accept, or dismiss.\n',
+    );
+    await nexus(app, ["browser", "dialog", "accept"]);
+    await nexus(app, ["browser", "dialog", "dismiss"]);
+    expect(app.browser.calls.slice(-2).map((c) => [c.op, ...c.args])).toEqual([
+      ["answerDialog", true],
+      ["answerDialog", false],
+    ]);
+    expect((await nexus(app, ["browser", "dialog", "ok"])).stderr).toContain(
+      'answer accept or dismiss, not "ok"',
+    );
+  });
+
   test("fill and eval read standard input for -", async () => {
     const app = fakeApp();
     await nexus(app, ["browser", "fill", "e1", "-"], { stdin: "two\nlines\n" });
@@ -155,9 +265,16 @@ describe("driving a page", () => {
     expect(app.asked).toEqual([]);
     const refused = await nexus(app, ["browser", "click", "e1", "--workspace", "api"]);
     expect(refused.exitCode).toBe(1);
-    expect(app.asked.map((r) => r.change)).toEqual([
-      { kind: "browserControl", detail: "API docs" },
-    ]);
+    for (const argv of [
+      ["hover", "e1"],
+      ["drag", "e1", "e2"],
+      ["scroll", "down"],
+    ]) {
+      await nexus(app, ["browser", ...argv, "--workspace", "api"]);
+    }
+    expect(app.asked.map((r) => r.change)).toEqual(
+      Array(4).fill({ kind: "browserControl", detail: "API docs" }),
+    );
   });
 });
 

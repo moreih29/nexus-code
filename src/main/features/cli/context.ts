@@ -13,7 +13,7 @@ import type {
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import type { ListeningPort } from "../../../shared/pty/ports";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
@@ -34,6 +34,15 @@ export class CliError extends Error {
 export interface CliServices {
   readonly appVersion: string;
   listWorkspaces(): WorkspaceMeta[];
+  /**
+   * Adds a workspace to the app's list, as Add Workspace does, connected
+   * once it is first shown; the one already listed at `location` if any,
+   * with `added` false. A CliError when a local folder is not there.
+   */
+  addWorkspace(
+    location: WorkspaceLocation,
+    name: string | undefined,
+  ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
   /** The workspace and tab the user is looking at, if the app has focus or not. */
   shownTab(): { workspaceId: string; tabId: string } | null;
   /**

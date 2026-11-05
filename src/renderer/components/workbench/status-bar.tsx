@@ -7,7 +7,8 @@
 //   LEFT:  git branch · changes (+~?!) · error count · warning count
 //   RIGHT: git in-flight operation indicator · the ports the terminals'
 //          programs listen on (ports-segment.tsx) · the active editor's
-//          language server (lsp-status-segment.tsx)
+//          encoding (encoding-segment.tsx) and language server
+//          (lsp-status-segment.tsx)
 //
 // The changes segment renders inline with the branch button (separate click
 // target) and shows only the non-zero tokens; the whole segment disappears in
@@ -49,6 +50,7 @@ import { useGitSession, useGitStore } from "../../state/stores/git";
 import { useUIStore } from "../../state/stores/ui";
 import { BranchPicker } from "../files/git/branch/picker";
 import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
+import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
 
@@ -132,6 +134,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
       <div className="flex items-center shrink-0">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
         <PortsSegment workspaceId={workspaceId} />
+        <EncodingSegment workspaceId={workspaceId} />
         <LspStatusSegment workspaceId={workspaceId} />
       </div>
     </div>

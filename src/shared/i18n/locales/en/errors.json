@@ -33,6 +33,7 @@
     "buffer_unavailable": "the editor buffer is not available",
     "outside_workspace": "choose a location inside the workspace folder",
     "changed_on_disk": "the file changed on disk while saving",
-    "read_only": "File is read-only."
+    "read_only": "File is read-only.",
+    "unencodable": "{{encoding}} has no character \"{{char}}\" (line {{line}}, column {{column}})"
   }
 }

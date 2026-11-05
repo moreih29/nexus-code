@@ -54,6 +54,7 @@ import type { BrowserWindow, WebContents } from "electron";
 import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
+import { showDialogsOverWindow } from "./dialogs";
 import { installAppScrollbarStyle } from "./page-style";
 import { PopupTracker } from "./popup-tracker";
 import {
@@ -210,6 +211,10 @@ export class BrowserTabRegistry {
     // style on every page load.  Independent of navigation security — purely
     // visual — so it lives in its own module.
     installAppScrollbarStyle(view.webContents);
+
+    // A tab not shown is in no window; on macOS its dialogs would hold up
+    // the whole app until clicked.
+    showDialogsOverWindow(view.webContents, () => this.win);
 
     // Start the view in the inactive (detached) state.  The caller must call
     // setActive(true) + setBounds() to make it visible.  Background throttling

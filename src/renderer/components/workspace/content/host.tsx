@@ -3,38 +3,26 @@ import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
+import { isDocxFile } from "@/services/editor/preview/docx";
+import { isFontFile } from "@/services/editor/preview/font";
+import { mediaKindFor } from "@/services/editor/preview/media";
+import { isPdfFile } from "@/services/editor/preview/pdf";
+import { isPresentationFile } from "@/services/editor/preview/pptx";
 import { isImageFile } from "@/services/editor/preview/previewable";
+import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
+import { DocxEditorView } from "./docx-editor-view";
 import { EditorView, ImageEditorView } from "./editor-view";
+import { FontEditorView } from "./font-editor-view";
+import { MediaEditorView } from "./media-editor-view";
+import { movePortalTarget } from "./move-portal-target";
+import { PdfEditorView } from "./pdf-editor-view";
+import { PptxEditorView } from "./pptx-editor-view";
 import { useSlotElement } from "./slot-registry";
+import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
-
-/**
- * Moves `node` under `parent`, preserving its subtree's live state where the
- * platform allows. A plain appendChild is a remove + insert: every <iframe>
- * inside is torn down and reloaded, so an HtmlPreview restarts its document
- * (scroll back to top, scripts re-run) on every tab or workspace switch.
- * `moveBefore` (Chromium 133+) is an atomic move that keeps iframes, focus
- * and animations alive. It requires both ends to be connected to the same
- * document, so the first attach (node still detached) and anything it
- * rejects fall back to appendChild.
- */
-function movePortalTarget(parent: HTMLElement, node: HTMLElement): void {
-  const movable = parent as HTMLElement & {
-    moveBefore?: (node: Node, child: Node | null) => void;
-  };
-  if (node.isConnected && parent.isConnected && typeof movable.moveBefore === "function") {
-    try {
-      movable.moveBefore(node, null);
-      return;
-    } catch {
-      // Fall through to the classic move.
-    }
-  }
-  parent.appendChild(node);
-}
 
 interface ContentHostProps {
   workspaceId: string;
@@ -114,6 +102,9 @@ export function ContentHost({
     const el = document.createElement("div");
     el.style.position = "absolute";
     el.style.inset = "0";
+    // Keeps the z-indexes inside a tab (a table's sticky header, Monaco's
+    // layers) among themselves, so an inactive group's veil covers them.
+    el.style.isolation = "isolate";
     portalTargetRef.current = el;
   }
   const portalTarget = portalTargetRef.current;
@@ -141,6 +132,7 @@ export function ContentHost({
   // visibility:hidden, contain:strict), so it is already neither painted nor
   // hit-tested. Adding `invisible pointer-events-none` here would be dead
   // weight and previously caused the stacking bug this rule fixes.
+  const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
   const inner = (
     <div className="absolute inset-0">
       {tab.type === "terminal" ? (
@@ -165,10 +157,52 @@ export function ContentHost({
         // acquisition. Sharing the same `key={filePath}` keeps split-tab
         // and preview-slot behaviour identical to the text path.
         //
+        // Audio and video route to MediaEditorView, fonts to FontEditorView,
+        // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, Word
+        // documents to DocxEditorView, and presentations to PptxEditorView,
+        // the same way.
+        //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
         isImageFile(tab.props.filePath) ? (
           <ImageEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : mediaKind ? (
+          <MediaEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+            kind={mediaKind}
+          />
+        ) : isFontFile(tab.props.filePath) ? (
+          <FontEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isPdfFile(tab.props.filePath) ? (
+          <PdfEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isSpreadsheetFile(tab.props.filePath) ? (
+          <SpreadsheetEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isDocxFile(tab.props.filePath) ? (
+          <DocxEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isPresentationFile(tab.props.filePath) ? (
+          <PptxEditorView
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}

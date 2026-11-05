@@ -1,6 +1,6 @@
 /**
- * Drives the app's browser tabs for nexus browser snapshot, click, fill,
- * type, press, screenshot, eval, console and wait, through each tab's own
+ * Drives the app's browser tabs for nexus browser snapshot, inspect, click,
+ * fill, type, press, screenshot, eval, console and wait, through each tab's own
  * DevTools protocol connection (webContents.debugger). It works on tabs
  * that are not shown, too: Chromium takes input and paints screenshots for
  * a hidden page. A tab never shown has no size, though, so it is given one
@@ -14,12 +14,18 @@
  * selector that matches one element. Input is real input events, so pages
  * see clicks and typing as a person's.
  */
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
 import { CliError } from "../context";
+import { DESCRIBE_COMPONENT, type PickedComponent } from "./component";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
+import { dialogText, type PageDialog } from "./dialog";
 import { DrivenTabs, saveCommandDownload } from "./downloads";
+import { type NetworkEntry, NetworkLog } from "./network-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
 import {
+  type Box,
   cleanPicked,
   DESCRIBE_PICKED,
   type PickCancel,
@@ -53,6 +59,21 @@ export interface PageSnapshot extends PageInfo {
 }
 
 /** What an action did, said for people, and where the page is after it. */
+export type { PageDialog } from "./dialog";
+
+/** A request, with what was sent and what came back as far as the page still has them. */
+export interface RequestDetails {
+  readonly entry: NetworkEntry;
+  /** What was sent with it, when there was something; undefined when it is not known. */
+  readonly postData?: string;
+  readonly body: ResponseBody;
+}
+
+export type ResponseBody =
+  | { readonly kind: "text"; readonly text: string; readonly length: number }
+  | { readonly kind: "binary"; readonly bytes: number }
+  | { readonly kind: "none"; readonly why: string };
+
 export interface ActionResult extends PageInfo {
   readonly text: string;
   readonly navigated: boolean;
@@ -63,6 +84,17 @@ interface PageMark {
   readonly url: string;
   readonly navigations: number;
 }
+
+/** Where browser scroll goes: a way and how far, an end, or to an element. */
+export type BrowserScroll =
+  | {
+      readonly kind: "by";
+      readonly way: "up" | "down" | "left" | "right";
+      /** In CSS pixels; most of a view's worth when absent. */
+      readonly amount?: number;
+    }
+  | { readonly kind: "end"; readonly end: "top" | "bottom" }
+  | { readonly kind: "to"; readonly target: string };
 
 export type BrowserWaitCondition =
   | { readonly kind: "load" }
@@ -85,13 +117,31 @@ export interface BrowserDriver {
     target: string,
     options: { double: boolean; force: boolean },
   ): Promise<ActionResult>;
+  /** Moves the mouse over an element, as hovering it does. */
+  hover(tabId: string, target: string, options: { force: boolean }): Promise<ActionResult>;
+  /** Drags one element onto another with the mouse, HTML drag and drop included. */
+  drag(tabId: string, from: string, to: string): Promise<ActionResult>;
+  /** Scrolls the page, or the element `within` names. */
+  scroll(tabId: string, scroll: BrowserScroll, within?: string): Promise<ActionResult>;
   fill(tabId: string, target: string, text: string): Promise<ActionResult>;
   type(tabId: string, text: string, target?: string): Promise<ActionResult>;
   press(tabId: string, keys: readonly string[]): Promise<ActionResult>;
-  /** A PNG, base64. */
-  screenshot(tabId: string, options: { full: boolean }): Promise<string>;
+  /** Gives a file input files of this computer, as choosing them does. */
+  upload(tabId: string, target: string, files: readonly string[]): Promise<ActionResult>;
+  /** The dialog the page shows, if any. */
+  dialog(tabId: string): Promise<PageDialog | null>;
+  /** Answers the dialog the page shows: OK, or Cancel. */
+  answerDialog(tabId: string, accept: boolean): Promise<ActionResult>;
+  /** A PNG, base64: of what the tab shows, the whole page, or one element. */
+  screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string>;
+  /** What an element is, as pick tells it, with a picture of it, scrolled into view. */
+  inspect(tabId: string, target: string): Promise<PickedElement>;
   evaluate(tabId: string, expression: string): Promise<unknown>;
   console(tabId: string, clear: boolean): readonly ConsoleEntry[];
+  /** The requests the tab's pages made since it opened; with `clear`, forgets them. */
+  network(tabId: string, clear: boolean): readonly NetworkEntry[];
+  /** The request numbered `id`, with up to `maxBody` characters of its response. */
+  request(tabId: string, id: number, maxBody: number): Promise<RequestDetails>;
   /** Resolves true once `condition` holds, false if it did not in time. */
   waitFor(tabId: string, condition: BrowserWaitCondition, timeoutMs: number): Promise<boolean>;
   /**
@@ -234,6 +284,83 @@ const DESCRIBE = `function () {
   return "<" + this.localName + id + cls + ">";
 }`;
 
+/** Whether the element is a file input, and one that takes several files. */
+const FILE_INPUT = `function () {
+  return { file: this instanceof HTMLInputElement && this.type === "file", multiple: !!this.multiple };
+}`;
+
+/** Empties a file input, as a user's cancelled choice does; Chromium gives no files no other way. */
+const CLEAR_FILES = `function () {
+  if (this.files.length === 0) return;
+  this.value = "";
+  this.dispatchEvent(new Event("input", { bubbles: true }));
+  this.dispatchEvent(new Event("change", { bubbles: true }));
+}`;
+
+/** Where an element is on the page, for a picture of it alone; null when it has no size. */
+const ELEMENT_CLIP = `function () {
+  const r = this.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) return null;
+  return { x: r.left + scrollX, y: r.top + scrollY, width: r.width, height: r.height };
+}`;
+
+/**
+ * Scrolls the element, or the page when it is the document, and says where
+ * it is after; `how` is a way and how far, or an end. Instant, whatever the
+ * page's scroll-behavior.
+ */
+const SCROLL = `function (how) {
+  const page = this.nodeType === 9;
+  const box = page ? document.scrollingElement || document.documentElement : this;
+  const view = { w: page ? innerWidth : box.clientWidth, h: page ? innerHeight : box.clientHeight };
+  const before = { x: box.scrollLeft, y: box.scrollTop };
+  if (how.end === "top") box.scrollTo({ top: 0, behavior: "instant" });
+  else if (how.end === "bottom") box.scrollTo({ top: box.scrollHeight, behavior: "instant" });
+  else {
+    const across = how.way === "left" || how.way === "right";
+    const step = how.amount ?? Math.round((across ? view.w : view.h) * 0.8);
+    const sign = how.way === "up" || how.way === "left" ? -1 : 1;
+    box.scrollBy({ left: across ? sign * step : 0, top: across ? 0 : sign * step, behavior: "instant" });
+  }
+  return {
+    moved: { x: box.scrollLeft - before.x, y: box.scrollTop - before.y },
+    at: { x: box.scrollLeft, y: box.scrollTop },
+    max: { x: box.scrollWidth - box.clientWidth, y: box.scrollHeight - box.clientHeight },
+  };
+}`;
+
+/** Where a scroll left the page or the element. */
+interface Scrolled {
+  readonly moved: { readonly x: number; readonly y: number };
+  readonly at: { readonly x: number; readonly y: number };
+  readonly max: { readonly x: number; readonly y: number };
+}
+
+/** How much of the responses the Network domain keeps, for nexus browser network's bodies. */
+const NETWORK_BUFFERS = { maxTotalBufferSize: 20_000_000, maxResourceBufferSize: 5_000_000 };
+
+/** Whether bytes read as UTF-8 text: no NUL, and no bad sequence, in the start. */
+function looksLikeText(bytes: Buffer): boolean {
+  // Cut short, the head may end inside a character.
+  const head = bytes.length > 4096 ? bytes.subarray(0, 4093) : bytes;
+  if (head.includes(0)) return false;
+  return !head.toString("utf8").includes("\uFFFD");
+}
+
+/**
+ * How long a page just attached to has to answer. One that does not is held
+ * up, as by a dialog it showed before it was driven: no command reaches it
+ * until the dialog is answered, which only the app's own dialog can do.
+ */
+const ATTACH_ANSWER_MS = 2_000;
+
+/** How far a drag goes before the page sees it as a drag, as a hand's would. */
+const DRAG_START_PX = 8;
+/** How long a page has to start an HTML drag once the mouse moves. */
+const DRAG_INTERCEPT_MS = 250;
+/** Moves between the two points of a drag, for pages that follow the mouse. */
+const DRAG_STEPS = 5;
+
 function label(ref: SnapshotRef, name: string): string {
   return `${ref.role}${ref.name === "" ? "" : ` ${JSON.stringify(ref.name)}`} (${name})`;
 }
@@ -261,6 +388,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** A command that a dialog of the page held up, or that came while it showed one. */
+class DialogShown extends CliError {
+  constructor(dialog: PageDialog) {
+    super(dialogText(dialog));
+  }
+}
+
 export class CdpBrowserDriver implements BrowserDriver {
   private readonly states = new WeakMap<WebContents, TabState>();
   private readonly consoles = new Map<string, { contents: WebContents; log: ConsoleLog }>();
@@ -274,6 +408,22 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly driven = new DrivenTabs<WebContents>();
   /** How many navigations each tab has started, to tell an action's own. */
   private readonly navigations = new WeakMap<WebContents, number>();
+  /** The dialog each tab's page shows, which holds up the page until answered. */
+  private readonly dialogs = new WeakMap<WebContents, PageDialog>();
+  /** What to wake when a tab's page opens a dialog. */
+  private readonly opened = new WeakMap<WebContents, Set<() => void>>();
+  /** The pages attached to that have not answered yet. */
+  private readonly unanswered = new WeakSet<WebContents>();
+  /** The Page domain's enabling, which a page held up by a dialog does not answer. */
+  private readonly enabling = new WeakMap<WebContents, Promise<unknown>>();
+  /** The requests each tab's page made. */
+  private readonly networks = new WeakMap<WebContents, NetworkLog>();
+  /** The file inputs whose chooser a command's click opened, by tab. */
+  private readonly choosers = new WeakMap<WebContents, number>();
+  /** The tabs watched, whose downloads are noted. */
+  private readonly watched = new WeakSet<WebContents>();
+  /** The sessions listened to for downloads, each once for all its tabs. */
+  private readonly downloadSessions = new WeakSet<Electron.Session>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -286,6 +436,12 @@ export class CdpBrowserDriver implements BrowserDriver {
    */
   watch(tabId: string, contents: WebContents): void {
     this.consoles.set(tabId, { contents, log: watchConsole(contents) });
+    this.networks.set(contents, new NetworkLog());
+    try {
+      this.attachNow(contents);
+    } catch {
+      // A command attaches when it can; requests are known from then.
+    }
     contents.on("did-start-navigation", (details) => {
       if (!details.isMainFrame || details.isSameDocument) return;
       this.downloads.delete(contents);
@@ -293,20 +449,26 @@ export class CdpBrowserDriver implements BrowserDriver {
       this.navigations.set(contents, (this.navigations.get(contents) ?? 0) + 1);
     });
     contents.on("did-navigate", () => this.uncommitted.delete(contents));
-    // Tabs share a session, which tells every tab's downloads.
+    this.watched.add(contents);
+    // Tabs share a session, which tells every tab's downloads: one
+    // listener serves them all, where one each would pass the emitter's
+    // limit of ten once that many tabs are open.
     const session = contents.session;
-    const onDownload = (_event: Electron.Event, item: Electron.DownloadItem, from: WebContents) => {
-      if (from !== contents) return;
-      const file = this.driven.drives(contents)
-        ? saveCommandDownload(item)
-        : item.getFilename();
-      this.downloads.set(contents, { url: item.getURL(), file, type: item.getMimeType() });
-    };
-    session.on("will-download", onDownload);
+    if (!this.downloadSessions.has(session)) {
+      this.downloadSessions.add(session);
+      session.on("will-download", (_event, item, from) => this.noteDownload(item, from));
+    }
     contents.once("destroyed", () => {
-      session.removeListener("will-download", onDownload);
+      this.watched.delete(contents);
       if (this.consoles.get(tabId)?.contents === contents) this.consoles.delete(tabId);
     });
+  }
+
+  /** Notes what a watched tab's navigation downloaded; a command's goes to its folder. */
+  private noteDownload(item: Electron.DownloadItem, from: WebContents | undefined): void {
+    if (!from || !this.watched.has(from)) return;
+    const file = this.driven.drives(from) ? saveCommandDownload(item) : item.getFilename();
+    this.downloads.set(from, { url: item.getURL(), file, type: item.getMimeType() });
   }
 
   private contents(tabId: string): WebContents {
@@ -337,16 +499,154 @@ export class CdpBrowserDriver implements BrowserDriver {
     return state;
   }
 
+  /**
+   * Sends `method` to the page. While the page shows a dialog only the
+   * dialog's answer reaches it: a command sent then, or one the dialog
+   * holds up, fails with what the dialog says.
+   */
   private async send<T>(contents: WebContents, method: string, params: object = {}): Promise<T> {
+    await this.attach(contents);
+    if (method !== "Page.handleJavaScriptDialog") this.noDialog(contents);
+    const work = contents.debugger.sendCommand(method, params);
+    const settled = await this.unlessOpened(contents, work);
+    if ("done" in settled) return settled.done as T;
+    const dialog = this.dialogs.get(contents);
+    // Answered in the app before this was told of it.
+    if (!dialog) return (await work) as T;
+    throw new DialogShown(dialog);
+  }
+
+  /** Attaches to the page, if nothing has yet, to keep up with its dialogs. */
+  private async attach(contents: WebContents): Promise<void> {
+    this.attachNow(contents);
+    const enabling = this.enabling.get(contents);
+    if (enabling && this.unanswered.has(contents)) {
+      await Promise.race([enabling, delay(ATTACH_ANSWER_MS)]);
+    }
+    if (this.unanswered.has(contents)) {
+      throw new CliError(
+        "the page does not answer: it may show a dialog it opened before it was driven, which only the app can answer; answer it there and try again",
+      );
+    }
+  }
+
+  /**
+   * Attaches to the page, if nothing has yet, with the domains that tell of
+   * its dialogs and its requests on. A tab is attached to as it opens, so
+   * its requests are known from the first.
+   */
+  private attachNow(contents: WebContents): void {
     const debug = contents.debugger;
-    if (!debug.isAttached()) {
-      try {
-        debug.attach("1.3");
-      } catch (error) {
-        throw new CliError(`cannot drive this browser tab: ${(error as Error).message}`);
+    if (debug.isAttached()) return;
+    try {
+      debug.attach("1.3");
+    } catch (error) {
+      throw new CliError(`cannot drive this browser tab: ${(error as Error).message}`);
+    }
+    if (!this.networks.has(contents)) this.networks.set(contents, new NetworkLog());
+    this.listen(contents);
+    this.unanswered.add(contents);
+    const enabling = debug.sendCommand("Page.enable").then(
+      () => this.unanswered.delete(contents),
+      () => this.unanswered.delete(contents),
+    );
+    this.enabling.set(contents, enabling);
+    debug.sendCommand("Network.enable", NETWORK_BUFFERS).catch(() => {});
+  }
+
+  /** Keeps up with the dialogs, file choosers and requests of a page just attached to. */
+  private listen(contents: WebContents): void {
+    const debug = contents.debugger;
+    const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => {
+      if (method === "Page.javascriptDialogOpening") {
+        this.dialogs.set(contents, {
+          type: String(params.type),
+          message: String(params.message ?? ""),
+          url: String(params.url ?? ""),
+        });
+        for (const waiter of this.opened.get(contents) ?? []) waiter();
+      } else if (method === "Page.javascriptDialogClosed") {
+        this.dialogs.delete(contents);
+      } else if (method === "Page.fileChooserOpened") {
+        this.choosers.set(contents, Number(params.backendNodeId));
+      } else if (method.startsWith("Network.")) {
+        this.networks.get(contents)?.handle(method, params);
+      }
+    };
+    debug.on("message", onMessage);
+    debug.once("detach", () => {
+      debug.removeListener("message", onMessage);
+      this.dialogs.delete(contents);
+      this.unanswered.delete(contents);
+    });
+  }
+
+  /** Waits for `work`, unless the page opens a dialog first, which holds it up. */
+  private async unlessOpened<T>(
+    contents: WebContents,
+    work: Promise<T>,
+  ): Promise<{ done: T } | { opened: true }> {
+    work.catch(() => {});
+    let waiters = this.opened.get(contents);
+    if (!waiters) {
+      waiters = new Set();
+      this.opened.set(contents, waiters);
+    }
+    const set = waiters;
+    let wake: () => void = () => {};
+    const opened = new Promise<{ opened: true }>((resolve) => {
+      wake = () => resolve({ opened: true });
+    });
+    set.add(wake);
+    try {
+      return await Promise.race([work.then((done) => ({ done })), opened]);
+    } finally {
+      set.delete(wake);
+    }
+  }
+
+  /**
+   * An action's input, sent while a file chooser it opens is held back from
+   * the user; then what it did, as `after` says, or the dialog it opened.
+   */
+  private async act(
+    contents: WebContents,
+    text: string,
+    before: PageMark,
+    input: () => Promise<void>,
+  ): Promise<ActionResult> {
+    this.choosers.delete(contents);
+    await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: true });
+    try {
+      await input();
+    } catch (error) {
+      if (!(error instanceof DialogShown)) throw error;
+      return {
+        text: `${text}\n${error.message}`,
+        url: contents.getURL(),
+        title: contents.getTitle(),
+        navigated: false,
+      };
+    } finally {
+      // Answering the dialog turns it off.
+      if (!this.dialogs.has(contents)) {
+        await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
+          () => {},
+        );
       }
     }
-    return (await debug.sendCommand(method, params)) as T;
+    const result = await this.after(contents, text, before);
+    if (!this.choosers.has(contents)) return result;
+    return {
+      ...result,
+      text: `${result.text}\nIt opened a file chooser, which was not shown; give the input files with nexus browser upload.`,
+    };
+  }
+
+  /** Refuses a command while the page shows a dialog, which would hold it up. */
+  private noDialog(contents: WebContents): void {
+    const dialog = this.dialogs.get(contents);
+    if (dialog) throw new DialogShown(dialog);
   }
 
   private async call<T>(
@@ -375,8 +675,10 @@ export class CdpBrowserDriver implements BrowserDriver {
   private async with<T>(
     tabId: string,
     body: (contents: WebContents, state: TabState) => Promise<T>,
+    options: { dialog?: boolean } = {},
   ): Promise<T> {
     const contents = this.contents(tabId);
+    if (!options.dialog) this.noDialog(contents);
     const done = this.driven.begin(contents);
     try {
       return await body(contents, this.state(contents));
@@ -709,29 +1011,163 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.notPicking(tabId);
     return this.withDrawn(tabId, async (contents, state) => {
       const el = await this.locate(contents, state, target);
-      const at = await this.point(contents, el);
       await this.paint(tabId, contents);
-      if (!options.force) await this.checkHit(contents, el, at);
       const before = this.mark(contents);
-      const mouse = (type: string, clickCount: number) =>
+      const what = `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`;
+      return this.act(contents, what, before, async () => {
+        // Where it is once the mouse is there: moving it off a menu that
+        // hovering opened can close the menu and move what was under it.
+        const at = await this.pointerOn(contents, el);
+        if (!options.force) await this.checkHit(contents, el, at);
+        for (let count = 1; count <= (options.double ? 2 : 1); count++) {
+          for (const type of ["mousePressed", "mouseReleased"]) {
+            await this.send(contents, "Input.dispatchMouseEvent", {
+              type,
+              ...at,
+              button: "left",
+              buttons: type === "mousePressed" ? 1 : 0,
+              clickCount: count,
+            });
+          }
+        }
+      });
+    });
+  }
+
+  hover(tabId: string, target: string, options: { force: boolean }): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.withDrawn(tabId, async (contents, state) => {
+      const el = await this.locate(contents, state, target);
+      await this.paint(tabId, contents);
+      const before = this.mark(contents);
+      const at = await this.pointerOn(contents, el);
+      if (!options.force) await this.checkHit(contents, el, at);
+      return this.after(contents, `Hovered over ${el.label}.`, before);
+    });
+  }
+
+  drag(tabId: string, from: string, to: string): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.withDrawn(tabId, async (contents, state) => {
+      const source = await this.locate(contents, state, from);
+      await this.paint(tabId, contents);
+      const start = await this.pointerOn(contents, source);
+      await this.checkHit(contents, source, start);
+      const before = this.mark(contents);
+      const mouse = (type: string, at: { x: number; y: number }) =>
         this.send(contents, "Input.dispatchMouseEvent", {
           type,
           x: at.x,
           y: at.y,
-          button: type === "mouseMoved" ? "none" : "left",
-          buttons: type === "mousePressed" ? 1 : 0,
-          clickCount,
+          button: "left",
+          buttons: type === "mouseReleased" ? 0 : 1,
+          clickCount: type === "mouseMoved" ? 0 : 1,
         });
-      await mouse("mouseMoved", 0);
-      for (let count = 1; count <= (options.double ? 2 : 1); count++) {
-        await mouse("mousePressed", count);
-        await mouse("mouseReleased", count);
+      await mouse("mousePressed", start);
+      // An HTML drag would go to the system, which no input here reaches:
+      // Chromium hands it back instead, to be dropped with drag events.
+      await this.send(contents, "Input.setInterceptDrags", { enabled: true });
+      let data: unknown;
+      try {
+        const intercepted = this.next(contents, "Input.dragIntercepted", DRAG_INTERCEPT_MS);
+        await mouse("mouseMoved", { x: start.x + DRAG_START_PX, y: start.y + DRAG_START_PX });
+        data = ((await intercepted) as { data?: unknown } | null)?.data;
+      } finally {
+        await this.send(contents, "Input.setInterceptDrags", { enabled: false }).catch(() => {});
       }
-      return this.after(
-        contents,
-        `${options.double ? "Double-clicked" : "Clicked"} ${el.label}.`,
-        before,
-      );
+      // The target is looked for once the drag has begun, as a page may move things then.
+      const target = await this.locate(contents, state, to);
+      const end = await this.point(contents, target);
+      if (data !== undefined) {
+        for (const type of ["dragEnter", "dragOver", "drop"]) {
+          await this.send(contents, "Input.dispatchDragEvent", {
+            type,
+            x: end.x,
+            y: end.y,
+            data,
+            modifiers: 0,
+          });
+        }
+      } else {
+        for (let step = 1; step <= DRAG_STEPS; step++) {
+          await mouse("mouseMoved", {
+            x: start.x + ((end.x - start.x) * step) / DRAG_STEPS,
+            y: start.y + ((end.y - start.y) * step) / DRAG_STEPS,
+          });
+        }
+        await mouse("mouseReleased", end);
+      }
+      return this.after(contents, `Dragged ${source.label} onto ${target.label}.`, before);
+    });
+  }
+
+  scroll(tabId: string, scroll: BrowserScroll, within?: string): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.with(tabId, async (contents, state) => {
+      const before = this.mark(contents);
+      if (scroll.kind === "to") {
+        const el = await this.locate(contents, state, scroll.target);
+        await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+          backendNodeId: el.backendNodeId,
+        });
+        return this.after(contents, `Scrolled ${el.label} into view.`, before);
+      }
+      const box =
+        within === undefined
+          ? { objectId: await this.documentObject(contents), label: "the page" }
+          : await this.locate(contents, state, within);
+      const how = scroll.kind === "end" ? { end: scroll.end } : scroll;
+      const done = await this.call<Scrolled>(contents, box.objectId, SCROLL, [how]);
+      return this.after(contents, scrolledText(box.label, scroll, done), before);
+    });
+  }
+
+  /**
+   * Moves the mouse onto the element and says where it is then. Moving may
+   * change the page, as a menu the mouse leaves closes, so the element is
+   * looked for again once the mouse is there.
+   */
+  private async pointerOn(contents: WebContents, el: Located): Promise<{ x: number; y: number }> {
+    let at = await this.point(contents, el);
+    for (let tries = 0; tries < 3; tries++) {
+      await this.send(contents, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        ...at,
+        button: "none",
+      });
+      const now = await this.point(contents, el);
+      if (Math.abs(now.x - at.x) < 1 && Math.abs(now.y - at.y) < 1) return now;
+      at = now;
+    }
+    return at;
+  }
+
+  /** The page's document, as an object to call a function on. */
+  private async documentObject(contents: WebContents): Promise<string> {
+    const res = await this.send<EvaluateResult>(contents, "Runtime.evaluate", {
+      expression: "document",
+      objectGroup: OBJECT_GROUP,
+    });
+    const objectId = res.result.objectId;
+    if (!objectId) throw new CliError("the page has no document");
+    return objectId;
+  }
+
+  /** The next event `method` of the tab's protocol connection; null if none comes in `ms`. */
+  private next(contents: WebContents, method: string, ms: number): Promise<unknown> {
+    const debug = contents.debugger;
+    return new Promise((resolve) => {
+      const onMessage = (_event: unknown, name: string, params: unknown) => {
+        if (name !== method) return;
+        clearTimeout(timer);
+        debug.removeListener("message", onMessage);
+        resolve(params);
+      };
+      const timer = setTimeout(() => {
+        debug.removeListener("message", onMessage);
+        resolve(null);
+      }, ms);
+      debug.on("message", onMessage);
     });
   }
 
@@ -782,8 +1218,9 @@ export class CdpBrowserDriver implements BrowserDriver {
     this.notPicking(tabId);
     return this.with(tabId, async (contents) => {
       const before = this.mark(contents);
-      for (const press of presses) await this.pressKey(contents, press);
-      return this.after(contents, `Pressed ${keys.join(" ")}.`, before);
+      return this.act(contents, `Pressed ${keys.join(" ")}.`, before, async () => {
+        for (const press of presses) await this.pressKey(contents, press);
+      });
     });
   }
 
@@ -804,8 +1241,22 @@ export class CdpBrowserDriver implements BrowserDriver {
     await this.send(contents, "Input.dispatchKeyEvent", { ...common, type: "keyUp" });
   }
 
-  screenshot(tabId: string, options: { full: boolean }): Promise<string> {
-    return this.withDrawn(tabId, async (contents) => {
+  screenshot(tabId: string, options: { full: boolean; element?: string }): Promise<string> {
+    return this.withDrawn(tabId, async (contents, state) => {
+      if (options.element !== undefined) {
+        const el = await this.locate(contents, state, options.element);
+        await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+          backendNodeId: el.backendNodeId,
+        }).catch(() => {});
+        const box = await this.call<Box | null>(contents, el.objectId, ELEMENT_CLIP);
+        if (box === null) throw new CliError(`${el.label} is not visible on the page`);
+        const clip = {
+          ...box,
+          height: Math.min(box.height, MAX_FULL_HEIGHT),
+          scale: 1,
+        };
+        return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
+      }
       if (!options.full) return this.capture(tabId, contents, { format: "png" });
       const metrics = await this.send<{
         cssContentSize?: { width: number; height: number };
@@ -820,6 +1271,84 @@ export class CdpBrowserDriver implements BrowserDriver {
         scale: 1,
       };
       return this.capture(tabId, contents, { format: "png", captureBeyondViewport: true, clip });
+    });
+  }
+
+  upload(tabId: string, target: string, files: readonly string[]): Promise<ActionResult> {
+    this.notPicking(tabId);
+    return this.with(tabId, async (contents, state) => {
+      for (const file of files) {
+        const found = await stat(file).catch(() => null);
+        if (!found?.isFile()) throw new CliError(`no file at ${file}`);
+      }
+      const el = await this.locate(contents, state, target);
+      const input = await this.call<{ file: boolean; multiple: boolean }>(
+        contents,
+        el.objectId,
+        FILE_INPUT,
+      );
+      if (!input.file) throw new CliError(`${el.label} is not a file input`);
+      if (files.length > 1 && !input.multiple) {
+        throw new CliError(`${el.label} takes one file, not ${files.length}`);
+      }
+      const before = this.mark(contents);
+      if (files.length === 0) await this.call(contents, el.objectId, CLEAR_FILES);
+      else {
+        await this.send(contents, "DOM.setFileInputFiles", {
+          files,
+          backendNodeId: el.backendNodeId,
+        });
+      }
+      const names = files.map((f) => path.basename(f)).join(", ");
+      return this.after(contents, `Gave ${el.label} ${names || "no file"}.`, before);
+    });
+  }
+
+  dialog(tabId: string): Promise<PageDialog | null> {
+    return this.with(
+      tabId,
+      async (contents) => {
+        await this.attach(contents);
+        return this.dialogs.get(contents) ?? null;
+      },
+      { dialog: true },
+    );
+  }
+
+  answerDialog(tabId: string, accept: boolean): Promise<ActionResult> {
+    return this.with(
+      tabId,
+      async (contents) => {
+        const dialog = this.dialogs.get(contents);
+        if (!dialog) throw new CliError("the page shows no dialog");
+        const before = this.mark(contents);
+        await this.send(contents, "Page.handleJavaScriptDialog", { accept });
+        this.dialogs.delete(contents);
+        // The app shows the dialog too, in a message box of its own that an
+        // answer here leaves open, and that would answer again when clicked.
+        // Electron closes its boxes on this event of its own (as of 45).
+        contents.emit("-cancel-dialogs");
+        await this.send(contents, "Page.setInterceptFileChooserDialog", { enabled: false }).catch(
+          () => {},
+        );
+        const answer = accept ? "OK" : "Cancel";
+        return this.after(
+          contents,
+          `Answered ${answer} to the ${dialog.type} ${JSON.stringify(dialog.message)}.`,
+          before,
+        );
+      },
+      { dialog: true },
+    );
+  }
+
+  inspect(tabId: string, target: string): Promise<PickedElement> {
+    return this.withDrawn(tabId, async (contents, state) => {
+      const el = await this.locate(contents, state, target);
+      await this.send(contents, "DOM.scrollIntoViewIfNeeded", {
+        backendNodeId: el.backendNodeId,
+      }).catch(() => {});
+      return this.describePicked(tabId, contents, state, el.backendNodeId);
     });
   }
 
@@ -859,6 +1388,67 @@ export class CdpBrowserDriver implements BrowserDriver {
   console(tabId: string, clear: boolean): readonly ConsoleEntry[] {
     this.contents(tabId);
     return this.consoles.get(tabId)?.log.read(clear) ?? [];
+  }
+
+  network(tabId: string, clear: boolean): readonly NetworkEntry[] {
+    const contents = this.contents(tabId);
+    try {
+      this.attachNow(contents);
+    } catch {
+      return [];
+    }
+    return this.networks.get(contents)?.read(clear) ?? [];
+  }
+
+  request(tabId: string, id: number, maxBody: number): Promise<RequestDetails> {
+    return this.with(tabId, async (contents) => {
+      await this.attach(contents);
+      const found = this.networks.get(contents)?.find(id);
+      if (!found) throw new CliError(`no request ${id}; nexus browser network lists them`);
+      const { entry, requestId } = found;
+      let postData = entry.postData;
+      if (postData === undefined && entry.hasPostData) {
+        postData = await this.send<{ postData: string }>(contents, "Network.getRequestPostData", {
+          requestId,
+        }).then(
+          (r) => r.postData,
+          () => undefined,
+        );
+      }
+      return {
+        entry,
+        ...(postData !== undefined ? { postData } : {}),
+        body: await this.body(contents, entry, requestId, maxBody),
+      };
+    });
+  }
+
+  private async body(
+    contents: WebContents,
+    entry: NetworkEntry,
+    requestId: string,
+    maxBody: number,
+  ): Promise<ResponseBody> {
+    if (entry.redirectedTo !== undefined) return { kind: "none", why: "it redirected" };
+    if (entry.failure !== undefined) return { kind: "none", why: "it failed" };
+    if (entry.size === undefined) return { kind: "none", why: "it has not finished" };
+    try {
+      const got = await this.send<{ body: string; base64Encoded: boolean }>(
+        contents,
+        "Network.getResponseBody",
+        { requestId },
+      );
+      if (got.base64Encoded) {
+        const bytes = Buffer.from(got.body, "base64");
+        if (!looksLikeText(bytes)) return { kind: "binary", bytes: bytes.length };
+        const text = bytes.toString("utf8");
+        return { kind: "text", text: text.slice(0, maxBody), length: text.length };
+      }
+      return { kind: "text", text: got.body.slice(0, maxBody), length: got.body.length };
+    } catch (error) {
+      if (error instanceof DialogShown) throw error;
+      return { kind: "none", why: "the page no longer keeps it" };
+    }
   }
 
   async waitFor(
@@ -932,7 +1522,7 @@ export class CdpBrowserDriver implements BrowserDriver {
         ready.catch(() => {});
         await Promise.race([ready, control.ended]);
         if (control.reason !== null) return { cancelled: control.reason };
-        const outcome = await this.inspect(tabId, contents, control);
+        const outcome = await this.inspectMode(tabId, contents, control);
         if ("cancelled" in outcome) return outcome;
         return { picked: await this.describePicked(tabId, contents, state, outcome.backendNodeId) };
       } finally {
@@ -1008,7 +1598,7 @@ export class CdpBrowserDriver implements BrowserDriver {
    * or the pick ends, then takes the page out of it, unless a later pick has
    * the tab by then.
    */
-  private async inspect(
+  private async inspectMode(
     tabId: string,
     contents: WebContents,
     control: PickControl,
@@ -1088,6 +1678,11 @@ export class CdpBrowserDriver implements BrowserDriver {
     });
     if (!object.objectId) throw new CliError("the picked element is gone from the page");
     const details = await this.call<PickedDetails>(contents, object.objectId, DESCRIBE_PICKED);
+    const component = await this.call<PickedComponent | null>(
+      contents,
+      object.objectId,
+      DESCRIBE_COMPONENT,
+    ).catch(() => null);
     let role = "";
     let name = "";
     try {
@@ -1118,6 +1713,7 @@ export class CdpBrowserDriver implements BrowserDriver {
       ref,
       ...details,
       ...(png === undefined ? {} : { png }),
+      ...(component ? { component } : {}),
     });
   }
 }
@@ -1169,4 +1765,28 @@ function remember(state: TabState, element: SnapshotRef): string {
   const ref = `e${state.refs.size + 1}`;
   state.refs = new Map(state.refs).set(ref, element);
   return ref;
+}
+
+/** What a scroll did, said for people: how far it went and where it is now. */
+function scrolledText(
+  what: string,
+  scroll: Exclude<BrowserScroll, { kind: "to" }>,
+  done: Scrolled,
+): string {
+  const across = scroll.kind === "by" && (scroll.way === "left" || scroll.way === "right");
+  const max = Math.max(0, Math.round(across ? done.max.x : done.max.y));
+  // A page zoomed or scaled scrolls by fractions, which may round past the end.
+  const at = Math.min(max, Math.round(across ? done.at.x : done.at.y));
+  const moved = Math.abs(across ? done.moved.x : done.moved.y);
+  const where = `${what} is at ${at} of ${max}px`;
+  if (moved < 1) {
+    return max < 1 ? `${capital(what)} does not scroll that way.` : `Already there; ${where}.`;
+  }
+  const how =
+    scroll.kind === "by" ? `${scroll.way} ${Math.round(moved)}px` : `to the ${scroll.end}`;
+  return `Scrolled ${how}; ${where}.`;
+}
+
+function capital(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

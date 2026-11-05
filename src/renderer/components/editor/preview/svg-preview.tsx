@@ -50,12 +50,16 @@ export function SvgPreview({ source }: SvgPreviewProps) {
  * Build a blob URL for the given SVG markup and revoke the previous one
  * whenever the source changes. The mime type is set explicitly so the
  * browser picks the image renderer (rather than text/plain fallback) when
- * the `<img>` element fetches the URL.
+ * the `<img>` element fetches the URL. None for a null source.
  */
-function useSvgBlobUrl(source: string): string | null {
+export function useSvgBlobUrl(source: string | null): string | null {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
+    if (source === null) {
+      setUrl(null);
+      return;
+    }
     const blob = new Blob([source], { type: "image/svg+xml" });
     const objectUrl = URL.createObjectURL(blob);
     setUrl(objectUrl);

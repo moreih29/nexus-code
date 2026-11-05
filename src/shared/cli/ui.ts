@@ -6,6 +6,17 @@
 import { z } from "zod";
 
 /** One tab as the CLI lists it. */
+/** A shell a terminal can run. */
+export interface CliShellInfo {
+  name: string;
+  /** "detected" for one found on this machine, "custom" for one added in the settings. */
+  kind: "detected" | "custom";
+  id: string;
+  path: string;
+  /** What a new terminal runs when no shell is named. */
+  isDefault: boolean;
+}
+
 export interface CliTabInfo {
   readonly id: string;
   readonly type: string;
@@ -22,6 +33,8 @@ export interface CliTabInfo {
   readonly url?: string;
   /** A terminal whose process has ended. */
   readonly dead?: boolean;
+  /** An editor, diff or untitled buffer with changes not saved. */
+  readonly unsaved?: boolean;
 }
 
 /** Where a tab the CLI opens goes. */
@@ -91,13 +104,38 @@ export interface CliProblem {
   readonly code?: string;
 }
 
+/** An app setting as nexus settings shows it; see ./settings. */
+export interface CliSettingInfo {
+  /** Its name, as "editor.fontSize". */
+  readonly key: string;
+  readonly summary: string;
+  readonly type: CliSettingType;
+  /** What a "choice" takes. */
+  readonly choices?: readonly string[];
+  /** The range of an "integer" or a "number". */
+  readonly min?: number;
+  readonly max?: number;
+  /** What it is now: its default when it was never changed. */
+  readonly value: CliSettingValue;
+  /** Whether it was changed from its default. */
+  readonly changed: boolean;
+  /** One only the user changes, in Settings. */
+  readonly readOnly?: boolean;
+}
+
+export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
+export type CliSettingValue = string | number | boolean;
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
   | "diff"
+  | "commit"
   | "terminalNew"
   | "terminalInput"
   | "tabClose"
+  | "tabSave"
+  | "tabRevert"
   | "browserOpen"
   | "browserNavigate"
   | "browserControl"
@@ -107,7 +145,8 @@ export type CliChangeKind =
   | "tabPin"
   | "worktreeNew"
   | "worktreeRemove"
-  | "worktreeRemoveBranch";
+  | "worktreeRemoveBranch"
+  | "workspaceRemove";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
@@ -141,6 +180,24 @@ export interface CliUiOps {
     };
     result: { tabId: string };
   };
+  /**
+   * Opens the tab of the commit `rev` names (a sha or a prefix of one, a
+   * branch, a tag, HEAD~2), showing its message and the files it changed.
+   */
+  "commit.open": {
+    args: { workspaceId: string; rev: string; placement: CliPlacement };
+    result: { tabId: string; sha: string; subject: string };
+  };
+  /** Saves the file of an editor or diff tab; `saved` is false when it had no changes. */
+  "tab.save": {
+    args: { workspaceId: string; tabId: string };
+    result: { filePath: string; saved: boolean };
+  };
+  /** Drops an editor or diff tab's unsaved changes for what is on disk. */
+  "tab.revert": {
+    args: { workspaceId: string; tabId: string };
+    result: { filePath: string; reverted: boolean };
+  };
   /** Opens a file's changes between two refs (HEAD, INDEX, WORKING or a commit). */
   "diff.open": {
     args: {
@@ -159,9 +216,16 @@ export interface CliUiOps {
       cwd: string;
       title?: string;
       command?: string;
+      /** A shell of this machine's, by its name, id or program (see "terminal.shells"). */
+      shell?: string;
       placement: CliPlacement;
     };
     result: { tabId: string };
+  };
+  /** The shells a terminal of a local workspace can run, as "New terminal with" lists them. */
+  "terminal.shells": {
+    args: Record<string, never>;
+    result: { shells: CliShellInfo[] };
   };
   /**
    * Types into a terminal: pasted, as the app's paste does, or as keys; then
@@ -288,6 +352,27 @@ export interface CliUiOps {
    */
   "task.remove": {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
+    result: Record<string, never>;
+  };
+  /** The app's settings that nexus settings reads and changes. */
+  "settings.list": {
+    args: Record<string, never>;
+    result: { settings: CliSettingInfo[] };
+  };
+  /**
+   * Changes a setting, as Settings does, to `value` as typed (as "14" or
+   * "on"), or back to its default when null.
+   */
+  "settings.set": {
+    args: { key: string; value: string | null };
+    result: { setting: CliSettingInfo };
+  };
+  /**
+   * Removes a workspace from the app with its tasks, as Remove Workspace
+   * does; their folders stay. Refuses one with unsaved files.
+   */
+  "workspace.remove": {
+    args: { workspaceId: string };
     result: Record<string, never>;
   };
   /**

@@ -10,23 +10,36 @@ import {
   type CrossWorkspacePolicy,
 } from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
-import type { BrowserDriver, PageInfo } from "../../../../src/main/features/cli/browser/driver";
+import type {
+  BrowserDriver,
+  PageDialog,
+  PageInfo,
+  RequestDetails,
+} from "../../../../src/main/features/cli/browser/driver";
+import type { NetworkEntry } from "../../../../src/main/features/cli/browser/network-log";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
-import type { CliContext, CliServices } from "../../../../src/main/features/cli/context";
+import {
+  type CliContext,
+  CliError,
+  type CliServices,
+} from "../../../../src/main/features/cli/context";
+import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
+import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
   CliConsentAnswer,
   CliLayoutNode,
   CliPanels,
   CliProblem,
+  CliSettingInfo,
   CliTabInfo,
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ListeningPort } from "../../../../src/shared/pty/ports";
-import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -39,6 +52,8 @@ export const EDITOR_TAB = "aaaaaaaa-0000-4000-8000-000000000004";
 export const BROWSER_TAB = "aaaaaaaa-0000-4000-8000-000000000005";
 /** The id of any tab a command opens. */
 export const NEW_TAB = "cccccccc-0000-4000-8000-000000000006";
+/** The id of a workspace nexus workspace add makes. */
+export const ADDED = "44444444-4444-4444-8444-444444444444";
 
 function workspace(
   id: string,
@@ -128,6 +143,10 @@ const FILES: Record<string, Record<string, "file" | "dir">> = {
 
 export interface FakeApp {
   services: CliServices;
+  /** The app's workspaces; a test may add or change them. */
+  workspaces: WorkspaceMeta[];
+  /** What addWorkspace was asked for. */
+  added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
@@ -159,7 +178,51 @@ export interface FakeApp {
   problems: CliProblem[];
   /** The ports each workspace's terminals listen on; an Error fails the look. */
   ports: Record<string, ListeningPort[] | Error>;
+  /** The app's settings, as settings.list gives them. */
+  appSettings: CliSettingInfo[];
 }
+
+/** Some of the app's settings: one only the user changes, one with many choices. */
+const APP_SETTINGS: CliSettingInfo[] = [
+  {
+    key: "editor.fontSize",
+    summary: "The editor's font size, in pixels",
+    type: "integer",
+    min: 8,
+    max: 32,
+    value: 16,
+    changed: false,
+  },
+  {
+    key: "terminal.ligatures",
+    summary: "Whether the terminal joins characters into ligatures",
+    type: "boolean",
+    value: true,
+    changed: true,
+  },
+  {
+    key: "agentCli.crossWorkspace",
+    summary: "Whether nexus may change other workspaces",
+    type: "choice",
+    choices: ["ask", "allow", "deny"],
+    value: "ask",
+    changed: false,
+    readOnly: true,
+  },
+  {
+    key: "appearance.theme",
+    summary: "The color theme",
+    type: "choice",
+    choices: Array.from({ length: 12 }, (_, i) => (i === 0 ? "dark" : `a-long-theme-name-${i}`)),
+    value: "dark",
+    changed: false,
+  },
+];
+
+const SETTING_DEFAULTS: Record<string, CliSettingInfo["value"]> = {
+  "editor.fontSize": 16,
+  "terminal.ligatures": false,
+};
 
 export interface FakeBrowser {
   calls: Array<{ op: string; tabId: string; args: unknown[] }>;
@@ -172,6 +235,12 @@ export interface FakeBrowser {
   pick: PickResult;
   /** What settle finds in place of the Vite page, when set. */
   settled?: PageInfo | null;
+  /** The dialog the page shows, when set. */
+  dialog?: PageDialog;
+  /** The requests the page made. */
+  network: NetworkEntry[];
+  /** What request gives for each. */
+  requests: Record<number, RequestDetails>;
 }
 
 function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
@@ -188,6 +257,18 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     click: async (tabId, target, options) => {
       record("click", tabId, target, options);
       return acted(`Clicked ${target}.`);
+    },
+    hover: async (tabId, target, options) => {
+      record("hover", tabId, target, options);
+      return acted(`Hovered over ${target}.`);
+    },
+    drag: async (tabId, from, to) => {
+      record("drag", tabId, from, to);
+      return acted(`Dragged ${from} onto ${to}.`);
+    },
+    scroll: async (tabId, scroll, within) => {
+      record("scroll", tabId, scroll, within);
+      return acted("Scrolled.");
     },
     fill: async (tabId, target, text) => {
       record("fill", tabId, target, text);
@@ -213,6 +294,16 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
       record("console", tabId, clear);
       return state.console;
     },
+    network: (tabId, clear) => {
+      record("network", tabId, clear);
+      return state.network;
+    },
+    request: async (tabId, id, maxBody) => {
+      record("request", tabId, id, maxBody);
+      const details = state.requests[id];
+      if (!details) throw new CliError(`no request ${id}; nexus browser network lists them`);
+      return details;
+    },
     waitFor: async (tabId, condition, timeoutMs) => {
       record("waitFor", tabId, condition, timeoutMs);
       return state.met;
@@ -224,6 +315,22 @@ function fakeBrowserDriver(state: FakeBrowser): BrowserDriver {
     pick: async (tabId, options) => {
       record("pick", tabId, options);
       return state.pick;
+    },
+    upload: async (tabId, target, files) => {
+      record("upload", tabId, target, files);
+      return acted(`Gave ${target} ${files.length} files.`);
+    },
+    dialog: async (tabId) => {
+      record("dialog", tabId);
+      return state.dialog ?? null;
+    },
+    answerDialog: async (tabId, accept) => {
+      record("answerDialog", tabId, accept);
+      return acted(accept ? "Answered OK." : "Answered Cancel.");
+    },
+    inspect: async (tabId, target) => {
+      record("inspect", tabId, target);
+      return { ...PICKED, ref: target.startsWith("e") ? target : PICKED.ref };
     },
   };
 }
@@ -262,6 +369,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     [`${APP}:${SHELL_TAB}`, { lastOutputAt: now - 60_000 }],
   ]);
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
+  const workspaces = [...WORKSPACES];
+  const added: FakeApp["added"] = [];
   const tabs: FakeApp["tabs"] = Object.fromEntries(
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
@@ -276,6 +385,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     value: undefined,
     met: true,
     pick: { picked: PICKED },
+    network: [],
+    requests: {},
   };
   const layouts: FakeApp["layouts"] = { ...LAYOUTS };
   const panels: CliPanels = {
@@ -284,6 +395,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const problems: CliProblem[] = [];
   const ports: FakeApp["ports"] = {};
+  const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -302,8 +414,35 @@ export function fakeApp(now = Date.now()): FakeApp {
       const text = (screens.get(tabId) ?? "").split("\n").slice(-lines).join("\n");
       return { text } as CliUiOps[K]["result"];
     }
+    if (op === "terminal.shells") {
+      return {
+        shells: [
+          { name: "zsh", kind: "detected", id: "/bin/zsh", path: "/bin/zsh", isDefault: true },
+          { name: "Fish", kind: "custom", id: "fish-1", path: "fish", isDefault: false },
+        ],
+      } as CliUiOps[K]["result"];
+    }
+    // An editor saves or reverts what is unsaved in it; any other tab has no file.
+    if (op === "tab.save" || op === "tab.revert") {
+      const { workspaceId, tabId } = args as CliUiOps["tab.save"]["args"];
+      const found = (tabs[workspaceId] ?? []).find((t) => t.id === tabId);
+      if (!found?.filePath) throw new CliError("only an editor or a diff has a file to save");
+      const done = found.unsaved === true;
+      return (
+        op === "tab.save"
+          ? { filePath: found.filePath, saved: done }
+          : { filePath: found.filePath, reverted: done }
+      ) as CliUiOps[K]["result"];
+    }
     if (op === "editor.open" || op === "diff.open" || op === "terminal.open") {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    }
+    if (op === "commit.open") {
+      return {
+        tabId: NEW_TAB,
+        sha: "4f2a9c1e0b7d3a5f6e8c9b0a1d2e3f4a5b6c7d8e",
+        subject: "Fix the login redirect",
+      } as CliUiOps[K]["result"];
     }
     // Any worktree made is "fix-login".
     if (op === "task.create") {
@@ -341,6 +480,24 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "panels.get") return panels as CliUiOps[K]["result"];
     if (op === "problems.list") return { problems } as CliUiOps[K]["result"];
+    if (op === "settings.list") return { settings: appSettings } as CliUiOps[K]["result"];
+    if (op === "settings.set") {
+      const { key, value } = args as CliUiOps["settings.set"]["args"];
+      const index = appSettings.findIndex((s) => s.key.toLowerCase() === key.toLowerCase());
+      const setting = appSettings[index];
+      if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
+      if (setting.readOnly) {
+        throw new CliError(`${setting.key} is the user's to change, in Settings`);
+      }
+      const parsed =
+        value === null
+          ? { value: SETTING_DEFAULTS[setting.key] as CliSettingInfo["value"] }
+          : parseSettingValue(setting, value);
+      if ("error" in parsed) throw new CliError(`${setting.key}: ${parsed.error}`);
+      const next = { ...setting, value: parsed.value, changed: value !== null };
+      appSettings[index] = next;
+      return { setting: next } as CliUiOps[K]["result"];
+    }
     if (op === "browser.navigate") {
       const { url } = args as CliUiOps["browser.navigate"]["args"];
       return (url === undefined ? {} : { url }) as CliUiOps[K]["result"];
@@ -350,7 +507,19 @@ export function fakeApp(now = Date.now()): FakeApp {
   const waits = new WaitRegistry();
   const services: CliServices = {
     appVersion: "1.2.3",
-    listWorkspaces: () => WORKSPACES,
+    listWorkspaces: () => workspaces,
+    addWorkspace: async (location, name) => {
+      added.push({ location, name });
+      const listed = await listedAt(workspaces, location, async (path) => path);
+      if (listed) return { workspace: listed, added: false };
+      const rootPath = location.kind === "local" ? location.rootPath : location.remotePath;
+      const made = {
+        ...workspace(ADDED, name ?? rootPath.split("/").pop() ?? rootPath, rootPath),
+        location,
+      };
+      workspaces.push(made);
+      return { workspace: made, added: true };
+    },
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
@@ -381,6 +550,8 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   return {
     services,
+    workspaces,
+    added,
     tabs,
     uiCalls,
     notified,
@@ -398,6 +569,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     panels,
     problems,
     ports,
+    appSettings,
   };
 }
 

@@ -1,4 +1,7 @@
 import type * as Monaco from "monaco-editor";
+import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
+import { useTabsStore } from "@/state/stores/tabs";
+import { defaultViewMode } from "../preview/previewable";
 import type { MonacoRange } from "../../../../shared/editor/monaco-range";
 import type { EditorInput } from "../types";
 import { revealRange } from "./reveal";
@@ -82,7 +85,7 @@ export function registerRevealTarget(
   const pending = pendingByKey.get(key);
   if (pending && (pending.tabId === undefined || pending.tabId === tabId)) {
     pendingByKey.delete(key);
-    revealRange(editor, pending.range);
+    revealInSource(input.workspaceId, tabId, editor, pending.range);
   }
 
   return () => {
@@ -98,13 +101,44 @@ export function requestEditorReveal(input: PendingEditorReveal): void {
   const key = keyFor(input);
   const target = findTarget(key, input.tabId);
   if (target) {
-    revealRange(target.editor, input.range);
+    revealInSource(input.workspaceId, target.tabId, target.editor, input.range);
     return;
   }
   // Target editor not live yet — queue the range. The next matching
   // `registerRevealTarget` for this key flushes it. We intentionally
   // overwrite any previous queued entry: only the latest user click matters.
   pendingByKey.set(key, input);
+}
+
+/**
+ * A place in a file is a place in its source: a tab showing the file's
+ * preview switches to its source first. Its editor was hidden behind the
+ * preview, where it takes no focus and has no size to scroll by, so the
+ * reveal waits for it to be shown and laid out.
+ */
+function revealInSource(
+  workspaceId: string,
+  tabId: string | undefined,
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  range: MonacoRange,
+): void {
+  const tab =
+    tabId === undefined ? undefined : useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  const defaults = usePreviewDefaultsStore.getState().byFormat;
+  if (
+    tab?.type !== "editor" ||
+    (tab.viewMode ?? defaultViewMode(tab.props.filePath, defaults)) === "raw"
+  ) {
+    revealRange(editor, range);
+    return;
+  }
+  useTabsStore.getState().setViewMode(workspaceId, tab.id, "raw");
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      editor.layout();
+      revealRange(editor, range);
+    }),
+  );
 }
 
 export function __resetPendingEditorRevealsForTests(): void {

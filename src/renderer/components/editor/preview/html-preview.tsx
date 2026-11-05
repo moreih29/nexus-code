@@ -50,7 +50,11 @@
 //      iframe embedding (X-Frame-Options / frame-ancestors), so the user
 //      would see a blank pane and lose the preview.
 //
-//   3. Scroll persistence — every srcdoc assignment is a brand-new document
+//   3. Find — the document finds in its own text (dom-finder.ts, from its
+//      source) when the host's find bar asks, and reports the count back;
+//      ⌘F, ⌘G and Escape in it reach the host's find bar.
+//
+//   4. Scroll persistence — every srcdoc assignment is a brand-new document
 //      that starts at (0, 0). The preamble reports window scroll back to the
 //      host (postMessage), the host remembers it per file, and the next
 //      document is seeded with that position via a
@@ -65,10 +69,17 @@
 //   IPC + re-parse off the shared renderer thread (where the terminal also
 //   lives) and collapses truncate-then-write saves into a single reload.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { isWithinWorkspace, relPath } from "@/utils/path";
+import {
+  createDomFinder,
+  FIND_COLORS,
+  MAX_FIND_MATCHES,
+} from "../../../services/editor/preview/find/dom-finder";
+import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import { buildWorkspaceDirUrl } from "../../../services/editor/preview/workspace-url";
 import { useTranslation } from "react-i18next";
+import { type FindResult, usePreviewFinder, usePreviewFindBar } from "./preview-find";
 
 interface HtmlPreviewProps {
   source: string;
@@ -190,6 +201,53 @@ const HTML_PREVIEW_PREAMBLE = `<style>
     });
   }, { passive: true });
 })();
+</script>
+<script>
+(function () {
+  var createDomFinder = ${createDomFinder.toString()};
+  var findMatches = ${findMatches.toString()};
+  var finder = null;
+  function post(message) {
+    try { parent.postMessage(message, '*'); } catch (_) {}
+  }
+  function get() {
+    if (!finder) {
+      finder = createDomFinder(
+        function () { return document.body || document.documentElement; },
+        findMatches,
+        ${MAX_FIND_MATCHES},
+        'nexus-find',
+        ${JSON.stringify(FIND_COLORS)},
+        function (total, current) {
+          post({ nexusHtmlPreview: 'find', total: total, current: current });
+        }
+      );
+    }
+    return finder;
+  }
+  window.addEventListener('message', function (e) {
+    if (e.source !== parent) return;
+    var d = e.data;
+    if (!d || typeof d !== 'object') return;
+    var op = d.nexusHtmlPreviewFind;
+    if (op === 'search') get().search(String(d.query || ''), d.caseSensitive === true);
+    else if (op === 'move') get().move(d.direction === -1 ? -1 : 1);
+    else if (op === 'clear' && finder) finder.clear();
+  });
+  document.addEventListener('keydown', function (e) {
+    var key = (e.key || '').toLowerCase();
+    var mod = (e.metaKey || e.ctrlKey) && !e.altKey;
+    if (mod && !e.shiftKey && key === 'f') {
+      e.preventDefault();
+      post({ nexusHtmlPreview: 'find-open' });
+    } else if (mod && key === 'g') {
+      e.preventDefault();
+      post({ nexusHtmlPreview: 'find-move', direction: e.shiftKey ? -1 : 1 });
+    } else if (e.key === 'Escape') {
+      post({ nexusHtmlPreview: 'find-close' });
+    }
+  }, true);
+})();
 </script>`;
 
 /** Trailing debounce for live-edit reloads (see RELOAD CADENCE). */
@@ -279,6 +337,34 @@ export function HtmlPreview({
   const baseTag = buildBaseTag(workspaceId, currentFileAbsPath, workspaceRootAbsPath);
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const findBar = usePreviewFindBar();
+  const findRef = useRef<{ query: string; caseSensitive: boolean } | null>(null);
+  const reportRef = useRef<(result: FindResult) => void>(() => {});
+
+  const postFind = useCallback((message: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(message, "*");
+  }, []);
+  usePreviewFinder(
+    useCallback(
+      (report: (result: FindResult) => void) => {
+        reportRef.current = report;
+        return {
+          search(query: string, caseSensitive: boolean) {
+            findRef.current = { query, caseSensitive };
+            postFind({ nexusHtmlPreviewFind: "search", query, caseSensitive });
+          },
+          move(direction: 1 | -1) {
+            postFind({ nexusHtmlPreviewFind: "move", direction });
+          },
+          clear() {
+            findRef.current = null;
+            postFind({ nexusHtmlPreviewFind: "clear" });
+          },
+        };
+      },
+      [postFind],
+    ),
+  );
 
   // Scroll reports from the preamble. Only messages whose source is OUR
   // iframe's window are accepted; the payload is reduced to two numbers.
@@ -288,7 +374,34 @@ export function HtmlPreview({
       if (!el || e.source !== el.contentWindow) return;
       const data: unknown = e.data;
       if (typeof data !== "object" || data === null) return;
-      const msg = data as { nexusHtmlPreview?: unknown; x?: unknown; y?: unknown };
+      const msg = data as {
+        nexusHtmlPreview?: unknown;
+        x?: unknown;
+        y?: unknown;
+        total?: unknown;
+        current?: unknown;
+        direction?: unknown;
+      };
+      switch (msg.nexusHtmlPreview) {
+        case "find": {
+          const total = Number(msg.total);
+          const current = Number(msg.current);
+          if (Number.isInteger(total) && Number.isInteger(current) && total >= 0) {
+            reportRef.current({ total, current: Math.min(Math.max(current, 0), total) });
+          }
+          return;
+        }
+        case "find-open":
+          findBar.open();
+          return;
+        case "find-close":
+          findBar.close();
+          return;
+        case "find-move":
+          if (findRef.current)
+            postFind({ nexusHtmlPreviewFind: "move", direction: msg.direction === -1 ? -1 : 1 });
+          return;
+      }
       if (msg.nexusHtmlPreview !== "scroll") return;
       const x = Number(msg.x);
       const y = Number(msg.y);
@@ -297,7 +410,7 @@ export function HtmlPreview({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [scrollKey]);
+  }, [scrollKey, findBar, postFind]);
 
   // Imperatively set `srcdoc` so the iframe element stays mounted across
   // live edits (no remount cascade). The known Chromium srcDoc-prop-not-
@@ -337,6 +450,11 @@ export function HtmlPreview({
         allow=""
         referrerPolicy="no-referrer"
         title={t("preview.html_title")}
+        // A new document of a changed file is found in again.
+        onLoad={() => {
+          const find = findRef.current;
+          if (find) postFind({ nexusHtmlPreviewFind: "search", ...find });
+        }}
         className="w-full flex-1 border-0 bg-[var(--surface-island-bg)]"
       />
     </div>

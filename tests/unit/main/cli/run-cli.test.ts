@@ -234,6 +234,29 @@ describe("opening files", () => {
   });
 });
 
+describe("show", () => {
+  test("show opens HEAD's commit beside this terminal, or the one named", async () => {
+    const app = fakeApp();
+    const result = await nexus(["show"], app);
+    expect(lastCall(app, "commit.open")).toEqual({
+      workspaceId: APP,
+      rev: "HEAD",
+      placement: BESIDE_ME,
+    });
+    expect(result.stdout).toBe('Opened commit 4f2a9c1 "Fix the login redirect" (tab cccccccc).\n');
+    await nexus(["show", "v1.2~1"], app);
+    expect(lastCall(app, "commit.open")).toMatchObject({ rev: "v1.2~1" });
+  });
+
+  test("show refuses a name git would read as an option", async () => {
+    const app = fakeApp();
+    const result = await nexus(["show", "--", "--output=/tmp/x"], app);
+    expect(result.stderr).toBe('nexus: no commit is named "--output=/tmp/x"\n');
+    expect(result.exitCode).toBe(2);
+    expect(lastCall(app, "commit.open")).toBeUndefined();
+  });
+});
+
 describe("terminals", () => {
   test("terminal new opens behind this terminal, in its directory, running a command", async () => {
     const app = fakeApp();
@@ -258,6 +281,49 @@ describe("terminals", () => {
       cwd: "/w/app/src/web",
       placement: BESIDE_ME,
     });
+  });
+
+  test("terminal new --shell names the shell to run", async () => {
+    const app = fakeApp();
+    await nexus(["terminal", "new", "--shell", "fish"], app);
+    expect(lastCall(app, "terminal.open")).toMatchObject({ workspaceId: APP, shell: "fish" });
+  });
+
+  test("terminal new --shell is refused in an SSH workspace", async () => {
+    const app = fakeApp();
+    const ssh = {
+      ...WORKSPACES[1],
+      location: { kind: "ssh", host: "devbox", remotePath: "/srv/api" },
+    } as WorkspaceMeta;
+    app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], ssh] };
+    const result = await nexus(["terminal", "new", "--shell", "bash", "--workspace", "api"], app);
+    expect(result.stderr).toBe(
+      "nexus: --shell is for local workspaces; api is an SSH workspace, whose terminals run devbox's login shell\n",
+    );
+    expect(lastCall(app, "terminal.open")).toBeUndefined();
+  });
+
+  test("terminal new --shell is refused in a WSL workspace", async () => {
+    const app = fakeApp();
+    const wsl = {
+      ...WORKSPACES[1],
+      location: { kind: "wsl", distro: "Ubuntu", remotePath: "/home/me/api" },
+    } as WorkspaceMeta;
+    app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], wsl] };
+    const result = await nexus(["terminal", "new", "--shell", "bash", "--workspace", "api"], app);
+    expect(result.stderr).toBe(
+      "nexus: --shell is for local workspaces; api is a WSL workspace, whose terminals run Ubuntu's login shell\n",
+    );
+    expect(lastCall(app, "terminal.open")).toBeUndefined();
+  });
+
+  test("terminal shells lists the shells, the default marked", async () => {
+    const app = fakeApp();
+    expect((await nexus(["terminal", "shells"], app)).stdout).toBe(
+      "NAME           ID        PATH\n" +
+        "zsh (default)  /bin/zsh  /bin/zsh\n" +
+        "Fish           fish-1    fish\n",
+    );
   });
 
   test("terminal send pastes the words and presses Enter", async () => {
@@ -317,6 +383,55 @@ describe("terminals", () => {
       "nexus: Claude Code there is waiting for the user to allow a tool; that is for the user to answer\n",
     );
     expect(lastCall(app, "terminal.input")).toBeUndefined();
+  });
+});
+
+describe("unsaved tabs", () => {
+  /** The app, with the editor's file and the Claude Code terminal marked unsaved. */
+  function withUnsaved() {
+    const app = fakeApp();
+    app.tabs[APP] = (app.tabs[APP] ?? []).map((t) =>
+      t.id === EDITOR_TAB || t.id === CLAUDE_TAB ? { ...t, unsaved: true } : t,
+    );
+    return app;
+  }
+
+  test("tab list marks unsaved tabs, and --unsaved lists only them", async () => {
+    const app = withUnsaved();
+    expect((await nexus(["tab", "list"], app)).stdout).toContain("index.ts (unsaved)");
+    const only = await nexus(["tab", "list", "--unsaved"], app);
+    expect(only.stdout.split("\n").filter(Boolean)).toHaveLength(3);
+    expect(only.stdout).not.toContain("Vite App");
+    expect((await nexus(["tab", "list", "--unsaved"])).stdout).toBe(
+      "No unsaved changes in app's tabs.\n",
+    );
+  });
+
+  test("tab save saves the tab named, and says when it had nothing to save", async () => {
+    const app = withUnsaved();
+    expect((await nexus(["tab", "save", "index.ts"], app)).stdout).toBe(
+      "Saved index.ts (tab aaaaaaaa).\n",
+    );
+    expect(lastCall(app, "tab.save")).toEqual({ workspaceId: APP, tabId: EDITOR_TAB });
+    expect((await nexus(["tab", "revert", "index.ts"])).stdout).toBe(
+      "index.ts had no unsaved changes (tab aaaaaaaa).\n",
+    );
+  });
+
+  test("tab save --all saves each unsaved tab, and tells which it left", async () => {
+    const result = await nexus(["tab", "save", "--all"], withUnsaved());
+    expect(result.stdout).toBe(
+      "Left ✳ Claude Code (tab aaaaaaaa): only an editor or a diff has a file to save.\n" +
+        "Saved index.ts (tab aaaaaaaa).\n",
+    );
+    expect(result.exitCode).toBe(1);
+  });
+
+  test("tab save names one tab, or --all and none", async () => {
+    expect((await nexus(["tab", "save"])).stderr).toContain("missing <tab>");
+    expect((await nexus(["tab", "save", "--all", "index.ts"])).stderr).toContain(
+      'unexpected argument "index.ts"',
+    );
   });
 });
 

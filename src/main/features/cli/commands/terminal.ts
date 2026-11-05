@@ -14,7 +14,7 @@ import {
 } from "../context";
 import { ago, oneLine, table } from "../format";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
-import { absolutePath } from "../paths";
+import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import {
   DEFAULT_QUIET_MS,
@@ -163,22 +163,119 @@ function stateText(row: TerminalRow): string {
 const tabList: CliCommand = {
   path: ["tab", "list"],
   summary: "List a workspace's tabs: terminals, editors, diffs and browsers",
-  flags: { workspace: WORKSPACE_FLAG },
+  details: 'An editor with changes not saved is marked "(unsaved)".',
+  flags: {
+    workspace: WORKSPACE_FLAG,
+    unsaved: { type: "boolean", description: "Only the tabs with unsaved changes" },
+  },
   async run(ctx, { flags }) {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tabs = await workspaceTabs(ctx, workspace.id);
+    const onlyUnsaved = flags.unsaved === true;
+    const tabs = (await workspaceTabs(ctx, workspace.id)).filter(
+      (t) => !onlyUnsaved || t.unsaved === true,
+    );
     const rows = tabs.map((t) => [
       shortId(t.id),
       t.type,
-      t.id === ctx.caller.tabId ? `${t.title} (this terminal)` : t.title,
+      t.id === ctx.caller.tabId
+        ? `${t.title} (this terminal)`
+        : t.unsaved
+          ? `${t.title} (unsaved)`
+          : t.title,
       t.url ?? t.filePath ?? t.cwd ?? "",
     ]);
-    return output(
-      table(["ID", "TYPE", "TITLE", "WHERE"], rows) || `No tabs in ${workspace.name}.`,
-      tabs,
-    );
+    const none = onlyUnsaved
+      ? `No unsaved changes in ${workspace.name}'s tabs.`
+      : `No tabs in ${workspace.name}.`;
+    return output(table(["ID", "TYPE", "TITLE", "WHERE"], rows) || none, tabs);
   },
 };
+
+/** What `tab save` and `tab revert` act on: the tab named, or with --all each unsaved one. */
+async function unsavedTargets(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  positionals: readonly string[],
+  all: boolean,
+): Promise<CliTabInfo[]> {
+  if (!all) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    return [await resolveAnyTab(ctx, workspace, selector)];
+  }
+  exactArgs(positionals);
+  return (await workspaceTabs(ctx, workspace.id)).filter((t) => t.unsaved === true);
+}
+
+/** A file's path as the user would write it: inside the workspace, from its root. */
+function shownPath(workspace: WorkspaceMeta, filePath: string): string {
+  const root = rendererRoot(workspace);
+  return filePath.startsWith(`${root}/`) ? filePath.slice(root.length + 1) : filePath;
+}
+
+function fileTabCommand(verb: "save" | "revert"): CliCommand {
+  const saving = verb === "save";
+  return {
+    path: ["tab", verb],
+    summary: saving
+      ? "Save an editor's unsaved changes to its file"
+      : "Drop an editor's unsaved changes for what is on its file",
+    args: "[tab]",
+    details: saving
+      ? "TAB is an editor, or a diff whose right side is the working tree. A file changed on\n" +
+        "disk since it was opened is not overwritten: the user chooses in the app, or revert\n" +
+        "takes what is on disk. An untitled tab is saved in the app, where it gets its name."
+      : "TAB is an editor, or a diff whose right side is the working tree. What was typed and\n" +
+        "not saved is lost.",
+    flags: {
+      workspace: WORKSPACE_FLAG,
+      all: {
+        type: "boolean",
+        description: saving
+          ? "Save every tab with unsaved changes"
+          : "Revert every tab with unsaved changes",
+      },
+    },
+    async run(ctx, { positionals, flags }) {
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+      const all = flags.all === true;
+      const targets = await unsavedTargets(ctx, workspace, positionals, all);
+      if (targets.length === 0) {
+        return output(`No unsaved changes in ${workspace.name}'s tabs.`, []);
+      }
+      await mayChange(ctx, workspace, {
+        kind: saving ? "tabSave" : "tabRevert",
+        detail: targets.map((t) => t.title).join('", "'),
+      });
+      const lines: string[] = [];
+      const results: { tabId: string; filePath?: string; done: boolean; error?: string }[] = [];
+      for (const tab of targets) {
+        try {
+          const args = { workspaceId: workspace.id, tabId: tab.id };
+          const { filePath, done } = saving
+            ? await ctx.services.ui("tab.save", args).then((r) => ({ ...r, done: r.saved }))
+            : await ctx.services.ui("tab.revert", args).then((r) => ({ ...r, done: r.reverted }));
+          const file = shownPath(workspace, filePath);
+          lines.push(
+            done
+              ? `${saving ? "Saved" : "Reverted"} ${file} (tab ${shortId(tab.id)}).`
+              : `${file} had no unsaved changes (tab ${shortId(tab.id)}).`,
+          );
+          results.push({ tabId: tab.id, filePath, done });
+        } catch (error) {
+          if (!all) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          lines.push(`Left ${tab.title} (tab ${shortId(tab.id)}): ${message}.`);
+          results.push({ tabId: tab.id, done: false, error: message });
+        }
+      }
+      const failed = results.some((r) => r.error !== undefined);
+      return output(lines.join("\n"), all ? results : results[0], failed ? { exitCode: 1 } : {});
+    },
+  };
+}
+
+const tabSave = fileTabCommand("save");
+const tabRevert = fileTabCommand("revert");
 
 const tabShow: CliCommand = {
   path: ["tab", "show"],
@@ -291,12 +388,27 @@ const terminalNew: CliCommand = {
       description: "Type CMD and Enter once the shell has started",
     },
     title: { type: "string", value: "TITLE", description: "Name the tab TITLE" },
+    shell: {
+      type: "string",
+      value: "SHELL",
+      description:
+        'Run SHELL, by a name "terminal shells" lists (default: the one set; local workspaces only)',
+    },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const shell = flags.shell as string | undefined;
+    const { location } = workspace;
+    if (shell !== undefined && location.kind !== "local") {
+      const [kind, machine] =
+        location.kind === "ssh" ? ["an SSH", location.host] : ["a WSL", location.distro];
+      throw new CliError(
+        `--shell is for local workspaces; ${workspace.name} is ${kind} workspace, whose terminals run ${machine}'s login shell`,
+      );
+    }
     const dir = flags.cwd as string | undefined;
     const cwd =
       dir !== undefined
@@ -312,6 +424,7 @@ const terminalNew: CliCommand = {
       cwd,
       ...(title ? { title } : {}),
       ...(command ? { command } : {}),
+      ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
@@ -319,6 +432,24 @@ const terminalNew: CliCommand = {
       workspaceId: workspace.id,
       cwd,
     });
+  },
+};
+
+const terminalShells: CliCommand = {
+  path: ["terminal", "shells"],
+  summary: "List the shells a terminal can run, for terminal new --shell",
+  details:
+    "The shells found on the computer NexusCode runs on and those added in Settings ›\n" +
+    'Terminal, as the tab bar\'s "New terminal with" lists them. They are for local\n' +
+    "workspaces only: an SSH or WSL workspace's terminals run the login shell of its machine.",
+  async run(ctx, { positionals }) {
+    exactArgs(positionals);
+    const { shells } = await ctx.services.ui("terminal.shells", {});
+    const text = table(
+      ["NAME", "ID", "PATH"],
+      shells.map((s) => [s.isDefault ? `${s.name} (default)` : s.name, s.id, s.path]),
+    );
+    return output(text, { shells });
   },
 };
 
@@ -485,9 +616,12 @@ export const terminalCommands: CliCommand[] = [
   tabList,
   tabShow,
   tabClose,
+  tabSave,
+  tabRevert,
   terminalList,
   terminalRead,
   terminalNew,
+  terminalShells,
   terminalSend,
   terminalKey,
   terminalWait,

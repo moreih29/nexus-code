@@ -10,6 +10,7 @@ import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { requireMonaco } from "../runtime/monaco-singleton";
 import { ensureModelWithContent } from "./ensure-model";
 import { errorCodeFromUnknown } from "./entry";
+import { decodeFileContent } from "./file-loader";
 import type { ModelEntry } from "./types";
 
 export async function loadExternalEntry(input: {
@@ -70,12 +71,15 @@ export async function loadExternalEntry(input: {
       return entry;
     }
 
-    const model = ensureModelWithContent(monaco, monacoUri, result.content);
+    const { kind: _kind, ...read } = result;
+    const decoded = decodeFileContent(read);
+    const model = ensureModelWithContent(monaco, monacoUri, decoded.content);
 
     entry.model = model;
+    entry.encoding = decoded.encoding;
     entry.languageId = model.getLanguageId();
     entry.phase = "ready";
-    entry.lastLoadedValue = result.content;
+    entry.lastLoadedValue = model.getValue();
   } catch (error) {
     entry.phase = "error";
     entry.errorCode = errorCodeFromUnknown(error);

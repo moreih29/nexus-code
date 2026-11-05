@@ -29,10 +29,10 @@ export function writeFileHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<WriteFileResult | FsIpcErrorResult> {
   return async (args: unknown): Promise<WriteFileResult | FsIpcErrorResult> => {
-    const { workspaceId, relPath, content, expected } = validateArgs(c.writeFile.args, args);
+    const { workspaceId, relPath, content, expected, bytes } = validateArgs(c.writeFile.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
-      return await fs.writeFile(relPath, content, expected);
+      return await fs.writeFile(relPath, content, expected, bytes);
     } catch (error) {
       if (isFsError(error)) return fsErrorToIpcResult(error);
       throw error;

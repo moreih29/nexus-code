@@ -121,6 +121,11 @@ export const AppStateSchema = z.object({
   // workspace its tasks belong to; it outlasts a change of the default.
   sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
 
+  // The view a file with a preview opens in, by its format ("markdown",
+  // "json", …); a format left out opens as it does by default. Keyed by a
+  // plain string so a format this version lacks does not fail the state.
+  previewViewDefaults: z.record(z.string().max(32), z.enum(["raw", "preview"])).optional(),
+
   // Update channel — "stable" follows non-prerelease tags only; "beta" also
   // includes prerelease tags (e.g. v1.2.0-beta.1).  Defaults to "stable".
   updateChannel: z.enum(["stable", "beta"]).default("stable"),

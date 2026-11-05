@@ -31,6 +31,12 @@ func (s *Service) WriteFile(ctx context.Context, raw json.RawMessage) (any, erro
 	if p.RelPath == "" {
 		return nil, proto.ProtocolError("fs.writeFile relPath is required")
 	}
+	if p.Bytes != nil {
+		if p.Content != "" {
+			return nil, proto.ProtocolError("fs.writeFile takes content or bytes, not both")
+		}
+		p.Content = string(p.Bytes)
+	}
 	if len([]byte(p.Content)) > MaxReadableFileSize {
 		return nil, FSError{Code: CodeTooLarge, Path: fmt.Sprintf("%s (%d bytes)", p.RelPath, len([]byte(p.Content)))}
 	}

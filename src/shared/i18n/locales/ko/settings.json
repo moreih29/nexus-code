@@ -175,7 +175,12 @@
     "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
     "ariaFontSize": "편집기 글꼴 크기",
-    "ariaFontFamily": "글꼴 종류"
+    "ariaFontFamily": "글꼴 종류",
+    "openIn": {
+      "label": "파일을 여는 보기",
+      "aria": "{{format}} 파일을 여는 보기",
+      "hint": "미리보기가 있는 파일을 처음 열 때의 보기입니다. 탭에서 바꾼 보기는 그 탭에 남습니다."
+    }
   },
   "terminal": {
     "shell": {
@@ -272,9 +277,12 @@
       "action": {
         "open": "{{detail}} 열기를",
         "diff": "{{detail}}의 변경 사항 열기를",
+        "commit": "커밋 {{detail}} 열기를",
         "terminalNew": "터미널 열기를",
         "terminalInput": "터미널 \"{{detail}}\"에 입력을",
         "tabClose": "탭 \"{{detail}}\" 닫기를",
+        "tabSave": "탭 \"{{detail}}\" 저장을",
+        "tabRevert": "탭 \"{{detail}}\"의 저장 안 한 변경 버리기를",
         "browserOpen": "브라우저 탭에서 {{detail}} 열기를",
         "browserNavigate": "브라우저 탭 \"{{detail}}\" 이동을",
         "browserControl": "브라우저 탭 \"{{detail}}\"에서 클릭·입력·스크립트 실행을",
@@ -284,7 +292,8 @@
         "tabPin": "탭 \"{{detail}}\" 고정·해제를",
         "worktreeNew": "작업 \"{{detail}}\" 만들기를",
         "worktreeRemove": "작업과 그 워크트리 폴더 삭제를",
-        "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를"
+        "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를",
+        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를"
       }
     }
   },

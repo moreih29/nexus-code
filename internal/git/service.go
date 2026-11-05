@@ -221,6 +221,20 @@ func buildFileReadResult(buf []byte) map[string]any {
 		probe = probe[:content.BinaryProbeBytes]
 	}
 	mtime := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	// Text in UTF-16 (by its byte-order mark) or in an encoding other than
+	// UTF-8 goes to the reader as bytes, to decode as fs.readFile's does.
+	textBytes := map[string]any{
+		"kind":      "ok",
+		"content":   "",
+		"encoding":  "bytes",
+		"bytes":     buf,
+		"sizeBytes": len(buf),
+		"isBinary":  false,
+		"mtime":     mtime,
+	}
+	if len(probe) >= 2 && ((probe[0] == 0xff && probe[1] == 0xfe) || (probe[0] == 0xfe && probe[1] == 0xff)) {
+		return textBytes
+	}
 	if content.IsBinaryProbe(probe) {
 		return map[string]any{
 			"kind":      "ok",
@@ -241,13 +255,12 @@ func buildFileReadResult(buf []byte) map[string]any {
 			"mtime":     mtime,
 		}
 	}
-	text := string(buf)
 	if !utf8.Valid(buf) {
-		text = strings.ToValidUTF8(text, "�")
+		return textBytes
 	}
 	return map[string]any{
 		"kind":      "ok",
-		"content":   text,
+		"content":   string(buf),
 		"encoding":  "utf8",
 		"sizeBytes": len(buf),
 		"isBinary":  false,
@@ -260,7 +273,16 @@ func normalizeRef(ref string) (string, error) {
 	if trimmed == "" || strings.Contains(trimmed, "\x00") {
 		return "", proto.ProtocolError("git.getFileContent ref is required")
 	}
+	if optionLike(trimmed) {
+		return "", proto.ProtocolError("git ref must not start with -")
+	}
 	return trimmed, nil
+}
+
+// optionLike reports whether git, given value where it takes a revision,
+// would read it as one of its options instead: `--output=FILE` writes a file.
+func optionLike(value string) bool {
+	return strings.HasPrefix(value, "-")
 }
 
 func normalizeRelPath(relPath string) (string, error) {

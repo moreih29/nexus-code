@@ -309,8 +309,8 @@
     "reload": "Reload",
     "left": "Left",
     "right": "Right",
-    "left_missing": "Left side is missing",
-    "right_missing": "Right side is missing",
+    "left_missing": "Left side is missing; showing it as an empty file.",
+    "right_missing": "Right side is missing; showing it as an empty file.",
     "no_display_binary": "Cannot display binary file in diff.",
     "view_mode_label": "View mode",
     "view_raw": "Raw",
@@ -410,6 +410,39 @@
     "close_running_title": "Terminate the running process?",
     "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
     "close_running_confirm": "Terminate"
+  },
+  "previewFind": {
+    "placeholder": "Find",
+    "count": "{{current}} of {{total}}",
+    "none": "No results",
+    "matchCase": "Match case",
+    "previous": "Previous match (Shift+Enter)",
+    "next": "Next match (Enter)",
+    "close": "Close (Escape)"
+  },
+  "encoding": {
+    "segmentTitle": "Encoding: {{name}}",
+    "menuTitle": "Encoding",
+    "reopen": "Reopen with encoding",
+    "saveWith": "Save with encoding",
+    "reopenDirty": "Save or revert the edits to reopen the file.",
+    "group": {
+      "unicode": "Unicode",
+      "korean": "Korean",
+      "japanese": "Japanese",
+      "chineseSimplified": "Chinese (Simplified)",
+      "chineseTraditional": "Chinese (Traditional)",
+      "western": "Western",
+      "centralEuropean": "Central European",
+      "cyrillic": "Cyrillic",
+      "greek": "Greek",
+      "turkish": "Turkish",
+      "hebrew": "Hebrew",
+      "arabic": "Arabic",
+      "baltic": "Baltic",
+      "vietnamese": "Vietnamese",
+      "thai": "Thai"
+    }
   },
   "lsp": {
     "language": {
@@ -642,7 +675,25 @@
   },
   "preview": {
     "truncated": "Preview truncated at {{kb}} KB. Switch to Raw to see the full file.",
+    "table_empty": "No rows.",
     "html_title": "HTML preview"
+  },
+  "jsonPreview": {
+    "label": "{{format}} tree",
+    "expand_all": "Expand all",
+    "collapse_all": "Collapse all",
+    "keys_one": "{{count}} key",
+    "keys_other": "{{count}} keys",
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
+    "empty": "This file is empty.",
+    "too_large": "Files over {{mb}} MB are not shown as a tree. Switch to Raw.",
+    "syntax_error": "Could not read this as {{format}}: line {{line}}, column {{column}}. Switch to Raw to see it.",
+    "load_failed": "The YAML reader could not be loaded. Switch to Raw to see the file."
+  },
+  "notebookPreview": {
+    "not_json": "Could not read this notebook: it is not JSON. Switch to Raw to see it.",
+    "unsupported": "Only notebooks in nbformat 4 or later can be previewed."
   },
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
@@ -650,13 +701,56 @@
     "load_failed": "Could not load image.",
     "too_large": "Image is too large to preview (max {{maxMb}} MB)."
   },
+  "fontPreview": {
+    "outside_workspace": "This font is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not load this font: its format may not be one the browser reads.",
+    "sample_label": "Sample text"
+  },
+  "mediaPreview": {
+    "outside_workspace": "This file is outside the workspace and cannot be played.",
+    "load_failed": "Could not play this file: its format may not be supported."
+  },
+  "pdfPreview": {
+    "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not open this PDF.",
+    "too_large": "This PDF is too large to preview (max {{maxMb}} MB).",
+    "password": "This PDF is protected by a password and cannot be previewed.",
+    "zoom_in": "Zoom in",
+    "zoom_out": "Zoom out",
+    "fit_width": "Fit to width"
+  },
+  "spreadsheetPreview": {
+    "outside_workspace": "This spreadsheet is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this spreadsheet.",
+    "too_large": "This spreadsheet is too large to preview (max {{maxMb}} MB).",
+    "sheets": "Sheets",
+    "empty_sheet": "This sheet has no values.",
+    "chart_sheet": "This sheet is a chart, which the preview does not draw.",
+    "columns_clipped": "Showing the first {{count}} columns."
+  },
+  "docxPreview": {
+    "outside_workspace": "This document is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this document.",
+    "too_large": "This document is too large to preview (max {{maxMb}} MB)."
+  },
+  "pptxPreview": {
+    "outside_workspace": "This presentation is outside the workspace and cannot be previewed.",
+    "load_failed": "Could not read this presentation.",
+    "too_large": "This presentation is too large to preview (max {{maxMb}} MB).",
+    "slide_number": "Slide {{number}} of {{count}}",
+    "chart": "Chart (not shown in the preview)",
+    "media": "Video or audio (not played in the preview)"
+  },
   "markdown": {
     "copy_code": "Copy code",
     "copy": "Copy",
     "copied": "Copied",
     "expand_section": "Expand section",
     "collapse_section": "Collapse section",
-    "copy_link": "Copy link to this section"
+    "copy_link": "Copy link to this section",
+    "mermaid_alt": "Mermaid diagram",
+    "mermaid_error": "This diagram could not be drawn: {{message}}",
+    "mermaid_unshown": "This diagram was drawn but cannot be shown."
   },
   "resize": {
     "sidebar": "Resize sidebar",

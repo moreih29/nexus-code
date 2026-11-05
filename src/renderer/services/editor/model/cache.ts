@@ -5,11 +5,11 @@
 
 import type * as Monaco from "monaco-editor";
 import { fileUriToAbsolutePath } from "../../../../shared/fs/file-uri";
-import type { FileContent } from "../../../../shared/fs/types";
 import { parseWorkspaceUri, workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { registerWorkspaceCleanup } from "../../../state/workspace-cleanup";
 import type { FileErrorCode } from "../../../utils/file-error";
+import type { TextEncoding } from "../encoding/text-encoding";
 import { registerKnownModelUri } from "../lsp/known-uris";
 import { initializeMonacoSingleton, requireMonaco } from "../runtime/monaco-singleton";
 import { attachDirtyTracker } from "./dirty-tracker";
@@ -244,8 +244,8 @@ export interface ResolvedModelView {
   filePath: string;
   languageId: string;
   readOnly: boolean;
-  /** How the file was read; "utf8-bom" means a save writes the BOM back. */
-  encoding: FileContent["encoding"];
+  /** The encoding the file was read or saved in, which a save writes in. */
+  encoding: TextEncoding;
 }
 
 export function getResolvedModel(input: EditorInput): ResolvedModelView | null {
@@ -321,6 +321,17 @@ export function clearDiskDiverged(input: EditorInput): void {
   if (!entry) return;
   if (entry.diskDiverged === undefined) return;
   entry.diskDiverged = undefined;
+  notifySubscribers(entry);
+}
+
+/**
+ * Record that the file is now in `encoding`, after a save wrote it in that
+ * one: later saves write in it too.
+ */
+export function setModelEncoding(input: EditorInput, encoding: TextEncoding): void {
+  const entry = entries.get(cacheUriForInput(input));
+  if (!entry || entry.encoding === encoding) return;
+  entry.encoding = encoding;
   notifySubscribers(entry);
 }
 
