@@ -419,6 +419,10 @@ export class CdpBrowserDriver implements BrowserDriver {
   private readonly networks = new WeakMap<WebContents, NetworkLog>();
   /** The file inputs whose chooser a command's click opened, by tab. */
   private readonly choosers = new WeakMap<WebContents, number>();
+  /** The tabs watched, whose downloads are noted. */
+  private readonly watched = new WeakSet<WebContents>();
+  /** The sessions listened to for downloads, each once for all its tabs. */
+  private readonly downloadSessions = new WeakSet<Electron.Session>();
 
   constructor(
     private readonly pageOf: (tabId: string) => BrowserPage | undefined,
@@ -444,20 +448,26 @@ export class CdpBrowserDriver implements BrowserDriver {
       this.navigations.set(contents, (this.navigations.get(contents) ?? 0) + 1);
     });
     contents.on("did-navigate", () => this.uncommitted.delete(contents));
-    // Tabs share a session, which tells every tab's downloads.
+    this.watched.add(contents);
+    // Tabs share a session, which tells every tab's downloads: one
+    // listener serves them all, where one each would pass the emitter's
+    // limit of ten once that many tabs are open.
     const session = contents.session;
-    const onDownload = (_event: Electron.Event, item: Electron.DownloadItem, from: WebContents) => {
-      if (from !== contents) return;
-      const file = this.driven.drives(contents)
-        ? saveCommandDownload(item)
-        : item.getFilename();
-      this.downloads.set(contents, { url: item.getURL(), file, type: item.getMimeType() });
-    };
-    session.on("will-download", onDownload);
+    if (!this.downloadSessions.has(session)) {
+      this.downloadSessions.add(session);
+      session.on("will-download", (_event, item, from) => this.noteDownload(item, from));
+    }
     contents.once("destroyed", () => {
-      session.removeListener("will-download", onDownload);
+      this.watched.delete(contents);
       if (this.consoles.get(tabId)?.contents === contents) this.consoles.delete(tabId);
     });
+  }
+
+  /** Notes what a watched tab's navigation downloaded; a command's goes to its folder. */
+  private noteDownload(item: Electron.DownloadItem, from: WebContents | undefined): void {
+    if (!from || !this.watched.has(from)) return;
+    const file = this.driven.drives(from) ? saveCommandDownload(item) : item.getFilename();
+    this.downloads.set(from, { url: item.getURL(), file, type: item.getMimeType() });
   }
 
   private contents(tabId: string): WebContents {
