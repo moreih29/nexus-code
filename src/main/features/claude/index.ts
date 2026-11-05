@@ -51,6 +51,13 @@ export interface SetupClaudeFeatureResult {
   isActiveTab: (workspaceId: string, tabId: string) => boolean;
   /** Input typed into a terminal, which can interrupt Claude's turn or answer its dialog. */
   noteInput: (workspaceId: string, tabId: string, data: string) => void;
+  /**
+   * A Claude tab's turn ended short: interrupted, or failed. No hook says so,
+   * and the tab's program tells it in a result line.
+   */
+  noteTurnStopped: (workspaceId: string, tabId: string) => void;
+  /** A Claude tab's program exited, maybe without its SessionEnd hook. */
+  noteProgramExit: (workspaceId: string, tabId: string) => void;
   /** 모든 구독을 해제하는 함수. */
   dispose: () => void;
   /** Each tab's Claude state, which the nexus CLI reports too. */
@@ -184,6 +191,17 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
       interrupts.noteInput(workspaceId, tabId, data);
       // The dialog answered in the terminal no longer waits on the app.
       if (answersDialog(data)) asks.answeredInTerminal(workspaceId, tabId);
+    },
+    noteTurnStopped: (workspaceId, tabId) => {
+      const status = broker.get(workspaceId, tabId)?.status;
+      if (status === "running" || status === "permissionPending") {
+        broker.set(workspaceId, tabId, "idle");
+      }
+    },
+    noteProgramExit: (workspaceId, tabId) => {
+      broker.clear(workspaceId, tabId);
+      activity.clear(workspaceId, tabId);
+      asks.clear(workspaceId, tabId);
     },
     dispose: () => {
       offHook();

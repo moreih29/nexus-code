@@ -35,6 +35,14 @@ export type GitCommitTabProps = GitCommitTabPayload;
 export type BrowserTabProps = BrowserTabPayload;
 export type SessionsTabProps = Record<string, never>;
 
+export interface ClaudeTabProps {
+  cwd: string;
+  /** The session the tab last had, to go on with once its program is gone. */
+  sessionId?: string;
+  /** Set on a tab opened as a fork: the session to copy, up to a message. Not kept. */
+  fork?: { sessionId: string; at?: string };
+}
+
 interface TabBase {
   id: string;
   /**
@@ -109,6 +117,12 @@ export interface BrowserTab extends TabBase {
   props: BrowserTabProps;
 }
 
+/** A conversation with Claude Code, driven through its stream-json mode. */
+export interface ClaudeTab extends TabBase {
+  type: "claude";
+  props: ClaudeTabProps;
+}
+
 /** The workspace's agent sessions, its tasks' included. */
 export interface SessionsTab extends TabBase {
   type: "sessions";
@@ -122,6 +136,7 @@ export type Tab =
   | GitCommitTab
   | UntitledTab
   | BrowserTab
+  | ClaudeTab
   | SessionsTab;
 
 // ---------------------------------------------------------------------------
@@ -141,6 +156,7 @@ export type CreateTabArgs =
   | { type: "terminal"; props: TerminalTabProps }
   | { type: "untitled"; props: UntitledTabProps }
   | { type: "browser"; props: BrowserTabProps }
+  | { type: "claude"; props: ClaudeTabProps }
   | { type: "sessions"; props: SessionsTabProps };
 
 interface TabsState {
@@ -213,6 +229,11 @@ interface TabsState {
    * No-op when the tab does not exist or is not of type "browser".
    */
   setBrowserLastUrl: (workspaceId: string, tabId: string, lastUrl: string) => void;
+  /**
+   * Keep the session a Claude tab now has, and drop the fork it was opened
+   * with. No-op on other tab types.
+   */
+  setClaudeSession: (workspaceId: string, tabId: string, sessionId: string) => void;
 }
 
 /**
@@ -246,6 +267,7 @@ export function defaultTitle(args: CreateTabArgs): string {
   if (args.type === "git.commit") return `commit ${args.props.sha.slice(0, 7)}`;
   if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
   if (args.type === "sessions") return i18next.t("common:sessions.tab_title");
+  if (args.type === "claude") return i18next.t("common:chat.tab_title");
   if (args.type === "browser") {
     if (!args.props.initialUrl) return "New Tab";
     try {
@@ -318,6 +340,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "untitled", props: args.props };
       } else if (args.type === "browser") {
         tab = { ...base, type: "browser", props: args.props };
+      } else if (args.type === "claude") {
+        tab = { ...base, type: "claude", props: args.props };
       } else if (args.type === "sessions") {
         tab = { ...base, type: "sessions", props: args.props };
       } else {
@@ -627,6 +651,22 @@ export const useTabsStore = create<TabsState>((set, get) => {
               ...wsRecord,
               [tabId]: next,
             },
+          },
+        };
+      });
+    },
+
+    setClaudeSession(workspaceId, tabId, sessionId) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "claude") return state;
+        if (tab.props.sessionId === sessionId && !tab.props.fork) return state;
+        const next: ClaudeTab = { ...tab, props: { cwd: tab.props.cwd, sessionId } };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
           },
         };
       });

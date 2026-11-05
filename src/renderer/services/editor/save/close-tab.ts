@@ -11,7 +11,9 @@
 //   untitled    → closeUntitledWithConfirm (dirty-aware, new)
 //   editor.diff → closeDiffWithConfirm (dirty-aware for the working-tree file it edits)
 //   git.commit / browser → closeTab (raw state op, no dirty)
+//   claude      → closeChatTab, then closeTab
 
+import { closeChatTab } from "@/services/chat/controller";
 import { closeTerminalWithConfirm } from "@/services/terminal";
 import { closeTab } from "@/state/operations/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
@@ -53,6 +55,12 @@ export async function closeTabWithConfirm(
 
   // git.commit, browser, sessions — no dirty state.
   if (tab.type === "git.commit" || tab.type === "browser" || tab.type === "sessions") {
+    closeTab(workspaceId, tabId);
+  }
+
+  // A Claude tab's program ends with it; its session stays resumable.
+  if (tab.type === "claude") {
+    closeChatTab(workspaceId, tabId);
     closeTab(workspaceId, tabId);
   }
 

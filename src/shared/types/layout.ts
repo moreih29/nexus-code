@@ -30,6 +30,16 @@ export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
 export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
 export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
 
+/**
+ * A Claude tab: a conversation with `claude -p` run in `cwd`. `sessionId` is
+ * the session it last had, to go on with once its program is gone.
+ */
+export const ClaudeTabPropsSchema = z.object({
+  cwd: z.string(),
+  sessionId: z.string().max(128).optional(),
+});
+export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
+
 /** The sessions tab shows the workspace it is in, with its tasks; it has no props. */
 export const SessionsTabPropsSchema = z.object({});
 export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
@@ -78,6 +88,14 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("browser"),
     title: z.string(),
     props: BrowserTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("claude"),
+    title: z.string(),
+    props: ClaudeTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

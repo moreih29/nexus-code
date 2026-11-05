@@ -370,6 +370,7 @@
     "new_terminal_with": "New Terminal With",
     "default_shell": "Default",
     "new_browser": "New Browser",
+    "new_claude": "New Claude session",
     "sessions": "Sessions",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
@@ -801,5 +802,140 @@
     "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
     "failedNetwork": "Couldn't check for updates. Check your network connection.",
     "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment."
+  },
+  "chat": {
+    "tab_title": "Claude",
+    "copy": "Copy",
+    "jump_to_bottom": "Scroll to the latest message",
+    "thinking": "Thinking",
+    "thinking_live": "Thinking…",
+    "message": {
+      "sent": "Sent",
+      "taken": "Read by Claude"
+    },
+    "empty": {
+      "title": "What should Claude work on?"
+    },
+    "notice": {
+      "interrupted": "Interrupted",
+      "exited": "Claude exited",
+      "restarted": "Claude started again",
+      "compacted": "Conversation compacted",
+      "error": "Error",
+      "dropped": "Some lines were lost"
+    },
+    "tool": {
+      "denied": "Denied",
+      "stopped": "Stopped",
+      "no_output": "(no output)",
+      "subagent_calls_one": "{{count}} call",
+      "subagent_calls_other": "{{count}} calls"
+    },
+    "permission": {
+      "aria": "Permission request",
+      "title": "Claude wants to use {{tool}}",
+      "from_subagent": "Asked by a subagent",
+      "page": "{{current}} of {{total}}",
+      "previous": "Previous request",
+      "next": "Next request",
+      "allow": "Allow",
+      "allow_always": "Always allow",
+      "deny": "Deny…",
+      "deny_send": "Deny",
+      "deny_stop": "Deny and stop",
+      "deny_placeholder": "Tell Claude what to do instead (optional)",
+      "back": "Back",
+      "suggest_mode": "Switch to {{mode}}",
+      "suggest_dirs": "Allow {{dirs}}"
+    },
+    "question": {
+      "other": "Other answer",
+      "skip": "Skip",
+      "submit": "Answer"
+    },
+    "plan": {
+      "title": "Claude's plan",
+      "request_changes": "Request changes",
+      "approve_manual": "Approve, ask before edits",
+      "approve_accept_edits": "Approve, accept edits",
+      "feedback_placeholder": "What should change in the plan?",
+      "send_feedback": "Send"
+    },
+    "status": {
+      "working": "Working",
+      "requesting": "Waiting for the model",
+      "thinking": "Thinking",
+      "writing": "Writing",
+      "running_tool": "Running {{tool}}",
+      "waiting_permission": "Waiting for your answer",
+      "compacting": "Compacting",
+      "interrupting": "Stopping…",
+      "retrying": "Retrying (attempt {{attempt}})",
+      "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "tokens": "↓ {{count}} tokens"
+    },
+    "rate_limit": {
+      "warning": "Close to the usage limit",
+      "warning_until": "Close to the usage limit · resets at {{time}}",
+      "rejected": "Usage limit reached",
+      "rejected_until": "Usage limit reached · resets at {{time}}"
+    },
+    "phase": {
+      "starting": "Starting Claude…",
+      "held": "The connection dropped. Claude keeps running and the tab catches up when it is back.",
+      "ended": "Claude is not running. Sending a message starts it again.",
+      "restart": "Restart",
+      "not_found": "Claude Code was not found where this workspace runs. Install it and try again.",
+      "failed": "Claude could not be started.",
+      "old_version": "Claude Code {{version}} is too old for this tab. {{min}} or later is needed.",
+      "retry": "Try again",
+      "truncated": "The oldest part of this conversation is no longer kept."
+    },
+    "queue": {
+      "aria": "Messages waiting for the turn to end",
+      "label": "Queued",
+      "images_one": "{{count}} image",
+      "images_other": "{{count}} images",
+      "edit": "Edit",
+      "remove": "Remove"
+    },
+    "composer": {
+      "aria": "Message to Claude",
+      "placeholder": "↩ send · ⇧↩ new line",
+      "placeholder_running": "↩ send now · ⌘↩ queue",
+      "send": "Send",
+      "send_now": "Send now",
+      "stop": "Stop",
+      "attach_image": "Attach image",
+      "remove_image": "Remove image",
+      "image_too_large": "{{name}} is larger than an image Claude can read."
+    },
+    "mode": {
+      "aria": "Permission mode",
+      "label": "Permission mode",
+      "auto": "Auto",
+      "auto_hint": "Claude handles permission decisions",
+      "default": "Manual",
+      "default_hint": "Always ask before changes",
+      "acceptEdits": "Accept edits",
+      "acceptEdits_hint": "Accept every file edit",
+      "plan": "Plan",
+      "plan_hint": "Plan before changes",
+      "bypassPermissions": "Bypass permissions",
+      "bypassPermissions_hint": "Never ask",
+      "bypass_confirm_title": "Bypass every permission?",
+      "bypass_confirm_body": "Claude will run commands and edit files without asking, including ones that delete data or reach the network. Use it only where nothing can be harmed.",
+      "bypass_confirm": "Bypass permissions"
+    },
+    "model": {
+      "aria": "Model",
+      "label": "Model",
+      "default": "Default model"
+    },
+    "effort": {
+      "aria": "Effort",
+      "label": "Effort",
+      "unset": "effort"
+    }
   }
 }

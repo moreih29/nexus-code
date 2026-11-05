@@ -16,6 +16,7 @@ import (
 	"os"
 	"time"
 
+	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/cliclient"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
@@ -100,6 +101,7 @@ func main() {
 	git := agentgit.New(root)
 	lsp := agentlsp.New()
 	pty := agentpty.New()
+	chat := agentchat.New()
 	search, err := agentsearch.New(root)
 	if err != nil {
 		agentLogger.Error("failed to initialize search", "err", err)
@@ -120,6 +122,7 @@ func main() {
 	agentgit.Register(d, git)
 	agentlsp.Register(d, lsp)
 	agentpty.Register(d, pty)
+	agentchat.Register(d, chat)
 	agentsearch.Register(d, search)
 	if hooksrv != nil {
 		hookserver.Register(d, hooksrv)
@@ -159,6 +162,7 @@ func main() {
 	git.SetEventSink(host.EmitEvent)
 	lsp.SetEventSink(host.EmitEvent)
 	pty.SetEventSink(host.EmitEvent)
+	chat.SetEventSink(host.EmitEvent)
 	search.SetEventSink(host.EmitEvent)
 	if hooksrv != nil {
 		// hookserver의 EventSink를 host가 생성된 뒤 연결한다.
@@ -175,6 +179,8 @@ func main() {
 	// that ignores SIGHUP would orphan. The hook calls SIGKILL on each PTY
 	// process group, so children are reaped deterministically on every OS.
 	host.RegisterShutdownHook(pty.Close)
+	// The Claude tabs' programs end with the agent the same way.
+	host.RegisterShutdownHook(chat.Close)
 	if hooksrv != nil {
 		// SIGTERM 경로는 os.Exit가 defer를 우회하므로 shutdown hook으로 등록한다.
 		// hookserver는 /tmp/nexus-h-*.sock 파일을 생성하므로 정리하지 않으면
