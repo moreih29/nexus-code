@@ -75,6 +75,12 @@ let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const MAX_ROWS_PX = 240;
 
+/** Grows the text box with its text, up to MAX_ROWS_PX. */
+function fitHeight(area: HTMLTextAreaElement): void {
+  area.style.height = "auto";
+  area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
+}
+
 export function Composer({
   controller,
   state,
@@ -193,11 +199,23 @@ export function Composer({
   };
 
   useLayoutEffect(() => {
+    if (areaRef.current) fitHeight(areaRef.current);
+  });
+  // A tab in the background lays out at no width, where the placeholder
+  // wraps a word to a line: the height it got there is wrong once the tab
+  // shows, so a new width fits it again.
+  useEffect(() => {
     const area = areaRef.current;
     if (!area) return;
-    area.style.height = "auto";
-    area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
-  });
+    let width = area.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (area.clientWidth === width) return;
+      width = area.clientWidth;
+      fitHeight(area);
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   const clear = () => {
     setText("");
