@@ -636,9 +636,10 @@ function ModeChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
   const mode = state.model.permissionMode ?? "default";
   const ready = state.model.process === "running";
+  const blocked = state.model.bypassBlocked !== undefined;
   const [open, setOpen] = useState(false);
   const pick = async (next: string) => {
-    if (next === mode) return;
+    if (next === mode || (next === BYPASS && blocked)) return;
     if (next === BYPASS && !bypassConfirmed.has(controller.key)) {
       const ok = await showConfirmDialog({
         title: t("chat.mode.bypass_confirm_title"),
@@ -693,13 +694,13 @@ function ModeChip({ controller, state }: ChipProps) {
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void pick(BYPASS)}>
-          <span className="flex flex-col">
+        <DropdownMenuItem disabled={blocked} onSelect={() => void pick(BYPASS)}>
+          <span className="flex flex-col" title={state.model.bypassBlocked}>
             <span className={cn("text-destructive", mode === BYPASS && "font-medium")}>
               {t(`chat.mode.${BYPASS}`)}
             </span>
             <span className="text-app-micro text-muted-foreground">
-              {t(`chat.mode.${BYPASS}_hint`)}
+              {blocked ? t("chat.mode.bypass_blocked") : t(`chat.mode.${BYPASS}_hint`)}
             </span>
           </span>
           <DropdownMenuShortcut>{ALL_MODES.length}</DropdownMenuShortcut>

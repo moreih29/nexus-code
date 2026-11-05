@@ -219,6 +219,11 @@ export interface ChatModel {
   processCostUsd?: number;
   /** How many times /clear started the conversation over, under a new session id. */
   clears?: number;
+  /**
+   * Why bypassPermissions can't be switched to, as the CLI answered a try:
+   * a setting or policy disables it (Claude Code says so only then).
+   */
+  bypassBlocked?: string;
   rateLimit?: RateLimitInfo;
   contextUsage?: unknown;
   /** get_usage's answer: the plan's limits, as the server sends them. */
@@ -900,6 +905,9 @@ function applyControlResponse(
     // The side panel's reads fail quietly: it shows what it has.
     if (QUIET_REQUESTS.has(subtype)) return;
     const error = str(response.error) ?? subtype;
+    if (subtype === "set_permission_mode" && request.mode === "bypassPermissions") {
+      m.bypassBlocked = error;
+    }
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail: error, at });
     return;
   }

@@ -937,6 +937,7 @@
       "plan_hint": "Plan before changes",
       "bypassPermissions": "Bypass permissions",
       "bypassPermissions_hint": "Never ask",
+      "bypass_blocked": "Turned off by a setting or policy",
       "bypass_confirm_title": "Bypass every permission?",
       "bypass_confirm_body": "Claude will run commands and edit files without asking, including ones that delete data or reach the network. Use it only where nothing can be harmed.",
       "bypass_confirm": "Bypass permissions"

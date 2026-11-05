@@ -937,6 +937,7 @@
       "plan_hint": "변경하기 전에 계획 세우기",
       "bypassPermissions": "권한 무시",
       "bypassPermissions_hint": "아무것도 묻지 않음",
+      "bypass_blocked": "설정이나 정책으로 꺼져 있습니다",
       "bypass_confirm_title": "모든 권한 확인을 건너뛸까요?",
       "bypass_confirm_body": "Claude가 데이터를 지우거나 네트워크에 접속하는 명령까지 묻지 않고 실행하고 파일을 편집합니다. 망가져도 괜찮은 곳에서만 쓰세요.",
       "bypass_confirm": "권한 무시"

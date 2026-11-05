@@ -110,6 +110,33 @@ describe("chat model from a recorded conversation", () => {
     expect(model.clears).toBe(1);
   });
 
+  test("a policy refusing bypass mode is remembered", () => {
+    const refusal =
+      "Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration";
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      {
+        seq: 2,
+        dir: "in",
+        message: {
+          type: "control_request",
+          request_id: "a1",
+          request: { subtype: "set_permission_mode", mode: "bypassPermissions" },
+        },
+      },
+      {
+        seq: 3,
+        dir: "out",
+        message: {
+          type: "control_response",
+          response: { subtype: "error", request_id: "a1", error: refusal },
+        },
+      },
+    ]);
+    expect(model.bypassBlocked).toBe(refusal);
+    expect(model.permissionMode).toBeUndefined();
+  });
+
   test("a permission request waits on the card until the app answers it", () => {
     const asked = run(upTo((l) => messageOf(l).type === "control_request" && l.dir === "out"));
     expect(asked.permissions).toHaveLength(1);
