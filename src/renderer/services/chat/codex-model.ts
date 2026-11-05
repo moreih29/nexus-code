@@ -687,7 +687,7 @@ function toolsOf(item: Rec, id: string, phase: "started" | "completed"): ToolCal
           ...base,
           id,
           name: "Bash",
-          input: { command: str(item.command) ?? "", cwd: str(item.cwd) },
+          input: { command: shownCommand(str(item.command) ?? ""), cwd: str(item.cwd) },
           status: failed ? "error" : base.status,
           ...(output !== undefined || phase === "completed"
             ? { result: outputResult(output ?? "", failed || base.status === "error") }
@@ -806,6 +806,51 @@ function contentText(content: unknown): string {
     .join("\n");
 }
 
+/** A shell that runs the one script it is given, as Codex wraps a command in. */
+const SHELL_SCRIPT = /^(?:\S*\/)?(?:bash|zsh|sh) -l?c (.+)$/s;
+
+/**
+ * The command a row shows: the script, without the `bash -lc '…'` Codex
+ * runs it in. Anything else is shown as it is.
+ */
+export function shownCommand(command: string): string {
+  const script = SHELL_SCRIPT.exec(command)?.[1];
+  return (script === undefined ? null : shellWord(script)) ?? command;
+}
+
+/** A shell-quoted string read as the one word it is; null when it is not one word. */
+function shellWord(text: string): string | null {
+  let word = "";
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "'") {
+      const end = text.indexOf("'", i + 1);
+      if (end < 0) return null;
+      word += text.slice(i + 1, end);
+      i = end + 1;
+    } else if (ch === '"') {
+      i++;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] === "$" || text[i] === "`") return null;
+        if (text[i] === "\\" && '"\\$`\n'.includes(text[i + 1] ?? "")) i++;
+        word += text[i++];
+      }
+      if (i >= text.length) return null;
+      i++;
+    } else if (ch === "\\") {
+      word += text[i + 1] ?? "";
+      i += 2;
+    } else if (/[\s;&|<>()$`*?[\]{}~#]/.test(ch)) {
+      return null;
+    } else {
+      word += ch;
+      i++;
+    }
+  }
+  return word;
+}
+
 /**
  * A change's patch as the rows show one: a unified diff's hunks, or a new
  * or deleted file's lines all added or all removed.
@@ -867,7 +912,7 @@ function permissionOf(
         requestId: key,
         toolName: "Bash",
         input: {
-          command: str(params.command) ?? str(known?.command) ?? "",
+          command: shownCommand(str(params.command) ?? "") || (str(known?.command) ?? ""),
           cwd: str(params.cwd) ?? str(known?.cwd),
         },
         description: reason,

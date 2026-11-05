@@ -5,6 +5,7 @@ import {
   emptyCodexModel,
   hunksOf,
   modeOf,
+  shownCommand,
 } from "../../../../../src/renderer/services/chat/codex-model";
 import type {
   AssistantItem,
@@ -581,6 +582,19 @@ describe("codex helpers", () => {
     expect(modeOf("read-only")).toBe("readOnly");
     expect(modeOf("workspace-write")).toBe("auto");
     expect(modeOf({ type: "externalSandbox" })).toBeUndefined();
+  });
+
+  test("shownCommand drops the shell Codex runs a command in", () => {
+    expect(shownCommand("/bin/bash -lc 'printf hi > note.txt && cat note.txt'")).toBe(
+      "printf hi > note.txt && cat note.txt",
+    );
+    expect(shownCommand(`/bin/zsh -lc 'echo '"'"'quoted'"'"''`)).toBe("echo 'quoted'");
+    expect(shownCommand("bash -c ls")).toBe("ls");
+    expect(shownCommand('bash -lc "echo \\"a\\""')).toBe('echo "a"');
+    // Not one script: shown as it is.
+    expect(shownCommand("bash -lc 'a' 'b'")).toBe("bash -lc 'a' 'b'");
+    expect(shownCommand('bash -lc "echo $HOME"')).toBe('bash -lc "echo $HOME"');
+    expect(shownCommand("ls -la")).toBe("ls -la");
   });
 
   test("hunksOf reads unified diffs and whole files", () => {
