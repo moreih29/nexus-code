@@ -60,6 +60,7 @@ class FakeChannel implements AgentChannel {
 function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
+  const status: string[] = [];
   let providerReady: ((id: string) => void) | undefined;
   const manager: ChatWorkspaceManager = {
     getAgentChannel: async () => channel,
@@ -77,8 +78,10 @@ function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
   const host = new ChatHost({
     workspaceManager: manager,
     broadcast: (event, args) => events.push({ event, args }),
+    onTurnStopped: (ws, tab) => status.push(`stopped ${ws} ${tab}`),
+    onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
   });
-  return { channel, events, host, providerReady: (id: string) => providerReady?.(id) };
+  return { channel, events, status, host, providerReady: (id: string) => providerReady?.(id) };
 }
 
 describe("chat launch", () => {
@@ -187,6 +190,26 @@ describe("ChatHost", () => {
     });
     channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
     expect(events.map((e) => e.event)).toEqual(["line", "exit"]);
+  });
+
+  test("tells the Claude status of turns that stopped short and of exits", async () => {
+    const { channel, status, host } = setup();
+    await host.start(WS, TAB, "/repo", {});
+    const result = (message: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+      channel.emit("chat.line", {
+        workspaceId: WS,
+        tabId: TAB,
+        seq: 1,
+        dir: "out",
+        message: { type: "result", ...message },
+        ...extra,
+      });
+    result({ subtype: "success", terminal_reason: "completed" });
+    result({ subtype: "error_during_execution" });
+    result({ subtype: "success", terminal_reason: "aborted_tools" });
+    result({ subtype: "error_during_execution" }, { replay: true });
+    channel.emit("chat.exit", { workspaceId: WS, tabId: TAB, code: 0 });
+    expect(status).toEqual([`stopped ${WS} ${TAB}`, `stopped ${WS} ${TAB}`, `exit ${WS} ${TAB}`]);
   });
 
   test("holds on reconnecting and resyncs when the agent is back", async () => {

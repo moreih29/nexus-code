@@ -531,6 +531,8 @@ app.whenReady().then(async () => {
   chatHost = registerChatChannel({
     workspaceManager,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
+    onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),
+    onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop

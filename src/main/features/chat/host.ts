@@ -32,6 +32,10 @@ export interface ChatHostOptions {
   broadcast: (event: string, args: unknown) => void;
   /** On Windows, where local claude runs without the bash wrapper. */
   windowsAgentFiles?: () => Promise<WindowsAgentFiles | null>;
+  /** A tab's turn ended short (interrupted, failed), which no hook tells. */
+  onTurnStopped?: (workspaceId: string, tabId: string) => void;
+  /** A tab's program exited. */
+  onProgramExit?: (workspaceId: string, tabId: string) => void;
 }
 
 export type StartResult =
@@ -182,6 +186,24 @@ export class ChatHost {
     return channel;
   }
 
+  /** What the hooks leave untold of a tab's Claude: a turn stopped, the program gone. */
+  private noteForStatus(event: string, payload: Record<string, unknown>): void {
+    const workspaceId = payload.workspaceId as string;
+    const tabId = typeof payload.tabId === "string" ? payload.tabId : null;
+    if (!tabId) return;
+    if (event === "exit") {
+      this.options.onProgramExit?.(workspaceId, tabId);
+      return;
+    }
+    if (payload.replay === true || payload.dir !== "out") return;
+    const message = payload.message as Record<string, unknown> | null | undefined;
+    if (message?.type !== "result") return;
+    const reason = typeof message.terminal_reason === "string" ? message.terminal_reason : "";
+    if (message.subtype !== "success" || reason.startsWith("aborted")) {
+      this.options.onTurnStopped?.(workspaceId, tabId);
+    }
+  }
+
   /** Relays one channel's chat events, once per channel. */
   private subscribe(workspaceId: string, channel: AgentChannel): void {
     const existing = this.subscriptions.get(workspaceId);
@@ -198,6 +220,7 @@ export class ChatHost {
         return;
       }
       this.options.broadcast(event, payload);
+      this.noteForStatus(event, payload as Record<string, unknown>);
     };
     const offLine = channel.on("chat.line", relay("line"));
     const offExit = channel.on("chat.exit", relay("exit"));
