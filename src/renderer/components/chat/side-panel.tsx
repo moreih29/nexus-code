@@ -759,6 +759,7 @@ function formatCost(usd: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
+    currencyDisplay: "narrowSymbol",
     minimumFractionDigits: 2,
     maximumFractionDigits: usd < 1 ? 4 : 2,
   }).format(usd);
