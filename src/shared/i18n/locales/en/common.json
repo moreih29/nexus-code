@@ -411,6 +411,15 @@
     "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
     "close_running_confirm": "Terminate"
   },
+  "previewFind": {
+    "placeholder": "Find",
+    "count": "{{current}} of {{total}}",
+    "none": "No results",
+    "matchCase": "Match case",
+    "previous": "Previous match (Shift+Enter)",
+    "next": "Next match (Enter)",
+    "close": "Close (Escape)"
+  },
   "encoding": {
     "segmentTitle": "Encoding: {{name}}",
     "menuTitle": "Encoding",

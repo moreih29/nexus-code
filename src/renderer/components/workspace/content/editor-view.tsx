@@ -26,6 +26,7 @@ import { ImagePreview } from "../../editor/preview/image-preview";
 import { JsonTreePreview } from "../../editor/preview/json-tree-preview";
 import { MarkdownPreview } from "../../editor/preview/markdown-preview";
 import { NotebookPreview } from "../../editor/preview/notebook-preview";
+import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { SvgPreview } from "../../editor/preview/svg-preview";
 import { TablePreview } from "../../editor/preview/table-preview";
 import { ViewModeToggle } from "../../editor/preview/view-mode-toggle";
@@ -349,7 +350,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
       </div>
 
       {showPreview && (
-        <div className="flex-1 min-h-0">
+        <PreviewFindScope className="flex-1 min-h-0">
           <PreviewPane
             filePath={filePath}
             workspaceId={workspaceId}
@@ -357,7 +358,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
             source={previewSource}
             onToggleTask={readOnly ? undefined : onToggleTask}
           />
-        </div>
+        </PreviewFindScope>
       )}
     </div>
   );

@@ -4,6 +4,7 @@
 
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { SpreadsheetPreview } from "../../editor/preview/spreadsheet-preview";
+import { PreviewFindScope } from "../../editor/preview/preview-find";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
 interface SpreadsheetEditorViewProps {
@@ -20,9 +21,9 @@ export function SpreadsheetEditorView({ filePath, workspaceId }: SpreadsheetEdit
       <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
         <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
       </div>
-      <div className="flex-1 min-h-0 flex flex-col">
+      <PreviewFindScope className="flex-1 min-h-0">
         <SpreadsheetPreview workspaceId={workspaceId} filePath={filePath} />
-      </div>
+      </PreviewFindScope>
     </div>
   );
 }
