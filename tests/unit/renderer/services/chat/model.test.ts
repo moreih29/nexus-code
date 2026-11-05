@@ -86,6 +86,30 @@ describe("chat model from a recorded conversation", () => {
     expect(model.processCostUsd).toBe(0.001);
   });
 
+  test("/clear starts the conversation over under the new session id", () => {
+    const sid = (seq: number, id: string): ChatLine => ({
+      seq,
+      dir: "out",
+      message: { type: "system", subtype: "init", session_id: id },
+    });
+    const before = run(FIXTURE);
+    const lastSeq = before.lastSeq;
+    // As 2.1.318 answers a /clear: the reset, then an init with the new id.
+    const model = applyLines(before, [
+      {
+        seq: lastSeq + 1,
+        dir: "out",
+        message: { type: "conversation_reset", session_id: before.sessionId },
+      },
+      sid(lastSeq + 2, "new-session"),
+      { seq: lastSeq + 3, dir: "out", message: { type: "result", subtype: "success" } },
+    ]);
+    expect(model.sessionId).toBe("new-session");
+    expect(model.items.map((i) => (i.kind === "notice" ? i.code : i.kind))).toEqual(["cleared"]);
+    expect(model.tools).toEqual({});
+    expect(model.clears).toBe(1);
+  });
+
   test("a permission request waits on the card until the app answers it", () => {
     const asked = run(upTo((l) => messageOf(l).type === "control_request" && l.dir === "out"));
     expect(asked.permissions).toHaveLength(1);

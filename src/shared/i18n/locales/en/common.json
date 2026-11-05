@@ -821,6 +821,7 @@
       "exited": "Claude exited",
       "restarted": "Claude started again",
       "compacted": "Conversation compacted",
+      "cleared": "Started over (/clear)",
       "error": "Error",
       "dropped": "Some lines were lost"
     },

@@ -50,7 +50,14 @@ export interface AssistantItem {
   at?: number;
 }
 
-export type NoticeCode = "interrupted" | "exited" | "restarted" | "compacted" | "error" | "dropped";
+export type NoticeCode =
+  | "interrupted"
+  | "exited"
+  | "restarted"
+  | "compacted"
+  | "cleared"
+  | "error"
+  | "dropped";
 
 export interface NoticeItem {
   kind: "notice";
@@ -210,6 +217,8 @@ export interface ChatModel {
   costUsd?: number;
   /** The running process's part of costUsd. */
   processCostUsd?: number;
+  /** How many times /clear started the conversation over, under a new session id. */
+  clears?: number;
   rateLimit?: RateLimitInfo;
   contextUsage?: unknown;
   /** get_usage's answer: the plan's limits, as the server sends them. */
@@ -431,6 +440,17 @@ function applyOut(draft: Draft, message: Rec, seq: number, at: number | undefine
     case "control_response":
       applyControlResponse(draft, message, seq, at);
       return;
+    case "conversation_reset": {
+      // /clear: the session goes on under a new id, which the next init
+      // tells, with nothing of what came before.
+      const m = draft.next;
+      m.items = [{ kind: "notice", key: `n${seq}`, code: "cleared", at }];
+      m.tools = {};
+      m.agentItems = {};
+      m.contextUsage = undefined;
+      m.clears = (m.clears ?? 0) + 1;
+      return;
+    }
     case "rate_limit_event": {
       const info = rec(message.rate_limit_info);
       const status = str(info?.status);

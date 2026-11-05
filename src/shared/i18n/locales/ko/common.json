@@ -821,6 +821,7 @@
       "exited": "Claude가 종료됨",
       "restarted": "Claude를 다시 시작함",
       "compacted": "대화를 압축함",
+      "cleared": "대화를 새로 시작함 (/clear)",
       "error": "오류",
       "dropped": "일부 줄을 놓침"
     },
