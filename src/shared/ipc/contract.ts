@@ -13,6 +13,7 @@ import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/sh
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
+  FileReadBinaryResultSchema,
   FileReadResultSchema,
   FsChangedEventSchema,
   FsStatSchema,
@@ -1175,6 +1176,8 @@ export const ipcContract = {
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
+      // A file's bytes as base64, for previews that take them whole (PDF).
+      readBinary: call(workspaceScoped({ relPath: z.string() }), FileReadBinaryResultSchema),
       writeFile: call(
         workspaceScoped({
           relPath: z.string(),

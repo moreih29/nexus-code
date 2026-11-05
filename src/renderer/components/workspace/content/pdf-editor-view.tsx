@@ -1,0 +1,75 @@
+// The editor surface of a PDF file: the breadcrumb toolbar the other editors
+// have, its right slot holding the page number and the zoom, and the pages
+// below. PDFs are not editable.
+
+import { Maximize2, Minus, Plus } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { type PdfControls, PdfPreview } from "../../editor/preview/pdf-preview";
+import { EditorBreadcrumbs } from "./editor-breadcrumbs";
+
+interface PdfEditorViewProps {
+  filePath: string;
+  workspaceId: string;
+}
+
+export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
+  const workspaceRootAbsPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
+  );
+  const [controls, setControls] = useState<PdfControls | null>(null);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b border-[var(--surface-island-border)]">
+        <EditorBreadcrumbs filePath={filePath} workspaceRootAbsPath={workspaceRootAbsPath} />
+        {controls && <PdfToolbar controls={controls} />}
+      </div>
+      <div className="flex-1 min-h-0 flex">
+        <PdfPreview workspaceId={workspaceId} filePath={filePath} onControls={setControls} />
+      </div>
+    </div>
+  );
+}
+
+function PdfToolbar({ controls }: { controls: PdfControls }) {
+  const { t } = useTranslation();
+  const button =
+    "inline-flex items-center justify-center size-6 rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
+  return (
+    <div className="flex shrink-0 items-center gap-1 text-app-ui-sm tabular-nums text-muted-foreground select-none">
+      <span className="px-1">
+        {controls.page} / {controls.pages}
+      </span>
+      <button
+        type="button"
+        className={button}
+        onClick={() => controls.zoom(-1)}
+        aria-label={t("pdfPreview.zoom_out")}
+        title={t("pdfPreview.zoom_out")}
+      >
+        <Minus className="size-3.5" />
+      </button>
+      <span className="w-10 text-center">{Math.round(controls.scale * 100)}%</span>
+      <button
+        type="button"
+        className={button}
+        onClick={() => controls.zoom(1)}
+        aria-label={t("pdfPreview.zoom_in")}
+        title={t("pdfPreview.zoom_in")}
+      >
+        <Plus className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        className={button}
+        onClick={controls.fitWidth}
+        aria-label={t("pdfPreview.fit_width")}
+        title={t("pdfPreview.fit_width")}
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+    </div>
+  );
+}

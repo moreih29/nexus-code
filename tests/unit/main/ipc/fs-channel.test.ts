@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
+  readBinaryHandler,
   readdirHandler,
   readExternalHandler,
   readFileHandler,
@@ -16,6 +17,7 @@ import {
 } from "../../../../src/main/features/fs/ipc/write-handlers";
 import type {
   DirEntry,
+  FileReadBinaryResult,
   FileReadResult,
   FsStat,
   WriteFileResult,
@@ -180,6 +182,27 @@ describe("fs read handlers — provider delegation", () => {
       readFileHandler(manager as never)({ workspaceId: WORKSPACE_ID, relPath: "broken.ts" }),
     ).rejects.toBe(error);
     expect(readFile.mock.calls).toEqual([["broken.ts"]]);
+  });
+
+  it("readBinaryHandler passes the workspace id to getFs and relPath to the provider", async () => {
+    const fileResult: FileReadBinaryResult = {
+      kind: "ok",
+      base64: "JVBERi0=",
+      sizeBytes: 5,
+      mtime: "2026-11-05T00:00:00.000Z",
+    };
+    const readBinary = mock(async (_relPath: string) => fileResult);
+    const { provider } = makeProvider({ readBinary });
+    const { manager, getFs } = makeManager(provider);
+
+    const result = await readBinaryHandler(manager as never)({
+      workspaceId: WORKSPACE_ID,
+      relPath: "docs/paper.pdf",
+    });
+
+    expect(result).toBe(fileResult);
+    expect(getFs.mock.calls).toEqual([[WORKSPACE_ID]]);
+    expect(readBinary.mock.calls).toEqual([["docs/paper.pdf"]]);
   });
 
   it("readExternalHandler passes the workspace id and absolute path to the provider", async () => {
