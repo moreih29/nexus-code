@@ -2,6 +2,7 @@
 // names: where a path points, which kind of file it is, and whether an
 // address is the machine's own. Pure, for the tab and its tests.
 
+import { loopbackPort } from "../../../shared/pty/ports";
 import { isDocxFile } from "../editor/preview/docx";
 import { isFontFile } from "../editor/preview/font";
 import { mediaKindFor } from "../editor/preview/media";
@@ -77,21 +78,7 @@ export function isUnder(path: string, root: string): boolean {
  * localhost and its subdomains, the loopback addresses, and 0.0.0.0.
  */
 export function isLocalAddress(url: string): boolean {
-  let host: string;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-    host = parsed.hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "[::1]" ||
-    host === "0.0.0.0" ||
-    /^127(\.\d{1,3}){3}$/.test(host)
-  );
+  return loopbackPort(url) !== null;
 }
 
 export type FileKind =

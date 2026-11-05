@@ -125,9 +125,14 @@
     "op_working": "Working…",
     "ports_title": "Listening ports {{ports}} — click to open",
     "ports_menu_title": "Listening ports",
-    "ports_ssh_note": "These ports are on the SSH host, which the app does not forward ports from.",
+    "ports_ssh_note": "These ports are on {{host}}. Opening or copying one forwards it to this machine.",
+    "ports_not_listed": "Forwarded only",
+    "ports_forwarded": "Here at {{url}}",
+    "ports_forward_paused": "Here at {{url}} (back once reconnected)",
     "ports_open": "Open in browser tab",
-    "ports_copy": "Copy URL"
+    "ports_copy": "Copy URL",
+    "ports_forward": "Forward to this machine",
+    "ports_unforward": "Stop forwarding"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -168,6 +173,10 @@
     "dismiss_notification": "Dismiss notification",
     "task_count_one": "{{count}} task",
     "task_count_other": "{{count}} tasks"
+  },
+  "forward": {
+    "not_connected": "Port {{port}} cannot be opened: {{host}} is not connected.",
+    "failed": "Could not forward port {{port}} to this machine: {{error}}"
   },
   "task": {
     "switcher_aria": "Switch task",
@@ -1099,8 +1108,7 @@
       "copy_path": "Copy path",
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
-      "copy_link": "Copy link",
-      "remote_local": "This address is on the SSH host. Opening it needs port forwarding, which is not there yet."
+      "copy_link": "Copy link"
     }
   }
 }

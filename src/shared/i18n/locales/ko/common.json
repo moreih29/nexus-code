@@ -125,9 +125,14 @@
     "op_working": "작업 중…",
     "ports_title": "열린 포트 {{ports}} — 클릭하여 열기",
     "ports_menu_title": "열린 포트",
-    "ports_ssh_note": "SSH 호스트의 포트입니다. 앱이 포트를 포워딩하지 않아 여기서 열 수 없습니다.",
+    "ports_ssh_note": "{{host}}의 포트입니다. 열거나 복사하면 이 컴퓨터로 포워딩합니다.",
+    "ports_not_listed": "포워딩만",
+    "ports_forwarded": "여기서 {{url}}",
+    "ports_forward_paused": "여기서 {{url}} (다시 연결되면 이어짐)",
     "ports_open": "브라우저 탭에서 열기",
-    "ports_copy": "URL 복사"
+    "ports_copy": "URL 복사",
+    "ports_forward": "이 컴퓨터로 포워딩",
+    "ports_unforward": "포워딩 중지"
   },
   "titleBar": {
     "open_settings": "설정 열기",
@@ -168,6 +173,10 @@
     "dismiss_notification": "알림 닫기",
     "task_count_one": "작업 {{count}}개",
     "task_count_other": "작업 {{count}}개"
+  },
+  "forward": {
+    "not_connected": "{{host}}에 연결되어 있지 않아 포트 {{port}}를 열 수 없습니다.",
+    "failed": "포트 {{port}}를 이 컴퓨터로 포워딩하지 못했습니다: {{error}}"
   },
   "task": {
     "switcher_aria": "작업 전환",
@@ -1099,8 +1108,7 @@
       "copy_path": "경로 복사",
       "open_system": "시스템 브라우저에서 열기",
       "open_app_browser": "앱 브라우저에서 열기",
-      "copy_link": "링크 복사",
-      "remote_local": "SSH 호스트의 주소입니다. 열려면 포트 포워딩이 필요한데, 아직 지원하지 않습니다."
+      "copy_link": "링크 복사"
     }
   }
 }
