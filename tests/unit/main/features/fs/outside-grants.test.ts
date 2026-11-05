@@ -44,18 +44,25 @@ describe("outside grants", () => {
     expect(isOutsideGranted("ws", "/a/two.png")).toBe(false);
   });
 
-  test("a file granted by name is read where its link points", async () => {
-    setOutsideGrant("ws", "tab", [path.join(tmp, "named-link.txt")], []);
-    expect(await resolveOutsideGrant("ws", path.join(tmp, "named-link.txt"))).toBe(secret);
-  });
+  // Outside files are posix paths; a Windows workspace grants none.
+  test.skipIf(process.platform === "win32")(
+    "a file granted by name is read where its link points",
+    async () => {
+      setOutsideGrant("ws", "tab", [path.join(tmp, "named-link.txt")], []);
+      expect(await resolveOutsideGrant("ws", path.join(tmp, "named-link.txt"))).toBe(secret);
+    },
+  );
 
-  test("a link in a granted folder does not reach out of it", async () => {
-    setOutsideGrant("ws", "tab", [], [site]);
-    expect(await resolveOutsideGrant("ws", path.join(site, "style.css"))).toBe(
-      path.join(site, "style.css"),
-    );
-    expect(await resolveOutsideGrant("ws", path.join(site, "leak.txt"))).toBeNull();
-    expect(await resolveOutsideGrant("ws", path.join(site, "absent.css"))).toBeNull();
-    expect(await resolveOutsideGrant("ws", secret)).toBeNull();
-  });
+  test.skipIf(process.platform === "win32")(
+    "a link in a granted folder does not reach out of it",
+    async () => {
+      setOutsideGrant("ws", "tab", [], [site]);
+      expect(await resolveOutsideGrant("ws", path.join(site, "style.css"))).toBe(
+        path.join(site, "style.css"),
+      );
+      expect(await resolveOutsideGrant("ws", path.join(site, "leak.txt"))).toBeNull();
+      expect(await resolveOutsideGrant("ws", path.join(site, "absent.css"))).toBeNull();
+      expect(await resolveOutsideGrant("ws", secret)).toBeNull();
+    },
+  );
 });

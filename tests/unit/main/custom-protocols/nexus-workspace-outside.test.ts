@@ -52,16 +52,20 @@ describe("nexus-workspace:// outside files", () => {
     } as Partial<WorkspaceMeta>),
   );
 
-  test("a local file is served only while a tab grants it", async () => {
-    const ask = () => local(new Request(outsideUrl(out), { headers: { Range: "bytes=2-4" } }));
-    expect((await ask()).status).toBe(404);
-    setOutsideGrant("ws", "tab", [out], []);
-    const resp = await ask();
-    expect(resp.status).toBe(206);
-    expect(await resp.text()).toBe("234");
-    setOutsideGrant("ws", "tab", [], []);
-    expect((await ask()).status).toBe(404);
-  });
+  // Outside files are posix paths; a Windows workspace grants none.
+  test.skipIf(process.platform === "win32")(
+    "a local file is served only while a tab grants it",
+    async () => {
+      const ask = () => local(new Request(outsideUrl(out), { headers: { Range: "bytes=2-4" } }));
+      expect((await ask()).status).toBe(404);
+      setOutsideGrant("ws", "tab", [out], []);
+      const resp = await ask();
+      expect(resp.status).toBe(206);
+      expect(await resp.text()).toBe("234");
+      setOutsideGrant("ws", "tab", [], []);
+      expect((await ask()).status).toBe(404);
+    },
+  );
 
   test("another workspace's grant does not serve it", async () => {
     setOutsideGrant("ws-2", "tab", [out], []);
