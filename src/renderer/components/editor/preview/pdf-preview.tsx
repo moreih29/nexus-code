@@ -51,10 +51,17 @@ function dispatchFind(viewer: PDFViewer, find: PdfFind, type: "" | "again", find
 }
 
 /**
- * The find's colors in the pages' text layers, as the other previews paint
- * them; pdf.js sets its own on each highlight.
+ * What the app's styles change in the viewer's. The find's colors in the
+ * pages' text layers, as the other previews paint them; pdf.js sets its own
+ * on each highlight. And the pages' box: pdf.js sizes a page to the PDF's
+ * with its border outside, but under the app's border-box the border took
+ * its room from the drawn page, which was then smaller than the text layer
+ * over it, so that the find's marks and the selection sat off the words.
  */
-const FIND_STYLE = `.pdfViewer .textLayer .highlight {
+const VIEWER_STYLE = `.pdfViewer .page {
+  box-sizing: content-box;
+}
+.pdfViewer .textLayer .highlight {
   --highlight-bg-color: ${FIND_COLORS.match};
   --highlight-selected-bg-color: ${FIND_COLORS.current};
 }`;
@@ -73,7 +80,7 @@ function loadPdfJs(): Promise<{ pdfjs: PdfJs; lib: PdfViewerLib }> {
     ]);
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
     const style = document.createElement("style");
-    style.textContent = FIND_STYLE;
+    style.textContent = VIEWER_STYLE;
     document.head.append(style);
     return { pdfjs, lib };
   })();
