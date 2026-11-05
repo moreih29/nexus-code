@@ -33,6 +33,8 @@ export interface CliTabInfo {
   readonly url?: string;
   /** A terminal whose process has ended. */
   readonly dead?: boolean;
+  /** An editor, diff or untitled buffer with changes not saved. */
+  readonly unsaved?: boolean;
 }
 
 /** Where a tab the CLI opens goes. */
@@ -132,6 +134,8 @@ export type CliChangeKind =
   | "terminalNew"
   | "terminalInput"
   | "tabClose"
+  | "tabSave"
+  | "tabRevert"
   | "browserOpen"
   | "browserNavigate"
   | "browserControl"
@@ -183,6 +187,16 @@ export interface CliUiOps {
   "commit.open": {
     args: { workspaceId: string; rev: string; placement: CliPlacement };
     result: { tabId: string; sha: string; subject: string };
+  };
+  /** Saves the file of an editor or diff tab; `saved` is false when it had no changes. */
+  "tab.save": {
+    args: { workspaceId: string; tabId: string };
+    result: { filePath: string; saved: boolean };
+  };
+  /** Drops an editor or diff tab's unsaved changes for what is on disk. */
+  "tab.revert": {
+    args: { workspaceId: string; tabId: string };
+    result: { filePath: string; reverted: boolean };
   };
   /** Opens a file's changes between two refs (HEAD, INDEX, WORKING or a commit). */
   "diff.open": {

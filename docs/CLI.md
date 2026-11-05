@@ -20,7 +20,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 탭 |
 | `nexus workspace list` · `worktree list` | 워크스페이스와 워크트리 목록 |
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(Claude Code, Codex, ...)과 상태 |
-| `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 |
+| `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
 | `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 |
 
@@ -172,6 +172,8 @@ nexus layout close 3                 # 그룹과 그 안의 탭 닫기
 nexus tab move index.ts 1 --at 1     # 탭을 그룹 1 의 첫 자리로
 nexus tab rename <탭> "dev server"   # 탭 이름 바꾸기 (--reset 으로 원래대로)
 nexus tab pin <탭>                   # 탭 고정 (tab unpin 으로 해제)
+nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
+nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
 nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git)
 nexus panel hide sidebar
 nexus panel resize files 320         # 패널 너비(px)

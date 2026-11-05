@@ -24,10 +24,14 @@ import type { CliUiOp } from "../../../shared/cli/ui";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
+import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
+import { saveModel } from "../editor/save/service";
 import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
+import { workingFileOfDiff } from "../editor/tabs/diff-working-file";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
+import type { EditorInput } from "../editor/types";
 import { runningProgram } from "../terminal/close-confirm";
 import {
   loadInstalledShells,
@@ -73,6 +77,20 @@ function navigableUrl(input: string): string {
   throw new UiRequestError(
     result.kind === "blocked" ? (result.error ?? `cannot open ${input}`) : `not a URL: ${input}`,
   );
+}
+
+/** The file an editor tab, or a diff tab's working-tree side, edits. */
+function fileOfTab(workspaceId: string, tab: Tab): EditorInput {
+  if (tab.type === "editor") return tab.props;
+  if (tab.type === "editor.diff") {
+    const filePath = workingFileOfDiff(tab.props);
+    if (filePath !== null) return { workspaceId, filePath };
+    throw new UiRequestError("that diff shows no working-tree file, so it has nothing to save");
+  }
+  if (tab.type === "untitled") {
+    throw new UiRequestError("it has no file yet; save it in the app to name one");
+  }
+  throw new UiRequestError("only an editor or a diff has a file to save");
 }
 
 export function hasUnsavedChanges(workspaceId: string, tab: Tab): boolean {
@@ -224,6 +242,37 @@ export const actionHandlers: {
     }
     await closeTabWithConfirm(workspaceId, tabId);
     return {};
+  },
+
+  "tab.save": async ({ workspaceId, tabId }) => {
+    const input = fileOfTab(workspaceId, tabRecord(workspaceId, tabId));
+    const result = await saveModel(input);
+    switch (result.kind) {
+      case "saved":
+      case "not-dirty":
+        return { filePath: input.filePath, saved: result.kind === "saved" };
+      case "no-model":
+        // Not loaded since the app started: nothing typed in it to save.
+        return { filePath: input.filePath, saved: false };
+      case "conflict":
+        throw new UiRequestError(
+          'the file changed on disk since it was opened; saving it in the app lets the user choose which to keep, and "nexus tab revert" takes what is on disk',
+        );
+      case "read-only":
+        throw new UiRequestError("it is read-only");
+      case "superseded":
+        throw new UiRequestError("another save of it started first; try again");
+      case "error":
+        throw new UiRequestError(`it could not be saved: ${result.message}`);
+    }
+  },
+
+  "tab.revert": async ({ workspaceId, tabId }) => {
+    const tab = tabRecord(workspaceId, tabId);
+    const input = fileOfTab(workspaceId, tab);
+    if (!hasUnsavedChanges(workspaceId, tab)) return { filePath: input.filePath, reverted: false };
+    await reloadModelFromDisk(input);
+    return { filePath: input.filePath, reverted: !hasUnsavedChanges(workspaceId, tab) };
   },
 
   "browser.open": async ({ workspaceId, url, placement }) => {
