@@ -774,6 +774,96 @@ export const ipcContract = {
     },
   },
 
+  // ---------------------------------------------------------------------------
+  // Claude tabs: one `claude -p` per tab, run by the workspace's agent, whose
+  // stream-json lines the renderer reads and writes (shared/chat/protocol.ts).
+  // ---------------------------------------------------------------------------
+  chat: {
+    call: {
+      /**
+       * Runs the tab's program, or attaches to the one the agent still runs
+       * for it (after a window reload), whose log the renderer then replays.
+       */
+      start: call(
+        PtyWorkspaceTabSchema.extend({
+          cwd: z.string(),
+          /** A session to go on with (`--resume`). */
+          resume: z.string().max(128).optional(),
+          /** Go on with a copy of `resume` (`--fork-session`). */
+          fork: z.boolean().optional(),
+          /** With fork: the message to copy the session up to (`--resume-session-at`). */
+          resumeAt: z.string().max(128).optional(),
+        }),
+        z.discriminatedUnion("ok", [
+          z.object({
+            ok: z.literal(true),
+            pid: z.number().int(),
+            attached: z.boolean(),
+            /** `claude --version`'s x.y.z; null when it could not be read. */
+            version: z.string().nullable(),
+          }),
+          z.object({
+            ok: z.literal(false),
+            reason: z.enum(["not-found", "failed"]),
+            message: z.string(),
+          }),
+        ]),
+      ),
+      /** Writes one message to the program as a line. */
+      send: call(PtyWorkspaceTabSchema.extend({ message: z.record(z.unknown()) }), z.void()),
+      /** Ends the tab's program; its log stays, to show and to start again on. */
+      stop: call(PtyWorkspaceTabSchema, z.void()),
+      /** Ends the tab's program and forgets its log: the tab was closed. */
+      close: call(PtyWorkspaceTabSchema, z.void()),
+      /** Sends the tab's log again as `line` events, after `afterSeq`. */
+      replay: call(
+        PtyWorkspaceTabSchema.extend({ afterSeq: z.number().int().nonnegative().optional() }),
+        z.object({
+          found: z.boolean(),
+          running: z.boolean(),
+          truncated: z.boolean(),
+          lastSeq: z.number().int(),
+        }),
+      ),
+      /** A session's transcript, to show a conversation resumed after the agent restarted. */
+      transcript: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, sessionId: z.string().max(128) }),
+        z.object({
+          found: z.boolean(),
+          lines: z.array(z.unknown()),
+          truncated: z.boolean(),
+        }),
+      ),
+    },
+    listen: {
+      // Not validated: a line can carry megabytes of image data.
+      line: listen(
+        PtyWorkspaceTabSchema.extend({
+          seq: z.number().int(),
+          dir: z.enum(["out", "in", "sys"]),
+          message: z.unknown().optional(),
+          text: z.string().optional(),
+          replay: z.boolean().optional(),
+        }),
+      ),
+      exit: listen(
+        PtyWorkspaceTabSchema.extend({
+          code: z.number().int().nullable(),
+          signal: z.string().optional(),
+          stderrTail: z.string().optional(),
+        }),
+      ),
+      /** The workspace's connection dropped; its programs may still run on the agent. */
+      held: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
+      /**
+       * The workspace's agent is reachable again, the same one or a new one:
+       * its tabs replay what they missed, and a tab the agent has no log for
+       * ended with the agent it ran on.
+       */
+      resync: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
+    },
+  },
+
   lsp: {
     call: {
       didOpen: call(LspDidOpenArgsSchema, z.void()),
