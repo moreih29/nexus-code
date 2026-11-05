@@ -152,6 +152,54 @@ export class ChatHost {
     }
   }
 
+  /**
+   * Runs a Codex tab's `codex app-server`, or attaches to the one the agent
+   * still runs for it. The tab speaks its JSON-RPC over the same log.
+   */
+  async startCodex(
+    workspaceId: string,
+    tabId: string,
+    cwd: string,
+    options: { resetLog?: boolean },
+  ): Promise<StartResult> {
+    const channel = await this.channelFor(workspaceId);
+    const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
+      name: "codex",
+      dir: cwd,
+    });
+    if (!found.path) {
+      return { ok: false, reason: "not-found", message: "codex was not found on the PATH" };
+    }
+    const env = found.envPath ? { PATH: found.envPath } : {};
+    let version: string | null = null;
+    try {
+      const run = await channel.call<{ code: number; stdout: string }>("chat.exec", {
+        cwd,
+        program: found.path,
+        args: ["--version"],
+        env,
+        timeoutMs: VERSION_TIMEOUT_MS,
+      });
+      if (run.code === 0) version = parseClaudeVersion(run.stdout);
+    } catch (err) {
+      log.warn(`codex --version failed: ${(err as Error).message}`);
+    }
+    try {
+      const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
+        workspaceId,
+        tabId,
+        cwd,
+        program: found.path,
+        args: ["app-server"],
+        env,
+        ...(options.resetLog ? { resetLog: true } : {}),
+      });
+      return { ok: true, pid: result.pid, attached: result.attached === true, version };
+    } catch (err) {
+      return { ok: false, reason: "failed", message: (err as Error).message };
+    }
+  }
+
   async call(
     method: "send" | "stop" | "close" | "replay" | "attach" | "pruneAttachments",
     args: unknown,

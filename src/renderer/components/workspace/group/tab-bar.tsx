@@ -40,6 +40,7 @@ interface GroupTabBarProps {
   onNewBrowserTab: () => void;
   onShowSessions: () => void;
   onNewClaudeTab: () => void;
+  onNewCodexTab: () => void;
   onActivateGroup: (groupId: string) => void;
 }
 
@@ -57,6 +58,7 @@ export function GroupTabBar({
   onNewBrowserTab,
   onShowSessions,
   onNewClaudeTab,
+  onNewCodexTab,
   onActivateGroup,
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
@@ -75,7 +77,10 @@ export function GroupTabBar({
     ? {
         isPinned: !!contextTab.isPinned,
         isEditor: contextTab.type === "editor",
-        canRename: contextTab.type === "terminal" || contextTab.type === "claude",
+        canRename:
+          contextTab.type === "terminal" ||
+          contextTab.type === "claude" ||
+          contextTab.type === "codex",
       }
     : null;
 
@@ -143,6 +148,7 @@ export function GroupTabBar({
             onNewBrowserTab={onNewBrowserTab}
             onShowSessions={onShowSessions}
             onNewClaudeTab={onNewClaudeTab}
+            onNewCodexTab={onNewCodexTab}
             onTabContextMenu={(tabId) => setContextTabId(tabId)}
           />
         </div>

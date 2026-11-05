@@ -16,6 +16,7 @@ import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
   type ClaudeTabProps,
+  type CodexTabProps,
   type CreateTabArgs,
   type DiffTabProps,
   defaultTitle,
@@ -445,6 +446,15 @@ export function openClaudeTab(
   opts?: { groupId?: string | "active" },
 ): Tab {
   return openTabRecord(workspaceId, { type: "claude", props }, opts);
+}
+
+/** Open a Codex tab in a group (the active one by default): a new conversation in `cwd`. */
+export function openCodexTab(
+  workspaceId: string,
+  props: CodexTabProps,
+  opts?: { groupId?: string | "active" },
+): Tab {
+  return openTabRecord(workspaceId, { type: "codex", props }, opts);
 }
 
 /**

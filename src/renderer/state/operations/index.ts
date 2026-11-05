@@ -21,6 +21,7 @@ export {
   closeTab,
   findCommitTab,
   openClaudeTab,
+  openCodexTab,
   openDiffTab,
   openEditorTab,
   openNewBrowserTab,

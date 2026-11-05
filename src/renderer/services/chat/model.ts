@@ -100,6 +100,8 @@ export interface PermissionRequest {
   toolUseId?: string;
   /** A subagent's request carries its id. */
   agentId?: string;
+  /** The call as the card previews it, when the input alone does not tell it (a Codex patch). */
+  preview?: ToolCall;
 }
 
 export interface StreamingBlock {
@@ -263,17 +265,17 @@ export function emptyModel(): ChatModel {
 
 type Rec = Record<string, unknown>;
 
-function rec(value: unknown): Rec | null {
+export function rec(value: unknown): Rec | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Rec)
     : null;
 }
 
-function str(value: unknown): string | undefined {
+export function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function num(value: unknown): number | undefined {
+export function num(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
@@ -285,12 +287,12 @@ function time(value: unknown): number | undefined {
 }
 
 /** A draft of the model that copies what it changes, once. */
-class Draft {
-  readonly next: ChatModel;
+export class Draft<M extends ChatModel = ChatModel> {
+  readonly next: M;
   private itemsCopied = false;
   private toolsCopied = false;
 
-  constructor(prev: ChatModel) {
+  constructor(prev: M) {
     this.next = { ...prev };
   }
 
@@ -340,7 +342,8 @@ export function applyLines(prev: ChatModel, lines: readonly ChatLine[], now?: nu
   return model;
 }
 
-function applySys(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
+/** The agent's own lines: the program started, exited, or the log dropped lines. */
+export function applySys(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
   switch (message.event) {
     case "start":
@@ -971,7 +974,7 @@ function applyControlResponse(
   }
 }
 
-function stopRunningTools(draft: Draft): void {
+export function stopRunningTools(draft: Draft): void {
   for (const tool of Object.values(draft.next.tools)) {
     if (tool.status === "running" || tool.status === "streaming") {
       draft.setTool(tool.id, (t) => ({ ...(t as ToolCall), status: "stopped" }));

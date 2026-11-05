@@ -394,7 +394,8 @@
     "copy_path": "Copy Path",
     "copy_relative_path": "Copy Relative Path",
     "terminal_ended_suffix": "·",
-    "terminal_ended_aria": ", terminal ended"
+    "terminal_ended_aria": ", terminal ended",
+    "new_codex": "New Codex session"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
@@ -820,7 +821,8 @@
     "thinking_live": "Thinking…",
     "message": {
       "sent": "Sent",
-      "taken": "Read by Claude"
+      "taken": "Read by Claude",
+      "taken_codex": "Read by Codex"
     },
     "empty": {
       "title": "What should Claude work on?"
@@ -832,7 +834,9 @@
       "compacted": "Conversation compacted",
       "cleared": "Started over (/clear)",
       "error": "Error",
-      "dropped": "Some lines were lost"
+      "dropped": "Some lines were lost",
+      "exited_codex": "Codex exited",
+      "restarted_codex": "Codex started again"
     },
     "tool": {
       "denied": "Denied",
@@ -860,7 +864,10 @@
       "deny_placeholder": "Tell Claude what to do instead (optional)",
       "back": "Back",
       "suggest_mode": "Switch to {{mode}}",
-      "suggest_dirs": "Allow {{dirs}}"
+      "suggest_dirs": "Allow {{dirs}}",
+      "suggest_session": "Allowed without asking again until Codex restarts",
+      "title_codex": "Codex wants to use {{tool}}",
+      "deny_placeholder_codex": "Tell Codex what to do instead (optional)"
     },
     "question": {
       "other": "Other answer",
@@ -935,7 +942,8 @@
       "commands": "Commands",
       "files": "Files",
       "remove_file": "Remove file",
-      "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent."
+      "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "aria_codex": "Message to Codex"
     },
     "mode": {
       "aria": "Permission mode",
@@ -1249,6 +1257,31 @@
       "marketplace_title": "Marketplaces",
       "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
       "marketplace_open": "Open in terminal"
+    },
+    "codex": {
+      "tab_title": "Codex",
+      "empty": "What should Codex work on?",
+      "placeholder": "↩ send · ⇧↩ new line · @ files",
+      "starting": "Starting Codex…",
+      "held": "The connection dropped. Codex keeps running and the tab catches up when it is back.",
+      "ended": "Codex is not running. Sending a message starts it again, on the same thread.",
+      "not_found": "Codex was not found where this workspace runs. Install it (npm install -g @openai/codex) and try again.",
+      "failed": "Codex could not be started.",
+      "old_version": "Codex {{version}} is too old for this tab. {{min}} or later is needed.",
+      "signed_out": "Codex is not signed in. Sign in in a terminal, then check again.",
+      "sign_in": "Sign in in a terminal",
+      "sign_in_check": "Check again",
+      "mode": {
+        "readOnly": "Read only",
+        "readOnly_hint": "Reads files; asks before it edits or runs a command",
+        "auto": "Auto",
+        "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
+        "fullAccess": "Full access",
+        "fullAccess_hint": "No sandbox: runs anything without asking",
+        "bypass_confirm_title": "Give Codex full access?",
+        "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
+        "bypass_confirm": "Give full access"
+      }
     }
   }
 }

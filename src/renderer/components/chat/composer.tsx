@@ -21,9 +21,8 @@ import {
   isFolder,
   matchCommands,
 } from "../../services/chat/composer-input";
-import type { ChatController } from "../../services/chat/controller";
 import type { ImageBlock, ModelInfo } from "../../services/chat/model";
-import type { ChatTabState } from "../../services/chat/store";
+import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -37,10 +36,42 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { showToast } from "../ui/toast";
+import { useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 
+/** What the composer drives: a Claude tab's controller, or a Codex tab's. */
+export interface ComposerController {
+  readonly key: string;
+  /** The permission modes the mode chip offers; Claude Code's when left out. */
+  readonly modes?: ModeSet;
+  send(text: string, images?: ImageBlock[]): Promise<void>;
+  enqueue(text: string, images?: ImageBlock[]): void;
+  removeQueued(id: string): QueuedMessage | undefined;
+  interrupt(): Promise<unknown>;
+  clearDraft(): void;
+  attach(name: string, data: string): Promise<string>;
+  fileSuggestions(query: string): Promise<string[]>;
+  /** Whether the program answers a request the composer makes (Claude Code's names). */
+  supports(subtype: string): boolean;
+  setPermissionMode(mode: string): Promise<unknown>;
+  setModel(model: string): Promise<unknown>;
+  setEffort(level: string): Promise<unknown>;
+}
+
+/** Permission modes as a chip lists them. */
+export interface ModeSet {
+  /** In the order the chip lists them, which keys 1 to n pick. */
+  modes: readonly string[];
+  /** The one that lets everything run: listed apart, picked after a warning. */
+  dangerous: string;
+  /** Where the labels are: `${prefix}.${mode}`, its `_hint`, and the warning's `bypass_confirm*`. */
+  prefix: string;
+  /** The mode shown before the program tells one. */
+  fallback: string;
+}
+
 interface ComposerProps {
-  controller: ChatController;
+  controller: ComposerController;
   state: ChatTabState;
   /** The program runs on this machine, where an attached file's path can be read. */
   local: boolean;
@@ -50,6 +81,8 @@ interface ComposerProps {
   above?: React.ReactNode;
   /** Runs the message when it is one of the tab's own commands; false sends it. */
   onCommand?: (text: string) => boolean;
+  /** The `/` menu lists the Claude tab's own commands too. */
+  appCommands?: boolean;
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -88,8 +121,10 @@ export function Composer({
   placeholder,
   above,
   onCommand,
+  appCommands = true,
 }: ComposerProps) {
   const { t } = useTranslation();
+  const agent = useAgentContext();
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageBlock[]>([]);
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -127,9 +162,11 @@ export function Composer({
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
     const cli = model.init?.commands ?? [];
-    const own = appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`));
+    const own = appCommands
+      ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
+      : [];
     return matchCommands([...cli, ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t]);
+  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   useEffect(() => {
@@ -463,7 +500,7 @@ export function Composer({
               placeholder ??
               (running ? t("chat.composer.placeholder_running") : t("chat.composer.placeholder"))
             }
-            aria-label={t("chat.composer.aria")}
+            aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center gap-1 px-1.5 pb-1.5">
@@ -658,27 +695,35 @@ function IconButton({
 const CHIP_CLASS =
   "flex items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
-/** Permission modes in the order the chip lists them; keys 1 to 5 pick them. */
-const MODES = ["auto", "default", "acceptEdits", "plan"] as const;
-const BYPASS = "bypassPermissions";
-const ALL_MODES = [...MODES, BYPASS];
+/** Claude Code's permission modes; keys 1 to 5 pick them. */
+const CLAUDE_MODES: ModeSet = {
+  modes: ["auto", "default", "acceptEdits", "plan", "bypassPermissions"],
+  dangerous: "bypassPermissions",
+  prefix: "chat.mode",
+  fallback: "default",
+};
 
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
 function ModeChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
-  const mode = state.model.permissionMode ?? "default";
+  const set = controller.modes ?? CLAUDE_MODES;
+  const bypass = set.dangerous;
+  const all = set.modes;
+  const safe = all.filter((m) => m !== bypass);
+  const label = (key: string) => t(`${set.prefix}.${key}`);
+  const mode = state.model.permissionMode ?? set.fallback;
   const ready = state.model.process === "running";
   const blocked = state.model.bypassBlocked !== undefined;
   const [open, setOpen] = useState(false);
   const pick = async (next: string) => {
-    if (next === mode || (next === BYPASS && blocked)) return;
-    if (next === BYPASS && !bypassConfirmed.has(controller.key)) {
+    if (next === mode || (next === bypass && blocked)) return;
+    if (next === bypass && !bypassConfirmed.has(controller.key)) {
       const ok = await showConfirmDialog({
-        title: t("chat.mode.bypass_confirm_title"),
-        description: t("chat.mode.bypass_confirm_body"),
-        confirmLabel: t("chat.mode.bypass_confirm"),
+        title: label("bypass_confirm_title"),
+        description: label("bypass_confirm_body"),
+        confirmLabel: label("bypass_confirm"),
         variant: "destructive",
       });
       if (!ok) return;
@@ -691,7 +736,7 @@ function ModeChip({ controller, state }: ChipProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      const next = ALL_MODES[Number(e.key) - 1];
+      const next = all[Number(e.key) - 1];
       if (!next || e.metaKey || e.ctrlKey || e.altKey) return;
       e.preventDefault();
       e.stopPropagation();
@@ -706,38 +751,36 @@ function ModeChip({ controller, state }: ChipProps) {
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={cn(CHIP_CLASS, mode === BYPASS && "text-destructive hover:text-destructive")}
+          className={cn(CHIP_CLASS, mode === bypass && "text-destructive hover:text-destructive")}
           disabled={!ready}
           title={t("chat.mode.aria")}
           aria-label={t("chat.mode.aria")}
         >
-          {t(`chat.mode.${mode}`, { defaultValue: mode })}
+          {t(`${set.prefix}.${mode}`, { defaultValue: mode })}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
         <DropdownMenuLabel>{t("chat.mode.label")}</DropdownMenuLabel>
-        {MODES.map((m, i) => (
+        {safe.map((m, i) => (
           <DropdownMenuItem key={m} onSelect={() => void pick(m)}>
             <span className="flex flex-col">
-              <span className={cn(m === mode && "font-medium")}>{t(`chat.mode.${m}`)}</span>
-              <span className="text-app-micro text-muted-foreground">
-                {t(`chat.mode.${m}_hint`)}
-              </span>
+              <span className={cn(m === mode && "font-medium")}>{label(m)}</span>
+              <span className="text-app-micro text-muted-foreground">{label(`${m}_hint`)}</span>
             </span>
             <DropdownMenuShortcut>{i + 1}</DropdownMenuShortcut>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={blocked} onSelect={() => void pick(BYPASS)}>
+        <DropdownMenuItem disabled={blocked} onSelect={() => void pick(bypass)}>
           <span className="flex flex-col" title={state.model.bypassBlocked}>
-            <span className={cn("text-destructive", mode === BYPASS && "font-medium")}>
-              {t(`chat.mode.${BYPASS}`)}
+            <span className={cn("text-destructive", mode === bypass && "font-medium")}>
+              {label(bypass)}
             </span>
             <span className="text-app-micro text-muted-foreground">
-              {blocked ? t("chat.mode.bypass_blocked") : t(`chat.mode.${BYPASS}_hint`)}
+              {blocked ? t("chat.mode.bypass_blocked") : label(`${bypass}_hint`)}
             </span>
           </span>
-          <DropdownMenuShortcut>{ALL_MODES.length}</DropdownMenuShortcut>
+          <DropdownMenuShortcut>{all.length}</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenuRoot>
