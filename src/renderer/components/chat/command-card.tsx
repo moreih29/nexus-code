@@ -1,5 +1,6 @@
 // What an app command shows above the composer: /btw's answer, /help's
-// list, /memory's files. One at a time; the next command replaces it.
+// list, /memory's files, /tasks' sessions. One at a time; the next command
+// replaces it.
 
 import { FileText, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -72,6 +73,42 @@ export function CommandCardView({
             ))}
           </ul>
         )}
+        {card.sections?.map((section) => (
+          <div key={section.title} className="mt-1 first:mt-0">
+            <div className="px-1 py-1 text-app-micro font-medium text-muted-foreground">
+              {section.title}
+            </div>
+            {section.rows.length === 0 ? (
+              <div className="px-1 pb-1 text-app-ui-sm text-muted-foreground">{section.empty}</div>
+            ) : (
+              <ul className="flex flex-col">
+                {section.rows.map((row) => (
+                  <li
+                    key={row.id}
+                    className="flex min-w-0 items-center gap-2 rounded-(--radius-control) px-1 py-0.5 text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
+                  >
+                    <span className="min-w-0 flex-1 truncate" title={row.label}>
+                      {row.label}
+                    </span>
+                    {row.detail && (
+                      <span className="shrink-0 text-muted-foreground">{row.detail}</span>
+                    )}
+                    {row.actions.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={action.run}
+                        className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
       </div>
     </section>
   );

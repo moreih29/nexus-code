@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   answersOf,
   appCommandsBeside,
+  backgroundIdOf,
+  backgroundSessionsOf,
   code,
   conversationMarkdown,
   copyIndex,
@@ -16,6 +18,7 @@ import {
   permissionsMarkdown,
   permissionsOf,
   sandboxOn,
+  subtaskPrompt,
 } from "../../../../../src/renderer/services/chat/app-commands";
 import type { ChatItem, ToolCall } from "../../../../../src/renderer/services/chat/model";
 
@@ -247,5 +250,49 @@ describe("app commands", () => {
     expect(directoryArg("~/notes", "/w")).toBe("~/notes");
     expect(directoryArg("C:\\data", "C:\\w")).toBe("C:\\data");
     expect(directoryArg("  ", "/w")).toBeNull();
+  });
+
+  test("/bg and /bashes are /background's and /tasks'", () => {
+    expect(parseAppCommand("/bg go on", [])).toEqual({ name: "background", args: "go on" });
+    expect(parseAppCommand("/bashes", [])).toEqual({ name: "tasks", args: "" });
+    expect(subtaskPrompt("Check the tests")).toContain('subagent_type "fork"');
+    expect(subtaskPrompt("Check the tests").endsWith("\n\nCheck the tests")).toBe(true);
+  });
+
+  test("background sessions from claude agents --json, newest first", () => {
+    const stdout = JSON.stringify([
+      { pid: 1, cwd: "/w", kind: "interactive", sessionId: "s0", name: "w-a", status: "idle" },
+      {
+        pid: 2,
+        id: "8c55b250",
+        cwd: "/w",
+        kind: "background",
+        startedAt: 10,
+        sessionId: "8c55b250-4a63",
+        name: "8c55b250",
+        status: "idle",
+        state: "blocked",
+      },
+      { id: "1234abcd", kind: "background", startedAt: 20, sessionId: "s2", state: "stopped" },
+      { id: "x; rm -rf ~", kind: "background", startedAt: 30, status: "idle" },
+    ]);
+    expect(backgroundSessionsOf(stdout)).toEqual([
+      { id: "1234abcd", sessionId: "s2", name: "1234abcd", status: "stopped", startedAt: 20 },
+      {
+        id: "8c55b250",
+        sessionId: "8c55b250-4a63",
+        name: "8c55b250",
+        status: "idle",
+        startedAt: 10,
+      },
+    ]);
+    expect(backgroundSessionsOf("not json")).toEqual([]);
+    expect(backgroundSessionsOf("{}")).toEqual([]);
+    expect(
+      backgroundIdOf(
+        "Starting background service…\nbackgrounded · 8c55b250 (idle — send a prompt)",
+      ),
+    ).toBe("8c55b250");
+    expect(backgroundIdOf("error: no such session")).toBeNull();
   });
 });

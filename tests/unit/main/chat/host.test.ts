@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ChatHost, type ChatWorkspaceManager } from "../../../../src/main/features/chat/host";
 import {
+  backgroundArgs,
   CLAUDE_TAB_ARGS,
   claudeTabArgs,
   claudeTabEnv,
@@ -139,6 +140,21 @@ describe("chat launch", () => {
     expect(parseClaudeVersion("2.1.318 (Claude Code)\n")).toBe("2.1.318");
     expect(parseClaudeVersion("nope")).toBeNull();
   });
+
+  test("background sessions: list, send with the prompt after --, stop", () => {
+    expect(backgroundArgs({ kind: "list" }, "/repo")).toEqual([
+      "agents",
+      "--json",
+      "--all",
+      "--cwd",
+      "/repo",
+    ]);
+    expect(
+      backgroundArgs({ kind: "send", sessionId: "s1", model: "haiku", prompt: "-v go on" }, "/r"),
+    ).toEqual(["--bg", "--resume", "s1", "--model", "haiku", "--", "-v go on"]);
+    expect(backgroundArgs({ kind: "send", prompt: "" }, "/r")).toEqual(["--bg"]);
+    expect(backgroundArgs({ kind: "stop", id: "8c55b250" }, "/r")).toEqual(["stop", "8c55b250"]);
+  });
 });
 
 describe("ChatHost", () => {
@@ -185,6 +201,19 @@ describe("ChatHost", () => {
       program: string;
     };
     expect(start.program).toBe("/home/u/.local/bin/claude");
+  });
+
+  test("background runs the claude the PATH has, in the folder", async () => {
+    const { channel, host } = setup();
+    await host.background(WS, "/repo", { kind: "stop", id: "abc" });
+    expect(channel.calls.find((c) => c.method === "chat.exec")?.params).toMatchObject({
+      cwd: "/repo",
+      program: "/home/u/.local/bin/claude",
+      args: ["stop", "abc"],
+      env: { PATH: "/home/u/.local/bin:/usr/bin" },
+    });
+    channel.found = { path: "" };
+    await expect(host.background(WS, "/repo", { kind: "list" })).rejects.toThrow("not found");
   });
 
   test("start says when claude is not found", async () => {

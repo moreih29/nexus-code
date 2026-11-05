@@ -8,6 +8,7 @@
 
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { backgroundIdOf } from "./app-commands";
 import {
   type HistoryCut,
   historyModel,
@@ -307,6 +308,11 @@ export class ChatController {
     }
     this.flushNow();
     await this.start(this.startArgs());
+  }
+
+  /** The session the tab goes on with, once it has its own. */
+  currentSession(): string | undefined {
+    return this.sessionId;
   }
 
   /** Where a fork from a message starts: after it (Claude's), or before it (the user's). */
@@ -653,6 +659,41 @@ export class ChatController {
    */
   async backgroundTool(toolUseId: string): Promise<void> {
     await this.request("background_tasks", { tool_use_id: toolUseId });
+  }
+
+  /**
+   * Hands the conversation to Claude Code's background service (`claude
+   * --bg --resume`), which goes on with it, and with the prompt when there
+   * is one; a tab without a session yet sends just the prompt. The tab's
+   * own program ends first, so that only one goes on with the session.
+   * The background session's id.
+   */
+  async sendToBackground(prompt: string): Promise<string> {
+    const { workspaceId, tabId, cwd } = this.target;
+    const { model } = this.state;
+    if (model.running) throw new Error("a turn is running");
+    const sessionId = this.sessionId;
+    if (!sessionId && !prompt) throw new Error("the tab has no conversation yet");
+    if (model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    const run = unwrapIpcResult(
+      await ipcCallResult("chat", "background", {
+        workspaceId,
+        cwd,
+        command: {
+          kind: "send",
+          ...(sessionId ? { sessionId } : {}),
+          ...(model.model ? { model: model.model } : {}),
+          ...(prompt ? { prompt } : {}),
+        },
+      }),
+    );
+    const id = backgroundIdOf(run.stdout);
+    if (!id) {
+      throw new Error(run.stderr.trim() || run.stdout.trim() || "claude --bg did not start");
+    }
+    return id;
   }
 
   /** Starts the program when it is not running, and waits for its initialize. */

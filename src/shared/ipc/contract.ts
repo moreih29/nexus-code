@@ -911,6 +911,38 @@ export const ipcContract = {
       ),
       /** Stops waiting for a sign-in. */
       oauthCancel: call(z.object({ id: z.string().max(64) }), z.void()),
+      /**
+       * Claude Code's background sessions of a folder: lists them (`claude
+       * agents --json`), sends a session there (`claude --bg`), stops one.
+       */
+      background: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          cwd: z.string().max(4096),
+          command: z.discriminatedUnion("kind", [
+            z.object({ kind: z.literal("list") }),
+            z.object({
+              kind: z.literal("send"),
+              sessionId: z
+                .string()
+                .regex(/^[0-9A-Za-z-]{1,128}$/)
+                .optional(),
+              model: z
+                .string()
+                .regex(/^[0-9A-Za-z][0-9A-Za-z._:[\]-]{0,127}$/)
+                .optional(),
+              prompt: z.string().max(100_000).optional(),
+            }),
+            z.object({ kind: z.literal("stop"), id: z.string().regex(/^[0-9A-Za-z_-]{1,128}$/) }),
+          ]),
+        }),
+        z.object({
+          code: z.number().int(),
+          stdout: z.string(),
+          stderr: z.string(),
+          timedOut: z.boolean().optional(),
+        }),
+      ),
       /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
       sessions: call(
         z.object({ workspaceId: WorkspaceIdPrimitive, cwd: z.string().max(4096) }),

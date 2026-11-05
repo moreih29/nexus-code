@@ -1181,7 +1181,35 @@
         "hooks": "실행되는 훅 보기",
         "sandbox": "이 탭의 Bash 샌드박스 보기·켜고 끄기",
         "help": "탭이 직접 처리하는 명령 보기",
-        "exit": "이 탭 닫기"
+        "exit": "이 탭 닫기",
+        "fork": "이 대화를 새 탭으로 복사",
+        "subtask": "대화 전체를 가진 Claude 포크에게 작업을 맡김",
+        "tasks": "지금 실행 중인 것과 이 폴더의 백그라운드 세션",
+        "workflows": "이 세션의 워크플로",
+        "background": "이 세션을 Claude Code 백그라운드 서비스로 보내고 탭 닫기"
+      },
+      "fork_none": "먼저 메시지를 보내세요. 아직 복사할 대화가 없습니다.",
+      "subtask_empty": "하위 작업이 할 일을 적으세요: /subtask <작업>",
+      "background_busy": "세션을 백그라운드로 보내기 전에 턴이 끝나길 기다리거나 중지하세요.",
+      "background_empty": "먼저 메시지를 보내거나 백그라운드 세션에 줄 프롬프트를 적으세요: /background <프롬프트>",
+      "background_sent": "백그라운드로 보냄 ({{id}}). /tasks에서 볼 수 있습니다.",
+      "tasks_title": "이 세션에서 실행 중",
+      "tasks_none": "실행 중인 것이 없습니다.",
+      "workflows_title": "이 세션의 워크플로",
+      "workflows_none": "실행된 워크플로가 없습니다.",
+      "background_title": "이 폴더의 백그라운드 세션",
+      "background_none": "없음",
+      "open": "열기",
+      "stop": "중지",
+      "status": {
+        "running": "실행 중",
+        "completed": "완료",
+        "failed": "실패",
+        "killed": "중지됨",
+        "stopped": "중지됨",
+        "idle": "대기",
+        "blocked": "응답 대기",
+        "pending": "대기"
       }
     }
   }

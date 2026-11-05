@@ -1181,7 +1181,35 @@
         "hooks": "List the hooks that run",
         "sandbox": "Show or switch the Bash sandbox, for this tab",
         "help": "List the tab's own commands",
-        "exit": "Close this tab"
+        "exit": "Close this tab",
+        "fork": "Copy this conversation into a new tab",
+        "subtask": "Send a fork of Claude, with the whole conversation, off on a task",
+        "tasks": "What runs now, and this folder's background sessions",
+        "workflows": "This session's workflows",
+        "background": "Send this session to Claude Code's background service and close the tab"
+      },
+      "fork_none": "Send a message first: there is no conversation to copy yet.",
+      "subtask_empty": "Say what the subtask should do: /subtask <task>",
+      "background_busy": "Wait for the turn to end, or stop it, before sending the session to the background.",
+      "background_empty": "Send a message first, or give the background session a prompt: /background <prompt>",
+      "background_sent": "Sent to the background as {{id}}. /tasks lists it.",
+      "tasks_title": "Running in this session",
+      "tasks_none": "Nothing is running.",
+      "workflows_title": "Workflows in this session",
+      "workflows_none": "No workflows have run.",
+      "background_title": "Background sessions of this folder",
+      "background_none": "None.",
+      "open": "Open",
+      "stop": "Stop",
+      "status": {
+        "running": "running",
+        "completed": "done",
+        "failed": "failed",
+        "killed": "stopped",
+        "stopped": "stopped",
+        "idle": "idle",
+        "blocked": "waiting",
+        "pending": "waiting"
       }
     }
   }

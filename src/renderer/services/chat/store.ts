@@ -54,8 +54,25 @@ export interface CommandCard {
   text?: string;
   /** Files to open, each a button (/memory). */
   files?: { path: string; label: string }[];
+  /** Lists of things with what can be done to each (/tasks). */
+  sections?: CardSection[];
   loading?: boolean;
   error?: string;
+}
+
+export interface CardSection {
+  title: string;
+  rows: CardRow[];
+  /** Said when there are no rows. */
+  empty: string;
+}
+
+export interface CardRow {
+  id: string;
+  label: string;
+  /** Its state, in a word or two. */
+  detail?: string;
+  actions: { label: string; run: () => void }[];
 }
 
 export interface McpSignIn {

@@ -4,11 +4,15 @@
 import i18next from "i18next";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import { openClaudeTab } from "../../state/operations/tabs";
 import { copyText } from "../../utils/clipboard";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { showChanges } from "../sessions/actions";
+import { openTerminal } from "../terminal/open-terminal";
+import { queueStartupInput } from "../terminal/pty-client";
 import {
   APP_COMMANDS,
+  backgroundSessionsOf,
   conversationMarkdown,
   copyIndex,
   directoryArg,
@@ -21,9 +25,11 @@ import {
   permissionsMarkdown,
   permissionsOf,
   sandboxOn,
+  subtaskPrompt,
 } from "./app-commands";
 import type { ChatController } from "./controller";
 import type { ChatItem, ToolCall } from "./model";
+import { type CardSection, chatKey, useChatStore } from "./store";
 
 export interface AppCommandContext {
   controller: ChatController;
@@ -184,6 +190,52 @@ export async function runAppCommand(
       }
       return;
     }
+    case "fork": {
+      // The whole conversation so far, in a tab of its own.
+      const sessionId = controller.currentSession();
+      if (!sessionId) {
+        showToast({ kind: "warning", message: t("chat.commands.fork_none") });
+        return;
+      }
+      const tab = openClaudeTab(ctx.workspaceId, { cwd: ctx.cwd, fork: { sessionId } });
+      if (command.args) {
+        const draft = { text: command.args, images: [], nonce: Date.now() };
+        useChatStore
+          .getState()
+          .update(chatKey(ctx.workspaceId, tab.id), (prev) => ({ ...prev, draft }));
+      }
+      return;
+    }
+    case "subtask":
+      if (!command.args) {
+        showToast({ kind: "warning", message: t("chat.commands.subtask_empty") });
+        return;
+      }
+      await controller.send(subtaskPrompt(command.args));
+      return;
+    case "tasks":
+    case "workflows":
+      await showTasks(ctx, title, command.name === "workflows");
+      return;
+    case "background": {
+      if (controller.state.model.running) {
+        showToast({ kind: "warning", message: t("chat.commands.background_busy") });
+        return;
+      }
+      if (!controller.currentSession() && !command.args) {
+        showToast({ kind: "warning", message: t("chat.commands.background_empty") });
+        return;
+      }
+      const id = controller.showCard({ title, loading: true });
+      try {
+        const sent = await controller.sendToBackground(command.args);
+        showToast({ kind: "info", message: t("chat.commands.background_sent", { id: sent }) });
+        await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
+      } catch (err) {
+        controller.updateCard(id, { loading: false, error: (err as Error).message });
+      }
+      return;
+    }
     case "help": {
       const lines = APP_COMMANDS.map(
         (c) =>
@@ -199,4 +251,96 @@ export async function runAppCommand(
       await closeTabWithConfirm(ctx.workspaceId, ctx.tabId);
       return;
   }
+}
+
+/**
+ * /tasks: what the session runs now, and the folder's background sessions
+ * (`claude --bg`), to open in a terminal or stop. /workflows: the
+ * session's workflows. Each action shows the card again as it then is.
+ */
+async function showTasks(
+  ctx: AppCommandContext,
+  title: string,
+  workflows: boolean,
+  cardId?: string,
+): Promise<void> {
+  const t = i18next.t.bind(i18next);
+  const { controller } = ctx;
+  const id = cardId ?? controller.showCard({ title, loading: true });
+  const again = () => void showTasks(ctx, title, workflows, id);
+  const failed = (err: Error) => showToast({ kind: "error", message: err.message });
+  const status = (word: string) => t(`chat.commands.status.${word}`, { defaultValue: word });
+
+  const tasks = Object.values(controller.state.model.tasks).filter((task) =>
+    workflows ? task.type === "local_workflow" : task.status === "running",
+  );
+  const own: CardSection = {
+    title: t(workflows ? "chat.commands.workflows_title" : "chat.commands.tasks_title"),
+    empty: t(workflows ? "chat.commands.workflows_none" : "chat.commands.tasks_none"),
+    rows: tasks.map((task) => ({
+      id: task.taskId,
+      label: task.description || task.taskId,
+      detail: status(task.status),
+      actions:
+        task.status === "running"
+          ? [
+              {
+                label: t("chat.commands.stop"),
+                run: () => void controller.stopTask(task.taskId).then(again, failed),
+              },
+            ]
+          : [],
+    })),
+  };
+  if (workflows) {
+    controller.updateCard(id, { loading: false, sections: [own] });
+    return;
+  }
+
+  const sections = [own];
+  let error: string | undefined;
+  try {
+    const run = unwrapIpcResult(
+      await ipcCallResult("chat", "background", {
+        workspaceId: ctx.workspaceId,
+        cwd: ctx.cwd,
+        command: { kind: "list" },
+      }),
+    );
+    if (run.code !== 0) throw new Error(run.stderr.trim() || `claude agents: ${run.code}`);
+    sections.push({
+      title: t("chat.commands.background_title"),
+      empty: t("chat.commands.background_none"),
+      rows: backgroundSessionsOf(run.stdout).map((session) => ({
+        id: session.id,
+        label: session.name === session.id ? session.id : `${session.name} · ${session.id}`,
+        detail: status(session.status),
+        actions: [
+          {
+            label: t("chat.commands.open"),
+            run: () => {
+              const { tabId } = openTerminal({ workspaceId: ctx.workspaceId, cwd: ctx.cwd });
+              queueStartupInput(ctx.workspaceId, tabId, () => `claude attach ${session.id}\r`);
+            },
+          },
+          ...(session.status === "stopped"
+            ? []
+            : [
+                {
+                  label: t("chat.commands.stop"),
+                  run: () =>
+                    void ipcCallResult("chat", "background", {
+                      workspaceId: ctx.workspaceId,
+                      cwd: ctx.cwd,
+                      command: { kind: "stop", id: session.id },
+                    }).then(again, failed),
+                },
+              ]),
+        ],
+      })),
+    });
+  } catch (err) {
+    error = (err as Error).message;
+  }
+  controller.updateCard(id, { loading: false, sections, error });
 }

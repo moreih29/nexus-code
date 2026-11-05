@@ -21,6 +21,11 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "add-dir", argumentHint: "<path>" },
   { name: "hooks" },
   { name: "sandbox", argumentHint: "[on|off]" },
+  { name: "fork", argumentHint: "[prompt]" },
+  { name: "subtask", argumentHint: "<task>" },
+  { name: "tasks", aliases: ["bashes"] },
+  { name: "workflows" },
+  { name: "background", aliases: ["bg"], argumentHint: "[prompt]" },
   { name: "help" },
   { name: "exit", aliases: ["quit"] },
 ];
@@ -328,4 +333,60 @@ export function directoryArg(arg: string, cwd: string): string | null {
   if (!path) return null;
   if (path.startsWith("/") || path.startsWith("~") || /^[A-Za-z]:[\\/]/.test(path)) return path;
   return `${cwd.replace(/[\\/]+$/, "")}/${path.replace(/^\.\//, "")}`;
+}
+
+/**
+ * What /subtask sends: a fork of Claude with the whole conversation, whose
+ * answer comes back to it (the CLI's own /subtask starts one itself).
+ */
+export function subtaskPrompt(task: string): string {
+  return `Use the Agent tool with subagent_type "fork" for the task below, and tell me its result.\n\n${task}`;
+}
+
+export interface BackgroundSession {
+  /** The short id `claude attach` and `claude stop` take. */
+  id: string;
+  sessionId?: string;
+  name: string;
+  /** idle, running, blocked, stopped… as `claude agents` says. */
+  status: string;
+  startedAt?: number;
+}
+
+/** The background sessions in `claude agents --json`, newest first. */
+export function backgroundSessionsOf(stdout: string): BackgroundSession[] {
+  let list: unknown;
+  try {
+    list = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(list)) return [];
+  return list
+    .flatMap((raw): BackgroundSession[] => {
+      const entry = raw as Record<string, unknown> | null;
+      // The id goes on a command line (`claude attach <id>`).
+      if (entry?.kind !== "background" || typeof entry.id !== "string") return [];
+      if (!/^[0-9A-Za-z_-]{1,64}$/.test(entry.id)) return [];
+      const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+      return [
+        {
+          id: entry.id,
+          sessionId: text(entry.sessionId),
+          name: text(entry.name) ?? entry.id,
+          // A stopped one has only its state.
+          status:
+            text(entry.state) === "stopped"
+              ? "stopped"
+              : (text(entry.status) ?? text(entry.state) ?? ""),
+          startedAt: typeof entry.startedAt === "number" ? entry.startedAt : undefined,
+        },
+      ];
+    })
+    .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+}
+
+/** The id `claude --bg` printed ("backgrounded · 8c55b250 (idle…)"), or null. */
+export function backgroundIdOf(stdout: string): string | null {
+  return /backgrounded\s*·\s*([0-9a-f]{8})\b/.exec(stdout)?.[1] ?? null;
 }

@@ -83,6 +83,10 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         oauth.cancel(validateArgs(c.oauthCancel.args, args).id);
         return ipcOk(undefined);
       },
+      background: async (args: unknown) => {
+        const { workspaceId, cwd, command } = validateArgs(c.background.args, args);
+        return ipcOk(await host.background(workspaceId, cwd, command));
+      },
       sessions: async (args: unknown) => {
         const { workspaceId, cwd } = validateArgs(c.sessions.args, args);
         const result = (await host.sessions(workspaceId, cwd)) as { sessions?: unknown };

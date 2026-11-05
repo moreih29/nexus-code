@@ -91,6 +91,34 @@ export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, strin
   return env;
 }
 
+/** What a Claude tab may have `claude` do with a folder's background sessions. */
+export type BackgroundCommand =
+  | { kind: "list" }
+  /** Sends a session there (or a new one), with a prompt to go on with. */
+  | { kind: "send"; sessionId?: string; model?: string; prompt?: string }
+  | { kind: "stop"; id: string };
+
+/**
+ * `claude`'s arguments for one of those, and nothing else: the ids are
+ * checked before they get here, and the prompt comes after `--`, where it
+ * can't be taken for an option.
+ */
+export function backgroundArgs(command: BackgroundCommand, cwd: string): string[] {
+  switch (command.kind) {
+    case "list":
+      return ["agents", "--json", "--all", "--cwd", cwd];
+    case "send": {
+      const args = ["--bg"];
+      if (command.sessionId !== undefined) args.push("--resume", command.sessionId);
+      if (command.model !== undefined) args.push("--model", command.model);
+      if (command.prompt) args.push("--", command.prompt);
+      return args;
+    }
+    case "stop":
+      return ["stop", command.id];
+  }
+}
+
 /** The x.y.z of `claude --version`'s output ("2.1.318 (Claude Code)"), or null. */
 export function parseClaudeVersion(output: string): string | null {
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(output);
