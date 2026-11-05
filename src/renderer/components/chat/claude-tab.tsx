@@ -16,6 +16,7 @@ import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../ser
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import { openBrowserBeside, openFileBeside, revealTabById } from "../../services/chat/open-beside";
 import {
+  type AgentRow,
   agentsOf,
   agentTranscript,
   changedFilesOf,
@@ -33,6 +34,7 @@ import {
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
+import { printRunRows, stopPrintRun, usePrintRuns } from "../../services/chat/print-runs";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { localUrlFor } from "../../state/operations/ports";
@@ -48,6 +50,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer } from "./composer";
 import { type MessageActions, MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
+import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
 import { SidePanel } from "./side-panel";
@@ -178,8 +181,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
 
-  // The pane shows main or one agent's transcript; input always goes to main.
-  const agents = useMemo(() => agentsOf(state.model), [state.model]);
+  // The pane shows main or one agent's transcript, or a `claude -p` run the
+  // session started; input always goes to main.
+  const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
+  const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
+  const agents = useMemo(() => [...agentsOf(state.model), ...runRows], [state.model, runRows]);
   const [shownId, setShownId] = useState<string | null>(null);
   const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
   useEffect(() => {
@@ -280,6 +286,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       workspaceId={workspaceId}
       cwd={props.cwd}
       rootPath={rootPath}
+      runs={runRows}
+      onStopRun={(agentId) => void stopPrintRun(workspaceId, tabId, agentId)}
       onShowAgent={showAgent}
       onForkSession={forkSession}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
@@ -299,7 +307,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
-            <SummaryLine state={state} open={drawerOpen} onToggle={togglePanel} />
+            <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
           ) : (
             <AgentStrip
               agents={agents}
@@ -308,26 +316,37 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               panel={{ open: panelOpen, onToggle: togglePanel }}
             />
           )}
-          <MessageList
-            workspaceId={workspaceId}
-            cwd={props.cwd}
-            rootPath={rootPath}
-            history={state.history}
-            model={state.model}
-            actions={shown ? undefined : actions}
-            items={shown ? agentTranscript(state.model, shown) : undefined}
-            empty={
-              state.phase === "ready" || state.phase === "ended" ? (
-                <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                  <MessageSquareText className="size-8" />
-                  <div className="text-app-body">{t("chat.empty.title")}</div>
-                  <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
-                    {props.cwd}
+          {shown?.run ? (
+            <PrintRunPane
+              workspaceId={workspaceId}
+              tabId={tabId}
+              cwd={props.cwd}
+              rootPath={rootPath}
+              run={shown.run}
+              visible={isVisible}
+            />
+          ) : (
+            <MessageList
+              workspaceId={workspaceId}
+              cwd={props.cwd}
+              rootPath={rootPath}
+              history={state.history}
+              model={state.model}
+              actions={shown ? undefined : actions}
+              items={shown ? agentTranscript(state.model, shown) : undefined}
+              empty={
+                state.phase === "ready" || state.phase === "ended" ? (
+                  <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                    <MessageSquareText className="size-8" />
+                    <div className="text-app-body">{t("chat.empty.title")}</div>
+                    <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
+                      {props.cwd}
+                    </div>
                   </div>
-                </div>
-              ) : null
-            }
-          />
+                ) : null
+              }
+            />
+          )}
           {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
           {(permissions.length > 0 || state.model.running) && (
             <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
@@ -454,17 +473,20 @@ function forkFrom(
 /** The tab's state in one line, where it is too narrow for the strip and the panel. */
 function SummaryLine({
   state,
+  runs,
   open,
   onToggle,
 }: {
   state: ChatTabState;
+  /** The session's `claude -p` runs, counted with its agents. */
+  runs: readonly AgentRow[];
   open: boolean;
   onToggle: () => void;
 }) {
   const { t } = useTranslation();
   const { model } = state;
   const parts: string[] = [];
-  const agents = agentsOf(model).filter((a) => a.status === "running").length;
+  const agents = [...agentsOf(model), ...runs].filter((a) => a.status === "running").length;
   if (agents > 0) parts.push(t("chat.strip.summary.agents", { count: agents }));
   const jobs = jobsOf(model).filter((j) => j.status === "running").length;
   if (jobs > 0) parts.push(t("chat.strip.summary.jobs", { count: jobs }));

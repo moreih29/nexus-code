@@ -22,6 +22,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { ChatController } from "../../services/chat/controller";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import {
@@ -54,6 +55,10 @@ interface SidePanelProps {
   workspaceId: string;
   cwd: string;
   rootPath: string;
+  /** The `claude -p` runs the session started, listed after its agents. */
+  runs: readonly AgentRow[];
+  /** Stops a running run, by its agent id. */
+  onStopRun: (agentId: string) => void;
   onShowAgent: (toolUseId: string) => void;
   /** Opens a new Claude tab from the whole session. */
   onForkSession: () => void;
@@ -66,6 +71,8 @@ export function SidePanel({
   workspaceId,
   cwd,
   rootPath,
+  runs,
+  onStopRun,
   onShowAgent,
   onForkSession,
   className,
@@ -87,7 +94,7 @@ export function SidePanel({
     () => (history ? [...history.items, ...model.items] : model.items),
     [history, model.items],
   );
-  const agents = useMemo(() => agentsOf(model), [model]);
+  const agents = useMemo(() => [...agentsOf(model), ...runs], [model, runs]);
   const jobs = useMemo(() => jobsOf(model), [model]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
@@ -128,11 +135,15 @@ export function SidePanel({
               now={now}
               onOpen={() => onShowAgent(agent.toolUseId)}
               onStop={
-                agent.status === "running" && agent.taskId
-                  ? () => stop(controller, agent.taskId as string, t("chat.panel.stop_failed"))
-                  : undefined
+                agent.status !== "running"
+                  ? undefined
+                  : agent.run
+                    ? () => onStopRun((agent.run as AgentRun).id)
+                    : agent.taskId
+                      ? () => stop(controller, agent.taskId as string, t("chat.panel.stop_failed"))
+                      : undefined
               }
-              stopNote={stopNote}
+              stopNote={agent.run ? undefined : stopNote}
             />
           ))}
         </Section>
@@ -565,7 +576,10 @@ function AgentEntry({
           <span className="min-w-0 flex-1 truncate">{agent.description}</span>
         </button>
         <Elapsed from={agent.startedAt} to={agent.endedAt} now={now} />
-        <IconButton label={t("chat.panel.agents.open")} onClick={onOpen}>
+        <IconButton
+          label={agent.run ? t("chat.panel.agents.open_run") : t("chat.panel.agents.open")}
+          onClick={onOpen}
+        >
           <ExternalLink className="size-3.5" />
         </IconButton>
         {onStop && (

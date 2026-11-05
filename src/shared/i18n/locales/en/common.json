@@ -628,7 +628,7 @@
         "answer_pending": "The agent's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
-        "tools_untold": "This run's tools are not recorded: it resumes a session, or keeps none.",
+        "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
         "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
@@ -1027,7 +1027,8 @@
         "teammate": "Teammate",
         "tools_one": "{{count}} tool call",
         "tools_other": "{{count}} tool calls",
-        "no_text": "Nothing written yet"
+        "no_text": "Nothing written yet",
+        "open_run": "Show the run"
       },
       "jobs": {
         "title": "Tasks"
@@ -1107,6 +1108,12 @@
       "open_system": "Open in the system browser",
       "open_app_browser": "Open in the app's browser",
       "copy_link": "Copy link"
+    },
+    "run": {
+      "kind": "claude -p run",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it; the run may have ended.",
+      "open_in_tab": "Go on in a tab"
     }
   }
 }

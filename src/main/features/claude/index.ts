@@ -98,8 +98,18 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     answerHook(workspaceManager, workspaceId, hookId, response),
   );
 
+  // A `claude -p` run stops when the app answers its watch.
+  const stopPrintRun = async (workspaceId: string, tabId: string, agentId: string) => {
+    const watch = activity.printWatch(workspaceId, tabId, agentId);
+    if (watch === undefined) return false;
+    return answerHook(workspaceManager, workspaceId, watch, {
+      stdout: PRINT_STOP_ANSWER,
+      exitCode: 0,
+    });
+  };
+
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext, activity, asks);
+  registerClaudeChannel(broker, activeContext, activity, asks, stopPrintRun);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -219,14 +229,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     broker,
     activeContext,
     activity,
-    stopPrintRun: async (workspaceId, tabId, agentId) => {
-      const watch = activity.printWatch(workspaceId, tabId, agentId);
-      if (watch === undefined) return false;
-      return answerHook(workspaceManager, workspaceId, watch, {
-        stdout: PRINT_STOP_ANSWER,
-        exitCode: 0,
-      });
-    },
+    stopPrintRun,
   };
 }
 
