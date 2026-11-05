@@ -657,7 +657,10 @@
     "copied": "Copied",
     "expand_section": "Expand section",
     "collapse_section": "Collapse section",
-    "copy_link": "Copy link to this section"
+    "copy_link": "Copy link to this section",
+    "mermaid_alt": "Mermaid diagram",
+    "mermaid_error": "This diagram could not be drawn: {{message}}",
+    "mermaid_unshown": "This diagram was drawn but cannot be shown."
   },
   "resize": {
     "sidebar": "Resize sidebar",

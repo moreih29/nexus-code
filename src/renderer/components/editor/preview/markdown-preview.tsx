@@ -73,6 +73,7 @@ import {
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { copyText } from "../../../utils/clipboard";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
+import { MermaidDiagram } from "./mermaid-diagram";
 
 const log = createLogger("markdown-preview");
 
@@ -384,7 +385,10 @@ function MdInput({
   return <input {...rest} type={type} checked={Boolean(checked)} disabled readOnly />;
 }
 
-/** Code block with a hover "Copy" button. View-only — never edits the source. */
+/**
+ * Code block with a hover "Copy" button. View-only — never edits the source.
+ * A ```mermaid block shows its diagram, the button still copying its source.
+ */
 function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.ReactNode }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -410,9 +414,16 @@ function MdPre({ node, children, ...rest }: { node?: RmNode; children?: React.Re
       >
         {copied ? t("markdown.copied") : t("markdown.copy")}
       </button>
-      <pre {...rest}>{children}</pre>
+      {isMermaid(node) ? <MermaidDiagram code={code} /> : <pre {...rest}>{children}</pre>}
     </div>
   );
+}
+
+/** Whether a <pre> holds a ```mermaid block. */
+function isMermaid(pre: RmNode | undefined): boolean {
+  const code = pre?.children?.[0] as RmNode | undefined;
+  const className = code?.tagName === "code" ? code.properties?.className : undefined;
+  return Array.isArray(className) && className.includes("language-mermaid");
 }
 
 /**
