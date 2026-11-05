@@ -102,9 +102,8 @@ async function readText(
     await ipcCallResult("git", "getFileContent", { workspaceId, ref, relPath }, { signal }),
   );
   if (result.kind !== "ok") return null;
-  // Text that is not UTF-8 comes back with replacement characters; writing it
-  // back would put those over the file's own bytes.
-  if (result.isBinary || result.content.includes("�")) {
+  // Text that is not UTF-8 comes back as bytes; staging writes UTF-8.
+  if (result.isBinary || result.encoding === "bytes" || result.content.includes("�")) {
     throw new Error(i18next.t("editor.stage_lines_text_only"));
   }
   const bom = result.encoding === "utf8-bom" ? "﻿" : "";

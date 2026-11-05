@@ -411,6 +411,30 @@
     "close_running_description": "“{{name}}” is still running in this terminal. Closing the terminal will terminate it.",
     "close_running_confirm": "Terminate"
   },
+  "encoding": {
+    "segmentTitle": "Encoding: {{name}}",
+    "menuTitle": "Encoding",
+    "reopen": "Reopen with encoding",
+    "saveWith": "Save with encoding",
+    "reopenDirty": "Save or revert the edits to reopen the file.",
+    "group": {
+      "unicode": "Unicode",
+      "korean": "Korean",
+      "japanese": "Japanese",
+      "chineseSimplified": "Chinese (Simplified)",
+      "chineseTraditional": "Chinese (Traditional)",
+      "western": "Western",
+      "centralEuropean": "Central European",
+      "cyrillic": "Cyrillic",
+      "greek": "Greek",
+      "turkish": "Turkish",
+      "hebrew": "Hebrew",
+      "arabic": "Arabic",
+      "baltic": "Baltic",
+      "vietnamese": "Vietnamese",
+      "thai": "Thai"
+    }
+  },
   "lsp": {
     "language": {
       "typescript": "TypeScript",

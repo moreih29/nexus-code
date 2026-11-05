@@ -15,11 +15,18 @@ import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
 import { notifyDidSave } from "../lsp/bridge";
 import { getDirtyEntry, markSaved as markDirtyTrackerSaved, updateLoadedMetadata } from "../model/dirty-tracker";
-import { relPathForInput } from "../model/file-loader";
+import {
+  bytesToBase64,
+  encodeText,
+  encodingInfo,
+  type TextEncoding,
+} from "../encoding/text-encoding";
+import { relPathForInput, setEncodingOverride } from "../model/file-loader";
 import {
   clearDiskDiverged,
   getResolvedModel,
   reloadModelFromDisk,
+  setModelEncoding,
   syncLoadedValueAfterSave,
 } from "../model/cache";
 import { fsErrorReason } from "../../../utils/file-error";
@@ -46,6 +53,11 @@ export function installEditorSaveAction(
       runSaveAndReport(input);
     },
   });
+}
+
+export interface SaveOptions {
+  /** Write the file in this encoding, even with no edits, and keep it in it. */
+  encoding?: TextEncoding;
 }
 
 export type SaveResult =
@@ -90,8 +102,11 @@ export function reportSaveFailure(result: SaveResult): void {
  *
  * Errors and other non-conflict outcomes are returned directly.
  */
-export async function saveModelInteractive(input: EditorInput): Promise<SaveResult> {
-  const result = await saveModel(input);
+export async function saveModelInteractive(
+  input: EditorInput,
+  options: SaveOptions = {},
+): Promise<SaveResult> {
+  const result = await saveModel(input, options);
 
   if (result.kind !== "conflict") {
     return result;
@@ -122,7 +137,7 @@ export async function saveModelInteractive(input: EditorInput): Promise<SaveResu
     updateLoadedMetadata(cacheUri, "", 0);
   }
 
-  const retryResult = await saveModel(input);
+  const retryResult = await saveModel(input, options);
   if (retryResult.kind === "saved") {
     clearDiskDiverged(input);
   }
@@ -152,8 +167,15 @@ const sequentializer = new SaveSequentializer();
  * abort the first (which keeps writing in the background but its result
  * is discarded) and run with the latest content. The earlier caller
  * receives `{ kind: 'superseded' }`.
+ *
+ * The buffer is written in the encoding the file was read in, or in
+ * `options.encoding`, which the file is in from then on: Save with
+ * Encoding, which writes the file even when it has no edits.
  */
-export async function saveModel(input: EditorInput): Promise<SaveResult> {
+export async function saveModel(
+  input: EditorInput,
+  options: SaveOptions = {},
+): Promise<SaveResult> {
   const resolved = getResolvedModel(input);
   if (!resolved) return { kind: "no-model" };
 
@@ -173,14 +195,15 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
   const dirtyEntry = getDirtyEntry(resolved.cacheUri);
   if (!dirtyEntry) return { kind: "no-model" };
 
-  if (!dirtyEntry.isDirty) return { kind: "not-dirty" };
+  const force = options.encoding !== undefined;
+  if (!dirtyEntry.isDirty && !force) return { kind: "not-dirty" };
 
   try {
     return await sequentializer.run(resolved.cacheUri, async () => {
       // Re-read the entry inside the gate — by the time we got here the
       // user could have undone back to the saved baseline (dirty=false).
       const dirtyEntryNow = getDirtyEntry(resolved.cacheUri);
-      if (!dirtyEntryNow?.isDirty) {
+      if (!dirtyEntryNow || (!dirtyEntryNow.isDirty && !force)) {
         return { kind: "not-dirty" } satisfies SaveResult;
       }
 
@@ -190,8 +213,9 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
       // dirty against the current alt id.
       const capturedAltId = resolved.model.getAlternativeVersionId();
       const content = resolved.model.getValue();
-      // The agent strips a UTF-8 BOM on read; keep it for a file that had one.
-      const diskContent = resolved.encoding === "utf8-bom" ? `﻿${content}` : content;
+      const encoding = options.encoding ?? resolved.encoding;
+      const written = contentToWrite(content, encoding);
+      if (!written.ok) return { kind: "error", message: written.message } satisfies SaveResult;
       const expected =
         dirtyEntryNow.loadedMtime === ""
           ? ({ exists: false } as const)
@@ -208,7 +232,7 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
             workspaceId: resolved.workspaceId,
             filePath: resolved.filePath,
           }),
-          content: diskContent,
+          ...written.args,
           expected,
         }),
       );
@@ -233,6 +257,10 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
       // external divergence.
       syncLoadedValueAfterSave(input, content);
       clearDiskDiverged(input);
+      if (options.encoding !== undefined) {
+        setEncodingOverride(input, options.encoding);
+        setModelEncoding(input, options.encoding);
+      }
 
       notifyDidSave(resolved.workspaceId, resolved.lspUri, content).catch(() => {});
 
@@ -244,4 +272,31 @@ export async function saveModel(input: EditorInput): Promise<SaveResult> {
     }
     return { kind: "error", message: fsErrorReason(e) };
   }
+}
+
+/**
+ * What fs.writeFile is sent for `content` in `encoding`: UTF-8 as text, with
+ * the byte-order mark the agent stripped on read for "utf8-bom"; any other
+ * encoding as its bytes. Fails for a character the encoding has no bytes for.
+ */
+function contentToWrite(
+  content: string,
+  encoding: TextEncoding,
+): { ok: true; args: { content: string; bytes?: string } } | { ok: false; message: string } {
+  if (encoding === "utf8") return { ok: true, args: { content } };
+  if (encoding === "utf8-bom") return { ok: true, args: { content: `\ufeff${content}` } };
+  const encoded = encodeText(content, encoding);
+  if (!encoded.ok) {
+    const { char, line, column } = encoded.unencodable;
+    return {
+      ok: false,
+      message: i18next.t("errors:save.unencodable", {
+        char,
+        line,
+        column,
+        encoding: encodingInfo(encoding).name,
+      }),
+    };
+  }
+  return { ok: true, args: { content: "", bytes: bytesToBase64(encoded.bytes) } };
 }

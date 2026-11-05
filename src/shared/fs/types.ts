@@ -35,9 +35,17 @@ export const FsChangedEventSchema = z.object({
 });
 export type FsChangedEvent = z.infer<typeof FsChangedEventSchema>;
 
+/**
+ * How a file's text came: UTF-8 (with or without its byte-order mark) as
+ * `content`, or, for text in any other encoding, as `bytes` (base64) for
+ * the reader to decode.
+ */
+export const FileEncodingSchema = z.enum(["utf8", "utf8-bom", "bytes"]);
+
 export const FileContentSchema = z.object({
   content: z.string(),
-  encoding: z.enum(["utf8", "utf8-bom"]),
+  encoding: FileEncodingSchema,
+  bytes: z.string().optional(),
   sizeBytes: z.number().int().min(0),
   isBinary: z.boolean(),
   mtime: z.string(),
@@ -74,7 +82,8 @@ export const FileReadResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("ok"),
     content: z.string(),
-    encoding: z.enum(["utf8", "utf8-bom"]),
+    encoding: FileEncodingSchema,
+    bytes: z.string().optional(),
     sizeBytes: z.number().int().min(0),
     isBinary: z.boolean(),
     mtime: z.string(),

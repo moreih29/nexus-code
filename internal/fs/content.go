@@ -2,7 +2,6 @@ package fs
 
 import (
 	"os"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -39,17 +38,23 @@ func buildFileContent(buf []byte, info os.FileInfo) ReadFileResult {
 		probe = probe[:content.BinaryProbeBytes]
 	}
 	mtime := formatMTime(info.ModTime())
+	// UTF-16 with its byte-order mark is text, though its zero bytes read
+	// as binary; it goes to the reader as bytes, to decode.
+	if len(probe) >= 2 && ((probe[0] == 0xff && probe[1] == 0xfe) || (probe[0] == 0xfe && probe[1] == 0xff)) {
+		return ReadFileResult{Kind: "ok", Encoding: "bytes", Bytes: buf, Size: info.Size(), MTime: mtime}
+	}
 	if content.IsBinaryProbe(probe) {
 		return ReadFileResult{Kind: "ok", Content: "", Encoding: "utf8", Size: info.Size(), IsBinary: true, MTime: mtime}
 	}
 	if len(probe) >= 3 && probe[0] == 0xef && probe[1] == 0xbb && probe[2] == 0xbf {
 		return ReadFileResult{Kind: "ok", Content: string(buf[3:]), Encoding: "utf8-bom", Size: info.Size(), IsBinary: false, MTime: mtime}
 	}
-	content := string(buf)
+	// Text in another encoding (Latin-1, Shift-JIS, EUC-KR): the reader
+	// decodes its bytes, and writes them back in it.
 	if !utf8.Valid(buf) {
-		content = strings.ToValidUTF8(content, "�")
+		return ReadFileResult{Kind: "ok", Encoding: "bytes", Bytes: buf, Size: info.Size(), MTime: mtime}
 	}
-	return ReadFileResult{Kind: "ok", Content: content, Encoding: "utf8", Size: info.Size(), IsBinary: false, MTime: mtime}
+	return ReadFileResult{Kind: "ok", Content: string(buf), Encoding: "utf8", Size: info.Size(), IsBinary: false, MTime: mtime}
 }
 
 // formatMTime renders a time as the wire-format ISO 8601 string used across

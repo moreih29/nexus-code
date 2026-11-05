@@ -31,6 +31,9 @@ import {
 } from "../../../../services/editor/git/dirty-diff/controller";
 import type { DirtyChange } from "../../../../services/editor/git/dirty-diff/types";
 import { lineChangeOfDirty } from "../../../../services/editor/git/staging/line-changes";
+import type { TextEncoding } from "../../../../services/editor/encoding/text-encoding";
+import { getResolvedModel } from "../../../../services/editor/model/cache";
+import { decodeFileContent } from "../../../../services/editor/model/file-loader";
 import { stageLines } from "../../../../services/editor/git/staging/stage-lines";
 import { useGitStore } from "../../../../state/stores/git";
 
@@ -51,10 +54,12 @@ function toRepoRelPath(repoRoot: string, absPath: string): string | null {
 /**
  * Resolves the index baseline for `filePath` in `workspaceId`, or null when the
  * file has no baseline (not a repo / outside repo / untracked / conflicted).
+ * Text not in UTF-8 is read in the encoding the buffer is in.
  */
 async function loadIndexBaseline(
   workspaceId: string,
   filePath: string,
+  encoding: TextEncoding | undefined,
   signal: AbortSignal,
 ): Promise<string | null> {
   const relPath = repoRelPathFor(workspaceId, filePath);
@@ -68,7 +73,9 @@ async function loadIndexBaseline(
       { signal },
     ),
   );
-  return result.kind === "ok" ? result.content : null;
+  if (result.kind !== "ok") return null;
+  const { kind: _kind, ...read } = result;
+  return read.encoding === "bytes" ? decodeFileContent(read, encoding).content : read.content;
 }
 
 /** Stages one change of the buffer of `filePath`, whose text is `working`. */
@@ -133,7 +140,13 @@ export function installDirtyDiffForEditor({
   getWorkspaceId,
 }: InstallDirtyDiffInput): Monaco.IDisposable {
   const source: DirtyDiffSource = {
-    loadBaseline: (signal) => loadIndexBaseline(getWorkspaceId(), input.filePath, signal),
+    loadBaseline: (signal) =>
+      loadIndexBaseline(
+        getWorkspaceId(),
+        input.filePath,
+        getResolvedModel(input)?.encoding,
+        signal,
+      ),
     stageChange: (change, working, eol) =>
       stageBufferChange(getWorkspaceId(), input.filePath, change, working, eol),
   };
