@@ -1114,6 +1114,12 @@
       "stop": "멈추기",
       "stop_failed": "멈추지 못했습니다. 실행이 이미 끝났을 수 있습니다.",
       "open_in_tab": "탭에서 이어가기"
+    },
+    "sessions": {
+      "title": "이전 세션",
+      "open": "탭에 열려 있음",
+      "more": "{{count}}개 더 보기",
+      "resume_failed": "세션을 이어가지 못했습니다: {{message}}"
     }
   }
 }

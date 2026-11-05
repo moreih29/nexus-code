@@ -167,6 +167,11 @@ export class ChatHost {
     return channel.call("chat.transcript", { sessionId });
   }
 
+  async sessions(workspaceId: string, cwd: string): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.sessions", { cwd });
+  }
+
   /** Forgets a removed workspace. Its agent ends its programs as it shuts down. */
   closeWorkspace(workspaceId: string): void {
     this.workspaces.delete(workspaceId);

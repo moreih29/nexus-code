@@ -1114,6 +1114,12 @@
       "stop": "Stop",
       "stop_failed": "Could not stop it; the run may have ended.",
       "open_in_tab": "Go on in a tab"
+    },
+    "sessions": {
+      "title": "Earlier sessions",
+      "open": "Open in a tab",
+      "more": "Show {{count}} more",
+      "resume_failed": "Could not go on with the session: {{message}}"
     }
   }
 }

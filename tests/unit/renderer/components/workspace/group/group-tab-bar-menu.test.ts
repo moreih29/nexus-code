@@ -34,9 +34,9 @@ function labelsOf(items: ReturnType<typeof buildGroupTabBarMenuItems>): string[]
     .map((it) => it.label);
 }
 
-const editorContext: TabContextInfo = { isPinned: false, isEditor: true, isTerminal: false };
-const editorPinnedContext: TabContextInfo = { isPinned: true, isEditor: true, isTerminal: false };
-const terminalContext: TabContextInfo = { isPinned: false, isEditor: false, isTerminal: true };
+const editorContext: TabContextInfo = { isPinned: false, isEditor: true, canRename: false };
+const editorPinnedContext: TabContextInfo = { isPinned: true, isEditor: true, canRename: false };
+const terminalContext: TabContextInfo = { isPinned: false, isEditor: false, canRename: true };
 
 describe("buildGroupTabBarMenuItems", () => {
   it("returns an empty list when there is no context tab", () => {

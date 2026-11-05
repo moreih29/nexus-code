@@ -300,6 +300,19 @@ export const WorkspaceReorderedEventSchema = z.object({
 });
 
 // Browse-session connection params — WorkspaceTestSshArgsSchema minus remotePath.
+/** A Claude Code session as a list shows it (the agent's chat.sessions). */
+const ClaudeSessionSchema = z.object({
+  sessionId: z.string(),
+  /** The title it was given, else its last prompt, else its first. */
+  title: z.string(),
+  customTitle: z.string().optional(),
+  firstPrompt: z.string().optional(),
+  gitBranch: z.string().optional(),
+  lastModified: z.number(),
+  createdAt: z.number().optional(),
+  size: z.number(),
+});
+
 const SshBrowseConnParamsSchema = z.object({
   host: z.string().min(1),
   user: z.string().min(1).optional(),
@@ -885,6 +898,11 @@ export const ipcContract = {
           lines: z.array(z.unknown()),
           truncated: z.boolean(),
         }),
+      ),
+      /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
+      sessions: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, cwd: z.string().max(4096) }),
+        z.array(ClaudeSessionSchema),
       ),
     },
     listen: {
