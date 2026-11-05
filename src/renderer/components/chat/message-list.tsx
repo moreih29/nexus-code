@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  FileText,
   GitFork,
   RotateCcw,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { splitAttachments } from "../../services/chat/composer-input";
 import type {
   AssistantItem,
   ChatItem,
@@ -184,6 +186,7 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
 function UserBubble({ item, actions }: { item: UserItem; actions?: MessageActions }) {
   const { t } = useTranslation();
   const taken = item.uuid !== undefined;
+  const { text, files } = splitAttachments(item.text);
   return (
     <div className="group/user flex flex-col items-end gap-1">
       {item.images.length > 0 && (
@@ -199,9 +202,23 @@ function UserBubble({ item, actions }: { item: UserItem; actions?: MessageAction
           ))}
         </div>
       )}
-      {item.text && (
+      {files.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+          {files.map((path) => (
+            <span
+              key={path}
+              title={path}
+              className="flex max-w-56 items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm"
+            >
+              <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{path.split(/[\\/]/).pop()}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {text && (
         <div className="max-w-[85%] rounded-(--radius-raised) bg-muted px-3 py-2 text-app-body whitespace-pre-wrap break-words select-text">
-          {item.text}
+          {text}
         </div>
       )}
       <div className="flex items-center gap-1 text-app-micro text-muted-foreground">

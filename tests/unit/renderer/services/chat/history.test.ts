@@ -49,6 +49,31 @@ describe("chat history cuts", () => {
     expect(texts(model)).toEqual(["user:one", "assistant:first"]);
   });
 
+  test("what the CLI told the model by itself is not the user's message", () => {
+    const model = historyModel([
+      ...ENTRIES,
+      {
+        type: "user",
+        uuid: "n1",
+        promptSource: "system",
+        origin: { kind: "task-notification" },
+        message: { role: "user", content: "<task-notification>done</task-notification>" },
+      },
+      {
+        type: "assistant",
+        uuid: "a3",
+        message: { id: "m3", role: "assistant", content: [{ type: "text", text: "noted" }] },
+      },
+    ]);
+    expect(texts(model)).toEqual([
+      "user:one",
+      "assistant:first",
+      "user:two",
+      "assistant:second",
+      "assistant:noted",
+    ]);
+  });
+
   test("no cut keeps it all", () => {
     expect(texts(historyModel(ENTRIES))).toEqual([
       "user:one",

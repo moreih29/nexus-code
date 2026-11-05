@@ -78,6 +78,8 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.list", service.List)
 	d.Register("chat.exec", service.Exec)
 	d.Register("chat.transcript", service.Transcript)
+	d.Register("chat.attach", service.Attach)
+	d.Register("chat.pruneAttachments", service.PruneAttachments)
 }
 
 // SetEventSink wires the service to the stdio host.
@@ -230,7 +232,8 @@ func (s *Service) Stop(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// CloseTab ends the tab's program and forgets its log: the tab was closed.
+// CloseTab ends the tab's program and forgets its log and its attached
+// files: the tab was closed.
 func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) {
 	var p TabParams
 	if err := decodeParams(raw, &p, "chat.close params must include workspaceId and tabId"); err != nil {
@@ -249,6 +252,7 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 			proc.stop()
 		}
 	}
+	removeAttachments(key)
 	return struct{}{}, nil
 }
 

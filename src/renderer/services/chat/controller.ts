@@ -495,6 +495,35 @@ export class ChatController {
     this.refreshPanel(["mcp"]);
   }
 
+  /**
+   * The CLI's suggestions for an @-mention, as its own prompt lists them:
+   * paths relative to the session's folder, or absolute; a folder ends in
+   * a separator. None while the program does not run.
+   */
+  async fileSuggestions(query: string): Promise<string[]> {
+    const { phase, model } = this.state;
+    if (phase !== "ready" || model.process !== "running") return [];
+    if (!this.supports("file_suggestions")) return [];
+    const body = await this.request("file_suggestions", { query });
+    if (!Array.isArray(body.suggestions)) return [];
+    return body.suggestions.flatMap((raw) => {
+      const path = (raw as { path?: unknown } | null)?.path;
+      return typeof path === "string" && path ? [path] : [];
+    });
+  }
+
+  /**
+   * Writes a file attached to a message where the program can read it,
+   * and returns its path there.
+   */
+  async attach(name: string, data: string): Promise<string> {
+    const { workspaceId, tabId } = this.target;
+    const result = unwrapIpcResult(
+      await ipcCallResult("chat", "attach", { workspaceId, tabId, name, data }),
+    );
+    return result.path;
+  }
+
   /** Turns Remote Control on or off; on, its answer has the session's URL. */
   setRemoteControl(enabled: boolean): Promise<unknown> {
     return this.request("remote_control", { enabled });
@@ -723,6 +752,23 @@ function ensureListeners(): void {
 }
 
 /** The tab's controller, made on first use. */
+const pruned = new Set<string>();
+
+/**
+ * Removes, once per workspace while the app runs, the attached files the
+ * agent still keeps for Claude tabs that closed while the app was away.
+ */
+export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]): void {
+  if (pruned.has(workspaceId)) return;
+  pruned.add(workspaceId);
+  void ipcCallResult("chat", "pruneAttachments", { workspaceId, keepTabIds: openTabIds }).catch(
+    (err: Error) => {
+      pruned.delete(workspaceId);
+      log.warn(`pruning attachments failed: ${err.message}`);
+    },
+  );
+}
+
 export function chatController(target: ChatTabTarget, hooks?: ChatTabHooks): ChatController {
   ensureListeners();
   const key = chatKey(target.workspaceId, target.tabId);

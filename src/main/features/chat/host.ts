@@ -148,7 +148,10 @@ export class ChatHost {
     }
   }
 
-  async call(method: "send" | "stop" | "close" | "replay", args: unknown): Promise<unknown> {
+  async call(
+    method: "send" | "stop" | "close" | "replay" | "attach" | "pruneAttachments",
+    args: unknown,
+  ): Promise<unknown> {
     const workspaceId = (args as { workspaceId: string }).workspaceId;
     const channel =
       method === "close"

@@ -19,6 +19,12 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
   for (const raw of entries) {
     const entry = rec(raw);
     if (!entry || entry.isSidechain === true || entry.isMeta === true) continue;
+    // What the CLI tells the model by itself, as a task's end: not the user's.
+    if (
+      entry.type === "user" &&
+      (entry.promptSource === "system" || rec(entry.origin)?.kind === "task-notification")
+    )
+      continue;
     const message = rec(entry.message);
     if (!message) continue;
     if (entry.type === "assistant") {
