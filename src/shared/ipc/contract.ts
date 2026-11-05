@@ -8,7 +8,7 @@ import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
 import { SessionSpanSchema } from "../sessions/history";
-import { WorkspacePortsSchema } from "../pty/ports";
+import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -738,10 +738,39 @@ export const ipcContract = {
        * for every workspace that has any; `ports` then tells of changes.
        */
       ports: call(z.object({}), z.array(WorkspacePortsSchema)),
+      /**
+       * The SSH workspaces' ports forwarded to this machine, for every
+       * workspace that has any; `forwards` then tells of changes.
+       */
+      forwards: call(z.object({}), z.array(WorkspaceForwardsSchema)),
+      /**
+       * Forwards a port of an SSH workspace's host to this machine, or
+       * answers the forward already there. Fails with "not-ssh",
+       * "not-connected" or "failed".
+       */
+      forward: call(
+        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        PortForwardSchema,
+      ),
+      /** Stops forwarding a port of an SSH workspace's host. */
+      unforward: call(
+        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        z.void(),
+      ),
+      /**
+       * The URL to open for `url` on this machine: in an SSH workspace, a
+       * local address goes to its forward, set up for it if need be.
+       */
+      localUrl: call(
+        z.object({ workspaceId: z.string(), url: z.string().max(8192) }),
+        z.object({ url: z.string() }),
+      ),
     },
     listen: {
       /** A workspace's ports changed; an empty list once its servers have stopped. */
       ports: listen(WorkspacePortsSchema),
+      /** A workspace's forwards changed; an empty list once all are stopped. */
+      forwards: listen(WorkspaceForwardsSchema),
       // data: args is string chunk — validation skipped on hot path.
       // `replay` marks output pty.replay sends again to redraw the terminal.
       data: listen(
@@ -1592,6 +1621,18 @@ export const ipcContract = {
           code: z.number().int(),
           description: z.string(),
           url: z.string(),
+        }),
+      ),
+      /**
+       * A local address of an SSH workspace was not opened: its port could
+       * not be forwarded. `kind` is "not-connected" or "failed".
+       */
+      refused: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          url: z.string(),
+          kind: z.string(),
+          message: z.string(),
         }),
       ),
       /** Emitted when the page title changes. */

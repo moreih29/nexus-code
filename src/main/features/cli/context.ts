@@ -12,7 +12,7 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
-import type { ListeningPort } from "../../../shared/pty/ports";
+import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
@@ -83,6 +83,8 @@ export interface CliServices {
    * at now, in port order.
    */
   listeningPorts(workspaceId: string): Promise<readonly ListeningPort[]>;
+  /** The SSH workspaces' ports forwarded to this machine. */
+  readonly forwards: CliForwards;
   /**
    * Terminals whose agent nexus worktree new just started with a prompt, so
    * that a wait on one holds until the agent has begun its first turn.
@@ -170,6 +172,16 @@ export async function mayChange(
     toWorkspaceId: workspace.id,
     change,
   });
+}
+
+/** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */
+export interface CliForwards {
+  list(workspaceId: string): readonly PortForward[];
+  /** Fails with a ForwardError when the workspace is not connected or ssh fails. */
+  forward(workspaceId: string, port: number): Promise<PortForward>;
+  stop(workspaceId: string, port: number): Promise<void>;
+  /** The URL to open here for `url`: a local address goes to its forward. */
+  localUrl(workspaceId: string, url: string): Promise<string>;
 }
 
 /** Where a tab the command opens in `workspace` goes: beside the caller in its own. */

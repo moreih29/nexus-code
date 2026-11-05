@@ -30,7 +30,7 @@ import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
 import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import { CliError, type CliServices, shortId } from "./context";
+import { CliError, type CliForwards, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -88,6 +88,8 @@ export interface SetupCliFeatureOptions {
   broadcast: (channel: string, event: string, args: unknown) => void;
   /** Looks at the ports the programs in a workspace's terminals listen on. */
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
+  /** The SSH workspaces' ports forwarded to this machine. */
+  forwards: CliForwards;
 }
 
 export interface CliFeature {
@@ -244,6 +246,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
+    forwards: options.forwards,
     startedAgents,
     clock: {
       now: () => Date.now(),

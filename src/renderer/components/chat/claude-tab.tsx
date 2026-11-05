@@ -35,6 +35,7 @@ import {
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
@@ -42,7 +43,6 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
-import { showToast } from "../ui/toast";
 import { AgentStrip } from "./agent-strip";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer } from "./composer";
@@ -217,8 +217,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  const latest = useRef({ state, place, rootPath, isLocal });
-  latest.current = { state, place, rootPath, isLocal };
+  const latest = useRef({ state, place, rootPath });
+  latest.current = { state, place, rootPath };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
   const links = useMemo<ChatLinks>(() => {
     const cwd = props.cwd;
@@ -254,12 +254,14 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       openUrl(url, other = false) {
         const local = isLocalAddress(url);
         if (local !== other) {
-          // An SSH session's own address is the host's, not this machine's.
-          if (local && !latest.current.isLocal) {
-            showToast({ kind: "info", message: t("chat.links.remote_local") });
-            return;
-          }
+          // An SSH session's own address is the host's: the app's browser
+          // opens it through the workspace's forward of its port.
           openBrowserBeside(workspaceId, tabId, url, { split: split() });
+        } else if (local) {
+          // In the system browser, at the forward's end here.
+          void localUrlFor(workspaceId, url).then((here) => {
+            if (here) window.open(here, "_blank", "noopener,noreferrer");
+          });
         } else if (isExternalSchemeAllowed(url)) {
           window.open(url, "_blank", "noopener,noreferrer");
         }

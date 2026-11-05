@@ -139,6 +139,7 @@ export type CliChangeKind =
   | "browserOpen"
   | "browserNavigate"
   | "browserControl"
+  | "portForward"
   | "layout"
   | "groupClose"
   | "tabRename"

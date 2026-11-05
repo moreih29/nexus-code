@@ -38,7 +38,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
-import type { ListeningPort } from "../../../../src/shared/pty/ports";
+import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
@@ -178,6 +178,15 @@ export interface FakeApp {
   problems: CliProblem[];
   /** The ports each workspace's terminals listen on; an Error fails the look. */
   ports: Record<string, ListeningPort[] | Error>;
+  /**
+   * Each workspace's forwards. A forward set up listens at `to[port]`, or at
+   * the port itself; `error` fails it instead.
+   */
+  forwarding: {
+    forwards: Record<string, PortForward[]>;
+    to: Record<number, number>;
+    error?: Error;
+  };
   /** The app's settings, as settings.list gives them. */
   appSettings: CliSettingInfo[];
 }
@@ -395,6 +404,17 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const problems: CliProblem[] = [];
   const ports: FakeApp["ports"] = {};
+  const forwarding: FakeApp["forwarding"] = { forwards: {}, to: {} };
+  const forward = async (workspaceId: string, port: number): Promise<PortForward> => {
+    if (forwarding.error) throw forwarding.error;
+    forwarding.forwards[workspaceId] ??= [];
+    const list = forwarding.forwards[workspaceId];
+    const found = list.find((f) => f.remotePort === port);
+    if (found) return found;
+    const made = { remotePort: port, localPort: forwarding.to[port] ?? port, active: true };
+    list.push(made);
+    return made;
+  };
   const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
@@ -547,6 +567,21 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
     },
     browser: fakeBrowserDriver(browser),
+    forwards: {
+      list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
+      forward,
+      stop: async (workspaceId, port) => {
+        forwarding.forwards[workspaceId] = (forwarding.forwards[workspaceId] ?? []).filter(
+          (f) => f.remotePort !== port,
+        );
+      },
+      localUrl: async (workspaceId, url) => {
+        const parsed = new URL(url);
+        const made = await forward(workspaceId, Number(parsed.port || 80));
+        parsed.port = String(made.localPort);
+        return parsed.toString();
+      },
+    },
   };
   return {
     services,
@@ -569,6 +604,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     panels,
     problems,
     ports,
+    forwarding,
     appSettings,
   };
 }

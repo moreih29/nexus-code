@@ -286,6 +286,7 @@
         "browserOpen": "open {{detail}} in a browser tab",
         "browserNavigate": "move the browser tab \"{{detail}}\"",
         "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\"",
+        "portForward": "start or stop forwarding port {{detail}}",
         "layout": "rearrange its groups ({{detail}})",
         "groupClose": "close group {{detail}} and its tabs",
         "tabRename": "rename the tab \"{{detail}}\"",
