@@ -48,6 +48,17 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           lastSeq: result?.lastSeq ?? 0,
         });
       },
+      attach: async (args: unknown) => {
+        const result = (await host.call("attach", validateArgs(c.attach.args, args))) as
+          | { path?: string }
+          | undefined;
+        if (!result?.path) throw new Error("the agent wrote no file");
+        return ipcOk({ path: result.path });
+      },
+      pruneAttachments: async (args: unknown) => {
+        await host.call("pruneAttachments", validateArgs(c.pruneAttachments.args, args));
+        return ipcOk(undefined);
+      },
       transcript: async (args: unknown) => {
         const { workspaceId, sessionId } = validateArgs(c.transcript.args, args);
         const result = (await host.transcript(workspaceId, sessionId)) as {

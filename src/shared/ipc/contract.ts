@@ -827,6 +827,27 @@ export const ipcContract = {
           lastSeq: z.number().int(),
         }),
       ),
+      /**
+       * Writes a file attached to a message where the tab's program can read
+       * it (on an SSH host, a file from this machine), and returns its path
+       * there. The agent removes it when the tab closes.
+       */
+      attach: call(
+        PtyWorkspaceTabSchema.extend({
+          name: z.string().min(1).max(255),
+          /** The file's bytes, base64: at most 20 MiB of them. */
+          data: z.string().max(28 * 1024 * 1024),
+        }),
+        z.object({ path: z.string() }),
+      ),
+      /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
+      pruneAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          keepTabIds: z.array(z.string().max(128)).max(10_000),
+        }),
+        z.void(),
+      ),
       /** A session's transcript, to show a conversation resumed after the agent restarted. */
       transcript: call(
         z.object({ workspaceId: WorkspaceIdPrimitive, sessionId: z.string().max(128) }),
