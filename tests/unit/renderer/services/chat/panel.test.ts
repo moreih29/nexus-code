@@ -8,6 +8,7 @@ import {
 import {
   agentsOf,
   agentTranscript,
+  answerExtras,
   changedFilesOf,
   contextOf,
   jobsOf,
@@ -287,6 +288,59 @@ describe("chat panel", () => {
       { kind: "url", target: "https://example.com/docs", created: false },
       { kind: "file", target: "src/app.ts", created: false },
     ]);
+  });
+
+  test("a finished turn's answer ends with its files and its tools' images", () => {
+    seq = 0;
+    const ask = (text: string): ChatLine => ({
+      seq: ++seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: text } },
+    });
+    const model = applyLines(emptyModel(), [
+      ask("make a chart"),
+      assistant("m1", [
+        { type: "tool_use", id: "w", name: "Write", input: { file_path: "/p/out/chart.md" } },
+      ]),
+      result("w", "ok", { type: "create", filePath: "/p/out/chart.md" }),
+      assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/shot.png" } },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "r",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/png", data: "AAAA" },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      assistant("m3", [{ type: "text", text: "Done: [chart](out/chart.md) and `docs/a.pdf`." }]),
+      ask("again"),
+      assistant("m4", [{ type: "text", text: "See [b](b.md)." }]),
+    ]);
+    const answers = (done: boolean) =>
+      [...answerExtras(model.items, model.tools, "/p", "/p", done)].map(([item, extras]) => [
+        item.kind === "assistant" ? item.messageId : item.kind,
+        extras.files,
+        extras.images.length,
+      ]);
+    expect(answers(true)).toEqual([
+      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1],
+      ["m4", ["/p/b.md"], 0],
+    ]);
+    // The running turn's answer is not the last yet.
+    expect(answers(false)).toEqual([["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1]]);
   });
 
   test("context and usage read their answers", () => {

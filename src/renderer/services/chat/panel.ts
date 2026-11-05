@@ -2,7 +2,16 @@
 // the agents and tasks the CLI reports, the to-do list Claude keeps, the
 // files it changed, and what its replies point at.
 
-import type { AssistantItem, ChatItem, ChatModel, TaskInfo, ToolCall, UserItem } from "./model";
+import { isUnder, resolveFilePath } from "./links";
+import type {
+  AssistantItem,
+  ChatItem,
+  ChatModel,
+  ImageBlock,
+  TaskInfo,
+  ToolCall,
+  UserItem,
+} from "./model";
 
 type Rec = Record<string, unknown>;
 
@@ -312,6 +321,79 @@ export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): R
     }
   }
   return results;
+}
+
+/** What an answer ends with: the files its turn made and named, and the images its tools gave. */
+export interface AnswerExtras {
+  /** Absolute paths: written new first, then linked. */
+  files: string[];
+  images: ImageBlock[];
+}
+
+/** Most file cards under one answer. */
+export const MAX_ANSWER_FILES = 8;
+/** Most images under one answer. */
+export const MAX_ANSWER_IMAGES = 4;
+
+/**
+ * For each finished turn, what its last answer ends with, by that answer's
+ * item. The last turn counts once `lastDone`: while it runs, its answer is
+ * not the last yet. An image a tool read from a file the answer names, in
+ * the workspace (`root`), is left to that file's card.
+ */
+export function answerExtras(
+  items: ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  root: string,
+  lastDone: boolean,
+): Map<ChatItem, AnswerExtras> {
+  const out = new Map<ChatItem, AnswerExtras>();
+  let turn: ChatItem[] = [];
+  const close = () => {
+    const answer = [...turn].reverse().find((item) => item.kind === "assistant");
+    if (!answer) return;
+    const named: string[] = [];
+    const given: { image: ImageBlock; from?: string }[] = [];
+    for (const item of turn) {
+      if (item.kind !== "assistant") continue;
+      for (const block of item.blocks) {
+        const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
+        if (!tool) continue;
+        const path = str(rec(tool.input)?.file_path);
+        const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
+        for (const image of tool.result?.images ?? []) given.push({ image, from });
+        if (tool.name === "Write" && tool.status === "done" && path) {
+          if (rec(tool.result?.structured)?.type === "create") named.push(path);
+        }
+      }
+    }
+    for (const result of resultsOf(turn, {})) {
+      if (result.kind === "file") named.push(result.target);
+    }
+    const files: string[] = [];
+    for (const target of named) {
+      const path = resolveFilePath(target, cwd);
+      if (path && !files.includes(path)) files.push(path);
+    }
+    const images = given
+      .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
+      .map(({ image }) => image);
+    if (files.length > 0 || images.length > 0) {
+      out.set(answer, {
+        files: files.slice(0, MAX_ANSWER_FILES),
+        images: images.slice(0, MAX_ANSWER_IMAGES),
+      });
+    }
+  };
+  for (const item of items) {
+    if (item.kind === "user") {
+      close();
+      turn = [];
+    } else turn.push(item);
+  }
+  if (lastDone) close();
+  return out;
 }
 
 export interface ContextCategory {

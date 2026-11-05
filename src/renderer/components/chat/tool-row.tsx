@@ -4,7 +4,7 @@
 import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ToolCall } from "../../services/chat/model";
+import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 
 interface ToolRowProps {
@@ -27,6 +27,7 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
   const name = tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
+  const images = tool?.result?.images ?? [];
   const children =
     tool && AGENT_TOOLS.has(tool.name)
       ? Object.values(tools).filter((t) => t.parentToolUseId === toolUseId)
@@ -53,6 +54,19 @@ export function ToolRow({ tool, toolUseId, tools, cwd }: ToolRowProps) {
         {children.length > 0 && (
           <span className="shrink-0 text-muted-foreground">
             {t("chat.tool.subagent_calls", { count: children.length })}
+          </span>
+        )}
+        {images.length > 0 && (
+          <span className="flex shrink-0 items-center gap-0.5">
+            {images.slice(0, 3).map((image, i) => (
+              <img
+                // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
+                key={i}
+                src={imageSrc(image)}
+                alt=""
+                className="h-5 max-w-8 rounded-sm border border-border object-cover"
+              />
+            ))}
           </span>
         )}
         {open ? (
@@ -141,8 +155,25 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
         </div>
       )}
       {body}
+      {(tool.result?.images.length ?? 0) > 0 && (
+        <div className="flex flex-wrap gap-1.5 border-t border-border p-2">
+          {tool.result?.images.map((image, i) => (
+            <img
+              // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
+              key={i}
+              src={imageSrc(image)}
+              alt=""
+              className="max-h-64 max-w-full rounded-sm object-contain"
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function imageSrc(image: ImageBlock): string {
+  return `data:${image.mediaType};base64,${image.data}`;
 }
 
 interface Hunk {
