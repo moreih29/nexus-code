@@ -32,6 +32,9 @@ class FakeWebContents {
   once(): this {
     return this;
   }
+  listeners(): unknown[] {
+    return [];
+  }
   setWindowOpenHandler(): void {}
   setBackgroundThrottling(): void {}
   // Still loading, so the scrollbar CSS waits for did-finish-load.
