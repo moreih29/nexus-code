@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
+import { isDocxFile } from "@/services/editor/preview/docx";
 import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
 import { isPdfFile } from "@/services/editor/preview/pdf";
@@ -10,6 +11,7 @@ import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
+import { DocxEditorView } from "./docx-editor-view";
 import { EditorView, ImageEditorView } from "./editor-view";
 import { FontEditorView } from "./font-editor-view";
 import { MediaEditorView } from "./media-editor-view";
@@ -178,8 +180,8 @@ export function ContentHost({
         // and preview-slot behaviour identical to the text path.
         //
         // Audio and video route to MediaEditorView, fonts to FontEditorView,
-        // PDFs to PdfEditorView, and spreadsheets to SpreadsheetEditorView,
-        // the same way.
+        // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, and
+        // Word documents to DocxEditorView, the same way.
         //
         // tabId is forwarded so EditorView can read its own viewMode from the
         // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
@@ -210,6 +212,12 @@ export function ContentHost({
           />
         ) : isSpreadsheetFile(tab.props.filePath) ? (
           <SpreadsheetEditorView
+            key={tab.props.filePath}
+            filePath={tab.props.filePath}
+            workspaceId={workspaceId}
+          />
+        ) : isDocxFile(tab.props.filePath) ? (
+          <DocxEditorView
             key={tab.props.filePath}
             filePath={tab.props.filePath}
             workspaceId={workspaceId}

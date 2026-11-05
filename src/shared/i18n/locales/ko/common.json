@@ -678,6 +678,11 @@
     "chart_sheet": "차트 시트는 미리보기에서 그리지 않습니다.",
     "columns_clipped": "처음 {{count}}개 열만 표시합니다."
   },
+  "docxPreview": {
+    "outside_workspace": "워크스페이스 밖의 문서라 미리 볼 수 없습니다.",
+    "load_failed": "이 문서를 읽을 수 없습니다.",
+    "too_large": "문서가 너무 커서 미리 볼 수 없습니다 (최대 {{maxMb}} MB)."
+  },
   "markdown": {
     "copy_code": "코드 복사",
     "copy": "복사",
