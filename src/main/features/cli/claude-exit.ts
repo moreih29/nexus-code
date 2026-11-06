@@ -1,7 +1,7 @@
 /**
  * Claude Code that dies without its SessionEnd hook (a crash, SIGKILL, the
- * OOM killer) leaves its state behind: the tab reads as running for good, its
- * timeline span stays open and nexus terminal wait on it never returns. When
+ * OOM killer) leaves its state behind: the tab reads as running for good and
+ * nexus terminal wait on it never returns. When
  * a Claude tab's output goes quiet, as it does once the shell has printed its
  * prompt, the program in its foreground is looked at: the shell back there,
  * running nothing, means Claude is gone, and its state is cleared as

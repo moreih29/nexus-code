@@ -7,7 +7,6 @@ import {
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
-import { SessionSpanSchema } from "../sessions/history";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
@@ -2109,14 +2108,6 @@ export const ipcContract = {
       activity: call(z.object({}), z.array(TabActivityEntrySchema)),
       /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
       waits: call(z.object({}), z.array(TerminalWaitSchema)),
-      /**
-       * What the terminals of `workspaceIds` did from `since` on, for the
-       * sessions view's timeline.
-       */
-      history: call(
-        z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
-        z.array(SessionSpanSchema),
-      ),
       /**
        * Lets the user pick an element in a shown browser tab, as nexus
        * browser pick does, for the tab's pick button. Answers with the text
