@@ -5,6 +5,7 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  codexTabEnv,
   parseClaudeVersion,
 } from "../../../../src/main/features/chat/launch";
 import type {
@@ -73,6 +74,7 @@ function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
     getHookInfo: () => ({ socketPath: "/tmp/h.sock", token: "tok" }),
     getWrapperBinDir: () => "/home/u/.nexus-code/bin",
     getWrapperAgentBin: () => "/home/u/.nexus-code/bin/agent",
+    getWrapperShimDir: () => "/home/u/.nexus-code/shim/ws",
     isLocal: () => false,
     ...overrides,
   };
@@ -135,6 +137,51 @@ describe("chat launch", () => {
     });
     expect(windows.NEXUS_CLAUDE_TAB_ID).toBe(TAB);
     expect(windows.NEXUS_CLAUDE_PRINT).toBe("1");
+  });
+
+  test("a Codex tab's env marks its commands as inside the tab's own session", () => {
+    const context = {
+      workspaceId: WS,
+      tabId: TAB,
+      path: "/a:/b",
+      wrapperBinDir: "/w",
+      agentBin: "/w/agent",
+      agentSocket: "/s",
+      hookToken: "t",
+      shimDir: "/shim",
+    };
+    expect(codexTabEnv(context)).toEqual({
+      NEXUS_IN_APP: "1",
+      NEXUS_WRAPPER_SELF_DIR: "/w",
+      NEXUS_WORKSPACE_ID: WS,
+      NEXUS_TAB_ID: TAB,
+      NEXUS_CLAUDE_TAB_ID: TAB,
+      NEXUS_AGENT_BIN: "/w/agent",
+      NEXUS_AGENT_PRINT_RUN: "1",
+      NEXUS_AGENT_EXEC_RUN: "1",
+      NEXUS_AGENT_SOCKET: "/s",
+      NEXUS_HOOK_TOKEN: "t",
+      PATH: "/a:/b",
+      // Its commands' login shell keeps the wrappers first through the shim files.
+      ZDOTDIR: "/shim",
+      NEXUS_USER_ZDOTDIR: "",
+      BASH_ENV: "/shim/bashenv",
+    });
+    // Without the shim files, the wrappers stay first only where no profile moves them.
+    const unshimmed = codexTabEnv({ ...context, shimDir: null });
+    expect(unshimmed.NEXUS_CLAUDE_TAB_ID).toBe(TAB);
+    expect(unshimmed.ZDOTDIR).toBeUndefined();
+    expect(unshimmed.BASH_ENV).toBeUndefined();
+    // Without the wrappers, the PATH codex was found with and the mark.
+    expect(
+      codexTabEnv({
+        workspaceId: WS,
+        tabId: TAB,
+        wrapperBinDir: null,
+        agentBin: null,
+        shimDir: "/shim",
+      }),
+    ).toEqual({ NEXUS_CLAUDE_TAB_ID: TAB });
   });
 
   test("parses claude --version", () => {
@@ -248,9 +295,23 @@ describe("ChatHost", () => {
       cwd: "/repo",
       program: "/home/u/.local/bin/codex",
       args: ["app-server"],
-      env: { PATH: "/home/u/.local/bin:/usr/bin" },
+      env: expect.objectContaining({
+        PATH: "/home/u/.local/bin:/usr/bin",
+        NEXUS_WRAPPER_SELF_DIR: "/home/u/.nexus-code/bin",
+        NEXUS_TAB_ID: TAB,
+        NEXUS_CLAUDE_TAB_ID: TAB,
+        NEXUS_AGENT_BIN: "/home/u/.nexus-code/bin/agent",
+        NEXUS_AGENT_SOCKET: "/tmp/h.sock",
+        NEXUS_HOOK_TOKEN: "tok",
+        BASH_ENV: "/home/u/.nexus-code/shim/ws/bashenv",
+      }),
       resetLog: true,
     });
+    // `codex --version` needs none of it.
+    const version = channel.calls.find((c) => c.method === "chat.exec")?.params as {
+      env: Record<string, string>;
+    };
+    expect(version.env).toEqual({ PATH: "/home/u/.local/bin:/usr/bin" });
     channel.found = { path: "" };
     const missing = await host.startCodex(WS, TAB, "/repo", {});
     expect(missing.ok === false && missing.reason).toBe("not-found");

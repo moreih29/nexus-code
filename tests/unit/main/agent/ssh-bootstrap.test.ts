@@ -827,6 +827,13 @@ describe("ssh-bootstrap", () => {
     expect(uploadedShimContents.get(expectedZshrc)).toContain("add-zsh-hook precmd");
     expect(uploadedShimContents.get(expectedBashrc)).toContain("PROMPT_COMMAND");
     expect(uploadedShimContents.get(expectedZshenv)).toContain("NEXUS_USER_ZDOTDIR");
+    // The zsh login files and the bash BASH_ENV a Codex tab's commands read.
+    for (const name of [".zprofile", ".zlogin", ".zlogout", "bashenv"]) {
+      expect(uploadedShimContents.has(`/home/deploy/.nexus-code/shim/${WS_ID}/${name}`)).toBe(true);
+    }
+    expect(uploadedShimContents.get(`/home/deploy/.nexus-code/shim/${WS_ID}/bashenv`)).toContain(
+      "NEXUS_WRAPPER_SELF_DIR",
+    );
   });
 
   it("omits PTY shim upload when workspaceId is not provided (LSP-only bootstrap stays compatible)", async () => {

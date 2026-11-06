@@ -187,6 +187,37 @@ describe("chatDetailFacts", () => {
       ["g", false],
     ]);
   });
+
+  test("a run no command described goes by its prompt, as a Codex tab's do", () => {
+    const run = {
+      id: "print-2",
+      kind: "print" as const,
+      program: "codex" as const,
+      prompt: "Fix the\n  failing test",
+      start: 0,
+      state: "completed" as const,
+      tools: [],
+      toolCount: 0,
+      failedCount: 0,
+    };
+    const activity = {
+      workspaceId: "w",
+      tabId: "t",
+      tools: [],
+      files: [],
+      todos: [],
+      agents: [run],
+    };
+    expect(chatDetailFacts(model({}), null, activity).agents).toEqual([
+      {
+        id: "print-2",
+        description: "Fix the failing test",
+        status: "done",
+        print: true,
+        program: "codex",
+      },
+    ]);
+  });
 });
 
 describe("hookDetailFacts", () => {

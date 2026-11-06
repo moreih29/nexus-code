@@ -114,15 +114,28 @@ autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrap
 _nexus_prepend_wrapper
 `;
 
+/**
+ * Puts NEXUS_WRAPPER_SELF_DIR back first on the PATH, which a startup file
+ * may have reset: a shell that shows no prompt (the commands a Codex tab
+ * runs) has no precmd hook to do it.
+ */
+const PREPEND_WRAPPER = `if [ -n "\${NEXUS_WRAPPER_SELF_DIR-}" ]; then
+  case ":\$PATH:" in
+    ":\$NEXUS_WRAPPER_SELF_DIR:"*) ;;
+    *) PATH="\$NEXUS_WRAPPER_SELF_DIR:\${PATH//:\$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
+  esac
+fi
+`;
+
 /** zsh .zshenv shim: sources the user's original .zshenv, loaded by zsh
- * before any other startup file. */
+ * before any other startup file, and the only one `zsh -c` reads. */
 export const ZSHENV_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
 if [ -n "\${NEXUS_USER_ZDOTDIR-}" ] && [ -f "$NEXUS_USER_ZDOTDIR/.zshenv" ]; then
   source "$NEXUS_USER_ZDOTDIR/.zshenv"
 elif [ -f "$HOME/.zshenv" ]; then
   source "$HOME/.zshenv"
 fi
-`;
+${PREPEND_WRAPPER}`;
 
 /** A zsh login-file shim (.zprofile, .zlogin, .zlogout): sources the user's
  * own copy, which ZDOTDIR pointing at the shim directory would otherwise hide
@@ -138,7 +151,8 @@ fi
 }
 
 export const ZPROFILE_CONTENT = zshLoginShim(".zprofile");
-export const ZLOGIN_CONTENT = zshLoginShim(".zlogin");
+/** The last file a login zsh reads, after the profile that may reset the PATH. */
+export const ZLOGIN_CONTENT = zshLoginShim(".zlogin") + PREPEND_WRAPPER;
 export const ZLOGOUT_CONTENT = zshLoginShim(".zlogout");
 
 /** bash bashrc shim: sources the user's original .bashrc and registers a
@@ -160,8 +174,16 @@ _nexus_prepend_wrapper
 `;
 
 /**
+ * bash BASH_ENV shim, for a Codex tab's `codex app-server`: bash reads it
+ * as it runs each command (`bash -c`), and after a login shell's profile,
+ * which may have reset the PATH.
+ */
+export const BASHENV_CONTENT = `# Nexus shim — the BASH_ENV of a Codex tab's commands.
+${PREPEND_WRAPPER}`;
+
+/**
  * Writes the PTY shim rc files (.zshrc, .zshenv, bashrc, and the zsh login
- * files) into the workspace-specific shim directory. The directory is created
+ * files), and a Codex tab's bashenv, into the workspace-specific shim directory. The directory is created
  * with 0o700 and each file is written with 0o644. Idempotent — safe to call
  * multiple times.
  *
@@ -188,6 +210,7 @@ export async function writeShimFiles(workspaceId: string): Promise<{
     fs.writeFile(path.join(dir, ".zprofile"), ZPROFILE_CONTENT, { mode: 0o644 }),
     fs.writeFile(path.join(dir, ".zlogin"), ZLOGIN_CONTENT, { mode: 0o644 }),
     fs.writeFile(path.join(dir, ".zlogout"), ZLOGOUT_CONTENT, { mode: 0o644 }),
+    fs.writeFile(path.join(dir, "bashenv"), BASHENV_CONTENT, { mode: 0o644 }),
   ]);
 
   return { dir, zshrc, zshenv, bashrc };

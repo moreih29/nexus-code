@@ -1,5 +1,6 @@
 // How a Claude tab's program is started: `claude -p` in stream-json mode,
-// with the tab's marks and the hooks a terminal's claude gets.
+// with the tab's marks and the hooks a terminal's claude gets. A Codex tab's
+// `codex app-server` gets the same marks.
 
 import { injectHarnessTerminalEnv } from "../pty/harness-env";
 
@@ -44,16 +45,19 @@ export function claudeTabArgs(options: ResumeOptions, hooksSettings?: string): s
   return args;
 }
 
-export interface ClaudeTabEnvContext {
+export interface ChatTabEnvContext {
   readonly workspaceId: string;
   readonly tabId: string;
-  /** The PATH the agent found claude with. */
+  /** The PATH the agent found the program with. */
   readonly path?: string;
   /** The app's wrapper directory on the workspace's host. */
   readonly wrapperBinDir: string | null;
   readonly agentBin: string | null;
   readonly agentSocket?: string;
   readonly hookToken?: string;
+}
+
+export interface ClaudeTabEnvContext extends ChatTabEnvContext {
   /**
    * Set where claude runs without the wrapper (Windows): the marks the
    * wrapper would export.
@@ -62,11 +66,12 @@ export interface ClaudeTabEnvContext {
 }
 
 /**
- * The program's environment. With the wrapper on the PATH and the tab's id
- * as both NEXUS_TAB_ID and, once the wrapper runs, NEXUS_CLAUDE_TAB_ID, a
- * `claude -p` the session starts is recorded as one of its agents (#160).
+ * The environment a terminal's programs get, which a chat tab's program
+ * passes on to the commands it runs: the wrappers first on the PATH (the
+ * agent puts them there), and the tab's ids and the agent's hook socket,
+ * which they tell the app through.
  */
-export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, string> {
+function chatTabBaseEnv(context: ChatTabEnvContext): Record<string, string> {
   const env =
     context.wrapperBinDir !== null
       ? injectHarnessTerminalEnv(undefined, {
@@ -82,11 +87,50 @@ export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, strin
   delete env.TERM_PROGRAM;
   delete env.TERM_PROGRAM_VERSION;
   if (context.path !== undefined && context.path !== "") env.PATH = context.path;
+  return env;
+}
+
+/**
+ * The program's environment. With the wrapper on the PATH and the tab's id
+ * as both NEXUS_TAB_ID and, once the wrapper runs, NEXUS_CLAUDE_TAB_ID, a
+ * `claude -p` the session starts is recorded as one of its agents (#160).
+ */
+export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, string> {
+  const env = chatTabBaseEnv(context);
   // Lets rewind_files restore the files of a message.
   env.CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING = "true";
   if (context.withoutWrapper) {
     env.NEXUS_CLAUDE_TAB_ID = context.tabId;
     env.NEXUS_CLAUDE_PRINT = "1";
+  }
+  return env;
+}
+
+export interface CodexTabEnvContext extends ChatTabEnvContext {
+  /** The workspace's shim directory on its host (runtimeDirs' shim files). */
+  readonly shimDir: string | null;
+}
+
+/**
+ * A Codex tab's `codex app-server` environment, which the commands its
+ * thread runs inherit: a `claude -p` or `codex exec` one of them starts is
+ * recorded as one of the tab's agents, as in a Claude tab. NEXUS_CLAUDE_TAB_ID
+ * is the mark of a tab's own session, which the wrappers look for: codex
+ * starts without one, so the tab sets it here, and an interactive `claude`
+ * a command starts runs without the hooks that would take it for the tab's.
+ *
+ * codex runs its commands in the user's shell with the environment of a
+ * login shell, whose profile may reset the PATH and drop the wrappers from
+ * it. The shim files put them back first: a zsh reads them through ZDOTDIR
+ * (each passing on to the user's own), a bash through BASH_ENV.
+ */
+export function codexTabEnv(context: CodexTabEnvContext): Record<string, string> {
+  const env = chatTabBaseEnv(context);
+  env.NEXUS_CLAUDE_TAB_ID = context.tabId;
+  if (context.wrapperBinDir !== null && context.shimDir !== null) {
+    env.ZDOTDIR = context.shimDir;
+    env.NEXUS_USER_ZDOTDIR = "";
+    env.BASH_ENV = hostJoin(context.shimDir, "bashenv", false);
   }
   return env;
 }

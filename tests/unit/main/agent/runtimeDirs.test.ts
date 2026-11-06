@@ -195,6 +195,69 @@ describe("writeShimFiles", () => {
     },
   );
 
+  // A Codex tab's commands start from a login shell's environment, whose
+  // profile resets the PATH: the shim puts the wrappers back first.
+  const WRAPPERS = "/nexus-wrappers";
+  const RESET = "export PATH=/usr/bin:/bin\n";
+
+  test.skipIf(!fsSync.existsSync("/bin/bash"))(
+    "bash puts the wrappers back first after a profile reset the PATH, through BASH_ENV",
+    async () => {
+      const id = `test-ws-bashenv-${Date.now()}`;
+      const result = await writeShimFiles(id);
+      createdShimDir = result.dir;
+      await fsp.writeFile(path.join(tmpBase, ".profile"), RESET);
+      const env = {
+        HOME: tmpBase,
+        PATH: `${WRAPPERS}:/usr/bin:/bin`,
+        NEXUS_WRAPPER_SELF_DIR: WRAPPERS,
+        BASH_ENV: path.join(result.dir, "bashenv"),
+      };
+      for (const flags of ["-lc", "-c"]) {
+        const output = execSync(
+          `/bin/bash ${flags} 'PATH=/usr/bin:$PATH; bash -c "echo \\$PATH"'`,
+          {
+            env,
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          },
+        );
+        expect(output.trim()).toBe(`${WRAPPERS}:/usr/bin:/usr/bin:/bin`);
+      }
+      const login = execSync(`/bin/bash -lc 'echo "$PATH"'`, {
+        env,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      expect(login.trim().split(":")[0]).toBe(WRAPPERS);
+    },
+  );
+
+  test.skipIf(!fsSync.existsSync("/bin/zsh"))(
+    "zsh puts the wrappers back first after its startup files reset the PATH",
+    async () => {
+      const id = `test-ws-zlogin-${Date.now()}`;
+      const result = await writeShimFiles(id);
+      createdShimDir = result.dir;
+      await fsp.writeFile(path.join(tmpBase, ".zshenv"), RESET);
+      await fsp.writeFile(path.join(tmpBase, ".zprofile"), RESET);
+      for (const flags of ["-lc", "-c"]) {
+        const output = execSync(`/bin/zsh ${flags} 'echo "$PATH"'`, {
+          env: {
+            HOME: tmpBase,
+            PATH: `${WRAPPERS}:/usr/bin:/bin`,
+            NEXUS_WRAPPER_SELF_DIR: WRAPPERS,
+            ZDOTDIR: result.dir,
+            NEXUS_USER_ZDOTDIR: "",
+          },
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        expect(output.trim().split(":")[0]).toBe(WRAPPERS);
+      }
+    },
+  );
+
   test("acceptance 3 — idempotent: second call produces identical content", async () => {
     const id = "test-ws-idempotent-" + Date.now();
     const r1 = await writeShimFiles(id);

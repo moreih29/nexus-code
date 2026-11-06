@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
+import { agentDescription } from "../../services/sessions/agents";
 import { useDurationLabel } from "./session-status";
 
 interface AgentLook {
@@ -68,7 +69,7 @@ export function printLabel(program: AgentRun["program"]): string {
 /** What the agent was asked to do, else its type. */
 export function agentLabel(agent: AgentRun): string {
   return (
-    agent.description ??
+    agentDescription(agent) ??
     agent.type ??
     (agent.kind === "print"
       ? printLabel(agent.program)

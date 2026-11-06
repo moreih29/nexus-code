@@ -88,7 +88,9 @@ export function AgentDetail({
         <Button size="sm" onClick={() => showTerminal(session)}>
           {session.kind === "claude"
             ? t("sessions.detail.show_claude_tab")
-            : t("sessions.detail.show_terminal")}
+            : session.kind === "codex"
+              ? t("sessions.detail.show_codex_tab")
+              : t("sessions.detail.show_terminal")}
         </Button>
         {agent.kind === "print" && agent.end === undefined && (
           <Button

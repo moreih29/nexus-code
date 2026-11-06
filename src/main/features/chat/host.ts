@@ -9,6 +9,7 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  codexTabEnv,
   hostJoin,
   parseClaudeVersion,
   type ResumeOptions,
@@ -28,6 +29,7 @@ export interface ChatWorkspaceManager {
   getHookInfo(workspaceId: string): { socketPath: string; token: string } | null;
   getWrapperBinDir(workspaceId: string): string | null;
   getWrapperAgentBin(workspaceId: string): string | null;
+  getWrapperShimDir(workspaceId: string): string | null;
   isLocal?(workspaceId: string): boolean;
 }
 
@@ -154,7 +156,10 @@ export class ChatHost {
 
   /**
    * Runs a Codex tab's `codex app-server`, or attaches to the one the agent
-   * still runs for it. The tab speaks its JSON-RPC over the same log.
+   * still runs for it. The tab speaks its JSON-RPC over the same log. The
+   * server runs with the tab's marks, as a Claude tab's claude does, so the
+   * `claude -p` and `codex exec` runs its commands start are the tab's
+   * agents; one the agent still runs keeps the environment it started with.
    */
   async startCodex(
     workspaceId: string,
@@ -170,20 +175,35 @@ export class ChatHost {
     if (!found.path) {
       return { ok: false, reason: "not-found", message: "codex was not found on the PATH" };
     }
-    const env = found.envPath ? { PATH: found.envPath } : {};
     let version: string | null = null;
     try {
       const run = await channel.call<{ code: number; stdout: string }>("chat.exec", {
         cwd,
         program: found.path,
         args: ["--version"],
-        env,
+        env: found.envPath ? { PATH: found.envPath } : {},
         timeoutMs: VERSION_TIMEOUT_MS,
       });
       if (run.code === 0) version = parseClaudeVersion(run.stdout);
     } catch (err) {
       log.warn(`codex --version failed: ${(err as Error).message}`);
     }
+    const { workspaceManager } = this.options;
+    const hookInfo = workspaceManager.getHookInfo(workspaceId);
+    // Windows commands run in PowerShell or cmd, which read no shim files.
+    const windows =
+      this.options.windowsAgentFiles !== undefined &&
+      workspaceManager.isLocal?.(workspaceId) === true;
+    const env = codexTabEnv({
+      workspaceId,
+      tabId,
+      path: found.envPath,
+      wrapperBinDir: workspaceManager.getWrapperBinDir(workspaceId),
+      agentBin: workspaceManager.getWrapperAgentBin(workspaceId),
+      agentSocket: hookInfo?.socketPath,
+      hookToken: hookInfo?.token,
+      shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
+    });
     try {
       const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
         workspaceId,

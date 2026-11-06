@@ -4,7 +4,8 @@
  * what it runs on (model, effort, permission mode, context, cost, the files
  * it changed). A chat tab tells it from its conversation, a terminal running
  * Claude from what its hooks report. A Claude tab's agents come from its
- * hooks too, which tell its `claude -p` runs beside its subagents. Pure.
+ * hooks too, which tell its `claude -p` runs beside its subagents; a Codex
+ * tab's are the runs its commands start, told the same. Pure.
  */
 
 import type { AgentRun, SessionActivity } from "../../../shared/claude/activity";
@@ -16,7 +17,7 @@ import {
   editCounts,
   todosOf,
 } from "../chat/panel";
-import { shortTarget } from "./agents";
+import { agentDescription, shortTarget } from "./agents";
 import { lastAnswer, lastPrompt } from "./codex-state";
 import { contextPercent, inputTarget } from "./rows";
 
@@ -133,8 +134,8 @@ function todoStatus(status: string): DetailTodoStatus {
  * What a Claude or Codex tab's conversation tells the panel. A tab opened
  * again shows its earlier conversation (`history`) until it is sent more.
  * The agents are those its hooks report (`activity`) once they report any:
- * its subagents and its `claude -p` runs, which its conversation does not
- * tell.
+ * its subagents and its `claude -p` and `codex exec` runs, which its
+ * conversation does not tell.
  */
 export function chatDetailFacts(
   model: ChatModel,
@@ -240,7 +241,7 @@ function hookAgents(agents: readonly AgentRun[]): DetailAgent[] {
     (agent): DetailAgent => ({
       id: agent.id,
       type: agent.type,
-      description: agent.description,
+      description: agentDescription(agent),
       status:
         agent.state === "permissionPending"
           ? "asking"
