@@ -48,6 +48,13 @@ export interface ComposerController {
   /** The permission modes the mode chip offers; Claude Code's when left out. */
   readonly modes?: ModeSet;
   send(text: string, images?: ImageBlock[]): Promise<void>;
+  /**
+   * During a turn, sends a message the program reads at once, where `send`
+   * waits for the tool it runs (⌘⇧↩); left out where `send` does not wait.
+   */
+  sendNow?(text: string, images?: ImageBlock[]): Promise<void>;
+  /** Has the program read at once the messages `send` left waiting (⌘⇧↩ with nothing typed). */
+  readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
   interrupt(): Promise<unknown>;
@@ -139,6 +146,8 @@ export function Composer({
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
   const canSend = !blocked && hasText && !sending;
+  // Sent during the turn, not yet read: what ⌘⇧↩ with nothing typed hurries.
+  const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
 
   // The caret, for the token it completes; a pick moves it after the render.
   const [caret, setCaret] = useState(0);
@@ -277,7 +286,8 @@ export function Composer({
     return text.trim() ? `${text}\n\n${mentions}` : mentions;
   };
 
-  const submit = async (queue: boolean) => {
+  /** send: as ↩ sends; queue: after the turn (⌘↩); now: read at once (⌘⇧↩). */
+  const submit = async (how: "send" | "queue" | "now") => {
     if (!canSend) return;
     if (images.length === 0 && files.length === 0 && onCommand?.(text)) {
       clear();
@@ -293,8 +303,10 @@ export function Composer({
     } finally {
       setSending(false);
     }
-    if (queue && running) controller.enqueue(message, images);
-    else void controller.send(message, images).catch((err: Error) => showError(err));
+    if (how === "queue" && running) controller.enqueue(message, images);
+    else if (how === "now" && running && controller.sendNow) {
+      void controller.sendNow(message, images).catch((err: Error) => showError(err));
+    } else void controller.send(message, images).catch((err: Error) => showError(err));
     clear();
   };
 
@@ -343,9 +355,13 @@ export function Composer({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      void submit(e.metaKey || e.ctrlKey);
+      if (canSend) void submit("now");
+      else if (held) void controller.readHeldNow?.().catch((err: Error) => showError(err));
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit(e.metaKey || e.ctrlKey ? "queue" : "send");
     } else if (e.key === "Escape" && running) {
       e.preventDefault();
       void controller.interrupt().catch((err: Error) => showError(err));
@@ -501,7 +517,9 @@ export function Composer({
             rows={1}
             placeholder={
               placeholder ??
-              (running ? runningPlaceholder(t) : idlePlaceholder(t, "chat.composer.placeholder"))
+              (running
+                ? runningPlaceholder(t, "chat.composer.placeholder_running")
+                : idlePlaceholder(t, "chat.composer.placeholder"))
             }
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
@@ -545,8 +563,12 @@ export function Composer({
             {/* During a turn an empty box offers only stop; with text, both. */}
             {(!running || hasText) && (
               <IconButton
-                label={running ? t("chat.composer.send_now") : t("chat.composer.send")}
-                onClick={() => void submit(false)}
+                label={
+                  running && !controller.sendNow
+                    ? t("chat.composer.send_now")
+                    : t("chat.composer.send")
+                }
+                onClick={() => void submit("send")}
                 disabled={!canSend}
                 primary
               >
@@ -808,10 +830,10 @@ function ModeChip({ controller, state }: ChipProps) {
  * The composer's keys as this platform names them: the Mac's symbols there,
  * the keys' names elsewhere, as Windows and Linux label shortcuts.
  */
-function composerKeys(): { send: string; newLine: string; queueKey: string } {
+function composerKeys(): { send: string; newLine: string; queueKey: string; nowKey: string } {
   return isMac()
-    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩" }
-    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter" };
+    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩", nowKey: "⌘⇧↩" }
+    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter", nowKey: "Ctrl+Shift+Enter" };
 }
 
 /** The composer's hint between turns: the Claude tab's, or the Codex tab's. */
@@ -822,9 +844,12 @@ export function idlePlaceholder(
   return t(key, composerKeys());
 }
 
-/** The composer's hint during a turn, naming this platform's queue key. */
-export function runningPlaceholder(t: TFunction): string {
-  return t("chat.composer.placeholder_running", composerKeys());
+/** The composer's hint during a turn: the Claude tab's, or the Codex tab's. */
+export function runningPlaceholder(
+  t: TFunction,
+  key: "chat.composer.placeholder_running" | "chat.codex.placeholder_running",
+): string {
+  return t(key, composerKeys());
 }
 
 /** The model info the session runs, as the CLI names it either way (alias or id). */

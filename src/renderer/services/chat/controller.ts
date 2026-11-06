@@ -469,28 +469,39 @@ export class ChatController {
   }
 
   /** Sends a message now: during a turn, Claude reads it after the current tool. */
-  async send(text: string, images: ImageBlock[] = []): Promise<void> {
+  send(text: string, images: ImageBlock[] = []): Promise<void> {
+    return this.sendMessage(text, images, false);
+  }
+
+  /**
+   * Sends a message Claude reads at once (⌘⇧↩): during a turn, what Claude
+   * runs that can go on in the background goes there, and the turn stops
+   * for the message when nothing can.
+   */
+  sendNow(text: string, images: ImageBlock[] = []): Promise<void> {
+    return this.sendMessage(text, images, true);
+  }
+
+  /**
+   * Has Claude read at once the messages it holds for after its tool calls
+   * (⌘⇧↩ with nothing typed): the calls go on in the background, or the
+   * turn stops when none can, and Claude reads the messages next.
+   */
+  async readHeldNow(): Promise<void> {
+    if (this.supports("background_tasks")) {
+      const result = await this.request("background_tasks", {}).catch(() => undefined);
+      if (result && result.backgrounded !== false) return;
+    }
+    await this.interrupt();
+  }
+
+  private async sendMessage(text: string, images: ImageBlock[], now: boolean): Promise<void> {
     if (!(await this.ensureRunning())) return;
-    const content =
-      images.length === 0
-        ? text
-        : [
-            ...images.map((image) => ({
-              type: "image",
-              source: { type: "base64", media_type: image.mediaType, data: image.data },
-            })),
-            ...(text ? [{ type: "text", text }] : []),
-          ];
     if (!this.titled && text.trim()) {
       this.titled = true;
       this.hooks.onFirstMessage?.(text.trim());
     }
-    await this.write({
-      type: "user",
-      message: { role: "user", content },
-      parent_tool_use_id: null,
-      session_id: "",
-    });
+    await this.write(userMessageOf(text, images, now));
   }
 
   /** The composer took the message a rewind or fork put back. */
@@ -1081,4 +1092,34 @@ export function closeChatTab(workspaceId: string, tabId: string): void {
     return;
   }
   void ipcCallResult("chat", "close", { workspaceId, tabId }).catch(() => {});
+}
+
+/**
+ * The line that sends the user's message. `now` has Claude read it at once
+ * during a turn: sent by a person, it moves what can go on in the background
+ * there (Claude Code 2.1.286 on); before that version the turn stops for it.
+ * Claude Code acts on `now` only for a message with a uuid (2.1.318).
+ */
+export function userMessageOf(
+  text: string,
+  images: readonly ImageBlock[],
+  now = false,
+): Record<string, unknown> {
+  const content =
+    images.length === 0
+      ? text
+      : [
+          ...images.map((image) => ({
+            type: "image",
+            source: { type: "base64", media_type: image.mediaType, data: image.data },
+          })),
+          ...(text ? [{ type: "text", text }] : []),
+        ];
+  return {
+    type: "user",
+    message: { role: "user", content },
+    parent_tool_use_id: null,
+    session_id: "",
+    ...(now ? { uuid: crypto.randomUUID(), priority: "now", origin: { kind: "human" } } : {}),
+  };
 }

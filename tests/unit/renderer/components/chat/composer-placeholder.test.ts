@@ -14,8 +14,13 @@ afterEach(() => setPlatformForTests(null));
 describe("composer hints", () => {
   test("name the Mac's keys with its symbols on macOS", () => {
     setPlatformForTests("darwin");
-    const keys = JSON.stringify({ send: "↩", newLine: "⇧↩", queueKey: "⌘↩" });
-    expect(runningPlaceholder(t)).toBe(`chat.composer.placeholder_running ${keys}`);
+    const keys = JSON.stringify({ send: "↩", newLine: "⇧↩", queueKey: "⌘↩", nowKey: "⌘⇧↩" });
+    expect(runningPlaceholder(t, "chat.composer.placeholder_running")).toBe(
+      `chat.composer.placeholder_running ${keys}`,
+    );
+    expect(runningPlaceholder(t, "chat.codex.placeholder_running")).toBe(
+      `chat.codex.placeholder_running ${keys}`,
+    );
     expect(idlePlaceholder(t, "chat.composer.placeholder")).toBe(
       `chat.composer.placeholder ${keys}`,
     );
@@ -23,10 +28,17 @@ describe("composer hints", () => {
   });
 
   test("spell the keys out on Linux and Windows", () => {
-    const keys = JSON.stringify({ send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter" });
+    const keys = JSON.stringify({
+      send: "Enter",
+      newLine: "Shift+Enter",
+      queueKey: "Ctrl+Enter",
+      nowKey: "Ctrl+Shift+Enter",
+    });
     for (const platform of ["linux", "win32"] as const) {
       setPlatformForTests(platform);
-      expect(runningPlaceholder(t)).toBe(`chat.composer.placeholder_running ${keys}`);
+      expect(runningPlaceholder(t, "chat.composer.placeholder_running")).toBe(
+        `chat.composer.placeholder_running ${keys}`,
+      );
       expect(idlePlaceholder(t, "chat.composer.placeholder")).toBe(
         `chat.composer.placeholder ${keys}`,
       );
