@@ -434,6 +434,27 @@ describe("codex model", () => {
     expect(m.items.some((i) => i.kind === "notice")).toBe(false);
   });
 
+  test("a thread that cannot be resumed says so, not the server's error", () => {
+    const m = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        error: { code: -32600, message: `no rollout found for thread id ${T}` },
+      }),
+      ...started().slice(3),
+    ]);
+    expect(m.items).toEqual([
+      expect.objectContaining({
+        kind: "notice",
+        code: "not_resumed",
+        detail: `no rollout found for thread id ${T}`,
+      }),
+    ]);
+    expect(m.threadId).toBe(T);
+    expect(m.outgoing).toEqual({});
+  });
+
   test("a resumed thread shows its turns", () => {
     const m = run([
       sys({ event: "start", pid: 1 }),

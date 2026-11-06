@@ -409,6 +409,9 @@ const NOTICE_TINT: Partial<Record<NoticeItem["code"], string>> = {
   interrupted: "text-[var(--state-warning-fg)]",
 };
 
+/** Notices whose detail, the program's own words, is shown only on hover. */
+const DETAIL_IN_TOOLTIP: ReadonlySet<NoticeItem["code"]> = new Set(["exited", "not_resumed"]);
+
 function Notice({ item }: { item: NoticeItem }) {
   const { t } = useTranslation();
   const label = t(`chat.notice.${item.code}`, useAgentContext());
@@ -420,7 +423,7 @@ function Notice({ item }: { item: NoticeItem }) {
         title={item.detail || label}
       >
         {label}
-        {item.detail && item.code !== "exited" ? ` · ${item.detail}` : ""}
+        {item.detail && !DETAIL_IN_TOOLTIP.has(item.code) ? ` · ${item.detail}` : ""}
       </span>
       <div className="h-px flex-1 bg-border" />
     </div>

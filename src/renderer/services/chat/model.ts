@@ -69,7 +69,9 @@ export type NoticeCode =
   | "compacted"
   | "cleared"
   | "error"
-  | "dropped";
+  | "dropped"
+  /** A thread the app could not go on with; it started a new one. */
+  | "not_resumed";
 
 export interface NoticeItem {
   kind: "notice";

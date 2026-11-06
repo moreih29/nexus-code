@@ -217,6 +217,18 @@ function applyResponse(
       if (clientId && index >= 0) draft.items().splice(index, 1);
       return;
     }
+    if (sent.subtype === "thread/resume") {
+      // The app starts a new thread instead. The server's reason is for the
+      // log and the notice's tooltip, not the conversation.
+      draft.push({
+        kind: "notice",
+        key: `n${seq}`,
+        code: "not_resumed",
+        detail: str(error.message),
+        at,
+      });
+      return;
+    }
     if (sent.subtype === "turn/start") {
       m.running = false;
       m.turn = null;
