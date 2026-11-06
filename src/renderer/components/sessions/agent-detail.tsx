@@ -1,6 +1,6 @@
 // Sessions tab — detail panel of an agent a Claude session runs: where it
 // belongs, what it was asked, the tools it ran, and its answer once it is
-// done. Its permission requests are answered in the terminal.
+// done. Its permission requests are answered in its terminal or Claude tab.
 
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -86,7 +86,9 @@ export function AgentDetail({
       </header>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => showTerminal(session)}>
-          {t("sessions.detail.show_terminal")}
+          {session.kind === "claude"
+            ? t("sessions.detail.show_claude_tab")
+            : t("sessions.detail.show_terminal")}
         </Button>
         {agent.kind === "print" && agent.end === undefined && (
           <Button
@@ -103,7 +105,9 @@ export function AgentDetail({
       ) : (
         agent.state === "permissionPending" && (
           <p className="text-app-ui-sm text-(--state-warning-fg)">
-            {t("sessions.agents.detail.permission_hint")}
+            {t("sessions.agents.detail.permission_hint", {
+              context: session.kind === "claude" ? "claude" : undefined,
+            })}
           </p>
         )
       )}

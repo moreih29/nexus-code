@@ -128,6 +128,29 @@ describe("chatRowFacts", () => {
     expect(facts.todos).toEqual({ done: 1, total: 3 });
     expect(facts.context).toBe(48);
   });
+
+  test("a Claude tab counts the agents its hooks tell running, claude -p runs too", () => {
+    const run = (id: string, kind: "subagent" | "print", end?: number) => ({
+      id,
+      kind,
+      start: 0,
+      ...(end === undefined ? {} : { end }),
+      state: end === undefined ? ("running" as const) : ("completed" as const),
+      tools: [],
+      toolCount: 0,
+      failedCount: 0,
+    });
+    const hooks: SessionActivity = {
+      workspaceId: "w",
+      tabId: "t",
+      tools: [],
+      files: [],
+      todos: [],
+      agents: [run("a", "subagent"), run("p", "print"), run("done", "print", 1)],
+    };
+    expect(chatRowFacts(model({}), hooks).subagents).toBe(2);
+    expect(chatRowFacts(model({})).subagents).toBe(0);
+  });
 });
 
 describe("hookRowFacts", () => {

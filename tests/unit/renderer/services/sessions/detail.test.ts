@@ -135,6 +135,58 @@ describe("chatDetailFacts", () => {
     expect(sent.prompt).toBe("Now");
     expect(sent.steps).toEqual([]);
   });
+
+  test("a Claude tab's agents are those its hooks tell, its claude -p runs among them", () => {
+    const conversation = model({
+      tools: {
+        g: call("g", {
+          name: "Agent",
+          status: "running",
+          input: { description: "Find the tests", subagent_type: "Explore" },
+        }),
+      },
+    });
+    const hooks: SessionActivity = {
+      workspaceId: "w",
+      tabId: "t",
+      tools: [],
+      files: [],
+      todos: [],
+      agents: [
+        {
+          id: "sub",
+          kind: "subagent",
+          type: "Explore",
+          description: "Find the tests",
+          start: 1,
+          state: "running",
+          tools: [],
+          toolCount: 0,
+          failedCount: 0,
+        },
+        {
+          id: "print-1",
+          kind: "print",
+          description: "Review the diff",
+          start: 0,
+          state: "running",
+          tools: [],
+          toolCount: 0,
+          failedCount: 0,
+        },
+      ],
+    };
+    expect(
+      chatDetailFacts(conversation, null, hooks).agents.map((a) => [a.id, a.status, a.print]),
+    ).toEqual([
+      ["sub", "running", false],
+      ["print-1", "running", true],
+    ]);
+    // Without hooks, the Agent calls of its conversation.
+    expect(chatDetailFacts(conversation).agents.map((a) => [a.id, a.print])).toEqual([
+      ["g", false],
+    ]);
+  });
 });
 
 describe("hookDetailFacts", () => {

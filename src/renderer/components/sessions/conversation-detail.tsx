@@ -90,9 +90,18 @@ export function ConversationDetail({
     (s) => s.tabs[chatKey(session.workspaceId, session.tabId)] !== undefined,
   );
   const terminal = session.kind === "terminal";
+  // A Claude tab's hooks tell its agents as a terminal's do, `claude -p` runs too.
+  const hooked = terminal || (session.kind === "claude" && activity !== undefined);
   const facts = useMemo(
-    () => (terminal ? hookDetailFacts(activity) : chatDetailFacts(chat.model, chat.history)),
-    [terminal, activity, chat.model, chat.history],
+    () =>
+      terminal
+        ? hookDetailFacts(activity)
+        : chatDetailFacts(
+            chat.model,
+            chat.history,
+            session.kind === "claude" ? activity : undefined,
+          ),
+    [terminal, session.kind, activity, chat.model, chat.history],
   );
   // A chat tab tells its prompt and answer itself once its conversation is
   // loaded; until then, and for a terminal, as its hooks last told them.
@@ -123,7 +132,7 @@ export function ConversationDetail({
           ) : (
             <ChatTabRequests session={session} chat={chat} />
           )}
-          <Activity session={session} facts={facts} onSelect={onSelect} />
+          <Activity session={session} facts={facts} hooked={hooked} onSelect={onSelect} />
           {terminal && (
             <TerminalScreen
               // Keyed by the session, so each one opens with its screen folded or not by its own.
@@ -415,10 +424,13 @@ function TerminalRequests({
 function Activity({
   session,
   facts,
+  hooked,
   onSelect,
 }: {
   session: AgentSession;
   facts: DetailFacts;
+  /** Whether its agents are those its hooks tell, which have a detail of their own. */
+  hooked: boolean;
   onSelect: (selection: SessionsSelection) => void;
 }) {
   const left = facts.steps.length > 0 || facts.agents.length > 0;
@@ -431,9 +443,9 @@ function Activity({
           <Steps steps={facts.steps} />
           <Subagents
             agents={facts.agents}
-            // A terminal's agents have their own detail; a chat tab shows its own in the tab.
+            // Agents its hooks tell have their own detail; others show only in their tab.
             onOpen={
-              session.kind === "terminal"
+              hooked
                 ? (agent) => onSelect({ kind: "agent", key: session.key, agentId: agent.id })
                 : undefined
             }

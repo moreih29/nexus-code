@@ -601,7 +601,8 @@
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
         "running_for": "{{duration}}째",
-        "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다."
+        "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다.",
+        "permission_hint_claude": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. Claude 탭에서 응답합니다."
       }
     },
     "permission": {

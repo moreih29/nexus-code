@@ -230,7 +230,10 @@ export function TaskRow({
     session.kind === "terminal"
       ? hookRowFacts(activity.get(session.key))
       : chat
-        ? chatRowFacts(chat.model)
+        ? chatRowFacts(
+            chat.model,
+            session.kind === "claude" ? activity.get(session.key) : undefined,
+          )
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
   const group = groupOf(session);
