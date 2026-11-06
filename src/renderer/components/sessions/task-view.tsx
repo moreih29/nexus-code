@@ -36,6 +36,7 @@ import {
   waitedOn,
 } from "../../services/sessions/rows";
 import type { WorktreeChanges } from "../../services/sessions/use-family";
+import { AgentRows } from "./agent-rows";
 import type { SessionsSelection } from "./selection";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark, ToolIcon } from "./status-view";
@@ -113,6 +114,16 @@ export function TaskView({
                         selection.key === session.key
                       }
                       onSelect={() => onSelect({ kind: "session", key: session.key })}
+                    />
+                    <AgentRows
+                      agents={activity.get(session.key)?.agents ?? []}
+                      selectedId={
+                        selection?.kind === "agent" && selection.key === session.key
+                          ? selection.agentId
+                          : undefined
+                      }
+                      onSelect={(agentId) => onSelect({ kind: "agent", key: session.key, agentId })}
+                      className="pr-2 pb-1 pl-6"
                     />
                   </li>
                 ))}

@@ -78,6 +78,20 @@ export function agentLabel(agent: AgentRun): string {
 }
 
 /**
+ * What the agent's detail is headed: what it was asked to do, else its
+ * type or its program, as its request shows under it.
+ */
+export function agentTitle(agent: AgentRun): string {
+  return (
+    agent.description ??
+    agent.type ??
+    (agent.kind === "print"
+      ? printLabel(agent.program)
+      : i18next.t("common:sessions.agents.label_fallback"))
+  );
+}
+
+/**
  * What the agent is, for a line under its name: its type and whether it runs
  * in the background; for a `claude -p` or `codex exec` run, its model, where
  * it is served when not by its program's own API, and the program.

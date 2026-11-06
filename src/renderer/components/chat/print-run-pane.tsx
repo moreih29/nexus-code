@@ -8,16 +8,15 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
-import { runMessages } from "../../services/sessions/agents";
 import { useNow } from "../../services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
+import { AgentFlow, toolCount } from "../sessions/agent-flow";
 import {
   AgentDuration,
   AgentGlyph,
   agentStateColor,
   agentStateLabel,
 } from "../sessions/agent-status";
-import { ToolList } from "../sessions/tool-list";
 import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
 
@@ -50,12 +49,12 @@ export function PrintRunPane({
   };
   const { sessionId } = run;
   const codex = run.program === "codex";
-  const messages = runMessages(run);
   const kind = [
     codex ? t("chat.run.kind_codex") : t("chat.run.kind"),
     run.model,
     run.endpoint,
     sessionId === undefined ? undefined : sessionId.slice(0, ID_SHOWN),
+    run.toolsTold ? toolCount(run) : undefined,
   ].filter((part): part is string => part !== undefined);
   // A Codex tab goes on with a `codex exec` run's thread, as a Claude tab
   // goes on with a copy of a `claude -p` run's session.
@@ -101,50 +100,13 @@ export function PrintRunPane({
       {stopFailed && (
         <p className="text-app-ui-sm text-muted-foreground">{t("chat.run.stop_failed")}</p>
       )}
-      {run.prompt && (
-        <Section title={t("sessions.agents.detail.prompt")}>
-          <p className="app-scrollbar max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-app-body text-foreground">
-            {run.prompt}
-          </p>
-        </Section>
-      )}
-      <Section
-        title={t("sessions.agents.detail.activity")}
-        aside={
-          run.toolsTold
-            ? run.failedCount > 0
-              ? t("sessions.agents.tools_failed", { count: run.toolCount, failed: run.failedCount })
-              : t("sessions.agents.tools", { count: run.toolCount })
-            : undefined
-        }
-      >
-        {!run.toolsTold ? (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {codex
-              ? t("sessions.agents.detail.tools_untold_codex")
-              : t("sessions.agents.detail.tools_untold")}
-          </p>
-        ) : run.tools.length === 0 && messages.length === 0 ? (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.agents.detail.tools_none")}
-          </p>
-        ) : (
-          <ToolList key={run.id} tools={run.tools} messages={messages} now={now} />
+      <AgentFlow
+        agent={run}
+        now={now}
+        renderText={(text) => (
+          <ChatMarkdown text={text} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
         )}
-      </Section>
-      <Section title={t("sessions.agents.detail.answer")}>
-        {run.answer ? (
-          <ChatMarkdown text={run.answer} workspaceId={workspaceId} cwd={cwd} rootPath={rootPath} />
-        ) : (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {running
-              ? t("sessions.agents.detail.answer_pending_run")
-              : run.exitCode !== undefined && run.exitCode !== 0
-                ? t("sessions.agents.exit_code", { code: run.exitCode })
-                : t("sessions.agents.detail.answer_none")}
-          </p>
-        )}
-      </Section>
+      />
     </div>
   );
 }
@@ -162,25 +124,5 @@ export function RunStopButton({ onClick }: { onClick: () => void }) {
     >
       <Square aria-hidden className="size-3 fill-current text-(--state-error-fg)" />
     </Button>
-  );
-}
-
-function Section({
-  title,
-  aside,
-  children,
-}: {
-  title: string;
-  aside?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="flex items-baseline gap-2 text-app-label uppercase text-muted-foreground">
-        {title}
-        {aside && <span className="normal-case">{aside}</span>}
-      </h3>
-      {children}
-    </section>
   );
 }

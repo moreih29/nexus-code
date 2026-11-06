@@ -4,10 +4,11 @@
  */
 import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
-import { activityEntries } from "../../../../../src/renderer/components/sessions/tool-list";
 import {
   activityMap,
+  agentFlow,
   currentTool,
+  rowAgents,
   runMessages,
   sameActivityMap,
   shortTarget,
@@ -100,6 +101,14 @@ describe("agents", () => {
   });
 });
 
+describe("the agents under a conversation's row", () => {
+  it("are those still running, and the one selected", () => {
+    const agents = [run("a1"), run("a2", 5, "completed"), run("a3", 6, "completed")];
+    expect(rowAgents(agents, undefined).map((agent) => agent.id)).toEqual(["a1"]);
+    expect(rowAgents(agents, "a3").map((agent) => agent.id)).toEqual(["a1", "a3"]);
+  });
+});
+
 describe("a run's messages", () => {
   const said = (at: number, text: string) => ({ at, text });
 
@@ -111,12 +120,12 @@ describe("a run's messages", () => {
     expect(runMessages(run("p2"))).toEqual([]);
   });
 
-  it("go with its tools, the latest first, a message before the tool told with it", () => {
+  it("go with its tools in order, a message before the tool told with it", () => {
     const tool = (id: string, start: number): ToolRun => ({ id, name: "Bash", start });
-    const entries = activityEntries(
+    const entries = agentFlow(
       [tool("t1", 2), tool("t2", 5)],
       [said(1, "Looking."), said(5, "Running the tests.")],
     );
-    expect(entries.map((entry) => entry.key)).toEqual(["t2", "message:1", "t1", "message:0"]);
+    expect(entries.map((entry) => entry.key)).toEqual(["message:0", "t1", "message:1", "t2"]);
   });
 });

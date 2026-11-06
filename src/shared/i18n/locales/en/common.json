@@ -593,17 +593,12 @@
       "tools_other": "{{count}} tools",
       "tools_failed_one": "{{count}} tool · {{failed}} failed",
       "tools_failed_other": "{{count}} tools · {{failed}} failed",
-      "session_crumb": "{{agent}} conversation",
       "agent_crumb": "Subagent",
       "exit_code": "Exit code {{code}}",
       "detail": {
-        "prompt": "Request",
-        "activity": "Activity",
-        "answer": "Answer",
         "answer_pending": "The subagent's last answer shows here once it finishes.",
         "answer_pending_run": "The run's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
-        "tools_none": "No tools used yet.",
         "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
         "tools_untold_codex": "This run's tools are not recorded: it keeps no session (--ephemeral), or writes straight to a terminal.",
         "denied": "Denied",
@@ -612,7 +607,8 @@
         "running_for": "{{duration}} so far",
         "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal.",
         "permission_hint_claude": "This subagent is waiting on a permission request. Answer it in the Claude tab."
-      }
+      },
+      "parent": "A subagent of {{title}}"
     },
     "permission": {
       "title": "Permission request",
