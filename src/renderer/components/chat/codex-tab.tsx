@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { codexTabHooks } from "../../services/chat/agent-tab";
 import {
   type CodexController,
   codexController,
@@ -26,14 +27,12 @@ import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../service
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
-import { clipTitle, titleOf } from "../../services/chat/tab-title";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
 import { localUrlFor } from "../../state/operations/ports";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
-import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Banner, type BannerAction } from "../ui/banner";
 import { CodexIcon } from "./agent-icons";
@@ -68,14 +67,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     () =>
       codexController(
         { workspaceId, tabId, cwd: props.cwd, threadId: props.threadId },
-        {
-          onThread: (threadId) =>
-            useTabsStore.getState().setCodexThread(workspaceId, tabId, threadId),
-          onFirstMessage: (text) =>
-            useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
-          onTitle: (title) =>
-            useTabsStore.getState().setProcessTitle(workspaceId, tabId, clipTitle(title)),
-        },
+        codexTabHooks(workspaceId, tabId),
       ),
     [workspaceId, tabId],
   );

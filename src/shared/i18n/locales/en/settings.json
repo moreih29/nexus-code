@@ -214,9 +214,8 @@
       "hint": "Applies to terminals opened from now on. SSH workspaces use the remote server's login shell."
     },
     "taskAgent": {
-      "label": "Task agent command",
-      "hint": "A new task's terminal runs this, with the task's first prompt as its argument. Leave it empty to run nothing.",
-      "aria": "Task agent command"
+      "label": "Task agent",
+      "hint": "The tab a new task opens with. A Claude or Codex tab gets the task's first prompt as its first message; a terminal opens a plain shell. New Task can pick another for each task."
     },
     "sessionsView": {
       "label": "Default agents tab view",

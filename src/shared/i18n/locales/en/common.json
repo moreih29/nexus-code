@@ -191,17 +191,23 @@
     "name_helper": "The branch is named after it.",
     "prompt_label": "First prompt (optional)",
     "prompt_placeholder": "What should the agent do?",
-    "prompt_helper": "The task's terminal runs {{command}} with it.",
+    "prompt_helper": "Sent to the task's {{agent}} tab as its first message.",
     "create": "Create",
     "error_not_a_repo": "{{name}} is not in a Git repository.",
     "error_not_connected": "Connect to {{name}} first.",
     "error_invalid_name": "Put a letter or a digit in the name.",
     "remove_title": "Delete task “{{name}}”?",
-    "remove_description": "Its terminals close and its worktree folder is deleted.",
+    "remove_description": "Its terminals and agent tabs close and its worktree folder is deleted.",
     "remove_branch": "Also delete branch {{branch}}",
     "remove_dirty": "The worktree has changes that are not committed. Deleting the task throws them away.",
     "remove": "Delete",
-    "remove_anyway": "Delete anyway"
+    "remove_anyway": "Delete anyway",
+    "agent_label": "Agent",
+    "agents": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "terminal": "Terminal"
+    }
   },
   "workspace": {
     "remove_title": "Remove “{{name}}” from Nexus?",

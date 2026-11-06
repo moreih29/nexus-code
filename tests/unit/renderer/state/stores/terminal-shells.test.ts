@@ -23,7 +23,7 @@ afterAll(() => {
   mock.module(CLIENT, () => previousClient);
 });
 
-const { resolvedTaskAgentCommand, useTerminalStore } = await import(
+const { resolvedTaskAgent, useTerminalStore } = await import(
   "../../../../../src/renderer/state/stores/terminal"
 );
 
@@ -87,15 +87,36 @@ describe("terminal store — added shells", () => {
   });
 });
 
-describe("terminal store — task agent command", () => {
-  it("runs claude until set, and nothing when set empty", () => {
-    expect(resolvedTaskAgentCommand()).toBe("claude");
+describe("terminal store — task agent", () => {
+  it("opens Claude until set", () => {
+    expect(resolvedTaskAgent()).toBe("claude");
 
-    useTerminalStore.getState().setTaskAgentCommand(" codex --full-auto ");
-    expect(resolvedTaskAgentCommand()).toBe("codex --full-auto");
-    expect(writes.at(-1)).toEqual({ taskAgentCommand: " codex --full-auto " });
+    useTerminalStore.getState().setTaskAgent("codex");
+    expect(resolvedTaskAgent()).toBe("codex");
+    expect(writes.at(-1)).toEqual({ taskAgent: "codex" });
+  });
 
-    useTerminalStore.getState().setTaskAgentCommand("");
-    expect(resolvedTaskAgentCommand()).toBe("");
+  it("carries over the command an earlier version ran, once", () => {
+    useTerminalStore.getState().hydrate({ taskAgentCommand: " codex --full-auto " });
+    expect(resolvedTaskAgent()).toBe("codex");
+    expect(writes).toEqual([{ taskAgent: "codex", taskAgentCommand: undefined }]);
+
+    writes.length = 0;
+    useTerminalStore.getState().hydrate({ taskAgentCommand: "" });
+    expect(resolvedTaskAgent()).toBe("terminal");
+
+    writes.length = 0;
+    useTerminalStore.getState().hydrate({ taskAgentCommand: "claude --model opus" });
+    expect(useTerminalStore.getState().taskAgent).toBeUndefined();
+    expect(writes).toEqual([{ taskAgent: undefined, taskAgentCommand: undefined }]);
+  });
+
+  it("keeps a chosen agent over an old command, and drops one it does not know", () => {
+    useTerminalStore.getState().hydrate({ taskAgent: "codex", taskAgentCommand: "" });
+    expect(resolvedTaskAgent()).toBe("codex");
+    expect(writes).toEqual([]);
+
+    useTerminalStore.getState().hydrate({ taskAgent: "gemini" });
+    expect(resolvedTaskAgent()).toBe("claude");
   });
 });
