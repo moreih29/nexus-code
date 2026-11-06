@@ -146,11 +146,11 @@
     "title": "Sessions waiting on you",
     "aria_one": "Sessions waiting on you: {{count}} needs you",
     "aria_other": "Sessions waiting on you: {{count}} need you",
-    "waiting": "Waiting on you",
-    "done": "Done",
+    "waiting": "Needs you",
+    "done": "New results",
     "empty": "No session is waiting on you",
     "next": "Go to next waiting session",
-    "mark_read": "Mark done as read"
+    "mark_read": "Mark new results read"
   },
   "diagnostics": {
     "errors_dialog": "Errors",
@@ -512,21 +512,21 @@
       "timeline": "Timeline"
     },
     "phase": {
-      "attention": "Needs attention",
-      "running": "Running",
-      "done": "Done",
+      "attention": "Needs you",
+      "running": "Working",
+      "done": "New result",
       "idle": "Idle"
     },
     "state": {
-      "running": "Running",
-      "completed": "Done",
-      "needsInput": "Needs input",
-      "permissionPending": "Needs permission",
+      "running": "Working",
+      "completed": "New result",
+      "needsInput": "Needs you",
+      "permissionPending": "Permission request",
       "error": "Error",
       "idle": "Idle",
-      "busy": "Running",
+      "busy": "Working",
       "quiet": "Idle",
-      "exited": "Exited"
+      "exited": "Ended"
     },
     "estimated": "{{label}} (estimated)",
     "duration": {
@@ -665,10 +665,10 @@
     }
   },
   "claudeStatus": {
-    "running": "Claude: running",
-    "completed": "Claude: response complete",
-    "needsInput": "Claude: waiting for input",
-    "permissionPending": "Claude: waiting for permission",
+    "running": "Claude: working",
+    "completed": "Claude: new result",
+    "needsInput": "Claude: needs you",
+    "permissionPending": "Claude: permission request",
     "error": "Claude: error",
     "idle": "Claude: idle"
   },
@@ -890,7 +890,7 @@
       "thinking": "Thinking",
       "writing": "Writing",
       "running_tool": "Running {{tool}}",
-      "waiting_permission": "Waiting for your answer",
+      "waiting_permission": "Needs you",
       "compacting": "Compacting",
       "interrupting": "Stopping…",
       "retrying": "Retrying (attempt {{attempt}})",
