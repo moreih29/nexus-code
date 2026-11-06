@@ -929,7 +929,7 @@
     "composer": {
       "aria": "Message to Claude",
       "placeholder": "{{send}} send · {{newLine}} new line · / commands · @ files",
-      "placeholder_running": "{{send}} send now · {{queueKey}} queue",
+      "placeholder_running": "{{send}} send · {{nowKey}} send now · {{queueKey}} queue",
       "send": "Send",
       "send_now": "Send now",
       "stop": "Stop",
@@ -1262,6 +1262,7 @@
       "tab_title": "Codex",
       "empty": "What should Codex work on?",
       "placeholder": "{{send}} send · {{newLine}} new line · @ files",
+      "placeholder_running": "{{send}} send now · {{queueKey}} queue",
       "starting": "Starting Codex…",
       "held": "The connection dropped. Codex keeps running and the tab catches up when it is back.",
       "ended": "Codex is not running. Sending a message starts it again, on the same thread.",

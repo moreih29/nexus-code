@@ -216,7 +216,9 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         local={isLocal}
         appCommands={false}
         placeholder={
-          model.running ? runningPlaceholder(t) : idlePlaceholder(t, "chat.codex.placeholder")
+          model.running
+            ? runningPlaceholder(t, "chat.codex.placeholder_running")
+            : idlePlaceholder(t, "chat.codex.placeholder")
         }
       />
       {look && (
