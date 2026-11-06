@@ -12,8 +12,27 @@
 // host, a file with no path here) the agent writes it first.
 
 import type { TFunction } from "i18next";
-import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  AtSign,
+  FileText,
+  ListPlus,
+  Paperclip,
+  Pencil,
+  Plus,
+  Send,
+  Slash,
+  Square,
+  X,
+} from "lucide-react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { appCommandsBeside } from "../../services/chat/app-commands";
 import {
@@ -43,8 +62,9 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
-import { useAgentContext } from "./chat-agent";
+import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
@@ -96,7 +116,7 @@ interface ComposerProps {
   state: ChatTabState;
   /** The program runs on this machine, where an attached file's path can be read. */
   local: boolean;
-  /** In place of the keys' hint: while an agent is shown, where input goes. */
+  /** What the empty box says: while an agent is shown, where input goes. */
   placeholder?: string;
   /** Above the queue: what an app command shows. */
   above?: React.ReactNode;
@@ -146,6 +166,7 @@ export function Composer({
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
+  const program = useContext(ChatAgentContext);
   const [text, setText] = useState("");
   const [images, setImages] = useState<ImageBlock[]>([]);
   const [files, setFiles] = useState<Attachment[]>([]);
@@ -592,12 +613,7 @@ export function Composer({
             onPaste={onPaste}
             readOnly={sending}
             rows={1}
-            placeholder={
-              placeholder ??
-              (running
-                ? runningPlaceholder(t, "chat.composer.placeholder_running")
-                : idlePlaceholder(t, "chat.composer.placeholder"))
-            }
+            placeholder={placeholder}
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
           />
@@ -631,6 +647,7 @@ export function Composer({
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}
+                hint={`${t("chat.composer.stop")} · Esc`}
                 onClick={() => void controller.interrupt().catch((err: Error) => showError(err))}
                 disabled={model.interrupting}
               >
@@ -639,18 +656,13 @@ export function Composer({
             )}
             {/* During a turn an empty box offers only stop; with text, both. */}
             {(!running || hasText) && (
-              <IconButton
-                label={
-                  running && !controller.sendNow
-                    ? t("chat.composer.send_now")
-                    : t("chat.composer.send")
-                }
+              <SendButton
+                running={running}
+                waits={!!controller.sendNow}
+                program={program}
                 onClick={() => void submit("send")}
                 disabled={!canSend}
-                primary
-              >
-                <Send className="size-4" />
-              </IconButton>
+              />
             )}
           </div>
         </div>
@@ -797,15 +809,16 @@ function QueueRow({
 
 function IconButton({
   label,
+  hint,
   onClick,
   disabled,
-  primary,
   children,
 }: {
   label: string;
+  /** Its tooltip, where it tells more than the label: the key that does the same. */
+  hint?: string;
   onClick: () => void;
   disabled?: boolean;
-  primary?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -813,16 +826,53 @@ function IconButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={label}
+      title={hint ?? label}
       aria-label={label}
-      className={cn(
-        "rounded-(--radius-control) p-1.5 disabled:pointer-events-none disabled:opacity-40",
-        primary
-          ? "bg-primary text-primary-foreground hover:opacity-90"
-          : "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-      )}
+      className="rounded-(--radius-control) p-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
     >
       {children}
+    </button>
+  );
+}
+
+/**
+ * The box's main button, with the key that presses it. During a turn a
+ * Claude tab's message waits for the call that runs, so it shows as queued;
+ * a Codex tab's goes in at once. Its tooltip tells the other keys.
+ */
+function SendButton({
+  running,
+  waits,
+  program,
+  onClick,
+  disabled,
+}: {
+  running: boolean;
+  /** During a turn, the message waits for the current call (Claude's ↩). */
+  waits: boolean;
+  program: ChatAgent;
+  onClick: () => void;
+  disabled: boolean;
+}) {
+  const { t } = useTranslation();
+  const queues = running && waits;
+  const label = queues
+    ? t("chat.composer.queue")
+    : running
+      ? t("chat.composer.send_now")
+      : t("chat.composer.send");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={composerHint(t, running, program)}
+      aria-label={label}
+      className="flex items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 pr-1.5 pl-2 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
+      data-testid="chat-send"
+    >
+      {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
+      <Keycap>↵</Keycap>
     </button>
   );
 }
@@ -951,20 +1001,15 @@ export function composerKeys(): {
     : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter", nowKey: "Ctrl+Shift+Enter" };
 }
 
-/** The composer's hint between turns: the Claude tab's, or the Codex tab's. */
-export function idlePlaceholder(
-  t: TFunction,
-  key: "chat.composer.placeholder" | "chat.codex.placeholder",
-): string {
-  return t(key, composerKeys());
-}
-
-/** The composer's hint during a turn: the Claude tab's, or the Codex tab's. */
-export function runningPlaceholder(
-  t: TFunction,
-  key: "chat.composer.placeholder_running" | "chat.codex.placeholder_running",
-): string {
-  return t(key, composerKeys());
+/**
+ * The composer's keys as its send button's tooltip tells them, between
+ * turns or during one, for a Claude tab or a Codex tab.
+ */
+export function composerHint(t: TFunction, running: boolean, program: ChatAgent): string {
+  return t(running ? "chat.composer.hint_running" : "chat.composer.hint", {
+    ...composerKeys(),
+    ...(program === "claude" ? {} : { context: program }),
+  });
 }
 
 /** The model info the session runs, as the CLI names it either way (alias or id). */

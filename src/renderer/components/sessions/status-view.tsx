@@ -45,6 +45,7 @@ import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { markRead } from "../../services/sessions/use-inbox";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
+import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
 import { isSessionSelected, type SessionsSelection } from "./selection";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
@@ -475,35 +476,6 @@ function RowFooter({
         </div>
       )}
     </div>
-  );
-}
-
-/** How full the context is, as a ring. */
-function ContextRing({ percent }: { percent: number }) {
-  const r = 5;
-  const length = 2 * Math.PI * r;
-  return (
-    <svg aria-hidden="true" viewBox="0 0 14 14" className="size-3 shrink-0 -rotate-90">
-      <circle
-        cx="7"
-        cy="7"
-        r={r}
-        fill="none"
-        stroke="currentColor"
-        strokeOpacity={0.25}
-        strokeWidth={2}
-      />
-      <circle
-        cx="7"
-        cy="7"
-        r={r}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeDasharray={`${(length * percent) / 100} ${length}`}
-        className={percent >= 80 ? "text-(--state-warning-fg)" : "text-(--state-loading-indicator)"}
-      />
-    </svg>
   );
 }
 

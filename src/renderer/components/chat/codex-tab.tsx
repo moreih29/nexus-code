@@ -39,7 +39,7 @@ import { Banner, type BannerAction } from "../ui/banner";
 import { CodexIcon } from "./agent-icons";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
-import { Composer, idlePlaceholder, runningPlaceholder } from "./composer";
+import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
 import { QuickLook, type QuickLookList } from "./quick-look";
@@ -230,17 +230,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           </div>
         </div>
       )}
-      <Composer
-        controller={controller}
-        state={state}
-        local={isLocal}
-        appCommands={false}
-        placeholder={
-          model.running
-            ? runningPlaceholder(t, "chat.codex.placeholder_running")
-            : idlePlaceholder(t, "chat.codex.placeholder")
-        }
-      />
+      <Composer controller={controller} state={state} local={isLocal} appCommands={false} />
       {look && (
         <QuickLook
           workspaceId={workspaceId}
