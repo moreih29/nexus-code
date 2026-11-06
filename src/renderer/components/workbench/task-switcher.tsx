@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
 import { activateWorkspace } from "../../services/workspace/tasks";
 import { openSessionsTab } from "../../state/operations/tabs";
 import {
@@ -31,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { cardGlyph } from "./sidebar";
 
 /** How many of a task's ports its menu item lists before "+N". */
 const SHOWN_PORTS = 2;
@@ -117,6 +119,8 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
       ? aggregate.status
       : null;
   }, [tabs, workspace.id]);
+  const codexStatus = useCodexWorkspaceStatus([workspace.id]);
+  const glyph = cardGlyph(status, null, codexStatus);
   const branch = gitBranch ?? workspace.task?.branch ?? null;
   const ports = usePortsStore((s) => s.byWorkspace[workspace.id] ?? NO_PORTS);
 
@@ -127,7 +131,7 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
           {active && <Check className="size-3.5" aria-hidden="true" />}
         </span>
         <span className="truncate max-w-[240px]">{workspace.name}</span>
-        {status && <WorkspaceStatusGlyph status={status} />}
+        {glyph && <WorkspaceStatusGlyph status={glyph.status} codex={glyph.codex} />}
       </span>
       {branch && (
         <span className="ml-4 truncate max-w-[180px] text-muted-foreground">{branch}</span>

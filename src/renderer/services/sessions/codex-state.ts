@@ -3,8 +3,11 @@
  * Claude's hooks do for a Claude tab. Pure.
  */
 
+import type { ClaudeStatus } from "../../../shared/claude/status";
+import { STATUS_PRIORITY } from "../../state/stores/claude-status";
+import type { Tab } from "../../state/stores/tabs";
 import type { ChatModel } from "../chat/model";
-import type { ChatTabState } from "../chat/store";
+import { type ChatTabState, chatKey } from "../chat/store";
 
 /** When this run of the app started: a turn that ended before it counts as looked at. */
 export const RUN_STARTED_AT = Date.now();
@@ -14,7 +17,7 @@ export interface CodexSessionState {
    * In Claude's words: permissionPending, needsInput (a question), error,
    * running, completed (a turn not looked at yet) or idle.
    */
-  readonly state: string;
+  readonly state: ClaudeStatus;
   /** When the state began, as far as the conversation tells it. */
   readonly since: number | undefined;
   /** The last answer. */
@@ -61,6 +64,38 @@ export function codexStateOf(
     return { state: result?.isError ? "error" : "completed", since: endedAt, ...told };
   }
   return { state: "idle", since: endedAt, ...told };
+}
+
+/**
+ * The strongest state of the Codex tabs in `tabs` of `workspaceIds`, for a
+ * workspace card or a task's: null when none of them works or waits.
+ */
+export function workspaceCodexState(
+  workspaceIds: readonly string[],
+  tabs: Readonly<Record<string, Readonly<Record<string, Tab>> | undefined>>,
+  seen: Readonly<Record<string, Readonly<Record<string, number>> | undefined>>,
+  chats: Readonly<Record<string, ChatTabState>>,
+  viewing: string | null,
+  runStartedAt: number = RUN_STARTED_AT,
+): ClaudeStatus | null {
+  let strongest: ClaudeStatus | null = null;
+  for (const workspaceId of workspaceIds) {
+    for (const tab of Object.values(tabs[workspaceId] ?? {})) {
+      if (tab.type !== "codex") continue;
+      const key = chatKey(workspaceId, tab.id);
+      const { state } = codexStateOf(
+        chats[key],
+        seen[workspaceId]?.[tab.id],
+        key === viewing,
+        runStartedAt,
+      );
+      if (state === "idle") continue;
+      if (strongest === null || STATUS_PRIORITY[state] > STATUS_PRIORITY[strongest]) {
+        strongest = state;
+      }
+    }
+  }
+  return strongest;
 }
 
 /** The text of the answer to the last prompt, if it has any yet. */

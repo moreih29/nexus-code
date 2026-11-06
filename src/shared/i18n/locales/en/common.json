@@ -673,6 +673,14 @@
     "error": "Claude: error",
     "idle": "Claude: idle"
   },
+  "codexStatus": {
+    "running": "Codex: working",
+    "completed": "Codex: new result",
+    "needsInput": "Codex: needs you",
+    "permissionPending": "Codex: permission request",
+    "error": "Codex: error",
+    "idle": "Codex: idle"
+  },
   "claudeNotification": {
     "needsAttention": "Needs your attention",
     "needsPermission": "Claude needs permission",
