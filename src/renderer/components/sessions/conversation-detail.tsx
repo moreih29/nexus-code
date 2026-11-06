@@ -72,8 +72,6 @@ interface ConversationDetailProps {
   onSelect: (selection: SessionsSelection) => void;
   /** Back to the list, where the panel takes its place. */
   onBack?: () => void;
-  /** Closes the panel, where it lies over a view. */
-  onClose?: () => void;
 }
 
 export function ConversationDetail({
@@ -83,7 +81,6 @@ export function ConversationDetail({
   visible,
   onSelect,
   onBack,
-  onClose,
 }: ConversationDetailProps) {
   const { t } = useTranslation();
   const chat = useChatTab(session.workspaceId, session.tabId);
@@ -108,12 +105,7 @@ export function ConversationDetail({
     <div className="@container flex h-full min-h-0 flex-col">
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="flex min-w-0 flex-col gap-4 p-4">
-          <DetailTop
-            session={session}
-            running={chat.model.running}
-            onBack={onBack}
-            onClose={onClose}
-          />
+          <DetailTop session={session} running={chat.model.running} onBack={onBack} />
           <MetaChips session={session} facts={facts} branch={branch} />
           {!waiting && prompt && <UserBubble text={prompt} />}
           {session.phase !== "running" && answer && (
@@ -162,13 +154,11 @@ function DetailTop({
   session,
   running,
   onBack,
-  onClose,
 }: {
   session: AgentSession;
   /** A chat tab's turn runs. */
   running: boolean;
   onBack?: () => void;
-  onClose?: () => void;
 }) {
   const { t } = useTranslation();
   const duration = useDurationLabel(session.since);
@@ -230,17 +220,6 @@ function DetailTop({
             }}
           >
             <Square aria-hidden className="size-3 fill-current text-(--state-error-fg)" />
-          </Button>
-        )}
-        {onClose && (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title={t("sessions.detail.close")}
-            aria-label={t("sessions.detail.close")}
-            onClick={onClose}
-          >
-            <X aria-hidden className="size-3.5" />
           </Button>
         )}
       </div>

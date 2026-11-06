@@ -45,30 +45,40 @@ describe("sessions view store", () => {
 
   it("a workspace's choice outranks the default", () => {
     const store = useSessionsViewStore.getState();
-    store.setDefault("board");
-    expect(view(WS)).toBe("board");
-    expect(writes.at(-1)).toEqual({ sessionsViewDefault: "board" });
+    store.setDefault("task");
+    expect(view(WS)).toBe("task");
+    expect(writes.at(-1)).toEqual({ sessionsViewDefault: "task" });
 
-    store.setForWorkspace(WS, "tree");
-    expect(view(WS)).toBe("tree");
-    expect(view(OTHER)).toBe("board");
-    expect(writes.at(-1)).toEqual({ sessionsViewByWorkspace: { [WS]: "tree" } });
+    store.setForWorkspace(WS, "status");
+    expect(view(WS)).toBe("status");
+    expect(view(OTHER)).toBe("task");
+    expect(writes.at(-1)).toEqual({ sessionsViewByWorkspace: { [WS]: "status" } });
   });
 
   it("does not save a choice that changes nothing", () => {
-    useSessionsViewStore.getState().setForWorkspace(WS, "board");
-    useSessionsViewStore.getState().setForWorkspace(WS, "board");
+    useSessionsViewStore.getState().setForWorkspace(WS, "task");
+    useSessionsViewStore.getState().setForWorkspace(WS, "task");
     expect(writes).toHaveLength(1);
   });
 
   it("drops views it does not know when loading", () => {
     useSessionsViewStore.getState().hydrate({
       sessionsViewDefault: "galaxy",
-      sessionsViewByWorkspace: { [WS]: "board", [OTHER]: "galaxy" },
+      sessionsViewByWorkspace: { [WS]: "task", [OTHER]: "galaxy" },
     });
     const state = useSessionsViewStore.getState();
     expect(state.defaultView).toBeUndefined();
-    expect(state.byWorkspace).toEqual({ [WS]: "board" });
+    expect(state.byWorkspace).toEqual({ [WS]: "task" });
+    expect(view(OTHER)).toBe("status");
+  });
+
+  it("reads a view earlier versions had as the one that took its place", () => {
+    useSessionsViewStore.getState().hydrate({
+      sessionsViewDefault: "lineage",
+      sessionsViewByWorkspace: { [WS]: "tree", [OTHER]: "board" },
+    });
+    expect(useSessionsViewStore.getState().defaultView).toBe("task");
+    expect(view(WS)).toBe("task");
     expect(view(OTHER)).toBe("status");
   });
 });

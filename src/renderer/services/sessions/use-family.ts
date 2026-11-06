@@ -2,15 +2,14 @@
  * The live data of a sessions tab: its workspace's family of sessions, the
  * output activity that tells Codex and other agents' state, what Claude
  * sessions are doing (their tools and agents), each worktree's uncommitted
- * changes, and what the sessions did over time. Polls only while the tab
- * is shown.
+ * changes, and which terminals wait on which. Polls only while the tab is
+ * shown.
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { GitStatus } from "../../../shared/git/types";
 import { createLogger } from "../../../shared/log/renderer";
 import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
-import type { SessionSpan } from "../../../shared/sessions/history";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
@@ -25,7 +24,6 @@ import {
   sameFamily,
 } from "./model";
 import { type ActivityByKey, activityMap, sameActivityMap } from "./agents";
-import { rangeStart, type TimelineRange } from "./timeline";
 import { viewingKey } from "./viewing";
 
 const log = createLogger("sessions");
@@ -33,7 +31,6 @@ const log = createLogger("sessions");
 const ACTIVITY_POLL_MS = 1_000;
 const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
-const HISTORY_POLL_MS = 2_000;
 const CHANGES_POLL_MS = 5_000;
 
 /** The current time, ticking every `everyMs` while `enabled`. */
@@ -122,32 +119,6 @@ export function useSessionActivity(
     }, CLAUDE_ACTIVITY_POLL_MS);
   }, [ids, enabled]);
   return activity;
-}
-
-/**
- * What the terminals of `workspaceIds` did over `range`, polled while
- * `enabled`.
- */
-export function useSessionHistory(
-  workspaceIds: readonly string[],
-  range: TimelineRange,
-  enabled: boolean,
-): readonly SessionSpan[] {
-  const ids = workspaceIds.join(",");
-  const [spans, setSpans] = useState<readonly SessionSpan[]>([]);
-  useEffect(() => {
-    if (!enabled || ids === "") return;
-    return startPolling(async (isLatest) => {
-      const result = await ipcCallResult("cli", "history", {
-        workspaceIds: ids.split(","),
-        since: rangeStart(range, Date.now()),
-      });
-      if (isLatest() && result.ok) {
-        setSpans((prev) => (sameJson(prev, result.value) ? prev : result.value));
-      }
-    }, HISTORY_POLL_MS);
-  }, [ids, range, enabled]);
-  return spans;
 }
 
 /** The family of `workspaceId` as the stores and `activity` tell it now. */

@@ -11,11 +11,9 @@ import {
   CircleX,
   Loader,
   type LucideIcon,
-  SquareTerminal,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
-import { currentTool, toolLine } from "../../services/sessions/agents";
 import { useDurationLabel } from "./session-status";
 
 interface AgentLook {
@@ -87,28 +85,6 @@ export function agentKindParts(agent: AgentRun): string[] {
   ].filter((part): part is string => part !== undefined);
 }
 
-/** What the agent does now, or did: its tool, its permission wait, its tool count. */
-export function agentActivityLine(agent: AgentRun): string {
-  const tool = currentTool(agent.tools);
-  if (agent.state === "permissionPending") {
-    return tool
-      ? i18next.t("common:sessions.agents.asking_tool", { tool: toolLine(tool) })
-      : agentStateLabel(agent.state);
-  }
-  if (agent.end === undefined && tool) return toolLine(tool);
-  if (agent.kind === "print" && !agent.toolsTold) {
-    return agent.exitCode !== undefined && agent.exitCode !== 0
-      ? i18next.t("common:sessions.agents.exit_code", { code: agent.exitCode })
-      : "";
-  }
-  return agent.failedCount > 0
-    ? i18next.t("common:sessions.agents.tools_failed", {
-        count: agent.toolCount,
-        failed: agent.failedCount,
-      })
-    : i18next.t("common:sessions.agents.tools", { count: agent.toolCount });
-}
-
 /** How long `ms` is, to the second under ten minutes: "8s", "1m 52s", "14m", "2h 5m". */
 export function elapsedLabel(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1_000));
@@ -134,44 +110,4 @@ export function AgentDuration({ agent, className }: { agent: AgentRun; className
   return label ? (
     <span className={cn("shrink-0 text-app-micro text-muted-foreground", className)}>{label}</span>
   ) : null;
-}
-
-/**
- * An agent as two lines: glyph, name and duration; then what it is and what
- * it does. A `claude -p` run is marked with a terminal glyph.
- */
-export function AgentLines({ agent, dim }: { agent: AgentRun; dim?: boolean }) {
-  // A permission wait is what matters; else what it is, in a word, and what it does.
-  const detail = (
-    agent.state === "permissionPending"
-      ? [agentActivityLine(agent)]
-      : [agentKindParts(agent)[0], agentActivityLine(agent)]
-  ).filter((part): part is string => part !== undefined && part !== "");
-  return (
-    <>
-      <span className="flex w-full min-w-0 items-center gap-1.5">
-        <AgentGlyph state={agent.state} />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-app-ui-sm",
-            dim ? "text-muted-foreground" : "text-foreground",
-          )}
-        >
-          {agentLabel(agent)}
-        </span>
-        <AgentDuration agent={agent} />
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-1 pl-4 font-mono text-app-micro text-muted-foreground">
-        {agent.kind === "print" && <SquareTerminal aria-hidden className="size-3 shrink-0" />}
-        <span
-          className={cn(
-            "truncate",
-            agent.state === "permissionPending" && "text-(--state-warning-fg)",
-          )}
-        >
-          {detail.join(" · ")}
-        </span>
-      </span>
-    </>
-  );
 }
