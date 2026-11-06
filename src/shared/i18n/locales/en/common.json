@@ -929,7 +929,7 @@
     "composer": {
       "aria": "Message to Claude",
       "placeholder": "↩ send · ⇧↩ new line · / commands · @ files",
-      "placeholder_running": "↩ send now · ⌘↩ queue",
+      "placeholder_running": "↩ send now · {{queueKey}} queue",
       "send": "Send",
       "send_now": "Send now",
       "stop": "Stop",
