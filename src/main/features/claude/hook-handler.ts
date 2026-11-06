@@ -419,7 +419,7 @@ async function handleHookEvent(
     return;
   }
 
-  deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload);
+  deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload, parsed.data.agentMessages);
 
   // 공통 — 사용자가 현재 이 탭을 보고 있는지.
   // 알림 발사가 필요한 모든 훅(Notification/PermissionRequest/Stop)이 동일 기준을 쓴다.

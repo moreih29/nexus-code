@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   describeTool,
+  type SaidMessage,
   SessionActivityLog,
 } from "../../../../src/main/features/claude/session-activity";
 import type { AgentRun } from "../../../../src/shared/claude/activity";
@@ -248,6 +249,44 @@ describe("agents", () => {
     });
     expect(activity().agents[0]?.tools[0]?.end).toBe(9_000);
     expect(changes.map((change) => change.state)).toEqual(["running", "completed"]);
+  });
+
+  test("what a subagent wrote, as its hooks read it from its transcript", () => {
+    const said = (subcommand: string, payload: Record<string, unknown>, messages: SaidMessage[]) =>
+      log.noteHook(WS, TAB, subcommand, { cwd: CWD, agent_id: "a1", ...payload }, messages);
+    clock = 2_000;
+    said("pre-tool-use", { tool_name: "Bash", tool_use_id: "b1", tool_input: { command: "ls" } }, [
+      { id: "u1:0", text: " Listing first. " },
+    ]);
+    clock = 3_000;
+    // Each message is kept once, as of when it came.
+    said("post-tool-use", { tool_name: "Bash", tool_use_id: "b1" }, [
+      { id: "u1:0", text: "Listing first." },
+      { id: "u5:0", text: "Two files." },
+      { id: "u6:0", text: "  " },
+    ]);
+    expect(activity().agents[0]?.messages).toEqual([
+      { at: 2_000, text: "Listing first." },
+      { at: 3_000, text: "Two files." },
+    ]);
+    expect(activity().agents[0]?.tools[0]?.start).toBe(2_000);
+    // None is kept from a hook of the session's own call, or once it ended.
+    log.noteHook(WS, TAB, "pre-tool-use", { cwd: CWD, tool_name: "Read" }, [
+      { id: "x", text: "Not the subagent's." },
+    ]);
+    said("subagent-stop", { last_assistant_message: "Two files." }, [
+      { id: "u7:0", text: "Done." },
+    ]);
+    said("post-tool-use", { tool_name: "Bash", tool_use_id: "b2" }, [
+      { id: "u8:0", text: "Late." },
+    ]);
+    expect(activity().agents[0]?.messages?.map((message) => message.text)).toEqual([
+      "Listing first.",
+      "Two files.",
+      "Done.",
+    ]);
+    // What the app keeps of the agent tells only its messages.
+    expect(activity().agents[0]).not.toHaveProperty("said");
   });
 
   test("a background agent is named by its tool's answer before it starts", () => {

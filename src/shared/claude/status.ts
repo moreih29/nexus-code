@@ -85,6 +85,12 @@ export const HookRequestSchema = z.object({
   payload: z.unknown(),
   assistantText: z.string().optional(),
   /**
+   * What the subagent of a hook's call (its agent_id) wrote so far, the
+   * latest of it: hookclient reads it from the subagent's transcript, as the
+   * hook tells no text.
+   */
+  agentMessages: z.array(z.object({ id: z.string(), text: z.string() })).optional(),
+  /**
    * A hook of a `claude -p` run, which shows no permission dialog: its
    * PermissionRequest is answered at once rather than held for the user.
    */

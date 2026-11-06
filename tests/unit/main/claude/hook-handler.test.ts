@@ -1155,6 +1155,25 @@ describe("hook-handler — session activity", () => {
     expect(recorded?.agents.map((agent) => agent.id)).toEqual(["a1"]);
   });
 
+  test("records what a subagent wrote, as its hook's client read it", async () => {
+    const { activity, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "go", prompt_id: "p1" }));
+    emit({
+      ...makeHookPayload("pre-tool-use", {
+        prompt_id: "p1",
+        agent_id: "a1",
+        tool_name: "Bash",
+        tool_use_id: "t1",
+        tool_input: { command: "ls" },
+      }),
+      agentMessages: [{ id: "u1:0", text: "Listing first." }],
+    });
+    await tick();
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.messages).toMatchObject([
+      { text: "Listing first." },
+    ]);
+  });
+
   test("a frame of a finished turn is not recorded", async () => {
     const { activity, emit } = makeHarness();
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
