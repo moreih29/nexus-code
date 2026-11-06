@@ -2,7 +2,6 @@
 // agent, shown as a conversation. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
-import { MessageSquareText } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -48,6 +47,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
 import { showToast } from "../ui/toast";
+import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
@@ -383,7 +383,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-                    <MessageSquareText className="size-8" />
+                    <ClaudeIcon className="size-8" />
                     <div className="text-app-body">{t("chat.empty.title")}</div>
                     <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
                       {props.cwd}

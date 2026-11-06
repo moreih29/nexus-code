@@ -1,6 +1,5 @@
 import i18next from "i18next";
 import {
-  Bot,
   CircleAlert,
   CircleCheck,
   File,
@@ -11,7 +10,6 @@ import {
   Lock,
   type LucideIcon,
   MessageCircleQuestion,
-  MessageSquareText,
   Radar,
   SquareTerminal,
   TriangleAlert,
@@ -37,6 +35,7 @@ import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { estimatedLabel } from "../../sessions/session-status";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
@@ -95,8 +94,8 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
   if (tab.type === "sessions") return Radar;
-  if (tab.type === "claude") return MessageSquareText;
-  if (tab.type === "codex") return Bot;
+  if (tab.type === "claude") return ClaudeIcon;
+  if (tab.type === "codex") return CodexIcon;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 

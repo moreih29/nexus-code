@@ -3,7 +3,6 @@
 // composer of a Claude tab. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
-import { Bot } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -28,6 +27,7 @@ import type { CodexTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Banner, type BannerAction } from "../ui/banner";
+import { CodexIcon } from "./agent-icons";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer, runningPlaceholder } from "./composer";
@@ -185,7 +185,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         empty={
           state.phase === "ready" || state.phase === "ended" ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-              <Bot className="size-8" />
+              <CodexIcon className="size-8" />
               <div className="text-app-body">{t("chat.codex.empty")}</div>
               <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
                 {props.cwd}
