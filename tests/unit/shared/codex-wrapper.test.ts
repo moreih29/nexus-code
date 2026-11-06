@@ -145,6 +145,7 @@ describeOnPosix("codex wrapper", () => {
 });
 
 describeInGitBash("codex wrapper — Git Bash on Windows", () => {
+  // Bash starts slowly on Windows: the test waits as long as its spawn may.
   test("starts codex with --no-daemon", () => {
     const { wrapperDir, realDir } = install();
     const result = spawnSync(GIT_BASH, [path.join(wrapperDir, "codex"), "hi"], {
@@ -158,7 +159,7 @@ describeInGitBash("codex wrapper — Git Bash on Windows", () => {
       timeout: 10000,
     });
     expect(argsOf(result.stdout.replaceAll("\r", ""))).toEqual(["--no-daemon", "hi"]);
-  });
+  }, 20_000);
 });
 
 describeOnWindows("PowerShell's codex function", () => {
@@ -197,10 +198,13 @@ describeOnWindows("PowerShell's codex function", () => {
     return result.stdout.replaceAll("\r", "");
   }
 
+  // Two starts of Windows PowerShell, each running codex.cmd a few times,
+  // can take longer than bun's 5 s on a CI runner, which then kills them.
+  // The test waits as long as its spawns may.
   test("adds --no-daemon unless codex refuses it or lacks it", () => {
     expect(runPowerShell("codex 'a b'; codex agents; codex --remote=ws://x; codex resume")).toBe(
       'ARGS:--no-daemon "a b"\nARGS:agents\nARGS:--remote=ws://x\nARGS:--no-daemon resume\n',
     );
     expect(runPowerShell("codex hi", { FAKE_OLD: "1" })).toBe("ARGS:hi\n");
-  });
+  }, 60_000);
 });
