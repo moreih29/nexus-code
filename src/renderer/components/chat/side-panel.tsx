@@ -24,7 +24,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { ChatController } from "../../services/chat/controller";
-import { fileKind, resolveFilePath } from "../../services/chat/links";
+import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
 import {
   type AgentRow,
   agentsOf,
@@ -233,8 +233,9 @@ function stop(controller: ChatController, taskId: string, failed: string): void 
 
 /** A path from the session's folder, when it is under it. */
 function shortPath(path: string, cwd: string): string {
-  const base = cwd.replace(/\/$/, "");
-  return path.startsWith(`${base}/`) ? path.slice(base.length + 1) : path;
+  const base = slashWindowsPath(cwd).replace(/\/$/, "");
+  const file = slashWindowsPath(path);
+  return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
 }
 
 function Section({

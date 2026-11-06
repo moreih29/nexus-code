@@ -6,6 +6,7 @@ import {
   isUnder,
   resolveFilePath,
   resultFiles,
+  slashWindowsPath,
 } from "../../../../../src/renderer/services/chat/links";
 
 describe("chat links", () => {
@@ -21,6 +22,28 @@ describe("chat links", () => {
     expect(resolveFilePath("src/a.ts#L10", "/w")).toBe("/w/src/a.ts");
     expect(resolveFilePath("my%20notes.md", "/w")).toBe("/w/my notes.md");
     expect(resolveFilePath("file:///tmp/a%20b.txt", "/w")).toBe("/tmp/a b.txt");
+  });
+
+  test("a Windows path comes back with slashes, its drive in front", () => {
+    const cwd = "C:/w/proj";
+    expect(resolveFilePath("C:\\w\\proj\\src\\a.ts", cwd)).toBe("C:/w/proj/src/a.ts");
+    expect(resolveFilePath("C:/w/proj/src/a.ts#L2", cwd)).toBe("C:/w/proj/src/a.ts");
+    expect(resolveFilePath("D:\\other\\b.txt", cwd)).toBe("D:/other/b.txt");
+    expect(resolveFilePath("src\\a.ts", cwd)).toBe("C:/w/proj/src/a.ts");
+    expect(resolveFilePath("src/a.ts", `${cwd}/`)).toBe("C:/w/proj/src/a.ts");
+    expect(resolveFilePath("..\\b\\c.md", cwd)).toBe("C:/w/b/c.md");
+    expect(resolveFilePath("file:///C:/w/a%20b.txt", "/w")).toBe("C:/w/a b.txt");
+    // A markdown link's href, its `\` escaped.
+    expect(resolveFilePath("C:%5Cw%5Cproj%5Ca.ts", "/w")).toBe("C:/w/proj/a.ts");
+    expect(resolveFilePath("src%5Ca.ts", cwd)).toBe("C:/w/proj/src/a.ts");
+    // A backslash is only a separator where the session runs on Windows.
+    expect(resolveFilePath("a\\b.txt", "/w")).toBe("/w/a\\b.txt");
+  });
+
+  test("a Windows path written with slashes", () => {
+    expect(slashWindowsPath("C:\\w\\a.ts")).toBe("C:/w/a.ts");
+    expect(slashWindowsPath("C:/w/a.ts")).toBe("C:/w/a.ts");
+    expect(slashWindowsPath("/w/a\\b.ts")).toBe("/w/a\\b.ts");
   });
 
   test("what is not a file path resolves to nothing", () => {
@@ -48,6 +71,11 @@ describe("chat links", () => {
     expect(isUnder("/w/a.ts", "/w/")).toBe(true);
     expect(isUnder("/wx/a.ts", "/w")).toBe(false);
     expect(isUnder("/tmp/a.ts", "")).toBe(false);
+    expect(isUnder("C:/w/a.ts", "C:/w")).toBe(true);
+    expect(isUnder("C:\\w\\a.ts", "C:/w/")).toBe(true);
+    expect(isUnder("c:/W/a.ts", "C:/w")).toBe(true);
+    expect(isUnder("C:/wx/a.ts", "C:/w")).toBe(false);
+    expect(isUnder("C:/a.ts", "C:/")).toBe(true);
   });
 
   test("the machine's own addresses", () => {

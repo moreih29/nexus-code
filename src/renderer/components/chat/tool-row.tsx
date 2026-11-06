@@ -4,6 +4,7 @@
 import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { slashWindowsPath } from "../../services/chat/links";
 import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
 
@@ -290,6 +291,8 @@ export function toolSummary(tool: ToolCall, cwd: string): string {
 }
 
 function relativeTo(path: string, cwd: string): string {
-  const root = cwd.endsWith("/") ? cwd : `${cwd}/`;
-  return path.startsWith(root) ? path.slice(root.length) : path;
+  const base = slashWindowsPath(cwd);
+  const root = base.endsWith("/") ? base : `${base}/`;
+  const file = slashWindowsPath(path);
+  return file.startsWith(root) ? file.slice(root.length) : path;
 }

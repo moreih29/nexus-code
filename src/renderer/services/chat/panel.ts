@@ -3,7 +3,7 @@
 // files it changed, and what its replies point at.
 
 import type { AgentRun } from "../../../shared/claude/activity";
-import { isUnder, resolveFilePath, resultFiles } from "./links";
+import { isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
 import type {
   AssistantItem,
   ChatItem,
@@ -231,8 +231,10 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
   for (const tool of Object.values(tools)) {
     if (!EDIT_TOOLS.has(tool.name) || tool.status !== "done") continue;
     const input = rec(tool.input) ?? {};
-    const path = str(input.file_path) ?? str(input.notebook_path);
-    if (!path) continue;
+    const named = str(input.file_path) ?? str(input.notebook_path);
+    if (!named) continue;
+    // One file whichever way its edits wrote a Windows path.
+    const path = slashWindowsPath(named);
     const structured = rec(tool.result?.structured);
     const file = files.get(path) ?? {
       path,
@@ -298,6 +300,7 @@ const CODE_RE = /`([^`\n]+)`/g;
 function looksLikePath(text: string): boolean {
   if (/\s/.test(text) || text.length > 300) return false;
   if (text.startsWith("/") || text.startsWith("~/")) return text.length > 1;
+  if (/^[A-Za-z]:[\\/]/.test(text)) return text.length > 3;
   return /^[\w.-]+(\/[\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
 }
 
