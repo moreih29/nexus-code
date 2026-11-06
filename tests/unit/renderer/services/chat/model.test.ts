@@ -7,6 +7,7 @@ import {
   type ChatLine,
   type ChatModel,
   emptyModel,
+  isWaiting,
 } from "../../../../../src/renderer/services/chat/model";
 
 // Three turns recorded from claude 2.1.318 with the app's flags: a Write
@@ -376,5 +377,99 @@ describe("chat model process lines", () => {
     });
     expect(model.items).toEqual([]);
     expect(model.tools.t2.parentToolUseId).toBe("agent-1");
+  });
+});
+
+describe("messages written during a turn", () => {
+  const sent = (seq: number, text: string, uuid: string, more: Record<string, unknown> = {}) =>
+    ({
+      seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: text }, uuid, ...more },
+    }) as ChatLine;
+  const echo = (seq: number, text: string, uuid: string) =>
+    ({
+      seq,
+      dir: "out",
+      message: { type: "user", isReplay: true, uuid, message: { role: "user", content: text } },
+    }) as ChatLine;
+  const toolUse = (seq: number) =>
+    ({
+      seq,
+      dir: "out",
+      message: {
+        type: "assistant",
+        message: {
+          id: "m1",
+          content: [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "sleep 9" } }],
+        },
+      },
+    }) as ChatLine;
+  const cancelled = (seq: number, uuid: string) =>
+    ({
+      seq,
+      dir: "out",
+      message: { type: "command_lifecycle", command_uuid: uuid, state: "cancelled" },
+    }) as ChatLine;
+  const users = (model: ChatModel) =>
+    model.items.flatMap((item) =>
+      item.kind === "user"
+        ? [`${item.text}:${item.state}${isWaiting(item) ? ":waiting" : ""}`]
+        : [],
+    );
+
+  test("the one that starts a turn does not wait, and is taken in place", () => {
+    let model = applyLines(emptyModel(), [sent(1, "go", "u-1"), toolUse(2)]);
+    expect(users(model)).toEqual(["go:sent"]);
+    model = applyLine(model, echo(3, "go", "u-1"));
+    expect(model.items.map((item) => item.kind)).toEqual(["user", "assistant"]);
+    expect(model.items[0]).toMatchObject({ state: "taken", uuid: "u-1", sentUuid: "u-1" });
+  });
+
+  test("one written during the turn waits, then is read after what the turn did", () => {
+    let model = applyLines(emptyModel(), [
+      sent(1, "go", "u-1"),
+      echo(2, "go", "u-1"),
+      sent(3, "and this", "u-2"),
+      toolUse(4),
+    ]);
+    expect(users(model)).toEqual(["go:taken", "and this:sent:waiting"]);
+    model = applyLine(model, echo(5, "and this", "u-2"));
+    expect(model.items.map((item) => (item.kind === "user" ? item.text : item.kind))).toEqual([
+      "go",
+      "assistant",
+      "and this",
+    ]);
+    expect(model.items[2]).toMatchObject({ state: "taken", uuid: "u-2" });
+    expect(isWaiting(model.items[2])).toBe(false);
+  });
+
+  test("one taken back is dropped, and the echo names the one read", () => {
+    let model = applyLines(emptyModel(), [
+      sent(1, "go", "u-1"),
+      echo(2, "go", "u-1"),
+      sent(3, "first", "u-2"),
+      sent(4, "second", "u-3"),
+      cancelled(5, "u-2"),
+    ]);
+    expect(users(model)).toEqual(["go:taken", "second:sent:waiting"]);
+    model = applyLine(model, echo(6, "second", "u-3"));
+    expect(users(model)).toEqual(["go:taken", "second:taken"]);
+  });
+
+  test("one to read at once does not wait", () => {
+    const model = applyLines(emptyModel(), [
+      sent(1, "go", "u-1"),
+      sent(2, "now", "u-2", { priority: "now" }),
+    ]);
+    expect(users(model)).toEqual(["go:sent", "now:sent"]);
+  });
+
+  test("an echo with no uuid of the app's takes the oldest sent", () => {
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "in", message: { type: "user", message: { role: "user", content: "a" } } },
+      echo(2, "a", "cli-uuid"),
+    ]);
+    expect(model.items[0]).toMatchObject({ state: "taken", uuid: "cli-uuid" });
   });
 });

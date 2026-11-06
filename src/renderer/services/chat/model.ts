@@ -33,7 +33,19 @@ export interface UserItem {
   images: ImageBlock[];
   /** sent: written to the CLI; taken: the CLI echoed it back. */
   state: "sent" | "taken";
+  /** The uuid the app wrote it with, which the CLI's echo and lifecycle name. */
+  sentUuid?: string;
+  /**
+   * Written during a turn: the CLI reads it after the tool it runs, and till
+   * then it waits above the box, where it can still be taken back.
+   */
+  queued?: boolean;
   at?: number;
+}
+
+/** A message written during a turn that the CLI has not read yet. */
+export function isWaiting(item: ChatItem): item is UserItem {
+  return item.kind === "user" && item.state === "sent" && item.queued === true;
 }
 
 export type AssistantBlock =
@@ -319,6 +331,10 @@ export class Draft<M extends ChatModel = ChatModel> {
   replaceItem(index: number, item: ChatItem): void {
     this.items()[index] = item;
   }
+
+  removeItem(index: number): void {
+    this.items().splice(index, 1);
+  }
 }
 
 /** Applies one line to the model. Lines at or before lastSeq are skipped. */
@@ -386,7 +402,19 @@ function applyIn(draft: Draft, message: Rec, seq: number, at: number | undefined
   switch (message.type) {
     case "user": {
       const { text, images } = userContent(rec(message.message)?.content);
-      draft.push({ kind: "user", key: `u${seq}`, text, images, state: "sent", at });
+      const sentUuid = str(message.uuid);
+      // A message to read at once is not left waiting.
+      const queued = m.running && message.priority !== "now";
+      draft.push({
+        kind: "user",
+        key: `u${seq}`,
+        text,
+        images,
+        state: "sent",
+        ...(sentUuid ? { sentUuid } : {}),
+        ...(queued ? { queued } : {}),
+        at,
+      });
       if (!m.running) {
         m.running = true;
         m.turn = { startedAt: at, outputTokens: 0, thinkingTokens: 0 };
@@ -448,6 +476,14 @@ function applyOut(draft: Draft, message: Rec, seq: number, at: number | undefine
     case "control_response":
       applyControlResponse(draft, message, seq, at);
       return;
+    case "command_lifecycle": {
+      // A waiting message taken back before the CLI read it.
+      if (message.state !== "cancelled") return;
+      const uuid = str(message.command_uuid);
+      const index = draft.next.items.findIndex((item) => isWaiting(item) && item.sentUuid === uuid);
+      if (uuid && index >= 0) draft.removeItem(index);
+      return;
+    }
     case "conversation_reset": {
       // /clear: the session goes on under a new id, which the next init
       // tells, with nothing of what came before.
@@ -776,12 +812,24 @@ function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | unde
   const when = time(message.timestamp) ?? at;
 
   if (message.isReplay === true) {
-    // The CLI took a message the app wrote: the oldest one not yet taken.
+    // The CLI took a message the app wrote: the one it was written with
+    // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
-    const index = m.items.findIndex((item) => item.kind === "user" && item.state === "sent");
+    const sent = (item: ChatItem) => item.kind === "user" && item.state === "sent";
+    let index = uuid
+      ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
+      : -1;
+    if (index < 0) index = m.items.findIndex(sent);
     if (index >= 0) {
-      const item = m.items[index] as UserItem;
-      draft.replaceItem(index, { ...item, state: "taken", uuid, at: item.at ?? when });
+      const { queued, ...item } = m.items[index] as UserItem;
+      const taken: UserItem = { ...item, state: "taken", uuid, at: item.at ?? when };
+      if (queued) {
+        // One that waited is read here, after what the turn did meanwhile.
+        draft.removeItem(index);
+        draft.push({ ...taken, at: when ?? item.at });
+      } else {
+        draft.replaceItem(index, taken);
+      }
     } else {
       const { text, images } = userContent(content);
       draft.push({ kind: "user", key: `u${seq}`, text, images, state: "taken", uuid, at: when });

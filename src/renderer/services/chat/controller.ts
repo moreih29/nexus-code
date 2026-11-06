@@ -495,6 +495,16 @@ export class ChatController {
     await this.interrupt();
   }
 
+  /**
+   * Takes back a message written during the turn that Claude has not read
+   * (↑, or its pencil or ×): true when Claude dropped it, false when it was
+   * read first. The lifecycle event that tells the drop takes it off the list.
+   */
+  async withdraw(sentUuid: string): Promise<boolean> {
+    const result = await this.request("cancel_async_message", { message_uuid: sentUuid });
+    return result.cancelled === true;
+  }
+
   private async sendMessage(text: string, images: ImageBlock[], now: boolean): Promise<void> {
     if (!(await this.ensureRunning())) return;
     if (!this.titled && text.trim()) {
@@ -1095,10 +1105,12 @@ export function closeChatTab(workspaceId: string, tabId: string): void {
 }
 
 /**
- * The line that sends the user's message. `now` has Claude read it at once
- * during a turn: sent by a person, it moves what can go on in the background
- * there (Claude Code 2.1.286 on); before that version the turn stops for it.
- * Claude Code acts on `now` only for a message with a uuid (2.1.318).
+ * The line that sends the user's message. Its uuid is what Claude's echo
+ * and lifecycle events name, and what takes it back while it waits.
+ * `now` has Claude read it at once during a turn: sent by a person, it moves
+ * what can go on in the background there (Claude Code 2.1.286 on); before
+ * that version the turn stops for it. Claude Code acts on `now` only for a
+ * message with a uuid (2.1.318).
  */
 export function userMessageOf(
   text: string,
@@ -1120,6 +1132,7 @@ export function userMessageOf(
     message: { role: "user", content },
     parent_tool_use_id: null,
     session_id: "",
-    ...(now ? { uuid: crypto.randomUUID(), priority: "now", origin: { kind: "human" } } : {}),
+    uuid: crypto.randomUUID(),
+    ...(now ? { priority: "now", origin: { kind: "human" } } : {}),
   };
 }

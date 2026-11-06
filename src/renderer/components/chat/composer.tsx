@@ -23,7 +23,12 @@ import {
   isFolder,
   matchCommands,
 } from "../../services/chat/composer-input";
-import type { ImageBlock, ModelInfo } from "../../services/chat/model";
+import {
+  type ImageBlock,
+  isWaiting,
+  type ModelInfo,
+  type UserItem,
+} from "../../services/chat/model";
 import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
@@ -57,6 +62,12 @@ export interface ComposerController {
   readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
+  /**
+   * Takes back a message sent during the turn that the program has not read:
+   * true when it was dropped, false when it was read first. Left out where
+   * a sent message cannot wait.
+   */
+  withdraw?(sentUuid: string): Promise<boolean>;
   interrupt(): Promise<unknown>;
   clearDraft(): void;
   attach(name: string, data: string): Promise<string>;
@@ -148,6 +159,11 @@ export function Composer({
   const canSend = !blocked && hasText && !sending;
   // Sent during the turn, not yet read: what ⌘⇧↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
+  // Those wait above the box, where they can be taken back as the terminal's ↑ does.
+  const waiting = useMemo(() => model.items.filter(isWaiting), [model.items]);
+  const canWithdraw = !!controller.withdraw && controller.supports("cancel_async_message");
+  const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
+  const withdrawing = useRef(new Set<string>());
 
   // The caret, for the token it completes; a pick moves it after the render.
   const [caret, setCaret] = useState(0);
@@ -363,7 +379,7 @@ export function Composer({
       !e.metaKey &&
       !e.ctrlKey &&
       !e.altKey &&
-      state.queue.length > 0 &&
+      canTakeBack &&
       e.currentTarget.selectionStart === 0 &&
       e.currentTarget.selectionEnd === 0
     ) {
@@ -411,55 +427,87 @@ export function Composer({
     controller.clearDraft();
   }, [draft, controller]);
 
-  /** The last queued message, put before what is typed, the caret left at the start. */
+  /**
+   * A message taken back into the box: before what is typed with the caret
+   * left at the start (↑), else after it.
+   */
+  const putBack = (item: { text: string; images: ImageBlock[] }, before: boolean) => {
+    if (before) {
+      setText((prev) => (prev ? `${item.text}\n${prev}` : item.text));
+      setImages((prev) => [...item.images, ...prev]);
+      requestAnimationFrame(() => areaRef.current?.setSelectionRange(0, 0));
+    } else {
+      setText((prev) => (prev ? `${prev}\n${item.text}` : item.text));
+      setImages((prev) => [...prev, ...item.images]);
+      areaRef.current?.focus();
+    }
+  };
+
+  /** Takes back a message the program has not read, into the box or away. */
+  const takeBackWaiting = async (item: UserItem, into: "before" | "after" | "nowhere") => {
+    const uuid = item.sentUuid;
+    if (!uuid || !controller.withdraw || withdrawing.current.has(uuid)) return;
+    withdrawing.current.add(uuid);
+    try {
+      if (!(await controller.withdraw(uuid))) {
+        showToast({ kind: "info", message: t("chat.queue.already_read") });
+      } else if (into !== "nowhere") {
+        putBack(item, into === "before");
+      }
+    } catch (err) {
+      showError(err as Error);
+    } finally {
+      withdrawing.current.delete(uuid);
+    }
+  };
+
+  /** The last message waiting, the app's queue's first: ↑ again takes the one before. */
   const takeBackLast = () => {
     const last = state.queue[state.queue.length - 1];
-    const item = last && controller.removeQueued(last.id);
-    if (!item) return;
-    setText((prev) => (prev ? `${item.text}\n${prev}` : item.text));
-    setImages((prev) => [...item.images, ...prev]);
-    requestAnimationFrame(() => areaRef.current?.setSelectionRange(0, 0));
+    if (last) {
+      const item = controller.removeQueued(last.id);
+      if (item) putBack(item, true);
+      return;
+    }
+    const sent = waiting.filter((item) => !withdrawing.current.has(item.sentUuid ?? ""));
+    const lastSent = sent[sent.length - 1];
+    if (lastSent && canWithdraw) void takeBackWaiting(lastSent, "before");
   };
 
   const pullBack = (id: string) => {
     const item = controller.removeQueued(id);
-    if (!item) return;
-    setText((prev) => (prev ? `${prev}\n${item.text}` : item.text));
-    setImages((prev) => [...prev, ...item.images]);
-    areaRef.current?.focus();
+    if (item) putBack(item, false);
   };
 
   return (
     <div className="shrink-0 border-t border-border px-4 pt-2 pb-3" data-testid="chat-composer">
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {above}
-        {state.queue.length > 0 && (
+        {(waiting.length > 0 || state.queue.length > 0) && (
           <ul className="flex flex-col gap-1" aria-label={t("chat.queue.aria")}>
-            {state.queue.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm"
-              >
-                <span className="shrink-0 text-app-micro text-muted-foreground">
-                  {t("chat.queue.label")}
-                </span>
-                <span className="min-w-0 flex-1 truncate" title={item.text}>
-                  {item.text || t("chat.queue.images", { count: item.images.length })}
-                </span>
-                <IconButton label={t("chat.queue.edit")} onClick={() => pullBack(item.id)}>
-                  <Pencil className="size-3.5" />
-                </IconButton>
-                <IconButton
-                  label={t("chat.queue.remove")}
-                  onClick={() => controller.removeQueued(item.id)}
-                >
-                  <X className="size-3.5" />
-                </IconButton>
-              </li>
+            {waiting.map((item) => (
+              <QueueRow
+                key={item.key}
+                label={t("chat.queue.label")}
+                item={item}
+                onEdit={canWithdraw ? () => void takeBackWaiting(item, "after") : undefined}
+                onRemove={canWithdraw ? () => void takeBackWaiting(item, "nowhere") : undefined}
+              />
             ))}
-            <li className="px-2 text-app-micro text-muted-foreground">
-              {t("chat.queue.take_back")}
-            </li>
+            {state.queue.map((item) => (
+              <QueueRow
+                key={item.id}
+                label={t("chat.queue.after_turn")}
+                item={item}
+                onEdit={() => pullBack(item.id)}
+                onRemove={() => controller.removeQueued(item.id)}
+              />
+            ))}
+            {canTakeBack && (
+              <li className="px-2 text-app-micro text-muted-foreground">
+                {t("chat.queue.take_back")}
+              </li>
+            )}
           </ul>
         )}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: files dropped on the box are attached */}
@@ -712,6 +760,39 @@ function base64Of(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("read failed"));
     reader.readAsDataURL(file);
   });
+}
+
+/** A message above the box that waits, with its pencil and × where it can be taken back. */
+function QueueRow({
+  label,
+  item,
+  onEdit,
+  onRemove,
+}: {
+  label: string;
+  item: { text: string; images: readonly ImageBlock[] };
+  onEdit?: () => void;
+  onRemove?: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <li className="flex items-center gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm">
+      <span className="shrink-0 text-app-micro text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate" title={item.text}>
+        {item.text || t("chat.queue.images", { count: item.images.length })}
+      </span>
+      {onEdit && (
+        <IconButton label={t("chat.queue.edit")} onClick={onEdit}>
+          <Pencil className="size-3.5" />
+        </IconButton>
+      )}
+      {onRemove && (
+        <IconButton label={t("chat.queue.remove")} onClick={onRemove}>
+          <X className="size-3.5" />
+        </IconButton>
+      )}
+    </li>
+  );
 }
 
 function IconButton({
