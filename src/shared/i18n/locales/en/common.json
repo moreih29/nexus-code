@@ -1177,7 +1177,7 @@
       "kind_codex": "codex exec run",
       "stop": "Stop",
       "stop_failed": "Could not stop it; the run may have ended.",
-      "open_in_tab": "Go on in a tab"
+      "open_in_tab": "Open as a tab"
     },
     "sessions": {
       "title": "Earlier sessions",
