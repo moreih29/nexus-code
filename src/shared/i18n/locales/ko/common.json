@@ -1111,8 +1111,10 @@
       "changes": "세션 전과 비교",
       "revert": "이 파일을 세션 전으로 되돌리기",
       "revert_busy": "Claude가 작업하는 동안에는 되돌릴 수 없습니다",
+      "revert_busy_codex": "Codex가 작업하는 동안에는 되돌릴 수 없습니다",
       "revert_title": "{{name}}을(를) 되돌릴까요?",
       "revert_description": "이 세션이 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Claude나 사용자가 바꾼 내용은 사라집니다.",
+      "revert_description_codex": "이 세션이 바꾸기 전 내용으로 돌아갑니다. 그 뒤 Codex나 사용자가 바꾼 내용은 사라집니다.",
       "revert_confirm": "되돌리기",
       "reverted": "{{name}}을(를) 되돌렸습니다",
       "revert_failed": "{{name}}을(를) 되돌리지 못했습니다: {{error}}"
