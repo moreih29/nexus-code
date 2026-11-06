@@ -42,7 +42,7 @@ import {
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { activateWorkspace, removeTask, startTask } from "../workspace/tasks";
+import { activateWorkspace, removeTask, startTask, taskStartOf } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
@@ -110,7 +110,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
-    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp
+    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp | `chat.${string}`
   >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
@@ -319,16 +319,14 @@ export const actionHandlers: {
     return {};
   },
 
-  "task.create": async ({ parentId, name, prompt, command, show, createdBy }) => {
-    // The task agent's own program in a terminal, which terminal wait reaches.
-    const agent = resolvedTaskAgent();
-    const start = { command: command ?? (agent === "terminal" ? "" : agent) };
-    const started = await startTask(parentId, name, prompt, start, createdBy);
+  "task.create": async ({ parentId, name, prompt, start, show, createdBy }) => {
+    const how = start ?? taskStartOf(resolvedTaskAgent());
+    const started = await startTask(parentId, name, prompt, how, createdBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
-    // Its terminal starts once its panel is mounted, shown or not.
+    // A terminal starts once its panel is mounted, shown or not.
     if (show) activateWorkspace(started.task.id);
     else useMountedWorkspacesStore.getState().mount(started.task.id);
-    return { workspaceId: started.task.id, tabId: started.tabId, command: start.command.trim() };
+    return { workspaceId: started.task.id, tabId: started.tabId, start: started.start };
   },
 
   "task.remove": async ({ taskId, force, deleteBranch }) => {

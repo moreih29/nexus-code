@@ -30,6 +30,8 @@ import type { AgentRun } from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
+  CliChatEntry,
+  CliChatInfo,
   CliConsentAnswer,
   CliLayoutNode,
   CliPanels,
@@ -195,6 +197,13 @@ export interface FakeApp {
   };
   /** The app's settings, as settings.list gives them. */
   appSettings: CliSettingInfo[];
+  /**
+   * The Claude and Codex tabs' conversations, by tab id: where each stands
+   * and its messages; a test may change them, as on a tick.
+   */
+  chats: Map<string, { info: CliChatInfo; entries: CliChatEntry[] }>;
+  /** The messages chat.send was given. */
+  chatSent: Array<{ tabId: string; text: string }>;
 }
 
 /** Some of the app's settings: one only the user changes, one with many choices. */
@@ -425,6 +434,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     return made;
   };
   const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
+  const chats: FakeApp["chats"] = new Map();
+  const chatSent: FakeApp["chatSent"] = [];
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -473,14 +484,27 @@ export function fakeApp(now = Date.now()): FakeApp {
         subject: "Fix the login redirect",
       } as CliUiOps[K]["result"];
     }
-    // Any worktree made is "fix-login".
+    // Any worktree made is "fix-login"; the task agent is Claude.
     if (op === "task.create") {
-      const { command } = args as CliUiOps["task.create"]["args"];
+      const { start } = args as CliUiOps["task.create"]["args"];
       return {
         workspaceId: FIX,
         tabId: NEW_TAB,
-        command: command ?? "claude",
+        start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.open") return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    if (op === "chat.state" || op === "chat.read" || op === "chat.send") {
+      const { tabId } = args as CliUiOps["chat.state"]["args"];
+      const chat = chats.get(tabId);
+      if (!chat) throw new CliError("that tab is not a Claude or Codex tab");
+      if (op === "chat.state") return chat.info as CliUiOps[K]["result"];
+      if (op === "chat.read") {
+        const { messages } = args as CliUiOps["chat.read"]["args"];
+        return { ...chat.info, entries: chat.entries.slice(-messages) } as CliUiOps[K]["result"];
+      }
+      chatSent.push({ tabId, text: (args as CliUiOps["chat.send"]["args"]).text });
+      return {} as CliUiOps[K]["result"];
     }
     if (op === "browser.open") {
       const { url } = args as CliUiOps["browser.open"]["args"];
@@ -625,6 +649,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     ports,
     forwarding,
     appSettings,
+    chats,
+    chatSent,
   };
 }
 

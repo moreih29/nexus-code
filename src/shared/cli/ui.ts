@@ -4,6 +4,7 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
+import type { ChatAgent } from "../sessions/task-agent";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
@@ -133,6 +134,8 @@ export type CliChangeKind =
   | "commit"
   | "terminalNew"
   | "terminalInput"
+  | "chatNew"
+  | "chatInput"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -157,6 +160,31 @@ export interface CliChange {
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
 export type CliConsentAnswer = "once" | "session" | "deny" | "timeout";
+
+/**
+ * Where a Claude or Codex tab's conversation stands: working on a turn (or a
+ * message sent it has yet to take), asking the user (a permission or a
+ * question), idle between turns, or stopped on an error.
+ */
+export type CliChatState = "working" | "asking" | "idle" | "error";
+
+/** A Claude or Codex tab as the CLI tells it. */
+export interface CliChatInfo {
+  readonly agent: ChatAgent;
+  readonly state: CliChatState;
+  /** Its last answer; when asking, what it asks; on an error, what went wrong. */
+  readonly message?: string;
+}
+
+/** One message of a conversation as chat read prints it. */
+export interface CliChatEntry {
+  /** Who said it: the user, the agent, a tool the agent ran, or the app. */
+  readonly role: "user" | "agent" | "tool" | "notice";
+  readonly text: string;
+}
+
+/** What a new task starts with: an agent's tab, or a terminal running a command ("" for none). */
+export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: string };
 
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
@@ -329,22 +357,55 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
-   * Makes a task of `parentId`, as New Task does: its worktree, branch and a
-   * terminal running `command` (the task agent command when absent) with
-   * `prompt`. Shown if `show`, else started behind the user's view.
+   * Makes a task of `parentId`, as New Task does: its worktree, branch and
+   * one tab, `start` (the task agent when absent): an agent's tab sent
+   * `prompt`, or a terminal running the command with `prompt`. Shown if
+   * `show`, else started behind the user's view.
    */
   "task.create": {
     args: {
       parentId: string;
       name: string;
       prompt: string;
-      command?: string;
+      start?: CliTaskStart;
       show: boolean;
       /** The terminal whose agent asks for the task. */
       createdBy: { workspaceId: string; tabId: string };
     };
-    /** `command` is the agent command its terminal runs, "" for none. */
-    result: { workspaceId: string; tabId: string; command: string };
+    /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
+    result: { workspaceId: string; tabId: string; start: CliTaskStart };
+  };
+  /** Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is one. */
+  "chat.open": {
+    args: {
+      workspaceId: string;
+      agent: ChatAgent;
+      cwd: string;
+      prompt: string;
+      placement: CliPlacement;
+    };
+    result: { tabId: string };
+  };
+  /**
+   * Where a Claude or Codex tab's conversation stands; its program is opened
+   * if it was not, unless `peek`, which tells such a tab idle.
+   */
+  "chat.state": {
+    args: { workspaceId: string; tabId: string; peek?: boolean };
+    result: CliChatInfo;
+  };
+  /** A Claude or Codex tab's last `messages` messages, and where it stands. */
+  "chat.read": {
+    args: { workspaceId: string; tabId: string; messages: number };
+    result: CliChatInfo & { entries: CliChatEntry[] };
+  };
+  /**
+   * Sends a Claude or Codex tab a message, as its composer does: during a
+   * turn, the agent reads it after the tool it runs.
+   */
+  "chat.send": {
+    args: { workspaceId: string; tabId: string; text: string };
+    result: Record<string, never>;
   };
   /**
    * Removes a task, as Delete Task does. Refuses one with unsaved files, and

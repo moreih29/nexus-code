@@ -1,5 +1,5 @@
 /** nexus tab ..., nexus terminal ... and nexus session list. */
-import type { CliTabInfo } from "../../../../shared/cli/ui";
+import type { CliChatInfo, CliTabInfo } from "../../../../shared/cli/ui";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { isAgentSession, type TerminalState, terminalState } from "../agent-state";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
@@ -578,12 +578,37 @@ const terminalWait: CliCommand = {
   },
 };
 
+interface ChatRow {
+  readonly workspace: WorkspaceMeta;
+  readonly tab: CliTabInfo;
+  readonly info: CliChatInfo;
+}
+
+/** The Claude and Codex tabs of `workspaces`; one not opened since the app started reads idle. */
+async function chatRows(ctx: CliContext, workspaces: readonly WorkspaceMeta[]): Promise<ChatRow[]> {
+  const rows: ChatRow[] = [];
+  for (const workspace of workspaces) {
+    for (const tab of await workspaceTabs(ctx, workspace.id)) {
+      if (tab.type !== "claude" && tab.type !== "codex") continue;
+      const info = await ctx.services.ui("chat.state", {
+        workspaceId: workspace.id,
+        tabId: tab.id,
+        peek: true,
+      });
+      rows.push({ workspace, tab, info });
+    }
+  }
+  return rows;
+}
+
 const sessionList: CliCommand = {
   path: ["session", "list"],
   summary: "List the agent sessions (Claude Code, Codex, ...) in every workspace",
   details:
-    "Claude Code reports its state through the app's hooks. Other agents are told by their title\n" +
-    "and the notifications they raise; their state is busy while they print and quiet after.",
+    "Claude Code in a terminal reports its state through the app's hooks. Other agents in\n" +
+    "terminals are told by their title and the notifications they raise; their state is busy\n" +
+    "while they print and quiet after. The app's Claude and Codex tabs (AGENT claude-tab or\n" +
+    "codex-tab) are working, asking (the user), idle or error; chat read/send/wait reach them.",
   flags: {
     workspace: { ...WORKSPACE_FLAG, description: "Only this workspace (id, id prefix or name)" },
   },
@@ -592,22 +617,57 @@ const sessionList: CliCommand = {
       flags.workspace === undefined
         ? orderedWorkspaces(ctx.services.listWorkspaces())
         : [resolveWorkspace(ctx, flags.workspace as string)];
-    const rows = (await terminalRows(ctx, workspaces)).filter((r) => isAgentSession(r.state));
     const now = Date.now();
+    const you = (tab: CliTabInfo, state: string) =>
+      tab.id === ctx.caller.tabId ? `${state} (you)` : state;
+    // A workspace's terminals, then its Claude and Codex tabs.
+    const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
+      ...(await terminalRows(ctx, workspaces))
+        .filter((r) => isAgentSession(r.state))
+        .map((r) => ({
+          workspace: r.workspace,
+          cells: [
+            shortId(r.tab.id),
+            r.workspace.name,
+            r.state.agent ?? "?",
+            you(r.tab, r.state.state),
+            r.state.since ? ago(r.state.since, now) : "",
+            r.state.message ? oneLine(r.state.message, 60) : "",
+          ],
+          json: rowJson(ctx, r),
+        })),
+      ...(await chatRows(ctx, workspaces)).map((c) => ({
+        workspace: c.workspace,
+        cells: [
+          shortId(c.tab.id),
+          c.workspace.name,
+          `${c.info.agent}-tab`,
+          you(c.tab, c.info.state),
+          "",
+          c.info.message ? oneLine(c.info.message, 60) : "",
+        ],
+        json: {
+          id: c.tab.id,
+          workspaceId: c.workspace.id,
+          workspace: c.workspace.name,
+          title: c.tab.title,
+          current: c.tab.id === ctx.caller.tabId,
+          tab: c.tab.type,
+          agent: c.info.agent,
+          state: c.info.state,
+          ...(c.info.message ? { message: c.info.message } : {}),
+        },
+      })),
+    ];
+    const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
+    sessions.sort((a, b) => order(a) - order(b));
     const text = table(
       ["ID", "WORKSPACE", "AGENT", "STATE", "SINCE", "LAST"],
-      rows.map((r) => [
-        shortId(r.tab.id),
-        r.workspace.name,
-        r.state.agent ?? "?",
-        r.tab.id === ctx.caller.tabId ? `${r.state.state} (you)` : r.state.state,
-        r.state.since ? ago(r.state.since, now) : "",
-        r.state.message ? oneLine(r.state.message, 60) : "",
-      ]),
+      sessions.map((s) => s.cells),
     );
     return output(
       text || "No agent sessions.",
-      rows.map((r) => rowJson(ctx, r)),
+      sessions.map((s) => s.json),
     );
   },
 };

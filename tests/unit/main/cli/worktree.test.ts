@@ -33,13 +33,13 @@ function uiArgs(app: FakeApp, op: string): unknown {
 }
 
 describe("worktree new", () => {
-  test("makes one of this workspace behind the user's view, and prints its terminal", async () => {
+  test("makes one of this workspace behind the user's view, and prints its agent's tab", async () => {
     const app = fakeApp();
     const result = await nexus(app, ["worktree", "new", "fix login", "--prompt", "fix it"]);
     expect(result.stdout).toBe(
       "Made worktree fix-login (33333333) on branch fix-login, at /home/u/.nexus-code/worktrees/app/fix-login.\n" +
-        "Its terminal cccccccc runs claude with the prompt. To wait for it:\n" +
-        "  nexus terminal wait cccccccc --workspace 33333333\n",
+        "Its Claude tab cccccccc was sent the prompt. To wait for it:\n" +
+        "  nexus chat wait cccccccc --workspace 33333333\n",
     );
     expect(uiArgs(app, "task.create")).toEqual({
       parentId: APP,
@@ -51,21 +51,41 @@ describe("worktree new", () => {
     expect(app.asked).toEqual([]);
   });
 
-  test("--json gives the worktree, its terminal and the command", async () => {
+  test("--json gives the worktree, its tab and the agent", async () => {
     const app = fakeApp();
-    const made = JSON.parse(
-      (await nexus(app, ["worktree", "new", "fix login", "--show", "--json"])).stdout,
-    );
-    expect(made).toMatchObject({
+    const result = await nexus(app, ["worktree", "new", "fix login", "--show", "--json"]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
       id: FIX,
       worktree: { parentId: APP, branch: "fix-login" },
       tabId: NEW_TAB,
-      command: "claude",
+      agent: "claude",
     });
     expect(uiArgs(app, "task.create")).toMatchObject({ prompt: "", show: true });
   });
 
-  test("--command runs another agent, and an empty one a plain shell", async () => {
+  test("--agent picks the tab's agent; a tab given no prompt waits for a message", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["worktree", "new", "pay", "--agent", "Codex"]);
+    expect(uiArgs(app, "task.create")).toMatchObject({ start: { agent: "codex" } });
+    expect(result.stdout).toContain(
+      "Its Codex tab cccccccc waits for a message; chat commands reach it with --workspace 33333333.\n",
+    );
+
+    const wrong = await nexus(fakeApp(), ["worktree", "new", "pay", "--agent", "gemini"]);
+    expect(wrong.stderr).toContain("--agent is claude or codex");
+    const both = await nexus(fakeApp(), [
+      "worktree",
+      "new",
+      "x",
+      "--agent",
+      "codex",
+      "--command",
+      "y",
+    ]);
+    expect(both.stderr).toContain("--agent and --command do not go together");
+  });
+
+  test("--command runs a command in a terminal, and an empty one a plain shell", async () => {
     const app = fakeApp();
     const result = await nexus(app, [
       "worktree",
@@ -76,14 +96,14 @@ describe("worktree new", () => {
       "--prompt",
       "add refunds",
     ]);
-    expect(uiArgs(app, "task.create")).toMatchObject({ command: "codex -m gpt-5.5" });
+    expect(uiArgs(app, "task.create")).toMatchObject({ start: { command: "codex -m gpt-5.5" } });
     expect(result.stdout).toContain("Its terminal cccccccc runs codex -m gpt-5.5 with the prompt.");
 
     const shell = fakeApp();
     expect((await nexus(shell, ["worktree", "new", "pay", "--command", ""])).stdout).toContain(
       "Its terminal is cccccccc; terminal commands reach it with --workspace 33333333.\n",
     );
-    expect(uiArgs(shell, "task.create")).toMatchObject({ command: "" });
+    expect(uiArgs(shell, "task.create")).toMatchObject({ start: { command: "" } });
   });
 
   test("from a worktree, branches off the workspace it belongs to", async () => {
@@ -128,7 +148,7 @@ describe("worktree claude-create", () => {
       parentId: APP,
       name: "feature-auth",
       prompt: "",
-      command: "",
+      start: { command: "" },
       show: false,
       createdBy: { workspaceId: APP, tabId: SHELL_TAB },
     });
