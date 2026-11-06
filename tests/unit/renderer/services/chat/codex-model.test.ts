@@ -641,6 +641,28 @@ describe("codex helpers", () => {
     });
   });
 
+  test("shownCommand drops the PowerShell Codex runs a command in on Windows", () => {
+    // As codex app-server 0.166.0 reports them on Windows.
+    const ps = String.raw`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"`;
+    expect(shownCommand(`${ps} -Command 'Get-Content README.md | Select-Object -First 1'`)).toBe(
+      "Get-Content README.md | Select-Object -First 1",
+    );
+    expect(shownCommand(`${ps} -Command "Get-Content -LiteralPath 'src/math.ts' -Raw"`)).toBe(
+      "Get-Content -LiteralPath 'src/math.ts' -Raw",
+    );
+    expect(
+      shownCommand(
+        `${ps} -Command '$p = (Resolve-Path -LiteralPath '"'src/math.ts').Path; "'$c = Get-Content -LiteralPath $p -Raw; Set-Content -LiteralPath $p -Value ('"'// QA check' + \\""'\`r\`n" + $c) -NoNewline'`,
+      ),
+    ).toBe(
+      "$p = (Resolve-Path -LiteralPath 'src/math.ts').Path; $c = Get-Content -LiteralPath $p -Raw; Set-Content -LiteralPath $p -Value ('// QA check' + \"`r`n\" + $c) -NoNewline",
+    );
+    expect(shownCommand("pwsh.exe -Command 'Get-Date'")).toBe("Get-Date");
+    // Not one script: shown as it is.
+    expect(shownCommand(`${ps} -Command 'a' 'b'`)).toBe(`${ps} -Command 'a' 'b'`);
+    expect(shownCommand(`${ps} -File run.ps1`)).toBe(`${ps} -File run.ps1`);
+  });
+
   test("hunksOf reads unified diffs and whole files", () => {
     expect(hunksOf("@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9 +9 @@\n-x\n", "update")).toEqual([
       { lines: [" a", "-b", "+c"] },
