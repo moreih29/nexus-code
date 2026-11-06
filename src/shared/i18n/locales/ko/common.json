@@ -924,7 +924,8 @@
       "images_one": "이미지 {{count}}개",
       "images_other": "이미지 {{count}}개",
       "edit": "편집",
-      "remove": "삭제"
+      "remove": "삭제",
+      "take_back": "입력창 맨 앞에서 ↑: 마지막 메시지 편집"
     },
     "composer": {
       "aria": "Claude에게 보낼 메시지",

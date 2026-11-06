@@ -355,6 +355,22 @@ export function Composer({
         return;
       }
     }
+    // ↑ at the start of the box takes back the last queued message to edit,
+    // as the terminals do (Claude Code's ↑, Codex's ⇧←); again, the one before.
+    if (
+      e.key === "ArrowUp" &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      state.queue.length > 0 &&
+      e.currentTarget.selectionStart === 0 &&
+      e.currentTarget.selectionEnd === 0
+    ) {
+      e.preventDefault();
+      takeBackLast();
+      return;
+    }
     if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       if (canSend) void submit("now");
@@ -395,6 +411,16 @@ export function Composer({
     controller.clearDraft();
   }, [draft, controller]);
 
+  /** The last queued message, put before what is typed, the caret left at the start. */
+  const takeBackLast = () => {
+    const last = state.queue[state.queue.length - 1];
+    const item = last && controller.removeQueued(last.id);
+    if (!item) return;
+    setText((prev) => (prev ? `${item.text}\n${prev}` : item.text));
+    setImages((prev) => [...item.images, ...prev]);
+    requestAnimationFrame(() => areaRef.current?.setSelectionRange(0, 0));
+  };
+
   const pullBack = (id: string) => {
     const item = controller.removeQueued(id);
     if (!item) return;
@@ -431,6 +457,9 @@ export function Composer({
                 </IconButton>
               </li>
             ))}
+            <li className="px-2 text-app-micro text-muted-foreground">
+              {t("chat.queue.take_back")}
+            </li>
           </ul>
         )}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: files dropped on the box are attached */}
