@@ -27,13 +27,14 @@ import {
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
-import { printRunRows, usePrintRuns } from "../../services/chat/print-runs";
+import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
 import { localUrlFor } from "../../state/operations/ports";
+import { dropAgentAsk } from "../../state/stores/agent-reveal";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -101,6 +102,11 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   useEffect(() => {
     if (shownId && !shown) setShownId(null);
   }, [shownId, shown]);
+  const showRun = (toolUseId: string | null) => {
+    setShownId(toolUseId);
+    dropAgentAsk(tabId);
+  };
+  useAgentAsk(tabId, runs, showRun);
 
   // What the conversation links opens over the tab, or beside it.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -203,7 +209,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           />
         </div>
       )}
-      <AgentStrip agents={runs} shown={shown ? shown.toolUseId : null} onShow={setShownId} />
+      <AgentStrip agents={runs} shown={shown ? shown.toolUseId : null} onShow={showRun} />
       {shown?.run ? (
         <PrintRunPane
           workspaceId={workspaceId}

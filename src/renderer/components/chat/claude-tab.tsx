@@ -40,7 +40,12 @@ import {
   resultsOf,
   todosOf,
 } from "../../services/chat/panel";
-import { printRunRows, stopPrintRun, usePrintRuns } from "../../services/chat/print-runs";
+import {
+  printRunRows,
+  stopPrintRun,
+  useAgentAsk,
+  usePrintRuns,
+} from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
@@ -54,6 +59,7 @@ import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
+import { dropAgentAsk } from "../../state/stores/agent-reveal";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -226,7 +232,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const showAgent = (toolUseId: string | null) => {
     setShownId(toolUseId);
     if (place !== "beside") setDrawerOpen(false);
+    dropAgentAsk(tabId);
   };
+  useAgentAsk(tabId, agents, showAgent);
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
     if (event.key !== "[" && event.key !== "]") return;

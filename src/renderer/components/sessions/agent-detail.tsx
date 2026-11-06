@@ -9,6 +9,7 @@ import { stopPrintRun } from "../../services/chat/print-runs";
 import { showTerminal } from "../../services/sessions/actions";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
+import { askToShowAgent } from "../../state/stores/agent-reveal";
 import { RunStopButton } from "../chat/print-run-pane";
 import { Button } from "../ui/button";
 import {
@@ -96,7 +97,11 @@ export function AgentDetail({
             variant="outline"
             title={openLabel}
             aria-label={openLabel}
-            onClick={() => showTerminal(session)}
+            onClick={() => {
+              // A chat tab shows the agent in its pane; a terminal has none.
+              if (session.kind !== "terminal") askToShowAgent(session.tabId, agent);
+              showTerminal(session);
+            }}
           >
             <SquareArrowOutUpRight aria-hidden className="size-3.5" />
           </Button>
