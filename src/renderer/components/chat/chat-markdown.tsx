@@ -8,7 +8,7 @@
 import { Check, Copy } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { resolveFilePath } from "../../services/chat/links";
@@ -99,12 +99,25 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
         components={components}
+        urlTransform={keepFileUrls}
       >
         {text}
       </ReactMarkdown>
     </div>
   );
 });
+
+/**
+ * A link's address as the reply gives it when it names a file, which a
+ * click opens in the app: a Windows path (`C:\…`, whose drive reads as a
+ * scheme, and whose `\` arrives here as `%5C`) or a `file://` URL.
+ * Anything else as react-markdown allows.
+ */
+function keepFileUrls(url: string): string {
+  return /^[A-Za-z]:([\\/]|%5C)/i.test(url) || /^file:\/\//i.test(url)
+    ? url
+    : defaultUrlTransform(url);
+}
 
 /** Whether a link names a file or a web address; null for anything else. */
 function linkKind(href: string, cwd: string): "file" | "url" | null {

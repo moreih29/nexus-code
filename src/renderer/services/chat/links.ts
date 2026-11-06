@@ -12,28 +12,60 @@ import { isImageFile, isPreviewable, previewEngineFor } from "../editor/preview/
 import { isSpreadsheetFile } from "../editor/preview/spreadsheet";
 import type { ResultEntry } from "./panel";
 
+/** A Windows path from its drive: `C:\…`, `C:/…`, or the drive itself. */
+const DRIVE_PATH = /^[A-Za-z]:([\\/]|$)/;
+
+/** A link to a Windows path, whose `\` a markdown link carries escaped (`C:%5C…`). */
+const DRIVE_LINK = /^[A-Za-z]:([\\/]|%5C|$)/i;
+
+/**
+ * A Windows path written with `/`, as the app writes its paths there
+ * (`C:\w\a.ts` → `C:/w/a.ts`); any other path as it is. Codex and Claude
+ * write Windows paths with `\`.
+ */
+export function slashWindowsPath(path: string): string {
+  return DRIVE_PATH.test(path) ? path.replace(/\\/g, "/") : path;
+}
+
 /**
  * The absolute path a link or a reply names, against the session's folder:
  * a `file://` URL, an absolute path, or one relative to `cwd`. A line or
  * an anchor after `#` is left out. Null for a path from the home folder,
- * whose home the app does not know, and for anything else.
+ * whose home the app does not know, and for anything else. A Windows path
+ * (`C:\…`, or any path where the folder is one) comes back as the app
+ * writes it, `C:/…`.
  */
 export function resolveFilePath(target: string, cwd: string): string | null {
   let path = target.trim();
   if (!path) return null;
+  let windows = DRIVE_PATH.test(cwd);
   if (path.startsWith("file://")) {
     try {
       path = decodeURIComponent(new URL(path).pathname);
     } catch {
       return null;
     }
+    // file:///C:/a.ts has the pathname /C:/a.ts.
+    if (/^\/[A-Za-z]:\//.test(path)) {
+      path = path.slice(1);
+      windows = true;
+    }
+  } else if (DRIVE_LINK.test(path)) {
+    path = safeDecode(path.replace(/[#?].*$/, ""));
+    windows = true;
   } else if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
     return null;
   } else {
     path = safeDecode(path.replace(/[#?].*$/, ""));
   }
   if (!path || path.startsWith("~")) return null;
-  const joined = path.startsWith("/") ? path : `${cwd.replace(/\/+$/, "")}/${path}`;
+  if (windows) {
+    path = path.replace(/\\/g, "/");
+    if (DRIVE_PATH.test(path)) return normalize(path);
+  }
+  const joined = path.startsWith("/")
+    ? path
+    : `${slashWindowsPath(cwd).replace(/\/+$/, "")}/${path}`;
   return normalize(joined);
 }
 
@@ -45,15 +77,16 @@ function safeDecode(text: string): string {
   }
 }
 
-/** `.` and `..` resolved, repeated and trailing slashes dropped. */
+/** `.` and `..` resolved, repeated and trailing slashes dropped; a Windows drive kept in front. */
 function normalize(path: string): string {
+  const drive = /^[A-Za-z]:(?=\/|$)/.exec(path)?.[0] ?? "";
   const out: string[] = [];
-  for (const part of path.split("/")) {
+  for (const part of path.slice(drive.length).split("/")) {
     if (part === "" || part === ".") continue;
     if (part === "..") out.pop();
     else out.push(part);
   }
-  return `/${out.join("/")}`;
+  return `${drive}/${out.join("/")}`;
 }
 
 /** The session's results that are files, as absolute paths, each once. */
@@ -67,10 +100,13 @@ export function resultFiles(results: ResultEntry[], cwd: string): string[] {
   return files;
 }
 
-/** Whether `path` is `root` or under it. */
+/** Whether `path` is `root` or under it; under a Windows root, whatever the case. */
 export function isUnder(path: string, root: string): boolean {
-  const base = root.replace(/\/+$/, "");
-  return base !== "" && (path === base || path.startsWith(`${base}/`));
+  const windows = DRIVE_PATH.test(root);
+  const fold = (p: string) => (windows ? slashWindowsPath(p).toLowerCase() : p);
+  const base = fold(root).replace(/\/+$/, "");
+  const target = fold(path);
+  return base !== "" && (target === base || target.startsWith(`${base}/`));
 }
 
 /**

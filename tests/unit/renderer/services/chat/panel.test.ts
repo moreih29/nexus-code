@@ -280,6 +280,26 @@ describe("chat panel", () => {
     ]);
   });
 
+  test("a Windows file is one changed file, and its links are results", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "e", name: "Edit", input: { file_path: "C:\\p\\a.ts" } },
+        { type: "tool_use", id: "e2", name: "Edit", input: { file_path: "C:/p/a.ts" } },
+      ]),
+      result("e", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-a", "+b"] }] }),
+      result("e2", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-b", "+c"] }] }),
+      assistant("m2", [{ type: "text", text: "See [a.ts](C:\\p\\a.ts) and `D:\\out\\log.txt`." }]),
+    ]);
+    expect(changedFilesOf(model.tools)).toEqual([
+      { path: "C:/p/a.ts", added: 2, removed: 2, created: false, toolUseIds: ["e", "e2"] },
+    ]);
+    expect(resultsOf(model.items, model.tools)).toEqual([
+      { kind: "file", target: "C:\\p\\a.ts", created: false },
+      { kind: "file", target: "D:\\out\\log.txt", created: false },
+    ]);
+  });
+
   test("results are the files written new, then what the replies point at", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
