@@ -10,6 +10,7 @@ import type {
   DiffSpec,
   GitBlobChunk,
   GitBlobComplete,
+  GitChangeStats,
   GitCherryPickResult,
   GitContinueOpResult,
   GitFastForwardResult,
@@ -94,6 +95,13 @@ export interface GitBlobOptions {
 export interface GitCommitDetailOptions {
   readonly cwd: string;
   readonly sha: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface GitChangeStatsOptions {
+  readonly cwd: string;
+  /** The branch HEAD is counted ahead of and behind. */
+  readonly base?: string;
   readonly signal?: AbortSignal;
 }
 
@@ -297,6 +305,7 @@ export interface GitExecutor {
   diff?(options: GitDiffOptions): AsyncGenerator<DiffChunk, DiffComplete, unknown>;
   blob?(options: GitBlobOptions): AsyncGenerator<GitBlobChunk, GitBlobComplete, unknown>;
   commitDetail?(options: GitCommitDetailOptions): Promise<CommitDetail>;
+  changeStats?(options: GitChangeStatsOptions): Promise<GitChangeStats>;
   stashList?(options: GitStashListOptions): Promise<StashEntry[]>;
   stashApply?(options: GitStashApplyOptions): Promise<void>;
   stashDrop?(options: GitStashDropOptions): Promise<void>;

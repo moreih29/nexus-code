@@ -510,6 +510,28 @@ export const CommitDetailSchema = z.object({
 });
 export type CommitDetail = z.infer<typeof CommitDetailSchema>;
 
+/** One uncommitted file's lines added and deleted against HEAD; a binary file has neither. */
+export const FileLineStatsSchema = z.object({
+  /** Relative to the repository's top level, as in GitStatus. */
+  path: z.string(),
+  added: z.number().int().nonnegative(),
+  deleted: z.number().int().nonnegative(),
+  binary: z.boolean().optional(),
+});
+export type FileLineStats = z.infer<typeof FileLineStatsSchema>;
+
+/**
+ * A worktree's uncommitted changes in lines, untracked files included, and
+ * the commits HEAD has that a base branch has not (`ahead`) and the other
+ * way round (`behind`), absent without a base or when it does not resolve.
+ */
+export const GitChangeStatsSchema = z.object({
+  files: z.array(FileLineStatsSchema),
+  ahead: z.number().int().nonnegative().optional(),
+  behind: z.number().int().nonnegative().optional(),
+});
+export type GitChangeStats = z.infer<typeof GitChangeStatsSchema>;
+
 export const CommitSearchResultSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("sha"),

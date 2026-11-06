@@ -51,7 +51,7 @@ import {
   stashShowStream,
 } from "./stash-handlers";
 import { getPanelStateHandler, setPanelStateHandler } from "./state-handlers";
-import { getStatusHandler } from "./status-handlers";
+import { getChangeStatsHandler, getStatusHandler } from "./status-handlers";
 import {
   fetchAllHandler,
   fetchHandler,
@@ -92,6 +92,7 @@ export function registerGitChannel(
       refreshDetection: refreshDetectionHandler(registry),
       init: initHandler(registry),
       getStatus: getStatusHandler(registry),
+      getChangeStats: getChangeStatsHandler(registry),
       stage: stageHandler(registry),
       unstage: unstageHandler(registry),
       stageContent: stageContentHandler(registry),

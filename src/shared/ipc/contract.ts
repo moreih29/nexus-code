@@ -32,6 +32,7 @@ import {
   GitAutofetchStateChangedSchema,
   GitBlobChunkSchema,
   GitBlobCompleteSchema,
+  GitChangeStatsSchema,
   GitCherryPickResultSchema,
   GitContinueOpResultSchema,
   GitEditorPromptSchema,
@@ -1220,6 +1221,14 @@ export const ipcContract = {
       refreshDetection: call(GitWorkspaceIdSchema, RepoInfoSchema),
       init: call(GitWorkspaceIdSchema, RepoInfoSchema),
       getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
+      /**
+       * The lines each uncommitted file adds and deletes, and how far HEAD
+       * is ahead of and behind `base`, the branch a task was made from.
+       */
+      getChangeStats: call(
+        GitWorkspaceIdSchema.extend({ base: z.string().min(1).optional() }),
+        GitChangeStatsSchema,
+      ),
       stage: call(GitRelPathsArgsSchema, z.void()),
       unstage: call(GitRelPathsArgsSchema, z.void()),
       /** Stages `content` as `relPath`'s index version, as staging part of a file does. */

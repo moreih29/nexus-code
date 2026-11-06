@@ -5,6 +5,7 @@ import { ipcContract } from "../../../../shared/ipc/contract";
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
+  type GitChangeStats,
   type GitStatus,
 } from "../../../../shared/git/types";
 import type { GitRegistry } from "../domain/registry";
@@ -25,6 +26,21 @@ export function getStatusHandler(
     const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
     if (!repo) return createEmptyGitStatus();
     return repo.status(ctx?.signal);
+  };
+}
+
+/**
+ * Builds the getChangeStats handler; a workspace not in a repository has no
+ * changes.
+ */
+export function getChangeStatsHandler(
+  registry: GitRegistry,
+): (args: unknown, ctx?: CallContext) => Promise<GitChangeStats> {
+  return async (args: unknown, ctx?: CallContext): Promise<GitChangeStats> => {
+    const { workspaceId, base } = validateArgs(c.getChangeStats.args, args);
+    const repo = await registry.getOrDetect(workspaceId, ctx?.signal);
+    if (!repo) return { files: [] };
+    return repo.changeStats(base, ctx?.signal);
   };
 }
 
