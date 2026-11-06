@@ -6,10 +6,11 @@
 // from Settings (state/stores/sessions-view.ts). Data is read only while
 // the tab is shown.
 
-import { Bot, X } from "lucide-react";
+import { Bot, ChevronDown, GitBranchPlus, Plus, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SESSIONS_VIEWS, type SessionsView } from "../../../shared/sessions/view";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { newTask } from "../../services/sessions/actions";
 import { type ActivityByKey, findAgent, runningAgentCount } from "../../services/sessions/agents";
 import { phaseCounts, SESSION_PHASES, type SessionFamily } from "../../services/sessions/model";
@@ -19,13 +20,22 @@ import {
   useTerminalWaits,
   useWorktreeChanges,
 } from "../../services/sessions/use-family";
+import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { selectSessionsView, useSessionsViewStore } from "../../state/stores/sessions-view";
+import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { SegmentedControl } from "../settings/segmented-control";
 import { Button } from "../ui/button";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { BoardView } from "./board-view";
 import { LineageView } from "./lineage-view";
 import { resolveSelection, type SessionsSelection } from "./selection";
 import { SessionDetail } from "./session-detail";
+import { StatusView } from "./status-view";
 import { TimelineView } from "./timeline-view";
 import { TreeView } from "./tree-view";
 
@@ -45,6 +55,7 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
 
   const [picked, setPicked] = useState<SessionsSelection | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selection = family
     ? resolveSelection(
         family,
@@ -65,20 +76,40 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
     setPicked(next);
     setDetailOpen(true);
   };
-  const showDetail = view === "tree" || detailOpen;
+  // A list beside the detail it opens, rather than a board the detail covers.
+  const listed = view === "tree" || view === "status";
+  const showDetail = listed || detailOpen;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
-      <SessionsHeader family={family} activity={activity} view={view} rootId={rootId} />
+      <SessionsHeader
+        family={family}
+        activity={activity}
+        view={view}
+        rootId={rootId}
+        query={query}
+        onQuery={setQuery}
+      />
       <div className="flex min-h-0 flex-1">
         <div
           className={
             view === "tree"
               ? "app-scrollbar w-[min(320px,40%)] shrink-0 overflow-auto border-r border-border"
-              : "app-scrollbar min-w-0 flex-1 overflow-auto"
+              : view === "status"
+                ? "app-scrollbar w-[min(480px,50%)] shrink-0 overflow-auto border-r border-border"
+                : "app-scrollbar min-w-0 flex-1 overflow-auto"
           }
         >
-          {view === "tree" ? (
+          {view === "status" ? (
+            <StatusView
+              family={family}
+              changes={changes}
+              activity={activity}
+              selection={selection}
+              onSelect={select}
+              query={query}
+            />
+          ) : view === "tree" ? (
             <TreeView
               family={family}
               changes={changes}
@@ -116,12 +147,12 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
         {showDetail && (
           <div
             className={
-              view === "tree"
+              listed
                 ? "app-scrollbar min-w-0 flex-1 overflow-auto"
                 : "app-scrollbar relative w-[min(400px,45%)] shrink-0 overflow-auto border-l border-border"
             }
           >
-            {view !== "tree" && <CloseDetail onClose={() => setDetailOpen(false)} />}
+            {!listed && <CloseDetail onClose={() => setDetailOpen(false)} />}
             <SessionDetail
               family={family}
               selection={selection}
@@ -153,11 +184,15 @@ function SessionsHeader({
   activity,
   view,
   rootId,
+  query,
+  onQuery,
 }: {
   family: SessionFamily;
   activity: ActivityByKey;
   view: SessionsView;
   rootId: string;
+  query: string;
+  onQuery: (query: string) => void;
 }) {
   const { t } = useTranslation();
   const counts = phaseCounts(family);
@@ -165,21 +200,48 @@ function SessionsHeader({
   const agents = runningAgentCount(family, activity);
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-3 py-2">
-      <span className="truncate text-app-body-emphasis text-foreground">{family.root.name}</span>
-      <span className="text-app-ui-sm text-muted-foreground">
-        {shownCounts.length === 0
-          ? t("sessions.none")
-          : shownCounts
-              .map((phase) =>
-                t("sessions.count", { label: t(`sessions.phase.${phase}`), count: counts[phase] }),
-              )
-              .join(" · ")}
-      </span>
-      {agents > 0 && (
-        <span className="flex items-center gap-1 text-app-ui-sm text-muted-foreground">
-          <Bot aria-hidden className="size-3.5 shrink-0" />
-          {t("sessions.agents.running_count", { count: agents })}
-        </span>
+      {view === "status" ? (
+        // The groups count the conversations; the header finds them.
+        <label className="flex h-8 min-w-40 flex-1 items-center gap-1.5 rounded-(--radius-control) border border-border bg-background px-2 focus-within:border-ring">
+          <Search aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => onQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && query !== "") {
+                event.preventDefault();
+                onQuery("");
+              }
+            }}
+            aria-label={t("sessions.list.search")}
+            className="min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none"
+          />
+        </label>
+      ) : (
+        <>
+          <span className="truncate text-app-body-emphasis text-foreground">
+            {family.root.name}
+          </span>
+          <span className="text-app-ui-sm text-muted-foreground">
+            {shownCounts.length === 0
+              ? t("sessions.none")
+              : shownCounts
+                  .map((phase) =>
+                    t("sessions.count", {
+                      label: t(`sessions.phase.${phase}`),
+                      count: counts[phase],
+                    }),
+                  )
+                  .join(" · ")}
+          </span>
+          {agents > 0 && (
+            <span className="flex items-center gap-1 text-app-ui-sm text-muted-foreground">
+              <Bot aria-hidden className="size-3.5 shrink-0" />
+              {t("sessions.agents.running_count", { count: agents })}
+            </span>
+          )}
+        </>
       )}
       <div className="ml-auto flex items-center gap-2">
         <SegmentedControl
@@ -188,10 +250,61 @@ function SessionsHeader({
           value={view}
           onChange={(next) => useSessionsViewStore.getState().setForWorkspace(rootId, next)}
         />
-        <Button size="sm" variant="outline" onClick={() => newTask(rootId)}>
-          {t("task.new")}
+        <NewChat workspace={family.root} />
+        <Button
+          size="icon-sm"
+          variant="outline"
+          title={t("task.new")}
+          aria-label={t("task.new")}
+          onClick={() => newTask(rootId)}
+        >
+          <GitBranchPlus aria-hidden className="size-3.5" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** A new conversation in the workspace: Claude at once, or Codex from the menu. */
+function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
+  const { t } = useTranslation();
+  const open = (agent: "claude" | "codex") =>
+    agent === "claude"
+      ? openClaudeTab(workspace.id, { cwd: workspace.rootPath })
+      : openCodexTab(workspace.id, { cwd: workspace.rootPath });
+  return (
+    <div className="flex">
+      <Button
+        size="icon-sm"
+        className="rounded-r-none"
+        title={t("sessions.list.new_claude")}
+        aria-label={t("sessions.list.new_claude")}
+        onClick={() => open("claude")}
+      >
+        <Plus aria-hidden className="size-3.5" />
+      </Button>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger>
+          <Button
+            size="icon-sm"
+            className="w-6 rounded-l-none border-l border-primary-foreground/25"
+            aria-label={t("sessions.list.new_chat")}
+            title={t("sessions.list.new_chat")}
+          >
+            <ChevronDown aria-hidden className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => open("claude")}>
+            <ClaudeIcon aria-hidden className="size-3.5" />
+            Claude
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => open("codex")}>
+            <CodexIcon aria-hidden className="size-3.5" />
+            Codex
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenuRoot>
     </div>
   );
 }
