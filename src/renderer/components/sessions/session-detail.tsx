@@ -36,6 +36,7 @@ import { existingChatController } from "../../services/chat/controller";
 import { useChatTab } from "../../services/chat/store";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { ChatAgentContext } from "../chat/chat-agent";
 import { PermissionCard } from "../chat/permission-card";
 import { Button } from "../ui/button";
 import { showToast } from "../ui/toast";
@@ -323,17 +324,20 @@ function ChatTabRequests({ session }: { session: AgentSession }) {
     ) : null;
   }
   return (
-    <PermissionCard
-      requests={requests}
-      workspaceId={workspaceId}
-      cwd={cwd}
-      rootPath={rootPath}
-      onAnswer={(request, answer) => {
-        controller?.answerPermission(request, answer).catch((failure: unknown) => {
-          showToast({ kind: "error", message: (failure as Error).message });
-        });
-      }}
-    />
+    // The card's words name the tab's program, as in the tab.
+    <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
+      <PermissionCard
+        requests={requests}
+        workspaceId={workspaceId}
+        cwd={cwd}
+        rootPath={rootPath}
+        onAnswer={(request, answer) => {
+          controller?.answerPermission(request, answer).catch((failure: unknown) => {
+            showToast({ kind: "error", message: (failure as Error).message });
+          });
+        }}
+      />
+    </ChatAgentContext.Provider>
   );
 }
 
