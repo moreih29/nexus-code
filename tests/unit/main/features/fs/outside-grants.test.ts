@@ -16,8 +16,12 @@ fs.mkdirSync(site);
 fs.writeFileSync(path.join(site, "index.html"), "<p>hi</p>");
 fs.writeFileSync(path.join(site, "style.css"), "p{}");
 fs.writeFileSync(secret, "key");
-fs.symlinkSync(secret, path.join(site, "leak.txt"));
-fs.symlinkSync(secret, path.join(tmp, "named-link.txt"));
+// Only the tests skipped on Windows read the links, and making one there
+// takes a privilege a test run may not have.
+if (process.platform !== "win32") {
+  fs.symlinkSync(secret, path.join(site, "leak.txt"));
+  fs.symlinkSync(secret, path.join(tmp, "named-link.txt"));
+}
 
 afterEach(() => clearOutsideGrants());
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
