@@ -93,6 +93,9 @@ export const SHORTCUTS = {
   get fileRename() {
     return shortcutFor(COMMANDS.fileRename) ?? "";
   },
+  get fileDelete() {
+    return shortcutFor(COMMANDS.fileDelete) ?? "";
+  },
   get fileCopy() {
     return shortcutFor(COMMANDS.fileCopy) ?? "";
   },

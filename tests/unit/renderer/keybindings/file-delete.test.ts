@@ -71,6 +71,7 @@ import { confirmAndDeletePath } from "../../../../src/renderer/services/fs-mutat
 import { useActiveStore } from "../../../../src/renderer/state/stores/active";
 import { useFilesStore } from "../../../../src/renderer/state/stores/files";
 import { useWorkspacesStore } from "../../../../src/renderer/state/stores/workspaces";
+import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 // ---------------------------------------------------------------------------
@@ -205,6 +206,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setPlatformForTests(null);
   __resetCommandsForTests();
   __resetChordStateForTests();
   resetStores();
@@ -441,7 +443,8 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
     expect(deleteFn).not.toHaveBeenCalled();
   });
 
-  it("plain Delete → 발화 안 함", () => {
+  it("plain Delete → macOS 에서는 발화 안 함", () => {
+    setPlatformForTests("darwin");
     const deleteFn = mock(() => {});
     registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
 
@@ -449,6 +452,27 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
     handleGlobalKeyDown(e);
 
     expect(deleteFn).not.toHaveBeenCalled();
+  });
+
+  // Windows and Linux file managers delete with Delete.
+  it("plain Delete → Windows·Linux 에서는 tree 안에서 발화한다", () => {
+    for (const platform of ["win32", "linux"] as const) {
+      setPlatformForTests(platform);
+      const deleteFn = mock(() => {});
+      registerCommand(COMMANDS.fileDelete, deleteFn as () => void);
+
+      const e = makeEvent("Delete", { code: "Delete", target: treeTarget() });
+      handleGlobalKeyDown(e);
+      expect(deleteFn).toHaveBeenCalledTimes(1);
+      expect(e.defaultPrevented).toBe(true);
+
+      const typed = makeEvent("Delete", { code: "Delete", target: treeInputTarget() });
+      handleGlobalKeyDown(typed);
+      const outside = makeEvent("Delete", { code: "Delete", target: outsideTarget() });
+      handleGlobalKeyDown(outside);
+      expect(deleteFn).toHaveBeenCalledTimes(1);
+      __resetCommandsForTests();
+    }
   });
 
   it("tree 안의 INPUT에서 Cmd+Backspace → 발화 안 함 (inputFocus=true)", () => {
