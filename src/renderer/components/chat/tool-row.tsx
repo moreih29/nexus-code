@@ -372,6 +372,9 @@ export function toolSummary(tool: ToolCall, cwd: string): string {
     return "";
   };
   const path = pick("file_path", "notebook_path", "path");
+  // A file Codex moved: where it was, then where it is.
+  const from = pick("moved_from");
+  if (path && from) return `${relativeTo(from, cwd)} → ${relativeTo(path, cwd)}`;
   if (path) return relativeTo(path, cwd);
   const value = pick("command", "pattern", "url", "query", "description", "prompt", "skill");
   if (value) return value.split("\n")[0];

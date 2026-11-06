@@ -728,13 +728,16 @@ function toolsOf(item: Rec, id: string, phase: "started" | "completed"): ToolCal
         const path = str(change?.path);
         if (!change || !path) return [];
         const kind = str(rec(change.kind)?.type);
-        const structuredPatch = hunksOf(str(change.diff) ?? "", kind);
+        // A moved file's row names where it is now, and where it was.
+        const movedTo = kind === "update" ? str(rec(change.kind)?.move_path) : undefined;
+        const diff = str(change.diff) ?? "";
+        const structuredPatch = hunksOf(movedTo ? withoutMoveTail(diff) : diff, kind);
         return [
           {
             ...base,
             id: `${id}:${i}`,
             name: kind === "add" ? "Write" : kind === "delete" ? "Delete" : "Edit",
-            input: { file_path: path },
+            input: movedTo ? { file_path: movedTo, moved_from: path } : { file_path: path },
             result: {
               text: "",
               isError: base.status === "error",
@@ -919,6 +922,14 @@ export function hunksOf(diff: string, kind: string | undefined): { lines: string
 }
 
 /**
+ * A moved file's diff without the line Codex ends it with, "Moved to:" and
+ * the new path after a blank line. No line of a unified diff starts so.
+ */
+function withoutMoveTail(diff: string): string {
+  return diff.replace(/\n\nMoved to: [^\n]*$/, "");
+}
+
+/**
  * The originals of the files a list shows, by the list's own paths. A
  * Windows path matches whichever way its separators and case are written.
  */
@@ -939,6 +950,14 @@ export function originalsFor(
 /** A path as the file it names: a Windows one with `/`, in lower case. */
 function pathKey(path: string): string {
   return /^[A-Za-z]:[\\/]/.test(path) ? path.replace(/\\/g, "/").toLowerCase() : path;
+}
+
+/** The file a patch's row changes, as an approval names it: "old → new" for a move. */
+function changedPathOf(tool: ToolCall): string {
+  const input = rec(tool.input);
+  const path = str(input?.file_path) ?? "";
+  const from = str(input?.moved_from);
+  return from ? `${from} → ${path}` : path;
 }
 
 /** The ids of the tool calls an item is: itself, or one for each file it changes. */
@@ -990,14 +1009,14 @@ function permissionOf(
     }
     case "item/fileChange/requestApproval": {
       const tools = itemId ? toolIdsOf(m, itemId).map((id) => m.tools[id]) : [];
-      const paths = tools.map((t) => str(rec(t.input)?.file_path) ?? "").filter(Boolean);
+      const paths = tools.map(changedPathOf).filter(Boolean);
       const structuredPatch = tools.flatMap((t) => {
         const hunks = (rec(t.result?.structured)?.structuredPatch ?? []) as { lines: string[] }[];
-        const path = str(rec(t.input)?.file_path) ?? "";
-        // More than one file: each one's lines start with its path.
-        return tools.length > 1 && hunks.length > 0
-          ? [{ lines: [path, ...hunks[0].lines] }, ...hunks.slice(1)]
-          : hunks;
+        const moved = str(rec(t.input)?.moved_from) !== undefined;
+        // More than one file, or a moved one: each one's lines start with its path.
+        if (tools.length === 1 && !moved) return hunks;
+        if (hunks.length === 0) return moved ? [{ lines: [changedPathOf(t)] }] : [];
+        return [{ lines: [changedPathOf(t), ...hunks[0].lines] }, ...hunks.slice(1)];
       });
       const input = { file_path: paths.join(", ") };
       return {

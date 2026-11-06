@@ -340,6 +340,45 @@ describe("codex model", () => {
     });
   });
 
+  test("a moved file: its row and its approval name both paths, without Codex's tail", () => {
+    // As codex 0.166 sends a move on Windows.
+    const from = "C:\\w\\src\\a.txt";
+    const to = "C:\\w\\lib\\b.txt";
+    const item = {
+      type: "fileChange",
+      id: "p2",
+      status: "inProgress",
+      changes: [
+        {
+          path: from,
+          kind: { type: "update", move_path: to },
+          diff: `@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n\n\nMoved to: ${to}`,
+        },
+      ],
+    };
+    const m = run([
+      ...started(),
+      ...sendTurn("move"),
+      note("item/started", { threadId: T, turnId: "turn_1", item }),
+      out({
+        id: 1,
+        method: "item/fileChange/requestApproval",
+        params: { threadId: T, turnId: "turn_1", itemId: "p2", reason: null },
+      }),
+    ]);
+    const lines = [" alpha", "-beta", "+BETA", " gamma"];
+    expect(m.tools["p2:0"]).toMatchObject({
+      name: "Edit",
+      input: { file_path: to, moved_from: from },
+      result: { structured: { structuredPatch: [{ lines }] } },
+    });
+    const [permission] = m.permissions;
+    expect(permission.input).toEqual({ file_path: `${from} → ${to}` });
+    expect(permission.preview?.result?.structured).toEqual({
+      structuredPatch: [{ lines: [`${from} → ${to}`, ...lines] }],
+    });
+  });
+
   test("a question from the model shows as AskUserQuestion", () => {
     const m = run([
       ...started(),
