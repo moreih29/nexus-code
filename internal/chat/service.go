@@ -44,6 +44,8 @@ type session struct {
 	mu   sync.Mutex
 	log  *lineLog
 	proc *process
+	// snaps takes the originals of the files a Codex program changes.
+	snaps *snapshots
 }
 
 // process is one run of a tab's program.
@@ -156,6 +158,10 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	sess.proc = proc
 	if p.ResetLog {
 		sess.log.reset()
+	}
+	// The originals go with the log, and are of files under the folder.
+	if p.ResetLog || sess.snaps == nil || sess.snaps.cwd != p.Cwd {
+		sess.snaps = newSnapshots(p.Cwd)
 	}
 	start := map[string]any{"event": "start", "pid": cmd.Process.Pid}
 	if p.Resumed {
@@ -388,6 +394,20 @@ func (sess *session) addSysLocked(fields map[string]any) {
 	sess.addLocked(DirSys, data, "")
 }
 
+// addPinnedLocked logs a line of the agent's own that the log's cap keeps.
+// It holds a file's text, so <, > and & are left as they are rather than
+// escaped to six bytes each.
+func (sess *session) addPinnedLocked(fields any) {
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	if encoder.Encode(fields) != nil {
+		return
+	}
+	e := sess.log.addPinned(DirSys, bytes.TrimRight(data.Bytes(), "\n"))
+	_ = sess.service.emit(EventLine, sess.payload(e))
+}
+
 func (sess *session) payload(e *entry) LinePayload {
 	return LinePayload{
 		WorkspaceID: sess.key.workspaceID,
@@ -429,6 +449,11 @@ func (sess *session) addOutput(line []byte) {
 	defer sess.mu.Unlock()
 	if json.Valid(line) {
 		sess.addLocked(DirOut, json.RawMessage(line), "")
+		if sess.snaps != nil {
+			for _, snap := range sess.snaps.take(line) {
+				sess.addPinnedLocked(snap)
+			}
+		}
 		return
 	}
 	sess.addLocked(DirOut, nil, string(line))
