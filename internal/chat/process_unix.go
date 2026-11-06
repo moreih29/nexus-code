@@ -8,6 +8,13 @@ import (
 	"syscall"
 )
 
+// tree is nothing of its own on Unix: the program's process group holds
+// the commands it runs.
+type tree struct{}
+
+func (p *process) holdTree()    {}
+func (p *process) releaseTree() {}
+
 // signalTerm asks the program's process group to exit: the program and the
 // commands it runs.
 func (p *process) signalTerm() error {

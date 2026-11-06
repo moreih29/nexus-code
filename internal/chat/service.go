@@ -63,6 +63,10 @@ type process struct {
 	stderrTail []byte
 
 	stopOnce sync.Once
+
+	// tree holds the processes the program starts, where its own process
+	// group does not.
+	tree tree
 }
 
 // New constructs an empty service.
@@ -155,6 +159,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		outputs: []io.Closer{stdout, stderr},
 		done:    make(chan struct{}),
 	}
+	proc.holdTree()
 	sess.proc = proc
 	if p.ResetLog {
 		sess.log.reset()
@@ -462,6 +467,7 @@ func (sess *session) addOutput(line []byte) {
 // wait reports the program's exit once its output has been read.
 func (sess *session) wait(proc *process, stdoutDone, stderrDone <-chan struct{}) {
 	state, err := proc.cmd.Process.Wait()
+	proc.releaseTree()
 	timer := time.NewTimer(exitDrainGrace)
 	// A child the program left behind can hold both outputs open, as node
 	// does under npm's codex.cmd: the grace ends the wait for all of them.

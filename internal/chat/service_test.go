@@ -55,6 +55,16 @@ func TestFakeProgramHelper(t *testing.T) {
 				os.Exit(4)
 			}
 			os.Exit(0)
+		case "spawn":
+			// Start a child that runs until it is ended, and tell its pid.
+			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
+			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
+			if err := child.Start(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(4)
+			}
+			fmt.Printf(`{"type":"child","pid":%d}`+"\n", child.Process.Pid)
+			continue
 		}
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", msg.Text)
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", "!")
@@ -73,6 +83,16 @@ func TestFakeChildHelper(t *testing.T) {
 	time.AfterFunc(30*time.Second, func() { os.Exit(2) })
 	_, _ = io.Copy(io.Discard, os.Stdin)
 	_ = os.WriteFile(os.Getenv("NEXUS_CHAT_MARKER"), nil, 0o644)
+	os.Exit(0)
+}
+
+// TestFakeSleeperHelper is a command the fake program runs that does not
+// end by itself, as a build or a server Claude starts.
+func TestFakeSleeperHelper(t *testing.T) {
+	if os.Getenv("NEXUS_CHAT_SLEEPER") != "1" {
+		return
+	}
+	time.Sleep(time.Minute)
 	os.Exit(0)
 }
 
@@ -397,15 +417,19 @@ func TestExitIsReportedWhenAChildHoldsTheOutputs(t *testing.T) {
 	rec.waitFor(t, "the exit", func(_ []LinePayload, exits []ExitPayload) bool {
 		return len(exits) == 1
 	})
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err := os.Stat(marker); err == nil {
-			break
+	// On Windows the program's job ends the child as the program exits,
+	// before its input is closed (TestExitEndsTheCommandsTheProgramLeft).
+	if runtime.GOOS != "windows" {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			if _, err := os.Stat(marker); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the child's input was never closed")
+			}
+			time.Sleep(20 * time.Millisecond)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("the child's input was never closed")
-		}
-		time.Sleep(20 * time.Millisecond)
 	}
 	if restart := startFake(t, service, "tab", nil); restart.Attached {
 		t.Fatal("a restart attached to the ended program")
