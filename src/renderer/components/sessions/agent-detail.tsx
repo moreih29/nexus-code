@@ -133,7 +133,9 @@ export function AgentDetail({
       >
         {!told ? (
           <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.agents.detail.tools_untold")}
+            {agent.program === "codex"
+              ? t("sessions.agents.detail.tools_untold_codex")
+              : t("sessions.agents.detail.tools_untold")}
           </p>
         ) : agent.tools.length === 0 ? (
           <p className="text-app-ui-sm text-muted-foreground">

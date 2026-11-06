@@ -150,6 +150,23 @@ describe("nexus agent show", () => {
     );
   });
 
+  test("shows a codex exec run, where it is served, and how to go on with it", async () => {
+    const codex = printRun({ program: "codex", model: "gpt-6-luna", endpoint: "gw.example.com" });
+    const result = await nexus(appWith(codex), ["agent", "show", "8f7b"]);
+    expect(result.stdout).toStartWith(
+      [
+        `codex exec ${SESSION}`,
+        "State:   completed (exit 0), ended 30s ago, ran 60s",
+        "Model:   gpt-6-luna",
+        "Via:     gw.example.com",
+        `Session: ${SESSION} (codex exec resume ${SESSION} goes on)`,
+        "",
+      ].join("\n"),
+    );
+    const list = await nexus(appWith(codex), ["agent", "list"]);
+    expect(list.stdout).toMatch(/\n8f7b63e3 +codex exec +completed/);
+  });
+
   test("shows a subagent by its id, its tool running", async () => {
     const result = await nexus(appWith(subagent()), ["agent", "show", "a5d1e9c07b"]);
     expect(result.stdout).toContain("Explore a5d1e9c07b\nState:   running, started 20s ago");

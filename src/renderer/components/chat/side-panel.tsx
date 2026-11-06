@@ -564,6 +564,7 @@ function AgentEntry({
   const meta = [
     agent.teammate ? t("chat.panel.agents.teammate") : agent.subagentType,
     agent.model,
+    agent.endpoint,
     t("chat.panel.agents.tools", { count: agent.toolCount }),
   ].filter(Boolean);
   return (

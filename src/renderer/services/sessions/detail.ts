@@ -61,8 +61,10 @@ export interface DetailAgent {
   readonly type: string | undefined;
   readonly description: string | undefined;
   readonly status: DetailAgentStatus;
-  /** A `claude -p` run the session started, rather than a subagent. */
+  /** A `claude -p` or `codex exec` run the session started, rather than a subagent. */
   readonly print: boolean;
+  /** A run's program: "codex" for a `codex exec` run. */
+  readonly program?: "claude" | "codex";
 }
 
 export type DetailTodoStatus = "pending" | "in_progress" | "completed";
@@ -246,6 +248,7 @@ function hookAgents(agents: readonly AgentRun[]): DetailAgent[] {
             ? "done"
             : agent.state,
       print: agent.kind === "print",
+      ...(agent.program ? { program: agent.program } : {}),
     }),
   );
 }

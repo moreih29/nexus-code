@@ -37,9 +37,10 @@ export interface HarnessTerminalEnvContext {
  * 3. NEXUS_IN_APP=1
  * 4. NEXUS_WRAPPER_SELF_DIR=<context.binDir>
  * 5. NEXUS_AGENT_BIN — context.agentBin 이 제공된 경우에만 설정. With it,
- *    NEXUS_AGENT_PRINT_RUN=1: that agent runs `print-run`, which an older
- *    one, still named in a terminal an older app started, does not
- *    (claude-wrapper.sh).
+ *    NEXUS_AGENT_PRINT_RUN=1 and NEXUS_AGENT_EXEC_RUN=1: that agent runs
+ *    `print-run` and `exec-run`, which an older one, still named in a
+ *    terminal an older app started, does not (claude-wrapper.sh, the codex
+ *    wrapper).
  * 6. NEXUS_WORKSPACE_ID / NEXUS_TAB_ID — context에서 주입.
  * 7. NEXUS_AGENT_SOCKET / NEXUS_HOOK_TOKEN — context에서 제공된 경우에만 설정.
  *
@@ -75,6 +76,7 @@ export function injectHarnessTerminalEnv(
   if (context.agentBin !== undefined) {
     nexusBase.NEXUS_AGENT_BIN = context.agentBin;
     nexusBase.NEXUS_AGENT_PRINT_RUN = "1";
+    nexusBase.NEXUS_AGENT_EXEC_RUN = "1";
   }
   if (context.agentSocket !== undefined) {
     nexusBase.NEXUS_AGENT_SOCKET = context.agentSocket;

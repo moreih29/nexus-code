@@ -10,11 +10,12 @@
 //
 // A `claude -p` run started inside the session, as by a script its Bash tool
 // runs, has no hooks: the agent runs it and tells of it (hookclient's
-// print-run), and it is one of the session's agents. One killed before it
-// tells its end is told gone by the agent, and reads stopped. A run that goes
-// on an ended run's Claude session (`claude -p --resume <id>`) is that run
-// going on. While a run goes on, the app holds its watch, whose answer stops
-// it.
+// print-run), and it is one of the session's agents. So is a `codex exec`
+// run (hookclient's exec-run), told the same, as codex's. One killed before
+// it tells its end is told gone by the agent, and reads stopped. A run that
+// goes on an ended run's session (`claude -p --resume <id>`, `codex exec
+// resume <id>`) is that run going on. While a run goes on, the app holds its
+// watch, whose answer stops it.
 
 import {
   ACTIVITY_TEXT_MAX_CHARS,
@@ -181,6 +182,7 @@ export class SessionActivityLog {
       case "print-init": {
         const model = text(p.model);
         if (model !== undefined) run.model = model;
+        run.endpoint = text(p.endpoint) ?? run.endpoint;
         run.cwd = text(p.cwd) ?? run.cwd;
         run.sessionId ??= text(p.session_id);
         // Told from the transcript when its arguments did not tell it.
@@ -403,7 +405,9 @@ export class SessionActivityLog {
     const run: AgentEntry = {
       id,
       kind: "print",
+      ...(p.program === "codex" ? { program: "codex" as const } : {}),
       ...optional("model", text(p.model)),
+      ...optional("endpoint", text(p.endpoint)),
       ...optional("description", command?.note),
       ...optional("prompt", text(p.prompt)),
       start: this.now(),
@@ -449,6 +453,7 @@ export class SessionActivityLog {
     const prompt = text(p.prompt);
     if (prompt !== undefined) run.prompt = prompt;
     run.model = text(p.model) ?? run.model;
+    run.endpoint = text(p.endpoint) ?? run.endpoint;
     run.cwd = text(p.cwd) ?? run.cwd;
     run.toolsTold = p.tools_told === true;
     delete run.end;

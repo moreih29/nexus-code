@@ -516,7 +516,10 @@ function Subagents({
   const { t } = useTranslation();
   if (agents.length === 0) return null;
   const name = (agent: DetailAgent) =>
-    agent.type ?? (agent.print ? t("sessions.agents.print") : t("sessions.agents.label_fallback"));
+    agent.type ??
+    (agent.print
+      ? t(agent.program === "codex" ? "sessions.agents.print_codex" : "sessions.agents.print")
+      : t("sessions.agents.label_fallback"));
   return (
     <section className="flex min-w-0 flex-col gap-1.5">
       <h3

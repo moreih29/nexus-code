@@ -58,24 +58,32 @@ export function agentStateLabel(state: AgentRunState): string {
   return i18next.t(`common:sessions.agents.state.${state}`);
 }
 
+/** What a run started inside a session is called: `claude -p`, or `codex exec`. */
+export function printLabel(program: AgentRun["program"]): string {
+  return program === "codex"
+    ? i18next.t("common:sessions.agents.print_codex")
+    : i18next.t("common:sessions.agents.print");
+}
+
 /** What the agent was asked to do, else its type. */
 export function agentLabel(agent: AgentRun): string {
   return (
     agent.description ??
     agent.type ??
     (agent.kind === "print"
-      ? i18next.t("common:sessions.agents.print")
+      ? printLabel(agent.program)
       : i18next.t("common:sessions.agents.label_fallback"))
   );
 }
 
 /**
  * What the agent is, for a line under its name: its type and whether it runs
- * in the background; for a `claude -p` run, its model.
+ * in the background; for a `claude -p` or `codex exec` run, its model, where
+ * it is served when not by its program's own API, and the program.
  */
 export function agentKindParts(agent: AgentRun): string[] {
   if (agent.kind === "print") {
-    return [agent.model, i18next.t("common:sessions.agents.print")].filter(
+    return [agent.model, agent.endpoint, printLabel(agent.program)].filter(
       (part): part is string => part !== undefined,
     );
   }

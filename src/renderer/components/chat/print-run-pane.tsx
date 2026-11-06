@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { useNow } from "../../services/sessions/use-family";
-import { openClaudeTab } from "../../state/operations/tabs";
+import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
   AgentDuration,
   AgentGlyph,
@@ -46,11 +46,20 @@ export function PrintRunPane({
     setStopFailed(false);
     void stopPrintRun(workspaceId, tabId, run.id).then((stopped) => setStopFailed(!stopped));
   };
+  const { sessionId } = run;
+  const codex = run.program === "codex";
   const kind = [
-    t("chat.run.kind"),
+    codex ? t("chat.run.kind_codex") : t("chat.run.kind"),
     run.model,
-    run.sessionId === undefined ? undefined : run.sessionId.slice(0, ID_SHOWN),
+    run.endpoint,
+    sessionId === undefined ? undefined : sessionId.slice(0, ID_SHOWN),
   ].filter((part): part is string => part !== undefined);
+  // A Codex tab goes on with a `codex exec` run's thread, as a Claude tab
+  // goes on with a copy of a `claude -p` run's session.
+  const openInTab = (id: string) =>
+    codex
+      ? openCodexTab(workspaceId, { cwd, threadId: id })
+      : openClaudeTab(workspaceId, { cwd, sessionId: id });
   return (
     <div
       className="app-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
@@ -72,12 +81,8 @@ export function PrintRunPane({
             {t("chat.run.stop")}
           </Button>
         ) : (
-          run.sessionId !== undefined && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openClaudeTab(workspaceId, { cwd, sessionId: run.sessionId })}
-            >
+          sessionId !== undefined && (
+            <Button size="sm" variant="outline" onClick={() => openInTab(sessionId)}>
               {t("chat.run.open_in_tab")}
             </Button>
           )
@@ -105,7 +110,9 @@ export function PrintRunPane({
       >
         {!run.toolsTold ? (
           <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.agents.detail.tools_untold")}
+            {codex
+              ? t("sessions.agents.detail.tools_untold_codex")
+              : t("sessions.agents.detail.tools_untold")}
           </p>
         ) : run.tools.length === 0 ? (
           <p className="text-app-ui-sm text-muted-foreground">

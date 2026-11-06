@@ -1,6 +1,7 @@
-// The `claude -p` runs a Claude tab's session starts from its Bash tool, as
-// the app records them (main's session activity, by the tab's id): shown in
-// the tab beside its subagents, with their state, tools and answer.
+// The `claude -p` and `codex exec` runs a Claude tab's session starts from
+// its Bash tool, as the app records them (main's session activity, by the
+// tab's id): shown in the tab beside its subagents, with their state, tools
+// and answer.
 
 import { useMemo } from "react";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
@@ -36,11 +37,13 @@ export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
     .sort((a, b) => a.start - b.start)
     .map((run) => {
       const tool = [...run.tools].reverse().find((t) => t.end === undefined && !t.background);
+      const program = run.program === "codex" ? "codex exec" : "claude -p";
       return {
         toolUseId: `${RUN_KEY_PREFIX}${run.id}`,
-        description: oneLine(run.prompt ?? run.description ?? "") || "claude -p",
-        subagentType: "claude -p",
+        description: oneLine(run.prompt ?? run.description ?? "") || program,
+        subagentType: program,
         model: run.model,
+        endpoint: run.endpoint,
         status: statusOf(run.state),
         startedAt: run.start,
         endedAt: run.end,

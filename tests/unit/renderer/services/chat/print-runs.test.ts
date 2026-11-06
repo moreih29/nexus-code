@@ -1,4 +1,4 @@
-// A Claude tab's `claude -p` runs as rows of its agents.
+// A Claude tab's `claude -p` and `codex exec` runs as rows of its agents.
 
 import { describe, expect, test } from "bun:test";
 import { printRunRows } from "../../../../../src/renderer/services/chat/print-runs";
@@ -54,6 +54,18 @@ describe("printRunRows", () => {
       currentTool: "Bash npm test",
       toolCount: 3,
       model: "claude-haiku-4-5",
+    });
+  });
+
+  test("names a codex exec run as such, and where its model is served", () => {
+    const [row] = printRunRows([
+      run({ program: "codex", model: "gpt-6-luna", endpoint: "gw.example.com" }),
+    ]);
+    expect(row).toMatchObject({
+      description: "codex exec",
+      subagentType: "codex exec",
+      model: "gpt-6-luna",
+      endpoint: "gw.example.com",
     });
   });
 });
