@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -43,11 +45,34 @@ func TestFakeProgramHelper(t *testing.T) {
 		case "line":
 			fmt.Println(os.Getenv("NEXUS_CHAT_FAKE_LINE"))
 			continue
+		case "leave":
+			// Exit, leaving a child that holds the input and both outputs.
+			child := exec.Command(os.Args[0], "-test.run=^TestFakeChildHelper$")
+			child.Env = append(os.Environ(), "NEXUS_CHAT_CHILD=1")
+			child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
+			if err := child.Start(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(4)
+			}
+			os.Exit(0)
 		}
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", msg.Text)
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", "!")
 		fmt.Printf(`{"type":"assistant","text":%q}`+"\n", msg.Text+"!")
 	}
+	os.Exit(0)
+}
+
+// TestFakeChildHelper is the child the fake program leaves behind: like
+// node under npm's codex.cmd, it reads its input until it closes, and
+// marks the file NEXUS_CHAT_MARKER names when it does.
+func TestFakeChildHelper(t *testing.T) {
+	if os.Getenv("NEXUS_CHAT_CHILD") != "1" {
+		return
+	}
+	time.AfterFunc(30*time.Second, func() { os.Exit(2) })
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	_ = os.WriteFile(os.Getenv("NEXUS_CHAT_MARKER"), nil, 0o644)
 	os.Exit(0)
 }
 
@@ -352,6 +377,38 @@ func TestExitIsReportedAndLogKept(t *testing.T) {
 	})
 	if lines[0].Seq == 0 {
 		t.Fatal("seq 0")
+	}
+}
+
+// A program that exits leaving a child holding its outputs, as npm's
+// codex.cmd leaves node, is told as ended, and its input is closed so
+// the child, which waits for that, ends too.
+func TestExitIsReportedWhenAChildHoldsTheOutputs(t *testing.T) {
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	marker := filepath.Join(t.TempDir(), "input-closed")
+	startFake(t, service, "tab", map[string]string{"NEXUS_CHAT_MARKER": marker})
+	if err := send(t, service, "tab", "leave"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	rec.waitFor(t, "the exit", func(_ []LinePayload, exits []ExitPayload) bool {
+		return len(exits) == 1
+	})
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the child's input was never closed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if restart := startFake(t, service, "tab", nil); restart.Attached {
+		t.Fatal("a restart attached to the ended program")
 	}
 }
 

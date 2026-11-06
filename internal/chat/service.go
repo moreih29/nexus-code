@@ -463,10 +463,14 @@ func (sess *session) addOutput(line []byte) {
 func (sess *session) wait(proc *process, stdoutDone, stderrDone <-chan struct{}) {
 	state, err := proc.cmd.Process.Wait()
 	timer := time.NewTimer(exitDrainGrace)
+	// A child the program left behind can hold both outputs open, as node
+	// does under npm's codex.cmd: the grace ends the wait for all of them.
+drain:
 	for _, done := range []<-chan struct{}{stdoutDone, stderrDone} {
 		select {
 		case <-done:
 		case <-timer.C:
+			break drain
 		}
 	}
 	timer.Stop()
