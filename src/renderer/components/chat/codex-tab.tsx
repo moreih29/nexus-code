@@ -14,9 +14,16 @@ import {
 } from "../../services/chat/codex-controller";
 import type { CodexModel } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
-import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../services/chat/links";
+import {
+  type FileLink,
+  isLocalAddress,
+  isUnder,
+  type LineAt,
+  resolveFileLink,
+  resultFiles,
+} from "../../services/chat/links";
 import type { PermissionRequest } from "../../services/chat/model";
-import { openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
+import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -107,23 +114,28 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const links = useMemo<ChatLinks>(() => {
     const cwd = props.cwd;
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
-    const show = (path: string) => {
+    const show = (path: string, line?: LineAt) => {
       const { model: current } = latest.current.state;
       const files = resultFiles(resultsOf(current.items, current.tools), cwd);
       const at = files.indexOf(path);
       if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-      setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
+      const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
+      setLook(line?.line ? { ...list, at: { path, line: line.line, column: line.column } } : list);
     };
-    const openFileTab = (target: string) => {
-      const path = resolveFilePath(target, cwd);
-      if (!path) return;
-      const inside = isUnder(path, latest.current.rootPath);
-      openFileBeside(workspaceId, tabId, path, { split: split(), inside });
+    /** The file a link names, and where in it, once it is known which file that is. */
+    const follow = (target: string, then: (link: FileLink) => void) => {
+      const link = resolveFileLink(target, cwd);
+      if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
+    };
+    const openFileTab = (target: string, at?: LineAt) => {
+      follow(target, ({ path, ...line }) => {
+        const inside = isUnder(path, latest.current.rootPath);
+        openFileBeside(workspaceId, tabId, path, { split: split(), inside, at: at ?? line });
+      });
     };
     return {
       openFile(target) {
-        const path = resolveFilePath(target, cwd);
-        if (path) show(path);
+        follow(target, ({ path, ...line }) => show(path, line));
       },
       openChange: (path) => show(path),
       openFileTab,
@@ -226,9 +238,9 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
-          onOpenTab={(path) => {
+          onOpenTab={(path, at) => {
             setLook(null);
-            links.openFileTab(path);
+            links.openFileTab(path, at);
           }}
         />
       )}

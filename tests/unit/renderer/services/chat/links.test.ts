@@ -4,6 +4,7 @@ import {
   fileKind,
   isLocalAddress,
   isUnder,
+  resolveFileLink,
   resolveFilePath,
   resultFiles,
   slashWindowsPath,
@@ -38,6 +39,46 @@ describe("chat links", () => {
     expect(resolveFilePath("src%5Ca.ts", cwd)).toBe("C:/w/proj/src/a.ts");
     // A backslash is only a separator where the session runs on Windows.
     expect(resolveFilePath("a\\b.txt", "/w")).toBe("/w/a\\b.txt");
+  });
+
+  test("a line after a path is the link's line, not part of the file's name", () => {
+    // As Codex 0.166 writes them on Windows: the path with slashes, then the line.
+    expect(resolveFileLink("C:/w/proj/src/math.ts:2", "C:/w/proj")).toEqual({
+      path: "C:/w/proj/src/math.ts",
+      line: 2,
+    });
+    expect(resolveFileLink("C:%5Cw%5Cproj%5Ca.ts:12:5", "/w")).toEqual({
+      path: "C:/w/proj/a.ts",
+      line: 12,
+      column: 5,
+    });
+    expect(resolveFileLink("file:///C:/w/a.ts:3", "/w")).toEqual({ path: "C:/w/a.ts", line: 3 });
+    expect(resolveFileLink("src\\a.ts:4", "C:/w")).toEqual({ path: "C:/w/src/a.ts", line: 4 });
+    expect(resolveFileLink("src/a.ts#L10", "/w")).toMatchObject({ path: "/w/src/a.ts", line: 10 });
+    expect(resolveFileLink("src/a.ts#L10-L20", "/w")).toMatchObject({ line: 10 });
+    expect(resolveFileLink("src/a.ts#intro", "/w")).toEqual({ path: "/w/src/a.ts" });
+    expect(resolveFilePath("C:/w/proj/src/math.ts:2", "C:/w/proj")).toBe("C:/w/proj/src/math.ts");
+  });
+
+  test("a file name may hold the colon off Windows, so the link keeps it too", () => {
+    // A bare name with a line reads as a scheme until the line is taken off.
+    expect(resolveFileLink("a.ts:12", "/w")).toEqual({
+      path: "/w/a.ts",
+      line: 12,
+      literal: "/w/a.ts:12",
+    });
+    expect(resolveFileLink("/srv/app/Makefile:3", "/w")).toEqual({
+      path: "/srv/app/Makefile",
+      line: 3,
+      literal: "/srv/app/Makefile:3",
+    });
+    expect(resolveFileLink("C:/w/a.ts:12", "C:/w")).not.toHaveProperty("literal");
+  });
+
+  test("a scheme with a number is still no file", () => {
+    expect(resolveFilePath("tel:123", "/w")).toBeNull();
+    expect(resolveFilePath("http://localhost:3000", "/w")).toBeNull();
+    expect(resolveFilePath("Makefile:12", "/w")).toBeNull();
   });
 
   test("a Windows path written with slashes", () => {

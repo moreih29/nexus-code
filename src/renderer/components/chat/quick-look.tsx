@@ -20,7 +20,7 @@ import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
-import { baseName, isUnder } from "../../services/chat/links";
+import { baseName, isUnder, type LineAt } from "../../services/chat/links";
 import { useSharedModel } from "../../services/editor";
 import { isDocxFile } from "../../services/editor/preview/docx";
 import { isFontFile } from "../../services/editor/preview/font";
@@ -63,6 +63,8 @@ export interface QuickLookList {
    * one it wrote new); each opens as a diff.
    */
   changes?: Readonly<Record<string, string | null>>;
+  /** The line a link named in one of the files, which opens there, in its source. */
+  at?: { path: string; line: number; column?: number };
 }
 
 interface QuickLookProps {
@@ -70,8 +72,8 @@ interface QuickLookProps {
   list: QuickLookList;
   onIndex: (index: number) => void;
   onClose: () => void;
-  /** Opens the file as a tab of its own. */
-  onOpenTab: (path: string) => void;
+  /** Opens the file as a tab of its own, at the line a link named in it. */
+  onOpenTab: (path: string, at?: LineAt) => void;
   /** Whether the workspace is on this machine, where Finder can show a file. */
   local: boolean;
   /** Puts a changed file in the workspace back as it was before the session. */
@@ -97,6 +99,7 @@ export function QuickLook({
   const step = (by: number) => count > 1 && onIndex((index + by + count) % count);
   const before = list.changes?.[path];
   const changed = before !== undefined;
+  const line = list.at?.path === path ? list.at : undefined;
   const root = useWorkspacesStore((s) => {
     const location = s.workspaces.find((w) => w.id === workspaceId)?.location;
     if (!location) return "";
@@ -106,13 +109,15 @@ export function QuickLook({
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);
   const textual = isText(path);
-  const [mode, setMode] = useState<ViewMode>(() => defaultViewMode(path, viewDefaults));
-  const [diff, setDiff] = useState(changed);
+  // A line a link named is shown in the file's source.
+  const firstMode = (): ViewMode => (line ? "raw" : defaultViewMode(path, viewDefaults));
+  const [mode, setMode] = useState<ViewMode>(firstMode);
+  const [diff, setDiff] = useState(changed && !line);
   const [modeFor, setModeFor] = useState(path);
   if (modeFor !== path) {
     setModeFor(path);
-    setMode(defaultViewMode(path, viewDefaults));
-    setDiff(changed);
+    setMode(firstMode());
+    setDiff(changed && !line);
   }
   const showDiff = diff && changed;
 
@@ -232,7 +237,7 @@ export function QuickLook({
         <button
           type="button"
           className={icon}
-          onClick={() => onOpenTab(path)}
+          onClick={() => onOpenTab(path, line)}
           aria-label={t("chat.look.open_tab")}
           title={t("chat.look.open_tab")}
           data-testid="chat-quick-look-open"
@@ -258,6 +263,7 @@ export function QuickLook({
             workspaceId={workspaceId}
             path={path}
             preview={support === "supported" && mode === "preview"}
+            line={line?.line}
           />
         )}
       </div>
@@ -282,10 +288,12 @@ function LookBody({
   workspaceId,
   path,
   preview,
+  line,
 }: {
   workspaceId: string;
   path: string;
   preview: boolean;
+  line?: number;
 }) {
   if (isImageFile(path)) {
     return (
@@ -303,7 +311,7 @@ function LookBody({
   }
   if (isDocxFile(path)) return <DocxEditorView filePath={path} workspaceId={workspaceId} />;
   if (isPresentationFile(path)) return <PptxEditorView filePath={path} workspaceId={workspaceId} />;
-  return <LookText workspaceId={workspaceId} path={path} preview={preview} />;
+  return <LookText workspaceId={workspaceId} path={path} preview={preview} line={line} />;
 }
 
 /**
@@ -315,10 +323,12 @@ function LookText({
   workspaceId,
   path,
   preview,
+  line,
 }: {
   workspaceId: string;
   path: string;
   preview: boolean;
+  line?: number;
 }) {
   const { t } = useTranslation();
   const location = useWorkspacesStore(
@@ -367,7 +377,7 @@ function LookText({
       </PreviewFindScope>
     );
   }
-  return <LookSource model={model ?? null} />;
+  return <LookSource model={model ?? null} line={line} />;
 }
 
 const sourceOptions = {
@@ -381,8 +391,8 @@ const sourceOptions = {
   renderLineHighlight: "none",
 } satisfies Monaco.editor.IStandaloneEditorConstructionOptions;
 
-/** The file's source in a read-only editor on the shared model. */
-function LookSource({ model }: { model: Monaco.editor.ITextModel | null }) {
+/** The file's source in a read-only editor on the shared model, a line marked when given. */
+function LookSource({ model, line }: { model: Monaco.editor.ITextModel | null; line?: number }) {
   const theme = useMonacoThemeName();
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const { attach, rememberAsTemporary } = useSharedModelAttach({
@@ -404,6 +414,17 @@ function LookSource({ model }: { model: Monaco.editor.ITextModel | null }) {
         });
         rememberAsTemporary(editor);
         attach(editor);
+        const shown = editor.getModel();
+        if (line && shown && line <= shown.getLineCount()) {
+          // Selected, as the editor draws no line highlight here.
+          editor.setSelection({
+            startLineNumber: line,
+            startColumn: 1,
+            endLineNumber: line,
+            endColumn: shown.getLineMaxColumn(line),
+          });
+          editor.revealLineInCenter(line);
+        }
       }}
     />
   );

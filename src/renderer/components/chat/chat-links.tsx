@@ -5,7 +5,7 @@
 
 import { createContext, useContext } from "react";
 import { useTranslation } from "react-i18next";
-import { isLocalAddress } from "../../services/chat/links";
+import { isLocalAddress, type LineAt } from "../../services/chat/links";
 import { copyText } from "../../utils/clipboard";
 import {
   ContextMenuContent,
@@ -20,8 +20,11 @@ export interface ChatLinks {
   openFile: (target: string) => void;
   /** Shows a file the session changed in quick look, as a diff. */
   openChange: (path: string) => void;
-  /** Opens the file as a tab, beside the Claude tab when there is room. */
-  openFileTab: (target: string) => void;
+  /**
+   * Opens the file as a tab, beside the Claude tab when there is room, at
+   * the line the target names or `at`.
+   */
+  openFileTab: (target: string, at?: LineAt) => void;
   /**
    * Opens an address: by default the machine's own in the app's browser
    * and others in the system browser; `other` swaps the two.
@@ -35,13 +38,18 @@ export function useChatLinks(): ChatLinks | null {
   return useContext(ChatLinksContext);
 }
 
-/** A link with the menu that opens it the other way, or copies it. */
+/**
+ * A link with the menu that opens it the other way, or copies it. A file
+ * opens as `href` names it, at its line; `target` is what is copied.
+ */
 export function LinkMenu({
   target,
+  href = target,
   kind,
   children,
 }: {
   target: string;
+  href?: string;
   kind: "file" | "url";
   children: React.ReactElement;
 }) {
@@ -51,11 +59,11 @@ export function LinkMenu({
   const items: MenuItemSpec[] =
     kind === "file"
       ? [
-          { kind: "item", label: t("chat.links.look"), onSelect: () => links.openFile(target) },
+          { kind: "item", label: t("chat.links.look"), onSelect: () => links.openFile(href) },
           {
             kind: "item",
             label: t("chat.links.open_tab"),
-            onSelect: () => links.openFileTab(target),
+            onSelect: () => links.openFileTab(href),
           },
           { kind: "separator" },
           { kind: "item", label: t("chat.links.copy_path"), onSelect: () => copyText(target) },

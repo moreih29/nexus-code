@@ -27,21 +27,54 @@ export function slashWindowsPath(path: string): string {
   return DRIVE_PATH.test(path) ? path.replace(/\\/g, "/") : path;
 }
 
+/** A file a link names, and the line in it the link points at. */
+export interface FileLink {
+  /** The file's absolute path, as resolveFilePath gives it. */
+  path: string;
+  /** The line, from 1, and its column when the link names one. */
+  line?: number;
+  column?: number;
+  /**
+   * The path with its `:12` kept, where a file name may hold a colon (not
+   * on Windows): a file of that name is the one meant, when there is one.
+   */
+  literal?: string;
+}
+
+/** Where in a file to open it: a line, from 1, and maybe its column. */
+export type LineAt = Pick<FileLink, "line" | "column">;
+
+/** `:12` or `:12:5` ending a path, as Codex and compilers name a line. */
+const LINE_SUFFIX = /:(\d+)(?::(\d+))?$/;
+
+/** `#L12`, as GitHub names a line; of `#L12-L20`, the first. */
+const LINE_ANCHOR = /^#L(\d+)(?!\d)/i;
+
 /**
  * The absolute path a link or a reply names, against the session's folder:
- * a `file://` URL, an absolute path, or one relative to `cwd`. A line or
- * an anchor after `#` is left out. Null for a path from the home folder,
- * whose home the app does not know, and for anything else. A Windows path
- * (`C:\…`, or any path where the folder is one) comes back as the app
- * writes it, `C:/…`.
+ * a `file://` URL, an absolute path, or one relative to `cwd`. A line
+ * (`:12`, `#L12`) or another anchor is left out. Null for a path from the
+ * home folder, whose home the app does not know, and for anything else. A
+ * Windows path (`C:\…`, or any path where the folder is one) comes back as
+ * the app writes it, `C:/…`.
  */
 export function resolveFilePath(target: string, cwd: string): string | null {
+  return resolveFileLink(target, cwd)?.path ?? null;
+}
+
+/** The file a link names, as resolveFilePath finds it, with the line it points at. */
+export function resolveFileLink(target: string, cwd: string): FileLink | null {
   let path = target.trim();
   if (!path) return null;
   let windows = DRIVE_PATH.test(cwd);
+  let anchor = "";
+  let at: Omit<FileLink, "path" | "literal"> = {};
+  let written: string | undefined;
   if (path.startsWith("file://")) {
     try {
-      path = decodeURIComponent(new URL(path).pathname);
+      const url = new URL(path);
+      path = decodeURIComponent(url.pathname);
+      anchor = url.hash;
     } catch {
       return null;
     }
@@ -50,14 +83,42 @@ export function resolveFilePath(target: string, cwd: string): string | null {
       path = path.slice(1);
       windows = true;
     }
-  } else if (DRIVE_LINK.test(path)) {
-    path = safeDecode(path.replace(/[#?].*$/, ""));
-    windows = true;
-  } else if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
-    return null;
+    ({ path, at, written } = splitLine(path, windows));
   } else {
-    path = safeDecode(path.replace(/[#?].*$/, ""));
+    anchor = /#.*$/.exec(path)?.[0] ?? "";
+    path = path.replace(/[#?].*$/, "");
+    ({ path, at, written } = splitLine(path, DRIVE_LINK.test(path)));
+    if (DRIVE_LINK.test(path)) windows = true;
+    else if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+    path = safeDecode(path);
+    if (written !== undefined) written = safeDecode(written);
   }
+  const absolute = absolutePath(path, windows, cwd);
+  if (absolute === null) return null;
+  const line = LINE_ANCHOR.exec(anchor);
+  if (at.line === undefined && line) at = { line: Number(line[1]) };
+  const literal = written !== undefined && !windows ? absolutePath(written, false, cwd) : null;
+  return { path: absolute, ...at, ...(literal ? { literal } : {}) };
+}
+
+/**
+ * A path without the line ending it, and the path as written. Only what
+ * reads as a file takes a line (`a.ts:12`, `src/Makefile:3`, a drive's
+ * path), so `tel:123` stays a scheme.
+ */
+function splitLine(
+  path: string,
+  drive: boolean,
+): { path: string; at: Omit<FileLink, "path" | "literal">; written?: string } {
+  const suffix = LINE_SUFFIX.exec(path);
+  const rest = suffix ? path.slice(0, suffix.index) : "";
+  if (!suffix || !(drive || /[./\\]/.test(rest))) return { path, at: {} };
+  const at = { line: Number(suffix[1]), ...(suffix[2] ? { column: Number(suffix[2]) } : {}) };
+  return { path: rest, at, written: path };
+}
+
+/** A path made absolute against `cwd`; null for one from the home folder. */
+function absolutePath(path: string, windows: boolean, cwd: string): string | null {
   if (!path || path.startsWith("~")) return null;
   if (windows) {
     path = path.replace(/\\/g, "/");
