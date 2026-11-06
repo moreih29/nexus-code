@@ -51,9 +51,36 @@ export function mathTokensOf(text: string, name = false): MathToken[] {
 const TOKEN_TAGS = ["mi", "mn", "mo", "ms", "mtext"];
 
 /**
- * Changes a drawn document's equation literals to MathML tokens. A literal
- * inside a literal is a function's name. A token element left holding
- * elements, as the one around a subscript's literal, becomes a row.
+ * MathML's elements that lay their children out as one row. A run's tokens
+ * go into such a row as they are. A sign's spacing depends on whether it is
+ * first, last or between in its row, and Word spaces a run's signs by where
+ * they stand in the whole equation. So a run of its own would set the minus
+ * of `x² − 2x`, which starts the run after the script, as a unary minus.
+ * A script, a fraction or a root takes each part as one child, so a run
+ * there stays one row.
+ */
+const ROW_TAGS = new Set([
+  "math",
+  "mrow",
+  "mstyle",
+  "mtd",
+  "msqrt",
+  "mpadded",
+  "mphantom",
+  "menclose",
+  "merror",
+]);
+
+/** Whether an element of this name lays its children out as one row (see ROW_TAGS). */
+export function isMathRow(localName: string | undefined): boolean {
+  return localName !== undefined && ROW_TAGS.has(localName);
+}
+
+/**
+ * Changes a drawn document's equation literals to MathML tokens, in the row
+ * the literal stood in (see ROW_TAGS). A literal inside a literal is a
+ * function's name. A token element left holding elements, as the one around
+ * a subscript's literal, becomes a row.
  */
 export function wordMathTokens(body: ParentNode): void {
   const literals = Array.from(body.querySelectorAll("ms")).filter(
@@ -66,6 +93,9 @@ export function wordMathTokens(body: ParentNode): void {
       const element = doc.createElementNS(MATHML, tag);
       element.textContent = text;
       if (upright) element.setAttribute("mathvariant", "normal");
+      // Word draws a run's signs at the text's size. Only a delimiter, which
+      // docx-preview draws as operators of its own, grows with what it holds.
+      if (tag === "mo") element.setAttribute("stretchy", "false");
       return element;
     });
     // Word sets a thin space between a function's name and its argument.
@@ -76,6 +106,8 @@ export function wordMathTokens(body: ParentNode): void {
     }
     if (tokens.length === 1 && tokens[0]) {
       literal.replaceWith(tokens[0]);
+    } else if (isMathRow(literal.parentElement?.localName)) {
+      literal.replaceWith(...tokens);
     } else {
       const row = doc.createElementNS(MATHML, "mrow");
       row.append(...tokens);

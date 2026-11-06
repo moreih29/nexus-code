@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { mathTokensOf } from "../../../../../../src/renderer/components/editor/preview/docx-math";
+import {
+  isMathRow,
+  mathTokensOf,
+} from "../../../../../../src/renderer/components/editor/preview/docx-math";
 
 function show(text: string, name = false): string[] {
   return mathTokensOf(text, name).map(
@@ -34,5 +37,19 @@ describe("mathTokensOf", () => {
   it("reads a function's name as one identifier", () => {
     expect(show(" sin ", true)).toEqual(["mi:sin"]);
     expect(show("", true)).toEqual([]);
+  });
+});
+
+describe("isMathRow", () => {
+  it("takes a run's tokens into an equation and its rows, so a sign after a script is binary", () => {
+    // x² − 2x + 1: Word starts a run with the minus after the script.
+    const rows = ["math", "mrow", "mtd", "msqrt", "mstyle"];
+    expect(rows.filter((name) => !isMathRow(name))).toEqual([]);
+  });
+
+  it("keeps a run that is a script's, a fraction's or a root's part as one row", () => {
+    const parts = ["msub", "msup", "msubsup", "mfrac", "mroot", "munder", "mover", "ms", "mn"];
+    expect(parts.filter((name) => isMathRow(name))).toEqual([]);
+    expect(isMathRow(undefined)).toBe(false);
   });
 });
