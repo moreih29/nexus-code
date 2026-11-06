@@ -104,6 +104,9 @@ export function buildShadcnVars(tokens: SemanticTokenSet): Record<string, string
     "--state-warning-fg": tokens["state.warning.fg"],
     "--state-warning-border": tokens["state.warning.border"],
     "--state-warning-bg": tokens["state.warning.bg"],
+    // Success and info hues (e.g. a finished tool call's check, a banner's icon)
+    "--state-success-fg": tokens["feedback.success.fg"],
+    "--state-info-fg": tokens["feedback.info.fg"],
     // Border / input / ring — island internal hairline
     "--border": tokens["surface.island.border"],
     "--input": tokens["surface.island.border"],
