@@ -1,4 +1,4 @@
-import { Bot, FilePlus, Globe, MessageSquareText, Plus, Radar, SquareTerminal } from "lucide-react";
+import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +23,7 @@ import { shellEntries, useInstalledShells } from "../../../services/terminal/ins
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { TabItem } from "./tab-item";
@@ -241,11 +242,11 @@ export function TabBar({
                 <span className="flex-1">{t("tabBar.new_browser")}</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewClaudeTab()}>
-                <MessageSquareText aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <ClaudeIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_claude")}</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onNewCodexTab()}>
-                <Bot aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                <CodexIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
                 <span className="flex-1">{t("tabBar.new_codex")}</span>
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => onShowSessions()}>
