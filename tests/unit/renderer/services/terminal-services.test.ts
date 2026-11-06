@@ -183,6 +183,8 @@ function makeTerminalControllerDeps(
   const unparsedWriteCallbacks: Array<() => void> = [];
   const spawnCalls: TerminalDimensions[] = [];
   const ptyWrites: string[] = [];
+  // What was pasted through xterm (term.paste).
+  const pastes: string[] = [];
   let focusCalls = 0;
   let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
@@ -251,6 +253,9 @@ function makeTerminalControllerDeps(
         return { dispose: () => {} };
       },
       getSelection: () => selection,
+      paste: (data) => {
+        pastes.push(data);
+      },
       clearSelection: () => {
         selection = "";
       },
@@ -296,6 +301,7 @@ function makeTerminalControllerDeps(
     spawnCalls,
     writes,
     ptyWrites,
+    pastes,
     getPtyOptions: () => ptyOptions,
     getFocusCalls: () => focusCalls,
     /** Emits `data` the way xterm does for typed keys and its own answers. */
@@ -1351,39 +1357,106 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       controller.dispose();
     });
 
-    it("pastes in cmd.exe, which has neither bracketed paste nor a ^V paste", async () => {
-      host.host = { platform: "win32" };
-      const keyHandlerFor = async (shellPath: string, tabId: string) => {
-        const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
-        const controller = createTerminalController(
-          { workspaceId: WS, tabId, cwd: "C:\\work", container: {} as HTMLElement },
-          harness.deps,
-        );
-        await flushTerminalInit();
-        await new Promise((r) => setTimeout(r, 0));
-        const handler = harness.getKeyHandler();
-        if (!handler) throw new Error("customKey handler was not registered");
-        return { controller, handler };
-      };
-
-      const cmd = await keyHandlerFor("C:\\Windows\\system32\\CMD.EXE", "tab-cmd");
-      expect(cmd.handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
-      cmd.controller.dispose();
-
-      const powershell = await keyHandlerFor(
-        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-        "tab-powershell",
+    // A terminal whose container takes paste listeners, as the DOM does.
+    const shellTerminal = async (shellPath: string | undefined, tabId: string) => {
+      const listeners: ((event: unknown) => void)[] = [];
+      const container = {
+        addEventListener: (type: string, listener: (event: unknown) => void) => {
+          if (type === "paste") listeners.push(listener);
+        },
+        removeEventListener: () => {},
+      } as unknown as HTMLElement;
+      const harness = makeTerminalControllerDeps(() => Promise.resolve({ pid: 1, shellPath }));
+      const controller = createTerminalController(
+        { workspaceId: WS, tabId, cwd: "C:\\work", container },
+        harness.deps,
       );
-      expect(powershell.handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
-      powershell.controller.dispose();
+      await flushTerminalInit();
+      await new Promise((r) => setTimeout(r, 0));
+      const handler = harness.getKeyHandler();
+      if (!handler) throw new Error("customKey handler was not registered");
+      // The native paste Chromium runs: its event, with the clipboard's text.
+      const paste = (text: string) => {
+        const event = {
+          defaultPrevented: false,
+          clipboardData: { getData: (type: string) => (type === "text/plain" ? text : "") },
+          preventDefault() {
+            this.defaultPrevented = true;
+          },
+          stopPropagation() {},
+        };
+        for (const listener of listeners) listener(event);
+        return event;
+      };
+      return { harness, controller, handler, paste };
+    };
+    const POWERSHELL = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+
+    it("pastes into a program without bracketed paste, in any other shell", async () => {
+      host.host = { platform: "win32" };
+      // cmd.exe has no ^V paste; Git Bash runs ssh to a line prompt; a remote shell has no path.
+      const shells = ["C:\\Windows\\system32\\CMD.EXE", "C:\\Program Files\\Git\\bin\\bash.exe"];
+      for (const [i, shellPath] of [...shells, undefined].entries()) {
+        const { harness, controller, handler, paste } = await shellTerminal(shellPath, `tab-${i}`);
+        const event = ctrlV();
+
+        expect(handler(event as unknown as KeyboardEvent)).toBe(false);
+        expect(event.defaultPrevented).toBe(false);
+        // xterm's own paste listener takes the paste.
+        expect(paste("code#state").defaultPrevented).toBe(false);
+        expect(harness.ptyWrites).toEqual([]);
+
+        controller.dispose();
+      }
     });
 
-    it("still sends ^V when the app has no bracketed paste (PSReadLine pastes it)", async () => {
+    it("sends ^V to PowerShell at its prompt, which pastes it itself", async () => {
       host.host = { platform: "win32" };
-      const { controller, handler } = await setupHandler();
+      mockForegroundProcessName = "powershell";
+      const { harness, controller, handler, paste } = await shellTerminal(POWERSHELL, "tab-ps");
 
-      expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(true);
+      expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
+      expect(paste("line 1\r\nline 2").defaultPrevented).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
 
+      expect(harness.ptyWrites).toEqual(["\x16"]);
+      expect(harness.pastes).toEqual([]);
+      controller.dispose();
+      mockForegroundProcessName = "lazygit";
+    });
+
+    it("pastes the text into a program PowerShell runs, such as ssh", async () => {
+      host.host = { platform: "win32" };
+      mockForegroundProcessName = "ssh";
+      const { harness, controller, handler, paste } = await shellTerminal(POWERSHELL, "tab-ssh");
+
+      expect(handler(ctrlV() as unknown as KeyboardEvent)).toBe(false);
+      expect(paste("code#state").defaultPrevented).toBe(true);
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(harness.pastes).toEqual(["code#state"]);
+      expect(harness.ptyWrites).toEqual([]);
+      controller.dispose();
+      mockForegroundProcessName = "lazygit";
+    });
+
+    it("holds only the paste of the Ctrl+V just pressed in PowerShell", async () => {
+      host.host = { platform: "win32" };
+      const { harness, controller, handler, paste } = await shellTerminal(POWERSHELL, "tab-later");
+
+      // A Ctrl+V that pasted nothing, then a paste from elsewhere (Ctrl+Shift+V).
+      handler(ctrlV() as unknown as KeyboardEvent);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(paste("later").defaultPrevented).toBe(false);
+
+      // A program that asked for bracketed paste gets it from xterm.
+      harness.setBracketedPaste(true);
+      handler(ctrlV() as unknown as KeyboardEvent);
+      expect(paste("bracketed").defaultPrevented).toBe(false);
+
+      await new Promise((r) => setTimeout(r, 0));
+      expect(harness.ptyWrites).toEqual([]);
+      expect(harness.pastes).toEqual([]);
       controller.dispose();
     });
 
