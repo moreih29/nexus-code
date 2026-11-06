@@ -9,7 +9,7 @@
 // changed on disk is drawn again at the same place. Bullets and symbols set
 // in Word's symbol fonts are drawn as the Unicode characters they stand for,
 // and equations as Word sets them: letters in italic, numbers upright,
-// signs spaced.
+// signs spaced. A list item's text starts at its indent, past the number.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,6 +24,7 @@ import { readWorkspaceBinary } from "../../../services/editor/preview/read-binar
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { wordListMarkers } from "./docx-lists";
 import { wordMathTokens } from "./docx-math";
 import { unicodeSymbols } from "./docx-symbols";
 import { useFileVersion } from "./use-file-version";
@@ -173,6 +174,7 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
       }
       unicodeSymbols(styles, body);
       wordMathTokens(body);
+      wordListMarkers(styles);
       const host = hostRef.current;
       if (cancelled || !host) return;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
