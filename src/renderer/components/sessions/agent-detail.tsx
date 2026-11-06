@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { showTerminal } from "../../services/sessions/actions";
+import { runMessages } from "../../services/sessions/agents";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
 import { askToShowAgent } from "../../state/stores/agent-reveal";
@@ -51,6 +52,7 @@ export function AgentDetail({
     ...(agent.kind === "subagent" ? [agent.model, agent.id.slice(0, ID_SHOWN)] : []),
   ].filter((part): part is string => part !== undefined);
   const told = agent.kind === "subagent" || agent.toolsTold;
+  const messages = runMessages(agent);
   const openLabel =
     session.kind === "claude"
       ? t("sessions.detail.show_claude_tab")
@@ -149,12 +151,12 @@ export function AgentDetail({
               ? t("sessions.agents.detail.tools_untold_codex")
               : t("sessions.agents.detail.tools_untold")}
           </p>
-        ) : agent.tools.length === 0 ? (
+        ) : agent.tools.length === 0 && messages.length === 0 ? (
           <p className="text-app-ui-sm text-muted-foreground">
             {t("sessions.agents.detail.tools_none")}
           </p>
         ) : (
-          <ToolList key={agent.id} tools={agent.tools} now={now} />
+          <ToolList key={agent.id} tools={agent.tools} messages={messages} now={now} />
         )}
       </Section>
       <Section title={t("sessions.agents.detail.answer")}>
@@ -165,7 +167,11 @@ export function AgentDetail({
         ) : (
           <p className="text-app-ui-sm text-muted-foreground">
             {agent.end === undefined
-              ? t("sessions.agents.detail.answer_pending")
+              ? t(
+                  agent.kind === "print"
+                    ? "sessions.agents.detail.answer_pending_run"
+                    : "sessions.agents.detail.answer_pending",
+                )
               : agent.exitCode !== undefined && agent.exitCode !== 0
                 ? t("sessions.agents.exit_code", { code: agent.exitCode })
                 : t("sessions.agents.detail.answer_none")}

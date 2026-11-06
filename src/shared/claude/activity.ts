@@ -9,6 +9,8 @@ import { z } from "zod";
 export const SESSION_TOOLS_KEPT = 60;
 /** How many of an agent's tools are kept, the latest. */
 export const AGENT_TOOLS_KEPT = 30;
+/** How many of a run's messages are kept, the latest. */
+export const AGENT_MESSAGES_KEPT = 20;
 /** How many ended agents a session keeps, the latest. */
 export const ENDED_AGENTS_KEPT = 12;
 /** How long a tool's target, a description or a prompt may be. */
@@ -34,6 +36,13 @@ export const ToolRunSchema = z.object({
   denied: z.boolean().optional(),
 });
 export type ToolRun = z.infer<typeof ToolRunSchema>;
+
+/** What a run wrote between its tools, as its output or transcript tells it. */
+export const AgentMessageSchema = z.object({
+  at: z.number(),
+  text: z.string(),
+});
+export type AgentMessage = z.infer<typeof AgentMessageSchema>;
 
 export const TodoSchema = z.object({
   /** The task list's id for the item; absent for a TodoWrite list. */
@@ -84,6 +93,8 @@ export const AgentRunSchema = z.object({
   answer: z.string().optional(),
   /** Its latest tools, oldest first. */
   tools: z.array(ToolRunSchema),
+  /** For a run: its latest messages, oldest first; its answer is the last once it ended. */
+  messages: z.array(AgentMessageSchema).optional(),
   toolCount: z.number().int(),
   failedCount: z.number().int(),
   /** For a run: whether its tools are told (its output is a stream of events). */

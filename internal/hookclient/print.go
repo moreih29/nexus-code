@@ -3,8 +3,8 @@ package hookclient
 // `agent print-run <claude> [args...]` runs a `claude -p` that a tab's
 // Claude session starts, as from its Bash tool or a script it runs, and
 // tells the app of it: its start, its end, and between them the tools it
-// runs, as its stream-json output or else its transcript tells them
-// (print_transcript.go). Such a run gets none of the tab's hooks
+// runs and what it writes, as its stream-json output or else its
+// transcript tells them (print_transcript.go). Such a run gets none of the tab's hooks
 // (claude-wrapper.sh), and a `--bare` one would run none.
 //
 // The run is claude's own: its stdin and stderr are claude's, its output
@@ -429,8 +429,8 @@ func (s *lineSplitter) flush() {
 }
 
 // printWatch reads a run's output, or its transcript, for what it tells:
-// claude's start (its model), the tools it runs and how they end, and its
-// answer.
+// claude's start (its model), the tools it runs and how they end, what it
+// writes between them, and its answer.
 type printWatch struct {
 	tell func(subcommand string, payload map[string]any)
 	// text: the output is the answer itself, as claude prints it in text.
@@ -519,8 +519,18 @@ func (w *printWatch) line(b []byte) {
 					"tool_name":   block.Name,
 					"tool_input":  trimInput(block.Input),
 				})
-			case block.Type == "text" && utf8.RuneCountInString(w.reply) <= printTextMax:
-				w.reply = cut(strings.TrimSpace(w.reply+"\n"+block.Text), printTextMax)
+			case block.Type == "text":
+				said := strings.TrimSpace(block.Text)
+				if said == "" {
+					continue
+				}
+				// Not a message Claude Code makes up (its model "<synthetic>").
+				if !strings.HasPrefix(event.Message.Model, "<") {
+					w.tell("print-text", map[string]any{"text": cut(said, printTextMax)})
+				}
+				if utf8.RuneCountInString(w.reply) <= printTextMax {
+					w.reply = cut(strings.TrimSpace(w.reply+"\n"+said), printTextMax)
+				}
 			}
 		}
 	case "user":

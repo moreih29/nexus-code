@@ -134,6 +134,7 @@ func TestPrintWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 	watch.line([]byte("not json"))
 	want := []toldFrame{
 		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo", "session_id": "s1"}},
+		{"print-text", map[string]any{"text": "Looking."}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
 			"tool_name":   "Bash",
@@ -185,6 +186,8 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 		// Its prompt, which the run's arguments did not tell.
 		{"print-init", map[string]any{"prompt": "review it"}},
 		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
+		// What claude wrote, not the message Claude Code made up.
+		{"print-text", map[string]any{"text": "Looking."}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
 			"tool_name":   "Read",
@@ -195,6 +198,8 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 			"is_error":    true,
 			"error":       "File does not exist.",
 		}},
+		{"print-text", map[string]any{"text": "It is fine."}},
+		{"print-text", map[string]any{"text": "Ship it."}},
 	}
 	if !reflect.DeepEqual(told, want) {
 		t.Fatalf("told:\n%#v\nwant:\n%#v", told, want)

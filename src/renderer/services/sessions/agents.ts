@@ -4,7 +4,12 @@
  * activity main records (claude.activity).
  */
 
-import type { AgentRun, SessionActivity, ToolRun } from "../../../shared/claude/activity";
+import type {
+  AgentMessage,
+  AgentRun,
+  SessionActivity,
+  ToolRun,
+} from "../../../shared/claude/activity";
 import { sessionKey } from "./model";
 
 /** The sessions' activity, by session key. */
@@ -23,6 +28,16 @@ export function agentDescription(agent: AgentRun): string | undefined {
   if (agent.description !== undefined) return agent.description;
   if (agent.kind !== "print") return undefined;
   return agent.prompt?.replace(/\s+/g, " ").trim() || undefined;
+}
+
+/**
+ * What a run wrote between its tools, oldest first: without its answer,
+ * shown on its own once it ended.
+ */
+export function runMessages(agent: AgentRun): readonly AgentMessage[] {
+  const messages = agent.messages ?? [];
+  const last = messages[messages.length - 1];
+  return last !== undefined && last.text === agent.answer ? messages.slice(0, -1) : messages;
 }
 
 /** Whether the agent still runs (or waits on a permission). */

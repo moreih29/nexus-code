@@ -51,7 +51,8 @@ export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
         endedAt: run.end,
         toolCount: run.toolCount,
         currentTool: tool ? (tool.target ? `${tool.name} ${tool.target}` : tool.name) : undefined,
-        lastText: run.answer,
+        // While it runs, what it wrote last.
+        lastText: run.answer ?? run.messages?.[run.messages.length - 1]?.text,
         prompt: run.prompt,
         teammate: false,
         run,

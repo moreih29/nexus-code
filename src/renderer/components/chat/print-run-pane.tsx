@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
+import { runMessages } from "../../services/sessions/agents";
 import { useNow } from "../../services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
@@ -49,6 +50,7 @@ export function PrintRunPane({
   };
   const { sessionId } = run;
   const codex = run.program === "codex";
+  const messages = runMessages(run);
   const kind = [
     codex ? t("chat.run.kind_codex") : t("chat.run.kind"),
     run.model,
@@ -122,12 +124,12 @@ export function PrintRunPane({
               ? t("sessions.agents.detail.tools_untold_codex")
               : t("sessions.agents.detail.tools_untold")}
           </p>
-        ) : run.tools.length === 0 ? (
+        ) : run.tools.length === 0 && messages.length === 0 ? (
           <p className="text-app-ui-sm text-muted-foreground">
             {t("sessions.agents.detail.tools_none")}
           </p>
         ) : (
-          <ToolList key={run.id} tools={run.tools} now={now} />
+          <ToolList key={run.id} tools={run.tools} messages={messages} now={now} />
         )}
       </Section>
       <Section title={t("sessions.agents.detail.answer")}>
@@ -136,7 +138,7 @@ export function PrintRunPane({
         ) : (
           <p className="text-app-ui-sm text-muted-foreground">
             {running
-              ? t("sessions.agents.detail.answer_pending")
+              ? t("sessions.agents.detail.answer_pending_run")
               : run.exitCode !== undefined && run.exitCode !== 0
                 ? t("sessions.agents.exit_code", { code: run.exitCode })
                 : t("sessions.agents.detail.answer_none")}

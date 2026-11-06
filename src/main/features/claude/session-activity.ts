@@ -11,7 +11,8 @@
 // A `claude -p` run started inside the session, as by a script its Bash tool
 // runs, has no hooks: the agent runs it and tells of it (hookclient's
 // print-run), and it is one of the session's agents. So is a `codex exec`
-// run (hookclient's exec-run), told the same, as codex's. One killed before
+// run (hookclient's exec-run), told the same, as codex's. A run tells what
+// it writes between its tools as messages, kept the latest. One killed before
 // it tells its end is told gone by the agent, and reads stopped. A run that
 // goes on an ended run's session (`claude -p --resume <id>`, `codex exec
 // resume <id>`) is that run going on. While a run goes on, the app holds its
@@ -19,6 +20,7 @@
 
 import {
   ACTIVITY_TEXT_MAX_CHARS,
+  AGENT_MESSAGES_KEPT,
   AGENT_TOOLS_KEPT,
   type AgentRun,
   type AgentRunState,
@@ -159,7 +161,8 @@ export class SessionActivityLog {
   /**
    * Records what a `claude -p` run started inside the session in `tabId`
    * tells of itself (hookclient's print-run): its start, claude's start, the
-   * tools it runs and how they end, and its own end; or that it is gone,
+   * tools it runs and how they end, what it writes between them, and its
+   * own end; or that it is gone,
    * told by the agent once its watch closed, which ends one that told no
    * end as stopped.
    */
@@ -214,11 +217,28 @@ export class SessionActivityLog {
         const tool = run.tools.find((tool) => tool.id === toolId);
         if (!tool || tool.end !== undefined) break;
         tool.end = this.now();
+        // A tool told only once it ended (a codex rollout's) tells how long it
+        // took; it still starts after what the run told before it, as a
+        // rollout read at once tells all of it at the same time.
+        const took = p.duration_ms;
+        if (typeof took === "number" && took > 0) {
+          tool.start = Math.max(Math.min(tool.start, tool.end - took), toldBefore(run, tool));
+        }
         if (p.is_error === true) {
           tool.failed = true;
           const error = firstLine(text(p.error));
           if (error !== undefined) tool.error = error;
           run.failedCount++;
+        }
+        break;
+      }
+      case "print-text": {
+        const said = text(p.text);
+        if (said === undefined) break;
+        run.messages ??= [];
+        run.messages.push({ at: this.now(), text: said });
+        if (run.messages.length > AGENT_MESSAGES_KEPT) {
+          run.messages.splice(0, run.messages.length - AGENT_MESSAGES_KEPT);
         }
         break;
       }
@@ -672,8 +692,12 @@ function snapshotOf(session: SessionEntry): SessionActivity {
 }
 
 function agentRunOf(agent: AgentEntry): AgentRun {
-  const { asking: _asking, cwd: _cwd, watch: _watch, tools, ...run } = agent;
-  return { ...run, tools: tools.map((tool) => ({ ...tool })) };
+  const { asking: _asking, cwd: _cwd, watch: _watch, tools, messages, ...run } = agent;
+  return {
+    ...run,
+    tools: tools.map((tool) => ({ ...tool })),
+    ...(messages ? { messages: messages.map((message) => ({ ...message })) } : {}),
+  };
 }
 
 /**
@@ -826,6 +850,19 @@ function latestBy<T>(items: readonly T[], when: (item: T) => number): T | undefi
     (last, item) => (last === undefined || when(item) >= when(last) ? item : last),
     undefined,
   );
+}
+
+/** When the run last told something before the tool: a message or a tool. */
+function toldBefore(run: Pick<AgentEntry, "messages" | "tools">, tool: ToolRun): number {
+  let at = 0;
+  for (const message of run.messages ?? []) {
+    if (message.at <= tool.start) at = Math.max(at, message.at);
+  }
+  for (const other of run.tools) {
+    if (other === tool) break;
+    at = Math.max(at, other.start);
+  }
+  return at;
 }
 
 function push(tools: ToolRun[], run: ToolRun, kept: number): void {

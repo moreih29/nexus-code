@@ -64,6 +64,15 @@ describe("printRunRows", () => {
     });
   });
 
+  test("tells what a running run wrote last, and its answer once it ended", () => {
+    const messages = [
+      { at: 1, text: "Looking." },
+      { at: 2, text: "Running the tests." },
+    ];
+    expect(printRunRows([run({ messages })])[0]?.lastText).toBe("Running the tests.");
+    expect(printRunRows([run({ messages, answer: "Done." })])[0]?.lastText).toBe("Done.");
+  });
+
   test("names a codex exec run as such, and where its model is served", () => {
     const [row] = printRunRows([
       run({ program: "codex", model: "gpt-6-luna", endpoint: "gw.example.com" }),

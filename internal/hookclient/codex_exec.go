@@ -10,9 +10,9 @@ package hookclient
 // Its session is told unless it keeps none (--ephemeral): `codex exec
 // resume <id>` goes on with it, and is told as the same run going on.
 // One that prints text tells its model, provider and session from the
-// header codex writes on stderr, and its answer is its output; its tools
-// are not told. A prompt codex reads from stdin is read as it passes, and
-// told.
+// header codex writes on stderr, its tools and what it writes from its
+// session's rollout (codex_rollout.go), and its answer is its output. A
+// prompt codex reads from stdin is read as it passes, and told.
 //
 // The run is codex's own: its input, output and exit are codex's.
 
@@ -406,9 +406,28 @@ func runCodexExec(
 			}
 		}()
 	}
+	// A text run tells its tools and what it writes in its rollout, once
+	// its session is known: from its header, or its arguments when it goes
+	// on one.
+	var rollout *codexRollout
+	if teller != nil && !run.events && !run.ephemeral && (errOut != nil || run.sessionID != "") {
+		rollout = newCodexRollout()
+	}
+	if rollout != nil {
+		if run.resumed && run.sessionID != "" {
+			rollout.startAtEnd(run.sessionID)
+		}
+		rolled := &codexWatch{tell: teller.tell, prefix: watch.prefix}
+		go rollout.follow(rolled.rolloutLine, func() {
+			teller.tell("print-init", map[string]any{"tools_told": true})
+		})
+	}
 	var reading sync.WaitGroup
 	if errOut != nil {
 		header := &codexHeader{run: &run, tell: teller.tell}
+		if rollout != nil {
+			header.session = rollout.know
+		}
 		reading.Add(1)
 		go func() {
 			defer reading.Done()
@@ -424,6 +443,9 @@ func runCodexExec(
 	}
 	reading.Wait()
 	_ = cmd.Wait()
+	if rollout != nil {
+		rollout.end(printEndWait)
+	}
 
 	code, sig, end := proc.ending()
 	if answer := watch.result(); answer != "" {
@@ -479,6 +501,8 @@ func isTerminalReader(r io.Reader) bool {
 type codexHeader struct {
 	run  *codexRun
 	tell func(subcommand string, payload map[string]any)
+	// session, when set, is told the run's session id once the header is read.
+	session func(id string)
 	// rules is how many of the header's rules were read: it is over at two.
 	rules int
 	init  map[string]any
@@ -492,6 +516,10 @@ func (h *codexHeader) line(b []byte) {
 	if line == "--------" {
 		if h.rules++; h.rules == 2 && len(h.init) > 0 {
 			h.tell("print-init", h.init)
+			// Told after the header, as what the rollout tells comes after it.
+			if id, ok := h.init["session_id"].(string); ok && h.session != nil {
+				h.session(id)
+			}
 		}
 		return
 	}
@@ -602,20 +630,7 @@ func (w *codexWatch) line(b []byte) {
 			w.toolUse(tool)
 		}
 	case "item.completed":
-		item := event.Item
-		if item.Type == "agent_message" {
-			w.answer = cut(strings.TrimSpace(item.Text), printTextMax)
-			return
-		}
-		failed, why := codexFailure(item)
-		for _, tool := range w.toolsOf(item) {
-			w.toolUse(tool)
-			result := map[string]any{"tool_use_id": tool.id, "is_error": failed}
-			if failed && why != "" {
-				result["error"] = cut(why, printErrorMax)
-			}
-			w.tell("print-tool-result", result)
-		}
+		w.completed(event.Item, 0)
 	case "turn.failed":
 		if event.Error != nil && event.Error.Message != "" {
 			w.failure = cut(strings.TrimSpace(event.Error.Message), printTextMax)
@@ -624,6 +639,31 @@ func (w *codexWatch) line(b []byte) {
 		if event.Message != "" {
 			w.failure = cut(strings.TrimSpace(event.Message), printTextMax)
 		}
+	}
+}
+
+// completed tells an item that completed: a message, as what the run wrote
+// and its answer so far; the tools it ran, as ended, with how long they
+// took (`took`, in milliseconds) when it is known.
+func (w *codexWatch) completed(item codexItem, took int64) {
+	if item.Type == "agent_message" {
+		if said := cut(strings.TrimSpace(item.Text), printTextMax); said != "" {
+			w.answer = said
+			w.tell("print-text", map[string]any{"text": said})
+		}
+		return
+	}
+	failed, why := codexFailure(item)
+	for _, tool := range w.toolsOf(item) {
+		w.toolUse(tool)
+		result := map[string]any{"tool_use_id": tool.id, "is_error": failed}
+		if failed && why != "" {
+			result["error"] = cut(why, printErrorMax)
+		}
+		if took > 0 {
+			result["duration_ms"] = took
+		}
+		w.tell("print-tool-result", result)
 	}
 }
 

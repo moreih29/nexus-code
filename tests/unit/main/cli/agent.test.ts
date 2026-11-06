@@ -150,6 +150,25 @@ describe("nexus agent show", () => {
     );
   });
 
+  test("shows what a run wrote between its tools, its answer apart", async () => {
+    const run = printRun({
+      messages: [
+        { at: NOW - 85_000, text: "Reading the README\nfirst." },
+        { at: NOW - 31_000, text: "It is an editor." },
+      ],
+    });
+    const result = await nexus(appWith(run), ["agent", "show", "8f7b"]);
+    expect(result.stdout).toEndWith(
+      [
+        "Messages (the last 1):",
+        "  Reading the README first.",
+        "Answer:",
+        "It is an editor.",
+        "",
+      ].join("\n"),
+    );
+  });
+
   test("shows a codex exec run, where it is served, and how to go on with it", async () => {
     const codex = printRun({ program: "codex", model: "gpt-6-luna", endpoint: "gw.example.com" });
     const result = await nexus(appWith(codex), ["agent", "show", "8f7b"]);

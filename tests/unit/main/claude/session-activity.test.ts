@@ -4,7 +4,11 @@ import {
   SessionActivityLog,
 } from "../../../../src/main/features/claude/session-activity";
 import type { AgentRun } from "../../../../src/shared/claude/activity";
-import { ENDED_AGENTS_KEPT, SESSION_TOOLS_KEPT } from "../../../../src/shared/claude/activity";
+import {
+  AGENT_MESSAGES_KEPT,
+  ENDED_AGENTS_KEPT,
+  SESSION_TOOLS_KEPT,
+} from "../../../../src/shared/claude/activity";
 
 const WS = "ws-1";
 const TAB = "tab-1";
@@ -452,6 +456,38 @@ describe("`claude -p` runs", () => {
       sessionId: "01a1b19e",
       toolsTold: false,
     });
+  });
+
+  test("a run's messages, the latest kept, and how long a tool told at its end took", () => {
+    print("print-start", { tools_told: true });
+    clock = 2_000;
+    print("print-text", { text: "  Looking at the tests.  " });
+    print("print-text", { text: "   " });
+    clock = 5_000;
+    // A codex rollout tells a command once it ended, with how long it took.
+    print("print-tool-use", {
+      tool_use_id: "c1",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    print("print-tool-result", { tool_use_id: "c1", is_error: false, duration_ms: 1_500 });
+    expect(activity().agents[0]?.messages).toEqual([{ at: 2_000, text: "Looking at the tests." }]);
+    expect(activity().agents[0]?.tools[0]).toMatchObject({ start: 3_500, end: 5_000 });
+    // Read at once, a rollout's tool still starts after what came before it.
+    clock = 6_000;
+    print("print-text", { text: "Now the build." });
+    clock = 6_010;
+    print("print-tool-use", {
+      tool_use_id: "c2",
+      tool_name: "Bash",
+      tool_input: { command: "make" },
+    });
+    print("print-tool-result", { tool_use_id: "c2", is_error: false, duration_ms: 4_000 });
+    expect(activity().agents[0]?.tools[1]).toMatchObject({ start: 6_000, end: 6_010 });
+    for (let i = 0; i < AGENT_MESSAGES_KEPT + 2; i++) print("print-text", { text: `m${i}` });
+    const messages = activity().agents[0]?.messages ?? [];
+    expect(messages).toHaveLength(AGENT_MESSAGES_KEPT);
+    expect(messages[messages.length - 1]?.text).toBe(`m${AGENT_MESSAGES_KEPT + 1}`);
   });
 
   test("a run ends as claude exited, with its answer", () => {
