@@ -14,7 +14,8 @@ const real = path.join(realpathSync(top), "real");
 mkdirSync(path.join(real, "app"), { recursive: true });
 mkdirSync(path.join(real, "lib"));
 const link = path.join(top, "link");
-symlinkSync(real, link);
+// A junction needs no privilege on Windows; elsewhere the type is ignored.
+symlinkSync(real, link, "junction");
 afterAll(() => rmSync(top, { recursive: true, force: true }));
 
 const local = (id: string, rootPath: string) =>
