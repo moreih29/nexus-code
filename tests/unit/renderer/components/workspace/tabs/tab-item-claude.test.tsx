@@ -181,9 +181,9 @@ describe("TabItem — running 상태", () => {
     currentClaudeStatus = "running";
   });
 
-  test("aria-label='Claude: running'이 렌더된다", () => {
+  test("aria-label='Claude: working'이 렌더된다", () => {
     const html = renderTabItem();
-    expect(html).toContain("Claude: running");
+    expect(html).toContain("Claude: working");
   });
 });
 
@@ -197,9 +197,9 @@ describe("TabItem — needsInput 상태", () => {
     currentClaudeStatus = "needsInput";
   });
 
-  test("aria-label='Claude: waiting for input'이 렌더된다", () => {
+  test("aria-label='Claude: needs you'이 렌더된다", () => {
     const html = renderTabItem();
-    expect(html).toContain("Claude: waiting for input");
+    expect(html).toContain("Claude: needs you");
   });
 });
 
@@ -212,9 +212,9 @@ describe("TabItem — permissionPending 상태", () => {
     currentClaudeStatus = "permissionPending";
   });
 
-  test("aria-label='Claude: waiting for permission'이 렌더된다", () => {
+  test("aria-label='Claude: permission request'이 렌더된다", () => {
     const html = renderTabItem();
-    expect(html).toContain("Claude: waiting for permission");
+    expect(html).toContain("Claude: permission request");
   });
 });
 

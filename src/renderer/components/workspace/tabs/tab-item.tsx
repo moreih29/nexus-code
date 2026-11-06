@@ -142,7 +142,7 @@ function useTabDirty(tab: Tab): boolean {
 
 /**
  * Claude 상태에 대응하는 aria-label 텍스트를 반환한다.
- * 스크린리더가 "Claude: waiting for permission" 등 명시적 레이블을 읽는다.
+ * 스크린리더가 "Claude: permission request" 등 명시적 레이블을 읽는다.
  */
 function claudeAriaLabel(status: ClaudeStatus): string {
   switch (status) {

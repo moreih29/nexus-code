@@ -27,10 +27,10 @@ describe("cardGlyph", () => {
 
   it("says an estimated state is one, in words and on hover", () => {
     const estimated = renderToStaticMarkup(<WorkspaceStatusGlyph status="running" estimated />);
-    expect(estimated).toContain('aria-label="Running (estimated)"');
-    expect(estimated).toContain('title="Running (estimated)"');
+    expect(estimated).toContain('aria-label="Working (estimated)"');
+    expect(estimated).toContain('title="Working (estimated)"');
     const claude = renderToStaticMarkup(<WorkspaceStatusGlyph status="running" />);
-    expect(claude).toContain('aria-label="Claude: running"');
+    expect(claude).toContain('aria-label="Claude: working"');
     expect(claude).not.toContain("title=");
   });
 });
