@@ -5,6 +5,7 @@ import { agentContextCommands } from "./agent-context";
 import { browserCommands } from "./browser";
 import { browserControlCommands } from "./browser-control";
 import { browserNetworkCommands } from "./browser-network";
+import { chatCommands } from "./chat";
 import { editorCommands } from "./editor";
 import { layoutCommands, tabArrangeCommands } from "./layout";
 import { notifyCommands } from "./notify";
@@ -17,6 +18,7 @@ import { workspaceCommands } from "./workspace";
 export const CLI_COMMANDS: readonly CliCommand[] = [
   ...workspaceCommands,
   ...terminalCommands,
+  ...chatCommands,
   ...tabArrangeCommands,
   ...layoutCommands,
   ...panelCommands,

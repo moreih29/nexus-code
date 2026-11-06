@@ -279,6 +279,8 @@
         "commit": "open the commit {{detail}}",
         "terminalNew": "open a terminal",
         "terminalInput": "type into the terminal \"{{detail}}\"",
+        "chatNew": "open a {{detail}} tab",
+        "chatInput": "send a message to the tab \"{{detail}}\"",
         "tabClose": "close the tab \"{{detail}}\"",
         "tabSave": "save the tab \"{{detail}}\"",
         "tabRevert": "drop the unsaved changes of the tab \"{{detail}}\"",

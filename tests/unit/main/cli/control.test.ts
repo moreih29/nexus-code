@@ -301,8 +301,11 @@ describe("terminal wait", () => {
   });
 });
 
-describe("terminal wait after worktree new", () => {
-  const started = async (app: FakeApp, argv: string[] = ["--prompt", "add payments"]) => {
+describe("terminal wait after worktree new --command", () => {
+  const started = async (
+    app: FakeApp,
+    argv: string[] = ["--prompt", "add payments", "--command", "claude"],
+  ) => {
     await nexus(app, ["worktree", "new", "pay", ...argv]);
     app.tabs[FIX] = [{ id: NEW_TAB, type: "terminal", title: "zsh", groupId: "g1", shown: false }];
     app.foreground.set(NEW_TAB, "-zsh");
@@ -351,7 +354,7 @@ describe("terminal wait after worktree new", () => {
 
   test("returns at once without a prompt, which starts no turn", async () => {
     const app = fakeApp();
-    const start = await started(app, []);
+    const start = await started(app, ["--command", "claude"]);
     const result = await nexus(app, wait);
     expect(result.stdout).toBe("zsh is back at its prompt.\n");
     expect(app.time.now).toBe(start);

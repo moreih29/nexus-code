@@ -19,9 +19,10 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 |---|---|
 | `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 탭 |
 | `nexus workspace list` · `worktree list` | 워크스페이스와 워크트리 목록 |
-| `nexus session list` | 모든 워크스페이스의 에이전트 세션(Claude Code, Codex, ...)과 상태 |
+| `nexus session list` | 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code, Codex, ... 와 앱의 Claude · Codex 탭)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
+| `nexus chat read <탭>` | Claude · Codex 탭의 최근 대화와 상태 |
 | `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 (SSH 워크스페이스면 이 컴퓨터에서 열리는 주소도) |
 
 읽기는 어느 워크스페이스든 허락 없이 됩니다.
@@ -70,6 +71,25 @@ nexus terminal wait build --exit                   # 터미널이 끝날 때까�
 - `--match` 는 지금 화면 전체를 봅니다. 입력한 명령 줄 자체가 걸릴 수 있으니 `'^ready'` 처럼 줄 시작에 고정하는 것이 좋습니다.
 - 자기 터미널에는 입력할 수 없습니다. 도구 허용을 기다리는 Claude Code 에도 입력하지 않습니다. 허용 여부는 사용자가 정합니다.
 
+## Claude · Codex 탭 열고 따라가기
+
+앱의 Claude 탭과 Codex 탭도 명령으로 열고, 메시지를 보내고, 끝날 때까지 기다립니다. 탭의 입력창에 쓰는 것과 같습니다.
+
+```bash
+nexus chat new --prompt "README 요약해줘"                 # 이 폴더에 Claude 탭(뒤쪽에)을 열고 프롬프트 전송
+nexus chat new --agent codex --prompt "테스트 고쳐줘" --show
+nexus chat wait 3fa2                                     # 턴이 끝날 때까지 기다린 뒤 마지막 답변 출력
+nexus chat send 3fa2 "이어서 문서도 고쳐줘" --wait       # 보내고 끝날 때까지
+nexus chat read 3fa2 --messages 10                       # 최근 메시지 10개와 상태
+```
+
+- 상태는 `working`(일하는 중, 보낸 메시지를 아직 받지 않은 때 포함), `asking`(사용자의 도구 허용 · 질문 답변을 기다림), `idle`, `error` 입니다.
+- `chat wait` 는 턴이 끝나거나(마지막 답변 출력), 사용자를 기다리거나, 오류로 멈추면 끝납니다. 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
+- `chat send` 는 턴 중이면 에이전트가 지금 도구 다음에 읽습니다. 프로그램이 꺼져 있으면 다시 켜고 보냅니다. 사용자를 기다리는 탭에는 보내지 않습니다. 허용 여부는 사용자가 정합니다.
+- `chat read` 는 사용자와 에이전트의 말, 에이전트가 실행한 도구, 앱의 알림(중단, 오류 등)을 순서대로 출력합니다.
+- 앱을 켠 뒤 한 번도 보지 않은 탭은 읽거나 기다리거나 보낼 때 열립니다. 탭을 보여줄 때처럼 프로그램의 기록을 읽고, 프로그램이 없으면 켭니다.
+- 다른 워크스페이스의 탭은 `--workspace` 로 고릅니다.
+
 ## 세션의 에이전트 따라가기
 
 Claude Code 세션 안의 서브에이전트와, 그 세션이 Bash 로 실행한 `claude -p` 를 봅니다. 세션이 `claude -p` 를 서브에이전트처럼 쓸 때 유용합니다.
@@ -114,16 +134,17 @@ nexus workspace remove 라이브러리                    # 앱 목록에서 제
 
 ```bash
 nexus worktree new "로그인 수정" --prompt "로그인 후 원래 보던 페이지로 돌아가게 고쳐줘"
-nexus terminal wait <터미널 id> --workspace <작업 id>  # 출력된 명령 그대로. 그 에이전트가 끝날 때까지
-nexus worktree new 환불 --command "codex -m gpt-5.5" --prompt "환불 API 추가해줘"   # 다른 에이전트 · 인자로
+nexus chat wait <탭 id> --workspace <작업 id>         # 출력된 명령 그대로. 그 에이전트가 끝날 때까지
+nexus worktree new 환불 --agent codex --prompt "환불 API 추가해줘"                  # Codex 탭으로
+nexus worktree new 실험 --command "gemini" --prompt "벤치마크 돌려줘"                 # 터미널에서 다른 명령으로
 nexus worktree remove "로그인 수정" --delete-branch
 ```
 
 - `worktree new` 는 앱의 **새 작업…** 과 같습니다.
   - 지금 HEAD 에서 이름을 딴 브랜치와 워크트리를 만듭니다. 작업 안에서 실행하면 그 작업이 속한 워크스페이스에서 만듭니다.
-  - 작업 터미널에서 작업 에이전트(설정 › 터미널, 기본 Claude)의 명령 `claude` 나 `codex` 를 `--prompt` 와 함께 실행합니다. 프롬프트는 명령의 맨 뒤 인자로 붙습니다. 작업 에이전트가 터미널이면 셸만 엽니다.
-  - `--command` 를 주면 그 작업에서만 설정 대신 그 명령을 씁니다. 에이전트를 고르고 인자도 붙일 수 있습니다(`--command "codex -m gpt-5.5"`, `--command "claude --model opus"`). `--command ""` 면 에이전트 없이 셸만 엽니다.
-  - 그 터미널을 기다리는 명령을 출력합니다. 작업은 다른 워크스페이스라서 `terminal` 명령에 `--workspace` 가 필요합니다.
+  - 작업에 작업 에이전트(설정 › 터미널, 기본 Claude)의 탭을 열고 `--prompt` 를 첫 메시지로 보냅니다. `--agent claude` · `--agent codex` 로 그 작업만 다른 에이전트를 고릅니다. 작업 에이전트가 터미널이면 셸만 엽니다.
+  - `--command` 를 주면 탭 대신 터미널에서 그 명령을 실행합니다. 프롬프트는 명령의 맨 뒤 인자로 붙습니다(`--command "claude --model opus"`, `--command gemini`). `--command ""` 면 에이전트 없이 셸만 엽니다.
+  - 그 탭(터미널이면 그 터미널)을 기다리는 명령을 출력합니다. 작업은 다른 워크스페이스라서 `chat` · `terminal` 명령에 `--workspace` 가 필요합니다.
   - 사용자 화면은 그대로 둡니다. `--show` 면 그 작업으로 전환합니다.
 - `worktree remove` 는 앱의 **이 작업 삭제…** 와 같습니다.
   - 작업의 터미널을 닫고(실행 중인 프로그램 포함) 워크트리 폴더를 지웁니다. 브랜치는 `--delete-branch` 일 때만 지웁니다.

@@ -14,6 +14,7 @@ import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
+import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { settingsHandlers } from "./settings";
 
@@ -67,6 +68,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return { text: controller.readText(lines) };
   },
   ...actionHandlers,
+  ...chatHandlers,
   ...layoutHandlers,
   ...settingsHandlers,
 };

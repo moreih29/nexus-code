@@ -279,6 +279,8 @@
         "commit": "커밋 {{detail}} 열기를",
         "terminalNew": "터미널 열기를",
         "terminalInput": "터미널 \"{{detail}}\"에 입력을",
+        "chatNew": "{{detail}} 탭 열기를",
+        "chatInput": "탭 \"{{detail}}\"에 메시지 보내기를",
         "tabClose": "탭 \"{{detail}}\" 닫기를",
         "tabSave": "탭 \"{{detail}}\" 저장을",
         "tabRevert": "탭 \"{{detail}}\"의 저장 안 한 변경 버리기를",

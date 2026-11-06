@@ -1,4 +1,5 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
+import type { CliTaskStart } from "../../../../shared/cli/ui";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -13,6 +14,7 @@ import {
 import { table } from "../format";
 import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
+import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 
 /** A workspace as --json shows it. */
@@ -200,16 +202,22 @@ const worktreeNew: CliCommand = {
   args: "<name>",
   details:
     "As New Task in the app: a branch named after <name> from the workspace's HEAD, its worktree,\n" +
-    "and a terminal there running the task agent command (Settings › Terminal; claude by\n" +
-    "default), or --command, with --prompt as its last argument; an empty --command opens a\n" +
-    "plain shell. It starts behind the user's view unless --show. Its terminal's id is printed\n" +
-    "for terminal wait/read/send, which reach it with --workspace <its id>.",
+    "and a Claude or Codex tab there that is sent --prompt as its first message: --agent's, else\n" +
+    "the task agent's (Settings › Terminal; Claude by default). --command runs a command in a\n" +
+    "terminal instead, with --prompt as its last argument; an empty one opens a plain shell. It\n" +
+    "starts behind the user's view unless --show. The tab's id is printed for chat wait/read/send\n" +
+    "(a terminal's for terminal wait/read/send), which reach it with --workspace <its id>.",
   flags: {
     prompt: { type: "string", value: "TEXT", description: "The agent's first prompt" },
+    agent: {
+      type: "string",
+      value: "AGENT",
+      description: "Open a claude or codex tab instead of the task agent's",
+    },
     command: {
       type: "string",
       value: "CMD",
-      description: 'Run CMD, as "codex -m MODEL", instead of the task agent command',
+      description: 'Run CMD in a terminal instead, as "gemini" or "claude --model opus"',
     },
     show: { type: "boolean", description: "Switch the user to it" },
     workspace: WORKSPACE_FLAG,
@@ -217,42 +225,63 @@ const worktreeNew: CliCommand = {
   async run(ctx, { positionals, flags }) {
     const [name] = exactArgs(positionals, "name") as [string];
     const prompt = (flags.prompt as string | undefined) ?? "";
+    if (flags.agent !== undefined && flags.command !== undefined) {
+      throw new CliUsageError("--agent and --command do not go together");
+    }
+    const start: CliTaskStart | undefined =
+      flags.command !== undefined
+        ? { command: flags.command as string }
+        : flags.agent !== undefined
+          ? { agent: chatAgentFlag(flags.agent, "claude") }
+          : undefined;
     // A worktree of a worktree branches off the workspace they belong to.
     const [parent] = worktreeFamily(
       ctx,
       resolveWorkspace(ctx, flags.workspace as string | undefined),
     ) as [WorkspaceMeta];
     await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
-    const { workspaceId, tabId, command } = await ctx.services.ui(
+    const created = await ctx.services.ui(
       "task.create",
       {
         parentId: parent.id,
         name,
         prompt,
-        ...(flags.command === undefined ? {} : { command: flags.command as string }),
+        ...(start ? { start } : {}),
         show: flags.show === true,
         createdBy: ctx.caller,
       },
       TASK_TIMEOUT_MS,
     );
-    if (command !== "" && prompt.trim() !== "") {
+    const { workspaceId, tabId } = created;
+    const prompted = prompt.trim() !== "";
+    const command = "command" in created.start ? created.start.command : undefined;
+    if (command !== undefined && command !== "" && prompted) {
       ctx.services.startedAgents.mark({ workspaceId, tabId }, ctx.services.clock.now());
     }
     const made = ctx.services.listWorkspaces().find((w) => w.id === workspaceId);
     const where = made?.task ? ` on branch ${made.task.branch}, at ${made.task.worktreePath}` : "";
-    // Its terminal is in another workspace, which terminal commands are told.
+    // Its tab is in another workspace, which tab commands are told.
     const reach = `--workspace ${shortId(workspaceId)}`;
-    const runs =
-      command === ""
-        ? `Its terminal is ${shortId(tabId)}; terminal commands reach it with ${reach}.`
-        : `Its terminal ${shortId(tabId)} runs ${command}${prompt.trim() === "" ? "" : " with the prompt"}. To wait for it:\n` +
-          `  nexus terminal wait ${shortId(tabId)} ${reach}`;
+    const id = shortId(tabId);
+    let runs: string;
+    if ("agent" in created.start) {
+      const tab = `Its ${created.start.agent === "claude" ? "Claude" : "Codex"} tab ${id}`;
+      runs = prompted
+        ? `${tab} was sent the prompt. To wait for it:\n  nexus chat wait ${id} ${reach}`
+        : `${tab} waits for a message; chat commands reach it with ${reach}.`;
+    } else if (command === "" || command === undefined) {
+      runs = `Its terminal is ${id}; terminal commands reach it with ${reach}.`;
+    } else {
+      runs =
+        `Its terminal ${id} runs ${command}${prompted ? " with the prompt" : ""}. To wait for it:\n` +
+        `  nexus terminal wait ${id} ${reach}`;
+    }
     return output(
       `Made worktree ${made?.name ?? name} (${shortId(workspaceId)})${where}.\n${runs}`,
       {
         ...(made ? workspaceJson(ctx, made) : { id: workspaceId, name }),
         tabId,
-        command,
+        ...created.start,
       },
     );
   },
@@ -312,7 +341,7 @@ const worktreeClaudeCreate: CliCommand = {
         parentId: parent.id,
         name: claudeWorktreeName(name),
         prompt: "",
-        command: "",
+        start: { command: "" },
         show: false,
         createdBy: ctx.caller,
       },
