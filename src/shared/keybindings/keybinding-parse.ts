@@ -413,6 +413,10 @@ function keyTokenToLabel(tok: string, opts: LabelOptions): string {
       case "Enter":
       case "Return":
         return "↵";
+      case "Backspace":
+        return "⌫";
+      case "Delete":
+        return "⌦";
     }
   }
   switch (tok) {
