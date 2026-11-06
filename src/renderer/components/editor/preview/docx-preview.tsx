@@ -10,6 +10,8 @@
 // in Word's symbol fonts are drawn as the Unicode characters they stand for,
 // and equations as Word sets them: letters in italic, numbers upright,
 // signs spaced. A list item's text starts at its indent, past the number.
+// Hangul breaks between words, not letters, where Word's setting keeps its
+// words whole, as Korean Word's template does.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -27,6 +29,7 @@ import { EmptyState } from "../../ui/empty-state";
 import { wordListMarkers } from "./docx-lists";
 import { wordMathTokens } from "./docx-math";
 import { unicodeSymbols } from "./docx-symbols";
+import { wordHangulWrap } from "./docx-wrap";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -175,6 +178,7 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
       unicodeSymbols(styles, body);
       wordMathTokens(body);
       wordListMarkers(styles);
+      wordHangulWrap(read.bytes, body, OPTIONS.className);
       const host = hostRef.current;
       if (cancelled || !host) return;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
