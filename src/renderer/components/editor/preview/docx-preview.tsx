@@ -6,7 +6,8 @@
 // the app's stay apart. Links go where the Markdown preview's go: out to
 // the browser, to a workspace file, or to a place in the document. Embedded
 // HTML (altChunk) and comments are not shown, and macros do not run. A file
-// changed on disk is drawn again at the same place.
+// changed on disk is drawn again at the same place. Bullets and symbols set
+// in Word's symbol fonts are drawn as the Unicode characters they stand for.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,6 +22,7 @@ import { readWorkspaceBinary } from "../../../services/editor/preview/read-binar
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { unicodeSymbols } from "./docx-symbols";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -163,6 +165,7 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
         }
         return;
       }
+      unicodeSymbols(styles, body);
       const host = hostRef.current;
       if (cancelled || !host) return;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
