@@ -30,7 +30,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Banner, type BannerAction } from "../ui/banner";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
-import { Composer, runningPlaceholder } from "./composer";
+import { Composer, idlePlaceholder, runningPlaceholder } from "./composer";
 import { MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
 import { QuickLook, type QuickLookList } from "./quick-look";
@@ -215,7 +215,9 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         state={state}
         local={isLocal}
         appCommands={false}
-        placeholder={model.running ? runningPlaceholder(t) : t("chat.codex.placeholder")}
+        placeholder={
+          model.running ? runningPlaceholder(t) : idlePlaceholder(t, "chat.codex.placeholder")
+        }
       />
       {look && (
         <QuickLook

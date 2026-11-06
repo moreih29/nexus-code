@@ -1,23 +1,36 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
-import { runningPlaceholder } from "../../../../../src/renderer/components/chat/composer";
+import {
+  idlePlaceholder,
+  runningPlaceholder,
+} from "../../../../../src/renderer/components/chat/composer";
 import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";
 
-const t = ((key: string, options: { queueKey: string }) =>
-  `${key} ${options.queueKey}`) as unknown as TFunction;
+const t = ((key: string, options: Record<string, string>) =>
+  `${key} ${JSON.stringify(options)}`) as unknown as TFunction;
 
 afterEach(() => setPlatformForTests(null));
 
-describe("runningPlaceholder", () => {
-  test("names the Mac's queue key on macOS", () => {
+describe("composer hints", () => {
+  test("name the Mac's keys with its symbols on macOS", () => {
     setPlatformForTests("darwin");
-    expect(runningPlaceholder(t)).toBe("chat.composer.placeholder_running ⌘↩");
+    const keys = JSON.stringify({ send: "↩", newLine: "⇧↩", queueKey: "⌘↩" });
+    expect(runningPlaceholder(t)).toBe(`chat.composer.placeholder_running ${keys}`);
+    expect(idlePlaceholder(t, "chat.composer.placeholder")).toBe(
+      `chat.composer.placeholder ${keys}`,
+    );
+    expect(idlePlaceholder(t, "chat.codex.placeholder")).toBe(`chat.codex.placeholder ${keys}`);
   });
 
-  test("names Ctrl on Linux and Windows", () => {
+  test("spell the keys out on Linux and Windows", () => {
+    const keys = JSON.stringify({ send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter" });
     for (const platform of ["linux", "win32"] as const) {
       setPlatformForTests(platform);
-      expect(runningPlaceholder(t)).toBe("chat.composer.placeholder_running Ctrl+↩");
+      expect(runningPlaceholder(t)).toBe(`chat.composer.placeholder_running ${keys}`);
+      expect(idlePlaceholder(t, "chat.composer.placeholder")).toBe(
+        `chat.composer.placeholder ${keys}`,
+      );
+      expect(idlePlaceholder(t, "chat.codex.placeholder")).toBe(`chat.codex.placeholder ${keys}`);
     }
   });
 });

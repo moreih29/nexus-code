@@ -500,7 +500,8 @@ export function Composer({
             readOnly={sending}
             rows={1}
             placeholder={
-              placeholder ?? (running ? runningPlaceholder(t) : t("chat.composer.placeholder"))
+              placeholder ??
+              (running ? runningPlaceholder(t) : idlePlaceholder(t, "chat.composer.placeholder"))
             }
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
@@ -789,9 +790,27 @@ function ModeChip({ controller, state }: ChipProps) {
   );
 }
 
+/**
+ * The composer's keys as this platform names them: the Mac's symbols there,
+ * the keys' names elsewhere, as Windows and Linux label shortcuts.
+ */
+function composerKeys(): { send: string; newLine: string; queueKey: string } {
+  return isMac()
+    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩" }
+    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter" };
+}
+
+/** The composer's hint between turns: the Claude tab's, or the Codex tab's. */
+export function idlePlaceholder(
+  t: TFunction,
+  key: "chat.composer.placeholder" | "chat.codex.placeholder",
+): string {
+  return t(key, composerKeys());
+}
+
 /** The composer's hint during a turn, naming this platform's queue key. */
 export function runningPlaceholder(t: TFunction): string {
-  return t("chat.composer.placeholder_running", { queueKey: isMac() ? "⌘↩" : "Ctrl+↩" });
+  return t("chat.composer.placeholder_running", composerKeys());
 }
 
 /** The model info the session runs, as the CLI names it either way (alias or id). */
