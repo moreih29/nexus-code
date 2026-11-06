@@ -131,7 +131,7 @@ function firstLine(text: string): string {
 /**
  * What a Claude or Codex tab's session waits on and does, from its
  * conversation; its running agents from its hooks (`activity`) once they
- * report any, which count its `claude -p` runs too.
+ * report any, which count its `claude -p` and `codex exec` runs too.
  */
 export function chatRowFacts(model: ChatModel, activity?: SessionActivity): RowFacts {
   const request = model.permissions[0];

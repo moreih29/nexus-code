@@ -1,7 +1,9 @@
 // A Codex tab: one Codex thread run by `codex app-server` where the
 // workspace runs, shown as a conversation with the list, rows, cards and
 // composer of a Claude tab. The program outlives the window and the
-// connection, so the view only reads what its controller has.
+// connection, so the view only reads what its controller has. The
+// `claude -p` and `codex exec` runs its commands start show beside the
+// conversation, in the strip a Claude tab has.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +27,7 @@ import {
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
+import { printRunRows, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -36,11 +39,13 @@ import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Banner, type BannerAction } from "../ui/banner";
 import { CodexIcon } from "./agent-icons";
+import { AgentStrip } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { PermissionCard } from "./permission-card";
+import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { StatusLine } from "./status-line";
 
@@ -86,6 +91,16 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(() => {});
   };
+
+  // The pane shows the conversation or one of the runs its commands
+  // started; input always goes to the conversation.
+  const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
+  const runs = useMemo(() => printRunRows(printRuns), [printRuns]);
+  const [shownId, setShownId] = useState<string | null>(null);
+  const shown = shownId ? runs.find((run) => run.toolUseId === shownId) : undefined;
+  useEffect(() => {
+    if (shownId && !shown) setShownId(null);
+  }, [shownId, shown]);
 
   // What the conversation links opens over the tab, or beside it.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -188,24 +203,36 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           />
         </div>
       )}
-      <MessageList
-        workspaceId={workspaceId}
-        cwd={props.cwd}
-        rootPath={rootPath}
-        history={null}
-        model={state.model}
-        empty={
-          state.phase === "ready" || state.phase === "ended" ? (
-            <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
-              <CodexIcon className="size-8" />
-              <div className="text-app-body">{t("chat.codex.empty")}</div>
-              <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
-                {props.cwd}
+      <AgentStrip agents={runs} shown={shown ? shown.toolUseId : null} onShow={setShownId} />
+      {shown?.run ? (
+        <PrintRunPane
+          workspaceId={workspaceId}
+          tabId={tabId}
+          cwd={props.cwd}
+          rootPath={rootPath}
+          run={shown.run}
+          visible={isVisible}
+        />
+      ) : (
+        <MessageList
+          workspaceId={workspaceId}
+          cwd={props.cwd}
+          rootPath={rootPath}
+          history={null}
+          model={state.model}
+          empty={
+            state.phase === "ready" || state.phase === "ended" ? (
+              <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                <CodexIcon className="size-8" />
+                <div className="text-app-body">{t("chat.codex.empty")}</div>
+                <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
+                  {props.cwd}
+                </div>
               </div>
-            </div>
-          ) : null
-        }
-      />
+            ) : null
+          }
+        />
+      )}
       {(permissions.length > 0 || model.running) && (
         <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
           <div className="mx-auto flex max-w-[860px] flex-col gap-2">
@@ -222,7 +249,13 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
           </div>
         </div>
       )}
-      <Composer controller={controller} state={state} local={isLocal} appCommands={false} />
+      <Composer
+        controller={controller}
+        state={state}
+        local={isLocal}
+        appCommands={false}
+        placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+      />
       {look && (
         <QuickLook
           workspaceId={workspaceId}

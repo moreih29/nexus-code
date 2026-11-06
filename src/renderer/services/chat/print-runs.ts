@@ -1,7 +1,7 @@
-// The `claude -p` and `codex exec` runs a Claude tab's session starts from
-// its Bash tool, as the app records them (main's session activity, by the
-// tab's id): shown in the tab beside its subagents, with their state, tools
-// and answer.
+// The `claude -p` and `codex exec` runs a Claude or Codex tab's session
+// starts from its commands, as the app records them (main's session
+// activity, by the tab's id): shown in the tab beside its subagents, with
+// their state, tools and answer.
 
 import { useMemo } from "react";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";

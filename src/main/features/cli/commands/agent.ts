@@ -1,7 +1,8 @@
 /**
  * nexus agent ...: the agents of a Claude Code session, as its hooks tell
- * them: its subagents and the `claude -p` runs it starts (hookclient's
- * print-run). A session follows them, waits for one, and stops a run.
+ * them: its subagents and the `claude -p` and `codex exec` runs it starts
+ * (hookclient's print-run and exec-run), as a Codex tab's commands start
+ * them too. A session follows them, waits for one, and stops a run.
  */
 import type { AgentRun, ToolRun } from "../../../../shared/claude/activity";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
@@ -23,9 +24,9 @@ const SESSION_FLAGS = {
 
 const SESSION_DETAILS =
   "The agents are those of the Claude Code session in this terminal, or in --tab: its\n" +
-  'subagents, and the "claude -p" and "codex exec" runs it starts. A run is named by its\n' +
-  'session id; claude -p --resume <id> "..." (codex exec resume <id> "...") goes on with it,\n' +
-  "and is listed as the same run going on.";
+  'subagents, and the "claude -p" and "codex exec" runs it starts. In a Codex tab, they are\n' +
+  "the runs its commands start. A run is named by its session id; claude -p --resume <id>\n" +
+  '"..." (codex exec resume <id> "...") goes on with it, and is listed as the same run going on.';
 
 const AGENT_DETAILS =
   "<agent> is an id from nexus agent list, or a unique prefix of one (4 characters or more).";

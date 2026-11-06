@@ -14,6 +14,17 @@ export function activityMap(entries: readonly SessionActivity[]): ActivityByKey 
   return new Map(entries.map((entry) => [sessionKey(entry.workspaceId, entry.tabId), entry]));
 }
 
+/**
+ * What the agent was started to do: its Agent call's description, or what
+ * the command that started a `claude -p` or `codex exec` run was said to do;
+ * else a run's prompt, on one line, as a Codex tab's commands tell no more.
+ */
+export function agentDescription(agent: AgentRun): string | undefined {
+  if (agent.description !== undefined) return agent.description;
+  if (agent.kind !== "print") return undefined;
+  return agent.prompt?.replace(/\s+/g, " ").trim() || undefined;
+}
+
 /** Whether the agent still runs (or waits on a permission). */
 export function isLive(agent: AgentRun): boolean {
   return agent.end === undefined;

@@ -1,7 +1,7 @@
-// What a Claude tab's pane shows of a `claude -p` run its session started:
-// its state, request, tools and answer, as the app recorded them; with
-// stopping it while it runs, and opening its session in a tab of its own
-// once it ended.
+// What a Claude or Codex tab's pane shows of a `claude -p` or `codex exec`
+// run its session started: its state, request, tools and answer, as the app
+// recorded them; with stopping it while it runs, and opening its session in
+// a tab of its own once it ended.
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,7 +32,7 @@ export function PrintRunPane({
 }: {
   workspaceId: string;
   tabId: string;
-  /** Where the tab's session runs, which a run started from its Bash shares. */
+  /** Where the tab's session runs, which a run started from its commands shares. */
   cwd: string;
   rootPath: string;
   run: AgentRun;

@@ -92,7 +92,7 @@ nexus chat read 3fa2 --messages 10                       # 최근 메시지 10�
 
 ## 세션의 에이전트 따라가기
 
-Claude Code 세션 안의 서브에이전트와, 그 세션이 Bash 로 실행한 `claude -p` · `codex exec` 를 봅니다. 세션이 `claude -p` 나 `codex exec` 를 서브에이전트처럼 쓸 때 유용합니다.
+Claude Code 세션 안의 서브에이전트와, 그 세션이 Bash 로 실행한 `claude -p` · `codex exec` 를 봅니다. 세션이 `claude -p` 나 `codex exec` 를 서브에이전트처럼 쓸 때 유용합니다. Codex 탭이 명령으로 실행한 `claude -p` · `codex exec` 도 그 탭의 실행으로 보입니다.
 
 ```bash
 claude -p "README 요약해줘" > /dev/null &   # Bash 도구에서 백그라운드로 실행
@@ -113,6 +113,7 @@ codex exec resume <세션 id> "이어서 문서도"            # codex 도 같�
 - `agent wait` 의 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
 - `agent stop` 은 그 `claude`(또는 `codex`) 에 인터럽트를 보내고, 5초 안에 멈추지 않으면 종료합니다. 서브에이전트는 세션의 턴과 함께 멈추므로 멈출 수 없습니다.
 - 다른 터미널의 세션은 `--tab`(다른 워크스페이스면 `--workspace` 도)으로 고릅니다.
+- 앱을 업데이트하기 전부터 돌던 Claude · Codex 탭의 프로그램은 예전 환경 그대로라, 그 탭이 띄운 실행은 탭의 프로그램이 다시 시작된 뒤부터 보입니다.
 
 ## 워크스페이스 추가 · 제거
 

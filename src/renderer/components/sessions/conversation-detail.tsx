@@ -90,18 +90,13 @@ export function ConversationDetail({
     (s) => s.tabs[chatKey(session.workspaceId, session.tabId)] !== undefined,
   );
   const terminal = session.kind === "terminal";
-  // A Claude tab's hooks tell its agents as a terminal's do, `claude -p` runs too.
-  const hooked = terminal || (session.kind === "claude" && activity !== undefined);
+  // A Claude tab's hooks tell its agents as a terminal's do, `claude -p` runs
+  // too; a Codex tab's runs are told the same.
+  const hooked = terminal || activity !== undefined;
   const facts = useMemo(
     () =>
-      terminal
-        ? hookDetailFacts(activity)
-        : chatDetailFacts(
-            chat.model,
-            chat.history,
-            session.kind === "claude" ? activity : undefined,
-          ),
-    [terminal, session.kind, activity, chat.model, chat.history],
+      terminal ? hookDetailFacts(activity) : chatDetailFacts(chat.model, chat.history, activity),
+    [terminal, activity, chat.model, chat.history],
   );
   // A chat tab tells its prompt and answer itself once its conversation is
   // loaded; until then, and for a terminal, as its hooks last told them.

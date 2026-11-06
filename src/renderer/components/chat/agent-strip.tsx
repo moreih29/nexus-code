@@ -1,6 +1,7 @@
 // The strip above a Claude tab's conversation: the main conversation, then
 // each agent the session runs, to switch the pane between them. Finished
-// agents fold under one button. The side panel's toggle sits at its end.
+// agents fold under one button. The side panel's toggle sits at its end. A
+// Codex tab has it for the runs its commands start, and no panel.
 
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useState } from "react";
