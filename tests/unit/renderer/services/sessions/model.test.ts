@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
+import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   buildFamily,
   estimatedGlyph,
@@ -61,6 +62,10 @@ function claudeTab(id: string, title: string): Tab {
     isPinned: false,
     props: { cwd: "/" },
   } as Tab;
+}
+
+function codexTab(id: string, title: string): Tab {
+  return { ...claudeTab(id, title), type: "codex" } as Tab;
 }
 
 function claude(status: StatusEntry["status"], extra: Partial<StatusEntry> = {}): StatusEntry {
@@ -136,6 +141,38 @@ describe("buildFamily", () => {
       prompt: "fix it",
     });
     expect(fresh).toMatchObject({ kind: "claude", state: "idle", phase: "idle" });
+  });
+
+  it("lists Codex tabs as Codex sessions, in the state their conversation tells", () => {
+    const empty = emptyTabState();
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: { [ROOT]: { x: codexTab("x", "Codex"), y: codexTab("y", "Codex") } },
+        chats: {
+          [`${ROOT}:x`]: {
+            ...empty,
+            phase: "ready",
+            model: {
+              ...empty.model,
+              running: true,
+              turn: { startedAt: 2_000, outputTokens: 0, thinkingTokens: 0 },
+            },
+          },
+        },
+      }),
+    );
+    const [running, fresh] = family?.worktrees[0].sessions ?? [];
+    expect(running).toMatchObject({
+      key: `${ROOT}:x`,
+      kind: "codex",
+      agent: "codex",
+      state: "running",
+      phase: "running",
+      estimated: false,
+      since: 2_000,
+    });
+    // Its view not shown since the app started: nothing tells it yet.
+    expect(fresh).toMatchObject({ kind: "codex", state: "idle", phase: "idle" });
   });
 
   it("is null for a workspace that is gone", () => {

@@ -13,6 +13,8 @@ import {
 } from "../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { Tab } from "../../state/stores/tabs";
+import type { ChatTabState } from "../chat/store";
+import { codexStateOf } from "./codex-state";
 
 /**
  * Where a session stands for the user: waiting on them (a permission, an
@@ -31,15 +33,16 @@ export interface AgentSession {
   /** The tab's title. */
   readonly title: string;
   /**
-   * The kind of tab: a terminal, or a Claude tab, whose program takes
-   * messages rather than keys.
+   * The kind of tab: a terminal, or a Claude or Codex tab, whose program
+   * takes messages rather than keys.
    */
-  readonly kind: "terminal" | "claude";
+  readonly kind: "terminal" | "claude" | "codex";
   /** "claude", "codex", or undefined for an agent known only by its notifications. */
   readonly agent: string | undefined;
   /**
    * Claude's status (idle, running, completed, needsInput, permissionPending,
-   * error); for other agents busy or quiet; "exited" once the terminal ended.
+   * error), a Codex tab's in the same words; for other agents busy or quiet;
+   * "exited" once the terminal ended.
    */
   readonly state: string;
   readonly phase: SessionPhase;
@@ -80,6 +83,10 @@ export interface SessionsInput {
    * Claude's own completed state does once its tab is seen.
    */
   readonly seenByWorkspace?: Readonly<Record<string, Readonly<Record<string, number>>>>;
+  /** The chat tabs' conversations, by session key: a Codex tab's state is read from its own. */
+  readonly chats?: Readonly<Record<string, ChatTabState>>;
+  /** The tab in front of the user, by session key; a Codex turn it ends is looked at. */
+  readonly viewing?: string | null;
 }
 
 export interface FamilyInput extends SessionsInput {
@@ -200,7 +207,7 @@ export function workspaceEstimatedGlyph(
   return glyph;
 }
 
-/** The agent sessions in the terminals and Claude tabs of `workspace`. */
+/** The agent sessions in the terminals, Claude tabs and Codex tabs of `workspace`. */
 export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): AgentSession[] {
   const tabs = input.tabsByWorkspace[workspace.id] ?? {};
   const claude = input.claudeByWorkspace[workspace.id] ?? {};
@@ -225,6 +232,24 @@ export function sessionsOf(input: SessionsInput, workspace: WorkspaceMeta): Agen
         since: status?.since,
         message: status?.message,
         prompt: status?.prompt,
+      });
+      continue;
+    }
+    if (tab.type === "codex") {
+      const codex = codexStateOf(input.chats?.[key], seen[tab.id], key === input.viewing);
+      sessions.push({
+        key,
+        workspaceId: workspace.id,
+        tabId: tab.id,
+        title: tab.title,
+        kind: "codex",
+        agent: "codex",
+        state: codex.state,
+        phase: phaseOf(codex.state),
+        estimated: false,
+        since: codex.since,
+        message: codex.message,
+        prompt: codex.prompt,
       });
       continue;
     }

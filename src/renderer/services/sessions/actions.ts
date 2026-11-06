@@ -8,7 +8,8 @@ import { useActiveStore } from "@/state/stores/active";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
-import { type ChatController, existingChatController } from "../chat/controller";
+import { existingCodexController } from "../chat/codex-controller";
+import { existingChatController } from "../chat/controller";
 import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
 import { getTerminalController } from "../terminal/terminal-registry";
@@ -18,15 +19,25 @@ import { typeText } from "./typed-input";
 interface SessionRef {
   readonly workspaceId: string;
   readonly tabId: string;
-  /** A Claude tab's program takes a message, and an interrupt, as requests. */
-  readonly kind?: "terminal" | "claude";
+  /** A Claude or Codex tab's program takes a message, and an interrupt, as requests. */
+  readonly kind?: "terminal" | "claude" | "codex";
 }
 
-/** The controller of a Claude tab's session; an error when the tab was never shown. */
-function claudeTab({ workspaceId, tabId }: SessionRef): ChatController {
-  const chat = existingChatController(workspaceId, tabId);
+/** What the sessions tab asks of a chat tab's program. */
+interface ChatTab {
+  send(text: string): Promise<void>;
+  interrupt(): Promise<unknown>;
+}
+
+/** The controller of a Claude or Codex tab's session; an error when the tab was never shown. */
+function chatTab({ workspaceId, tabId, kind }: SessionRef): ChatTab {
+  const chat =
+    kind === "codex"
+      ? existingCodexController(workspaceId, tabId)
+      : existingChatController(workspaceId, tabId);
   if (!chat) {
-    throw new UiRequestError("that Claude tab has not started: it has not been shown yet");
+    const name = kind === "codex" ? "Codex" : "Claude";
+    throw new UiRequestError(`that ${name} tab has not started: it has not been shown yet`);
   }
   return chat;
 }
@@ -51,8 +62,8 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Types `text` into the session's terminal as keys and presses Enter. */
 export async function sendLine(session: SessionRef, text: string): Promise<void> {
-  if (session.kind === "claude") {
-    await claudeTab(session).send(text);
+  if (session.kind === "claude" || session.kind === "codex") {
+    await chatTab(session).send(text);
     return;
   }
   const terminal = getTerminalController(session.tabId);
@@ -76,8 +87,8 @@ export async function sendLine(session: SessionRef, text: string): Promise<void>
 
 /** Presses Ctrl-C in the session's terminal. */
 export async function interrupt(session: SessionRef): Promise<void> {
-  if (session.kind === "claude") {
-    await claudeTab(session).interrupt();
+  if (session.kind === "claude" || session.kind === "codex") {
+    await chatTab(session).interrupt();
     return;
   }
   await actionHandlers["terminal.input"]({ ...session, text: "\x03", mode: "keys", enter: false });

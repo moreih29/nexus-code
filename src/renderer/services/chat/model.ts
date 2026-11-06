@@ -171,6 +171,8 @@ export interface ResultInfo {
   numTurns?: number;
   costUsd?: number;
   terminalReason?: string;
+  /** When the turn ended, in Unix milliseconds; told for Codex's turns. */
+  at?: number;
 }
 
 /** A task the CLI runs beside the turn: a background Bash, a subagent, a teammate. */

@@ -492,6 +492,7 @@ function applyTurnCompleted(draft: CodexDraft, turn: Rec, seq: number, at: numbe
     subtype: status,
     isError: status === "failed",
     durationMs: num(turn.durationMs),
+    at,
   };
   if (status === "interrupted") {
     stopRunningTools(draft);

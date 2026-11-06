@@ -716,6 +716,14 @@ export function codexController(target: CodexTabTarget, hooks?: CodexTabHooks): 
   return controller;
 }
 
+/** The controller of a Codex tab whose view was shown since the app started. */
+export function existingCodexController(
+  workspaceId: string,
+  tabId: string,
+): CodexController | undefined {
+  return controllers.get(chatKey(workspaceId, tabId));
+}
+
 /** Ends a closed tab's program, whether or not its view was ever shown. */
 export function closeCodexTab(workspaceId: string, tabId: string): void {
   const controller = controllers.get(chatKey(workspaceId, tabId));

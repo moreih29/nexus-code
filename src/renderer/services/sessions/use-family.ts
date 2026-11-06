@@ -16,6 +16,7 @@ import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import { useChatStore } from "../chat/store";
 import {
   activityByKey,
   buildFamily,
@@ -25,6 +26,7 @@ import {
 } from "./model";
 import { type ActivityByKey, activityMap, sameActivityMap } from "./agents";
 import { rangeStart, type TimelineRange } from "./timeline";
+import { viewingKey } from "./viewing";
 
 const log = createLogger("sessions");
 
@@ -161,6 +163,8 @@ function familyNow(
     activity,
     now: Date.now(),
     seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
+    chats: useChatStore.getState().tabs,
+    viewing: viewingKey(),
   });
 }
 
@@ -185,6 +189,7 @@ export function useSessionFamily(workspaceId: string, visible: boolean): Session
       useTabsStore.subscribe(update),
       useClaudeStatusStore.subscribe(update),
       useSessionSeenStore.subscribe(update),
+      useChatStore.subscribe(update),
       startPolling(async (isLatest) => {
         const result = await ipcCallResult("cli", "activity", {});
         if (!isLatest()) return;
