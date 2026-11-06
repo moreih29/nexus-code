@@ -45,6 +45,7 @@ const { SessionActivityLog } = await import(
   "../../../../src/main/features/claude/session-activity"
 );
 const { PermissionAsks } = await import("../../../../src/main/features/claude/permission-asks");
+const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-answers");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -137,6 +138,7 @@ interface Harness {
   activeContext: InstanceType<typeof ActiveContextStore>;
   activity: InstanceType<typeof SessionActivityLog>;
   asks: InstanceType<typeof PermissionAsks> | undefined;
+  chatAnswers: InstanceType<typeof ChatAnswers>;
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
@@ -177,6 +179,7 @@ function makeHarness(
         return true;
       })
     : undefined;
+  const chatAnswers = new ChatAnswers();
 
   const getFocusedWindow = focused
     ? () => ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow)
@@ -187,6 +190,7 @@ function makeHarness(
     activeContext,
     activity,
     asks,
+    chatAnswers,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
@@ -203,6 +207,7 @@ function makeHarness(
     activeContext,
     activity,
     asks,
+    chatAnswers,
     brokerCalls,
     agentHost,
     channel,
@@ -633,6 +638,34 @@ describe("hook-handler — subcommand 상태 전이", () => {
     emit(makeHookPayload("post-tool-use", { tool_name: "Read", tool_input: { file_path: "/a" } }));
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("an answer in a Claude tab ends the wait at once, before the call ends", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-test", false);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    // The call's end, later, leaves it so.
+    emit(makeHookPayload("post-tool-use", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("an answer in a Claude tab that stops the turn leaves the session waiting", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-test", true);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+  });
+
+  test("an answer in another tab leaves the dialog open", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-other", false);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("permissionPending");
   });
 });
 

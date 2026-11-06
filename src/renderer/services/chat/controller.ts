@@ -821,7 +821,7 @@ export class ChatController {
     return supportsControl(this.state.version ?? this.state.model.version, subtype);
   }
 
-  answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {
+  async answerPermission(request: PermissionRequest, answer: PermissionAnswer): Promise<void> {
     let body: Record<string, unknown>;
     switch (answer.kind) {
       case "allow":
@@ -849,10 +849,20 @@ export class ChatController {
         };
         break;
     }
-    return this.write({
+    await this.write({
       type: "control_response",
       response: { subtype: "success", request_id: request.requestId, response: body },
     });
+    // The session's status, from its hooks, waits on the dialog until the
+    // call ends: told now that none is open.
+    const open = this.state.model.permissions.some((p) => p.requestId !== request.requestId);
+    if (!open) {
+      const { workspaceId, tabId } = this.target;
+      const stopped = answer.kind === "deny-stop";
+      ipcCallResult("claude", "answeredInChat", { workspaceId, tabId, stopped }).catch(
+        (err: Error) => log.warn(`answer not told: ${err.message}`),
+      );
+    }
   }
 
   /** Sends a control request and waits for its answer. */
