@@ -844,6 +844,7 @@ describe("hook-handler — respondHook 호출", () => {
     ["session-end", undefined],
     ["print-start", { run_id: "p1" }],
     ["print-tool-use", { run_id: "p1", tool_name: "Read" }],
+    ["print-text", { run_id: "p1", text: "Reading it." }],
     ["print-end", { run_id: "p1", exit_code: 0 }],
   ])("%s: 즉시 claude.respondHook { exitCode:0 } 호출", async (subcommand, extra) => {
     const { channel, emit } = makeHarness();
@@ -1180,6 +1181,7 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
     await tick();
     emit(makeHookPayload("print-start", { run_id: "r1", prompt: "review", tools_told: true }));
     emit(makeHookPayload("print-tool-use", { run_id: "r1", tool_use_id: "u1", tool_name: "Read" }));
+    emit(makeHookPayload("print-text", { run_id: "r1", text: "Reading it." }));
     emit(makeHookPayload("print-end", { run_id: "r1", exit_code: 0, answer: "ok" }));
     await tick();
     expect(activity.get("ws-test", "tab-test")?.agents[0]).toMatchObject({
@@ -1187,6 +1189,7 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
       kind: "print",
       state: "completed",
       toolCount: 1,
+      messages: [{ text: "Reading it." }],
       answer: "ok",
     });
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");

@@ -187,6 +187,16 @@ function describeAgent(agent: AgentRun, now: number): string {
       lines.push(`  ${how.padEnd(10)} ${oneLine(toolLine(tool), 100)}${error}`);
     }
   }
+  // What it wrote between its tools; its answer is told on its own.
+  const messages = agent.messages ?? [];
+  const said =
+    messages.length > 0 && messages[messages.length - 1]?.text === agent.answer
+      ? messages.slice(0, -1)
+      : messages;
+  if (said.length > 0) {
+    lines.push(`Messages (the last ${said.length}):`);
+    for (const message of said) lines.push(`  ${oneLine(message.text, 200)}`);
+  }
   if (agent.answer !== undefined) lines.push("Answer:", agent.answer);
   return lines.join("\n");
 }

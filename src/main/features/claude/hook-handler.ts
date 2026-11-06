@@ -274,6 +274,7 @@ const PRINT_FRAMES = new Set([
   "print-init",
   "print-tool-use",
   "print-tool-result",
+  "print-text",
   "print-end",
 ]);
 

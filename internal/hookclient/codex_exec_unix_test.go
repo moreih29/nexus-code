@@ -118,6 +118,39 @@ func TestRunCodexExec_TextRunTellsItsHeaderAndAnswer(t *testing.T) {
 	}
 }
 
+func TestRunCodexExec_TextRunTellsItsRollout(t *testing.T) {
+	fs, socket := newFrameServer(t)
+	const id = "01a1b1e2-7511-7531-92ee-5984efc1790d"
+	header := "OpenAI Codex v0.166.0\n--------\nmodel: gpt-6-luna\nsession id: " + id + "\n--------\n"
+	lines := strings.Join(rolloutLines, "\n") + "\n"
+	// codex writes its rollout as it goes, after its header.
+	codex := fakeCodex(t, `printf '%s' '`+header+`' >&2
+day="$CODEX_HOME/sessions/2026/11/06"; mkdir -p "$day"
+cat > "$day/rollout-2026-11-06T17-22-50-`+id+`.jsonl" <<'LINES'
+`+lines+`LINES
+echo DONE`)
+	var stdout bytes.Buffer
+	code, _ := runCodexExec(codex, []string{"exec", "make it"}, strings.NewReader(""), &stdout, &bytes.Buffer{},
+		newPrintTeller(socket, "tok", "ws", "t1"))
+	if code != 0 || stdout.String() != "DONE\n" {
+		t.Fatalf("exit %d, stdout %q", code, stdout.String())
+	}
+	told := fs.told(t)
+	want := "print-start,print-init,print-init,print-text," +
+		"print-tool-use,print-tool-result,print-tool-use,print-tool-result," +
+		"print-tool-use,print-tool-result,print-text,print-end"
+	if subcommandsOf(told) != want {
+		t.Fatalf("told %v", told)
+	}
+	if told[0].Payload["tools_told"] != false || told[1].Payload["session_id"] != id ||
+		told[2].Payload["tools_told"] != true {
+		t.Fatalf("told %v", told[:3])
+	}
+	if end := told[len(told)-1].Payload; end["answer"] != "DONE" {
+		t.Fatalf("end %v", end)
+	}
+}
+
 func TestRunCodexExec_TellsNothingOfAnotherCommand(t *testing.T) {
 	fs, socket := newFrameServer(t)
 	codex := fakeCodex(t, `echo "codex $*"`)

@@ -197,6 +197,7 @@ func TestCodexWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 		result("r:item_3", true, "server gone"),
 		use("r:item_4", "WebSearch", map[string]any{"query": "codex exec json"}),
 		result("r:item_4", false, ""),
+		{"print-text", map[string]any{"text": "Fixed the test."}},
 	}
 	if !reflect.DeepEqual(told, want) {
 		t.Fatalf("told:\n%v\nwant:\n%v", told, want)
@@ -234,8 +235,14 @@ func TestCodexWatch_AnswersWhyATurnFailed(t *testing.T) {
 func TestCodexHeader_TellsTheModelAndSession(t *testing.T) {
 	var told []toldFrame
 	run := codexRun{provider: "gw", baseURLs: map[string]string{"corp": "https://llm.corp/v1"}}
+	var sessions []string
 	header := &codexHeader{run: &run, tell: func(subcommand string, payload map[string]any) {
 		told = append(told, toldFrame{subcommand, payload})
+	}, session: func(id string) {
+		// Once the header was told.
+		if len(told) == 1 {
+			sessions = append(sessions, id)
+		}
 	}}
 	for _, line := range []string{
 		"Reading additional input from stdin...",
@@ -259,6 +266,9 @@ func TestCodexHeader_TellsTheModelAndSession(t *testing.T) {
 	}}}
 	if !reflect.DeepEqual(told, want) {
 		t.Fatalf("told %v", told)
+	}
+	if !reflect.DeepEqual(sessions, []string{"01a1b19e-e57a-74f2-af0e-e1be5b21d5ac"}) {
+		t.Fatalf("sessions %v", sessions)
 	}
 }
 

@@ -156,7 +156,7 @@ func TestRunPrint_PassesTheRunOnAndTellsIt(t *testing.T) {
 		}
 	}
 	want := []string{
-		"print-start", "print-init",
+		"print-start", "print-init", "print-text",
 		"print-tool-use", "print-tool-result",
 		"print-tool-use", "print-tool-result",
 		"print-end",
@@ -341,12 +341,14 @@ func TestRunPrint_FollowsATextRunsTranscript(t *testing.T) {
 	for _, frame := range told {
 		got = append(got, frame.String())
 	}
-	if len(told) != 6 ||
+	if len(told) != 9 ||
 		told[0].Payload["tools_told"] != false ||
 		told[1].Subcommand != "print-init" || told[1].Payload["tools_told"] != true ||
 		told[2].Subcommand != "print-init" || told[2].Payload["model"] != "glm-4.6" ||
-		told[3].Subcommand != "print-tool-use" || told[4].Subcommand != "print-tool-result" ||
-		told[5].Subcommand != "print-end" || told[5].Payload["answer"] != "Printed answer." {
+		told[3].Subcommand != "print-text" || told[3].Payload["text"] != "Looking." ||
+		told[4].Subcommand != "print-tool-use" || told[5].Subcommand != "print-tool-result" ||
+		told[6].Payload["text"] != "It is fine." || told[7].Payload["text"] != "Ship it." ||
+		told[8].Subcommand != "print-end" || told[8].Payload["answer"] != "Printed answer." {
 		t.Fatalf("told %v", got)
 	}
 }
@@ -387,7 +389,7 @@ func TestRunPrint_FollowsTheSessionTheRunWasGiven(t *testing.T) {
 	if stderr.String() != "args: -p hi --session-id s1\n" {
 		t.Fatalf("claude ran with %q", stderr.String())
 	}
-	if told := fs.told(t); len(told) != 6 || told[5].Payload["answer"] != "It is fine.\nShip it." {
+	if told := fs.told(t); len(told) != 9 || told[8].Payload["answer"] != "It is fine.\nShip it." {
 		t.Fatalf("told %v", told)
 	}
 }
