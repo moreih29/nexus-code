@@ -434,6 +434,26 @@ describe("`claude -p` runs", () => {
     expect(activity().tools.map((tool) => tool.id)).toEqual(["t1"]);
   });
 
+  test("a codex exec run is told as codex's, with where its model is served", () => {
+    print("print-start", {
+      program: "codex",
+      prompt: "",
+      model: "gpt-6-luna",
+      endpoint: "gw.example.com",
+      tools_told: false,
+    });
+    print("print-init", { prompt: "Fix the test", session_id: "01a1b19e", endpoint: "llm.corp" });
+    expect(activity().agents[0]).toMatchObject({
+      kind: "print",
+      program: "codex",
+      model: "gpt-6-luna",
+      endpoint: "llm.corp",
+      prompt: "Fix the test",
+      sessionId: "01a1b19e",
+      toolsTold: false,
+    });
+  });
+
   test("a run ends as claude exited, with its answer", () => {
     print("print-start", { tools_told: true });
     print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });

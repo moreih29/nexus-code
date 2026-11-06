@@ -580,6 +580,7 @@
     "agents": {
       "label_fallback": "Subagent",
       "print": "claude -p",
+      "print_codex": "codex exec",
       "background": "background",
       "state": {
         "running": "Running",
@@ -603,6 +604,7 @@
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
         "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
+        "tools_untold_codex": "This run's tools are not recorded: codex tells them only with --json.",
         "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
@@ -1172,6 +1174,7 @@
     },
     "run": {
       "kind": "claude -p run",
+      "kind_codex": "codex exec run",
       "stop": "Stop",
       "stop_failed": "Could not stop it; the run may have ended.",
       "open_in_tab": "Go on in a tab"

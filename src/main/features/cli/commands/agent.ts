@@ -23,8 +23,9 @@ const SESSION_FLAGS = {
 
 const SESSION_DETAILS =
   "The agents are those of the Claude Code session in this terminal, or in --tab: its\n" +
-  'subagents, and the "claude -p" runs it starts. A run is named by its Claude session id;\n' +
-  'claude -p --resume <id> "..." goes on with it, and is listed as the same run going on.';
+  'subagents, and the "claude -p" and "codex exec" runs it starts. A run is named by its\n' +
+  'session id; claude -p --resume <id> "..." (codex exec resume <id> "...") goes on with it,\n' +
+  "and is listed as the same run going on.";
 
 const AGENT_DETAILS =
   "<agent> is an id from nexus agent list, or a unique prefix of one (4 characters or more).";
@@ -58,7 +59,8 @@ export function agentId(agent: AgentRun): string {
 }
 
 function agentKind(agent: AgentRun): string {
-  return agent.kind === "print" ? "claude -p" : (agent.type ?? "subagent");
+  if (agent.kind === "subagent") return agent.type ?? "subagent";
+  return agent.program === "codex" ? "codex exec" : "claude -p";
 }
 
 /** The agent `selector` names among the session's: an id, or a unique prefix. */
@@ -112,7 +114,7 @@ function agentJson(agent: AgentRun): Record<string, unknown> {
 
 const agentList: CliCommand = {
   path: ["agent", "list"],
-  summary: "List the subagents and claude -p runs of this terminal's Claude session",
+  summary: "List the subagents, claude -p and codex exec runs of this terminal's Claude session",
   details: SESSION_DETAILS,
   flags: SESSION_FLAGS,
   async run(ctx, { positionals, flags }) {
@@ -153,8 +155,13 @@ function describeAgent(agent: AgentRun, now: number): string {
     }, ran ${Math.round(ran / 1000)}s`,
   );
   field("Model", agent.model);
+  field("Via", agent.endpoint);
   if (agent.kind === "print" && agent.sessionId !== undefined) {
-    field("Session", `${agent.sessionId} (claude -p --resume ${agent.sessionId} goes on)`);
+    const resume =
+      agent.program === "codex"
+        ? `codex exec resume ${agent.sessionId}`
+        : `claude -p --resume ${agent.sessionId}`;
+    field("Session", `${agent.sessionId} (${resume} goes on)`);
   }
   field("Task", agent.description);
   field("Prompt", agent.prompt === undefined ? undefined : oneLine(agent.prompt, 300));
@@ -245,11 +252,11 @@ const agentWait: CliCommand = {
 
 const agentStop: CliCommand = {
   path: ["agent", "stop"],
-  summary: "Stop a claude -p run of this terminal's Claude session, as an interrupt would",
+  summary: "Stop a claude -p or codex exec run of this terminal's Claude session",
   args: "<agent>",
   details:
     `${AGENT_DETAILS}\n` +
-    "Its claude gets an interrupt, then is ended if it has not stopped after 5 seconds. A\n" +
+    "Its program gets an interrupt, then is ended if it has not stopped after 5 seconds. A\n" +
     "subagent cannot be stopped this way: it stops with its session's turn.",
   flags: SESSION_FLAGS,
   async run(ctx, { positionals, flags }) {

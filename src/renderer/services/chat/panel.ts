@@ -51,7 +51,12 @@ export interface AgentRow {
   lastText?: string;
   prompt?: string;
   teammate: boolean;
-  /** A `claude -p` run the session started, which has no Agent call (chat/print-runs.ts). */
+  /** Where a run's model is served, when not by its program's own API. */
+  endpoint?: string;
+  /**
+   * A `claude -p` or `codex exec` run the session started, which has no
+   * Agent call (chat/print-runs.ts).
+   */
   run?: AgentRun;
 }
 

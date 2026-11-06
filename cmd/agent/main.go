@@ -43,6 +43,12 @@ func main() {
 		os.Exit(hookclient.RunPrint(os.Args[2:]))
 	}
 
+	// A `codex exec` run inside a tab's Claude session runs under
+	// `agent exec-run <codex> <args>` (the codex wrapper).
+	if len(os.Args) >= 2 && os.Args[1] == "exec-run" {
+		os.Exit(hookclient.RunCodexExec(os.Args[2:]))
+	}
+
 	// The nexus command in the app's terminals runs `agent cli <args>`.
 	if len(os.Args) >= 2 && os.Args[1] == "cli" {
 		os.Exit(cliclient.Run(os.Args[2:]))

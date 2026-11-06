@@ -117,6 +117,7 @@ describe("chat launch", () => {
       NEXUS_TAB_ID: TAB,
       NEXUS_AGENT_BIN: "/w/agent",
       NEXUS_AGENT_PRINT_RUN: "1",
+      NEXUS_AGENT_EXEC_RUN: "1",
       NEXUS_AGENT_SOCKET: "/s",
       NEXUS_HOOK_TOKEN: "t",
       PATH: "/a:/b",

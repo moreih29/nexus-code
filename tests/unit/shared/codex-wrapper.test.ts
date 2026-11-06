@@ -142,6 +142,62 @@ describeOnPosix("codex wrapper", () => {
     expect(result.status).toBe(127);
     expect(result.stderr).toBe("codex: command not found\n");
   });
+
+  describe("codex exec inside a tab's Claude session", () => {
+    /** An agent that prints its arguments, as the fake codex does. */
+    function agent(): string {
+      return write(
+        path.join(tmp, "agent"),
+        '#!/bin/sh\necho "agent"\nfor arg in "$@"; do echo "arg: $arg"; done\n',
+      );
+    }
+
+    function session(extra: Record<string, string> = {}): Record<string, string> {
+      return {
+        NEXUS_TAB_ID: "t1",
+        NEXUS_CLAUDE_TAB_ID: "t1",
+        NEXUS_AGENT_EXEC_RUN: "1",
+        NEXUS_AGENT_BIN: agent(),
+        ...extra,
+      };
+    }
+
+    test("runs under the agent's exec-run, with the real codex and --no-daemon", () => {
+      const dirs = install();
+      const result = run(["-m", "o3", "-c", "x=1", "exec", "--json", "-"], session(), dirs);
+      expect(result.stdout).toStartWith("agent\n");
+      expect(argsOf(result.stdout)).toEqual([
+        "exec-run",
+        path.join(dirs.realDir, "codex"),
+        "--no-daemon",
+        "-m",
+        "o3",
+        "-c",
+        "x=1",
+        "exec",
+        "--json",
+        "-",
+      ]);
+      expect(argsOf(run(["e", "hi"], session()).stdout)[0]).toBe("exec-run");
+    });
+
+    test("leaves codex as it is for another command, an option's value, or a prompt", () => {
+      for (const args of [["hi"], ["resume", "--last"], ["-m", "exec", "hi"], ["--", "exec"]]) {
+        expect(run(args, session()).stdout).toStartWith("real codex\n");
+      }
+    });
+
+    test("leaves it to codex outside the session, or with an agent without exec-run", () => {
+      for (const env of [
+        session({ NEXUS_CLAUDE_TAB_ID: "" }),
+        session({ NEXUS_CLAUDE_TAB_ID: "t2" }),
+        session({ NEXUS_AGENT_EXEC_RUN: "" }),
+        session({ NEXUS_AGENT_BIN: path.join(tmp, "missing") }),
+      ]) {
+        expect(run(["exec", "hi"], env).stdout).toStartWith("real codex\n");
+      }
+    });
+  });
 });
 
 describeInGitBash("codex wrapper — Git Bash on Windows", () => {

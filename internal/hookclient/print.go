@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -240,42 +241,11 @@ func runPrint(
 		cmd.Stdout = stdout
 	}
 
-	signals := make(chan os.Signal, 4)
-	signal.Notify(signals, forwardedSignals...)
-	defer signal.Stop(signals)
-	// A write to output no one reads fails rather than kill the run's end.
-	// (Notify with no signals would take them all.)
-	if len(swallowedSignals) > 0 {
-		quiet := make(chan os.Signal, 1)
-		signal.Notify(quiet, swallowedSignals...)
-		defer signal.Stop(quiet)
-	}
-
-	if err := cmd.Start(); err != nil {
-		fmt.Fprintf(stderr, "nexus: %v\n", err)
+	proc, ok := startSupervised(cmd, teller, stderr)
+	if !ok {
 		return 127, 0
 	}
-	// The first signal the run got: claude may end by it with an exit code
-	// of its own.
-	stopped := make(chan os.Signal, 1)
-	go func() {
-		for s := range signals {
-			select {
-			case stopped <- s:
-			default:
-			}
-			_ = cmd.Process.Signal(s)
-		}
-	}()
-	// The app stops the run as the session's ^C would.
-	teller.onStop(func() {
-		if s := stopProcess(cmd.Process); s != nil {
-			select {
-			case stopped <- s:
-			default:
-			}
-		}
-	})
+	defer proc.release()
 
 	cwd, _ := os.Getwd()
 	start := map[string]any{
@@ -289,6 +259,9 @@ func runPrint(
 	}
 	if run.resumed {
 		start["resumed"] = true
+	}
+	if endpoint := endpointHost(os.Getenv("ANTHROPIC_BASE_URL"), "api.anthropic.com"); endpoint != "" {
+		start["endpoint"] = endpoint
 	}
 	teller.tell("print-start", start)
 	known := run.prompt != ""
@@ -312,26 +285,88 @@ func runPrint(
 		answer = told.reply
 	}
 
-	code = cmd.ProcessState.ExitCode()
-	end := map[string]any{}
-	if n, name, ok := signalOf(cmd.ProcessState); ok {
-		sig = n
-		end["signal"] = name
-	} else {
-		end["exit_code"] = code
-		// Stopped by the app: claude may exit 0 on an interrupt, printing
-		// "Execution error" as its answer.
-		select {
-		case s := <-stopped:
-			end["signal"] = s.String()
-		default:
-		}
-	}
+	code, sig, end := proc.ending()
 	if answer != "" {
 		end["answer"] = answer
 	}
 	teller.finish("print-end", end, printEndWait)
 	return code, sig
+}
+
+// supervised is a run's process, started with the signals the run gets
+// passed on to it and the app's stop wired to it.
+type supervised struct {
+	cmd *exec.Cmd
+	// stopped is the first signal the run got: the program may end by it
+	// with an exit code of its own.
+	stopped chan os.Signal
+	release func()
+}
+
+// startSupervised starts cmd: the signals the run gets reach it, and the
+// app stops it as the session's ^C would. False when it could not start,
+// which is told on stderr. release, deferred, stops taking the signals.
+func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*supervised, bool) {
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, forwardedSignals...)
+	// A write to output no one reads fails rather than kill the run's end.
+	// (Notify with no signals would take them all.)
+	var quiet chan os.Signal
+	if len(swallowedSignals) > 0 {
+		quiet = make(chan os.Signal, 1)
+		signal.Notify(quiet, swallowedSignals...)
+	}
+	release := func() {
+		signal.Stop(signals)
+		if quiet != nil {
+			signal.Stop(quiet)
+		}
+	}
+	if err := cmd.Start(); err != nil {
+		release()
+		fmt.Fprintf(stderr, "nexus: %v\n", err)
+		return nil, false
+	}
+	stopped := make(chan os.Signal, 1)
+	go func() {
+		for s := range signals {
+			select {
+			case stopped <- s:
+			default:
+			}
+			_ = cmd.Process.Signal(s)
+		}
+	}()
+	teller.onStop(func() {
+		if s := stopProcess(cmd.Process); s != nil {
+			select {
+			case stopped <- s:
+			default:
+			}
+		}
+	})
+	return &supervised{cmd: cmd, stopped: stopped, release: release}, true
+}
+
+// ending is how the run's process ended, once waited for: its exit code,
+// or the signal it died of, and the end frame's payload telling it.
+func (p *supervised) ending() (code int, sig int, end map[string]any) {
+	code = p.cmd.ProcessState.ExitCode()
+	end = map[string]any{}
+	if n, name, ok := signalOf(p.cmd.ProcessState); ok {
+		sig = n
+		end["signal"] = name
+		return code, sig, end
+	}
+	end["exit_code"] = code
+	// Stopped by the app: the program may exit 0 on an interrupt, as claude
+	// does printing "Execution error" as its answer.
+	select {
+	case s := <-p.stopped:
+		end["signal"] = s.String()
+	default:
+	}
+	return code, sig, end
 }
 
 // passOutput copies r to w as it comes, and hands each line to `line`
@@ -558,6 +593,24 @@ func trimInput(input json.RawMessage) any {
 		}
 	}
 	return fields
+}
+
+// endpointHost is the host a base URL names, as "gw.example.com:8443",
+// when it is not `home`, the program's own API: a run whose model is served
+// elsewhere tells where. Nothing else of the URL is told, as a key in it.
+func endpointHost(base, home string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return ""
+	}
+	if !strings.Contains(base, "://") {
+		base = "https://" + base
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" || strings.EqualFold(u.Hostname(), home) {
+		return ""
+	}
+	return u.Host
 }
 
 // isTerminal is whether w is a terminal.
