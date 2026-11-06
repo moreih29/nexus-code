@@ -244,7 +244,7 @@ function UserBubble({ item, actions }: { item: UserItem; actions?: MessageAction
         </div>
       )}
       {text && (
-        <div className="max-w-[85%] rounded-(--radius-raised) bg-muted px-3 py-2 text-app-body whitespace-pre-wrap break-words select-text">
+        <div className="max-w-[85%] rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2 text-app-body whitespace-pre-wrap break-words select-text">
           {text}
         </div>
       )}
@@ -397,13 +397,23 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
   );
 }
 
+/** The notices that report trouble, in its hue; the rest stay quiet. */
+const NOTICE_TINT: Partial<Record<NoticeItem["code"], string>> = {
+  error: "text-[var(--state-error-fg)]",
+  dropped: "text-[var(--state-warning-fg)]",
+  interrupted: "text-[var(--state-warning-fg)]",
+};
+
 function Notice({ item }: { item: NoticeItem }) {
   const { t } = useTranslation();
   const label = t(`chat.notice.${item.code}`, useAgentContext());
   return (
     <div className="flex items-center gap-2 text-app-micro text-muted-foreground" role="note">
       <div className="h-px flex-1 bg-border" />
-      <span className="max-w-[70%] truncate" title={item.detail || label}>
+      <span
+        className={cn("max-w-[70%] truncate", NOTICE_TINT[item.code])}
+        title={item.detail || label}
+      >
         {label}
         {item.detail && item.code !== "exited" ? ` · ${item.detail}` : ""}
       </span>
