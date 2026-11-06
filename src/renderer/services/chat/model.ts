@@ -7,6 +7,8 @@
 // later versions are ignored, and every field it may leave out is read as
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
+import { terminalText } from "../editor/preview/notebook";
+
 export type LineDir = "out" | "in" | "sys";
 
 export interface ChatLine {
@@ -378,7 +380,9 @@ export function applySys(draft: Draft, message: Rec, seq: number, at: number | u
     case "exit": {
       const code = num(message.code) ?? null;
       const signal = str(message.signal);
-      const stderrTail = str(message.stderrTail);
+      // What the program wrote to a terminal: Codex colours its log lines.
+      const stderr = str(message.stderrTail);
+      const stderrTail = stderr === undefined ? undefined : terminalText(stderr);
       m.process = "exited";
       m.exit = { code, ...(signal ? { signal } : {}), ...(stderrTail ? { stderrTail } : {}) };
       m.running = false;
