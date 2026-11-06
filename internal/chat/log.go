@@ -17,6 +17,9 @@ type entry struct {
 	// transient marks a stream event: a token of a message still being
 	// written. The complete message follows it, and then it is dropped.
 	transient bool
+	// pinned marks a line the cap does not drop, nor count: a file's
+	// original, which a client needs however long the conversation runs.
+	pinned bool
 }
 
 func (e *entry) size() int {
@@ -59,6 +62,15 @@ func (l *lineLog) add(dir string, message json.RawMessage, text string) *entry {
 	l.entries = append(l.entries, e)
 	l.bytes += e.size()
 	l.trim()
+	return e
+}
+
+// addPinned appends a line the cap keeps. What it holds is bounded by
+// whoever adds it.
+func (l *lineLog) addPinned(dir string, message json.RawMessage) *entry {
+	e := &entry{seq: l.nextSeq, dir: dir, message: message, at: time.Now().UnixMilli(), pinned: true}
+	l.nextSeq++
+	l.entries = append(l.entries, e)
 	return e
 }
 
@@ -108,24 +120,36 @@ func (l *lineLog) dropTransient() {
 }
 
 // trim drops the oldest lines while the log is over its cap, always keeping
-// the newest one.
+// the newest one and the pinned ones.
 func (l *lineLog) trim() {
-	drop := 0
-	for l.bytes > l.cap && drop < len(l.entries)-1 {
-		l.bytes -= l.entries[drop].size()
-		drop++
+	if l.bytes <= l.cap {
+		return
 	}
-	if drop == 0 {
+	last := len(l.entries) - 1
+	rest := make([]*entry, 0, cap(l.entries))
+	// dropped counts the lines dropped before the first transient one.
+	dropped := 0
+	for i, e := range l.entries {
+		if l.bytes > l.cap && i < last && !e.pinned {
+			l.bytes -= e.size()
+			if i < l.transientFrom {
+				dropped++
+			}
+			continue
+		}
+		rest = append(rest, e)
+	}
+	if len(rest) == len(l.entries) {
 		return
 	}
 	l.truncated = true
-	rest := make([]*entry, len(l.entries)-drop, cap(l.entries))
-	copy(rest, l.entries[drop:])
 	l.entries = rest
 	if l.transientFrom >= 0 {
-		l.transientFrom -= drop
-		if l.transientFrom < 0 {
-			l.transientFrom = 0
+		// The first transient line may itself have been dropped; starting
+		// at a line before it is harmless.
+		l.transientFrom -= dropped
+		if l.transientFrom >= len(l.entries) {
+			l.transientFrom = len(l.entries) - 1
 		}
 	}
 }

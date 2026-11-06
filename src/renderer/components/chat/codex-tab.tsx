@@ -11,7 +11,7 @@ import {
   codexController,
   MIN_CODEX_VERSION,
 } from "../../services/chat/codex-controller";
-import type { CodexModel } from "../../services/chat/codex-model";
+import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import {
   type FileLink,
@@ -24,6 +24,7 @@ import {
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
+import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
 import { clipTitle, titleOf } from "../../services/chat/tab-title";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -116,12 +117,18 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
     const cwd = props.cwd;
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
     const show = (path: string, line?: LineAt) => {
-      const { model: current } = latest.current.state;
+      const current = latest.current.state.model as CodexModel;
       const files = resultFiles(resultsOf(current.items, current.tools), cwd);
       const at = files.indexOf(path);
       if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
       const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
-      setLook(line?.line ? { ...list, at: { path, line: line.line, column: line.column } } : list);
+      // A file the session changed shows as a diff, when the agent kept its original.
+      const changes = originalsFor(current.originals, list.files);
+      setLook(
+        line?.line
+          ? { ...list, changes, at: { path, line: line.line, column: line.column } }
+          : { ...list, changes },
+      );
     };
     /** The file a link names, and where in it, once it is known which file that is. */
     const follow = (target: string, then: (link: FileLink) => void) => {
@@ -245,6 +252,15 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             setLook(null);
             links.openFileTab(path, at);
           }}
+          onRevert={(path) => {
+            const before = look.changes?.[path];
+            if (before !== undefined) {
+              void revertChangedFile(workspaceId, rootPath, path, before, "codex");
+            }
+          }}
+          revertBlocked={
+            model.running ? t("chat.look.revert_busy", { context: "codex" }) : undefined
+          }
         />
       )}
     </div>

@@ -5,6 +5,7 @@ import {
   emptyCodexModel,
   hunksOf,
   modeOf,
+  originalsFor,
   shownCommand,
 } from "../../../../../src/renderer/services/chat/codex-model";
 import type {
@@ -501,6 +502,18 @@ describe("codex model", () => {
     expect(m.threadId).toBe(T);
   });
 
+  test("the files' originals the agent took are kept, whatever comes after", () => {
+    const m = run([
+      ...started(),
+      sys({ event: "snapshot", path: "/w/a.ts", before: "old\r\n" }),
+      sys({ event: "snapshot", path: "/w/new.ts", before: null }),
+      sys({ event: "snapshot", path: "/w/odd.ts", before: 3 }),
+      sys({ event: "exit", code: 0 }),
+    ]);
+    expect(m.originals).toEqual({ "/w/a.ts": "old\r\n", "/w/new.ts": null });
+    expect(m.items.filter((item) => item.kind === "notice")).toHaveLength(1);
+  });
+
   test("the models, the account and errors of the app's own requests", () => {
     const m = run([
       ...started(),
@@ -595,6 +608,16 @@ describe("codex helpers", () => {
     expect(shownCommand("bash -lc 'a' 'b'")).toBe("bash -lc 'a' 'b'");
     expect(shownCommand('bash -lc "echo $HOME"')).toBe('bash -lc "echo $HOME"');
     expect(shownCommand("ls -la")).toBe("ls -la");
+  });
+
+  test("originalsFor finds a list's files, a Windows path whichever way it is written", () => {
+    const originals = { "C:\\w\\src\\a.ts": "a", "/srv/b.ts": null, "/srv/c.ts": "c" };
+    expect(
+      originalsFor(originals, ["c:/w/src/a.ts", "/srv/b.ts", "/srv/C.ts", "/srv/d.ts"]),
+    ).toEqual({
+      "c:/w/src/a.ts": "a",
+      "/srv/b.ts": null,
+    });
   });
 
   test("hunksOf reads unified diffs and whole files", () => {

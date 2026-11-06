@@ -1,6 +1,7 @@
 // The conversation a Codex tab shows, rebuilt from the lines of its
 // program's log: the JSON-RPC that `codex app-server` wrote (out), what the
-// app wrote it (in), and the agent's own start and exit (sys).
+// app wrote it (in), and the agent's own lines (sys): the program's start
+// and exit, and the files the session changed as they were before it.
 //
 // It builds the model a Claude tab builds, so a Codex tab shows it with the
 // same list, rows and cards: a turn is an assistant message, an item of it
@@ -60,10 +61,16 @@ export interface CodexModel extends ChatModel {
   blocks: Record<string, { key: string; index: number }>;
   /** The server's requests waiting for an answer, by their JSON id. */
   requests: Record<string, CodexServerRequest>;
+  /**
+   * The files the session changed as they were before its first change,
+   * by path as the agent wrote it; null for a file it wrote new. Only the
+   * agent's, which it checked against the hashes in Codex's turn diff.
+   */
+  originals: Record<string, string | null>;
 }
 
 export function emptyCodexModel(): CodexModel {
-  return { ...emptyModel(), blocks: {}, requests: {} };
+  return { ...emptyModel(), blocks: {}, requests: {}, originals: {} };
 }
 
 /** A JSON-RPC id as a key, so the number 1 and the string "1" stay apart. */
@@ -89,7 +96,13 @@ export function applyCodexLine(
   const message = rec(line.message);
   if (!message) return draft.next;
   const at = line.at ?? (line.replay ? undefined : now);
-  if (line.dir === "sys") {
+  if (line.dir === "sys" && message.event === "snapshot") {
+    const path = str(message.path);
+    const before = message.before;
+    if (path && (typeof before === "string" || before === null)) {
+      draft.next.originals = { ...draft.next.originals, [path]: before };
+    }
+  } else if (line.dir === "sys") {
     applySys(draft, message, line.seq, at);
     if (message.event === "start" || message.event === "exit") {
       // A program's requests and turn end with it; the thread goes on.
@@ -873,6 +886,29 @@ export function hunksOf(diff: string, kind: string | undefined): { lines: string
     if (!line.startsWith("\\")) hunks.at(-1)?.lines.push(line);
   }
   return hunks;
+}
+
+/**
+ * The originals of the files a list shows, by the list's own paths. A
+ * Windows path matches whichever way its separators and case are written.
+ */
+export function originalsFor(
+  originals: Readonly<Record<string, string | null>>,
+  files: readonly string[],
+): Record<string, string | null> {
+  const known = new Map<string, string | null>();
+  for (const [path, before] of Object.entries(originals)) known.set(pathKey(path), before);
+  const found: Record<string, string | null> = {};
+  for (const file of files) {
+    const before = known.get(pathKey(file));
+    if (before !== undefined) found[file] = before;
+  }
+  return found;
+}
+
+/** A path as the file it names: a Windows one with `/`, in lower case. */
+function pathKey(path: string): string {
+  return /^[A-Za-z]:[\\/]/.test(path) ? path.replace(/\\/g, "/").toLowerCase() : path;
 }
 
 /** The ids of the tool calls an item is: itself, or one for each file it changes. */

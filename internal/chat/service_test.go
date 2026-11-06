@@ -40,6 +40,9 @@ func TestFakeProgramHelper(t *testing.T) {
 			continue
 		case "hang":
 			time.Sleep(time.Hour)
+		case "line":
+			fmt.Println(os.Getenv("NEXUS_CHAT_FAKE_LINE"))
+			continue
 		}
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", msg.Text)
 		fmt.Printf(`{"type":"stream_event","event":{"delta":%q}}`+"\n", "!")
