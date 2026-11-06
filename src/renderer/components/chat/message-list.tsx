@@ -44,6 +44,7 @@ import { cn } from "../../utils/cn";
 import { AnswerExtrasView } from "./answer-extras";
 import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
+import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { ToolRow } from "./tool-row";
 
 interface MessageListProps {
@@ -331,14 +332,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
           <Thinking key={i} text={block.text} />
         ) : (
-          <ToolRow
-            key={block.toolUseId}
-            toolUseId={block.toolUseId}
-            tool={ctx.tools[block.toolUseId]}
-            tools={ctx.tools}
-            cwd={ctx.cwd}
-            onBackground={backgroundOf(ctx.actions, block.toolUseId)}
-          />
+          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} />
         ),
       )}
       {extras && <AnswerExtrasView extras={extras} workspaceId={ctx.workspaceId} cwd={ctx.cwd} />}
@@ -453,6 +447,32 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
   );
 }
 
+/** A call as a row: one that asked the user shows what they said. */
+function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
+  const tool = ctx.tools[toolUseId];
+  if (showsAsPrompt(tool)) {
+    return tool.name === "AskUserQuestion" ? (
+      <AnsweredQuestions tool={tool} />
+    ) : (
+      <PlanOutcome
+        tool={tool}
+        workspaceId={ctx.workspaceId}
+        cwd={ctx.cwd}
+        rootPath={ctx.rootPath}
+      />
+    );
+  }
+  return (
+    <ToolRow
+      toolUseId={toolUseId}
+      tool={tool}
+      tools={ctx.tools}
+      cwd={ctx.cwd}
+      onBackground={backgroundOf(ctx.actions, toolUseId)}
+    />
+  );
+}
+
 function Thinking({ text, live = false }: { text: string; live?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -496,14 +516,7 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
         ) : block.type === "thinking" ? (
           <Thinking key={index} text={block.text} live />
         ) : block.toolUseId ? (
-          <ToolRow
-            key={block.toolUseId}
-            toolUseId={block.toolUseId}
-            tool={ctx.tools[block.toolUseId]}
-            tools={ctx.tools}
-            cwd={ctx.cwd}
-            onBackground={backgroundOf(ctx.actions, block.toolUseId)}
-          />
+          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} />
         ) : null,
       )}
     </div>
