@@ -5,9 +5,9 @@
  *   "inline" — padded box inside a panel; variable height; used for operation notices.
  *   "bar"    — h-6 full-width status bar above editor/workspace; fixed height.
  *
- * Variant drives icon + destructive styling; the almost-monochromatic mission
- * means info/warning/success all render with the same muted chrome — only
- * "error" carries a distinct destructive color signal.
+ * Variant drives icon + destructive styling: info/warning/success share the
+ * same muted chrome and say which they are by the icon, drawn in the theme's
+ * hue for it; only "error" tints the whole box.
  */
 import { CheckCircle2, CircleAlert, Info } from "lucide-react";
 import { cn } from "@/utils/cn";
@@ -46,10 +46,21 @@ export function bannerColorClass(variant: BannerVariant): string {
 }
 
 function BannerIcon({ variant, className }: { variant: BannerVariant; className?: string }) {
-  if (variant === "success") return <CheckCircle2 className={className} aria-hidden="true" />;
-  if (variant === "error" || variant === "warning")
-    return <CircleAlert className={className} aria-hidden="true" />;
-  return <Info className={className} aria-hidden="true" />;
+  if (variant === "success") {
+    return (
+      <CheckCircle2
+        className={cn(className, "text-[var(--state-success-fg)]")}
+        aria-hidden="true"
+      />
+    );
+  }
+  if (variant === "warning") {
+    return (
+      <CircleAlert className={cn(className, "text-[var(--state-warning-fg)]")} aria-hidden="true" />
+    );
+  }
+  if (variant === "error") return <CircleAlert className={className} aria-hidden="true" />;
+  return <Info className={cn(className, "text-[var(--state-info-fg)]")} aria-hidden="true" />;
 }
 
 /**
