@@ -13,6 +13,11 @@ import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { createSshChannel } from "../../infra/agent/ssh/channel";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import {
+  resolveSshHostConfig,
+  type SshHostConfig,
+  type SshTarget,
+} from "../../infra/agent/ssh/ssh2/config";
+import {
   type EnsureRemoteAgentOptions,
   ensureRemoteAgent,
   type LspBootstrapProgressEvent,
@@ -24,13 +29,34 @@ import { parseSshConfig, type SshConfigHost } from "./config";
 const c = ipcContract.ssh.call;
 const log = createLogger("ssh");
 
+/** The host fields a browse session connects with. */
+type SshUserTarget = Pick<SshTarget, "host" | "user" | "port" | "identityFile">;
+
 /**
- * Resolves the SSH login user. When the caller leaves `user` unset — i.e. the
- * user typed only a host — default to the local account name, matching plain
- * `ssh <host>` behaviour, which connects as the current local user.
+ * Resolves the SSH login user. When the caller leaves `user` unset — the user
+ * typed only a host — it is the user `ssh <host>` logs in as: the config's
+ * User for that host as `ssh -G` prints it (Include files, `Host *` and Match
+ * blocks too), else the local account name.
  */
-function resolveSshUser(user: string | undefined): string {
-  if (user && user.trim().length > 0) return user;
+export async function resolveSshUser(
+  target: SshUserTarget,
+  resolveConfig: (target: SshTarget) => Promise<Pick<SshHostConfig, "user">> = resolveSshHostConfig,
+): Promise<string> {
+  if (target.user && target.user.trim().length > 0) return target.user;
+  try {
+    const { user } = await resolveConfig({
+      host: target.host,
+      port: target.port,
+      identityFile: target.identityFile,
+    });
+    if (user.length > 0) return user;
+  } catch {
+    // Fall through to the local account, as plain `ssh` would without a config.
+  }
+  return localUserName();
+}
+
+function localUserName(): string {
   try {
     return os.userInfo().username;
   } catch {
@@ -156,15 +182,17 @@ export function openBrowseSessionHandler(
     // createBootstrapContext skips interactive auth and password-only hosts
     // fail before the agent channel is ever opened.
     ensureRemoteAgent(options, { promptHandler, onProgress }),
+  resolveUser: (target: SshUserTarget) => Promise<string> = resolveSshUser,
 ): (args: unknown) => Promise<{ sessionId: string; initialPath: string; user: string }> {
   return async (
     args: unknown,
   ): Promise<{ sessionId: string; initialPath: string; user: string }> => {
     const params = validateArgs(c.openBrowseSession.args, args);
 
-    // Host-only input leaves `user` unset — fall back to the local account
-    // name so the connection (and the saved profile) has a concrete user.
-    const user = resolveSshUser(params.user);
+    // Host-only input leaves `user` unset — resolve the one ssh would use, so
+    // the connection (and the saved profile) has a concrete user that does
+    // not override the config's.
+    const user = await resolveUser(params);
 
     // Stream agent-bootstrap progress to the renderer for this connect attempt.
     // Keyed by the caller's progressId so the "add workspace" dialog can show
