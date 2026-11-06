@@ -858,7 +858,23 @@
       "subagent_calls_one": "{{count}} call",
       "subagent_calls_other": "{{count}} calls",
       "background": "To background",
-      "background_hint": "Keep it running in the background, and go on with the turn"
+      "background_hint": "Keep it running in the background, and go on with the turn",
+      "run": {
+        "commands_one": "Ran {{count}} command",
+        "commands_other": "Ran {{count}} commands",
+        "reads_one": "Read {{count}} file",
+        "reads_other": "Read {{count}} files",
+        "edits_one": "Edited {{count}} file",
+        "edits_other": "Edited {{count}} files",
+        "searches_one": "Searched {{count}} time",
+        "searches_other": "Searched {{count}} times",
+        "others_one": "Used {{count}} tool",
+        "others_other": "Used {{count}} tools",
+        "failed_one": "{{count}} failed",
+        "failed_other": "{{count}} failed",
+        "denied_one": "{{count}} denied",
+        "denied_other": "{{count}} denied"
+      }
     },
     "permission": {
       "aria": "Permission request",
