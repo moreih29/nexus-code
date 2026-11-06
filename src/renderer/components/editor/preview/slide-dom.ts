@@ -187,6 +187,9 @@ function styleValue(property: string, value: string, fontScale: number): string 
   return value;
 }
 
+/** CSS pixels in a point. */
+const PX_PER_PT = 4 / 3;
+
 function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement {
   const ns = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(ns, "svg");
@@ -211,7 +214,9 @@ function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement
   const strokeWidth = item.borderWidth > 0 ? item.borderWidth : lineOnly ? 1 : 0;
   if (stroke && strokeWidth > 0) {
     path.setAttribute("stroke", stroke);
-    path.setAttribute("stroke-width", String(strokeWidth));
+    // A stroke that does not scale is as wide as it says in CSS pixels;
+    // the file gives it in points.
+    path.setAttribute("stroke-width", String(strokeWidth * PX_PER_PT));
     path.setAttribute("vector-effect", "non-scaling-stroke");
     if (item.borderType !== "solid" && /^[\d.\s,]+$/.test(item.borderStrokeDasharray)) {
       path.setAttribute("stroke-dasharray", item.borderStrokeDasharray);
