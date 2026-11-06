@@ -461,11 +461,7 @@ export class CodexController {
       roots: [this.target.cwd],
       cancellationToken: null,
     });
-    if (!Array.isArray(result.files)) return [];
-    return result.files.slice(0, MAX_SUGGESTIONS).flatMap((raw) => {
-      const path = (raw as { path?: unknown } | null)?.path;
-      return typeof path === "string" && path ? [path] : [];
-    });
+    return suggestedPaths(result.files);
   }
 
   /** Writes a file attached to a message where the program can read it; its path there. */
@@ -630,6 +626,23 @@ const CARD_REQUESTS = new Set([
   "item/permissions/requestApproval",
   "item/tool/requestUserInput",
 ]);
+
+/** A path in a `.git` folder, by either separator: git's files, not the project's. */
+const IN_GIT = /(^|[\\/])\.git([\\/]|$)/;
+
+/**
+ * The paths an @-mention may name among the server's fuzzy search results.
+ * The search leaves out what .gitignore does, but not git's own folder.
+ */
+export function suggestedPaths(files: unknown): string[] {
+  if (!Array.isArray(files)) return [];
+  return files
+    .flatMap((raw) => {
+      const path = (raw as { path?: unknown } | null)?.path;
+      return typeof path === "string" && path && !IN_GIT.test(path) ? [path] : [];
+    })
+    .slice(0, MAX_SUGGESTIONS);
+}
 
 /** The answer to a request of the server's, from what the user picked on its card. */
 export function answerOf(
