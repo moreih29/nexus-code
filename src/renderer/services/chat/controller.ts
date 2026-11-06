@@ -118,7 +118,11 @@ export type PermissionAnswer =
       /** Rules or a mode the allow brings with it (ExitPlanMode's accept-edits). */
       updatedPermissions?: unknown[];
     }
-  | { kind: "allow-always" }
+  | {
+      kind: "allow-always";
+      /** The rules or modes to add, of those the request suggests; all of them when left out. */
+      suggestions?: unknown[];
+    }
   | { kind: "deny"; message?: string }
   | { kind: "deny-stop"; message?: string };
 
@@ -835,7 +839,7 @@ export class ChatController {
         body = {
           behavior: "allow",
           updatedInput: request.input,
-          updatedPermissions: request.suggestions,
+          updatedPermissions: answer.suggestions ?? request.suggestions,
         };
         break;
       case "deny":

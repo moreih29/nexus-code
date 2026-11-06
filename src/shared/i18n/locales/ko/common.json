@@ -854,14 +854,13 @@
     },
     "permission": {
       "aria": "권한 요청",
-      "title": "Claude가 {{tool}}을(를) 사용하려 합니다",
       "from_subagent": "하위 에이전트의 요청",
       "page": "{{total}}개 중 {{current}}",
       "previous": "이전 요청",
       "next": "다음 요청",
       "allow": "허용",
       "allow_always": "항상 허용",
-      "deny": "거부…",
+      "deny": "거부",
       "deny_send": "거부",
       "deny_stop": "거부하고 중단",
       "deny_placeholder": "대신 무엇을 할지 Claude에게 알려주세요 (선택)",
@@ -869,21 +868,29 @@
       "suggest_mode": "{{mode}}(으)로 전환",
       "suggest_dirs": "{{dirs}} 허용",
       "suggest_session": "Codex가 다시 시작될 때까지 묻지 않고 허용합니다",
-      "title_codex": "Codex가 {{tool}}을(를) 사용하려 합니다",
-      "deny_placeholder_codex": "대신 무엇을 할지 Codex에게 알려주세요 (선택)"
+      "deny_placeholder_codex": "대신 무엇을 할지 Codex에게 알려주세요 (선택)",
+      "back_esc": "뒤로 (Esc)",
+      "deny_reason": "거부 이유",
+      "allow_always_one": "하나만 항상 허용"
     },
     "question": {
       "other": "다른 답변",
       "skip": "건너뛰기",
-      "submit": "답변하기"
+      "submit": "답변 보내기",
+      "numbered": "질문 {{n}}",
+      "expand": "더 보기",
+      "collapse": "접기"
     },
     "plan": {
-      "title": "Claude의 계획",
+      "title": "계획",
       "request_changes": "수정 요청",
       "approve_manual": "승인하고 편집마다 확인",
       "approve_accept_edits": "승인하고 편집 자동 수락",
       "feedback_placeholder": "계획에서 무엇을 바꿀까요?",
-      "send_feedback": "보내기"
+      "send_feedback": "보내기",
+      "approve": "승인",
+      "accept_edits": "편집 자동 수락",
+      "approve_other": "다른 승인 방법"
     },
     "status": {
       "working": "작업 중",
