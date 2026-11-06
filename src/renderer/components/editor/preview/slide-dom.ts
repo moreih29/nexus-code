@@ -8,6 +8,7 @@
 
 import { LINE_BREAK } from "../../../services/editor/preview/pptx-breaks";
 import { type RichNode, sanitizeRichText } from "../../../services/editor/preview/rich-text";
+import { type EndMark, lineEnds } from "./line-ends";
 
 type Presentation = Awaited<ReturnType<typeof import("pptxtojson")["parse"]>>;
 type Slide = Presentation["slides"][number];
@@ -231,9 +232,42 @@ function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement
     if (item.borderType !== "solid" && /^[\d.\s,]+$/.test(item.borderStrokeDasharray)) {
       path.setAttribute("stroke-dasharray", item.borderStrokeDasharray);
     }
+    // The path is in points, as the box is, so its arrowheads are too.
+    const ends = lineEnds(item.path ?? "", strokeWidth, item.headEnd, item.tailEnd);
+    if (ends) {
+      path.setAttribute("d", ends.path);
+      svg.append(path, ...ends.marks.map((mark) => endMarkSvg(mark, stroke, strokeWidth)));
+      return svg;
+    }
   }
   svg.append(path);
   return svg;
+}
+
+/** An arrowhead in the line's color: filled, or an open one stroked as wide as the line. */
+function endMarkSvg(mark: EndMark, color: string, width: number): SVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  if (mark.kind === "ellipse") {
+    const ellipse = document.createElementNS(ns, "ellipse");
+    ellipse.setAttribute("cx", String(mark.center.x));
+    ellipse.setAttribute("cy", String(mark.center.y));
+    ellipse.setAttribute("rx", String(mark.rx));
+    ellipse.setAttribute("ry", String(mark.ry));
+    ellipse.setAttribute("transform", `rotate(${mark.angle} ${mark.center.x} ${mark.center.y})`);
+    ellipse.setAttribute("fill", color);
+    return ellipse;
+  }
+  const shape = document.createElementNS(ns, mark.kind);
+  shape.setAttribute("points", mark.points.map(({ x, y }) => `${x},${y}`).join(" "));
+  if (mark.kind === "polygon") {
+    shape.setAttribute("fill", color);
+  } else {
+    shape.setAttribute("fill", "none");
+    shape.setAttribute("stroke", color);
+    shape.setAttribute("stroke-width", String(width));
+    shape.setAttribute("stroke-linejoin", "miter");
+  }
+  return shape;
 }
 
 /** A picture cropped as the file crops it: `rect` takes percentages off each side. */
