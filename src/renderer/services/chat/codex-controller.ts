@@ -92,6 +92,8 @@ export interface CodexTabHooks {
   onThread?: (threadId: string) => void;
   /** The first message of the conversation, for the tab's title. */
   onFirstMessage?: (text: string) => void;
+  /** The name the thread was given, to take the first message's place. */
+  onTitle?: (title: string) => void;
 }
 
 let counter = 0;
@@ -579,7 +581,7 @@ export class CodexController {
     }
     if (model.threadName && !this.titled) {
       this.titled = true;
-      this.hooks.onFirstMessage?.(model.threadName);
+      this.hooks.onTitle?.(model.threadName);
     }
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {

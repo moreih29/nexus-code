@@ -35,6 +35,7 @@ import {
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
+import { clipTitle, titleOf } from "../../services/chat/tab-title";
 import { printRunRows, stopPrintRun, usePrintRuns } from "../../services/chat/print-runs";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
@@ -68,9 +69,6 @@ interface ClaudeTabViewProps {
   props: ClaudeTabProps;
   isVisible: boolean;
 }
-
-/** Longest first message kept as the tab's title. */
-const TITLE_CHARS = 40;
 
 /** From this width the side panel sits beside the conversation. */
 const PANEL_BESIDE_PX = 900;
@@ -129,6 +127,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           onTarget: (target) => useTabsStore.getState().setClaudeTarget(workspaceId, tabId, target),
           onFirstMessage: (text) =>
             useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
+          onTitle: (title) =>
+            useTabsStore.getState().setProcessTitle(workspaceId, tabId, clipTitle(title)),
         },
       ),
     [workspaceId, tabId],
@@ -582,11 +582,6 @@ function SummaryLine({
       </span>
     </button>
   );
-}
-
-function titleOf(text: string): string {
-  const line = text.split("\n")[0].trim();
-  return line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
 }
 
 function PhaseBanner({ controller, state }: { controller: ChatController; state: ChatTabState }) {
