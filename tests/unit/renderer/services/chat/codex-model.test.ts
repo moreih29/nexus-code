@@ -534,6 +534,82 @@ describe("codex model", () => {
     ]);
   });
 
+  test("a resumed turn shows its items in the order they started", () => {
+    // The server lists a turn's items as they ended: here a command Codex
+    // left running while it answered.
+    const m = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        result: {
+          thread: {
+            id: T,
+            turns: [
+              {
+                id: "turn_0",
+                status: "completed",
+                items: [
+                  {
+                    type: "userMessage",
+                    id: "u0",
+                    clientId: null,
+                    content: [{ type: "text", text: "run it" }],
+                    startedAtMs: 1000,
+                  },
+                  { type: "agentMessage", id: "m0", text: "DONE", startedAtMs: 5000 },
+                  {
+                    type: "commandExecution",
+                    id: "c0",
+                    command: "/bin/bash -lc 'make'",
+                    status: "completed",
+                    exitCode: 0,
+                    startedAtMs: 2000,
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const answer = m.items[1];
+    expect(answer?.kind === "assistant" && answer.blocks.map((b) => b.type)).toEqual([
+      "tool",
+      "text",
+    ]);
+  });
+
+  test("a resumed turn whose items do not say when they started keeps their order", () => {
+    const m = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        result: {
+          thread: {
+            id: T,
+            turns: [
+              {
+                id: "turn_0",
+                status: "completed",
+                items: [
+                  { type: "agentMessage", id: "m0", text: "first", startedAtMs: 5000 },
+                  { type: "agentMessage", id: "m1", text: "second" },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const answer = m.items[0];
+    expect(answer?.kind === "assistant" && answer.blocks).toEqual([
+      { type: "text", text: "first" },
+      { type: "text", text: "second" },
+    ]);
+  });
+
   test("another thread's items are not the tab's", () => {
     const m = run([
       ...started(),

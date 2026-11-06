@@ -281,13 +281,26 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
     const turnId = str(turn?.id);
     if (!turn || !turnId || !Array.isArray(turn.items)) return;
     const startedAt = num(turn.startedAt);
-    turn.items.forEach((rawItem, i) => {
-      const item = rec(rawItem);
-      if (!item) return;
+    inStartOrder(turn.items).forEach(({ item, i }) => {
       const at = num(item.startedAtMs) ?? (startedAt !== undefined ? startedAt * 1000 : undefined);
       applyItem(draft, turnId, item, "completed", `${seq}.${t}.${i}`, at);
     });
   });
+}
+
+/**
+ * A resumed turn's items in the order they started, as the turn showed
+ * them live. The server lists them as they ended: a command left running
+ * while Codex answered comes after the answer. Kept as listed when an
+ * item does not say when it started.
+ */
+function inStartOrder(raw: unknown[]): { item: Rec; i: number }[] {
+  const items = raw.flatMap((value, i) => {
+    const item = rec(value);
+    return item ? [{ item, i }] : [];
+  });
+  if (items.some(({ item }) => num(item.startedAtMs) === undefined)) return items;
+  return items.sort((a, b) => (num(a.item.startedAtMs) ?? 0) - (num(b.item.startedAtMs) ?? 0));
 }
 
 function applySettings(
