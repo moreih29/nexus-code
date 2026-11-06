@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { GitStatus } from "../../../shared/git/types";
+import type { GitChangeStats, GitStatus } from "../../../shared/git/types";
 import { createLogger } from "../../../shared/log/renderer";
 import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
@@ -219,6 +219,39 @@ export function mergeChanges(
     if (kept) next.set(id, kept);
   }
   return next;
+}
+
+/**
+ * A connected worktree's uncommitted changes in lines, file by file, and its
+ * commits ahead of and behind `base`, polled while `visible`. Undefined
+ * until read, and for a worktree not connected.
+ */
+export function useChangeStats(
+  workspaceId: string,
+  base: string | undefined,
+  visible: boolean,
+): GitChangeStats | undefined {
+  const online = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
+  const [read, setRead] = useState<{ key: string; stats: GitChangeStats }>();
+  // What a read is of, so one of another worktree or base is not shown.
+  const key = `${workspaceId}:${base ?? ""}`;
+  useEffect(() => {
+    if (!visible || !online) return;
+    const readKey = `${workspaceId}:${base ?? ""}`;
+    return startPolling(async (isLatest) => {
+      const result = await ipcCallResult("git", "getChangeStats", {
+        workspaceId,
+        ...(base ? { base } : {}),
+      }).catch(() => null);
+      if (!result?.ok || !isLatest()) return;
+      setRead((prev) =>
+        prev?.key === readKey && sameJson(prev.stats, result.value)
+          ? prev
+          : { key: readKey, stats: result.value },
+      );
+    }, CHANGES_POLL_MS);
+  }, [workspaceId, base, online, visible]);
+  return online && read?.key === key ? read.stats : undefined;
 }
 
 /**

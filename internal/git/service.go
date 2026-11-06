@@ -70,6 +70,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("git.log", service.Log)
 	d.Register("git.diff", service.Diff)
 	d.Register("git.commitDetail", service.CommitDetail)
+	d.Register("git.changeStats", service.ChangeStats)
 	d.Register("git.watch", service.Watch)
 	d.Register("git.unwatch", service.Unwatch)
 	d.Register("git.addToGitignore", service.AddToGitignore)

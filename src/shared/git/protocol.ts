@@ -12,6 +12,7 @@ import {
   GitBlobChunkSchema,
   type GitBlobComplete,
   GitBlobCompleteSchema,
+  GitChangeStatsSchema,
   GitCherryPickResultSchema,
   GitContinueOpResultSchema,
   GitErrorKindSchema,
@@ -58,6 +59,7 @@ export const GIT_DIFF_CHUNK_EVENT = "git.diff.chunk";
 export const GIT_BLOB_METHOD = "git.blob";
 export const GIT_BLOB_CHUNK_EVENT = "git.blob.chunk";
 export const GIT_COMMIT_DETAIL_METHOD = "git.commitDetail";
+export const GIT_CHANGE_STATS_METHOD = "git.changeStats";
 export const GIT_STAGE_CONTENT_METHOD = "git.stageContent";
 
 const GitEnvSchema = z.record(z.string(), z.string());
@@ -291,6 +293,14 @@ export type AgentGitCommitDetailParams = z.infer<typeof AgentGitCommitDetailPara
 
 export const AgentGitCommitDetailResultSchema = CommitDetailSchema as z.ZodType<CommitDetail>;
 export type AgentGitCommitDetailResult = CommitDetail;
+
+export const AgentGitChangeStatsParamsSchema = z.object({
+  cwd: z.string().min(1).optional(),
+  base: z.string().min(1).optional(),
+});
+export type AgentGitChangeStatsParams = z.infer<typeof AgentGitChangeStatsParamsSchema>;
+
+export const AgentGitChangeStatsResultSchema = GitChangeStatsSchema;
 
 // ---------------------------------------------------------------------------
 // git.stash.* — typed RPC wrappers (reference pattern for tag/remote/branch-ops)

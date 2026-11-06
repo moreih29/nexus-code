@@ -565,7 +565,11 @@
       "queue": "Queue",
       "queued_one": "{{count}} message queued",
       "queued_other": "{{count}} messages queued",
-      "not_loaded": "This conversation has not been opened yet. Open its tab to see it."
+      "not_loaded": "This conversation has not been opened yet. Open its tab to see it.",
+      "vs_base": "vs {{branch}}",
+      "ahead_behind": "Ahead of {{branch}} by {{ahead}}, behind by {{behind}}",
+      "lines": "{{added}} lines added, {{deleted}} deleted",
+      "binary": "binary"
     },
     "agents": {
       "label_fallback": "Subagent",

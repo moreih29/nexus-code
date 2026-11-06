@@ -8,6 +8,8 @@ import {
   AgentGitBlobParamsSchema,
   AgentGitBlobResultSchema,
   AgentGitCancelParamsSchema,
+  AgentGitChangeStatsParamsSchema,
+  AgentGitChangeStatsResultSchema,
   AgentGitCommitDetailParamsSchema,
   AgentGitCommitDetailResultSchema,
   AgentGitDiffChunkPayloadSchema,
@@ -41,6 +43,7 @@ import {
   GIT_BLOB_CHUNK_EVENT,
   GIT_BLOB_METHOD,
   GIT_CANCEL_METHOD,
+  GIT_CHANGE_STATS_METHOD,
   GIT_COMMIT_DETAIL_METHOD,
   GIT_DIFF_CHUNK_EVENT,
   GIT_DIFF_METHOD,
@@ -128,6 +131,7 @@ import type {
   DiffSpec,
   GitBlobChunk,
   GitBlobComplete,
+  GitChangeStats,
   GitCherryPickResult,
   GitContinueOpResult,
   GitFastForwardResult,
@@ -162,6 +166,7 @@ import type {
   GitBranchFastForwardOptions,
   GitBranchRenameOptions,
   GitBranchSetUpstreamOptions,
+  GitChangeStatsOptions,
   GitCommitDetailOptions,
   GitConflictMarkResolvedOptions,
   GitDiffOptions,
@@ -402,6 +407,17 @@ export class AgentGitExecutor implements GitExecutor {
     );
     throwIfAborted(options.signal);
     return parseAgentResult(AgentGitCommitDetailResultSchema, result);
+  }
+
+  async changeStats(options: GitChangeStatsOptions): Promise<GitChangeStats> {
+    throwIfAborted(options.signal);
+    const result = await callGit(
+      this.provider(),
+      GIT_CHANGE_STATS_METHOD,
+      AgentGitChangeStatsParamsSchema.parse({ cwd: options.cwd, base: options.base }),
+    );
+    throwIfAborted(options.signal);
+    return parseAgentResult(AgentGitChangeStatsResultSchema, result);
   }
 
   async stashList(options: GitStashListOptions): Promise<StashEntry[]> {

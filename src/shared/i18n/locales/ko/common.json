@@ -565,7 +565,11 @@
       "queue": "대기열에 넣기",
       "queued_one": "대기 중인 메시지 {{count}}개",
       "queued_other": "대기 중인 메시지 {{count}}개",
-      "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다."
+      "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다.",
+      "vs_base": "{{branch}} 대비",
+      "ahead_behind": "{{branch}}보다 커밋 {{ahead}}개 앞서고 {{behind}}개 뒤처짐",
+      "lines": "{{added}}줄 추가, {{deleted}}줄 삭제",
+      "binary": "바이너리"
     },
     "agents": {
       "label_fallback": "서브에이전트",

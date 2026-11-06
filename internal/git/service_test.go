@@ -223,6 +223,7 @@ func TestRegisterExposesMethods(t *testing.T) {
 		"git.status",
 		"git.diff",
 		"git.commitDetail",
+		"git.changeStats",
 		"git.stash.list",
 		"git.stash.apply",
 		"git.stash.drop",
