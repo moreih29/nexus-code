@@ -128,8 +128,12 @@ function firstLine(text: string): string {
   return line.replace(/^#+\s*/, "").trim();
 }
 
-/** What a Claude or Codex tab's session waits on and does, from its conversation. */
-export function chatRowFacts(model: ChatModel): RowFacts {
+/**
+ * What a Claude or Codex tab's session waits on and does, from its
+ * conversation; its running agents from its hooks (`activity`) once they
+ * report any, which count its `claude -p` runs too.
+ */
+export function chatRowFacts(model: ChatModel, activity?: SessionActivity): RowFacts {
   const request = model.permissions[0];
   let wait: RowWait | undefined;
   if (request?.toolName === "AskUserQuestion") {
@@ -174,7 +178,9 @@ export function chatRowFacts(model: ChatModel): RowFacts {
       todos.length > 0
         ? { done: todos.filter((todo) => todo.status === "completed").length, total: todos.length }
         : undefined,
-    subagents: chatAgentsOf(model).filter((agent) => agent.status === "running").length,
+    subagents: activity
+      ? liveAgents(activity.agents).length
+      : chatAgentsOf(model).filter((agent) => agent.status === "running").length,
     context: contextPercent(model),
   };
 }

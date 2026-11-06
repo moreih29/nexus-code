@@ -3,10 +3,11 @@
  * state: the calls it ran last, the subagents it runs, its to-do list, and
  * what it runs on (model, effort, permission mode, context, cost, the files
  * it changed). A chat tab tells it from its conversation, a terminal running
- * Claude from what its hooks report. Pure.
+ * Claude from what its hooks report. A Claude tab's agents come from its
+ * hooks too, which tell its `claude -p` runs beside its subagents. Pure.
  */
 
-import type { SessionActivity } from "../../../shared/claude/activity";
+import type { AgentRun, SessionActivity } from "../../../shared/claude/activity";
 import type { ChatModel, ToolCall } from "../chat/model";
 import {
   AGENT_TOOLS,
@@ -129,8 +130,15 @@ function todoStatus(status: string): DetailTodoStatus {
 /**
  * What a Claude or Codex tab's conversation tells the panel. A tab opened
  * again shows its earlier conversation (`history`) until it is sent more.
+ * The agents are those its hooks report (`activity`) once they report any:
+ * its subagents and its `claude -p` runs, which its conversation does not
+ * tell.
  */
-export function chatDetailFacts(model: ChatModel, history?: ChatModel | null): DetailFacts {
+export function chatDetailFacts(
+  model: ChatModel,
+  history?: ChatModel | null,
+  activity?: SessionActivity,
+): DetailFacts {
   const told = model.items.length === 0 && history ? history : model;
   const steps = Object.values(told.tools)
     .filter((call) => !call.parentToolUseId && !TOLD_ELSEWHERE.has(call.name))
@@ -145,17 +153,19 @@ export function chatDetailFacts(model: ChatModel, history?: ChatModel | null): D
         ...(counts ?? {}),
       };
     });
-  const agents = chatAgentsOf(told)
-    .slice(-AGENTS_SHOWN)
-    .map(
-      (agent): DetailAgent => ({
-        id: agent.toolUseId,
-        type: agent.subagentType,
-        description: agent.description || undefined,
-        status: agent.status === "completed" ? "done" : agent.status,
-        print: false,
-      }),
-    );
+  const agents = activity
+    ? hookAgents(activity.agents)
+    : chatAgentsOf(told)
+        .slice(-AGENTS_SHOWN)
+        .map(
+          (agent): DetailAgent => ({
+            id: agent.toolUseId,
+            type: agent.subagentType,
+            description: agent.description || undefined,
+            status: agent.status === "completed" ? "done" : agent.status,
+            print: false,
+          }),
+        );
   const todos = todosOf(told.tools).map(
     (todo): DetailTodo => ({ id: todo.id, text: todo.content, status: todoStatus(todo.status) }),
   );
@@ -203,21 +213,7 @@ export function hookDetailFacts(activity: SessionActivity | undefined): DetailFa
                 : "done",
       }),
     );
-  // The hooks keep the running agents first, then the ended ones, the latest first.
-  const agents = activity.agents.slice(0, AGENTS_SHOWN).map(
-    (agent): DetailAgent => ({
-      id: agent.id,
-      type: agent.type,
-      description: agent.description,
-      status:
-        agent.state === "permissionPending"
-          ? "asking"
-          : agent.state === "completed"
-            ? "done"
-            : agent.state,
-      print: agent.kind === "print",
-    }),
-  );
+  const agents = hookAgents(activity.agents);
   const todos = activity.todos.map(
     (todo, index): DetailTodo => ({
       // A TodoWrite list has no ids, and may say the same twice; it is
@@ -234,4 +230,22 @@ export function hookDetailFacts(activity: SessionActivity | undefined): DetailFa
     todos,
     files: activity.files.length > 0 ? { count: activity.files.length } : undefined,
   };
+}
+
+/** The agents a session's hooks report, the running ones first, then the ended, the latest first. */
+function hookAgents(agents: readonly AgentRun[]): DetailAgent[] {
+  return agents.slice(0, AGENTS_SHOWN).map(
+    (agent): DetailAgent => ({
+      id: agent.id,
+      type: agent.type,
+      description: agent.description,
+      status:
+        agent.state === "permissionPending"
+          ? "asking"
+          : agent.state === "completed"
+            ? "done"
+            : agent.state,
+      print: agent.kind === "print",
+    }),
+  );
 }

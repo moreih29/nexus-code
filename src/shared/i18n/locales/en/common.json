@@ -601,7 +601,8 @@
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
         "running_for": "{{duration}} so far",
-        "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal."
+        "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal.",
+        "permission_hint_claude": "This subagent is waiting on a permission request. Answer it in the Claude tab."
       }
     },
     "permission": {

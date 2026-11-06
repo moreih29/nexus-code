@@ -203,7 +203,7 @@ function SessionRow({
     session.kind === "terminal"
       ? hookRowFacts(activity)
       : chat
-        ? chatRowFacts(chat.model)
+        ? chatRowFacts(chat.model, session.kind === "claude" ? activity : undefined)
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
   const compact = group === "idle" || group === "ended";
