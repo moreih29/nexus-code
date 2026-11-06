@@ -203,6 +203,7 @@ describe("codex model", () => {
       subtype: "completed",
       isError: false,
       durationMs: 900,
+      at: 1000,
     });
   });
 

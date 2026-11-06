@@ -5,8 +5,9 @@
 // with the actions on it. A worktree with no session shows its changes
 // alone.
 //
-// A permission request is answered in the terminal, not here: the panel
-// does not press keys in a Claude Code dialog on the user's behalf.
+// A terminal's permission request is answered in the terminal, not here:
+// the panel does not press keys in a Claude Code dialog on the user's
+// behalf. A Claude or Codex tab's is answered here, as its tab would.
 
 import { ChevronRight, GitBranch } from "lucide-react";
 import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -30,6 +31,7 @@ import {
 } from "../../services/sessions/model";
 import { useNow, type WorktreeChanges } from "../../services/sessions/use-family";
 import { getTerminalController } from "../../services/terminal/terminal-registry";
+import { existingCodexController } from "../../services/chat/codex-controller";
 import { existingChatController } from "../../services/chat/controller";
 import { useChatTab } from "../../services/chat/store";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -169,7 +171,9 @@ function DetailActions({
         <Button size="sm" onClick={() => showTerminal(session)}>
           {session.kind === "claude"
             ? t("sessions.detail.show_claude_tab")
-            : t("sessions.detail.show_terminal")}
+            : session.kind === "codex"
+              ? t("sessions.detail.show_codex_tab")
+              : t("sessions.detail.show_terminal")}
         </Button>
       )}
       <Button size="sm" variant="outline" onClick={() => showChanges(worktree.workspace.id)}>
@@ -229,7 +233,7 @@ function SessionBody({
   return (
     <>
       {activity && <NowCard session={session} activity={activity} now={now} />}
-      {session.kind === "claude" && <ClaudeTabRequests session={session} />}
+      {session.kind !== "terminal" && <ChatTabRequests session={session} />}
       {asks.length > 0 ? (
         // Answered here, or in the terminal's own prompt.
         <PermissionAsks session={session} asks={asks} agents={activity?.agents ?? []} />
@@ -292,23 +296,27 @@ function SessionBody({
 }
 
 /**
- * The permission requests a Claude tab's session waits on, as the tab shows
- * them, answered for it: its program asks the tab, not a hook.
+ * The permission requests a Claude or Codex tab's session waits on, as the
+ * tab shows them, answered for it: its program asks the tab, not a hook.
  */
-function ClaudeTabRequests({ session }: { session: AgentSession }) {
+function ChatTabRequests({ session }: { session: AgentSession }) {
   const { t } = useTranslation();
   const { workspaceId, tabId } = session;
   const requests = useChatTab(workspaceId, tabId).model.permissions;
   const cwd = useTabsStore((s) => {
     const tab = s.byWorkspace[workspaceId]?.[tabId];
-    return tab?.type === "claude" ? tab.props.cwd : "";
+    return tab?.type === "claude" || tab?.type === "codex" ? tab.props.cwd : "";
   });
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
   );
-  const controller = existingChatController(workspaceId, tabId);
+  const controller =
+    session.kind === "codex"
+      ? existingCodexController(workspaceId, tabId)
+      : existingChatController(workspaceId, tabId);
   if (requests.length === 0) {
-    return session.state === "permissionPending" ? (
+    // A Codex tab's state is read from these requests: none, no hint.
+    return session.kind === "claude" && session.state === "permissionPending" ? (
       <p className="text-app-ui-sm text-(--state-warning-fg)">
         {t("sessions.detail.permission_hint_claude")}
       </p>

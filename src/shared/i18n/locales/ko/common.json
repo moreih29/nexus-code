@@ -591,6 +591,7 @@
       "screen_show": "터미널 원문 보기",
       "screen_hide": "터미널 원문 접기",
       "show_claude_tab": "Claude 탭으로 이동",
+      "show_codex_tab": "Codex 탭으로 이동",
       "permission_hint_claude": "권한 요청은 Claude 탭에서 응답합니다."
     },
     "agents": {

@@ -14,6 +14,7 @@ import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabActivityStore } from "../../state/stores/tab-activity";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { useChatStore } from "../chat/store";
 import { requestTabFocus } from "../tab-focus";
 import { showTerminal } from "./actions";
 import { readTabActivity } from "./activity-poll";
@@ -31,6 +32,7 @@ function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
     activity,
     now: Date.now(),
     seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
+    chats: useChatStore.getState().tabs,
     viewing: viewingKey(),
   });
 }
@@ -53,6 +55,7 @@ export function useInbox(): Inbox {
       useTabsStore.subscribe(update),
       useClaudeStatusStore.subscribe(update),
       useSessionSeenStore.subscribe(update),
+      useChatStore.subscribe(update),
       useActiveStore.subscribe(update),
       useLayoutStore.subscribe(update),
       useAppFocusStore.subscribe(update),
@@ -94,7 +97,7 @@ export function markRead(items: readonly InboxItem[]): void {
     if (session.phase !== "done") continue;
     seen.markSeen(session.workspaceId, session.tabId);
     // Claude's own completed state, which its tab and the sidebar show.
-    if (!session.estimated) {
+    if (!session.estimated && session.kind !== "codex") {
       void ipcCallResult("claude", "markSeen", {
         workspaceId: session.workspaceId,
         tabId: session.tabId,
