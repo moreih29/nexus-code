@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { DEFAULT_TASK_AGENT, TASK_AGENTS } from "../../../../shared/sessions/task-agent";
 import {
   DEFAULT_SESSIONS_VIEW,
   SESSIONS_VIEWS,
@@ -28,7 +29,7 @@ import {
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import { useSessionsViewStore } from "../../../state/stores/sessions-view";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
-import { DEFAULT_TASK_AGENT_COMMAND, useTerminalStore } from "../../../state/stores/terminal";
+import { useTerminalStore } from "../../../state/stores/terminal";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
@@ -72,8 +73,8 @@ export function TerminalPanel() {
   const setCursorStyle = useTerminalStore((s) => s.setCursorStyle);
   const setFontFamily = useTerminalStore((s) => s.setFontFamily);
   const setFontLigatures = useTerminalStore((s) => s.setFontLigatures);
-  const taskAgentCommand = useTerminalStore((s) => s.taskAgentCommand);
-  const setTaskAgentCommand = useTerminalStore((s) => s.setTaskAgentCommand);
+  const taskAgent = useTerminalStore((s) => s.taskAgent);
+  const setTaskAgent = useTerminalStore((s) => s.setTaskAgent);
   const sessionsView = useSessionsViewStore((s) => s.defaultView);
   const setSessionsView = useSessionsViewStore((s) => s.setDefault);
 
@@ -296,23 +297,20 @@ export function TerminalPanel() {
         </p>
       </SettingsSection>
 
-      {/* Task agent command — what a new task's terminal runs */}
+      {/* Task agent — what a new task opens with */}
       <SettingsSection
         label={t("terminal.taskAgent.label")}
-        dirty={taskAgentCommand !== undefined}
-        onReset={() => setTaskAgentCommand(undefined)}
+        dirty={taskAgent !== undefined}
+        onReset={() => setTaskAgent(undefined)}
       >
-        <input
-          type="text"
-          value={taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND}
-          onChange={(e) => setTaskAgentCommand(e.target.value)}
-          aria-label={t("terminal.taskAgent.aria")}
-          spellCheck={false}
-          className={cn(
-            "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-            "font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-            "focus-visible:ring-1 focus-visible:ring-ring",
-          )}
+        <SegmentedControl
+          options={TASK_AGENTS.map((value) => ({
+            value,
+            label: t(`common:task.agents.${value}`),
+          }))}
+          value={taskAgent ?? DEFAULT_TASK_AGENT}
+          onChange={setTaskAgent}
+          label={t("terminal.taskAgent.label")}
         />
         <p className="text-app-ui-sm text-muted-foreground">{t("terminal.taskAgent.hint")}</p>
       </SettingsSection>

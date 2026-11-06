@@ -6,6 +6,7 @@ import { Bot, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand } from "../../services/chat/app-commands";
 import {
   type ChatController,
@@ -49,7 +50,6 @@ import {
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
-import { clipTitle, titleOf } from "../../services/chat/tab-title";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { localUrlFor } from "../../state/operations/ports";
@@ -135,15 +135,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           sessionId: props.sessionId,
           fork: props.fork,
         },
-        {
-          onSession: (sessionId) =>
-            useTabsStore.getState().setClaudeSession(workspaceId, tabId, sessionId),
-          onTarget: (target) => useTabsStore.getState().setClaudeTarget(workspaceId, tabId, target),
-          onFirstMessage: (text) =>
-            useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
-          onTitle: (title) =>
-            useTabsStore.getState().setProcessTitle(workspaceId, tabId, clipTitle(title)),
-        },
+        claudeTabHooks(workspaceId, tabId),
       ),
     [workspaceId, tabId],
   );

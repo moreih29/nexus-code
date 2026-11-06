@@ -109,8 +109,13 @@ export const AppStateSchema = z.object({
   // Shells the user added in Settings › Terminal, besides the detected ones.
   terminalShells: z.array(CustomShellSchema).max(64).optional(),
 
-  // The command a new task's terminal runs, with the task's first prompt as
-  // its argument; absent = "claude", empty = run nothing.
+  // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
+  // task's first prompt, or a plain terminal; absent = "claude". Kept as a
+  // plain string so an agent this version lacks does not fail the state.
+  taskAgent: z.string().max(32).optional(),
+
+  // The command earlier versions ran in a new task's terminal; read once to
+  // carry the choice over to `taskAgent`, then dropped.
   taskAgentCommand: z.string().max(1024).optional(),
 
   // The view a sessions tab opens in (a SessionsView); absent = "status". Kept

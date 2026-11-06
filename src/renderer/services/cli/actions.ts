@@ -18,7 +18,7 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { useTerminalStore } from "@/state/stores/terminal";
+import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
@@ -320,12 +320,15 @@ export const actionHandlers: {
   },
 
   "task.create": async ({ parentId, name, prompt, command, show, createdBy }) => {
-    const started = await startTask(parentId, name, prompt, command, createdBy);
+    // The task agent's own program in a terminal, which terminal wait reaches.
+    const agent = resolvedTaskAgent();
+    const start = { command: command ?? (agent === "terminal" ? "" : agent) };
+    const started = await startTask(parentId, name, prompt, start, createdBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
     // Its terminal starts once its panel is mounted, shown or not.
     if (show) activateWorkspace(started.task.id);
     else useMountedWorkspacesStore.getState().mount(started.task.id);
-    return { workspaceId: started.task.id, tabId: started.tabId, command: started.command };
+    return { workspaceId: started.task.id, tabId: started.tabId, command: start.command.trim() };
   },
 
   "task.remove": async ({ taskId, force, deleteBranch }) => {

@@ -1,4 +1,5 @@
-// New Task dialog — a name, and the first prompt for the task's coding agent.
+// New Task dialog — a name, the agent the task opens with (a Claude or Codex
+// tab, or a terminal), and the first prompt for that agent.
 //
 // Mounted once in GlobalRoots; `useTaskUIStore.openNewTask(parentId)` opens
 // it. Failures stay in the dialog so the name can be fixed and sent again.
@@ -15,16 +16,22 @@ import {
   handleFormDialogOpenChange,
   isFormDialogSubmitDisabled,
 } from "@/components/ui/form-dialog";
+import {
+  DEFAULT_TASK_AGENT,
+  TASK_AGENTS,
+  type TaskAgent,
+} from "../../../shared/sessions/task-agent";
 import { createTask, type TaskFailure } from "../../services/workspace/tasks";
 import { useGitStore } from "../../state/stores/git/index";
 import { useTaskUIStore } from "../../state/stores/task-ui";
-import { DEFAULT_TASK_AGENT_COMMAND, useTerminalStore } from "../../state/stores/terminal";
+import { useTerminalStore } from "../../state/stores/terminal";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { SegmentedControl } from "../settings/segmented-control";
 
 const EMPTY_VALUES: FormDialogValues = { name: "", prompt: "" };
 
-/** The dialog's fields; no prompt when the task agent command is empty. */
-export function newTaskFields(command: string): readonly FormDialogField[] {
+/** The dialog's fields; no prompt for a terminal, which runs no agent. */
+export function newTaskFields(agent: TaskAgent): readonly FormDialogField[] {
   const t = i18next.t.bind(i18next);
   const name: FormDialogField = {
     name: "name",
@@ -33,14 +40,14 @@ export function newTaskFields(command: string): readonly FormDialogField[] {
     helperText: t("task.name_helper"),
     autoFocus: true,
   };
-  if (command === "") return [name];
+  if (agent === "terminal") return [name];
   return [
     name,
     {
       name: "prompt",
       label: t("task.prompt_label"),
       placeholder: t("task.prompt_placeholder"),
-      helperText: t("task.prompt_helper", { command }),
+      helperText: t("task.prompt_helper", { agent: t(`task.agents.${agent}`) }),
       required: false,
     },
   ];
@@ -72,18 +79,19 @@ export function NewTaskDialogRoot(): React.JSX.Element {
     const session = s.sessions.get(parentId);
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
   });
-  const command = useTerminalStore((s) =>
-    (s.taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND).trim(),
-  );
+  const defaultAgent = useTerminalStore((s) => s.taskAgent ?? DEFAULT_TASK_AGENT);
 
   const [values, setValues] = useState<FormDialogValues>(EMPTY_VALUES);
+  const [agent, setAgent] = useState<TaskAgent>(defaultAgent);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fields = useMemo(() => newTaskFields(command), [command]);
+  const fields = useMemo(() => newTaskFields(agent), [agent]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each opening starts from the setting; a change of it while open keeps the choice made
   useEffect(() => {
     if (parentId === null) return;
     setValues(EMPTY_VALUES);
+    setAgent(defaultAgent);
     setBusy(false);
     setError(null);
   }, [parentId]);
@@ -97,7 +105,8 @@ export function NewTaskDialogRoot(): React.JSX.Element {
     if (!parent || isFormDialogSubmitDisabled(fields, values, busy)) return;
     setBusy(true);
     setError(null);
-    const failure = await createTask(parent.id, values.name ?? "", values.prompt ?? "");
+    const prompt = agent === "terminal" ? "" : (values.prompt ?? "");
+    const failure = await createTask(parent.id, values.name ?? "", prompt, agent);
     setBusy(false);
     if (failure) {
       setError(taskFailureMessage(failure, parent.name));
@@ -130,6 +139,21 @@ export function NewTaskDialogRoot(): React.JSX.Element {
         onValueChange={(name, value) => setValues((current) => ({ ...current, [name]: value }))}
         onCancel={cancel}
         onSubmit={(event) => void handleSubmit(event)}
+        extraContent={
+          <div className="flex items-center gap-3">
+            <span className="text-app-ui-sm text-foreground">{i18next.t("task.agent_label")}</span>
+            <SegmentedControl
+              options={TASK_AGENTS.map((value) => ({
+                value,
+                label: i18next.t(`task.agents.${value}`),
+              }))}
+              value={agent}
+              onChange={setAgent}
+              label={i18next.t("task.agent_label")}
+              disabled={busy}
+            />
+          </div>
+        }
       >
         {error !== null && (
           <p role="alert" className="text-app-ui-sm text-destructive">

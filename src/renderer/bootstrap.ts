@@ -217,6 +217,7 @@ export async function bootstrapAppState(): Promise<void> {
     fontLigatures: state.terminalFontLigatures,
     shell: state.terminalShell,
     customShells: state.terminalShells,
+    taskAgent: state.taskAgent,
     taskAgentCommand: state.taskAgentCommand,
   });
 
