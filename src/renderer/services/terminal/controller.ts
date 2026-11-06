@@ -354,8 +354,11 @@ class XtermTerminalController implements TerminalController {
   private disposed = false;
   /** The local shell main started, if it said; a remote terminal has none. */
   private shellPath: string | undefined;
-  /** Whether the shell is cmd.exe, which pastes on Ctrl+V (see the key handler). */
-  private shellIsCmd = false;
+  /** Whether the shell is PowerShell, whose PSReadLine pastes on ^V (see the key handler). */
+  private shellIsPowerShell = false;
+  /** A Ctrl+V whose paste waits until the program in front is known (see installHeldPaste). */
+  private heldPaste = false;
+  private pasteDisposable: (() => void) | null = null;
   /** Whether the shell is PowerShell or cmd, which read Home and End as they are. */
   private shellTakesHomeEnd = false;
   private term: TerminalLike | null = null;
@@ -486,6 +489,8 @@ class XtermTerminalController implements TerminalController {
 
     this.dropDisposable?.();
     this.dropDisposable = null;
+    this.pasteDisposable?.();
+    this.pasteDisposable = null;
 
     this.dataDisposable?.dispose();
     this.dataDisposable = null;
@@ -540,7 +545,7 @@ class XtermTerminalController implements TerminalController {
     if (result.missingShell !== undefined) reportMissingShell(result.missingShell);
     if (result.shellPath !== undefined) {
       this.shellPath = result.shellPath;
-      this.shellIsCmd = /(^|[\\/])cmd\.exe$/i.test(result.shellPath);
+      this.shellIsPowerShell = /(^|[\\/])(powershell|pwsh)\.exe$/i.test(result.shellPath);
       this.shellTakesHomeEnd = /(^|[\\/])(cmd|powershell|pwsh)\.exe$/i.test(result.shellPath);
     }
   }
@@ -662,6 +667,7 @@ class XtermTerminalController implements TerminalController {
     // accept file paths (Claude Code, image tools, etc.) receive dropped files
     // even though the rest of the app gates DnD to its own internal MIME types.
     this.installFileDrop(term);
+    this.installHeldPaste(term);
 
     // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
     // 노출한다. lazygit/yazi/vim 같은 alternate-screen TUI, 그리고 Claude Code처럼
@@ -905,26 +911,33 @@ class XtermTerminalController implements TerminalController {
         // 셀렉션 없으면 SIGINT 경로로 보내기 위해 xterm 기본 처리에 위임.
       }
 
-      // Ctrl+V pastes on Windows, as in Windows Terminal, when the app asked
-      // for bracketed paste (Claude Code, bash, vim). xterm would send ^V
-      // (0x16) instead, which those apps don't read as a text paste. Returning
-      // false without preventDefault lets Chromium run its native paste, which
-      // xterm sends as a bracketed paste: the path Ctrl+Shift+V already takes.
-      // Apps without bracketed paste keep ^V: PowerShell's PSReadLine reads it
-      // and pastes a multi-line clipboard as one edit, where typed-in text
-      // would run each line. cmd.exe has neither, and ^V does nothing there,
-      // so a cmd terminal always pastes. Matched on keyCode, like xterm's own
-      // ^V mapping. Linux keeps ^V and pastes with Ctrl+Shift+V, as its
-      // terminals do.
+      // Ctrl+V pastes on Windows, as in Windows Terminal. xterm would send ^V
+      // (0x16) instead, which a program reads as a key, not as text: a line
+      // prompt such as `claude auth login`'s takes it as a character, and a
+      // remote tty as "take the next key as it is". Returning false without
+      // preventDefault lets Chromium run its native paste, which xterm sends,
+      // bracketed when the program asked: the path Ctrl+Shift+V takes.
+      // PowerShell's PSReadLine reads ^V itself and pastes a multi-line
+      // clipboard as one edit, where pasted text would run each line. So in a
+      // PowerShell terminal, a paste the program did not ask to have
+      // bracketed is held until the program in front is known (see
+      // installHeldPaste). Matched on keyCode, like xterm's own ^V mapping.
+      // Linux keeps ^V and pastes with Ctrl+Shift+V, as its terminals do.
       if (
         event.ctrlKey &&
         !event.shiftKey &&
         !event.altKey &&
         !event.metaKey &&
         event.keyCode === 86 &&
-        (term.modes.bracketedPasteMode || this.shellIsCmd) &&
         isWindows()
       ) {
+        if (this.shellIsPowerShell && !term.modes.bracketedPasteMode) {
+          this.heldPaste = true;
+          // Chromium pastes within this keydown; a key that pasted nothing lets go.
+          setTimeout(() => {
+            this.heldPaste = false;
+          }, 0);
+        }
         return false;
       }
 
@@ -1100,6 +1113,48 @@ class XtermTerminalController implements TerminalController {
       el.removeEventListener("dragover", onDragOver);
       el.removeEventListener("drop", onDrop);
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // A held Ctrl+V paste (see the key handler) → PSReadLine's ^V or the text
+  //
+  // The paste event carries the clipboard's text, as it does for xterm's own
+  // paste; the renderer reads the clipboard no other way. PowerShell in front,
+  // at its prompt, gets ^V and pastes as before. A program it runs, such as
+  // ssh or `claude auth login`, gets the text. When the program in front is
+  // not known, ^V is sent, as before. The capture listener on the container
+  // runs before xterm's own on its textarea.
+  // ---------------------------------------------------------------------------
+  private installHeldPaste(term: TerminalLike): void {
+    const el = this.options.container;
+    if (typeof el.addEventListener !== "function") return;
+
+    const onPaste = (e: ClipboardEvent): void => {
+      if (!this.heldPaste) return;
+      this.heldPaste = false;
+      e.preventDefault();
+      e.stopPropagation();
+      void this.pasteToFront(term, e.clipboardData?.getData("text/plain") ?? "");
+    };
+
+    el.addEventListener("paste", onPaste, true);
+    this.pasteDisposable = () => el.removeEventListener("paste", onPaste, true);
+  }
+
+  private async pasteToFront(term: TerminalLike, text: string): Promise<void> {
+    let name = "";
+    try {
+      const result = await ipcCallResult("pty", "foregroundProcess", {
+        workspaceId: this.options.workspaceId,
+        tabId: this.options.tabId,
+      });
+      if (result.ok) name = result.value.name.trim();
+    } catch {
+      // Not known: ^V, as before.
+    }
+    if (this.disposed) return;
+    if (name === "" || /^(powershell|pwsh)$/i.test(name)) this.ptyClient?.write("\x16");
+    else if (text !== "") term.paste(text);
   }
 
   // ---------------------------------------------------------------------------
