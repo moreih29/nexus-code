@@ -43,9 +43,9 @@ import {
 } from "../../services/sessions/rows";
 import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { markRead } from "../../services/sessions/use-inbox";
-import { showToast } from "../ui/toast";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
+import { showToast } from "../ui/toast";
 import { isSessionSelected, type SessionsSelection } from "./selection";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
 
@@ -270,8 +270,8 @@ function SessionRow({
 }
 
 /** Claude's or Codex's mark, or a terminal's for an agent known only by its output. */
-function AgentMark({ session }: { session: AgentSession }) {
-  const cls = "size-3.5 shrink-0";
+export function AgentMark({ session, className }: { session: AgentSession; className?: string }) {
+  const cls = cn("size-3.5 shrink-0", className);
   if (session.kind === "codex" || session.agent === "codex") {
     return <CodexIcon aria-hidden className={cls} />;
   }

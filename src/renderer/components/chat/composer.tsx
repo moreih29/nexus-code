@@ -940,7 +940,12 @@ function ModeChip({ controller, state }: ChipProps) {
  * The composer's keys as this platform names them: the Mac's symbols there,
  * the keys' names elsewhere, as Windows and Linux label shortcuts.
  */
-function composerKeys(): { send: string; newLine: string; queueKey: string; nowKey: string } {
+export function composerKeys(): {
+  send: string;
+  newLine: string;
+  queueKey: string;
+  nowKey: string;
+} {
   return isMac()
     ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩", nowKey: "⌘⇧↩" }
     : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter", nowKey: "Ctrl+Shift+Enter" };

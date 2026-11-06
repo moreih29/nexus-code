@@ -6,9 +6,10 @@
 // from Settings (state/stores/sessions-view.ts). Data is read only while
 // the tab is shown.
 
-import { Bot, ChevronDown, GitBranchPlus, Plus, Search, X } from "lucide-react";
+import { Bot, ChevronDown, GitBranchPlus, Plus, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import { SESSIONS_VIEWS, type SessionsView } from "../../../shared/sessions/view";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { newTask } from "../../services/sessions/actions";
@@ -77,8 +78,10 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
     setDetailOpen(true);
   };
   // A list beside the detail it opens, rather than a board the detail covers.
+  // Where the tab is narrow, the detail takes the list's place until closed.
   const listed = view === "tree" || view === "status";
   const showDetail = listed || detailOpen;
+  const close = () => setDetailOpen(false);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -90,15 +93,18 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
         query={query}
         onQuery={setQuery}
       />
-      <div className="flex min-h-0 flex-1">
+      <div className="@container/agents flex min-h-0 flex-1">
         <div
-          className={
-            view === "tree"
-              ? "app-scrollbar w-[min(320px,40%)] shrink-0 overflow-auto border-r border-border"
-              : view === "status"
-                ? "app-scrollbar w-[min(480px,50%)] shrink-0 overflow-auto border-r border-border"
-                : "app-scrollbar min-w-0 flex-1 overflow-auto"
-          }
+          className={cn(
+            "app-scrollbar overflow-auto",
+            listed
+              ? cn(
+                  "shrink-0 border-r border-border @max-2xl/agents:w-full @max-2xl/agents:border-r-0",
+                  view === "tree" ? "w-[min(320px,40%)]" : "w-[min(480px,50%)]",
+                  detailOpen && "@max-2xl/agents:hidden",
+                )
+              : "min-w-0 flex-1",
+          )}
         >
           {view === "status" ? (
             <StatusView
@@ -148,11 +154,10 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
           <div
             className={
               listed
-                ? "app-scrollbar min-w-0 flex-1 overflow-auto"
-                : "app-scrollbar relative w-[min(400px,45%)] shrink-0 overflow-auto border-l border-border"
+                ? cn("min-w-0 flex-1", !detailOpen && "@max-2xl/agents:hidden")
+                : "w-[min(400px,45%)] shrink-0 border-l border-border"
             }
           >
-            {!listed && <CloseDetail onClose={() => setDetailOpen(false)} />}
             <SessionDetail
               family={family}
               selection={selection}
@@ -160,6 +165,8 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
               activity={activity}
               visible={isVisible}
               onSelect={select}
+              onBack={listed ? close : undefined}
+              onClose={listed ? undefined : close}
             />
           </div>
         )}
@@ -306,20 +313,5 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
         </DropdownMenuContent>
       </DropdownMenuRoot>
     </div>
-  );
-}
-
-function CloseDetail({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation();
-  return (
-    <Button
-      size="icon-sm"
-      variant="ghost"
-      aria-label={t("sessions.detail.close")}
-      onClick={onClose}
-      className="absolute top-2 right-2"
-    >
-      <X aria-hidden className="size-3.5" />
-    </Button>
   );
 }

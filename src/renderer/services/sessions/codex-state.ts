@@ -99,7 +99,7 @@ export function workspaceCodexState(
 }
 
 /** The text of the answer to the last prompt, if it has any yet. */
-function lastAnswer(model: ChatModel): string | undefined {
+export function lastAnswer(model: ChatModel): string | undefined {
   for (let i = model.items.length - 1; i >= 0; i--) {
     const item = model.items[i];
     if (item.kind === "user") return undefined;
@@ -113,7 +113,8 @@ function lastAnswer(model: ChatModel): string | undefined {
   return undefined;
 }
 
-function lastPrompt(model: ChatModel): string | undefined {
+/** The last prompt the conversation was sent. */
+export function lastPrompt(model: ChatModel): string | undefined {
   for (let i = model.items.length - 1; i >= 0; i--) {
     const item = model.items[i];
     if (item.kind === "user") return item.text.trim() || undefined;

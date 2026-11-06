@@ -262,6 +262,16 @@ export function changedFilesOf(tools: Record<string, ToolCall>): ChangedFile[] {
   return [...files.values()];
 }
 
+/** The lines a done edit added and removed; undefined for any other call. */
+export function editCounts(tool: ToolCall): { added: number; removed: number } | undefined {
+  if (!EDIT_TOOLS.has(tool.name) || tool.status !== "done") return undefined;
+  const structured = rec(tool.result?.structured);
+  if (structured?.type === "create") {
+    return { added: lineCount(str(rec(tool.input)?.content) ?? ""), removed: 0 };
+  }
+  return patchCounts(structured?.structuredPatch);
+}
+
 function lineCount(text: string): number {
   if (!text) return 0;
   const lines = text.split("\n");

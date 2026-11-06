@@ -47,6 +47,11 @@ function lookOf(state: string): StateLook {
   }
 }
 
+/** The color a state's glyph has, for words told beside it. */
+export function stateColor(state: string): string {
+  return lookOf(state).colorClass;
+}
+
 /** The state in words, e.g. "Waiting for permission" or "Running (estimated)". */
 export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): string {
   const label = i18next.t(`common:sessions.state.${session.state}`, {

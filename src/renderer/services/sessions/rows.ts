@@ -136,7 +136,6 @@ export function chatRowFacts(model: ChatModel): RowFacts {
   }
 
   const todos = todosOf(model.tools);
-  const context = contextOf(model.contextUsage);
   return {
     wait,
     tool,
@@ -145,11 +144,16 @@ export function chatRowFacts(model: ChatModel): RowFacts {
         ? { done: todos.filter((todo) => todo.status === "completed").length, total: todos.length }
         : undefined,
     subagents: chatAgentsOf(model).filter((agent) => agent.status === "running").length,
-    context:
-      context && context.maxTokens > 0
-        ? Math.min(100, Math.round((context.totalTokens / context.maxTokens) * 100))
-        : undefined,
+    context: contextPercent(model),
   };
+}
+
+/** How full a chat tab's context is, in percent, once its program told it. */
+export function contextPercent(model: ChatModel): number | undefined {
+  const context = contextOf(model.contextUsage);
+  return context && context.maxTokens > 0
+    ? Math.min(100, Math.round((context.totalTokens / context.maxTokens) * 100))
+    : undefined;
 }
 
 /** What a terminal running Claude waits on and does, from what its hooks report. */
