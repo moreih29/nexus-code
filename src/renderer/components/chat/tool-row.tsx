@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
+import { Highlighted, highlightCode, languageOf } from "./code-highlight";
 
 interface ToolRowProps {
   tool: ToolCall | undefined;
@@ -19,6 +20,17 @@ interface ToolRowProps {
 
 /** Tools that run a subagent, whose calls are listed under them. */
 const AGENT_TOOLS = new Set(["Agent", "Task"]);
+
+/** Tools that run commands, and those that change files: each family has its hue. */
+const COMMAND_TOOLS = new Set(["Bash", "BashOutput", "KillShell", "KillBash", "PowerShell"]);
+const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delete"]);
+
+/** A tool's name in its family's syntax hue, so commands, edits and the rest read apart. */
+function toolTint(name: string): string {
+  if (COMMAND_TOOLS.has(name)) return "text-[var(--syntax-function)]";
+  if (EDIT_TOOLS.has(name)) return "text-[var(--syntax-type)]";
+  return "text-[var(--syntax-constant)]";
+}
 
 /** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -46,7 +58,7 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
           aria-expanded={open}
         >
           <StatusIcon status={status} />
-          <span className="shrink-0 font-medium text-foreground">{name}</span>
+          <span className={cn("shrink-0 font-medium", toolTint(name))}>{name}</span>
           <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={summary}>
             {summary}
           </span>
@@ -138,11 +150,13 @@ function StatusIcon({ status }: { status: ToolCall["status"] }) {
   switch (status) {
     case "streaming":
     case "running":
-      return <LoaderCircle className={cn(cls, "animate-spin text-muted-foreground")} />;
+      return (
+        <LoaderCircle className={cn(cls, "animate-spin text-[var(--state-loading-indicator)]")} />
+      );
     case "done":
-      return <Check className={cn(cls, "text-[var(--state-success-fg,currentColor)]")} />;
+      return <Check className={cn(cls, "text-[var(--state-success-fg)]")} />;
     case "error":
-      return <X className={cn(cls, "text-[var(--state-error-fg,currentColor)]")} />;
+      return <X className={cn(cls, "text-[var(--state-error-fg)]")} />;
     case "denied":
       return <Ban className={cn(cls, "text-muted-foreground")} />;
     case "stopped":
@@ -157,6 +171,10 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
   const structured = (tool.result?.structured ?? null) as Record<string, unknown> | null;
   const patch =
     structured && Array.isArray(structured.structuredPatch) ? structured.structuredPatch : null;
+  const path = [input.file_path, input.notebook_path, input.path].find(
+    (value): value is string => typeof value === "string",
+  );
+  const language = path ? languageOf(path) : undefined;
 
   let body: React.ReactNode;
   if (
@@ -169,9 +187,9 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
       .join("\n");
     body = <Pre text={out || t("chat.tool.no_output")} />;
   } else if (patch && patch.length > 0) {
-    body = <PatchView hunks={patch as Hunk[]} />;
+    body = <PatchView hunks={patch as Hunk[]} language={language} />;
   } else if (tool.name === "Write" && typeof input.content === "string") {
-    body = <Pre text={input.content} added />;
+    body = <Pre text={input.content} language={language} added />;
   } else if (
     tool.name === "Edit" &&
     typeof input.old_string === "string" &&
@@ -180,8 +198,11 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
     body = (
       <PatchView
         hunks={[{ lines: [...prefix(input.old_string, "-"), ...prefix(input.new_string, "+")] }]}
+        language={language}
       />
     );
+  } else if (tool.name === "Read" && tool.result && numberedLines(tool.result.text)) {
+    body = <NumberedView text={tool.result.text} language={language} />;
   } else if (tool.result) {
     body = <Pre text={tool.result.text || t("chat.tool.no_output")} />;
   } else {
@@ -196,8 +217,9 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
       )}
     >
       {tool.name === "Bash" && typeof input.command === "string" && (
-        <div className="border-b border-border bg-[var(--state-hover-bg)] px-2 py-1 font-mono text-app-micro whitespace-pre-wrap break-all">
-          $ {input.command}
+        <div className="code-hl border-b border-border bg-[var(--state-hover-bg)] px-2 py-1 font-mono text-app-micro whitespace-pre-wrap break-all">
+          <span className="text-[var(--state-success-fg)] select-none">$ </span>
+          <Highlighted code={input.command} language="bash" />
         </div>
       )}
       {body}
@@ -232,41 +254,108 @@ function prefix(text: string, mark: string): string[] {
   return text.split("\n").map((line) => `${mark}${line}`);
 }
 
-function PatchView({ hunks }: { hunks: Hunk[] }) {
+/** Lines past this many in a patch are shown without syntax colors. */
+const MAX_HIGHLIGHTED_LINES = 2_000;
+
+function PatchView({ hunks, language }: { hunks: Hunk[]; language?: string }) {
+  let budget = MAX_HIGHLIGHTED_LINES;
   return (
-    <div className="app-scrollbar max-h-80 overflow-auto font-mono text-app-micro leading-5">
+    <div className="code-hl app-scrollbar max-h-80 overflow-auto font-mono text-app-micro leading-5">
       {hunks.map((hunk, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: hunks have no identity of their own
         <div key={i} className={i > 0 ? "border-t border-border" : ""}>
-          {hunk.lines.map((line, j) => (
-            <div
-              // biome-ignore lint/suspicious/noArrayIndexKey: patch lines have no identity of their own
-              key={j}
-              className={cn(
-                "px-2 whitespace-pre-wrap break-all",
-                line.startsWith("+") && "bg-[var(--diff-added-bg,rgba(46,160,67,0.15))]",
-                line.startsWith("-") && "bg-[var(--diff-removed-bg,rgba(248,81,73,0.15))]",
-              )}
-            >
-              {line || " "}
-            </div>
-          ))}
+          {hunk.lines.map((line, j) => {
+            const marked = line[0] === "+" || line[0] === "-" || line[0] === " ";
+            const mark = marked ? line[0] : " ";
+            const code = marked ? line.slice(1) : line;
+            budget--;
+            return (
+              <div
+                // biome-ignore lint/suspicious/noArrayIndexKey: patch lines have no identity of their own
+                key={j}
+                className={cn(
+                  "flex pr-2",
+                  mark === "+" && "bg-[var(--diff-added-bg)]",
+                  mark === "-" && "bg-[var(--diff-removed-bg)]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "w-5 shrink-0 text-center select-none",
+                    mark === "+" && "text-[var(--git-status-added-fg)]",
+                    mark === "-" && "text-[var(--git-status-deleted-fg)]",
+                  )}
+                >
+                  {mark}
+                </span>
+                <span className="min-w-0 flex-1 whitespace-pre-wrap break-all">
+                  {code ? highlightCode(code, budget > 0 ? language : undefined) : " "}
+                </span>
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
   );
 }
 
-function Pre({ text, added = false }: { text: string; added?: boolean }) {
+/**
+ * A Read result's lines, each `N\t…` (`N→…` from older versions): their
+ * numbers and their code apart. Null for text that is not all such lines.
+ */
+export function numberedLines(text: string): { numbers: string[]; code: string } | null {
+  const lines = text.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  if (lines.length === 0) return null;
+  const numbers: string[] = [];
+  const code: string[] = [];
+  for (const line of lines) {
+    const match = /^\s*(\d+)(?:\t|→)(.*)$/.exec(line);
+    if (!match) return null;
+    numbers.push(match[1] ?? "");
+    code.push(match[2] ?? "");
+  }
+  return { numbers, code: code.join("\n") };
+}
+
+/** A file as Read gave it: its line numbers in a gutter, its code in the file's colors. */
+function NumberedView({ text, language }: { text: string; language?: string }) {
+  // Cut at a line's end, as Pre cuts at MAX_OUTPUT_CHARS.
+  const cut = text.length > MAX_OUTPUT_CHARS ? text.lastIndexOf("\n", MAX_OUTPUT_CHARS) : -1;
+  const shown = cut > 0 ? text.slice(0, cut) : text;
+  const lines = numberedLines(shown);
+  if (!lines) return <Pre text={text} />;
+  return (
+    <div className="code-hl app-scrollbar flex max-h-80 overflow-auto py-1.5 font-mono text-app-micro leading-5">
+      <div className="shrink-0 pr-3 pl-2 text-right whitespace-pre text-muted-foreground select-none">
+        {lines.numbers.join("\n")}
+      </div>
+      <pre className="m-0 min-w-0 flex-1 pr-2 whitespace-pre">
+        <Highlighted code={lines.code} language={language} />
+      </pre>
+    </div>
+  );
+}
+
+function Pre({
+  text,
+  language,
+  added = false,
+}: {
+  text: string;
+  language?: string;
+  added?: boolean;
+}) {
   const shown = text.length > MAX_OUTPUT_CHARS ? `${text.slice(0, MAX_OUTPUT_CHARS)}\n…` : text;
   return (
     <pre
       className={cn(
-        "app-scrollbar m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
-        added && "bg-[var(--diff-added-bg,rgba(46,160,67,0.10))]",
+        "code-hl app-scrollbar m-0 max-h-80 overflow-auto px-2 py-1.5 font-mono text-app-micro leading-5 whitespace-pre-wrap break-all",
+        added && "bg-[var(--diff-added-bg)]",
       )}
     >
-      {shown}
+      <Highlighted code={shown} language={language} />
     </pre>
   );
 }

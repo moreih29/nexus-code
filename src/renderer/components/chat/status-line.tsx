@@ -28,7 +28,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
     >
       {/* Clipped, so the turning icon's corners never make the dock scroll. */}
       <span className="inline-flex size-3.5 shrink-0 overflow-hidden">
-        <LoaderCircle className="size-3.5 animate-spin" />
+        <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
       </span>
       <span className="text-foreground">{activity}</span>
       {elapsed !== null && <span>{formatElapsed(elapsed)}</span>}

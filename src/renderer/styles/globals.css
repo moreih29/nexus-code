@@ -613,78 +613,79 @@
 
 /* Syntax highlighting (rehype-highlight / highlight.js classes) mapped onto
    the same 15-role palette Monaco uses, so preview code blocks match the
-   editor per theme. Tokens are emitted as --syntax-* by generate-theme-css. */
-.md-preview .hljs-keyword,
-.md-preview .hljs-selector-tag,
-.md-preview .hljs-literal,
-.md-preview .hljs-doctag {
+   editor per theme. Tokens are emitted as --syntax-* by generate-theme-css.
+   `.code-hl` is code a chat tab's tool rows highlight with lowlight. */
+:is(.md-preview, .code-hl) .hljs-keyword,
+:is(.md-preview, .code-hl) .hljs-selector-tag,
+:is(.md-preview, .code-hl) .hljs-literal,
+:is(.md-preview, .code-hl) .hljs-doctag {
   color: var(--syntax-keyword);
 }
-.md-preview .hljs-string,
-.md-preview .hljs-meta .hljs-string {
+:is(.md-preview, .code-hl) .hljs-string,
+:is(.md-preview, .code-hl) .hljs-meta .hljs-string {
   color: var(--syntax-string);
 }
-.md-preview .hljs-number {
+:is(.md-preview, .code-hl) .hljs-number {
   color: var(--syntax-number);
 }
-.md-preview .hljs-comment,
-.md-preview .hljs-quote {
+:is(.md-preview, .code-hl) .hljs-comment,
+:is(.md-preview, .code-hl) .hljs-quote {
   color: var(--syntax-comment);
   font-style: italic;
 }
-.md-preview .hljs-title,
-.md-preview .hljs-title.function_,
-.md-preview .hljs-section {
+:is(.md-preview, .code-hl) .hljs-title,
+:is(.md-preview, .code-hl) .hljs-title.function_,
+:is(.md-preview, .code-hl) .hljs-section {
   color: var(--syntax-function);
 }
-.md-preview .hljs-type,
-.md-preview .hljs-built_in,
-.md-preview .hljs-title.class_,
-.md-preview .hljs-class .hljs-title {
+:is(.md-preview, .code-hl) .hljs-type,
+:is(.md-preview, .code-hl) .hljs-built_in,
+:is(.md-preview, .code-hl) .hljs-title.class_,
+:is(.md-preview, .code-hl) .hljs-class .hljs-title {
   color: var(--syntax-type);
 }
-.md-preview .hljs-variable,
-.md-preview .hljs-template-variable,
-.md-preview .hljs-params {
+:is(.md-preview, .code-hl) .hljs-variable,
+:is(.md-preview, .code-hl) .hljs-template-variable,
+:is(.md-preview, .code-hl) .hljs-params {
   color: var(--syntax-variable);
 }
-.md-preview .hljs-symbol,
-.md-preview .hljs-bullet {
+:is(.md-preview, .code-hl) .hljs-symbol,
+:is(.md-preview, .code-hl) .hljs-bullet {
   color: var(--syntax-constant);
 }
-.md-preview .hljs-attr,
-.md-preview .hljs-property {
+:is(.md-preview, .code-hl) .hljs-attr,
+:is(.md-preview, .code-hl) .hljs-property {
   color: var(--syntax-property);
 }
-.md-preview .hljs-operator,
-.md-preview .hljs-punctuation {
+:is(.md-preview, .code-hl) .hljs-operator,
+:is(.md-preview, .code-hl) .hljs-punctuation {
   color: var(--syntax-operator);
 }
-.md-preview .hljs-tag,
-.md-preview .hljs-name {
+:is(.md-preview, .code-hl) .hljs-tag,
+:is(.md-preview, .code-hl) .hljs-name {
   color: var(--syntax-tag);
 }
-.md-preview .hljs-attribute,
-.md-preview .hljs-selector-attr,
-.md-preview .hljs-selector-pseudo,
-.md-preview .hljs-selector-id,
-.md-preview .hljs-selector-class {
+:is(.md-preview, .code-hl) .hljs-attribute,
+:is(.md-preview, .code-hl) .hljs-selector-attr,
+:is(.md-preview, .code-hl) .hljs-selector-pseudo,
+:is(.md-preview, .code-hl) .hljs-selector-id,
+:is(.md-preview, .code-hl) .hljs-selector-class {
   color: var(--syntax-attribute);
 }
-.md-preview .hljs-meta,
-.md-preview .hljs-meta-keyword {
+:is(.md-preview, .code-hl) .hljs-meta,
+:is(.md-preview, .code-hl) .hljs-meta-keyword {
   color: var(--syntax-namespace);
 }
-.md-preview .hljs-regexp {
+:is(.md-preview, .code-hl) .hljs-regexp {
   color: var(--syntax-regexp);
 }
-.md-preview .hljs-deletion {
+:is(.md-preview, .code-hl) .hljs-deletion {
   color: var(--syntax-invalid);
 }
-.md-preview .hljs-emphasis {
+:is(.md-preview, .code-hl) .hljs-emphasis {
   font-style: italic;
 }
-.md-preview .hljs-strong {
+:is(.md-preview, .code-hl) .hljs-strong {
   font-weight: 600;
 }
 
@@ -750,6 +751,22 @@
 }
 .md-preview.chat-md > *:last-child {
   margin-bottom: 0;
+}
+/* Inline code in a reply takes the theme's hue for names in code, as the
+   editor's markdown does; in a link it stays the link's. */
+.md-preview.chat-md :not(pre) > code {
+  color: var(--syntax-type);
+}
+.md-preview.chat-md a code {
+  color: inherit;
+}
+
+/* Chat tabs' tints, mixed from the theme: a sent message, and a patch's
+   added and removed lines (their +/- marks say it too). */
+:root {
+  --chat-user-bg: color-mix(in srgb, var(--primary) 14%, var(--muted));
+  --diff-added-bg: color-mix(in srgb, var(--git-status-added-fg) 16%, transparent);
+  --diff-removed-bg: color-mix(in srgb, var(--git-status-deleted-fg) 16%, transparent);
 }
 
 /* ---------------------------------------------------------------------------

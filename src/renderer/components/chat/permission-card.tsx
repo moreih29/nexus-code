@@ -11,6 +11,7 @@ import { cn } from "../../utils/cn";
 import { Button } from "../ui/button";
 import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
+import { Highlighted } from "./code-highlight";
 import { isUnsandboxed, ToolDetail, toolSummary } from "./tool-row";
 
 interface PermissionCardProps {
@@ -39,7 +40,7 @@ export function PermissionCard({
 
   return (
     <section
-      className="rounded-(--radius-raised) border border-border bg-popover p-3 text-app-ui-sm"
+      className="rounded-(--radius-raised) border border-border border-l-2 border-l-[var(--state-warning-border)] bg-popover p-3 text-app-ui-sm"
       aria-label={t("chat.permission.aria")}
       data-testid="chat-permission"
     >
@@ -111,7 +112,7 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-start gap-2">
-        <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <ShieldQuestion className="mt-0.5 size-4 shrink-0 text-[var(--state-warning-fg)]" />
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
             {t("chat.permission.title", { tool: name, ...agent })}
@@ -130,8 +131,12 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
             <div className="text-muted-foreground">{request.description}</div>
           )}
           {summary && !preview && (
-            <div className="mt-1 truncate font-mono text-muted-foreground" title={summary}>
-              {summary}
+            <div className="code-hl mt-1 truncate font-mono text-muted-foreground" title={summary}>
+              {request.toolName === "Bash" ? (
+                <Highlighted code={summary} language="bash" />
+              ) : (
+                summary
+              )}
             </div>
           )}
           {request.decisionReason && (

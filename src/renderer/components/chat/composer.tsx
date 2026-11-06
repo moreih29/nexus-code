@@ -705,6 +705,16 @@ const CLAUDE_MODES: ModeSet = {
   fallback: "default",
 };
 
+/**
+ * A mode's hue on its chip and in its menu, Claude Code's and Codex's
+ * alike; the asking modes stay plain and the dangerous one is red.
+ */
+const MODE_TINT: Record<string, string> = {
+  auto: "text-[var(--state-success-fg)] hover:text-[var(--state-success-fg)]",
+  acceptEdits: "text-[var(--syntax-function)] hover:text-[var(--syntax-function)]",
+  plan: "text-[var(--state-info-fg)] hover:text-[var(--state-info-fg)]",
+};
+
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
@@ -753,7 +763,11 @@ function ModeChip({ controller, state }: ChipProps) {
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={cn(CHIP_CLASS, mode === bypass && "text-destructive hover:text-destructive")}
+          className={cn(
+            CHIP_CLASS,
+            MODE_TINT[mode],
+            mode === bypass && "text-destructive hover:text-destructive",
+          )}
           disabled={!ready}
           title={t("chat.mode.aria")}
           aria-label={t("chat.mode.aria")}
@@ -766,7 +780,7 @@ function ModeChip({ controller, state }: ChipProps) {
         {safe.map((m, i) => (
           <DropdownMenuItem key={m} onSelect={() => void pick(m)}>
             <span className="flex flex-col">
-              <span className={cn(m === mode && "font-medium")}>{label(m)}</span>
+              <span className={cn(m === mode && "font-medium", MODE_TINT[m])}>{label(m)}</span>
               <span className="text-app-micro text-muted-foreground">{label(`${m}_hint`)}</span>
             </span>
             <DropdownMenuShortcut>{i + 1}</DropdownMenuShortcut>
