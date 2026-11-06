@@ -198,6 +198,19 @@ export function visibleWorkspaces(workspaces: readonly WorkspaceMeta[]): Workspa
   return workspaces.filter((workspace) => !workspace.task);
 }
 
+/**
+ * The workspace a window opens on: the one main restored (`activeId`), else
+ * the first in the sidebar.
+ */
+export function restoredWorkspace(
+  workspaces: readonly WorkspaceMeta[],
+  activeId: string | null,
+): WorkspaceMeta | undefined {
+  return (
+    workspaces.find((workspace) => workspace.id === activeId) ?? visibleWorkspaces(workspaces)[0]
+  );
+}
+
 /** The tasks of a workspace, in store order. */
 export function tasksOf(workspaces: readonly WorkspaceMeta[], parentId: string): WorkspaceMeta[] {
   return workspaces.filter((workspace) => workspace.task?.parentId === parentId);

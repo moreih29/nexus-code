@@ -572,6 +572,8 @@ export const ipcContract = {
       reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
       activate: call(WorkspaceIdSchema, z.void()),
+      /** The active workspace: the one restored at launch or last activated; null with none. */
+      active: call(z.void(), WorkspaceIdPrimitive.nullable()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },
     listen: {
