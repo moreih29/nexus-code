@@ -143,13 +143,13 @@
     "close": "Close"
   },
   "inbox": {
-    "title": "Sessions waiting on you",
-    "aria_one": "Sessions waiting on you: {{count}} needs you",
-    "aria_other": "Sessions waiting on you: {{count}} need you",
+    "title": "Conversations waiting on you",
+    "aria_one": "Conversations waiting on you: {{count}} needs you",
+    "aria_other": "Conversations waiting on you: {{count}} need you",
     "waiting": "Needs you",
     "done": "New results",
-    "empty": "No session is waiting on you",
-    "next": "Go to next waiting session",
+    "empty": "No conversation is waiting on you",
+    "next": "Go to next waiting conversation",
     "mark_read": "Mark new results read"
   },
   "diagnostics": {
@@ -182,7 +182,7 @@
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
-    "show_sessions": "Sessions",
+    "show_sessions": "Agents",
     "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
@@ -379,8 +379,8 @@
     "new_terminal_with": "New Terminal With",
     "default_shell": "Default",
     "new_browser": "New Browser",
-    "new_claude": "New Claude session",
-    "sessions": "Sessions",
+    "new_claude": "New Claude conversation",
+    "sessions": "Agents",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -395,7 +395,7 @@
     "copy_relative_path": "Copy Relative Path",
     "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", terminal ended",
-    "new_codex": "New Codex session"
+    "new_codex": "New Codex conversation"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
@@ -501,8 +501,8 @@
     "installHint": "Install: {{command}}"
   },
   "sessions": {
-    "tab_title": "Sessions",
-    "none": "No agent sessions",
+    "tab_title": "Agents",
+    "none": "No conversations",
     "count": "{{label}} {{count}}",
     "view_label": "View",
     "view": {
@@ -528,7 +528,6 @@
       "days": "{{count}}d"
     },
     "agent_unknown": "agent",
-    "no_sessions": "No sessions",
     "changed_files": "{{count}} changed",
     "column_empty": "None",
     "detail": {
@@ -569,7 +568,7 @@
       "not_loaded": "This conversation has not been opened yet. Open its tab to see it."
     },
     "agents": {
-      "label_fallback": "Agent",
+      "label_fallback": "Subagent",
       "print": "claude -p",
       "background": "background",
       "state": {
@@ -583,14 +582,14 @@
       "tools_other": "{{count}} tools",
       "tools_failed_one": "{{count}} tool · {{failed}} failed",
       "tools_failed_other": "{{count}} tools · {{failed}} failed",
-      "session_crumb": "{{agent}} session",
-      "agent_crumb": "Agent",
+      "session_crumb": "{{agent}} conversation",
+      "agent_crumb": "Subagent",
       "exit_code": "Exit code {{code}}",
       "detail": {
         "prompt": "Request",
         "activity": "Activity",
         "answer": "Answer",
-        "answer_pending": "The agent's last answer shows here once it finishes.",
+        "answer_pending": "The subagent's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
         "tools_none": "No tools used yet.",
         "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
@@ -598,12 +597,12 @@
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
         "running_for": "{{duration}} so far",
-        "permission_hint": "This agent is waiting on a permission request. Answer it in the terminal."
+        "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal."
       }
     },
     "permission": {
       "title": "Permission request",
-      "from_agent": "Permission request from agent “{{name}}”",
+      "from_agent": "Permission request from subagent “{{name}}”",
       "allow": "Allow",
       "allow_always": "Always allow",
       "always_hint": "Always allows: {{what}}",
@@ -921,8 +920,8 @@
       "retrying": "Retrying (attempt {{attempt}})",
       "retrying_of": "Retrying ({{attempt}}/{{max}})",
       "tokens": "↓ {{count}} tokens",
-      "agents_one": "{{count}} agent running",
-      "agents_other": "{{count}} agents running"
+      "agents_one": "{{count}} subagent running",
+      "agents_other": "{{count}} subagents running"
     },
     "rate_limit": {
       "warning": "Close to the usage limit",
@@ -1067,7 +1066,7 @@
         "compact_busy": "Compact once Claude finishes"
       },
       "agents": {
-        "title": "Agents",
+        "title": "Subagents",
         "open": "Show its transcript",
         "teammate": "Teammate",
         "tools_one": "{{count}} tool call",
@@ -1120,15 +1119,15 @@
       }
     },
     "strip": {
-      "aria": "Agents",
+      "aria": "Subagents",
       "main": "Main",
       "finished": "Finished {{count}}",
       "permission_waiting": "A permission request is waiting in the main conversation",
       "to_main": "To main",
       "input_to_main": "Messages go to the main conversation",
       "summary": {
-        "agents_one": "{{count}} agent",
-        "agents_other": "{{count}} agents",
+        "agents_one": "{{count}} subagent",
+        "agents_other": "{{count}} subagents",
         "jobs_one": "{{count}} task",
         "jobs_other": "{{count}} tasks",
         "todos": "To-dos {{done}}/{{total}}",

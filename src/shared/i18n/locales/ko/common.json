@@ -143,13 +143,13 @@
     "close": "닫기"
   },
   "inbox": {
-    "title": "나를 기다리는 세션",
-    "aria_one": "나를 기다리는 세션: 응답 필요 {{count}}개",
-    "aria_other": "나를 기다리는 세션: 응답 필요 {{count}}개",
+    "title": "나를 기다리는 대화",
+    "aria_one": "나를 기다리는 대화: 응답 필요 {{count}}개",
+    "aria_other": "나를 기다리는 대화: 응답 필요 {{count}}개",
     "waiting": "응답 필요",
     "done": "새 결과",
-    "empty": "기다리는 세션 없음",
-    "next": "다음 대기 세션으로",
+    "empty": "기다리는 대화 없음",
+    "next": "다음 대기 대화로",
     "mark_read": "새 결과 모두 읽음"
   },
   "diagnostics": {
@@ -182,7 +182,7 @@
     "switcher_aria": "작업 전환",
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
-    "show_sessions": "세션 보기",
+    "show_sessions": "에이전트 보기",
     "ports_title": "열린 포트 {{ports}}",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
@@ -379,8 +379,8 @@
     "new_terminal_with": "다른 셸로 새 터미널",
     "default_shell": "기본",
     "new_browser": "새 브라우저",
-    "new_claude": "새 Claude 세션",
-    "sessions": "세션",
+    "new_claude": "새 Claude 대화",
+    "sessions": "에이전트",
     "pin_tab": "탭 고정",
     "unpin_tab": "탭 고정 해제",
     "rename_tab_menu": "탭 이름 변경…",
@@ -395,7 +395,7 @@
     "copy_relative_path": "상대 경로 복사",
     "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", 터미널 종료됨",
-    "new_codex": "새 Codex 세션"
+    "new_codex": "새 Codex 대화"
   },
   "groupPlaceholder": {
     "no_tab": "열린 탭 없음",
@@ -501,8 +501,8 @@
     "installHint": "설치: {{command}}"
   },
   "sessions": {
-    "tab_title": "세션",
-    "none": "에이전트 세션 없음",
+    "tab_title": "에이전트",
+    "none": "대화 없음",
     "count": "{{label}} {{count}}",
     "view_label": "보기",
     "view": {
@@ -528,7 +528,6 @@
       "days": "{{count}}일"
     },
     "agent_unknown": "에이전트",
-    "no_sessions": "세션 없음",
     "changed_files": "변경 {{count}}",
     "column_empty": "없음",
     "detail": {
@@ -569,7 +568,7 @@
       "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다."
     },
     "agents": {
-      "label_fallback": "에이전트",
+      "label_fallback": "서브에이전트",
       "print": "claude -p",
       "background": "백그라운드",
       "state": {
@@ -583,14 +582,14 @@
       "tools_other": "도구 {{count}}",
       "tools_failed_one": "도구 {{count}} · 실패 {{failed}}",
       "tools_failed_other": "도구 {{count}} · 실패 {{failed}}",
-      "session_crumb": "{{agent}} 세션",
-      "agent_crumb": "에이전트",
+      "session_crumb": "{{agent}} 대화",
+      "agent_crumb": "서브에이전트",
       "exit_code": "종료 코드 {{code}}",
       "detail": {
         "prompt": "요청",
         "activity": "활동",
         "answer": "응답",
-        "answer_pending": "에이전트가 끝나면 마지막 응답이 여기에 나옵니다.",
+        "answer_pending": "서브에이전트가 끝나면 마지막 응답이 여기에 나옵니다.",
         "answer_none": "응답 없이 끝났습니다.",
         "tools_none": "아직 쓴 도구가 없습니다.",
         "tools_untold": "이 실행의 도구 호출은 알 수 없습니다. -c나 검색어로 세션을 이어갔거나 세션 기록을 남기지 않는 실행입니다.",
@@ -598,12 +597,12 @@
         "more_tools": "이전 활동 {{count}}개 더 보기",
         "fewer_tools": "최근 활동만 보기",
         "running_for": "{{duration}}째",
-        "permission_hint": "이 에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다."
+        "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다."
       }
     },
     "permission": {
       "title": "권한 요청",
-      "from_agent": "에이전트 “{{name}}”의 권한 요청",
+      "from_agent": "서브에이전트 “{{name}}”의 권한 요청",
       "allow": "허용",
       "allow_always": "항상 허용",
       "always_hint": "항상 허용: {{what}}",
@@ -864,7 +863,7 @@
     },
     "permission": {
       "aria": "권한 요청",
-      "from_subagent": "하위 에이전트의 요청",
+      "from_subagent": "서브에이전트의 요청",
       "page": "{{total}}개 중 {{current}}",
       "previous": "이전 요청",
       "next": "다음 요청",
@@ -921,8 +920,8 @@
       "retrying": "재시도 중 ({{attempt}}번째)",
       "retrying_of": "재시도 중 ({{attempt}}/{{max}})",
       "tokens": "↓ {{count}} 토큰",
-      "agents_one": "에이전트 {{count}}개 실행 중",
-      "agents_other": "에이전트 {{count}}개 실행 중"
+      "agents_one": "서브에이전트 {{count}}개 실행 중",
+      "agents_other": "서브에이전트 {{count}}개 실행 중"
     },
     "rate_limit": {
       "warning": "사용량 한도에 가까워졌습니다",
@@ -1067,7 +1066,7 @@
         "compact_busy": "Claude 작업이 끝난 뒤 압축할 수 있습니다"
       },
       "agents": {
-        "title": "에이전트",
+        "title": "서브에이전트",
         "open": "대화 보기",
         "teammate": "팀원",
         "tools_one": "도구 {{count}}회",
@@ -1120,15 +1119,15 @@
       }
     },
     "strip": {
-      "aria": "에이전트",
+      "aria": "서브에이전트",
       "main": "메인",
       "finished": "완료 {{count}}",
       "permission_waiting": "메인 대화에 응답을 기다리는 권한 요청이 있습니다",
       "to_main": "메인으로",
       "input_to_main": "입력한 메시지는 메인 대화로 보내집니다",
       "summary": {
-        "agents_one": "에이전트 {{count}}",
-        "agents_other": "에이전트 {{count}}",
+        "agents_one": "서브에이전트 {{count}}",
+        "agents_other": "서브에이전트 {{count}}",
         "jobs_one": "작업 {{count}}",
         "jobs_other": "작업 {{count}}",
         "todos": "할 일 {{done}}/{{total}}",

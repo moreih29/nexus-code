@@ -219,8 +219,8 @@
       "aria": "Task agent command"
     },
     "sessionsView": {
-      "label": "Default sessions view",
-      "hint": "The view a sessions tab opens in. A workspace whose sessions tab was switched to another view keeps that one."
+      "label": "Default agents tab view",
+      "hint": "The view an agents tab opens in. A workspace whose agents tab was switched to another view keeps that one."
     },
     "fontSize": "Font size",
     "cursorStyle": "Cursor style",
@@ -416,7 +416,7 @@
         "new": "New Task"
       },
       "session": {
-        "nextWaiting": "Go to Next Waiting Session"
+        "nextWaiting": "Go to Next Waiting Conversation"
       },
       "settings": {
         "open": "Open Settings"
