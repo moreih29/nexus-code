@@ -11,6 +11,7 @@ import {
   Copy,
   FileText,
   GitFork,
+  LoaderCircle,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -26,6 +27,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
+  type AssistantBlock,
   type AssistantItem,
   type ChatItem,
   type ChatModel,
@@ -36,6 +38,7 @@ import {
   type UserItem,
 } from "../../services/chat/model";
 import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
+import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { AnswerExtrasView } from "./answer-extras";
@@ -148,7 +151,12 @@ export function MessageList({
         : answerExtras([...(history?.items ?? []), ...model.items], tools, cwd, rootPath, turnDone),
     [items, history, model.items, tools, cwd, rootPath, turnDone],
   );
-  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions, extras };
+  // Calls in a row fold into one line, which may take in later messages' calls.
+  const shown = useMemo(
+    () => foldToolRuns([...(items ? [] : (history?.items ?? [])), ...liveItems], tools),
+    [items, history, liveItems, tools],
+  );
+  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions, extras, shown };
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -201,6 +209,8 @@ interface ItemContext {
   tools: Record<string, ToolCall>;
   actions?: MessageActions;
   extras: Map<ChatItem, AnswerExtras>;
+  /** What each assistant message shows, its calls in a row folded together. */
+  shown: Map<AssistantItem, ShownBlock[]>;
 }
 
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
@@ -300,10 +310,15 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
   const forkable =
     ctx.actions?.canFork && item.uuid !== undefined && item.blocks.at(-1)?.type === "text";
   const extras = ctx.extras.get(item);
+  const blocks = ctx.shown.get(item) ?? item.blocks;
+  // Its calls went into a run an earlier message shows.
+  if (blocks.length === 0 && !extras) return null;
   return (
     <div className="group/assistant flex flex-col">
-      {item.blocks.map((block, i) =>
-        block.type === "text" ? (
+      {blocks.map((block, i) =>
+        block.type === "run" ? (
+          <ToolRun key={`run-${runKey(block.blocks)}`} blocks={block.blocks} ctx={ctx} />
+        ) : block.type === "text" ? (
           <ChatMarkdown
             // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
             key={i}
@@ -339,6 +354,99 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
             </ActionButton>
           )}
           <MessageTime at={item.at} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A run's key: its first call's, which stays as calls join it. */
+function runKey(blocks: AssistantBlock[]): string {
+  const first = blocks.find((block) => block.type === "tool");
+  return first?.type === "tool" ? first.toolUseId : "";
+}
+
+function isLive(tool: ToolCall | undefined): boolean {
+  return !tool || tool.status === "running" || tool.status === "streaming";
+}
+
+/** The kinds of call a run's line counts, in its order. */
+const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
+
+/**
+ * Calls in a row as one line that says what they did, and opens to show
+ * each. A call still going shows under it while folded, so the turn's
+ * progress stays in sight.
+ */
+function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const calls = blocks.flatMap((block) =>
+    block.type === "tool" ? [ctx.tools[block.toolUseId]] : [],
+  );
+  const running = calls.some(isLive);
+  const tally = tallyRun(calls);
+  const label = RUN_KINDS.filter((kind) => tally[kind] > 0)
+    .map((kind) => t(`chat.tool.run.${kind}`, { count: tally[kind] }))
+    .join(" · ");
+  const rows = open
+    ? blocks
+    : blocks.filter((block) => block.type === "tool" && isLive(ctx.tools[block.toolUseId]));
+  return (
+    <div className="my-1 text-app-ui-sm" data-testid="chat-tool-run">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full min-w-0 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
+      >
+        {running ? (
+          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--state-loading-indicator)]" />
+        ) : (
+          // A run some calls of which failed is not all green.
+          <Check
+            className={cn(
+              "size-3.5 shrink-0",
+              tally.failed > 0 ? "text-muted-foreground" : "text-[var(--state-success-fg)]",
+            )}
+          />
+        )}
+        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={label}>
+          {label}
+        </span>
+        {tally.failed > 0 && (
+          <span className="shrink-0 text-[var(--state-error-fg)]">
+            {t("chat.tool.run.failed", { count: tally.failed })}
+          </span>
+        )}
+        {tally.denied > 0 && (
+          <span className="shrink-0 text-muted-foreground">
+            {t("chat.tool.run.denied", { count: tally.denied })}
+          </span>
+        )}
+        {open ? (
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+        )}
+      </button>
+      {rows.length > 0 && (
+        <div className="ml-4 border-l border-border pl-2">
+          {rows.map((block, i) =>
+            block.type === "tool" ? (
+              <ToolRow
+                key={block.toolUseId}
+                toolUseId={block.toolUseId}
+                tool={ctx.tools[block.toolUseId]}
+                tools={ctx.tools}
+                cwd={ctx.cwd}
+                onBackground={backgroundOf(ctx.actions, block.toolUseId)}
+              />
+            ) : block.type === "thinking" ? (
+              // biome-ignore lint/suspicious/noArrayIndexKey: a run's blocks are only appended
+              <Thinking key={i} text={block.text} />
+            ) : null,
+          )}
         </div>
       )}
     </div>

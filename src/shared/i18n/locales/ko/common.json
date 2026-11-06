@@ -850,7 +850,23 @@
       "subagent_calls_one": "호출 {{count}}회",
       "subagent_calls_other": "호출 {{count}}회",
       "background": "백그라운드로 보내기",
-      "background_hint": "명령은 백그라운드에서 계속 실행하고 턴을 이어갑니다"
+      "background_hint": "명령은 백그라운드에서 계속 실행하고 턴을 이어갑니다",
+      "run": {
+        "commands_one": "명령 {{count}}개 실행",
+        "commands_other": "명령 {{count}}개 실행",
+        "reads_one": "파일 {{count}}개 읽음",
+        "reads_other": "파일 {{count}}개 읽음",
+        "edits_one": "파일 {{count}}개 수정",
+        "edits_other": "파일 {{count}}개 수정",
+        "searches_one": "검색 {{count}}회",
+        "searches_other": "검색 {{count}}회",
+        "others_one": "도구 {{count}}개 사용",
+        "others_other": "도구 {{count}}개 사용",
+        "failed_one": "{{count}}개 실패",
+        "failed_other": "{{count}}개 실패",
+        "denied_one": "{{count}}개 거부됨",
+        "denied_other": "{{count}}개 거부됨"
+      }
     },
     "permission": {
       "aria": "권한 요청",
