@@ -269,6 +269,23 @@ describe("chat model process lines", () => {
     expect(model.items[model.items.length - 1]).toMatchObject({ code: "restarted" });
   });
 
+  test("an exit's output reads without the colours it was written in", () => {
+    const esc = String.fromCharCode(0x1b);
+    // A line as codex 0.166 wrote it on Windows, colours and all.
+    const written =
+      `${esc}[2m2026-11-06T03:00:34.233537Z${esc}[0m ${esc}[31mERROR${esc}[0m ` +
+      `${esc}[2mcodex_app_server${esc}[0m${esc}[2m:${esc}[0m Invalid configuration; using defaults.\r\n`;
+    const model = applyLine(emptyModel(), {
+      seq: 1,
+      dir: "sys",
+      message: { event: "exit", code: 1, stderrTail: written },
+    });
+    const shown =
+      "2026-11-06T03:00:34.233537Z ERROR codex_app_server: Invalid configuration; using defaults.\n";
+    expect(model.exit?.stderrTail).toBe(shown);
+    expect(model.items[model.items.length - 1]).toMatchObject({ code: "exited", detail: shown });
+  });
+
   test("a log that starts with a resumed program says so", () => {
     const resumed = applyLine(emptyModel(), {
       seq: 7,
