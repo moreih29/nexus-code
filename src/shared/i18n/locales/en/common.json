@@ -919,18 +919,20 @@
       "truncated": "The oldest part of this conversation is no longer kept."
     },
     "queue": {
-      "aria": "Messages waiting for the turn to end",
-      "label": "Queued",
+      "aria": "Messages waiting to be read",
+      "label": "Waiting",
+      "after_turn": "After the turn",
       "images_one": "{{count}} image",
       "images_other": "{{count}} images",
       "edit": "Edit",
       "remove": "Remove",
-      "take_back": "↑ at the start of the box: edit the last one"
+      "take_back": "↑ at the start of the box: edit the last one",
+      "already_read": "Already read; it can't be taken back."
     },
     "composer": {
       "aria": "Message to Claude",
       "placeholder": "{{send}} send · {{newLine}} new line · / commands · @ files",
-      "placeholder_running": "{{send}} send · {{nowKey}} send now · {{queueKey}} queue",
+      "placeholder_running": "{{send}} queue · {{nowKey}} send now · {{queueKey}} send after the turn",
       "send": "Send",
       "send_now": "Send now",
       "stop": "Stop",
@@ -1263,7 +1265,7 @@
       "tab_title": "Codex",
       "empty": "What should Codex work on?",
       "placeholder": "{{send}} send · {{newLine}} new line · @ files",
-      "placeholder_running": "{{send}} send now · {{queueKey}} queue",
+      "placeholder_running": "{{send}} send now · {{queueKey}} send after the turn",
       "starting": "Starting Codex…",
       "held": "The connection dropped. Codex keeps running and the tab catches up when it is back.",
       "ended": "Codex is not running. Sending a message starts it again, on the same thread.",

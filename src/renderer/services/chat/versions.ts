@@ -17,6 +17,9 @@ const FIRST_SEEN: Record<string, string> = {
   stop_task: "2.1.238",
   list_permission_rules: "2.1.288",
   get_hooks_listing: "2.1.288",
+  // Answered from 2.1.77, but only from 2.1.160 is the drop told by a
+  // command_lifecycle event, which takes the message off the list.
+  cancel_async_message: "2.1.160",
 };
 
 /** -1, 0 or 1 as a is before, the same as, or after b; x.y.z only. */

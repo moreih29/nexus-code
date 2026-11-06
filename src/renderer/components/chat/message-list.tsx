@@ -25,14 +25,15 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { splitAttachments } from "../../services/chat/composer-input";
-import type {
-  AssistantItem,
-  ChatItem,
-  ChatModel,
-  NoticeItem,
-  StreamingMessage,
-  ToolCall,
-  UserItem,
+import {
+  type AssistantItem,
+  type ChatItem,
+  type ChatModel,
+  isWaiting,
+  type NoticeItem,
+  type StreamingMessage,
+  type ToolCall,
+  type UserItem,
 } from "../../services/chat/model";
 import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
 import { copyText } from "../../utils/clipboard";
@@ -127,7 +128,11 @@ export function MessageList({
   }, [lastUser, toBottom]);
 
   const historyItems = items ? [] : (history?.items ?? []);
-  const liveItems = items ?? model.items;
+  // A message Claude has not read yet waits above the box, not here.
+  const liveItems = useMemo(
+    () => items ?? model.items.filter((item) => !isWaiting(item)),
+    [items, model.items],
+  );
   const streaming = items ? null : model.streaming;
   const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
   const tools = useMemo(
