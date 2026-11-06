@@ -37,12 +37,3 @@ export function resolveSelection(
 export function isSessionSelected(selection: SessionsSelection | null, key: string): boolean {
   return selection?.kind === "session" && selection.key === key;
 }
-
-/** Whether `selection` names the agent `agentId` of the session `key`. */
-export function isAgentSelected(
-  selection: SessionsSelection | null,
-  key: string,
-  agentId: string,
-): boolean {
-  return selection?.kind === "agent" && selection.key === key && selection.agentId === agentId;
-}

@@ -1,17 +1,21 @@
 /**
- * What the sessions tab does for the user: show a session's terminal, type
- * a line into it or interrupt it, show a worktree's changes, and make or
- * delete a task through the app's own dialogs.
+ * What the agents tab does for the user: show a session's terminal, type
+ * a line into it or interrupt it, show a worktree's changes, open a
+ * terminal or a conversation in it, and make or delete a task through the
+ * app's own dialogs.
  */
 
+import { openClaudeTab } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { existingCodexController } from "../chat/codex-controller";
 import { existingChatController } from "../chat/controller";
 import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
+import { openTerminal } from "../terminal/open-terminal";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace } from "../workspace/tasks";
 import { typeText } from "./typed-input";
@@ -100,6 +104,18 @@ export function showChanges(workspaceId: string): void {
   const ui = useUIStore.getState();
   ui.setFilesPanelMode(workspaceId, "git");
   ui.setPanelHidden("files", false);
+}
+
+/** Opens a terminal in the worktree's workspace and switches to it. */
+export function openWorktreeTerminal(workspace: WorkspaceMeta): void {
+  openTerminal({ workspaceId: workspace.id, cwd: workspace.rootPath });
+  if (useActiveStore.getState().activeWorkspaceId !== workspace.id) activateWorkspace(workspace.id);
+}
+
+/** Starts a Claude conversation in the worktree's workspace and switches to it. */
+export function openWorktreeChat(workspace: WorkspaceMeta): void {
+  openClaudeTab(workspace.id, { cwd: workspace.rootPath });
+  if (useActiveStore.getState().activeWorkspaceId !== workspace.id) activateWorkspace(workspace.id);
 }
 
 export function newTask(rootId: string): void {

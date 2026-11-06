@@ -10,7 +10,6 @@ import {
   estimatedGlyph,
   type FamilyInput,
   firstSession,
-  phaseCounts,
   phaseOf,
   workspaceEstimatedGlyph,
 } from "../../../../../src/renderer/services/sessions/model";
@@ -405,10 +404,6 @@ describe("what to show first", () => {
     }),
   );
   if (!family) throw new Error("no family");
-
-  it("counts each phase", () => {
-    expect(phaseCounts(family)).toEqual({ attention: 1, running: 1, done: 1, idle: 1 });
-  });
 
   it("starts with a session waiting on the user", () => {
     expect(firstSession(family)?.tabId).toBe("ask");

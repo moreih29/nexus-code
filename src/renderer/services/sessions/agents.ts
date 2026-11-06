@@ -5,7 +5,7 @@
  */
 
 import type { AgentRun, SessionActivity, ToolRun } from "../../../shared/claude/activity";
-import { type AgentSession, allSessions, type SessionFamily, sessionKey } from "./model";
+import { sessionKey } from "./model";
 
 /** The sessions' activity, by session key. */
 export type ActivityByKey = ReadonlyMap<string, SessionActivity>;
@@ -26,40 +26,6 @@ export function agentsOf(activity: ActivityByKey, key: string): readonly AgentRu
 
 export function liveAgents(agents: readonly AgentRun[]): AgentRun[] {
   return agents.filter(isLive);
-}
-
-export function endedAgents(agents: readonly AgentRun[]): AgentRun[] {
-  return agents.filter((agent) => !isLive(agent));
-}
-
-/** How many agents of the family's sessions are running now. */
-export function runningAgentCount(family: SessionFamily, activity: ActivityByKey): number {
-  let count = 0;
-  for (const session of allSessions(family)) {
-    count += liveAgents(agentsOf(activity, session.key)).length;
-  }
-  return count;
-}
-
-/** The agents of `sessions`, the live ones first, then the latest ended. */
-export function agentsOfSessions(
-  sessions: readonly AgentSession[],
-  activity: ActivityByKey,
-): { session: AgentSession; agent: AgentRun }[] {
-  const all = sessions.flatMap((session) =>
-    agentsOf(activity, session.key).map((agent) => ({ session, agent })),
-  );
-  return [
-    ...all.filter(({ agent }) => isLive(agent)),
-    ...all
-      .filter(({ agent }) => !isLive(agent))
-      .sort((a, b) => (b.agent.end ?? 0) - (a.agent.end ?? 0)),
-  ];
-}
-
-/** The agent first waiting on a permission among `agents`, if any. */
-export function askingAgent<T extends { agent: AgentRun }>(agents: readonly T[]): T | undefined {
-  return agents.find(({ agent }) => agent.state === "permissionPending");
 }
 
 /** A tool still running, the latest of them. */

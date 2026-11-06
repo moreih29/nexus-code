@@ -7,6 +7,7 @@
  */
 
 import type { SessionActivity } from "../../../shared/claude/activity";
+import type { TerminalWait } from "../../../shared/sessions/agent-state";
 import type { ChatModel, ToolCall } from "../chat/model";
 import { agentsOf as chatAgentsOf, contextOf, todosOf } from "../chat/panel";
 import { currentTool, liveAgents, shortTarget } from "./agents";
@@ -21,26 +22,56 @@ export function groupOf(session: AgentSession): RowGroup {
   return session.phase;
 }
 
+/** Whether `session` has `query` in its title, last prompt or last answer; any does for none. */
+export function matchesQuery(session: AgentSession, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return (
+    needle === "" ||
+    [session.title, session.prompt, session.message].some((text) =>
+      text?.toLowerCase().includes(needle),
+    )
+  );
+}
+
 /**
- * The sessions of `group` that match `query` (in their title, last prompt
- * or last answer): those waiting longest first among the ones waiting on the
- * user, the latest first elsewhere.
+ * The sessions of `group` that match `query`: those waiting longest first
+ * among the ones waiting on the user, the latest first elsewhere.
  */
 export function sessionsIn(
   sessions: readonly AgentSession[],
   group: RowGroup,
   query: string,
 ): AgentSession[] {
-  const needle = query.trim().toLowerCase();
-  const matches = (session: AgentSession) =>
-    needle === "" ||
-    [session.title, session.prompt, session.message].some((text) =>
-      text?.toLowerCase().includes(needle),
-    );
   const order = group === "attention" ? 1 : -1;
   return sessions
-    .filter((session) => groupOf(session) === group && matches(session))
+    .filter((session) => groupOf(session) === group && matchesQuery(session, query))
     .sort((a, b) => order * ((a.since ?? 0) - (b.since ?? 0)));
+}
+
+/** The sessions that match `query`, group by group in the list's order. */
+export function sessionsByGroup(sessions: readonly AgentSession[], query: string): AgentSession[] {
+  return ROW_GROUPS.flatMap((group) => sessionsIn(sessions, group, query));
+}
+
+/**
+ * The session `session` waits on to end (nexus terminal wait), among
+ * `sessions`. A waiter no longer running was interrupted, whatever the
+ * registry still says.
+ */
+export function waitedOn(
+  session: AgentSession,
+  waits: readonly TerminalWait[],
+  sessions: readonly AgentSession[],
+): AgentSession | undefined {
+  if (session.phase !== "running") return undefined;
+  const wait = waits.find(
+    (each) =>
+      each.waiter.workspaceId === session.workspaceId && each.waiter.tabId === session.tabId,
+  );
+  if (!wait) return undefined;
+  return sessions.find(
+    (each) => each.workspaceId === wait.target.workspaceId && each.tabId === wait.target.tabId,
+  );
 }
 
 /** What a session waits on the user for. */

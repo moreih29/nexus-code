@@ -22,9 +22,6 @@ import { codexStateOf } from "./codex-state";
  */
 export type SessionPhase = "attention" | "running" | "done" | "idle";
 
-/** The phases in the order the board shows them, the user's turn first. */
-export const SESSION_PHASES: readonly SessionPhase[] = ["attention", "running", "done", "idle"];
-
 export interface AgentSession {
   /** `${workspaceId}:${tabId}`. */
   readonly key: string;
@@ -332,13 +329,6 @@ export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): bo
 
 export function allSessions(family: SessionFamily): AgentSession[] {
   return family.worktrees.flatMap((w) => w.sessions);
-}
-
-/** How many sessions are in each phase. */
-export function phaseCounts(family: SessionFamily): Record<SessionPhase, number> {
-  const counts: Record<SessionPhase, number> = { attention: 0, running: 0, done: 0, idle: 0 };
-  for (const session of allSessions(family)) counts[session.phase]++;
-  return counts;
 }
 
 /**

@@ -113,7 +113,7 @@ export const AppStateSchema = z.object({
   // its argument; absent = "claude", empty = run nothing.
   taskAgentCommand: z.string().max(1024).optional(),
 
-  // The view a sessions tab opens in (a SessionsView); absent = "tree". Kept
+  // The view a sessions tab opens in (a SessionsView); absent = "status". Kept
   // as a plain string so a view this version lacks does not fail the state.
   sessionsViewDefault: z.string().max(32).optional(),
 

@@ -5,7 +5,6 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { SessionActivity } from "../../../../../src/shared/claude/activity";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
 import type { AgentSession } from "../../../../../src/renderer/services/sessions/model";
 import {
@@ -14,8 +13,11 @@ import {
   hookRowFacts,
   inputTarget,
   NO_FACTS,
+  sessionsByGroup,
   sessionsIn,
+  waitedOn,
 } from "../../../../../src/renderer/services/sessions/rows";
+import type { SessionActivity } from "../../../../../src/shared/claude/activity";
 
 function model(over: Partial<ChatModel>): ChatModel {
   return { ...emptyModel(), ...over };
@@ -201,5 +203,24 @@ describe("sessionsIn", () => {
   test("a search reads the title, the prompt and the answer", () => {
     expect(sessionsIn(sessions, "done", "REGEX").map((s) => s.key)).toEqual(["c"]);
     expect(sessionsIn(sessions, "done", "nothing")).toEqual([]);
+  });
+
+  test("all of them group by group, as the list orders them", () => {
+    expect(sessionsByGroup(sessions, "").map((s) => s.key)).toEqual(["b", "a", "d", "c", "f", "e"]);
+  });
+
+  test("a running terminal waits on the session it named, until it stops running", () => {
+    const waiter = session("w", { state: "busy", phase: "running" });
+    const target = session("t", { state: "running", phase: "running" });
+    const waits = [
+      {
+        waiter: { workspaceId: "w", tabId: "w" },
+        target: { workspaceId: "w", tabId: "t" },
+        since: 1,
+      },
+    ];
+    expect(waitedOn(waiter, waits, [waiter, target])?.key).toBe("t");
+    expect(waitedOn({ ...waiter, phase: "idle" }, waits, [waiter, target])).toBeUndefined();
+    expect(waitedOn(target, waits, [waiter, target])).toBeUndefined();
   });
 });

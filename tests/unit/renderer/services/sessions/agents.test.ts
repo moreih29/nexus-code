@@ -6,9 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
 import {
   activityMap,
-  agentsOfSessions,
   currentTool,
-  runningAgentCount,
   sameActivityMap,
   shortTarget,
   toolLine,
@@ -68,16 +66,6 @@ describe("agents", () => {
     activity("a", [run("a1"), run("a2", 50, "completed")]),
     activity("b", [run("b1"), run("b2", 90, "stopped")]),
   ]);
-
-  it("counts the running agents of the family", () => {
-    expect(runningAgentCount(family, map)).toBe(2);
-  });
-
-  it("lists the live agents of sessions first, then the latest ended", () => {
-    expect(
-      agentsOfSessions(family.worktrees[0]?.sessions ?? [], map).map(({ agent }) => agent.id),
-    ).toEqual(["a1", "b1", "b2", "a2"]);
-  });
 
   it("tells a tool by its name and a short target", () => {
     const tool = (name: string, target?: string, end?: number): ToolRun => ({

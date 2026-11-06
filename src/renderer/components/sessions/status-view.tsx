@@ -285,7 +285,8 @@ const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delet
 const COMMAND_TOOLS = new Set(["Bash", "BashOutput", "PowerShell", "KillShell"]);
 const SEARCH_TOOLS = new Set(["Read", "Grep", "Glob", "LS", "WebSearch", "WebFetch"]);
 
-function ToolIcon({ name }: { name: string }) {
+/** A call's kind as an icon: an edit, a command, a search, or any other tool. */
+export function ToolIcon({ name }: { name: string }) {
   const cls = "size-3.5 shrink-0";
   if (EDIT_TOOLS.has(name)) return <Pencil aria-hidden className={cn(cls, "text-emerald-500")} />;
   if (COMMAND_TOOLS.has(name)) {

@@ -151,23 +151,6 @@ export function useDurationLabel(since: number | undefined): string | null {
   return durationLabel(since, Math.max(now, since ?? 0));
 }
 
-/** Glyph, state and how long it has lasted, e.g. "◌ Running · 12m". */
-export function SessionState({ session, className }: { session: AgentSession; className?: string }) {
-  const duration = useDurationLabel(session.since);
-  const { colorClass } = lookOf(session.state);
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 min-w-0 text-app-ui-sm", className)}>
-      <StateGlyph state={session.state} />
-      <span
-        className={cn("truncate", session.phase === "idle" ? "text-muted-foreground" : colorClass)}
-      >
-        {stateLabel(session)}
-      </span>
-      {duration && <span className="shrink-0 text-muted-foreground">· {duration}</span>}
-    </span>
-  );
-}
-
 /** The agent's name in a small monospace badge. */
 export function AgentBadge({ agent }: { agent: string | undefined }) {
   return (

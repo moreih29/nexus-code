@@ -507,16 +507,7 @@
     "view_label": "View",
     "view": {
       "status": "By state",
-      "tree": "Tree",
-      "board": "Board",
-      "lineage": "Graph",
-      "timeline": "Timeline"
-    },
-    "phase": {
-      "attention": "Needs you",
-      "running": "Working",
-      "done": "New result",
-      "idle": "Idle"
+      "task": "By task"
     },
     "state": {
       "running": "Working",
@@ -540,28 +531,6 @@
     "no_sessions": "No sessions",
     "changed_files": "{{count}} changed",
     "column_empty": "None",
-    "lineage": {
-      "legend_created": "Created",
-      "legend_created_hint": "Tasks a session made with nexus worktree new",
-      "legend_waits": "Waiting on",
-      "legend_waits_hint": "Waiting for another terminal to finish (nexus terminal wait · send --wait)",
-      "separate": "Created directly",
-      "waiting": "Waiting · {{duration}}",
-      "sessions_one": "{{count}} session",
-      "sessions_other": "{{count}} sessions"
-    },
-    "timeline": {
-      "range_label": "Period",
-      "range": {
-        "30m": "30 min",
-        "2h": "2 hours",
-        "today": "Today"
-      },
-      "legend_waiting": "Waiting on",
-      "made_by": "Made in {{name}}",
-      "waiting_on": "Waiting on {{name}}",
-      "empty": "Nothing was recorded in this period. Activity is recorded while the app runs and kept for a day."
-    },
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",
@@ -574,7 +543,6 @@
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
       "more_changes": "{{count}} more",
-      "no_session": "No agent session runs in this worktree.",
       "close": "Close details",
       "todos": "To do",
       "screen_show": "Show terminal output",
@@ -601,8 +569,6 @@
       "not_loaded": "This conversation has not been opened yet. Open its tab to see it."
     },
     "agents": {
-      "running_count": "Agents running {{count}}",
-      "ended_toggle": "Finished agents {{count}}",
       "label_fallback": "Agent",
       "print": "claude -p",
       "background": "background",
@@ -617,20 +583,9 @@
       "tools_other": "{{count}} tools",
       "tools_failed_one": "{{count}} tool · {{failed}} failed",
       "tools_failed_other": "{{count}} tools · {{failed}} failed",
-      "asking_tool": "Needs permission · {{tool}}",
-      "asking_agent": "Agent “{{name}}” is asking for permission",
-      "summary_one": "{{count}} agent",
-      "summary_other": "{{count}} agents",
-      "count_running": "{{count}} running",
-      "count_asking": "{{count}} asking",
-      "count_ended": "{{count}} finished",
-      "more": "{{count}} more",
       "session_crumb": "{{agent}} session",
       "agent_crumb": "Agent",
       "exit_code": "Exit code {{code}}",
-      "toggle_expand": "Show agents",
-      "toggle_collapse": "Hide agents",
-      "failed_tool": "Failed: {{tool}}",
       "detail": {
         "prompt": "Request",
         "activity": "Activity",
@@ -688,6 +643,12 @@
       "answer_failed": "Could not send the answer",
       "new_claude": "New Claude conversation",
       "new_chat": "New conversation"
+    },
+    "task": {
+      "no_conversations": "No conversations",
+      "created_by": "Made by the conversation {{title}}",
+      "waiting_on": "Waiting for {{title}} to end",
+      "open_terminal": "Open a terminal in this task"
     }
   },
   "claudeStatus": {
