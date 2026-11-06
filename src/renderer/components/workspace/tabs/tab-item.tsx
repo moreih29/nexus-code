@@ -524,7 +524,11 @@ export function TabItem({
           />
         ) : (
           <span
+            // A long title (a chat's first message, a page's title) is cut
+            // to a tab's width; the whole of it shows on hover.
+            title={displayTitle}
             className={cn(
+              "min-w-0 max-w-64 truncate",
               tab.isPreview && "italic",
               // Ignored 파일 탭은 라벨이 receded — 파일트리 row와 동일한 신호.
               gitIgnored && "opacity-50",

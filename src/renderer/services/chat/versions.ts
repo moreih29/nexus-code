@@ -8,6 +8,7 @@ export const MIN_CLAUDE_VERSION = "2.1.0";
 
 const FIRST_SEEN: Record<string, string> = {
   apply_flag_settings: "2.1.77",
+  generate_session_title: "2.1.77",
   get_context_usage: "2.1.160",
   file_suggestions: "2.1.160",
   background_tasks: "2.1.160",

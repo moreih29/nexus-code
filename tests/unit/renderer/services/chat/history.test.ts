@@ -151,4 +151,17 @@ describe("sessionTitleOf", () => {
       ]),
     ).toBe("Test plan");
   });
+
+  test("is else the last title Claude made, a name winning over it", () => {
+    const made = [
+      { type: "ai-title", aiTitle: "Old title" },
+      ...ENTRIES,
+      { type: "ai-title", aiTitle: " Greet.ts default name " },
+      { type: "ai-title", aiTitle: "" },
+    ];
+    expect(sessionTitleOf(made)).toBe("Greet.ts default name");
+    expect(sessionTitleOf([{ type: "custom-title", customTitle: "Test plan" }, ...made])).toBe(
+      "Test plan",
+    );
+  });
 });

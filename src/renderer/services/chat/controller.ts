@@ -43,6 +43,8 @@ const log = createLogger("chat");
 const CONTROL_TIMEOUT_MS = 15_000;
 /** How long a side question may take: one turn of the model, retries included. */
 const SIDE_QUESTION_TIMEOUT_MS = 180_000;
+/** The most of the first message Claude names the conversation from. */
+const TITLE_FROM_CHARS = 2_000;
 
 /** Longest a replay's lines, sent as events, may trail its answer. */
 const REPLAY_CATCH_UP_MS = 3_000;
@@ -87,6 +89,8 @@ export interface ChatTabHooks {
   onTarget?: (target: { sessionId?: string; fork?: ForkPoint }) => void;
   /** The first message of the conversation, for the tab's title. */
   onFirstMessage?: (text: string) => void;
+  /** The title Claude made for the conversation, to take the first message's place. */
+  onTitle?: (title: string) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -241,11 +245,14 @@ export class ChatController {
       if (!result.found) return;
       const history = historyModel(result.lines, cut);
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
-      // A session that was named is called by its name.
+      // A session that was named, by the user or by Claude, is called by its name.
       const title = cut ? undefined : sessionTitleOf(result.lines);
-      if (!this.titled && (title || first?.kind === "user")) {
+      if (!this.titled && title) {
         this.titled = true;
-        this.hooks.onFirstMessage?.(title ?? (first?.kind === "user" ? first.text.trim() : ""));
+        this.hooks.onTitle?.(title);
+      } else if (!this.titled && first?.kind === "user") {
+        this.titled = true;
+        this.hooks.onFirstMessage?.(first.text.trim());
       }
       this.update((prev) => ({ ...prev, history: history.items.length > 0 ? history : null }));
     } catch (err) {
@@ -507,11 +514,26 @@ export class ChatController {
 
   private async sendMessage(text: string, images: ImageBlock[], now: boolean): Promise<void> {
     if (!(await this.ensureRunning())) return;
-    if (!this.titled && text.trim()) {
+    const first = !this.titled && text.trim() ? text.trim() : undefined;
+    if (first) {
       this.titled = true;
-      this.hooks.onFirstMessage?.(text.trim());
+      this.hooks.onFirstMessage?.(first);
     }
     await this.write(userMessageOf(text, images, now));
+    if (first) void this.nameSession(first);
+  }
+
+  /**
+   * Has Claude name the conversation from its first message, as the terminal
+   * does: the title is kept in the session, where a later tab finds it.
+   */
+  private async nameSession(text: string): Promise<void> {
+    const result = await this.request("generate_session_title", {
+      description: text.slice(0, TITLE_FROM_CHARS),
+      persist: true,
+    }).catch(() => undefined);
+    const title = typeof result?.title === "string" ? result.title.trim() : "";
+    if (title) this.hooks.onTitle?.(title);
   }
 
   /** The composer took the message a rewind or fork put back. */

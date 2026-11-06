@@ -18,6 +18,7 @@ import type { PermissionRequest } from "../../services/chat/model";
 import { openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import { clipTitle, titleOf } from "../../services/chat/tab-title";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
@@ -43,8 +44,6 @@ interface CodexTabViewProps {
   isVisible: boolean;
 }
 
-/** Longest first message kept as the tab's title. */
-const TITLE_CHARS = 40;
 /** From this width a file opens in a group beside the tab. */
 const SPLIT_FROM_PX = 900;
 
@@ -66,6 +65,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
             useTabsStore.getState().setCodexThread(workspaceId, tabId, threadId),
           onFirstMessage: (text) =>
             useTabsStore.getState().setProcessTitle(workspaceId, tabId, titleOf(text)),
+          onTitle: (title) =>
+            useTabsStore.getState().setProcessTitle(workspaceId, tabId, clipTitle(title)),
         },
       ),
     [workspaceId, tabId],
@@ -241,11 +242,6 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>
     </ChatAgentContext.Provider>
   );
-}
-
-function titleOf(text: string): string {
-  const line = text.split("\n")[0].trim();
-  return line.length > TITLE_CHARS ? `${line.slice(0, TITLE_CHARS - 1)}…` : line;
 }
 
 function PhaseBanner({ controller, state }: { controller: CodexController; state: ChatTabState }) {

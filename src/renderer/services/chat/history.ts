@@ -122,12 +122,22 @@ export function historyModel(entries: readonly unknown[], cut?: HistoryCut): Cha
   return { ...model, running: false, turn: null, streaming: null, permissions: [] };
 }
 
-/** The title a session was given (/rename), the last one standing. */
+/**
+ * The title a session was given (/rename), the last one standing; else the
+ * last one Claude made for it.
+ */
 export function sessionTitleOf(entries: readonly unknown[]): string | undefined {
+  return (
+    lastTitleOf(entries, "custom-title", "customTitle") ??
+    lastTitleOf(entries, "ai-title", "aiTitle")
+  );
+}
+
+function lastTitleOf(entries: readonly unknown[], type: string, field: string): string | undefined {
   for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i] as { type?: unknown; customTitle?: unknown } | null;
-    if (entry?.type !== "custom-title" || typeof entry.customTitle !== "string") continue;
-    const title = entry.customTitle.trim();
+    const entry = entries[i] as Record<string, unknown> | null;
+    const value = entry?.type === type ? entry[field] : undefined;
+    const title = typeof value === "string" ? value.trim() : "";
     if (title) return title;
   }
   return undefined;
