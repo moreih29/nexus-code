@@ -48,7 +48,7 @@ import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { visibleWorkspaces } from "./state/stores/workspaces";
+import { restoredWorkspace } from "./state/stores/workspaces";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 const log = createLogger("bootstrap");
@@ -314,8 +314,9 @@ export async function bootstrapAppState(): Promise<void> {
  * Does NOT call workspace:activate at startup. Main's init() is the source
  * of truth for the restored active workspace and its conditional auto-connect
  * (key-only SSH and local connect automatically; interactive SSH restores in
- * the disconnected state). Calling activate here would both trigger a
- * connection and wrongly bump the recency list on every app launch.
+ * the disconnected state), so the selection is the workspace main restored.
+ * Calling activate here would both trigger a connection and wrongly bump the
+ * recency list on every app launch.
  */
 export async function bootstrapWorkspaces(
   setAll: (list: WorkspaceMeta[]) => void,
@@ -324,8 +325,9 @@ export async function bootstrapWorkspaces(
   // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
   const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
   setAll(list);
-  const first = visibleWorkspaces(list)[0];
-  if (first) setActiveWorkspaceId(first.id);
+  const active = await ipcCallResult("workspace", "active", undefined);
+  const selected = restoredWorkspace(list, active.ok ? active.value : null);
+  if (selected) setActiveWorkspaceId(selected.id);
 }
 
 /**
