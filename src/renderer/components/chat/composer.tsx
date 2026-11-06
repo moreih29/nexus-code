@@ -3,13 +3,15 @@
 // model, effort and permission mode.
 //
 // ↩ sends, and during a turn Claude reads it after the current tool; ⌘↩
-// holds it until the turn ends; ⇧↩ breaks the line; esc stops the turn.
+// (Ctrl+↩ off the Mac) holds it until the turn ends; ⇧↩ breaks the line;
+// esc stops the turn.
 // A `/` at the start completes a command, an `@` a file.
 //
 // An attached file is sent as an @-mention of its path, which the CLI
 // reads without asking. Where the program cannot see the file (an SSH
 // host, a file with no path here) the agent writes it first.
 
+import type { TFunction } from "i18next";
 import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -25,6 +27,7 @@ import type { ImageBlock, ModelInfo } from "../../services/chat/model";
 import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
+import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
   DropdownMenuContent,
@@ -497,8 +500,7 @@ export function Composer({
             readOnly={sending}
             rows={1}
             placeholder={
-              placeholder ??
-              (running ? t("chat.composer.placeholder_running") : t("chat.composer.placeholder"))
+              placeholder ?? (running ? runningPlaceholder(t) : t("chat.composer.placeholder"))
             }
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
@@ -785,6 +787,11 @@ function ModeChip({ controller, state }: ChipProps) {
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );
+}
+
+/** The composer's hint during a turn, naming this platform's queue key. */
+export function runningPlaceholder(t: TFunction): string {
+  return t("chat.composer.placeholder_running", { queueKey: isMac() ? "⌘↩" : "Ctrl+↩" });
 }
 
 /** The model info the session runs, as the CLI names it either way (alias or id). */

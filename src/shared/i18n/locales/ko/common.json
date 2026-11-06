@@ -929,7 +929,7 @@
     "composer": {
       "aria": "Claude에게 보낼 메시지",
       "placeholder": "↩ 보내기 · ⇧↩ 줄바꿈 · / 명령 · @ 파일",
-      "placeholder_running": "↩ 지금 보내기 · ⌘↩ 대기열",
+      "placeholder_running": "↩ 지금 보내기 · {{queueKey}} 대기열",
       "send": "보내기",
       "send_now": "지금 보내기",
       "stop": "중단",
