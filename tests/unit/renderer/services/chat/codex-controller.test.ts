@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   answerOf,
   isSupportedCodex,
+  suggestedPaths,
 } from "../../../../../src/renderer/services/chat/codex-controller";
 
 describe("codex answers", () => {
@@ -51,5 +52,41 @@ describe("codex answers", () => {
     expect(isSupportedCodex("0.170.1")).toBe(true);
     expect(isSupportedCodex("0.120.0")).toBe(false);
     expect(isSupportedCodex(null)).toBe(true);
+  });
+});
+
+describe("codex @-mention suggestions", () => {
+  test("leave out git's own folder, by either separator", () => {
+    const files = [
+      ".git\\HEAD",
+      ".git/config",
+      "sub\\.git\\index",
+      "sub/.git",
+      ".github\\workflows\\ci.yml",
+      ".gitignore",
+      "src\\math.ts",
+      "my.git\\a.ts",
+    ].map((path) => ({ root: "C:\\w", path, score: 1 }));
+    expect(suggestedPaths(files)).toEqual([
+      ".github\\workflows\\ci.yml",
+      ".gitignore",
+      "src\\math.ts",
+      "my.git\\a.ts",
+    ]);
+  });
+
+  test("keep as many as the menu shows once git's are out", () => {
+    const files = [
+      ...Array.from({ length: 10 }, (_, i) => ({ path: `.git/objects/${i}` })),
+      ...Array.from({ length: 60 }, (_, i) => ({ path: `src/${i}.ts` })),
+    ];
+    const paths = suggestedPaths(files);
+    expect(paths).toHaveLength(50);
+    expect(paths[0]).toBe("src/0.ts");
+  });
+
+  test("nothing from a reply that is not a list of paths", () => {
+    expect(suggestedPaths(undefined)).toEqual([]);
+    expect(suggestedPaths([null, { path: 3 }, { path: "" }, { path: "a.ts" }])).toEqual(["a.ts"]);
   });
 });
