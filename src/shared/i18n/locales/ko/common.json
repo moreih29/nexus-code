@@ -593,17 +593,12 @@
       "tools_other": "도구 {{count}}",
       "tools_failed_one": "도구 {{count}} · 실패 {{failed}}",
       "tools_failed_other": "도구 {{count}} · 실패 {{failed}}",
-      "session_crumb": "{{agent}} 대화",
       "agent_crumb": "서브에이전트",
       "exit_code": "종료 코드 {{code}}",
       "detail": {
-        "prompt": "요청",
-        "activity": "활동",
-        "answer": "응답",
         "answer_pending": "서브에이전트가 끝나면 마지막 응답이 여기에 나옵니다.",
         "answer_pending_run": "실행이 끝나면 마지막 응답이 여기에 나옵니다.",
         "answer_none": "응답 없이 끝났습니다.",
-        "tools_none": "아직 쓴 도구가 없습니다.",
         "tools_untold": "이 실행의 도구 호출은 알 수 없습니다. -c나 검색어로 세션을 이어갔거나 세션 기록을 남기지 않는 실행입니다.",
         "tools_untold_codex": "이 실행의 도구 호출은 알 수 없습니다. 세션을 남기지 않거나(--ephemeral) 출력을 터미널에 바로 쓰는 실행입니다.",
         "denied": "거부됨",
@@ -612,7 +607,8 @@
         "running_for": "{{duration}}째",
         "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다.",
         "permission_hint_claude": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. Claude 탭에서 응답합니다."
-      }
+      },
+      "parent": "{{title}}의 서브에이전트"
     },
     "permission": {
       "title": "권한 요청",

@@ -47,6 +47,7 @@ import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
+import { AgentRows } from "./agent-rows";
 import { isSessionSelected, type SessionsSelection } from "./selection";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
 
@@ -167,7 +168,15 @@ export function StatusView({
                       isSessionSelected(selection, session.key) ||
                       (selection?.kind === "agent" && selection.key === session.key)
                     }
+                    selectedAgentId={
+                      selection?.kind === "agent" && selection.key === session.key
+                        ? selection.agentId
+                        : undefined
+                    }
                     onSelect={() => onSelect({ kind: "session", key: session.key })}
+                    onSelectAgent={(agentId) =>
+                      onSelect({ kind: "agent", key: session.key, agentId })
+                    }
                   />
                 );
               })}
@@ -187,7 +196,9 @@ function SessionRow({
   chat,
   activity,
   selected,
+  selectedAgentId,
   onSelect,
+  onSelectAgent,
 }: {
   session: AgentSession;
   group: RowGroup;
@@ -197,7 +208,10 @@ function SessionRow({
   chat: ChatTabState | undefined;
   activity: SessionActivity | undefined;
   selected: boolean;
+  /** Its agent selected, when one is. */
+  selectedAgentId: string | undefined;
   onSelect: () => void;
+  onSelectAgent: (agentId: string) => void;
 }) {
   const facts =
     session.kind === "terminal"
@@ -266,6 +280,13 @@ function SessionRow({
           />
         )}
       </div>
+      {/* Above the row's own button, as the row's other buttons are. */}
+      <AgentRows
+        agents={activity?.agents ?? []}
+        selectedId={selectedAgentId}
+        onSelect={onSelectAgent}
+        className="relative mt-1"
+      />
     </div>
   );
 }

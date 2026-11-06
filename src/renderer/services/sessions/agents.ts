@@ -40,6 +40,28 @@ export function runMessages(agent: AgentRun): readonly AgentMessage[] {
   return last !== undefined && last.text === agent.answer ? messages.slice(0, -1) : messages;
 }
 
+/** A step of what an agent did: a tool it ran, or what it wrote. */
+export type FlowEntry =
+  | { readonly key: string; readonly at: number; readonly tool: ToolRun }
+  | { readonly key: string; readonly at: number; readonly message: AgentMessage };
+
+/**
+ * What an agent did, in order, as its session's own turn reads: its tools
+ * and what it wrote between them. A message told with a tool was written
+ * before it.
+ */
+export function agentFlow(
+  tools: readonly ToolRun[],
+  messages: readonly AgentMessage[],
+): FlowEntry[] {
+  const entries: FlowEntry[] = [
+    ...messages.map((message, i) => ({ key: `message:${i}`, at: message.at, message })),
+    ...tools.map((tool) => ({ key: tool.id, at: tool.start, tool })),
+  ];
+  // Stable: at the same time, the message stays before the tool.
+  return entries.sort((a, b) => a.at - b.at);
+}
+
 /** Whether the agent still runs (or waits on a permission). */
 export function isLive(agent: AgentRun): boolean {
   return agent.end === undefined;
@@ -52,6 +74,14 @@ export function agentsOf(activity: ActivityByKey, key: string): readonly AgentRu
 
 export function liveAgents(agents: readonly AgentRun[]): AgentRun[] {
   return agents.filter(isLive);
+}
+
+/**
+ * The agents a conversation's row lists under it: those still running, and
+ * the one selected, so where it belongs shows in the list.
+ */
+export function rowAgents(agents: readonly AgentRun[], selectedId: string | undefined): AgentRun[] {
+  return agents.filter((agent) => isLive(agent) || agent.id === selectedId);
 }
 
 /** A tool still running, the latest of them. */

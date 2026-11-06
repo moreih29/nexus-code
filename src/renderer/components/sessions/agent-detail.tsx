@@ -1,29 +1,31 @@
-// Sessions tab — detail panel of an agent a Claude session runs: where it
-// belongs, what it was asked, the tools it ran, and its answer once it is
-// done. Its permission requests are answered in its terminal or Claude tab.
+// Sessions tab — detail panel of an agent a Claude session runs: the
+// conversation it belongs to, then what it was asked, wrote and ran, as its
+// session's own turn reads (agent-flow.tsx). Its permission requests are
+// answered in its terminal or Claude tab.
 
 import { ChevronRight, SquareArrowOutUpRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { showTerminal } from "../../services/sessions/actions";
-import { runMessages } from "../../services/sessions/agents";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
 import { askToShowAgent } from "../../state/stores/agent-reveal";
 import { RunStopButton } from "../chat/print-run-pane";
 import { Button } from "../ui/button";
+import { AgentFlow, toolCount } from "./agent-flow";
 import {
   AgentDuration,
   AgentGlyph,
   agentKindParts,
-  agentLabel,
   agentStateColor,
   agentStateLabel,
+  agentTitle,
 } from "./agent-status";
 import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
-import { ToolList } from "./tool-list";
+import { AgentMark } from "./status-view";
 
 /** How many characters of an agent's id say which one it is. */
 const ID_SHOWN = 8;
@@ -50,9 +52,8 @@ export function AgentDetail({
   const kind = [
     ...agentKindParts(agent),
     ...(agent.kind === "subagent" ? [agent.model, agent.id.slice(0, ID_SHOWN)] : []),
+    agent.kind === "subagent" || agent.toolsTold ? toolCount(agent) : undefined,
   ].filter((part): part is string => part !== undefined);
-  const told = agent.kind === "subagent" || agent.toolsTold;
-  const messages = runMessages(agent);
   const openLabel =
     session.kind === "claude"
       ? t("sessions.detail.show_claude_tab")
@@ -63,24 +64,31 @@ export function AgentDetail({
     <div className="flex min-w-0 flex-col gap-4 p-4">
       <nav
         aria-label={t("sessions.agents.agent_crumb")}
-        className="flex min-w-0 flex-wrap items-center gap-1 text-app-micro text-muted-foreground"
+        className="flex min-w-0 items-center gap-1 text-app-micro text-muted-foreground"
       >
-        <Crumb onClick={() => onSelect({ kind: "worktree", workspaceId: worktree.workspace.id })}>
-          {worktree.workspace.name}
+        {/* The workspace keeps its short name; the conversation's title gives way first. */}
+        <Crumb
+          className="max-w-40 shrink-0"
+          onClick={() => onSelect({ kind: "worktree", workspaceId: worktree.workspace.id })}
+        >
+          <span className="truncate">{worktree.workspace.name}</span>
         </Crumb>
         <ChevronRight aria-hidden className="size-3 shrink-0" />
-        <Crumb onClick={() => onSelect({ kind: "session", key: session.key })}>
-          {t("sessions.agents.session_crumb", {
-            agent: session.agent ?? t("sessions.agent_unknown"),
-          })}
+        {/* The conversation it belongs to, by its mark and title as its row reads. */}
+        <Crumb
+          title={t("sessions.agents.parent", { title: session.title })}
+          onClick={() => onSelect({ kind: "session", key: session.key })}
+        >
+          <AgentMark session={session} className="size-3" />
+          <span className="truncate">{session.title}</span>
         </Crumb>
         <ChevronRight aria-hidden className="size-3 shrink-0" />
-        <span>{t("sessions.agents.agent_crumb")}</span>
+        <span className="shrink-0">{t("sessions.agents.agent_crumb")}</span>
       </nav>
       <header className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2 className="break-words text-app-body-emphasis text-foreground">
-            {agentLabel(agent)}
+            {agentTitle(agent)}
           </h2>
           {kind.length > 0 && (
             <span className="truncate font-mono text-app-micro text-muted-foreground">
@@ -125,91 +133,33 @@ export function AgentDetail({
           </p>
         )
       )}
-      {agent.prompt && (
-        <Section title={t("sessions.agents.detail.prompt")}>
-          <p className="app-scrollbar max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-app-body text-foreground">
-            {agent.prompt}
-          </p>
-        </Section>
-      )}
-      <Section
-        title={t("sessions.agents.detail.activity")}
-        aside={
-          told
-            ? agent.failedCount > 0
-              ? t("sessions.agents.tools_failed", {
-                  count: agent.toolCount,
-                  failed: agent.failedCount,
-                })
-              : t("sessions.agents.tools", { count: agent.toolCount })
-            : undefined
-        }
-      >
-        {!told ? (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {agent.program === "codex"
-              ? t("sessions.agents.detail.tools_untold_codex")
-              : t("sessions.agents.detail.tools_untold")}
-          </p>
-        ) : agent.tools.length === 0 && messages.length === 0 ? (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("sessions.agents.detail.tools_none")}
-          </p>
-        ) : (
-          <ToolList key={agent.id} tools={agent.tools} messages={messages} now={now} />
-        )}
-      </Section>
-      <Section title={t("sessions.agents.detail.answer")}>
-        {agent.answer ? (
-          <p className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-words text-app-body text-foreground">
-            {agent.answer}
-          </p>
-        ) : (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {agent.end === undefined
-              ? t(
-                  agent.kind === "print"
-                    ? "sessions.agents.detail.answer_pending_run"
-                    : "sessions.agents.detail.answer_pending",
-                )
-              : agent.exitCode !== undefined && agent.exitCode !== 0
-                ? t("sessions.agents.exit_code", { code: agent.exitCode })
-                : t("sessions.agents.detail.answer_none")}
-          </p>
-        )}
-      </Section>
+      <AgentFlow agent={agent} now={now} />
     </div>
   );
 }
 
-function Crumb({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="max-w-48 truncate rounded-(--radius-control) transition-colors hover:text-foreground"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Section({
+function Crumb({
   title,
-  aside,
+  onClick,
+  className,
   children,
 }: {
-  title: string;
-  aside?: string;
+  title?: string;
+  onClick: () => void;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="flex items-baseline gap-2 text-app-label uppercase text-muted-foreground">
-        {title}
-        {aside && <span className="normal-case">{aside}</span>}
-      </h3>
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={cn(
+        "flex min-w-0 max-w-64 shrink items-center gap-1 rounded-(--radius-control) transition-colors hover:text-foreground",
+        className,
+      )}
+    >
       {children}
-    </section>
+    </button>
   );
 }

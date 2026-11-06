@@ -27,7 +27,7 @@ const COMMAND_TOOLS = new Set(["Bash", "BashOutput", "KillShell", "KillBash", "P
 const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write", "NotebookEdit", "Delete"]);
 
 /** A tool's name in its family's syntax hue, so commands, edits and the rest read apart. */
-function toolTint(name: string): string {
+export function toolTint(name: string): string {
   if (COMMAND_TOOLS.has(name)) return "text-[var(--syntax-function)]";
   if (EDIT_TOOLS.has(name)) return "text-[var(--syntax-type)]";
   return "text-[var(--syntax-constant)]";
