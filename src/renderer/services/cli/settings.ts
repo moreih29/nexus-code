@@ -234,7 +234,7 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
   {
     key: "sessions.defaultView",
-    summary: "The view a sessions tab opens in",
+    summary: "The view an agents tab opens in",
     type: "choice",
     choices: SESSIONS_VIEWS,
     get: () => {
