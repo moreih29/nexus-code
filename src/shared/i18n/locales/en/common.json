@@ -1279,7 +1279,7 @@
       "sign_in_check": "Check again",
       "mode": {
         "readOnly": "Read only",
-        "readOnly_hint": "Reads files; asks before it edits or runs a command",
+        "readOnly_hint": "Reads files and runs commands read-only; editing or going online needs approval",
         "auto": "Auto",
         "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
         "fullAccess": "Full access",
