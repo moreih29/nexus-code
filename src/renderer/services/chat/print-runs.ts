@@ -1,11 +1,13 @@
 // The `claude -p` and `codex exec` runs a Claude or Codex tab's session
 // starts from its commands, as the app records them (main's session
 // activity, by the tab's id): shown in the tab beside its subagents, with
-// their state, tools and answer.
+// their state, tools and answer; and the agent the agents tab asks the tab
+// to show.
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
+import { type AgentRef, dropAgentAsk, useAgentRevealStore } from "../../state/stores/agent-reveal";
 import { sessionKey } from "../sessions/model";
 import { useSessionActivity } from "../sessions/use-family";
 import type { AgentRow, AgentStatus } from "./panel";
@@ -55,6 +57,34 @@ export function printRunRows(runs: readonly AgentRun[]): AgentRow[] {
         run,
       };
     });
+}
+
+/**
+ * The key of an agent the app's hooks tell among the tab's agents: a run by
+ * its id, a subagent by its task, whose id is the hooks' agent id.
+ */
+export function agentRowKey(rows: readonly AgentRow[], agent: AgentRef): string | undefined {
+  const key = agent.kind === "print" ? `${RUN_KEY_PREFIX}${agent.id}` : undefined;
+  return rows.find((row) => (key ? row.toolUseId === key : row.taskId === agent.id))?.toolUseId;
+}
+
+/**
+ * Shows the agent the agents tab asked the tab to show, once it is among
+ * the tab's agents (askToShowAgent).
+ */
+export function useAgentAsk(
+  tabId: string,
+  rows: readonly AgentRow[],
+  show: (toolUseId: string) => void,
+): void {
+  const asked = useAgentRevealStore((state) => state.asked[tabId]);
+  useEffect(() => {
+    if (!asked) return;
+    const key = agentRowKey(rows, asked);
+    if (key === undefined) return;
+    show(key);
+    dropAgentAsk(tabId);
+  }, [tabId, asked, rows, show]);
 }
 
 function oneLine(text: string): string {

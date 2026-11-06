@@ -1,7 +1,14 @@
-// A Claude tab's `claude -p` and `codex exec` runs as rows of its agents.
+// A Claude or Codex tab's `claude -p` and `codex exec` runs as rows of its
+// agents, and which row an agent the hooks tell is.
 
 import { describe, expect, test } from "bun:test";
-import { printRunRows } from "../../../../../src/renderer/services/chat/print-runs";
+import type { AgentRow } from "../../../../../src/renderer/services/chat/panel";
+import { agentRowKey, printRunRows } from "../../../../../src/renderer/services/chat/print-runs";
+import {
+  askToShowAgent,
+  dropAgentAsk,
+  useAgentRevealStore,
+} from "../../../../../src/renderer/state/stores/agent-reveal";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
 function run(extra: Partial<AgentRun>): AgentRun {
@@ -67,5 +74,45 @@ describe("printRunRows", () => {
       model: "gpt-6-luna",
       endpoint: "gw.example.com",
     });
+  });
+});
+
+describe("agentRowKey", () => {
+  const subagent: AgentRow = {
+    toolUseId: "toolu_1",
+    taskId: "a8dbbdc15d04de05a",
+    description: "Count the files",
+    status: "running",
+    toolCount: 0,
+    teammate: false,
+  };
+  const rows = [subagent, ...printRunRows([run({ id: "print-3" })])];
+
+  test("a run by its id, a subagent by its task", () => {
+    expect(agentRowKey(rows, { id: "print-3", kind: "print" })).toBe("print:print-3");
+    expect(agentRowKey(rows, { id: "a8dbbdc15d04de05a", kind: "subagent" })).toBe("toolu_1");
+  });
+
+  test("none for an agent the tab does not have", () => {
+    expect(agentRowKey(rows, { id: "print-9", kind: "print" })).toBeUndefined();
+    // A subagent's id is not a run's.
+    expect(agentRowKey(rows, { id: "print-3", kind: "subagent" })).toBeUndefined();
+  });
+});
+
+describe("agent asks", () => {
+  test("wait by the tab until dropped", () => {
+    askToShowAgent("tab-1", run({ id: "print-3" }));
+    askToShowAgent("tab-2", { id: "a1", kind: "subagent" });
+    expect(useAgentRevealStore.getState().asked).toEqual({
+      "tab-1": { id: "print-3", kind: "print" },
+      "tab-2": { id: "a1", kind: "subagent" },
+    });
+    dropAgentAsk("tab-1");
+    expect(useAgentRevealStore.getState().asked).toEqual({
+      "tab-2": { id: "a1", kind: "subagent" },
+    });
+    dropAgentAsk("tab-2");
+    expect(useAgentRevealStore.getState().asked).toEqual({});
   });
 });
