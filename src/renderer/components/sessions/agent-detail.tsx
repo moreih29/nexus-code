@@ -2,13 +2,14 @@
 // belongs, what it was asked, the tools it ran, and its answer once it is
 // done. Its permission requests are answered in its terminal or Claude tab.
 
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, SquareArrowOutUpRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { showTerminal } from "../../services/sessions/actions";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
+import { RunStopButton } from "../chat/print-run-pane";
 import { Button } from "../ui/button";
 import {
   AgentDuration,
@@ -49,6 +50,12 @@ export function AgentDetail({
     ...(agent.kind === "subagent" ? [agent.model, agent.id.slice(0, ID_SHOWN)] : []),
   ].filter((part): part is string => part !== undefined);
   const told = agent.kind === "subagent" || agent.toolsTold;
+  const openLabel =
+    session.kind === "claude"
+      ? t("sessions.detail.show_claude_tab")
+      : session.kind === "codex"
+        ? t("sessions.detail.show_codex_tab")
+        : t("sessions.detail.show_terminal");
   return (
     <div className="flex min-w-0 flex-col gap-4 p-4">
       <nav
@@ -67,8 +74,8 @@ export function AgentDetail({
         <ChevronRight aria-hidden className="size-3 shrink-0" />
         <span>{t("sessions.agents.agent_crumb")}</span>
       </nav>
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-col gap-1">
+      <header className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <h2 className="break-words text-app-body-emphasis text-foreground">
             {agentLabel(agent)}
           </h2>
@@ -78,30 +85,28 @@ export function AgentDetail({
             </span>
           )}
         </div>
-        <span className="inline-flex items-center gap-1.5 text-app-ui-sm">
-          <AgentGlyph state={agent.state} />
-          <span className={agentStateColor(agent.state)}>{agentStateLabel(agent.state)}</span>
-          <AgentDuration agent={agent} className="text-app-ui-sm" />
-        </span>
-      </header>
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={() => showTerminal(session)}>
-          {session.kind === "claude"
-            ? t("sessions.detail.show_claude_tab")
-            : session.kind === "codex"
-              ? t("sessions.detail.show_codex_tab")
-              : t("sessions.detail.show_terminal")}
-        </Button>
-        {agent.kind === "print" && agent.end === undefined && (
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-app-ui-sm">
+            <AgentGlyph state={agent.state} />
+            <span className={agentStateColor(agent.state)}>{agentStateLabel(agent.state)}</span>
+            <AgentDuration agent={agent} className="text-app-ui-sm" />
+          </span>
           <Button
-            size="sm"
+            size="icon-sm"
             variant="outline"
-            onClick={() => void stopPrintRun(session.workspaceId, session.tabId, agent.id)}
+            title={openLabel}
+            aria-label={openLabel}
+            onClick={() => showTerminal(session)}
           >
-            {t("chat.run.stop")}
+            <SquareArrowOutUpRight aria-hidden className="size-3.5" />
           </Button>
-        )}
-      </div>
+          {agent.kind === "print" && agent.end === undefined && (
+            <RunStopButton
+              onClick={() => void stopPrintRun(session.workspaceId, session.tabId, agent.id)}
+            />
+          )}
+        </div>
+      </header>
       {asks.length > 0 ? (
         <PermissionAsks session={session} asks={asks} agents={[agent]} />
       ) : (
