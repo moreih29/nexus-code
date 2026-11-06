@@ -195,7 +195,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         }
       />
       {(permissions.length > 0 || model.running) && (
-        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 pt-2">
+        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
           <div className="mx-auto flex max-w-[860px] flex-col gap-2">
             {permissions.length > 0 && (
               <PermissionCard
