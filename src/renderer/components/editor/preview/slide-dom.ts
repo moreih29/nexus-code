@@ -22,7 +22,11 @@ export interface SlideLabels {
   media: string;
 }
 
-/** The pages' styles, for the shadow root they are drawn in. */
+/**
+ * The pages' styles, for the shadow root they are drawn in. Text more than
+ * its box holds runs out of it, as PowerPoint shows it, rather than being
+ * cut off: only the slide's edge cuts.
+ */
 export const SLIDE_STYLE = `
 :host { display: block; color: #000; }
 .deck { display: flex; flex-direction: column; align-items: safe center; gap: 8px; padding: 16px; }
@@ -32,7 +36,7 @@ export const SLIDE_STYLE = `
 .slide p, .notes p { margin: 0; }
 .slide ul, .slide ol { margin: 0; padding-left: 1.5em; }
 .box { position: absolute; }
-.text { display: flex; flex-direction: column; overflow: hidden; word-wrap: break-word; }
+.text { display: flex; flex-direction: column; word-wrap: break-word; }
 .text.nowrap { white-space: nowrap; }
 .text.vertical { writing-mode: vertical-rl; }
 .placeholder { display: flex; align-items: center; justify-content: center; border: 1px dashed rgb(0 0 0 / 0.35); color: rgb(0 0 0 / 0.55); font: 12px system-ui, sans-serif; }
