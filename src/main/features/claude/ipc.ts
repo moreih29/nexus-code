@@ -6,6 +6,7 @@ import { register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
 import type { ClaudeStatusBroker } from "./status";
 import type { ActiveContextStore } from "./active-context";
+import type { ChatAnswers } from "./chat-answers";
 import type { PermissionAsks } from "./permission-asks";
 import type { SessionActivityLog } from "./session-activity";
 
@@ -23,6 +24,7 @@ const c = ipcContract.claude.call;
  * - call.activity: what the sessions of the workspaces are doing, as their hooks tell it,
  *   with the permission requests held for the user's answer.
  * - call.answerPermission: answers a held permission request as the user chose.
+ * - call.answeredInChat: a Claude tab's user answered the last permission request it showed.
  * - call.stopPrintRun: stops a session's running `claude -p` run.
  * - listen.status: 상태 변경 시 broker가 직접 broadcast하므로 여기서는 빈 객체로 선언.
  */
@@ -31,6 +33,7 @@ export function registerClaudeChannel(
   activeContext: ActiveContextStore,
   activity: SessionActivityLog,
   asks: PermissionAsks,
+  chatAnswers: ChatAnswers,
   stopPrintRun: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>,
 ): void {
   register("claude", {
@@ -78,6 +81,11 @@ export function registerClaudeChannel(
           args,
         );
         return ipcOk(await asks.answer(workspaceId, tabId, askId, answer, message));
+      },
+      answeredInChat: async (args: unknown) => {
+        const { workspaceId, tabId, stopped } = validateArgs(c.answeredInChat.args, args);
+        chatAnswers.answered(workspaceId, tabId, stopped);
+        return ipcOk(undefined);
       },
       stopPrintRun: async (args: unknown) => {
         const { workspaceId, tabId, agentId } = validateArgs(c.stopPrintRun.args, args);

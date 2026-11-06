@@ -5,6 +5,7 @@
 import { broadcast } from "../../infra/ipc-router";
 import { ClaudeStatusBroker } from "./status";
 import { ActiveContextStore } from "./active-context";
+import { ChatAnswers } from "./chat-answers";
 import { registerClaudeChannel } from "./ipc";
 import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
 import { answersDialog, PermissionAsks } from "./permission-asks";
@@ -97,6 +98,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   const asks = new PermissionAsks((workspaceId, hookId, response) =>
     answerHook(workspaceManager, workspaceId, hookId, response),
   );
+  const chatAnswers = new ChatAnswers();
 
   // A `claude -p` run stops when the app answers its watch.
   const stopPrintRun = async (workspaceId: string, tabId: string, agentId: string) => {
@@ -109,7 +111,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
   };
 
   // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
-  registerClaudeChannel(broker, activeContext, activity, asks, stopPrintRun);
+  registerClaudeChannel(broker, activeContext, activity, asks, chatAnswers, stopPrintRun);
 
   // 3. hook-handler 등록.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
@@ -119,6 +121,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     activeContext,
     activity,
     asks,
+    chatAnswers,
     agentHost,
     channelProvider: workspaceManager,
     workspaceManager,

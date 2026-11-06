@@ -47,6 +47,7 @@ import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
+import type { ChatAnswers } from "./chat-answers";
 import { handlePermissionRequest } from "./permission";
 import type { AnsweredAsk, PermissionAsks } from "./permission-asks";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
@@ -86,6 +87,8 @@ export interface HookHandlerDeps {
   activity?: SessionActivityLog;
   /** Holds permission requests for an answer from the sessions tab. */
   asks?: PermissionAsks;
+  /** Tells of the permission requests a Claude tab's user answered there. */
+  chatAnswers?: ChatAnswers;
   /** 사용자가 현재 보고 있는 (workspaceId, tabId) 컨텍스트 — Stop 알림 발사 결정에 사용. */
   activeContext: ActiveContextStore;
   agentHost: HookAgentHost;
@@ -745,6 +748,26 @@ function afterTerminalAnswer(
 }
 
 /**
+ * A Claude tab's user answered the last permission request it showed. No
+ * hook tells of it until the call allowed ends, which can be long: the
+ * session's dialogs are closed now. Stopping the turn leaves the session
+ * waiting on the user, as an interrupt does.
+ */
+function afterChatAnswer(
+  workspaceId: string,
+  tabId: string,
+  stopped: boolean,
+  deps: HookHandlerDeps,
+  dialogs: PermissionDialogs,
+): void {
+  const key = `${workspaceId}:${tabId}`;
+  if (!dialogs.closeAll(key)) return;
+  if (stopped) dialogs.setUnder(key, { status: "idle" });
+  const under = dialogs.takeUnder(key);
+  if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
+}
+
+/**
  * workspaceId의 AgentChannel을 통해 claude.respondHook dispatch 메서드를 호출한다.
  * 실패 시 경고 로그만 남기고 진행한다 — Claude Code의 timeout fallback에 맡긴다.
  */
@@ -818,10 +841,14 @@ export function registerHookHandler(deps: HookHandlerDeps): () => void {
   const offTerminal = deps.asks?.onAnsweredInTerminal((ask) => {
     afterTerminalAnswer(ask, deps, dialogs);
   });
+  const offChat = deps.chatAnswers?.onAnswered((workspaceId, tabId, stopped) => {
+    afterChatAnswer(workspaceId, tabId, stopped, deps, dialogs);
+  });
   return () => {
     offHook();
     offGone();
     offAnswered?.();
     offTerminal?.();
+    offChat?.();
   };
 }

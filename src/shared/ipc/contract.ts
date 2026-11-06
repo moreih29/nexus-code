@@ -1903,6 +1903,16 @@ export const ipcContract = {
         z.boolean(),
       ),
       /**
+       * A Claude tab's user answered there the last permission request it
+       * showed: the session waits on no dialog, its hooks tell nothing of
+       * that until the call allowed ends. `stopped` when the answer stopped
+       * the turn.
+       */
+      answeredInChat: call(
+        z.object({ workspaceId: z.string(), tabId: z.string(), stopped: z.boolean() }),
+        z.void(),
+      ),
+      /**
        * Stops a session's running `claude -p` run (an activity agent of kind
        * "print"), as an interrupt would. False when the app holds no watch
        * of it, as for a run that ended.
