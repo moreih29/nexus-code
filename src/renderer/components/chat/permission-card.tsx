@@ -453,14 +453,14 @@ function describeSuggestion(raw: unknown, t: Translate): string {
 // Questions
 // ---------------------------------------------------------------------------
 
-interface Question {
+export interface Question {
   question: string;
   header?: string;
   multiSelect?: boolean;
   options: { label: string; description?: string }[];
 }
 
-function readQuestions(input: Record<string, unknown>): Question[] {
+export function readQuestions(input: Record<string, unknown>): Question[] {
   if (!Array.isArray(input.questions)) return [];
   return (input.questions as Record<string, unknown>[])
     .filter((q) => typeof q?.question === "string")

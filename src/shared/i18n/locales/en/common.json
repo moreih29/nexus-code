@@ -903,7 +903,11 @@
       "submit": "Send answers",
       "numbered": "Question {{n}}",
       "expand": "Show more",
-      "collapse": "Show less"
+      "collapse": "Show less",
+      "title": "Questions",
+      "waiting": "Waiting for an answer",
+      "skipped": "Questions skipped",
+      "no_answer": "No answer"
     },
     "plan": {
       "title": "Plan",
@@ -914,7 +918,10 @@
       "send_feedback": "Send",
       "approve": "Approve",
       "accept_edits": "Accept edits",
-      "approve_other": "Other ways to approve"
+      "approve_other": "Other ways to approve",
+      "waiting": "Waiting for approval",
+      "approved": "Plan approved",
+      "declined": "Changes requested"
     },
     "status": {
       "working": "Working",

@@ -903,7 +903,11 @@
       "submit": "답변 보내기",
       "numbered": "질문 {{n}}",
       "expand": "더 보기",
-      "collapse": "접기"
+      "collapse": "접기",
+      "title": "질문",
+      "waiting": "답변 대기",
+      "skipped": "질문 건너뜀",
+      "no_answer": "답 없음"
     },
     "plan": {
       "title": "계획",
@@ -914,7 +918,10 @@
       "send_feedback": "보내기",
       "approve": "승인",
       "accept_edits": "편집 자동 수락",
-      "approve_other": "다른 승인 방법"
+      "approve_other": "다른 승인 방법",
+      "waiting": "승인 대기",
+      "approved": "계획 승인됨",
+      "declined": "계획 수정 요청"
     },
     "status": {
       "working": "작업 중",
