@@ -76,6 +76,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         return kind ? (
           <LinkMenu
             target={kind === "file" ? (resolveFilePath(safe, cwd) ?? safe) : safe}
+            href={safe}
             kind={kind}
           >
             {link}
@@ -110,11 +111,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
 /**
  * A link's address as the reply gives it when it names a file, which a
  * click opens in the app: a Windows path (`C:\…`, whose drive reads as a
- * scheme, and whose `\` arrives here as `%5C`) or a `file://` URL.
+ * scheme, and whose `\` arrives here as `%5C`), a `file://` URL, or a file
+ * name with a line (`a.ts:12`, whose name reads as a scheme too).
  * Anything else as react-markdown allows.
  */
 function keepFileUrls(url: string): string {
-  return /^[A-Za-z]:([\\/]|%5C)/i.test(url) || /^file:\/\//i.test(url)
+  return /^[A-Za-z]:([\\/]|%5C)/i.test(url) ||
+    /^file:\/\//i.test(url) ||
+    /^[\w.-]+\.\w+:\d+(:\d+)?$/.test(url)
     ? url
     : defaultUrlTransform(url);
 }

@@ -634,7 +634,7 @@ function ResultRow({
   const image = path !== null && fileKind(path) === "image";
   return (
     <>
-      <LinkMenu target={path ?? result.target} kind={result.kind}>
+      <LinkMenu target={path ?? result.target} href={result.target} kind={result.kind}>
         <button
           type="button"
           onClick={onOpen}

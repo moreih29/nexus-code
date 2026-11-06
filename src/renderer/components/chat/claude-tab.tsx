@@ -12,9 +12,21 @@ import {
   type PermissionAnswer,
   pruneAttachmentsOnce,
 } from "../../services/chat/controller";
-import { isLocalAddress, isUnder, resolveFilePath, resultFiles } from "../../services/chat/links";
+import {
+  type FileLink,
+  isLocalAddress,
+  isUnder,
+  type LineAt,
+  resolveFileLink,
+  resultFiles,
+} from "../../services/chat/links";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
-import { openBrowserBeside, openFileBeside, revealTabById } from "../../services/chat/open-beside";
+import {
+  fileLinkTarget,
+  openBrowserBeside,
+  openFileBeside,
+  revealTabById,
+} from "../../services/chat/open-beside";
 import {
   type AgentRow,
   agentsOf,
@@ -256,17 +268,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     const cwd = props.cwd;
     // Wide enough to share with a new group beside it.
     const split = () => latest.current.place === "beside";
+    /** The file a link names, and where in it, once it is known which file that is. */
+    const follow = (target: string, then: (link: FileLink) => void) => {
+      const link = resolveFileLink(target, cwd);
+      if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
+    };
     return {
       openFile(target) {
-        const path = resolveFilePath(target, cwd);
-        if (!path) return;
-        const { history, model } = latest.current.state;
-        const items = history ? [...history.items, ...model.items] : model.items;
-        const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-        const files = resultFiles(resultsOf(items, tools), cwd);
-        const at = files.indexOf(path);
-        if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-        setLook(at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 });
+        follow(target, ({ path, ...line }) => {
+          const { history, model } = latest.current.state;
+          const items = history ? [...history.items, ...model.items] : model.items;
+          const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+          const files = resultFiles(resultsOf(items, tools), cwd);
+          const at = files.indexOf(path);
+          if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
+          const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
+          setLook(
+            line.line ? { ...list, at: { path, line: line.line, column: line.column } } : list,
+          );
+        });
       },
       openChange(path) {
         const { history, model } = latest.current.state;
@@ -277,11 +297,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         const files = changed.map((file) => file.path);
         setLook({ files, index: Math.max(0, files.indexOf(path)), changes });
       },
-      openFileTab(target) {
-        const path = resolveFilePath(target, cwd);
-        if (!path) return;
-        const inside = isUnder(path, latest.current.rootPath);
-        openFileBeside(workspaceId, tabId, path, { split: split(), inside });
+      openFileTab(target, at?: LineAt) {
+        follow(target, ({ path, ...line }) => {
+          const inside = isUnder(path, latest.current.rootPath);
+          openFileBeside(workspaceId, tabId, path, { split: split(), inside, at: at ?? line });
+        });
       },
       openUrl(url, other = false) {
         const local = isLocalAddress(url);
@@ -501,9 +521,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
-          onOpenTab={(path) => {
+          onOpenTab={(path, at) => {
             setLook(null);
-            links.openFileTab(path);
+            links.openFileTab(path, at);
           }}
           onRevert={(path) => {
             const before = look.changes?.[path];
