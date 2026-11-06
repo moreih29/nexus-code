@@ -1,14 +1,11 @@
 /**
  * ClaudeExitWatch — Claude Code that died without its SessionEnd hook: once
  * its tab goes quiet with the shell back in the foreground, running nothing,
- * its state is cleared, and with it the timeline's open span.
+ * its state is cleared.
  */
-import { Database } from "bun:sqlite";
 import { afterEach, expect, test } from "bun:test";
 import { ClaudeStatusBroker } from "../../../../src/main/features/claude/status";
 import { ClaudeExitWatch } from "../../../../src/main/features/cli/claude-exit";
-import { SessionHistory } from "../../../../src/main/features/cli/history";
-import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
 
 const QUIET_MS = 15;
 const T = { workspaceId: "w", tabId: "t" };
@@ -34,7 +31,6 @@ function setup(program: () => Front | Promise<Front>) {
     },
   };
   const broker = new ClaudeStatusBroker(() => {});
-  const history = new SessionHistory(new GlobalStorage(new Database(":memory:")), source, broker);
   const looked: string[] = [];
   const watch = new ClaudeExitWatch(
     source,
@@ -46,7 +42,7 @@ function setup(program: () => Front | Promise<Front>) {
     Date.now,
     QUIET_MS,
   );
-  open.push(watch, history);
+  open.push(watch);
   const emit = (event: string, args: unknown) => {
     for (const cb of listeners.get(event) ?? []) cb(args);
   };
@@ -54,18 +50,16 @@ function setup(program: () => Front | Promise<Front>) {
     broker,
     looked,
     print: (chunk = "x", terminal = T) => emit("data", { ...terminal, chunk }),
-    spans: () => history.list([T.workspaceId], 0).map(({ state, end }) => [state, end !== null]),
   };
 }
 
-test("Claude killed mid-turn: the shell's prompt goes quiet, and its state and span end", async () => {
-  const { broker, print, spans } = setup(() => front("zsh"));
+test("Claude killed mid-turn: the shell's prompt goes quiet, and its state ends", async () => {
+  const { broker, print } = setup(() => front("zsh"));
   broker.set(T.workspaceId, T.tabId, "running");
   print("zsh: killed     claude\r\n% ");
   expect(broker.get(T.workspaceId, T.tabId)?.status).toBe("running");
   await settle();
   expect(broker.get(T.workspaceId, T.tabId)).toBeNull();
-  expect(spans()).toEqual([["running", true]]);
 });
 
 test("an idle Claude that died is cleared too, so nothing types a prompt into the shell", async () => {

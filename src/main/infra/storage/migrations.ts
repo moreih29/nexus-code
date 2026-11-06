@@ -264,7 +264,8 @@ export const MIGRATIONS: Migration[] = [
     },
   },
   // The sessions tab's timeline: what each terminal's agent did over time.
-  // end_at is NULL while a span lasts; spans are kept for a day.
+  // end_at is NULL while a span lasts; spans are kept for a day. The
+  // timeline is gone and nothing writes or reads the table any more.
   {
     version: 8,
     up: (db) => {

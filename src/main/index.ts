@@ -524,7 +524,6 @@ app.whenReady().then(async () => {
     claudeActivity: claudeSetup.activity,
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
-    sessionSpans: globalStorage,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
     settings: () => {
