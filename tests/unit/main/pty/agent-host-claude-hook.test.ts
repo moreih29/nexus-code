@@ -73,4 +73,50 @@ describe("AgentPtyHost claude.hook relay", () => {
 
     expect(relayed).toEqual([own]);
   });
+
+  // Regression: a channel was subscribed only at a PTY call, so the hooks of
+  // a workspace whose terminals had not run yet (a Claude tab's, or any
+  // after a reconnect to a new agent) went unanswered until they timed out.
+  test("relays hooks once the workspace's agent is ready, before any terminal", async () => {
+    const first = new FakeAgentChannel();
+    const second = new FakeAgentChannel();
+    let channel = first;
+    let ready: ((workspaceId: string) => void) | undefined;
+    const host = startAgentPtyHost({
+      async getAgentChannel() {
+        return channel;
+      },
+      async tryGetAgentChannel() {
+        return channel;
+      },
+      onProviderReady(listener) {
+        ready = listener;
+        return () => {
+          ready = undefined;
+        };
+      },
+    });
+    const relayed: unknown[] = [];
+    host.on("claude.hook", (payload) => relayed.push(payload));
+    const hook = (hookId: string) => ({
+      hookId,
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_ID,
+      subcommand: "pre-tool-use",
+    });
+
+    ready?.(WORKSPACE_ID);
+    await Bun.sleep(0);
+    first.emit("claude.hook", hook("h1"));
+    // A new agent after a reconnect.
+    channel = second;
+    ready?.(WORKSPACE_ID);
+    await Bun.sleep(0);
+    second.emit("claude.hook", hook("h2"));
+    first.emit("claude.hook", hook("h3"));
+    expect(relayed).toEqual([hook("h1"), hook("h2")]);
+
+    host.dispose();
+    expect(ready).toBeUndefined();
+  });
 });
