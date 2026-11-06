@@ -2,6 +2,7 @@
 // agent, shown as a conversation. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
+import { Bot, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -38,6 +39,7 @@ import {
   resultsOf,
   todosOf,
 } from "../../services/chat/panel";
+import { printRunRows, stopPrintRun, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
@@ -48,7 +50,6 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { clipTitle, titleOf } from "../../services/chat/tab-title";
-import { printRunRows, stopPrintRun, usePrintRuns } from "../../services/chat/print-runs";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { localUrlFor } from "../../state/operations/ports";
@@ -59,6 +60,7 @@ import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { Banner, type BannerAction } from "../ui/banner";
+import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
@@ -559,7 +561,11 @@ function forkFrom(
   }
 }
 
-/** The tab's state in one line, where it is too narrow for the strip and the panel. */
+/**
+ * The tab's state in one line, where it is too narrow for the strip and the
+ * panel: its subagents, background jobs, to-dos and context, each an icon
+ * and a number as the agents tab's rows tell them. It opens the panel.
+ */
 function SummaryLine({
   state,
   runs,
@@ -574,32 +580,71 @@ function SummaryLine({
 }) {
   const { t } = useTranslation();
   const { model } = state;
-  const parts: string[] = [];
+  const facts: { key: string; icon: React.ReactNode; value: string; label: string }[] = [];
   const agents = [...agentsOf(model), ...runs].filter((a) => a.status === "running").length;
-  if (agents > 0) parts.push(t("chat.strip.summary.agents", { count: agents }));
+  if (agents > 0) {
+    facts.push({
+      key: "agents",
+      icon: <Bot aria-hidden className="size-3 shrink-0" />,
+      value: String(agents),
+      label: t("chat.strip.summary.agents", { count: agents }),
+    });
+  }
   const jobs = jobsOf(model).filter((j) => j.status === "running").length;
-  if (jobs > 0) parts.push(t("chat.strip.summary.jobs", { count: jobs }));
+  if (jobs > 0) {
+    facts.push({
+      key: "jobs",
+      icon: <SquareTerminal aria-hidden className="size-3 shrink-0" />,
+      value: String(jobs),
+      label: t("chat.strip.summary.jobs", { count: jobs }),
+    });
+  }
   const todos = todosOf(model.tools);
   if (todos.length > 0) {
     const done = todos.filter((todo) => todo.status === "completed").length;
-    parts.push(t("chat.strip.summary.todos", { done, total: todos.length }));
+    facts.push({
+      key: "todos",
+      icon: <ListChecks aria-hidden className="size-3 shrink-0" />,
+      value: `${done}/${todos.length}`,
+      label: t("chat.strip.summary.todos", { done, total: todos.length }),
+    });
   }
   const context = contextOf(model.contextUsage);
   if (context && context.maxTokens > 0) {
     const percent = Math.round((context.totalTokens / context.maxTokens) * 100);
-    parts.push(t("chat.strip.summary.context", { percent }));
+    facts.push({
+      key: "context",
+      icon: <ContextRing percent={percent} />,
+      value: `${percent}%`,
+      label: t("chat.strip.summary.context", { percent }),
+    });
   }
+  const label = facts.length > 0 ? facts.map((fact) => fact.label).join(" · ") : undefined;
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="flex h-7 shrink-0 items-center gap-1 border-b border-border px-3 text-left text-app-micro text-muted-foreground hover:text-foreground"
+      aria-label={label}
+      title={label}
+      className="flex h-7 shrink-0 items-center gap-3 border-b border-border px-3 text-left text-app-micro text-muted-foreground tabular-nums hover:text-foreground"
       data-testid="chat-summary-line"
     >
-      <span className="min-w-0 flex-1 truncate">
-        {parts.length > 0 ? parts.join(" · ") : t("chat.panel.show")}
-      </span>
+      {facts.length > 0 ? (
+        facts.map((fact) => (
+          <span key={fact.key} className="flex shrink-0 items-center gap-1">
+            {fact.icon}
+            {fact.value}
+          </span>
+        ))
+      ) : (
+        <span className="min-w-0 truncate">{t("chat.panel.show")}</span>
+      )}
+      {open ? (
+        <PanelRightClose aria-hidden className="ml-auto size-3.5 shrink-0" />
+      ) : (
+        <PanelRightOpen aria-hidden className="ml-auto size-3.5 shrink-0" />
+      )}
     </button>
   );
 }

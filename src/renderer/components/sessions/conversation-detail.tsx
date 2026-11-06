@@ -50,9 +50,10 @@ import type { AgentSession } from "../../services/sessions/model";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { ChatAgentContext } from "../chat/chat-agent";
-import { composerKeys, runningPlaceholder } from "../chat/composer";
+import { composerHint, composerKeys } from "../chat/composer";
 import { PermissionCard } from "../chat/permission-card";
 import { Button } from "../ui/button";
+import { ContextRing } from "../ui/context-ring";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { PermissionAsks } from "./permission-asks";
@@ -267,7 +268,7 @@ function MetaChips({
         className="flex shrink-0 items-center gap-1"
         title={t("sessions.list.context")}
       >
-        <ContextRing percent={facts.context} />
+        <ContextRing percent={facts.context} className="size-3.5" />
         {facts.context}%
       </span>
     ),
@@ -313,35 +314,6 @@ function MetaChips({
         </span>
       ))}
     </div>
-  );
-}
-
-/** How full the context is, as a ring. */
-function ContextRing({ percent }: { percent: number }) {
-  const r = 5;
-  const length = 2 * Math.PI * r;
-  return (
-    <svg aria-hidden="true" viewBox="0 0 14 14" className="size-3.5 shrink-0 -rotate-90">
-      <circle
-        cx="7"
-        cy="7"
-        r={r}
-        fill="none"
-        stroke="currentColor"
-        strokeOpacity={0.25}
-        strokeWidth={2}
-      />
-      <circle
-        cx="7"
-        cy="7"
-        r={r}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={2}
-        strokeDasharray={`${(length * percent) / 100} ${length}`}
-        className={percent >= 80 ? "text-(--state-warning-fg)" : "text-(--state-loading-indicator)"}
-      />
-    </svg>
   );
 }
 
@@ -671,13 +643,10 @@ function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState
   };
 
   const hint = running
-    ? runningPlaceholder(
-        t,
-        session.kind === "codex"
-          ? "chat.codex.placeholder_running"
-          : "chat.composer.placeholder_running",
-      )
+    ? composerHint(t, true, session.kind === "codex" ? "codex" : "claude")
     : t("sessions.detail.send_keys", keys);
+  // During a turn Claude reads it after the call it runs; Codex at once.
+  const queues = running && session.kind !== "codex";
   return (
     <form
       onSubmit={(event: FormEvent) => {
@@ -708,9 +677,15 @@ function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState
           loading={sending}
           disabled={text.trim() === ""}
           title={hint}
-          aria-label={running ? t("sessions.detail.queue") : t("sessions.detail.send")}
+          aria-label={
+            queues
+              ? t("sessions.detail.queue")
+              : running
+                ? t("chat.composer.send_now")
+                : t("sessions.detail.send")
+          }
         >
-          {running ? (
+          {queues ? (
             <ListPlus aria-hidden className="size-4" />
           ) : (
             <Send aria-hidden className="size-4" />
