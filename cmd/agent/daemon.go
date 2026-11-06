@@ -294,6 +294,9 @@ func runDaemon(root string) {
 		time.AfterFunc(shutdownReplyDelay, func() { cleanupAndExit(0) })
 		return struct{}{}, nil
 	})
+	// agent.stopDaemon is agent.shutdown for another workspace's daemon on
+	// this host, removed while the app was not connected to it.
+	d.Register("agent.stopDaemon", newStopDaemonHandler(root))
 
 	// nextConn delivers incoming connections from the accept goroutine to the
 	// serve loop. Buffer of 1 so the acceptor never blocks while serve is busy.
