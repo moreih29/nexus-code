@@ -673,6 +673,14 @@
     "error": "Claude: 오류",
     "idle": "Claude: 대기"
   },
+  "codexStatus": {
+    "running": "Codex: 작업 중",
+    "completed": "Codex: 새 결과",
+    "needsInput": "Codex: 응답 필요",
+    "permissionPending": "Codex: 권한 요청",
+    "error": "Codex: 오류",
+    "idle": "Codex: 대기"
+  },
   "claudeNotification": {
     "needsAttention": "주의가 필요합니다",
     "needsPermission": "Claude가 권한을 요청합니다",

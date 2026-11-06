@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { cn } from "@/utils/cn";
+import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { AgentSession } from "../../services/sessions/model";
 
 interface StateLook {
@@ -62,6 +63,24 @@ export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): 
  */
 export function estimatedLabel(status: string): string {
   return stateLabel({ state: status === "running" ? "busy" : status, estimated: true });
+}
+
+/** A Codex tab's state in words, as the tab bar and the sidebar name it. */
+export function codexStatusLabel(status: ClaudeStatus): string {
+  switch (status) {
+    case "running":
+      return i18next.t("common:codexStatus.running");
+    case "completed":
+      return i18next.t("common:codexStatus.completed");
+    case "needsInput":
+      return i18next.t("common:codexStatus.needsInput");
+    case "permissionPending":
+      return i18next.t("common:codexStatus.permissionPending");
+    case "error":
+      return i18next.t("common:codexStatus.error");
+    case "idle":
+      return i18next.t("common:codexStatus.idle");
+  }
 }
 
 /** How long ago `since` was: "just now", "12m", "3h", "2d". */

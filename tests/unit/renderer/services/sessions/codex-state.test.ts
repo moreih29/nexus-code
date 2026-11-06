@@ -11,7 +11,11 @@ import type {
   UserItem,
 } from "../../../../../src/renderer/services/chat/model";
 import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { codexStateOf } from "../../../../../src/renderer/services/sessions/codex-state";
+import {
+  codexStateOf,
+  workspaceCodexState,
+} from "../../../../../src/renderer/services/sessions/codex-state";
+import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 
 const STARTED = 10_000;
 
@@ -124,5 +128,48 @@ describe("codexStateOf", () => {
       prompt: "next",
       message: undefined,
     });
+  });
+});
+
+describe("workspaceCodexState", () => {
+  const tab = (id: string, type = "codex"): Tab =>
+    ({
+      id,
+      type,
+      title: id,
+      defaultTitle: id,
+      isPreview: false,
+      isPinned: false,
+      props: { cwd: "/" },
+    }) as Tab;
+  const turn = { startedAt: 12_000, outputTokens: 0, thinkingTokens: 0 };
+
+  it("is the strongest state of the Codex tabs of the workspaces", () => {
+    const tabs = {
+      w: { a: tab("a"), b: tab("b"), t: tab("t", "terminal") },
+      task: { c: tab("c") },
+    };
+    const chats = {
+      "w:a": chat({ running: true, turn }),
+      "w:b": chat(ended(20_000)),
+      "task:c": chat({ running: true, turn, permissions: [permission("Bash")] }),
+    };
+    expect(workspaceCodexState(["w"], tabs, {}, chats, null, STARTED)).toBe("completed");
+    expect(workspaceCodexState(["w", "task"], tabs, {}, chats, null, STARTED)).toBe(
+      "permissionPending",
+    );
+    // The finished turn is looked at: what still runs is left.
+    expect(workspaceCodexState(["w"], tabs, { w: { b: 30_000 } }, chats, null, STARTED)).toBe(
+      "running",
+    );
+  });
+
+  it("is null when no Codex tab works or waits", () => {
+    const tabs = { w: { a: tab("a"), t: tab("t", "terminal") } };
+    expect(workspaceCodexState(["w"], tabs, {}, {}, null, STARTED)).toBeNull();
+    expect(
+      workspaceCodexState(["w"], tabs, {}, { "w:a": chat(ended(20_000)) }, "w:a", STARTED),
+    ).toBeNull();
+    expect(workspaceCodexState(["gone"], tabs, {}, {}, null, STARTED)).toBeNull();
   });
 });

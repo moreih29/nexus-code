@@ -46,6 +46,7 @@ import { useGitStore } from "../../state/stores/git/index";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import type { EstimatedGlyph } from "../../services/sessions/model";
 import { useEstimatedWorkspaceGlyph } from "../../services/sessions/use-estimated";
+import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -160,9 +161,11 @@ function WorkspaceRow({
       ? aggregate.status
       : null;
 
-  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태 — 더 강하면 글리프에 대신 보인다.
+  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태와 Codex 탭의 상태 —
+  // 더 강하면 글리프에 대신 보인다.
   const estimatedStatus = useEstimatedWorkspaceGlyph([ws.id, ...taskIds]);
-  const shownGlyph = cardGlyph(glyphStatus, estimatedStatus);
+  const codexStatus = useCodexWorkspaceStatus([ws.id, ...taskIds]);
+  const shownGlyph = cardGlyph(glyphStatus, estimatedStatus, codexStatus);
 
   // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message 첫 줄을
   // 50자로 컷한다. 멀티라인 마크다운/코드블록이 와도 첫 줄만, 50자 초과 시
@@ -368,6 +371,7 @@ function WorkspaceRow({
                       <WorkspaceStatusGlyph
                         status={shownGlyph.status}
                         estimated={shownGlyph.estimated}
+                        codex={shownGlyph.codex}
                       />
                     )}
                     {previewMessage && (
@@ -734,15 +738,26 @@ function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[
 }
 
 /**
- * The glyph a workspace card shows: Claude's state, or the state Codex and
- * other agents' output tells when that is stronger, marked as estimated.
+ * The glyph a workspace card shows: Claude's state, or a Codex tab's when
+ * that is stronger, or the state Codex and other agents' output tells in a
+ * terminal when that is stronger still, marked as estimated.
  */
 export function cardGlyph(
   claude: ClaudeStatus | null,
   estimated: EstimatedGlyph | null,
-): { status: ClaudeStatus; estimated: boolean } | null {
-  if (estimated === null || (claude !== null && STATUS_PRIORITY[claude] >= STATUS_PRIORITY[estimated])) {
-    return claude === null ? null : { status: claude, estimated: false };
+  codex: ClaudeStatus | null = null,
+): { status: ClaudeStatus; estimated: boolean; codex?: true } | null {
+  const told =
+    codex !== null && (claude === null || STATUS_PRIORITY[codex] > STATUS_PRIORITY[claude])
+      ? { status: codex, estimated: false, codex: true as const }
+      : claude === null
+        ? null
+        : { status: claude, estimated: false };
+  if (
+    estimated === null ||
+    (told !== null && STATUS_PRIORITY[told.status] >= STATUS_PRIORITY[estimated])
+  ) {
+    return told;
   }
   return { status: estimated, estimated: true };
 }
