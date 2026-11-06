@@ -6,6 +6,7 @@
 // pictures only from data URLs out of the file, so nothing in it runs or
 // loads from elsewhere. Charts, video and audio are marked, not drawn.
 
+import { LINE_BREAK } from "../../../services/editor/preview/pptx-breaks";
 import { type RichNode, sanitizeRichText } from "../../../services/editor/preview/rich-text";
 
 type Presentation = Awaited<ReturnType<typeof import("pptxtojson")["parse"]>>;
@@ -161,14 +162,23 @@ function textBody(item: Extract<SlideElement, { type: "text" | "shape" }>): HTML
 
 /** DOM nodes for the rich text tree, its point font sizes times `fontScale`. */
 export function richNodes(nodes: readonly RichNode[], fontScale = 1): Node[] {
-  return nodes.map((node) => {
-    if (typeof node === "string") return document.createTextNode(node);
+  return nodes.flatMap((node) => {
+    if (typeof node === "string") return textNodes(node);
     const el = document.createElement(node.tag);
     for (const [property, value] of Object.entries(node.style)) {
       el.style.setProperty(property, styleValue(property, value, fontScale));
     }
     el.append(...richNodes(node.children, fontScale));
-    return el;
+    return [el];
+  });
+}
+
+/** Text, its line broken where the file breaks it within a paragraph. */
+function textNodes(text: string): Node[] {
+  return text.split(LINE_BREAK).flatMap((part, i) => {
+    const nodes: Node[] = i > 0 ? [document.createElement("br")] : [];
+    if (part !== "") nodes.push(document.createTextNode(part));
+    return nodes;
   });
 }
 

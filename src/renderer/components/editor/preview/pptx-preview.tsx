@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { createLogger } from "../../../../shared/log/renderer";
+import { withLineBreaks } from "../../../services/editor/preview/pptx-breaks";
 import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
@@ -97,7 +98,7 @@ function PptxDocument({ workspaceId, relPath }: { workspaceId: string; relPath: 
       const { parse } = await import("pptxtojson");
       let deck: HTMLElement;
       try {
-        const { bytes } = read;
+        const bytes = withLineBreaks(read.bytes);
         const presentation = await parse(
           bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
           { imageMode: "base64", videoMode: "none", audioMode: "none" },
