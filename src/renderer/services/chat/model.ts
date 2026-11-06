@@ -92,6 +92,8 @@ export interface ToolResult {
 export interface ToolCall {
   id: string;
   name: string;
+  /** The name a row shows when it is not `name`: the shell a Codex command runs in. */
+  displayName?: string;
   input: unknown;
   /** The input JSON as streamed so far, before the call arrives whole. */
   partialInput?: string;

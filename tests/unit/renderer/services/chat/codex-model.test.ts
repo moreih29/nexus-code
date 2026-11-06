@@ -6,6 +6,7 @@ import {
   hunksOf,
   modeOf,
   originalsFor,
+  shellName,
   shownCommand,
 } from "../../../../../src/renderer/services/chat/codex-model";
 import type {
@@ -266,6 +267,7 @@ describe("codex model", () => {
       expect.objectContaining({
         requestId: "0",
         toolName: "Bash",
+        displayName: "Shell",
         input: { command: "rm x", cwd: "/w" },
         description: "deletes",
         toolUseId: "c2",
@@ -640,6 +642,48 @@ describe("codex helpers", () => {
     // Not one script: shown as it is.
     expect(shownCommand(`${ps} -Command 'a' 'b'`)).toBe(`${ps} -Command 'a' 'b'`);
     expect(shownCommand(`${ps} -File run.ps1`)).toBe(`${ps} -File run.ps1`);
+  });
+
+  test("shellName names the shell Codex runs a command in", () => {
+    const ps = String.raw`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"`;
+    expect(shellName(`${ps} -Command 'Get-Content README.md'`)).toBe("PowerShell");
+    expect(shellName("pwsh.exe -Command 'Get-Date'")).toBe("PowerShell");
+    expect(shellName(`${ps} -Command 'a' 'b'`)).toBe("PowerShell");
+    expect(shellName("/bin/bash -lc 'ls'")).toBe("Bash");
+    expect(shellName("/bin/zsh -lc 'ls'")).toBe("Bash");
+    expect(shellName("sh -c ls")).toBe("Bash");
+    expect(shellName("ls -la")).toBe("Shell");
+    expect(shellName(`${ps} -File run.ps1`)).toBe("Shell");
+    expect(shellName("")).toBe("Shell");
+  });
+
+  test("a command's row and approval name its shell, and draw as Bash rows do", () => {
+    const ps = String.raw`"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"`;
+    const command = {
+      type: "commandExecution",
+      id: "c9",
+      command: `${ps} -Command 'Remove-Item x'`,
+      cwd: "C:\\w",
+      status: "inProgress",
+      aggregatedOutput: null,
+      exitCode: null,
+    };
+    const asked = run([
+      ...started(),
+      ...sendTurn("remove x"),
+      note("item/started", { threadId: T, turnId: "turn_1", item: command }),
+      out({
+        id: 0,
+        method: "item/commandExecution/requestApproval",
+        params: { threadId: T, turnId: "turn_1", itemId: "c9", command: command.command },
+      }),
+    ]);
+    expect(asked.tools.c9).toMatchObject({
+      name: "Bash",
+      displayName: "PowerShell",
+      input: { command: "Remove-Item x" },
+    });
+    expect(asked.permissions[0]).toMatchObject({ toolName: "Bash", displayName: "PowerShell" });
   });
 
   test("hunksOf reads unified diffs and whole files", () => {
