@@ -506,6 +506,7 @@
     "count": "{{label}} {{count}}",
     "view_label": "View",
     "view": {
+      "status": "By state",
       "tree": "Tree",
       "board": "Board",
       "lineage": "Graph",
@@ -663,6 +664,25 @@
       "minutes_seconds": "{{minutes}}m {{seconds}}s",
       "minutes": "{{count}}m",
       "hours_minutes": "{{hours}}h {{minutes}}m"
+    },
+    "group": {
+      "attention": "Needs you",
+      "running": "Working",
+      "done": "New result",
+      "idle": "Idle",
+      "ended": "Ended"
+    },
+    "list": {
+      "search": "Find a conversation",
+      "no_match": "No conversation matches",
+      "questions_one": "{{count}} question",
+      "questions_other": "{{count}} questions",
+      "subagents": "Subagents",
+      "context": "Context",
+      "mark_read": "Mark as seen",
+      "answer_failed": "Could not send the answer",
+      "new_claude": "New Claude conversation",
+      "new_chat": "New conversation"
     }
   },
   "claudeStatus": {

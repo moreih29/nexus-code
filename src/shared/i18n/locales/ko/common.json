@@ -506,6 +506,7 @@
     "count": "{{label}} {{count}}",
     "view_label": "보기",
     "view": {
+      "status": "상태별",
       "tree": "트리",
       "board": "칸반",
       "lineage": "그래프",
@@ -663,6 +664,25 @@
       "minutes_seconds": "{{minutes}}분 {{seconds}}초",
       "minutes": "{{count}}분",
       "hours_minutes": "{{hours}}시간 {{minutes}}분"
+    },
+    "group": {
+      "attention": "응답 필요",
+      "running": "작업 중",
+      "done": "새 결과",
+      "idle": "대기",
+      "ended": "종료"
+    },
+    "list": {
+      "search": "대화 찾기",
+      "no_match": "찾는 대화가 없습니다",
+      "questions_one": "질문 {{count}}개",
+      "questions_other": "질문 {{count}}개",
+      "subagents": "서브에이전트",
+      "context": "컨텍스트",
+      "mark_read": "확인함",
+      "answer_failed": "응답을 보내지 못했습니다",
+      "new_claude": "새 Claude 대화",
+      "new_chat": "새 대화"
     }
   },
   "claudeStatus": {

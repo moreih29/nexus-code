@@ -1,6 +1,6 @@
 /**
  * The sessions tab's view: a workspace's own choice, else the default from
- * Settings, else the tree — each saved to appState, and a view this version
+ * Settings, else the status list — each saved to appState, and a view this version
  * does not know dropped on load.
  */
 
@@ -39,8 +39,8 @@ beforeEach(() => {
 });
 
 describe("sessions view store", () => {
-  it("is the tree until something is chosen", () => {
-    expect(view(WS)).toBe("tree");
+  it("is the status list until something is chosen", () => {
+    expect(view(WS)).toBe("status");
   });
 
   it("a workspace's choice outranks the default", () => {
@@ -69,6 +69,6 @@ describe("sessions view store", () => {
     const state = useSessionsViewStore.getState();
     expect(state.defaultView).toBeUndefined();
     expect(state.byWorkspace).toEqual({ [WS]: "board" });
-    expect(view(OTHER)).toBe("tree");
+    expect(view(OTHER)).toBe("status");
   });
 });
