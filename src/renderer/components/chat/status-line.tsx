@@ -57,7 +57,7 @@ function activityOf(model: ChatModel, t: Translate): string {
   const tool = Object.values(model.tools).find(
     (x) => x.status === "running" && x.parentToolUseId === null,
   );
-  if (tool) return t("chat.status.running_tool", { tool: tool.name });
+  if (tool) return t("chat.status.running_tool", { tool: tool.displayName || tool.name });
   if (turn?.status === "requesting") return t("chat.status.requesting");
   return t("chat.status.working");
 }

@@ -712,6 +712,7 @@ function toolsOf(item: Rec, id: string, phase: "started" | "completed"): ToolCal
           ...base,
           id,
           name: "Bash",
+          displayName: shellName(str(item.command) ?? ""),
           input: { command: shownCommand(str(item.command) ?? ""), cwd: str(item.cwd) },
           status: failed ? "error" : base.status,
           ...(output !== undefined || phase === "completed"
@@ -850,6 +851,16 @@ export function shownCommand(command: string): string {
   return (script === undefined ? null : shellWord(script)) ?? command;
 }
 
+/**
+ * The shell a command runs in, as its row names it. Rows of every shell are
+ * drawn as Claude's Bash rows are, so only the name tells them apart.
+ */
+export function shellName(command: string): "PowerShell" | "Bash" | "Shell" {
+  if (POWERSHELL_SCRIPT.test(command)) return "PowerShell";
+  if (SHELL_SCRIPT.test(command)) return "Bash";
+  return "Shell";
+}
+
 /** A shell-quoted string read as the one word it is; null when it is not one word. */
 function shellWord(text: string): string | null {
   let word = "";
@@ -963,11 +974,13 @@ function permissionOf(
     case "item/commandExecution/requestApproval": {
       const tool = itemId ? m.tools[itemId] : undefined;
       const known = rec(tool?.input);
+      const command = str(params.command);
       return {
         requestId: key,
         toolName: "Bash",
+        displayName: command ? shellName(command) : (tool?.displayName ?? shellName("")),
         input: {
-          command: shownCommand(str(params.command) ?? "") || (str(known?.command) ?? ""),
+          command: shownCommand(command ?? "") || (str(known?.command) ?? ""),
           cwd: str(params.cwd) ?? str(known?.cwd),
         },
         description: reason,

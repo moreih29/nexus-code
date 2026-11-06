@@ -39,7 +39,7 @@ const MAX_OUTPUT_CHARS = 20_000;
 export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const name = tool?.name || "tool";
+  const name = tool?.displayName || tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
   const images = tool?.result?.images ?? [];
