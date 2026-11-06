@@ -823,11 +823,18 @@ function contentText(content: unknown): string {
 const SHELL_SCRIPT = /^(?:\S*\/)?(?:bash|zsh|sh) -l?c (.+)$/s;
 
 /**
- * The command a row shows: the script, without the `bash -lc '…'` Codex
- * runs it in. Anything else is shown as it is.
+ * PowerShell given one script, as Codex wraps a command in on Windows:
+ * `"C:\\…\\powershell.exe" -Command '…'`, its path quoted as a shell word.
+ */
+const POWERSHELL_SCRIPT =
+  /^(?:"[^"]*[\\/]|[^\s"]*[\\/])?(?:powershell|pwsh)(?:\.exe)?"? -Command (.+)$/is;
+
+/**
+ * The command a row shows: the script, without the `bash -lc '…'` or the
+ * PowerShell Codex runs it in. Anything else is shown as it is.
  */
 export function shownCommand(command: string): string {
-  const script = SHELL_SCRIPT.exec(command)?.[1];
+  const script = (SHELL_SCRIPT.exec(command) ?? POWERSHELL_SCRIPT.exec(command))?.[1];
   return (script === undefined ? null : shellWord(script)) ?? command;
 }
 
