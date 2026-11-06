@@ -62,6 +62,14 @@ interface AgentEntry extends Omit<AgentRun, "tools"> {
   cwd?: string;
   /** The hook a running `claude -p` run holds open, whose answer stops it. */
   watch?: string;
+  /** The ids of the messages a subagent wrote that it has: each is kept once. */
+  said?: Set<string>;
+}
+
+/** A message a subagent wrote, as hookclient read it from its transcript. */
+export interface SaidMessage {
+  id: string;
+  text: string;
 }
 
 interface SessionEntry {
@@ -95,8 +103,18 @@ export class SessionActivityLog {
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** Records what a Claude Code hook of the session in `tabId` tells. */
-  noteHook(workspaceId: string, tabId: string, subcommand: string, payload: unknown): void {
+  /**
+   * Records what a Claude Code hook of the session in `tabId` tells; with
+   * what the subagent of its call wrote so far, the latest of it, as
+   * hookclient read it from the subagent's transcript.
+   */
+  noteHook(
+    workspaceId: string,
+    tabId: string,
+    subcommand: string,
+    payload: unknown,
+    agentMessages?: readonly SaidMessage[],
+  ): void {
     const p: Payload = typeof payload === "object" && payload !== null ? (payload as Payload) : {};
     const key = `${workspaceId}:${tabId}`;
     if (subcommand === "session-end") {
@@ -111,6 +129,10 @@ export class SessionActivityLog {
     if (typeof p.cwd === "string" && p.cwd !== "") session.cwd = p.cwd;
     if (typeof p.session_id === "string" && p.session_id !== "") session.sessionId = p.session_id;
     const agentId = typeof p.agent_id === "string" && p.agent_id !== "" ? p.agent_id : undefined;
+    // What the subagent wrote before the call, before the call itself.
+    if (agentId && agentMessages && agentMessages.length > 0) {
+      this.saidBy(this.agentOf(session, agentId, p), agentMessages);
+    }
 
     switch (subcommand) {
       case "user-prompt-submit":
@@ -378,6 +400,22 @@ export class SessionActivityLog {
       this.sessions.set(key, session);
     }
     return session;
+  }
+
+  /** Keeps what a subagent wrote that was not kept yet, as of now. */
+  private saidBy(agent: AgentEntry, said: readonly SaidMessage[]): void {
+    if (agent.end !== undefined) return;
+    agent.said ??= new Set();
+    for (const message of said) {
+      const text = message.text.trim();
+      if (agent.said.has(message.id) || text === "") continue;
+      agent.said.add(message.id);
+      agent.messages ??= [];
+      agent.messages.push({ at: this.now(), text });
+    }
+    if (agent.messages && agent.messages.length > AGENT_MESSAGES_KEPT) {
+      agent.messages.splice(0, agent.messages.length - AGENT_MESSAGES_KEPT);
+    }
   }
 
   /**
@@ -692,7 +730,7 @@ function snapshotOf(session: SessionEntry): SessionActivity {
 }
 
 function agentRunOf(agent: AgentEntry): AgentRun {
-  const { asking: _asking, cwd: _cwd, watch: _watch, tools, messages, ...run } = agent;
+  const { asking: _asking, cwd: _cwd, watch: _watch, said: _said, tools, messages, ...run } = agent;
   return {
     ...run,
     tools: tools.map((tool) => ({ ...tool })),

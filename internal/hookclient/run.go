@@ -61,6 +61,9 @@ type hookRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// AgentMessages is what the subagent of a hook's call wrote so far, the
+	// latest of it, read from its transcript (agent_messages.go).
+	AgentMessages []agentMessage `json:"agentMessages,omitempty"`
 	// Print marks a hook of a `claude -p` run, whose PermissionRequest no
 	// dialog answers: main answers it at once rather than wait on the user.
 	Print bool `json:"print,omitempty"`
@@ -178,6 +181,7 @@ func runWithContext(
 		Subcommand:    subcommand,
 		Payload:       payload,
 		AssistantText: assistantText,
+		AgentMessages: hookAgentMessages(subcommand, payload),
 		Print:         os.Getenv(envClaudePrint) == "1" || os.Getenv(envClaudeEntrypoint) == "sdk-cli",
 	}
 	if err := writeNDJSON(conn, req); err != nil {

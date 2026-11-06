@@ -94,6 +94,9 @@ type HookEventPayload struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// AgentMessages is what the subagent of a hook's call wrote so far, as
+	// hookclient read it from the subagent's transcript.
+	AgentMessages json.RawMessage `json:"agentMessages,omitempty"`
 	// Print tells a hook of a `claude -p` run, which shows no dialog: Claude
 	// Code waits on its PermissionRequest, so main answers it at once.
 	Print bool `json:"print,omitempty"`
@@ -127,6 +130,7 @@ type hookWireRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	AgentMessages json.RawMessage `json:"agentMessages,omitempty"`
 	Print         bool            `json:"print,omitempty"`
 }
 
@@ -370,6 +374,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		Subcommand:    req.Subcommand,
 		Payload:       req.Payload,
 		AssistantText: req.AssistantText,
+		AgentMessages: req.AgentMessages,
 		Print:         req.Print,
 	}
 	delivered := false

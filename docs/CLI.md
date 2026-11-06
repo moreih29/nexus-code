@@ -107,7 +107,7 @@ codex exec resume <세션 id> "이어서 문서도"            # codex 도 같�
 
 - 실행의 id 는 그 세션 id 입니다. `claude -p --resume <id>` · `codex exec resume <id>` 로 이어 가면 새 실행이 아니라 같은 실행이 이어지는 것으로 보입니다. `claude -p` 는 미리 id 를 정하려면 `--session-id` 를 줍니다. `codex exec --ephemeral` 실행은 세션을 남기지 않아 id 가 없습니다.
 - 다른 API 로 돌린 실행은 그 주소(호스트)를 함께 보여 줍니다: `claude -p` 는 `ANTHROPIC_BASE_URL`, `codex exec` 는 `config.toml` 의 `model_provider` 와 그 `base_url`(또는 `OPENAI_BASE_URL`)에서 읽습니다. 모델은 `ANTHROPIC_MODEL` · `-m` · `-c model=…` 이나 설정에서 읽습니다.
-- 실행이 도구 사이에 쓴 말(중간 응답)도 도구와 함께 시간순으로 보입니다(최근 20개).
+- 서브에이전트와 실행이 도구 사이에 쓴 말(중간 응답)도 도구와 함께 시간순으로 보입니다(최근 20개). 서브에이전트의 중간 응답은 그 트랜스크립트에서 읽으므로, 다음 도구를 부르거나 끝날 때 보입니다.
 - `codex exec` 의 도구와 중간 응답은 `--json` 이면 그 출력에서, 아니면 세션 기록(`~/.codex/sessions` 의 rollout 파일)에서 읽습니다. 세션 기록에는 끝난 항목만 적히므로 이때 도구는 끝난 뒤에 걸린 시간과 함께 보입니다. 세션을 남기지 않는 `--ephemeral` 실행과, stderr 를 터미널에 바로 쓰는 실행은 모델 · 답만 보입니다.
 - `claude -p` 의 도구와 중간 응답은 실행의 트랜스크립트(또는 `--output-format stream-json` 출력)에서 읽습니다. `-c` 나 검색어로 이어 가는 실행은 어느 세션인지 미리 알 수 없어 도구가 `?` 로 나옵니다.
 - 실행을 이어 갈 때는 `-c` 대신 `--resume <id>` 를 씁니다. `-c` 는 그 폴더의 가장 최근 세션을 이어 가는데, 세션 안에서는 그게 호출한 세션 자신입니다.
