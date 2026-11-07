@@ -127,7 +127,7 @@ export function TitleBar() {
           "size-7 rounded-(--radius-control)",
           "text-muted-foreground",
           "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-          settingsOpen && "bg-[var(--state-selected-bg)] text-foreground",
+          settingsOpen && "bg-[var(--state-active-bg)] text-foreground",
           "transition-colors duration-150",
         )}
       >

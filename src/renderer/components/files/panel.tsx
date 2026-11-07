@@ -124,12 +124,16 @@ export function FilesPanel() {
                     aria-label={label}
                     aria-pressed={isActive}
                     title={label}
-                    // Persistent mode pick → state.selected.* (not state.active.bg,
-                    // which is the transient mouse-down overlay — design.md §8).
-                    // aria-pressed supplies the redundant signal channel.
+                    // The panel shown, drawn like an active tab: a tint and an
+                    // underline indicator (design.md §8, "selected"). aria-pressed
+                    // carries it to assistive tech.
                     className={cn(
-                      isActive &&
-                        "bg-[var(--state-selected-bg)] text-[var(--state-selected-fg)]",
+                      "relative",
+                      isActive && [
+                        "bg-[var(--sidebar-item-selected-bg)] text-foreground",
+                        "after:absolute after:right-1.5 after:bottom-0 after:left-1.5 after:h-0.5",
+                        "after:rounded-full after:bg-[var(--state-selected-indicator)] after:content-['']",
+                      ],
                     )}
                     onClick={() => {
                       setFilesPanelMode(activeWorkspace.id, mode);

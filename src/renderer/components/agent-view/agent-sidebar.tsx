@@ -279,7 +279,7 @@ function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
           type="button"
           aria-label={t("agentView.list.new_agent", { name: workspace.name })}
           title={t("agentView.list.new_agent", { name: workspace.name })}
-          className="flex size-5 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground data-[state=open]:bg-[var(--state-selected-bg)]"
+          className="flex size-5 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground data-[state=open]:bg-[var(--state-active-bg)]"
         >
           <Plus aria-hidden className="size-3.5" />
         </button>

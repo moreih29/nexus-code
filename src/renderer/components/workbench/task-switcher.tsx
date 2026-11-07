@@ -63,7 +63,7 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
             "app-no-drag absolute left-1/2 -translate-x-1/2 max-w-[40%]",
             "flex items-center gap-1.5 px-2 h-7 rounded-(--radius-control)",
             "text-app-body-emphasis text-foreground",
-            "hover:bg-[var(--state-hover-bg)] data-[state=open]:bg-[var(--state-hover-bg)]",
+            "hover:bg-[var(--state-hover-bg)] data-[state=open]:bg-[var(--state-active-bg)]",
             "transition-colors duration-150",
           )}
         >
