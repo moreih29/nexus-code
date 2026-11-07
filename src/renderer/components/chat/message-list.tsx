@@ -38,6 +38,7 @@ import {
   type UserItem,
 } from "../../services/chat/model";
 import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
+import { isOwnScroll, nearBottom } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
@@ -79,9 +80,6 @@ function backgroundOf(actions: MessageActions | undefined, toolUseId: string) {
   return actions?.waiting?.has(toolUseId) ? undefined : actions?.onBackground;
 }
 
-/** How near the bottom (px) still counts as being there. */
-const STICK_SLACK_PX = 48;
-
 export function MessageList({
   workspaceId,
   cwd,
@@ -96,20 +94,30 @@ export function MessageList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  // Where the code last scrolled to; its scroll event is not the user's.
+  const ownTop = useRef<number | null>(null);
   const [showJump, setShowJump] = useState(false);
 
   const toBottom = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    ownTop.current = el.scrollTop;
   }, []);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLACK_PX;
+    if (isOwnScroll(el, ownTop.current)) {
+      // Ours, a frame late: what came in since goes down too.
+      if (stuck.current) toBottom();
+      return;
+    }
+    ownTop.current = null;
+    const atBottom = nearBottom(el);
     stuck.current = atBottom;
     setShowJump(!atBottom);
-  }, []);
+  }, [toBottom]);
 
   // Growth from any source (a new item, a streamed word, an opened row)
   // keeps a stuck view at the bottom.
