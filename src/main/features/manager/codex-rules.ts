@@ -5,8 +5,7 @@
  * as its project's, lets `nexus` run outside the sandbox without asking, as
  * Claude's manager runs it with --allowedTools; its other commands stay as
  * the user's Codex settings say. Codex reads a project's rules only when it
- * trusts the project: the manager's codex trusts the folder for its session
- * (chat/launch.ts, codexAppServerArgs).
+ * trusts the folder, which the manager's thread says (threadSettings).
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";

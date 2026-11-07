@@ -65,6 +65,8 @@ interface CodexTabViewProps {
   hooks?: CodexTabHooks;
   /** What the thread is told at its start, beside Codex's own instructions. */
   developerInstructions?: string;
+  /** Whether Codex takes the folder as trusted, its own rules applying. */
+  trusted?: boolean;
 }
 
 /** From this width a file opens in a group beside the tab. */
@@ -77,6 +79,7 @@ export function CodexTabView({
   isVisible,
   hooks,
   developerInstructions,
+  trusted,
 }: CodexTabViewProps) {
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
@@ -95,6 +98,7 @@ export function CodexTabView({
           cwd: props.cwd,
           threadId: props.threadId,
           ...(developerInstructions ? { developerInstructions } : {}),
+          ...(trusted ? { trusted } : {}),
         },
         hooks ?? codexTabHooks(workspaceId, tabId),
       ),
