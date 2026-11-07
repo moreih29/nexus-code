@@ -49,6 +49,7 @@ export function newTaskFields(agent: TaskAgent): readonly FormDialogField[] {
       placeholder: t("task.prompt_placeholder"),
       helperText: t("task.prompt_helper", { agent: t(`task.agents.${agent}`) }),
       required: false,
+      multiline: true,
     },
   ];
 }
@@ -140,7 +141,7 @@ export function NewTaskDialogRoot(): React.JSX.Element {
         onCancel={cancel}
         onSubmit={(event) => void handleSubmit(event)}
         extraContent={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-start gap-2">
             <span className="text-app-ui-sm text-foreground">{i18next.t("task.agent_label")}</span>
             <SegmentedControl
               options={TASK_AGENTS.map((value) => ({
