@@ -21,7 +21,11 @@ export function asTaskAgent(value: string | undefined): TaskAgent | undefined {
  * terminal: codex's for a codex command, a terminal for none, else Claude's.
  */
 export function taskAgentOfCommand(command: string): TaskAgent {
-  const program = command.trim().split(/\s+/)[0] ?? "";
-  if (program === "") return "terminal";
-  return /(^|[\\/])codex(\.exe|\.cmd)?$/i.test(program) ? "codex" : "claude";
+  const trimmed = command.trim();
+  if (trimmed === "") return "terminal";
+  // PowerShell runs a program at a quoted path by its call operator.
+  const rest = trimmed.replace(/^&\s*/, "");
+  const quoted = /^(["'])(.*?)\1/.exec(rest);
+  const program = quoted ? quoted[2] : (rest.split(/\s+/)[0] ?? "");
+  return /(^|[\\/])codex(\.exe|\.cmd|\.bat|\.ps1)?$/i.test(program) ? "codex" : "claude";
 }
