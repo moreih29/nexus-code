@@ -11,6 +11,7 @@ import type { SshAuthPrompt } from "../../../shared/ssh/auth-prompt";
 import { copyText } from "../../utils/clipboard";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
+import { DialogHeader } from "../ui/dialog-header";
 
 interface SshAuthPromptDialogProps {
   readonly prompt: SshAuthPrompt | null;
@@ -48,7 +49,10 @@ export function sshAuthPromptInputType(
   return field === "password" || field === "passphrase" ? "password" : "text";
 }
 
-/** Renders the dialog body separately so scenario tests can inspect markup. */
+/**
+ * Renders the dialog body separately so scenario tests can inspect markup.
+ * Its header is the dialog's Radix Title, so it renders inside a Dialog root.
+ */
 export function SshAuthPromptDialogContent({
   prompt,
   passwordValue,
@@ -61,8 +65,6 @@ export function SshAuthPromptDialogContent({
   onSubmit,
 }: SshAuthPromptDialogContentProps): React.JSX.Element {
   const { t } = useTranslation();
-  const titleId = `ssh-auth-title-${prompt.promptId}`;
-  const descriptionId = `ssh-auth-description-${prompt.promptId}`;
   const inputId = `ssh-auth-input-${prompt.promptId}`;
   const hostLine = formatHostLine(prompt);
   const isPasswordPrompt = prompt.kind === "password";
@@ -86,12 +88,7 @@ export function SshAuthPromptDialogContent({
 
   return (
     <>
-      <h2 id={titleId} className="text-app-body-emphasis text-foreground">
-        {title}
-      </h2>
-      <p id={descriptionId} className="mt-2 text-app-ui-sm text-muted-foreground">
-        {hostLine}
-      </p>
+      <DialogHeader title={title} description={hostLine} />
       {pendingMessage ? (
         <p className="mt-2 text-app-ui-sm text-muted-foreground">{pendingMessage}</p>
       ) : null}
@@ -186,8 +183,6 @@ export function SshAuthPromptDialog({
         if (!open) onCancel();
       }}
       size="md"
-      aria-labelledby={prompt ? `ssh-auth-title-${prompt.promptId}` : undefined}
-      aria-describedby={prompt ? `ssh-auth-description-${prompt.promptId}` : undefined}
     >
       {prompt ? (
         <SshAuthPromptDialogContent

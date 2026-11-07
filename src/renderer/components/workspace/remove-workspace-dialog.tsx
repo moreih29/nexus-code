@@ -6,12 +6,12 @@
 //
 // Replaces window.confirm in app.tsx:handleRemoveWorkspace.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { MOUNT_CLICK_GRACE_MS } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 interface PendingPrompt {
@@ -97,23 +97,25 @@ export function RemoveWorkspaceDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("workspace.remove_title", { name: active?.name ?? "" })}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("workspace.remove_description")}
-        {active !== null && active.taskCount > 0 && (
-          <span className="mt-2 block text-foreground">
-            {t("workspace.remove_tasks", { count: active.taskCount })}
-          </span>
-        )}
-        {active !== null && active.unsavedCount > 0 && (
-          <span className="mt-2 block text-foreground">
-            {t("workspace.remove_unsaved", { count: active.unsavedCount })}
-          </span>
-        )}
-      </RadixDialog.Description>
+    <Dialog open={open} onOpenChange={handleOpenChange} size="sm">
+      <DialogHeader
+        title={t("workspace.remove_title", { name: active?.name ?? "" })}
+        description={
+          <>
+            {t("workspace.remove_description")}
+            {active !== null && active.taskCount > 0 && (
+              <span className="mt-2 block text-foreground">
+                {t("workspace.remove_tasks", { count: active.taskCount })}
+              </span>
+            )}
+            {active !== null && active.unsavedCount > 0 && (
+              <span className="mt-2 block text-foreground">
+                {t("workspace.remove_unsaved", { count: active.unsavedCount })}
+              </span>
+            )}
+          </>
+        }
+      />
       <div className="mt-5 flex justify-end gap-2">
         {/* Focus starts on Cancel: the dialog often opens from a key press
             (Enter on the sidebar's remove button), and key repeat or a

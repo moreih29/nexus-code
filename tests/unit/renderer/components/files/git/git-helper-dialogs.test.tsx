@@ -24,6 +24,7 @@ import {
 } from "../../../../../../src/renderer/components/files/git/hooks/use-helper-prompts";
 import type { ipcCallResult, ipcListen } from "../../../../../../src/renderer/ipc/client";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/git/types";
+import { renderInDialog } from "../../../../../helpers/render-in-dialog";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 const OTHER_WORKSPACE_ID = "223e4567-e89b-12d3-a456-426614174000";
@@ -42,7 +43,7 @@ describe("CredentialPromptDialogContent", () => {
       field: "password",
     });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <CredentialPromptDialogContent
         prompt={prompt}
         value=""
@@ -61,7 +62,7 @@ describe("CredentialPromptDialogContent", () => {
 describe("CommitMessageDialogContent", () => {
   it("renders a monospace commit message editor and validates comment-only text", () => {
     const prompt = makeEditorPrompt();
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <CommitMessageDialogContent
         prompt={prompt}
         content={"subject\n\n# comment\n"}

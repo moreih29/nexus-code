@@ -16,7 +16,8 @@
  * un-driftable: a call site cannot reintroduce `bg-black/40` or `shadow-lg`.
  *
  * The shell renders Radix `Root → Portal → Overlay → Content`. Callers own the
- * body, including the required `Dialog.Title` (Radix a11y contract).
+ * body, which starts with a `DialogHeader` (dialog-header.tsx): its Radix
+ * Title and Description name and describe the dialog.
  *
  * Radix AlertDialog-based modals cannot use the <Dialog> component (different
  * primitive) but MUST stay visually identical — they import DIALOG_OVERLAY_CLASS
@@ -77,17 +78,18 @@ export interface DialogProps {
   /** Inline style for the Content node (e.g. min/max-height constraints). */
   contentStyle?: React.CSSProperties;
   /**
-   * Forwarded to Radix Content. Names the dialog when the body uses a plain
-   * heading element instead of a `RadixDialog.Title` (whose context wiring
-   * would otherwise supply the accessible name automatically).
+   * Forwarded to Radix Content, and only when given: left out, Radix points
+   * it at the dialog's Title. Names the dialog when the body uses a plain
+   * heading element instead.
    */
   "aria-labelledby"?: string;
   /**
-   * Forwarded to Radix Content. Pass `undefined` explicitly to opt out of the
-   * description-id wiring when the dialog has no Dialog.Description.
+   * Forwarded to Radix Content, and only when given: left out, Radix points
+   * it at the dialog's Description. Pass `undefined` explicitly for a dialog
+   * that has none.
    */
   "aria-describedby"?: string;
-  /** Dialog body — must include a `RadixDialog.Title` for the a11y contract. */
+  /** Dialog body — starts with a `DialogHeader`, whose Title Radix requires. */
   children: React.ReactNode;
 }
 
@@ -103,7 +105,7 @@ export function Dialog({
   className,
   contentStyle,
   children,
-  ...rest
+  ...aria
 }: DialogProps): React.JSX.Element {
   // Browser-overlay suspend is handled centrally by the MutationObserver-based
   // auto-suspend in `state/operations/browser-suspend-auto.ts`, which watches
@@ -116,11 +118,13 @@ export function Dialog({
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+        {/* Spread, not set one by one: a key left out keeps Radix's own
+            wiring to the Title and Description, which an explicit
+            undefined would erase. */}
         <RadixDialog.Content
           className={dialogContentClass(size, padded, className)}
           style={contentStyle}
-          aria-labelledby={rest["aria-labelledby"]}
-          aria-describedby={rest["aria-describedby"]}
+          {...aria}
         >
           {children}
         </RadixDialog.Content>

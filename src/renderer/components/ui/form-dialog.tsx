@@ -7,11 +7,11 @@
  * onCancel via Radix's onOpenChange contract.
  */
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
+import { DialogHeader } from "./dialog-header";
 
 export type FormDialogValues = Record<string, string>;
 
@@ -124,7 +124,8 @@ export function handleFormDialogOpenChange(nextOpen: boolean, onCancel: () => vo
 
 /**
  * Renders the form body without the Radix portal so unit tests can assert the
- * field layout in a no-DOM server-render environment.
+ * field layout in a no-DOM server-render environment. Its header is the
+ * dialog's Radix Title, so it renders inside a Dialog root.
  */
 export function FormDialogContent({
   title,
@@ -147,14 +148,7 @@ export function FormDialogContent({
 
   return (
     <>
-      <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
-        {title}
-      </div>
-      {description ? (
-        <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
-          {description}
-        </div>
-      ) : null}
+      <DialogHeader title={title} description={description} />
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         {extraContent}
         {fieldStates.map(({ field, value, error: fieldError }) => {
@@ -289,13 +283,8 @@ export function FormDialog({
       open={open}
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, onCancel)}
       size="md"
+      {...(description ? {} : { "aria-describedby": undefined })}
     >
-      <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-      {description ? (
-        <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
-      ) : (
-        <RadixDialog.Description className="sr-only" />
-      )}
       <FormDialogContent
         title={title}
         description={description}

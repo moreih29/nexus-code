@@ -11,6 +11,7 @@ import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
 import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
 
 export interface HistoryCommitMenuPoint {
@@ -246,12 +247,7 @@ function HistoryCommitConfirmDialog({
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
         <RadixAlertDialog.Content className={dialogContentClass("sm", true)}>
-          <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
-            {title}
-          </RadixAlertDialog.Title>
-          <RadixAlertDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            {description}
-          </RadixAlertDialog.Description>
+          <DialogHeader alert title={title} description={description} />
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus>

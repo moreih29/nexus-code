@@ -5,13 +5,13 @@
  * panel/store path, and the selected radio maps to the existing GitMergeMode
  * IPC enum at submit time.
  */
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import i18next from "i18next";
 import { useTranslation } from "react-i18next";
 import type { GitMergeMode, LogEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
 
 export type MergeOption = "merge-commit" | "fast-forward" | "squash";
 
@@ -93,7 +93,10 @@ export function buildSquashCommitDraft(targetRef: string, commits: readonly LogE
   return [`Squash merge of '${targetRef}'`, ...body].join("\n").trimEnd();
 }
 
-/** Renders the dialog body without the Radix portal for static tests. */
+/**
+ * Renders the dialog body without the Radix portal for static tests. Its
+ * header is the dialog's Radix Title, so it renders inside a Dialog root.
+ */
 export function MergeOptionsDialogContent({
   targetRef,
   option,
@@ -106,12 +109,10 @@ export function MergeOptionsDialogContent({
   const MERGE_OPTIONS = getMergeOptions();
   return (
     <>
-      <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
-        {t("git.merge.title", { ref: targetRef })}
-      </div>
-      <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
-        {t("git.merge.chooseMerge", { ref: targetRef })}
-      </div>
+      <DialogHeader
+        title={t("git.merge.title", { ref: targetRef })}
+        description={t("git.merge.chooseMerge", { ref: targetRef })}
+      />
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         <fieldset className="flex flex-col gap-2 border-0 p-0">
           <legend className="sr-only">{t("git.merge.strategyLegend")}</legend>
@@ -186,14 +187,6 @@ export function MergeOptionsDialog({
       }}
       size="md"
     >
-      <RadixDialog.Title className="sr-only">
-        {request ? i18next.t("files:git.merge.title", { ref: request.targetRef }) : i18next.t("files:git.merge.srTitle")}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="sr-only">
-        {request
-          ? i18next.t("files:git.merge.chooseMerge", { ref: request.targetRef })
-          : i18next.t("files:git.merge.chooseStrategy")}
-      </RadixDialog.Description>
       {request ? (
         <MergeOptionsDialogContent
           targetRef={request.targetRef}

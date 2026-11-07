@@ -2,7 +2,6 @@
 // the end of its stderr when it exited, and its starts and stops. Main keeps
 // the entries (lsp.serverLog); the dialog asks for new ones while open.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
@@ -12,7 +11,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { type LspLogTarget, useLspLogViewerStore } from "../../state/stores/lsp-log-viewer";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
-import { DialogCloseButton } from "../ui/dialog-close-button";
+import { DialogHeader } from "../ui/dialog-header";
 
 /** How often the open dialog asks for entries logged since. */
 const LOG_POLL_MS = 1_000;
@@ -110,11 +109,10 @@ function LspLogDialog({
       contentStyle={{ height: "min(560px, 80vh)" }}
       aria-describedby={undefined}
     >
-      <div className="flex items-center justify-between gap-2">
-        <RadixDialog.Title className="text-app-body-emphasis text-foreground truncate">
-          {t("lsp.logTitle", { language, workspace })}
-        </RadixDialog.Title>
-        <div className="flex shrink-0 items-center gap-1">
+      <DialogHeader
+        title={t("lsp.logTitle", { language, workspace })}
+        close
+        actions={
           <Button
             type="button"
             variant="ghost"
@@ -124,9 +122,8 @@ function LspLogDialog({
           >
             {t("lsp.copyLog")}
           </Button>
-          <DialogCloseButton />
-        </div>
-      </div>
+        }
+      />
       <div
         ref={listRef}
         onScroll={(event) => {
