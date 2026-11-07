@@ -6,6 +6,7 @@ import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
+import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import {
@@ -61,6 +62,10 @@ export function AgentPane({ leaf, agents }: { leaf: SplitLeaf; agents: Agents })
   const front = leaf.activeTabId !== null ? parseSessionKey(leaf.activeTabId) : null;
 
   const slotElRef = useRef<HTMLElement | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  useTabInSight(stripRef, leaf.activeTabId, (strip) =>
+    strip.querySelector(`[data-agent-tab="${CSS.escape(leaf.activeTabId ?? "")}"]`),
+  );
   const slotRef = useCallback(
     (el: HTMLElement | null) => {
       slotElRef.current = el;
@@ -176,7 +181,10 @@ export function AgentPane({ leaf, agents }: { leaf: SplitLeaf; agents: Agents })
       data-leaf-id={leaf.id}
     >
       <div className="flex h-9 shrink-0 items-center gap-1 px-1.5">
-        <div className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={stripRef}
+          className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           {leaf.tabIds.map((key) => (
             <AgentTab
               key={key}
