@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { DEFAULT_TASK_AGENT, TASK_AGENTS } from "../../../../shared/sessions/task-agent";
+import { DEFAULT_TASK_AGENT } from "../../../../shared/sessions/task-agent";
 import {
   DEFAULT_SESSIONS_VIEW,
   SESSIONS_VIEWS,
@@ -33,6 +33,7 @@ import { useTerminalStore } from "../../../state/stores/terminal";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
+import { taskAgentOptions } from "../../workspace/task-agent-options";
 import { SettingsRow, SettingsSection } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
@@ -304,10 +305,7 @@ export function TerminalPanel() {
         onReset={() => setTaskAgent(undefined)}
       >
         <SegmentedControl
-          options={TASK_AGENTS.map((value) => ({
-            value,
-            label: t(`common:task.agents.${value}`),
-          }))}
+          options={taskAgentOptions()}
           value={taskAgent ?? DEFAULT_TASK_AGENT}
           onChange={setTaskAgent}
           label={t("terminal.taskAgent.label")}

@@ -205,7 +205,12 @@
     "agents": {
       "claude": "Claude",
       "codex": "Codex",
-      "terminal": "Terminal"
+      "terminal": "Terminal only"
+    },
+    "agent_hints": {
+      "claude": "Opens a Claude tab in the worktree.",
+      "codex": "Opens a Codex tab in the worktree.",
+      "terminal": "Opens just a shell in the worktree, with no agent. Start one there yourself when you need it."
     }
   },
   "workspace": {

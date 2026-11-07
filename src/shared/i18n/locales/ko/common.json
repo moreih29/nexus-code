@@ -205,7 +205,12 @@
     "agents": {
       "claude": "Claude",
       "codex": "Codex",
-      "terminal": "터미널"
+      "terminal": "터미널만"
+    },
+    "agent_hints": {
+      "claude": "워크트리에서 Claude 탭을 엽니다.",
+      "codex": "워크트리에서 Codex 탭을 엽니다.",
+      "terminal": "에이전트 없이 워크트리에서 셸만 엽니다. 에이전트는 필요할 때 직접 실행하세요."
     }
   },
   "workspace": {
