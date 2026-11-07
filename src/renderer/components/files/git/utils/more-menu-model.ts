@@ -39,9 +39,6 @@ export type GitTagMenuItemId = "create" | "delete" | "delete-remote" | "push-tag
 
 export type GitTagPickerMenuMode = "create" | "delete-local" | "delete-remote";
 
-/** Discriminator for the top-level submenu that may be open at any moment. */
-export type GitMoreL1Submenu = "branch" | "remote" | "stash" | "tag" | "autofetch";
-
 export interface GitBranchMenuActionHandlers {
   onMergeBranch: () => void;
   onRebaseBranch: () => void;
