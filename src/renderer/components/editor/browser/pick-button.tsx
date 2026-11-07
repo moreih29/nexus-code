@@ -22,6 +22,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { IconButton } from "@/components/ui/icon-button";
 import { showToast } from "@/components/ui/toast";
 import { ipcCallResult } from "@/ipc/client";
 import { pasteForTerminal, pickTargets, targetLabels } from "@/services/browser/element-pick";
@@ -141,24 +142,18 @@ export function PickButton({ tabId, workspaceId }: PickButtonProps) {
       }}
     >
       <div className="relative">
-        <button
-          type="button"
-          aria-label={label}
+        <IconButton
+          label={label}
+          size="md"
           aria-pressed={picking}
-          title={label}
           onClick={() => void start()}
           className={cn(
-            "flex items-center justify-center size-7 rounded-(--radius-control)",
-            "transition-colors outline-none",
-            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "active:bg-[var(--state-active-bg)]",
-            "focus-visible:ring-[3px] focus-visible:ring-ring/50",
-            "[&_svg]:size-4 [&_svg]:pointer-events-none",
-            picking ? "bg-[var(--state-active-bg)] text-foreground" : "text-muted-foreground",
+            "active:bg-[var(--state-active-bg)] [&_svg]:size-4 [&_svg]:pointer-events-none",
+            picking && "bg-[var(--state-active-bg)] text-foreground",
           )}
         >
           <SquareDashedMousePointer aria-hidden="true" />
-        </button>
+        </IconButton>
         {/* Anchors the menu under the button; the menu opens from code. */}
         <DropdownMenuTrigger>
           <span aria-hidden="true" className="absolute inset-0 pointer-events-none" />

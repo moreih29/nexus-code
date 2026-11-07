@@ -21,6 +21,7 @@ import { RotateCcw } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { IconButton } from "../ui/icon-button";
 import { Switch } from "../ui/switch";
 
 // ---------------------------------------------------------------------------
@@ -139,22 +140,15 @@ function ResetButton({ onClick, label, visible }: ResetButtonProps) {
   const { t } = useTranslation("settings");
   const resetLabel = t("dialog.resetSetting", { label });
   return (
-    <button
-      type="button"
-      aria-label={resetLabel}
-      title={resetLabel}
+    <IconButton
+      label={resetLabel}
+      size="xs"
       onClick={onClick}
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible || undefined}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center",
-        "size-5 rounded-(--radius-control)",
-        "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        "transition-colors",
-        !visible && "invisible pointer-events-none",
-      )}
+      className={cn(!visible && "invisible pointer-events-none")}
     >
       <RotateCcw className="size-3" aria-hidden="true" />
-    </button>
+    </IconButton>
   );
 }

@@ -8,6 +8,7 @@ import { fetchConnectionProfiles, listSshConfigHosts } from "../../../services/w
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
 import { DialogCloseButton } from "../../ui/dialog-close-button";
+import { IconButton } from "../../ui/icon-button";
 import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { type SshDirectoryPickerHandle, SshDirectoryPickerView } from "./ssh-directory-picker-view";
@@ -289,14 +290,9 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
           outside click. On the first view the title starts at the body's edge. */}
       <div className="flex items-center gap-2">
         {showBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label={t("action.back")}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
-          >
+          <IconButton label={t("action.back")} size="lg" onClick={onBack}>
             <ArrowLeft className="size-4" aria-hidden="true" />
-          </button>
+          </IconButton>
         ) : null}
 
         <div className="min-w-0 flex-1">

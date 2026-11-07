@@ -1,8 +1,8 @@
 import { Copy, Minus, Square, X } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { IconButton } from "../ui/icon-button";
 
 // ---------------------------------------------------------------------------
 // WindowControls — minimize / maximize / close drawn by the renderer
@@ -69,20 +69,8 @@ function ControlButton({
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "flex items-center justify-center",
-        "size-7 rounded-(--radius-control)",
-        "text-muted-foreground",
-        "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        "transition-colors duration-150",
-      )}
-    >
+    <IconButton label={label} size="md" onClick={onClick}>
       {children}
-    </button>
+    </IconButton>
   );
 }

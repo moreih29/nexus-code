@@ -862,6 +862,12 @@ Minimal이 활성화된 경우(기본값, 또는 사용자가 Minimal을 선택�
 
 ---
 
+### 아이콘 버튼과 툴팁
+
+아이콘만 있는 버튼은 `IconButton`(`components/ui/icon-button.tsx`)으로 만든다 — 크기 `xs` 20 · `sm` 24 · `md` 28 · `lg` 32px, 쉬는 상태는 muted, hover는 `state.hover.bg`, 메뉴·팝오버를 연 동안은 `state.active.bg`. `label`이 접근 이름이자 툴팁이고, `shortcut`을 주면 툴팁 오른쪽에 흐리게 붙는다.
+
+툴팁은 창 하나에 하나뿐인 레이어(`TooltipRoot`)가 `data-tooltip`을 가진 요소에 띄운다 — `tooltipProps(label, shortcut)`. 네이티브 `title`은 잘린 글자 전체를 보여줄 때만 쓴다. 비활성 버튼은 포인터를 받지 않으므로, 비활성인 이유는 감싸는 요소에 `tooltipProps`로 단다.
+
 ## §15. Code Editor Theming
 
 Monaco 에디터는 UI chrome과 색 요구가 다르다 — 코드 가독성을 위해 변별 가능한 hue가 필요하다.

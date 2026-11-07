@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { basename } from "@/utils/path";
 import { toNativeDrivePath } from "../../../../shared/fs/drive-path";
+import { IconButton } from "../../ui/icon-button";
 
 interface WorkspaceRootHeaderProps {
   rootAbsPath: string;
@@ -44,28 +45,21 @@ interface ActionButtonProps {
   children: React.ReactNode;
 }
 
-// Local icon-button. Sized to match the header row height (24px) — the
-// shared ui/Button's smallest variant (icon-sm = 32px) overflows the row.
+// Sized to the header row (24px): the smallest IconButton.
 function ActionButton({ label, onClick, children }: ActionButtonProps) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
+    <IconButton
+      label={label}
+      size="xs"
       onClick={(e) => {
         // Stop propagation so the header's toggle handler doesn't also fire.
         e.stopPropagation();
         onClick();
       }}
-      className={cn(
-        "inline-flex size-5 items-center justify-center rounded-(--radius-control)",
-        "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        "active:bg-[var(--state-active-bg)]",
-        "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
-      )}
+      className="active:bg-[var(--state-active-bg)]"
     >
       {children}
-    </button>
+    </IconButton>
   );
 }
 

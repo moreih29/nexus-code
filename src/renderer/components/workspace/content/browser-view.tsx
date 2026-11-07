@@ -56,6 +56,7 @@ import { BrowserEmptyState } from "@/components/editor/browser/empty-state";
 import { NavControls } from "@/components/editor/browser/nav-controls";
 import { PickButton } from "@/components/editor/browser/pick-button";
 import { UrlBar } from "@/components/editor/browser/url-bar";
+import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
 import { resolveInitialBrowserUrl } from "@/state/operations/browser";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
@@ -376,26 +377,20 @@ export function BrowserTabView({
             which drives both the button's active style and the split layout
             below.  No key opens it: ⌘⌥I (Ctrl+Shift+I) opens the app
             window's DevTools. */}
-        <button
-          type="button"
-          aria-label={i18next.t("browser.toggle_devtools")}
+        <IconButton
+          label={i18next.t("browser.toggle_devtools")}
+          size="md"
           aria-pressed={devtoolsOpen}
-          title={i18next.t("browser.toggle_devtools")}
           onClick={() => {
             void ipcCallResult("browser", "openDevTools", { tabId });
           }}
           className={cn(
-            "flex items-center justify-center size-7 rounded-(--radius-control)",
-            "transition-colors outline-none",
-            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "active:bg-[var(--state-active-bg)]",
-            "focus-visible:ring-[3px] focus-visible:ring-ring/50",
-            "[&_svg]:size-4 [&_svg]:pointer-events-none",
-            devtoolsOpen ? "bg-[var(--state-active-bg)] text-foreground" : "text-muted-foreground",
+            "active:bg-[var(--state-active-bg)] [&_svg]:size-4 [&_svg]:pointer-events-none",
+            devtoolsOpen && "bg-[var(--state-active-bg)] text-foreground",
           )}
         >
           <Wrench aria-hidden="true" />
-        </button>
+        </IconButton>
       </div>
 
       {/* Content area — flex column so the optional DevTools region docks

@@ -5,6 +5,7 @@
 import { FileText, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CommandCard } from "../../services/chat/store";
+import { IconButton } from "../ui/icon-button";
 import { useChatLinks } from "./chat-links";
 import { ChatMarkdown } from "./chat-markdown";
 
@@ -33,15 +34,9 @@ export function CommandCardView({
         <span className="min-w-0 flex-1 truncate font-mono text-app-micro text-muted-foreground">
           {card.title}
         </span>
-        <button
-          type="button"
-          aria-label={t("chat.commands.close")}
-          title={t("chat.commands.close")}
-          onClick={onClose}
-          className="shrink-0 rounded-(--radius-control) p-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-        >
+        <IconButton label={t("chat.commands.close")} size="xs" onClick={onClose}>
           <X className="size-3.5" />
-        </button>
+        </IconButton>
       </header>
       <div className="app-scrollbar min-h-0 overflow-y-auto px-3 py-2 text-app-body">
         {card.loading && (

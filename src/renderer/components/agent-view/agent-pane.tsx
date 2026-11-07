@@ -3,7 +3,7 @@
 // shows, moved here. Taking an agent out of the panel leaves it running.
 
 import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
 import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
@@ -39,6 +39,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { StateGlyph, stateLabel } from "../sessions/session-status";
 import { AgentMark } from "../sessions/status-view";
 import { EmptyState } from "../ui/empty-state";
+import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import type { DropZone } from "../workspace/dnd/types";
@@ -233,29 +234,32 @@ export function AgentPane({
         />
         <div className="flex shrink-0 items-center gap-0.5">
           {front && (
-            <PaneTool label={t("agentView.pane.reveal")} onClick={() => openInWorkspace(front)}>
+            <IconButton label={t("agentView.pane.reveal")} onClick={() => openInWorkspace(front)}>
               <FolderOpen aria-hidden className="size-3.5" />
-            </PaneTool>
+            </IconButton>
           )}
-          <PaneTool
-            label={withShortcut(t("tabBar.split_right"), shortcutFor(COMMANDS.groupSplitRight))}
+          <IconButton
+            label={t("tabBar.split_right")}
+            shortcut={shortcutFor(COMMANDS.groupSplitRight)}
             onClick={() => splitTo("right")}
           >
             <Columns2 aria-hidden className="size-3.5" />
-          </PaneTool>
-          <PaneTool
-            label={withShortcut(t("tabBar.split_down"), shortcutFor(COMMANDS.groupSplitDown))}
+          </IconButton>
+          <IconButton
+            label={t("tabBar.split_down")}
+            shortcut={shortcutFor(COMMANDS.groupSplitDown)}
             onClick={() => splitTo("down")}
           >
             <Rows2 aria-hidden className="size-3.5" />
-          </PaneTool>
+          </IconButton>
           {(split || leaf.tabIds.length > 0) && (
-            <PaneTool
-              label={withShortcut(t("agentView.pane.close"), shortcutFor(COMMANDS.groupClose))}
+            <IconButton
+              label={t("agentView.pane.close")}
+              shortcut={shortcutFor(COMMANDS.groupClose)}
               onClick={() => update((layout) => closeLeaf(layout, leaf.id))}
             >
               <X aria-hidden className="size-3.5" />
-            </PaneTool>
+            </IconButton>
           )}
         </div>
       </div>
@@ -285,32 +289,6 @@ export function AgentPane({
         />
       )}
     </div>
-  );
-}
-
-function withShortcut(label: string, shortcut: string | null | undefined): string {
-  return shortcut ? `${label} (${shortcut})` : label;
-}
-
-function PaneTool({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex size-6 items-center justify-center rounded-(--radius-control) text-muted-foreground transition-colors hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-    >
-      {children}
-    </button>
   );
 }
 
@@ -435,18 +413,17 @@ function AgentTab({
       >
         <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
       </button>
-      <button
-        type="button"
-        aria-label={t("agentView.pane.remove")}
-        title={t("agentView.pane.remove")}
+      <IconButton
+        label={t("agentView.pane.remove")}
+        size="xs"
         onClick={onRemove}
         className={cn(
-          "absolute right-1 flex size-5 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+          "absolute right-1",
           active ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
         )}
       >
         <X aria-hidden className="size-3" />
-      </button>
+      </IconButton>
     </div>
   );
 }
