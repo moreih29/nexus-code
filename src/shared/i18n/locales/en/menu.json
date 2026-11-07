@@ -27,7 +27,8 @@
     "revealInExplorer": "Reveal in File Explorer",
     "openContainingFolder": "Open Containing Folder",
     "copyPath": "Copy Path",
-    "copyRelativePath": "Copy Relative Path"
+    "copyRelativePath": "Copy Relative Path",
+    "toggleAgentView": "Toggle Agent View"
   },
   "workspace": {
     "label": "Workspace",

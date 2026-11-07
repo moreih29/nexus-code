@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from "react";
 import { computeActiveContext } from "../../state/claude-active-context-sync";
 import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
 import { useLayoutStore } from "../../state/stores/layout/store";
 import { sessionKey } from "./model";
@@ -22,6 +23,7 @@ function subscribeViewing(onChange: () => void): () => void {
     useAppFocusStore.subscribe(onChange),
     useActiveStore.subscribe(onChange),
     useLayoutStore.subscribe(onChange),
+    useAgentViewStore.subscribe(onChange),
   ];
   return () => {
     for (const stop of stops) stop();

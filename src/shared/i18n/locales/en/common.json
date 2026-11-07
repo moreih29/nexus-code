@@ -1327,5 +1327,34 @@
         "bypass_confirm": "Give full access"
       }
     }
+  },
+  "agentView": {
+    "toggle": {
+      "aria": "View",
+      "workspaces": "Workspaces",
+      "agents": "Agents"
+    },
+    "list": {
+      "title": "Agents",
+      "filter_aria": "Filter agents",
+      "filter": {
+        "all": "All",
+        "running": "Running",
+        "attention": "Waiting"
+      },
+      "none_filtered": "No matching agents",
+      "no_agents": "No agents",
+      "worktree": "Worktree",
+      "new_agent": "New agent in {{name}}",
+      "shown": "Shown in a panel",
+      "held": "In a panel, behind another tab"
+    },
+    "pane": {
+      "reveal": "Open in workspace",
+      "close": "Close panel",
+      "remove": "Remove from panel (the session goes on)",
+      "empty": "Empty panel",
+      "empty_hint": "Click an agent in the list, or drag one here"
+    }
   }
 }

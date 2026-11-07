@@ -13,6 +13,7 @@
  */
 
 import { useEffect } from "react";
+import { registerAgentViewCommands } from "../commands/domains/agent-view";
 import { registerBrowserCommands } from "../commands/domains/browser";
 import { registerFileCommands } from "../commands/domains/file";
 import { registerGroupCommands } from "../commands/domains/group";
@@ -38,6 +39,7 @@ export function useGlobalKeybindings(): void {
       ...registerSettingsCommands(),
       ...registerWorkbenchCommands(),
       ...registerBrowserCommands(),
+      ...registerAgentViewCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

@@ -3,6 +3,7 @@ import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
+import { AgentViewSnapshotSchema } from "./agent-view";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
 // ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
@@ -125,6 +126,11 @@ export const AppStateSchema = z.object({
   // The view each workspace's sessions tab was last switched to, by the
   // workspace its tasks belong to; it outlasts a change of the default.
   sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+
+  // The agent view: whether the window shows it rather than the workspaces,
+  // and its panels, each holding agents by session key. Absent = the
+  // workspaces, and one empty panel.
+  agentView: AgentViewSnapshotSchema.optional(),
 
   // The ports each SSH workspace forwards to this machine, and where each
   // listens here, so a browser tab left on a forward's local port finds it

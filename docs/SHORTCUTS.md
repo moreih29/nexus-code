@@ -49,6 +49,7 @@ VSCode 호환 매핑. `CmdOrCtrl` 은 OS 에 맞게 자동 매핑되며 (macOS =
 | 설정 열기 | ⌘, |
 | Files 패널 토글 | ⌘B |
 | Sidebar 토글 | ⌘⇧B |
+| 워크스페이스 / 에이전트 뷰 전환 | ⌘⇧A |
 
 ## 터미널
 

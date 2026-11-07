@@ -319,7 +319,7 @@ export function ToolIcon({ name }: { name: string }) {
 }
 
 /** The line under the title: what the conversation waits on, does, or answered. */
-function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
+export function RowLine({ session, facts }: { session: AgentSession; facts: RowFacts }) {
   const { t } = useTranslation();
   const wait = facts.wait;
   const warn = "size-3.5 shrink-0 text-(--state-warning-fg)";

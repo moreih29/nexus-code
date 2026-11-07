@@ -1327,5 +1327,34 @@
         "bypass_confirm": "전체 권한 주기"
       }
     }
+  },
+  "agentView": {
+    "toggle": {
+      "aria": "보기",
+      "workspaces": "워크스페이스",
+      "agents": "에이전트"
+    },
+    "list": {
+      "title": "에이전트",
+      "filter_aria": "에이전트 거르기",
+      "filter": {
+        "all": "전체",
+        "running": "실행 중",
+        "attention": "대기"
+      },
+      "none_filtered": "해당하는 에이전트가 없습니다",
+      "no_agents": "에이전트 없음",
+      "worktree": "워크트리",
+      "new_agent": "{{name}}에서 새 에이전트",
+      "shown": "패널에 보이는 중",
+      "held": "패널에 있음 (다른 탭 뒤)"
+    },
+    "pane": {
+      "reveal": "워크스페이스에서 열기",
+      "close": "패널 닫기",
+      "remove": "패널에서 빼기 (세션은 계속됨)",
+      "empty": "빈 패널",
+      "empty_hint": "왼쪽 목록에서 에이전트를 클릭하거나 여기로 끌어 놓으세요"
+    }
   }
 }

@@ -22,6 +22,22 @@ export type CommandHandler = () => void | Promise<void>;
 
 const handlers = new Map<CommandId, CommandHandler>();
 
+/**
+ * Decides a command ahead of its registered handler, for a view the
+ * handlers don't know (the agent view): a handler of its own, "skip" to do
+ * nothing, or undefined for the registered one.
+ */
+export type CommandInterceptor = (id: CommandId) => CommandHandler | "skip" | undefined;
+
+let interceptor: CommandInterceptor | null = null;
+
+export function setCommandInterceptor(next: CommandInterceptor): () => void {
+  interceptor = next;
+  return () => {
+    if (interceptor === next) interceptor = null;
+  };
+}
+
 export function registerCommand(id: CommandId, handler: CommandHandler): () => void {
   handlers.set(id, handler);
   return () => {
@@ -30,7 +46,9 @@ export function registerCommand(id: CommandId, handler: CommandHandler): () => v
 }
 
 export function executeCommand(id: CommandId): void {
-  const handler = handlers.get(id);
+  const routed = interceptor?.(id);
+  if (routed === "skip") return;
+  const handler = routed ?? handlers.get(id);
   if (!handler) {
     if (import.meta.env?.DEV) log.debug(`no handler for ${id}`);
     return;
@@ -47,4 +65,5 @@ export function executeCommand(id: CommandId): void {
 /** Test-only — clear all handlers between tests. */
 export function __resetCommandsForTests(): void {
   handlers.clear();
+  interceptor = null;
 }

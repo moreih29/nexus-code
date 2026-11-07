@@ -5,6 +5,7 @@ import { CodexTabView } from "@/components/chat/codex-tab";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
 import { SessionsTabView } from "@/components/sessions/sessions-tab";
+import { leafShowing } from "@/services/agent-view/layout";
 import { isDocxFile } from "@/services/editor/preview/docx";
 import { isFontFile } from "@/services/editor/preview/font";
 import { mediaKindFor } from "@/services/editor/preview/media";
@@ -12,6 +13,8 @@ import { isPdfFile } from "@/services/editor/preview/pdf";
 import { isPresentationFile } from "@/services/editor/preview/pptx";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
+import { sessionKey } from "@/services/sessions/model";
+import { useAgentViewStore } from "@/state/stores/agent-view";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
@@ -21,7 +24,7 @@ import { MediaEditorView } from "./media-editor-view";
 import { movePortalTarget } from "./move-portal-target";
 import { PdfEditorView } from "./pdf-editor-view";
 import { PptxEditorView } from "./pptx-editor-view";
-import { useSlotElement } from "./slot-registry";
+import { AGENT_VIEW_SLOTS, useSlotElement } from "./slot-registry";
 import { SpreadsheetEditorView } from "./spreadsheet-editor-view";
 import { TerminalView } from "./terminal-view";
 import { useViewPark } from "./view-park";
@@ -91,9 +94,17 @@ export function ContentHost({
   isActiveTab,
   isWorkspaceActive,
 }: ContentHostProps) {
-  const slotEl = useSlotElement(workspaceId, ownerLeafId);
+  // While the agent view is shown it decides alone: the tab shows in the
+  // panel that has it in front, and is parked everywhere else. Undefined
+  // while the workspaces are shown.
+  const agentLeafId = useAgentViewStore((s) =>
+    s.mode === "agents" ? leafShowing(s.root, sessionKey(workspaceId, tab.id)) : undefined,
+  );
+  const inAgentView = agentLeafId !== undefined;
+  const placedLeafId = inAgentView ? agentLeafId : ownerLeafId;
+  const slotEl = useSlotElement(inAgentView ? AGENT_VIEW_SLOTS : workspaceId, placedLeafId);
   const parkEl = useViewPark();
-  const isVisible = isActiveTab && isWorkspaceActive;
+  const isVisible = inAgentView ? agentLeafId !== null : isActiveTab && isWorkspaceActive;
   const currentParent = isVisible ? (slotEl ?? parkEl) : parkEl;
 
   // Stable per-tab portal target. Created once on first render and reused
@@ -142,7 +153,7 @@ export function ContentHost({
           workspaceId={workspaceId}
           tabId={tab.id}
           cwd={tab.props.cwd}
-          ownerLeafId={ownerLeafId}
+          ownerLeafId={placedLeafId}
           parentEl={currentParent}
           isVisible={isVisible}
         />
@@ -239,7 +250,7 @@ export function ContentHost({
           initialUrl={tab.props.initialUrl}
           lastUrl={tab.props.lastUrl}
           partition={tab.props.partition}
-          isActive={isActiveTab && isWorkspaceActive}
+          isActive={isVisible}
           parentEl={currentParent}
         />
       ) : tab.type === "sessions" ? (

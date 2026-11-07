@@ -424,7 +424,8 @@
       },
       "workbench": {
         "toggleFilesPanel": "파일 패널 토글",
-        "toggleSidebar": "사이드바 토글"
+        "toggleSidebar": "사이드바 토글",
+        "toggleAgentView": "에이전트 뷰 토글"
       },
       "terminal": {
         "new": "새 터미널"
