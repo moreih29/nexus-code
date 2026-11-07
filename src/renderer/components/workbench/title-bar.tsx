@@ -5,9 +5,11 @@ import { cn } from "@/utils/cn";
 import { ipcCallResult } from "../../ipc/client";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
+import { ViewToggle } from "../agent-view/view-toggle";
 import { InboxButton } from "./inbox-button";
 import { TaskSwitcher } from "./task-switcher";
 import { WindowControls } from "./window-controls";
@@ -43,6 +45,7 @@ export function TitleBar() {
     activeWorkspaceId ? s.workspaces.find((w) => w.id === activeWorkspaceId) : null,
   );
 
+  const agentView = useAgentViewStore((s) => s.mode === "agents");
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const toggleSettings = useSettingsUIStore((s) => s.toggleSettings);
 
@@ -85,10 +88,17 @@ export function TitleBar() {
       {/* Brand — uppercase small-label per the warm design system */}
       <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
 
+      {/* The workspaces or the agent view — beside the brand, clear of the
+          centered workspace name. */}
+      <ViewToggle />
+
       {/* Active workspace name — centered, editorial caption tone, and the
           menu of its tasks. SSH workspaces append "(ssh: <host>)" so the
-          remote target is visible alongside the user-chosen workspace name. */}
-      {activeWorkspace && <TaskSwitcher active={activeWorkspace} label={titleLabel} />}
+          remote target is visible alongside the user-chosen workspace name.
+          The agent view shows every workspace, so none is named. */}
+      {activeWorkspace && !agentView && (
+        <TaskSwitcher active={activeWorkspace} label={titleLabel} />
+      )}
 
       {/* Inbox — the sessions waiting on the user; right-aligned */}
       <InboxButton />

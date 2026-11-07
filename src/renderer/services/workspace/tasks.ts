@@ -9,6 +9,7 @@ import type { ChatAgent, TaskAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { openAgentTab } from "../chat/agent-tab";
 import { openTerminal } from "../terminal/open-terminal";
@@ -25,6 +26,8 @@ export interface TaskFailure {
 
 /** Activates a workspace here and tells main, which connects an SSH one. */
 export function activateWorkspace(id: string): void {
+  // Asked to show a workspace, the window shows the workspaces.
+  useAgentViewStore.getState().setMode("workspace");
   useActiveStore.getState().setActiveWorkspaceId(id);
   void ipcCallResult("workspace", "activate", { id }).then((result) => {
     if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);

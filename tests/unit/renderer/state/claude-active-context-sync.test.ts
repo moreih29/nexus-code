@@ -24,6 +24,9 @@ const { useAppFocusStore } = await import("../../../../src/renderer/state/stores
 const { viewingKey } = await import("../../../../src/renderer/services/sessions/viewing");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout/store");
 const { useSessionSeenStore } = await import("../../../../src/renderer/state/stores/session-seen");
+const { __resetAgentViewForTests, useAgentViewStore } = await import(
+  "../../../../src/renderer/state/stores/agent-view"
+);
 
 const WS = "00000000-0000-4000-8000-000000000001";
 
@@ -57,6 +60,7 @@ describe("claude active context sync", () => {
   afterEach(() => {
     stop();
     Date.now = realNow;
+    __resetAgentViewForTests();
   });
 
   it("marks the tab shown at start as seen", () => {
@@ -110,6 +114,26 @@ describe("claude active context sync", () => {
   it("has the inbox see the active terminal only while the window has focus", () => {
     expect(viewingKey()).toBe(`${WS}:t1`);
     useAppFocusStore.setState({ focused: false });
+    expect(viewingKey()).toBeNull();
+  });
+
+  it("in the agent view, counts the active panel's front agent as in front of the user", () => {
+    clock = 5_000;
+    useAgentViewStore.setState({
+      mode: "agents",
+      root: { kind: "leaf", id: "p1", tabIds: [`${WS}:t2`], activeTabId: `${WS}:t2` },
+      activeLeafId: "p1",
+    });
+    expect(useSessionSeenStore.getState().byWorkspace[WS]).toEqual({ t1: 5_000, t2: 5_000 });
+    expect(viewingKey()).toBe(`${WS}:t2`);
+  });
+
+  it("in the agent view with no agent in front, counts none as in front of the user", () => {
+    useAgentViewStore.setState({
+      mode: "agents",
+      root: { kind: "leaf", id: "p1", tabIds: [], activeTabId: null },
+      activeLeafId: "p1",
+    });
     expect(viewingKey()).toBeNull();
   });
 });

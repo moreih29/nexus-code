@@ -12,12 +12,15 @@
 // active context는 두 store의 조합으로 결정된다:
 //  - useActiveStore.activeWorkspaceId : 현재 보고 있는 워크스페이스
 //  - useLayoutStore.byWorkspace[ws].activeGroupId → 그 그룹의 leaf.activeTabId
+// 에이전트 뷰가 떠 있는 동안은 그 활성 패널 앞의 에이전트가 대신한다.
 //
 // 둘 중 하나라도 변경되면 새 (workspaceId, tabId)를 계산해 main에 push한다.
 
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
+import { activeKey, parseSessionKey } from "../services/agent-view/layout";
 import { useActiveStore } from "./stores/active";
+import { useAgentViewStore } from "./stores/agent-view";
 import { useAppFocusStore } from "./stores/app-focus";
 import { allLeaves } from "./stores/layout/helpers";
 import { useLayoutStore } from "./stores/layout/store";
@@ -51,6 +54,14 @@ function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): str
  * workspace 또는 tab이 없으면 둘 다 null로 보고한다.
  */
 export function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
+  // 에이전트 뷰가 떠 있으면 활성 패널 앞의 에이전트가 사용자 앞에 있다.
+  const agentView = useAgentViewStore.getState();
+  if (agentView.mode === "agents") {
+    const key = activeKey(agentView);
+    const parsed = key !== null ? parseSessionKey(key) : null;
+    return parsed ?? { workspaceId: null, tabId: null };
+  }
+
   const workspaceId = useActiveStore.getState().activeWorkspaceId;
   if (!workspaceId) return { workspaceId: null, tabId: null };
 
@@ -120,6 +131,7 @@ export function startClaudeActiveContextSync(): () => void {
   // 두 store 변경을 모두 구독.
   const unsubActive = useActiveStore.subscribe(push);
   const unsubLayout = useLayoutStore.subscribe(push);
+  const unsubAgentView = useAgentViewStore.subscribe(push);
   const unsubFocus = useAppFocusStore.subscribe((state, prev) => {
     if (state.focused !== prev.focused) onFocusChange(state.focused);
   });
@@ -127,6 +139,7 @@ export function startClaudeActiveContextSync(): () => void {
   return () => {
     unsubActive();
     unsubLayout();
+    unsubAgentView();
     unsubFocus();
   };
 }

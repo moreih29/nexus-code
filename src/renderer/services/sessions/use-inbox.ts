@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import type { TabActivity } from "../../../shared/sessions/agent-state";
 import { ipcCallResult } from "../../ipc/client";
 import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useAppFocusStore } from "../../state/stores/app-focus";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useLayoutStore } from "../../state/stores/layout/store";
@@ -58,6 +59,7 @@ export function useInbox(): Inbox {
       useChatStore.subscribe(update),
       useActiveStore.subscribe(update),
       useLayoutStore.subscribe(update),
+      useAgentViewStore.subscribe(update),
       useAppFocusStore.subscribe(update),
       useTabActivityStore.subscribe(update),
     ];

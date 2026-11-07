@@ -10,6 +10,7 @@ import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
+import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { startTabActivityPolling } from "./services/sessions/activity-poll";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
@@ -29,6 +30,7 @@ import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
@@ -304,6 +306,11 @@ export async function bootstrapAppState(): Promise<void> {
       }
     }
   }
+
+  // The agent view's panels hold tabs, so they come back after the tabs,
+  // keeping those that still exist, and let go of each tab as it closes.
+  useAgentViewStore.getState().hydrate(state.agentView, tabExists);
+  startAgentViewPruning();
 
   registerStatePersistence();
   markCliUiReady();

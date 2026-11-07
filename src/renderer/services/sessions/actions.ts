@@ -7,15 +7,18 @@
 
 import { openClaudeTab } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
+import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { showInAgentView } from "../agent-view/show";
 import { existingCodexController } from "../chat/codex-controller";
 import { existingChatController } from "../chat/controller";
 import { actionHandlers, UiRequestError } from "../cli/actions";
 import { groupOf } from "../cli/placement";
 import { openTerminal } from "../terminal/open-terminal";
+import { requestTabFocus } from "../tab-focus";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { activateWorkspace } from "../workspace/tasks";
 import { typeText } from "./typed-input";
@@ -46,14 +49,33 @@ function chatTab({ workspaceId, tabId, kind }: SessionRef): ChatTab {
   return chat;
 }
 
-/** Switches to the session's workspace and shows its terminal. */
-export function showTerminal({ workspaceId, tabId }: SessionRef): void {
+/**
+ * Shows the session's terminal: in the agent view while it is up, else
+ * switching to the session's workspace.
+ */
+export function showTerminal(session: SessionRef): void {
+  if (isAgentViewShown()) {
+    showInAgentView(session.workspaceId, session.tabId, { focus: false });
+    return;
+  }
+  revealInWorkspace(session);
+}
+
+/** Switches to the session's workspace and shows its terminal there. */
+export function revealInWorkspace({ workspaceId, tabId }: SessionRef): void {
   const groupId = groupOf(workspaceId, tabId);
   if (!groupId) return;
   // The tab first: switching to the workspace then lands on it, rather than
   // on the tab it showed before, which would count as looked at.
   useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
   if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
+}
+
+/** Goes to the session's tab in its workspace, leaving the agent view. */
+export function openInWorkspace(session: SessionRef): void {
+  useAgentViewStore.getState().setMode("workspace");
+  revealInWorkspace(session);
+  requestTabFocus(session.tabId);
 }
 
 /**

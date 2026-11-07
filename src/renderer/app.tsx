@@ -5,6 +5,8 @@ import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
+import { AgentSidebar } from "./components/agent-view/agent-sidebar";
+import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
@@ -35,6 +37,7 @@ import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
+import { useAgentViewStore } from "./state/stores/agent-view";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
@@ -67,6 +70,9 @@ export function App() {
   // ready to restore on re-show.
   const sidebarHidden = useUIStore((s) => s.sidebarHidden);
   const filesPanelHidden = useUIStore((s) => s.filesPanelHidden);
+  // The agent view takes the place of the workspaces: its list for the
+  // sidebar and the files, its panels for the workspace's.
+  const agentView = useAgentViewStore((s) => s.mode === "agents");
 
   // Settings nav — each row carries an optional `dirty` dot. Dirty is
   // **session-scoped**: it means "this value changed while the current
@@ -354,6 +360,7 @@ export function App() {
 
   const handleWorkspaceCreated = useCallback(
     async (meta: WorkspaceMeta) => {
+      useAgentViewStore.getState().setMode("workspace");
       setActiveWorkspaceId(meta.id);
       // Fire-and-forget: UI is already updated; notify main of new workspace activation.
       void ipcCallResult("workspace", "activate", { id: meta.id }).then((result) => {
@@ -445,7 +452,8 @@ export function App() {
           }}
         </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
-          {!sidebarHidden && (
+          {!sidebarHidden && agentView && <AgentSidebar />}
+          {!sidebarHidden && !agentView && (
             <Sidebar
               workspaces={workspaces}
               activeWorkspaceId={activeWorkspaceId}
@@ -454,16 +462,24 @@ export function App() {
               onRemoveWorkspace={handleRemoveWorkspace}
             />
           )}
-          {!filesPanelHidden && <FilesPanel />}
+          {!filesPanelHidden && !agentView && <FilesPanel />}
           <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
-            {workspaces.length === 0 && (
+            {workspaces.length === 0 && !agentView && (
               <div className="flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
                 <WelcomeScreen onAddWorkspace={handleAddWorkspace} />
               </div>
             )}
             {mountedWorkspaces.map((ws) => (
-              <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
+              <WorkspacePanel
+                key={ws.id}
+                workspace={ws}
+                isActive={!agentView && ws.id === activeWorkspaceId}
+              />
             ))}
+            {/* Kept mounted, as the workspaces are: a tab moves between its
+                panels and the workspace's groups without leaving the
+                document, which would lose its scroll and reload its frames. */}
+            <AgentView shown={agentView} />
           </div>
         </div>
       </div>

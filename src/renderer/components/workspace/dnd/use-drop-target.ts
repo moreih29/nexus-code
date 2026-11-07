@@ -35,7 +35,7 @@ const EDGE_THRESHOLD = 1 / 3;
  * - Otherwise: distance from each edge in [0, 1]; closest edge within 1/3
  *   wins, beyond that → center.
  */
-function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number): DropZone {
+export function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number): DropZone {
   if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
     return "center";
   }
