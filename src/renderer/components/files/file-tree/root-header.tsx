@@ -121,7 +121,7 @@ export function WorkspaceRootHeader({
             isExpanded && "rotate-90",
           )}
         />
-        <span className="truncate text-app-ui-sm font-medium uppercase tracking-wide">{name}</span>
+        <span className="truncate text-app-ui-sm font-medium">{name}</span>
       </button>
 
       {/*

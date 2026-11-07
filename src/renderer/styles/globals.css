@@ -126,6 +126,26 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Section labels — `text-app-label uppercase` (design.md §5)
+   In a Latin-script language the label is set in capitals, tracked out so
+   they don't crowd. Hangul has no case: `uppercase` does nothing to it and
+   the tracking only pulls the syllables apart, so a Korean label keeps its
+   text as written and takes Medium weight to still read as a label. Text
+   that should stay in capitals whatever the language (the wordmark) carries
+   lang="en". Unlayered, so it wins over the utilities it adjusts.
+   --------------------------------------------------------------------------- */
+
+.text-app-label.uppercase {
+  letter-spacing: 0.06em;
+}
+
+.text-app-label.uppercase:lang(ko) {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------------------
    Frameless-window drag regions (custom titlebar)
    - .app-drag    → area is draggable to move the OS window
    - .app-no-drag → carve out interactive children inside a draggable parent

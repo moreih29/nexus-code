@@ -285,7 +285,7 @@ Islands 모델은 "둥근 물체로서의 섬"을 핵심 미감으로 한다. �
 | appBodyEmphasis | 14px | 400 | 1.3 | 0 | 강조 본문 |
 | appUiSm | 12px | 400 | 1.5 | 0 | 소형 sentence-case 텍스트 — 캡션·힌트·상태·에러 문구 |
 | appMicro | 11px | 400 | 1.2 | 0 | 최소형 텍스트 — 툴팁, 보조 경로/메타데이터 힌트 |
-| appLabel | 12px | 400 | 1.35 | 2.4px | 대문자 카테고리 레이블 **전용** — 반드시 uppercase 텍스트에만 |
+| appLabel | 12px | 400 | 1.35 | 0 | 섹션·카테고리 레이블 — `uppercase`와 함께 쓰면 언어에 따라 모양이 정해진다 (아래 규칙) |
 
 실제 값 정본: `→ src/shared/design-tokens/index.ts` (`appTypeScale`)
 
@@ -305,7 +305,8 @@ In-app 텍스트 역할은 위 5개(`app*`) + 코드 2개(`code*`)가 전부인 
 규칙:
 - 마케팅 18-role 타입스케일은 in-app UI에 사용할 수 없다. 파이프라인(`generate-theme-css.ts`)에서 강제한다.
 - in-app 스케일에 없는 크기는 신규 역할 추가로 해결하며 매직넘버(`text-[Npx]`)를 직접 쓰지 않는다.
-- `appLabel`의 letterSpacing 2.4px는 역할의 일부다. 호출처가 `tracking-[…]`로 재지정하지 않는다.
+- 섹션 레이블은 `text-app-label uppercase`로 쓴다. 라틴 문자 언어(영어)에서는 대문자 + 자간 0.06em, 한국어에서는 글자 그대로 + Medium(500) — 한글엔 대소문자가 없고 자간은 음절만 벌린다. 규칙은 `globals.css`의 section-label 한 곳에 있고, 호출처가 `tracking-[…]`로 재지정하지 않는다.
+- 파일·폴더·브랜치·워크스페이스 이름처럼 사용자가 정한 이름은 대문자로 바꾸지 않는다 — 대소문자를 구분하는 이름이 다르게 보인다. 영어 고유명사(로고 등)를 언어와 상관없이 대문자로 두려면 요소에 `lang="en"`을 준다.
 - 사용자 가독성 설정(code/terminal 영역 한정)은 토큰 봉인의 명시적 예외 — 토큰 기본값은 미설정 시 fallback 역할만. UI 텍스트 역할(`app*`)에는 일절 전파 금지.
 
 ---

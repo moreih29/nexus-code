@@ -88,7 +88,9 @@ export function TitleBar() {
       )}
 
       {/* Brand — uppercase small-label per the warm design system */}
-      <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
+      <span lang="en" className="text-app-label text-muted-foreground uppercase">
+        NexusCode
+      </span>
 
       {/* The workspaces or the agent view — beside the brand, clear of the
           centered workspace name. */}

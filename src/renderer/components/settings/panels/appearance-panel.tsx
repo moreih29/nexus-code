@@ -377,14 +377,14 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
           {source.name}
         </span>
         <span
-          className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro uppercase tracking-[1px]"
+          className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro"
           style={{
             background: source.bg.floating,
             color: source.fg.muted,
             border: `1px solid ${source.border}`,
           }}
         >
-          {source.base}
+          {t(`appearance.themeBase.${source.base}`)}
         </span>
       </div>
 
