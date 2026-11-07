@@ -4,7 +4,7 @@
 // Height h-6 (24px). Receives the workspaceId of the panel it lives in.
 //
 // Segment layout — unified across local and SSH workspaces:
-//   LEFT:  git branch · changes (+~?!) · error count · warning count
+//   LEFT:  git branch · changes · error count · warning count
 //   RIGHT: git in-flight operation indicator · the ports the terminals'
 //          programs listen on (ports-segment.tsx) · the active editor's
 //          encoding (encoding-segment.tsx) and language server
@@ -39,7 +39,17 @@
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
 //   - neutral / dimmed render when repo absent
 
-import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  FileCheck,
+  FileDiff,
+  FilePlus,
+  FileWarning,
+  GitBranch,
+  Loader2,
+  type LucideIcon,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -86,7 +96,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
   const isRepo = gitSession?.repoInfo.kind === "repo";
   const branchInfo = isRepo ? (gitSession?.branchInfo ?? null) : null;
-  // Status groups feed the +~?! changes segment. Null when the workspace is
+  // Status groups feed the changes segment. Null when the workspace is
   // not a repo or the first status fetch hasn't landed yet — the segment
   // gracefully renders nothing in that case.
   const status = isRepo ? (gitSession?.status ?? null) : null;
@@ -213,19 +223,18 @@ export function BranchSegment({
 // Changes segment
 //
 // Renders the branch's working state as colored count tokens next to the
-// branch button. Follows the +~?! convention shared with git-prompt.sh /
-// posh-git / vim-airline / Starship so users transferring from those
-// environments read it without learning a new notation:
+// branch button, each an icon and a count like the error / warning segments
+// beside it (a bare "?3" read as a question, not as three new files):
 //
-//   +N  staged    — index has N changes ready to commit       (success hue)
-//   ~N  modified  — working tree has N unstaged modify/delete (warning hue)
-//   ?N  untracked — N new files git does not yet know about   (info hue)
-//   !N  conflict  — N files in merge conflict (rendered FIRST) (error hue)
+//   FileCheck   staged    — index has N changes ready to commit       (success hue)
+//   FileDiff    modified  — working tree has N unstaged modify/delete (warning hue)
+//   FilePlus    untracked — N new files git does not yet know about   (info hue)
+//   FileWarning conflict  — N files in merge conflict (rendered FIRST) (error hue)
 //
 // Empty tokens are omitted (0 count → no chip), and a fully clean tree
 // hides the whole segment so the status bar stays quiet during steady
 // state. Conflict tokens lead so position itself signals priority
-// (design.md §7 redundant encoding: color + position + glyph).
+// (design.md §7 redundant encoding: color + position + icon).
 //
 // Click target: opens the Source Control panel via setFilesPanelMode. This
 // matches diagnostic segment semantics — counts are summaries; the panel
@@ -256,10 +265,17 @@ function ChangesSegment({
 
   // Tokens, in render order. Conflicts lead so the most urgent state is
   // the first thing the eye reaches after the branch name.
-  const tokens: Array<{ glyph: string; count: number; color: string; label: string }> = [];
+  const tokens: Array<{
+    key: string;
+    Icon: LucideIcon;
+    count: number;
+    color: string;
+    label: string;
+  }> = [];
   if (conflictCount > 0) {
     tokens.push({
-      glyph: "!",
+      key: "conflict",
+      Icon: FileWarning,
       count: conflictCount,
       color: "var(--status-bar-conflict-fg)",
       label: t("statusBar.conflict_one", { count: conflictCount }),
@@ -267,7 +283,8 @@ function ChangesSegment({
   }
   if (stagedCount > 0) {
     tokens.push({
-      glyph: "+",
+      key: "staged",
+      Icon: FileCheck,
       count: stagedCount,
       color: "var(--status-bar-added-fg)",
       label: t("statusBar.staged", { count: stagedCount }),
@@ -275,7 +292,8 @@ function ChangesSegment({
   }
   if (workingCount > 0) {
     tokens.push({
-      glyph: "~",
+      key: "modified",
+      Icon: FileDiff,
       count: workingCount,
       color: "var(--status-bar-modified-fg)",
       label: t("statusBar.modified", { count: workingCount }),
@@ -283,7 +301,8 @@ function ChangesSegment({
   }
   if (untrackedCount > 0) {
     tokens.push({
-      glyph: "?",
+      key: "untracked",
+      Icon: FilePlus,
       count: untrackedCount,
       color: "var(--status-bar-untracked-fg)",
       label: t("statusBar.untracked", { count: untrackedCount }),
@@ -304,10 +323,10 @@ function ChangesSegment({
         "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
       )}
     >
-      {tokens.map((t) => (
-        <span key={t.glyph} style={{ color: t.color }} className="inline-flex items-baseline">
-          <span aria-hidden="true">{t.glyph}</span>
-          <span>{t.count}</span>
+      {tokens.map(({ key, Icon, count, color }) => (
+        <span key={key} style={{ color }} className="inline-flex items-center gap-1">
+          <Icon aria-hidden="true" className="size-3.5" />
+          <span>{count}</span>
         </span>
       ))}
     </button>
