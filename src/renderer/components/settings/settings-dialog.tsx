@@ -285,16 +285,16 @@ export function SettingsDialog({
                           onClick={() => setActiveId(item.id)}
                           className={cn(
                             "flex w-full items-center justify-between gap-2 px-4 py-1.5 text-left text-app-body font-sans",
-                            // 2px indicator — matches workbench/sidebar.tsx and file-tree row.
-                            // The settings nav is a Floating-layer surface (design.md §2),
-                            // so it uses state.selected.* tokens rather than the sidebar
-                            // region's tokens (different region → different vocabulary).
+                            // Where you are, drawn like every other navigation list
+                            // (workbench/sidebar.tsx, file-tree row): a tint and a
+                            // 2px indicator. A solid state.selected fill is for a
+                            // control's value (design.md §8, "selected").
                             "border-l-2 transition-colors cursor-pointer select-none",
                             isActive
                               ? [
                                   "border-l-[var(--state-selected-indicator)]",
-                                  "bg-[var(--state-selected-bg)]",
-                                  "text-[var(--state-selected-fg)]",
+                                  "bg-[var(--sidebar-item-selected-bg)]",
+                                  "text-[var(--sidebar-item-selected-fg)]",
                                 ]
                               : [
                                   "border-l-transparent",

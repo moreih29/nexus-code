@@ -360,6 +360,16 @@ In-app 텍스트 역할은 위 5개(`app*`) + 코드 2개(`code*`)가 전부인 
 | loading | — | 인라인 스피너 (`state.loading.indicator`) |
 | drag | 드롭 타깃 배경 강조 | 드래그 소스 opacity 감소 + 삽입선(`state.drag.indicator`) |
 
+> **selected의 세 가지 쓰임** — 같은 "선택됨"이라도 무엇을 고른 것인지에 따라 하나로 정한다.
+>
+> | 무엇 | 모양 | 예 |
+> |---|---|---|
+> | 현재 위치 (목록·내비게이션) | `sidebar.item.selected.bg` + 좌측 2px `state.selected.indicator` | 워크스페이스 사이드바, 파일 트리, 설정 nav |
+> | 현재 보기 (탭·보기 전환 아이콘) | `sidebar.item.selected.bg` 또는 `tab.active.bg` + 하단 `state.selected.indicator` 밑줄 | 에디터 탭, 파일 패널 보기 전환 |
+> | 컨트롤의 값 | `state.selected.bg` 채움 + `state.selected.fg` | 체크박스, 스위치, 세그먼트 값, 슬라이더 |
+>
+> 팝오버·메뉴를 연 트리거 버튼은 선택이 아니라 눌린 상태다 — `state.active.bg`. 타이틀바 보기 전환도 같은 배경을 쓴다.
+
 `success`는 컨트롤의 인터랙션 상태가 아니라 피드백 레이어다 — `feedback.success.*`로 분리(§10).
 
 > **다중선택 리스트/트리 focus** — 파일트리처럼 다중선택 행이 공존하는 컨텍스트에서는

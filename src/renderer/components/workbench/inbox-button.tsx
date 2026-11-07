@@ -65,7 +65,7 @@ export function InboxButton() {
             "size-7 rounded-(--radius-control)",
             "text-muted-foreground",
             "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "data-[state=open]:bg-[var(--state-selected-bg)] data-[state=open]:text-foreground",
+            "data-[state=open]:bg-[var(--state-active-bg)] data-[state=open]:text-foreground",
             "transition-colors duration-150",
           )}
         >
