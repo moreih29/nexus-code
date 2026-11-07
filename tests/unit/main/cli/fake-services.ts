@@ -533,8 +533,9 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { since, limit } = args as CliUiOps["events.read"]["args"];
       const after = events.filter((event) => event.seq > (since ?? 0));
       return {
-        events: after.slice(-limit),
+        events: since === undefined ? after.slice(-limit) : after.slice(0, limit),
         cursor: events.at(-1)?.seq ?? 0,
+        more: since !== undefined && after.length > limit,
       } as CliUiOps[K]["result"];
     }
     if (op === "chat.state" || op === "chat.read" || op === "chat.send") {
@@ -544,9 +545,11 @@ export function fakeApp(now = Date.now()): FakeApp {
       if (op === "chat.state") return chat.info as CliUiOps[K]["result"];
       if (op === "chat.read") {
         const { messages, since } = args as CliUiOps["chat.read"]["args"];
-        const after = chat.entries.filter((entry) => entry.i > (since ?? -1));
+        const end = chat.entries.at(-1)?.i ?? -1;
+        const from = since !== undefined && since <= end ? since : -1;
+        const after = chat.entries.filter((entry) => entry.i > from);
         const entries = messages === undefined ? after : after.slice(-messages);
-        return { ...chat.info, entries } as CliUiOps[K]["result"];
+        return { ...chat.info, entries, end } as CliUiOps[K]["result"];
       }
       chatSent.push({ tabId, text: (args as CliUiOps["chat.send"]["args"]).text });
       return {} as CliUiOps[K]["result"];

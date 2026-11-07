@@ -135,6 +135,21 @@ describe("chat read", () => {
     expect(none.stdout).toBe("Nothing after #3.\nClaude in Fix the login is idle.\n");
   });
 
+  test("--since past the end says the conversation was cleared or rewound, and reads its start", async () => {
+    const app = withChat();
+    const result = await nexus(app, ["chat", "read", "eeee", "--since", "9"]);
+    expect(result.stdout).toStartWith(
+      "The conversation was cleared or rewound: it ends before #9 now. From its start:\n" +
+        "── user #0\nFix the login redirect\n",
+    );
+    const json = JSON.parse(
+      (await nexus(app, ["chat", "read", "eeee", "--since", "9", "--json"])).stdout,
+    );
+    expect(json.restarted).toBe(true);
+    expect(json.entries.map((e: { i: number }) => e.i)).toEqual([0, 1, 2, 3]);
+    expect(json.last).toBe(3);
+  });
+
   test("--jsonl prints a message a line, then the state; --max-chars cuts them", async () => {
     const result = await nexus(withChat(), [
       "chat",
@@ -184,6 +199,15 @@ describe("chat tool", () => {
     const result = await nexus(withChat(), ["chat", "tool", "eeee", "9"]);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('no tool call "9"');
+  });
+
+  test("a call the shell dropped as a comment says to give its number alone", async () => {
+    // `nexus chat tool eeee #2` reaches nexus without "#2".
+    const result = await nexus(withChat(), ["chat", "tool", "eeee"]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toStartWith(
+      "nexus: missing <call>: the number chat read shows by it, without its #",
+    );
   });
 });
 
@@ -306,6 +330,18 @@ describe("chat wait", () => {
     const out = await nexus(busy, ["chat", "wait", "eeee", "ffff", "--timeout", "2s"]);
     expect(out.exitCode).toBe(124);
     expect(out.stdout).toContain("every tab was still working");
+  });
+
+  test("waits no more once its client has gone, as one stopped with Ctrl-C", async () => {
+    const app = withChat({ state: "working" });
+    const stop = new AbortController();
+    const startedAt = app.time.now;
+    app.time.onTick = () => stop.abort();
+    const ctx = contextFor(app, ["chat", "wait", "eeee", "--timeout", "30m"]);
+    const result = await runCli(CLI_COMMANDS, { ...ctx, signal: stop.signal });
+    expect(result.exitCode).toBe(124);
+    expect(app.time.now - startedAt).toBeLessThan(60_000);
+    expect(app.waits.snapshot()).toEqual([]);
   });
 });
 

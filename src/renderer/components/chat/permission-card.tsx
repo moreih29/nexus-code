@@ -308,7 +308,8 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
     parentToolUseId: null,
   };
   const preview = request.preview !== undefined || hasPreview(request.toolName);
-  const summary = toolSummary(tool, cwd);
+  // A command of several lines shows them all: its first can hide the rest.
+  const summary = wholeCommand(tool.input) ?? toolSummary(tool, cwd);
   const scopes = scopesOf(request.suggestions, t);
   const deny = (stop: boolean) =>
     onAnswer(request, { kind: stop ? "deny-stop" : "deny", message: message.trim() || undefined });
@@ -359,7 +360,12 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
       </div>
       {summary && !preview && (
         <div
-          className="code-hl truncate rounded-(--radius-control) bg-background px-2 py-1 font-mono text-foreground"
+          className={cn(
+            "code-hl rounded-(--radius-control) bg-background px-2 py-1 font-mono text-foreground",
+            summary.includes("\n")
+              ? "max-h-40 overflow-auto whitespace-pre-wrap break-all"
+              : "truncate",
+          )}
           title={summary}
         >
           {request.toolName === "Bash" ? <Highlighted code={summary} language="bash" /> : summary}
@@ -473,6 +479,14 @@ function AllowAlways({
       </DropdownMenuRoot>
     </span>
   );
+}
+
+/** A tool's command, when it runs one of more than a line. */
+function wholeCommand(input: unknown): string | undefined {
+  const command = (input as { command?: unknown } | undefined)?.command;
+  if (typeof command !== "string") return undefined;
+  const whole = command.trim();
+  return whole.includes("\n") ? whole : undefined;
 }
 
 /** Tools whose input reads best as the patch or command they carry. */

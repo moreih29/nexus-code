@@ -23,23 +23,27 @@ function clockTime(at: number): string {
   return new Date(at).toTimeString().slice(0, 8);
 }
 
-/** The changes after `since`, of one workspace when given; and the latest seq. */
+/**
+ * The changes after `since`, the first `limit` of them (`more` when some
+ * were left out), of one workspace when given; with no `since`, the last
+ * `limit`. And the latest seq.
+ */
 async function readEvents(
   ctx: CliContext,
   since: number | undefined,
   limit: number,
   workspaceId: string | undefined,
-): Promise<{ events: CliSessionEvent[]; cursor: number }> {
+): Promise<{ events: CliSessionEvent[]; cursor: number; more: boolean }> {
   // The log is filtered here, so the renderer is asked for all it keeps.
   const read = await ctx.services.ui("events.read", {
     ...(since !== undefined ? { since } : {}),
     limit: workspaceId === undefined ? limit : Number.MAX_SAFE_INTEGER,
   });
-  const events =
-    workspaceId === undefined
-      ? read.events
-      : read.events.filter((event) => event.workspaceId === workspaceId).slice(-limit);
-  return { events, cursor: read.cursor };
+  if (workspaceId === undefined) return read;
+  const ours = read.events.filter((event) => event.workspaceId === workspaceId);
+  return since === undefined
+    ? { events: ours.slice(-limit), cursor: read.cursor, more: false }
+    : { events: ours.slice(0, limit), cursor: read.cursor, more: ours.length > limit };
 }
 
 const events: CliCommand = {
@@ -51,7 +55,8 @@ const events: CliCommand = {
     "answer or question. Each has a number (#seq): --since N prints those after #N, and --wait\n" +
     "waits for the next one when there is none yet, so a loop follows every session:\n" +
     "  nexus events --since N --wait 10m --jsonl\n" +
-    "The app keeps the last 1000; the numbers start again from 1 when it restarts, and a\n" +
+    "--since prints the first --limit after #N, and says when there are more; without it, the\n" +
+    "last. The app keeps the last 1000; the numbers start again from 1 when it restarts, and a\n" +
     "--since past the latest reads from the start. When the wait runs out, nexus exits with 124.",
   flags: {
     since: { type: "number", value: "N", description: "Only the changes after #N" },
@@ -63,7 +68,7 @@ const events: CliCommand = {
     limit: {
       type: "number",
       value: "N",
-      description: `At most the last N (default ${DEFAULT_LIMIT})`,
+      description: `At most N: the first after --since, else the last (default ${DEFAULT_LIMIT})`,
     },
     workspace: {
       type: "string",
@@ -110,10 +115,16 @@ const events: CliCommand = {
       event.message ? oneLine(event.message, 200) : "",
     ]);
     const none = since === undefined ? "No changes yet." : `No changes after #${since}.`;
+    const lastSeq = read.events.at(-1)?.seq;
+    const more =
+      read.more && lastSeq !== undefined
+        ? `\nMore after #${lastSeq}: nexus events --since ${lastSeq}`
+        : "";
     const text =
       rows.length === 0
         ? `${none} The latest is #${read.cursor}.`
-        : table(["SEQ", "TIME", "TAB", "WORKSPACE", "TITLE", "AGENT", "CHANGE", "MESSAGE"], rows);
+        : table(["SEQ", "TIME", "TAB", "WORKSPACE", "TITLE", "AGENT", "CHANGE", "MESSAGE"], rows) +
+          more;
     const json = read.events.map((event) => ({
       ...event,
       workspace: names.get(event.workspaceId),
@@ -121,7 +132,7 @@ const events: CliCommand = {
     }));
     return output(
       text,
-      { events: json, cursor: read.cursor },
+      { events: json, cursor: read.cursor, ...(read.more ? { more: true } : {}) },
       {
         records: json,
         ...(timedOut ? { exitCode: 124 } : {}),

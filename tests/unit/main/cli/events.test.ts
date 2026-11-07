@@ -129,6 +129,26 @@ describe("events", () => {
     expect(lines.map((e) => [e.seq, e.workspace])).toEqual([[3, "app"]]);
   });
 
+  test("--since reads on from #N, the first --limit, so a loop misses none and hears of more", async () => {
+    const app = withEvents();
+    app.events.push(event(3, { from: "completed", to: "running", phase: "running" }));
+    const first = await nexus(app, ["events", "--since", "0", "--limit", "2"]);
+    const seqs = first.stdout.split("\n").map((line) => line.split(" ")[0]);
+    expect(seqs.slice(1, 3)).toEqual(["#1", "#2"]);
+    expect(first.stdout).toEndWith("\nMore after #2: nexus events --since 2\n");
+    const json = JSON.parse(
+      (await nexus(app, ["events", "--since", "0", "--limit", "2", "--json"])).stdout,
+    );
+    expect(json.more).toBe(true);
+    const rest = JSON.parse((await nexus(app, ["events", "--since", "2", "--json"])).stdout);
+    expect(rest.events.map((e: { seq: number }) => e.seq)).toEqual([3]);
+    expect(rest).not.toHaveProperty("more");
+    // One workspace's alike: #1 then #3, a page each.
+    const argv = ["events", "--since", "0", "--limit", "1", "--workspace", "app", "--json"];
+    const ours = JSON.parse((await nexus(app, argv)).stdout);
+    expect([ours.events.map((e: { seq: number }) => e.seq), ours.more]).toEqual([[1], true]);
+  });
+
   test("refuses a bad --since, --limit or --wait", async () => {
     const app = withEvents();
     for (const argv of [

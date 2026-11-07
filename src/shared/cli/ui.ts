@@ -158,6 +158,8 @@ export interface CliChange {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
+  /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
+  readonly body?: string;
 }
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
@@ -178,6 +180,17 @@ export interface CliChatInfo {
   readonly message?: string;
   /** When its turn began while working; else when it last said or did something. */
   readonly since?: number;
+  /** When asking to run a tool: the request, whole. */
+  readonly request?: CliChatRequest;
+}
+
+/** A tool's permission request a tab waits on. */
+export interface CliChatRequest {
+  /** Its id: an answer goes to this request and no other. */
+  readonly id: string;
+  readonly tool: string;
+  /** What it would run or work on, in full: the command, or the tool's input as JSON. */
+  readonly input: string;
 }
 
 /** One message of a conversation as chat read prints it. */
@@ -446,7 +459,8 @@ export interface CliUiOps {
   /**
    * A Claude or Codex tab's messages, and where it stands: those after
    * `since` (an entry's i), the last `messages` of them; all when neither.
-   * Subagents' tool calls only with `subagents`.
+   * Subagents' tool calls only with `subagents`. A conversation that now
+   * ends before `since`, cleared or rewound since, is read from its start.
    */
   "chat.read": {
     args: {
@@ -456,7 +470,8 @@ export interface CliUiOps {
       since?: number;
       subagents?: boolean;
     };
-    result: CliChatInfo & { entries: CliChatEntry[] };
+    /** `end`: the i of the conversation's last entry, -1 when it has none. */
+    result: CliChatInfo & { entries: CliChatEntry[]; end: number };
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
@@ -464,12 +479,13 @@ export interface CliUiOps {
     result: CliChatTool;
   };
   /**
-   * The sessions' state changes after `since`, the last `limit` of them,
-   * and the seq of the latest one there is.
+   * The sessions' state changes after `since`, the first `limit` of them
+   * (`more` when some were left out); with no `since`, the last `limit`.
+   * `cursor`: the seq of the latest one there is.
    */
   "events.read": {
     args: { since?: number; limit: number };
-    result: { events: CliSessionEvent[]; cursor: number };
+    result: { events: CliSessionEvent[]; cursor: number; more: boolean };
   };
   /**
    * Sends a Claude or Codex tab a message, as its composer does: during a
@@ -521,6 +537,7 @@ export interface CliUiOps {
       decision: "allow" | "deny";
       /** With deny: what to tell the agent. */
       message?: string;
+      /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
     };
     result: Record<string, never>;

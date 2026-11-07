@@ -21,7 +21,13 @@ import {
 
 const MANAGER = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
 const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
-const ASKING = "asks to run Bash npm publish";
+/** A tab's request to run a command its row shows the first line of. */
+const REQUEST = { id: "req-1", tool: "Bash", input: "npm publish\nrm -rf ~/.npmrc" };
+const ASKS: Partial<CliChatInfo> = {
+  state: "asking",
+  message: "asks to run Bash npm publish",
+  request: REQUEST,
+};
 
 async function nexus(app: FakeApp, argv: string[], caller = MANAGER) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
@@ -92,16 +98,17 @@ describe("the agent manager", () => {
 
 describe("chat answer", () => {
   test("is refused to the manager while the user answers permission requests", async () => {
-    const app = withChat({ state: "asking", message: ASKING });
+    const app = withChat(ASKS);
     const result = await nexus(app, ["chat", "answer", "release", "allow", "--workspace", "app"]);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("the user answers other sessions' permission requests");
-    expect(result.stderr).toContain("Release asks to run Bash npm publish");
+    // The whole command, for the manager to tell the user.
+    expect(result.stderr).toContain("Release asks to run Bash:\n  npm publish\n  rm -rf ~/.npmrc");
     expect(app.chatAnswered).toEqual([]);
   });
 
   test("asks the user first when the setting says to, and answers when allowed", async () => {
-    const app = withChat({ state: "asking", message: ASKING });
+    const app = withChat(ASKS);
     app.settings.managerPermissions = "ask";
     app.answers.push("once");
     const result = await nexus(app, ["chat", "answer", "release", "allow", "--workspace", "app"]);
@@ -111,16 +118,17 @@ describe("chat answer", () => {
         fromWorkspaceId: MANAGER_WORKSPACE_ID,
         fromTabId: MANAGER_TAB_ID,
         toWorkspaceId: APP,
-        change: { kind: "permissionAllow", detail: "Bash npm publish (Release)" },
+        // The user sees the command whole: its first line hides the second.
+        change: { kind: "permissionAllow", detail: "Bash (Release)", body: REQUEST.input },
       },
     ]);
     expect(app.chatAnswered).toEqual([
-      { workspaceId: APP, tabId: CHAT_TAB, decision: "allow", expect: ASKING },
+      { workspaceId: APP, tabId: CHAT_TAB, decision: "allow", expect: REQUEST.id },
     ]);
   });
 
   test("answers nothing the user turns down", async () => {
-    const app = withChat({ state: "asking", message: ASKING });
+    const app = withChat(ASKS);
     app.settings.managerPermissions = "ask";
     app.answers.push("deny");
     const result = await nexus(app, ["chat", "answer", "release", "deny", "--workspace", "app"]);
@@ -129,7 +137,7 @@ describe("chat answer", () => {
   });
 
   test("answers at once when the manager may, a deny with its reason", async () => {
-    const app = withChat({ state: "asking", message: ASKING });
+    const app = withChat(ASKS);
     app.settings.managerPermissions = "answer";
     const argv = [
       "chat",
@@ -145,12 +153,18 @@ describe("chat answer", () => {
     expect(result.stdout).toBe("Denied Bash npm publish in Release.\n");
     expect(app.asked).toEqual([]);
     expect(app.chatAnswered).toEqual([
-      { workspaceId: APP, tabId: CHAT_TAB, decision: "deny", message: "not yet", expect: ASKING },
+      {
+        workspaceId: APP,
+        tabId: CHAT_TAB,
+        decision: "deny",
+        message: "not yet",
+        expect: REQUEST.id,
+      },
     ]);
   });
 
   test("asks the user each time for any other caller, whatever the setting", async () => {
-    const app = withChat({ state: "asking", message: ASKING });
+    const app = withChat(ASKS);
     app.settings.managerPermissions = "answer";
     app.answers.push("session", "deny");
     const shell = { workspaceId: APP, tabId: SHELL_TAB };

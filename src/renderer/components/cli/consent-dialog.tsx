@@ -85,6 +85,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         title={t(permission ? "agentCli.consent.permission_title" : "agentCli.consent.title")}
         description={description}
       />
+      {prompt?.change.body && (
+        // What an answer lets run, whole: its first line can hide the rest.
+        <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
+          {prompt.change.body}
+        </pre>
+      )}
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("agentCli.consent.timeout", {
           seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),

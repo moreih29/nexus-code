@@ -85,11 +85,28 @@ describe("chatInfoOf", () => {
       agent: "claude",
       state: "asking",
       message: "asks to run Bash rm -rf dist",
+      request: { id: "r1", tool: "Bash", input: "rm -rf dist" },
     });
     const question = chat({
       permissions: [permission("AskUserQuestion", { questions: [{ question: "Which port?" }] })],
     });
     expect(chatInfoOf("claude", question, false).message).toBe("asks: Which port?");
+    expect(chatInfoOf("claude", question, false).request).toBeUndefined();
+  });
+
+  it("tells a request whole: a command's every line, another tool's input", () => {
+    const command = chat({
+      permissions: [permission("Bash", { command: "echo hi\ntouch made.txt" })],
+    });
+    const info = chatInfoOf("claude", command, false);
+    expect(info.message).toBe("asks to run Bash echo hi");
+    expect(info.request?.input).toBe("echo hi\ntouch made.txt");
+    const write = chat({
+      permissions: [permission("Write", { file_path: "/w/a.txt", content: "x" })],
+    });
+    expect(chatInfoOf("claude", write, false).request?.input).toBe(
+      JSON.stringify({ file_path: "/w/a.txt", content: "x" }, null, 2),
+    );
   });
 
   it("stops on an error: a program that cannot start, or a turn that failed", () => {
@@ -116,7 +133,7 @@ describe("chatInfoOf", () => {
 describe("chatEntriesOf", () => {
   it("tells what was said and the main thread's tools in order, each in its place", () => {
     // Thinking is left out; the subagent's call (#3) keeps its place, hidden.
-    expect(chatEntriesOf(chat(conversation), { messages: 10 })).toEqual([
+    expect(chatEntriesOf(chat(conversation), { messages: 10 }).entries).toEqual([
       { i: 0, role: "user", text: "Fix the login" },
       { i: 1, role: "agent", text: "Looking at the router." },
       {
@@ -132,7 +149,7 @@ describe("chatEntriesOf", () => {
   });
 
   it("shows the subagents' calls when asked, and reads on after a place", () => {
-    const all = chatEntriesOf(chat(conversation), { subagents: true });
+    const all = chatEntriesOf(chat(conversation), { subagents: true }).entries;
     expect(all[3]).toEqual({
       i: 3,
       role: "tool",
@@ -141,8 +158,20 @@ describe("chatEntriesOf", () => {
       status: "done",
       parentToolUseId: "agent-1",
     });
-    expect(chatEntriesOf(chat(conversation), { since: 2 }).map((e) => e.i)).toEqual([4, 5]);
-    expect(chatEntriesOf(chat(conversation), { since: 5 })).toEqual([]);
+    expect(chatEntriesOf(chat(conversation), { since: 2 }).entries.map((e) => e.i)).toEqual([4, 5]);
+    expect(chatEntriesOf(chat(conversation), { since: 5 })).toEqual({ entries: [], end: 5 });
+  });
+
+  it("reads a conversation that now ends before the place from its start", () => {
+    // Cleared or rewound: what was #5 is gone, and a loop reading on would miss the rest.
+    const cleared = chat({
+      items: [{ kind: "user", key: "u9", text: "start over", images: [], state: "taken" }],
+    });
+    expect(chatEntriesOf(cleared, { since: 5 })).toEqual({
+      entries: [{ i: 0, role: "user", text: "start over" }],
+      end: 0,
+    });
+    expect(chatEntriesOf(cleared, { since: 0 }).entries).toEqual([]);
   });
 
   it("keeps the last messages, the history before the program's log first", () => {
@@ -151,15 +180,15 @@ describe("chatEntriesOf", () => {
       { items: [{ kind: "user", key: "u2", text: "and the docs", images: [], state: "taken" }] },
       { history },
     );
-    expect(chatEntriesOf(resumed).map((e) => [e.i, e.text])).toEqual([
+    expect(chatEntriesOf(resumed).entries.map((e) => [e.i, e.text])).toEqual([
       [0, "Fix the login"],
       [1, "and the docs"],
     ]);
-    expect(chatEntriesOf(chat(conversation), { messages: 2 }).map((e) => e.role)).toEqual([
+    expect(chatEntriesOf(chat(conversation), { messages: 2 }).entries.map((e) => e.role)).toEqual([
       "agent",
       "notice",
     ]);
-    expect(chatEntriesOf(undefined, { messages: 5 })).toEqual([]);
+    expect(chatEntriesOf(undefined, { messages: 5 })).toEqual({ entries: [], end: -1 });
   });
 });
 

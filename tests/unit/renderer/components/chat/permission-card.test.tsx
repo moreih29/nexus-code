@@ -59,6 +59,16 @@ describe("a tool's request", () => {
     expect(html).toContain('title="Bash(bun run build &amp;&amp; bun test)"');
   });
 
+  it("shows a command of several lines whole: its first can hide the rest", () => {
+    const html = render({ input: { command: "echo hi\ntouch made.txt\n" } });
+    const text = html.replace(/<[^>]+>/g, "");
+    expect(text).toContain("echo hi\ntouch made.txt");
+    expect(html).toContain('title="echo hi\ntouch made.txt"');
+    expect(html).toContain("whitespace-pre-wrap");
+    // One line still fits its row.
+    expect(render({ input: { command: "ls" } })).not.toContain("whitespace-pre-wrap");
+  });
+
   it("offers each rule alone only when there are several", () => {
     const one = render({ input: { command: "ls" }, suggestions: [rule("ls")] });
     expect(one).not.toContain("Always allow just one");
