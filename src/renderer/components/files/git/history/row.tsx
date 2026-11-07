@@ -5,6 +5,7 @@
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
 import type { LogEntry } from "../../../../../shared/git/types";
+import type { DropdownMenuPoint } from "../../../ui/dropdown-menu";
 import { IconButton } from "../../../ui/icon-button";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
@@ -27,7 +28,7 @@ const HISTORY_ROW_INTERACTION_CLASS =
 
 export interface HistoryRowMenuRequest {
   entry: LogEntry;
-  point: { x: number; y: number };
+  point: DropdownMenuPoint;
 }
 
 interface HistoryRowProps {
@@ -70,12 +71,12 @@ export function HistoryRow({
   const showSha = breakpoint === "medium" || breakpoint === "wide";
   const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
-  /** Opens the commit action menu aligned to the row or action trigger. */
+  /** Opens the commit action menu under the row, lined up with its right. */
   function openMenuFromElement(element: HTMLElement): void {
     const rect = element.getBoundingClientRect();
     onOpenMenu({
       entry,
-      point: { x: Math.max(4, rect.right - 188), y: rect.bottom + 2 },
+      point: { x: rect.right, y: rect.bottom + 2, align: "end" },
     });
   }
 

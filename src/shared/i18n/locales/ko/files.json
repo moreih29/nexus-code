@@ -753,31 +753,6 @@
         "submitLabel": "원격 추가"
       }
     },
-    "branchPopover": {
-      "fetchNow": "지금 가져오기",
-      "noBranch": "브랜치 없음.",
-      "publishBranch": "브랜치 게시",
-      "sync": "동기화",
-      "pull": "풀",
-      "push": "푸시",
-      "copyUpstream": "업스트림 복사",
-      "autofetch": "자동 가져오기",
-      "requiresCommit": "먼저 초기 커밋을 만드세요.",
-      "addRemoteFirst": "먼저 원격 저장소를 추가하세요.",
-      "setUpstreamFirst": "먼저 업스트림을 설정하세요.",
-      "alreadyHasUpstream": "브랜치에 이미 업스트림이 있습니다.",
-      "noUpstreamConfigured": "구성된 업스트림이 없습니다.",
-      "ariaLabel": "브랜치 상세 정보",
-      "noBranchName": "브랜치 없음",
-      "tracking": "{{upstream}} 추적 중",
-      "noUpstreamStatus": "업스트림이 구성되지 않음",
-      "fetching": "가져오는 중…",
-      "fetchFailed": "가져오기 실패",
-      "retry": "다시 시도",
-      "chipAriaLabel": "현재 브랜치 {{name}}",
-      "chipTitle": "{{path}}의 저장소",
-      "localBadge": "로컬"
-    },
     "actionButton": {
       "initializeRepository": "저장소 초기화",
       "makeInitialCommit": "첫 커밋 만들기",

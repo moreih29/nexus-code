@@ -2,22 +2,24 @@
  * Commit context menu shared by History rows, row toolbar buttons, and the
  * detail toolbar. Mixed and hard reset are intentionally not present.
  */
-import { AlertDialog as RadixAlertDialog } from "radix-ui";
-import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import i18next from "i18next";
+import { AlertDialog as RadixAlertDialog } from "radix-ui";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CommitDetail, LogEntry } from "../../../../../shared/git/types";
 import { copyText } from "../../../../utils/clipboard";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { DialogHeader } from "../../../ui/dialog-header";
-import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
+import {
+  DropdownMenuAtPoint,
+  DropdownMenuItem,
+  type DropdownMenuPoint,
+  DropdownMenuSeparator,
+} from "../../../ui/dropdown-menu";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 
-export interface HistoryCommitMenuPoint {
-  x: number;
-  y: number;
-}
+export type HistoryCommitMenuPoint = DropdownMenuPoint;
 
 export interface HistoryCommitMenuTarget {
   entry: LogEntry;
@@ -45,22 +47,9 @@ export type HistoryCommitConfirmRequest =
   | { kind: "checkout"; sha: string; shortSha: string }
   | { kind: "reset-soft"; sha: string; shortSha: string };
 
-/** Renders the fixed-position commit menu and owns confirm dialogs. */
+/** Renders the commit menu at its point and owns its confirm dialogs. */
 export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMenuProps) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const [confirm, setConfirm] = useState<HistoryCommitConfirmRequest | null>(null);
-  const open = target !== null;
-  const close = useCallback(() => onClose(), [onClose]);
-  useDismissOnOutsideClick(wrapperRef, open, close);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
 
   const items = target
     ? buildHistoryCommitMenuItems(target.entry, target.detail, actions, {
@@ -71,31 +60,21 @@ export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMen
 
   return (
     <>
-      {target ? (
-        <div
-          ref={wrapperRef}
-          role="menu"
-          className="fixed z-(--layer-floating) min-w-[212px] floating-panel p-1"
-          style={popoverPositionStyle(target.point)}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {items.map((item, index) =>
-            item.kind === "separator" ? (
-              <MenuSeparator key={separatorKey(items, index)} />
-            ) : (
-              <MenuButton
-                key={item.label}
-                label={item.label}
-                destructive={item.destructive}
-                onClick={() => {
-                  onClose();
-                  item.onSelect();
-                }}
-              />
-            ),
-          )}
-        </div>
-      ) : null}
+      <DropdownMenuAtPoint point={target?.point ?? null} onClose={onClose}>
+        {items.map((item, index) =>
+          item.kind === "separator" ? (
+            <DropdownMenuSeparator key={separatorKey(items, index)} />
+          ) : (
+            <DropdownMenuItem
+              key={item.label}
+              className={item.destructive ? "git-destructive-text" : undefined}
+              onSelect={item.onSelect}
+            >
+              {item.label}
+            </DropdownMenuItem>
+          ),
+        )}
+      </DropdownMenuAtPoint>
       <HistoryCommitConfirmDialog
         request={confirm}
         onCancel={() => setConfirm(null)}
@@ -153,46 +132,6 @@ export function buildHistoryCommitMenuItems(
   ];
 }
 
-/** Keeps the fixed menu inside the viewport. */
-function popoverPositionStyle(point: HistoryCommitMenuPoint): React.CSSProperties {
-  if (typeof window === "undefined") return { left: point.x, top: point.y };
-  return {
-    left: Math.max(4, Math.min(point.x, window.innerWidth - 220)),
-    top: Math.max(4, Math.min(point.y, window.innerHeight - 260)),
-  };
-}
-
-/** Renders one commit menu button. */
-function MenuButton({
-  label,
-  destructive,
-  onClick,
-}: {
-  label: string;
-  destructive?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      className={
-        destructive
-          ? "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
-          : "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
-      }
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** Renders the separator shared by commit menu sections. */
-function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-border" />;
-}
-
 /** Builds a stable separator key from neighboring labels. */
 function separatorKey(items: readonly HistoryCommitMenuSpec[], index: number): string {
   const before = closestMenuLabel(items, index, -1) ?? "start";
@@ -236,6 +175,7 @@ function HistoryCommitConfirmDialog({
     request?.kind === "checkout"
       ? t("git.history.menu.confirmCheckout.confirmLabel")
       : t("git.history.menu.confirmResetSoft.confirmLabel");
+  const returnFocus = useDialogFocusReturn(request !== null);
 
   return (
     <RadixAlertDialog.Root
@@ -246,7 +186,10 @@ function HistoryCommitConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("sm", true)}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("sm", true)}
+          onCloseAutoFocus={returnFocus}
+        >
           <DialogHeader alert title={title} description={description} />
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>

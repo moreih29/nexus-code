@@ -27,6 +27,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import { DialogCloseButton } from "../ui/dialog-close-button";
+import { useDialogFocusReturn } from "../ui/use-dialog-focus-return";
 import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,7 @@ export function SettingsDialog({
   children,
 }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
+  const returnFocus = useDialogFocusReturn(open);
 
   // Build the translated default nav inside the component so that i18n is
   // active when the labels are read. Falls back only when nav prop is not
@@ -190,6 +192,7 @@ export function SettingsDialog({
         <RadixDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
         <RadixDialog.Content
           className={dialogContentClass("xl", false, "flex flex-col")}
+          onCloseAutoFocus={returnFocus}
           style={{
             // Fixed-height dialog: the body never reflows when controls change,
             // so the user never sees the modal jump as they tweak a slider /

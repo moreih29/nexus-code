@@ -32,7 +32,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { useContextMenuHandoff } from "../ui/use-context-menu-handoff";
 import { cardGlyph } from "./sidebar";
 
 /** How many of a task's ports its menu item lists before "+N". */
@@ -52,9 +51,6 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
   const root = workspaces.find((w) => w.id === rootId) ?? active;
   const tasks = useMemo(() => tasksOf(workspaces, rootId), [workspaces, rootId]);
   const rootLabel = label(root);
-  // The new / remove task dialogs open once the menu has let go of the focus,
-  // so it does not return to this button and leave the dialog unfocused.
-  const handoff = useContextMenuHandoff();
 
   return (
     <DropdownMenuRoot>
@@ -81,7 +77,9 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" onCloseAutoFocus={handoff.onCloseAutoFocus}>
+      {/* Its items run once the menu has closed, so the new and remove task
+          dialogs take the keyboard and give it back to this button. */}
+      <DropdownMenuContent align="center">
         <TaskItem workspace={root} active={active.id === root.id} />
         {tasks.map((task) => (
           <TaskItem key={task.id} workspace={task} active={active.id === task.id} />
@@ -90,17 +88,11 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
         <DropdownMenuItem onSelect={() => openSessionsTab(active.id)}>
           {t("task.show_sessions")}
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => handoff.defer(() => useTaskUIStore.getState().openNewTask(root.id))}
-        >
+        <DropdownMenuItem onSelect={() => useTaskUIStore.getState().openNewTask(root.id)}>
           {t("task.new")}
         </DropdownMenuItem>
         {active.task && (
-          <DropdownMenuItem
-            onSelect={() =>
-              handoff.defer(() => useTaskUIStore.getState().openRemoveTask(active.id))
-            }
-          >
+          <DropdownMenuItem onSelect={() => useTaskUIStore.getState().openRemoveTask(active.id)}>
             {t("task.remove_current")}
           </DropdownMenuItem>
         )}
