@@ -2,6 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TitleBar } from "../../../../../src/renderer/components/workbench/title-bar";
 
+// The build defines the app's version; the title bar's "what's new" reads it.
+(globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "1.2.3";
+
 const globals = globalThis as { window?: unknown };
 const originalWindow = globals.window;
 

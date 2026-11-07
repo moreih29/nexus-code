@@ -127,6 +127,7 @@ import {
   WorkspaceTaskSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
+import { ReleaseNotesResultSchema } from "../updates/release-notes";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
 
 // ---------------------------------------------------------------------------
@@ -1995,6 +1996,11 @@ export const ipcContract = {
       ),
       /** Open the app's Microsoft Store page, where the Store updates it. */
       openStorePage: call(z.void(), z.void()),
+      /**
+       * The recent releases' notes on the user's channel, newest first, read
+       * from the GitHub releases feed when asked.
+       */
+      releaseNotes: call(z.void(), ReleaseNotesResultSchema),
     },
     listen: {
       /** Broadcast by main whenever the update status changes. */

@@ -441,6 +441,9 @@
         "hardReload": "강력 새로고침 (브라우저)",
         "goBack": "뒤로 가기 (브라우저)",
         "goForward": "앞으로 가기 (브라우저)"
+      },
+      "updates": {
+        "releaseNotes": "릴리스 노트 보기"
       }
     }
   },

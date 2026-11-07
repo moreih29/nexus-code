@@ -26,6 +26,7 @@ import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
 import { initPortsSync } from "./state/operations/ports";
+import { hydrateReleaseNotesSeen } from "./state/operations/release-notes";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
@@ -245,6 +246,7 @@ export async function bootstrapAppState(): Promise<void> {
     announcedVersion: state.announcedUpdateVersion,
   });
   initUpdatesSubscriptions();
+  hydrateReleaseNotesSeen(state.lastSeenReleaseNotesVersion);
 
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.

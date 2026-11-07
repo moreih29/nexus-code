@@ -168,6 +168,12 @@ export const AppStateSchema = z.object({
   // update button shows it, however many hours the app keeps checking.
   announcedUpdateVersion: z.string().max(64).nullable().default(null),
 
+  // The app version whose release notes the user has seen, or was taken to
+  // have: the first launch that finds it absent sets it to the running
+  // version without a word. While an update leaves it behind, the title bar
+  // offers that version's notes.
+  lastSeenReleaseNotesVersion: z.string().max(64).nullable().default(null),
+
   // Auto-check toggle. When true (default), the updates domain polls GH
   // Releases silently once the app starts and every few hours while it
   // runs, and the title bar shows a newer version. When false, the

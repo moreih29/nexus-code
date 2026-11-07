@@ -2,6 +2,7 @@
   "appMenu": {
     "about": "{{appName}} 정보",
     "checkForUpdates": "업데이트 확인...",
+    "releaseNotes": "릴리스 노트",
     "settings": "설정…"
   },
   "file": {

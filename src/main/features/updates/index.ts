@@ -7,7 +7,8 @@
  *   installUpdatesDomain({ broadcast, stateService, currentVersion })
  *     → registers `updates.check` and `updates.setIgnoredVersion` IPC handlers,
  *       and `updates.install` / `updates.restart` for an in-place update
- *       (installer.ts) when the app can replace itself
+ *       (installer.ts) when the app can replace itself, and
+ *       `updates.releaseNotes` for the recent releases' notes (release-notes.ts)
  *     → starts the silent auto-polls after app.whenReady() via the returned
  *       `startAutoChecks()` (called by the bootstrap in index.ts): one now,
  *       then every few hours while the app runs, and on waking from sleep
@@ -62,6 +63,7 @@ import {
   type PollResult,
   REPO_BASE,
 } from "./poller";
+import { createReleaseNotesCache, fetchReleaseNotes } from "./release-notes";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -175,6 +177,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   // checks stay cheap until the latest release actually changes.
   // ------------------------------------------------------------------
   const conditionalCache = createConditionalCache();
+  const releaseNotesCache = createReleaseNotesCache();
 
   function broadcastStatus(payload: StatusPayload): void {
     // Build a dedupe key from kind + latest (if present).
@@ -377,6 +380,18 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
       openStorePage: () => {
         if (process.windowsStore) void shell.openExternal(STORE_PAGE_URL);
         return ipcOk(undefined);
+      },
+
+      releaseNotes: async () => {
+        const result = await fetchReleaseNotes({
+          channel: stateService.getState().updateChannel ?? "stable",
+          fetchImpl,
+          cache: releaseNotesCache,
+        });
+        if (result.kind === "error") {
+          logger.warn(`updates: release notes not read (${result.reason})`);
+        }
+        return ipcOk(result);
       },
     },
 

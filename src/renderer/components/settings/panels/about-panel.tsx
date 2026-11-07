@@ -22,6 +22,9 @@
 //                    button below always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
+// The release notes open from here over the panels (closing Settings): the
+// running version's, or the newer one's while one is on offer.
+//
 // Below the button the panel shows where an update stands, from the updates
 // store: the last check's answer, then the download with its progress, the
 // signature check (macOS), and the restart that installs it.
@@ -36,6 +39,7 @@ import { type ReactNode, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
+import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { updateCheckFailedMessage } from "../../../state/operations/update-check-failure";
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { formatBytes } from "../../../utils/format-bytes";
@@ -86,6 +90,16 @@ export function AboutPanel() {
           {t("about.version", { version: __APP_VERSION__ })}
         </div>
         <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
+        {/* The notes of the running version, or of the newer one on offer. */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-2 self-start"
+          onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
+          data-testid="about-release-notes"
+        >
+          {t("about.releaseNotes")}
+        </Button>
       </div>
 
       {storeManaged ? (
@@ -123,7 +137,7 @@ export function AboutPanel() {
             />
           </div>
 
-          <UpdateSection status={status} progress={progress} />
+          <UpdateSection status={status} progress={progress} releaseNotes={false} />
         </>
       )}
     </div>
@@ -145,15 +159,19 @@ function openReleasePage(url: string): void {
 
 /**
  * The current status as a line of text and the actions it offers, then
- * `children` beside them. The title bar's update button shows it too.
+ * `children` beside them. The title bar's update button and the release
+ * notes show it too. A newer version offers its release notes, unless
+ * `releaseNotes` is false, where they are a click away already.
  */
 export function UpdateSection({
   status,
   progress,
+  releaseNotes = true,
   children,
 }: {
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
+  releaseNotes?: boolean;
   children?: ReactNode;
 }) {
   const { t } = useTranslation(["settings", "common"]);
@@ -177,21 +195,21 @@ export function UpdateSection({
       )}
       <div className="flex flex-wrap gap-2">
         {status?.kind === "newer" && status.canInstall && (
-          <>
-            <Button
-              size="sm"
-              onClick={() => void ipcCallResult("updates", "install", undefined)}
-            >
-              {t("common:updates.install")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-              {t("about.releaseNotes")}
-            </Button>
-          </>
+          <Button
+            size="sm"
+            onClick={() => void ipcCallResult("updates", "install", undefined)}
+          >
+            {t("common:updates.install")}
+          </Button>
         )}
         {status?.kind === "newer" && !status.canInstall && (
           <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
             {t("common:updates.download")}
+          </Button>
+        )}
+        {status?.kind === "newer" && releaseNotes && (
+          <Button variant="outline" size="sm" onClick={() => showReleaseNotes(status.latest)}>
+            {t("about.releaseNotes")}
           </Button>
         )}
         {status?.kind === "ready" && (

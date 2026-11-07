@@ -1369,5 +1369,23 @@
       "resume": "Resume",
       "resume_title": "Types {{line}} in the terminal"
     }
+  },
+  "releaseNotes": {
+    "title": "Release Notes",
+    "versions": "Versions",
+    "current": "Current",
+    "newer": "New",
+    "prerelease": "Beta",
+    "openOnGitHub": "View on GitHub",
+    "allReleases": "All releases on GitHub",
+    "close": "Close",
+    "loading": "Loading release notes…",
+    "failed": "Couldn't load the release notes.",
+    "failedNetwork": "Couldn't load the release notes. Check your network connection.",
+    "failedRateLimited": "Couldn't load the release notes. GitHub is limiting requests right now; try again in a moment.",
+    "retry": "Try Again",
+    "empty": "No releases yet.",
+    "news": "What's new in {{version}}",
+    "dismissNews": "Dismiss what's new"
   }
 }
