@@ -46,6 +46,9 @@ type session struct {
 	proc *process
 	// snaps takes the originals of the files a Codex program changes.
 	snaps *snapshots
+	// closed is set once the tab is closed: its program, still ending,
+	// sends nothing more, as the tab may already run another.
+	closed bool
 }
 
 // process is one run of a tab's program.
@@ -260,7 +263,11 @@ func (s *Service) CloseTab(_ context.Context, raw json.RawMessage) (any, error) 
 	delete(s.sessions, key)
 	s.mu.Unlock()
 	if sess != nil {
-		if proc := sess.running(); proc != nil {
+		sess.mu.Lock()
+		sess.closed = true
+		proc := sess.proc
+		sess.mu.Unlock()
+		if proc != nil {
 			proc.stop()
 		}
 	}
@@ -386,6 +393,9 @@ func (sess *session) running() *process {
 // addLocked logs one line and sends it. A send that fails, as when no
 // client is connected, leaves the line for a later replay.
 func (sess *session) addLocked(dir string, message json.RawMessage, text string) {
+	if sess.closed {
+		return
+	}
 	e := sess.log.add(dir, message, text)
 	_ = sess.service.emit(EventLine, sess.payload(e))
 }
@@ -407,6 +417,9 @@ func (sess *session) addPinnedLocked(fields any) {
 	encoder := json.NewEncoder(&data)
 	encoder.SetEscapeHTML(false)
 	if encoder.Encode(fields) != nil {
+		return
+	}
+	if sess.closed {
 		return
 	}
 	e := sess.log.addPinned(DirSys, bytes.TrimRight(data.Bytes(), "\n"))
@@ -499,9 +512,13 @@ drain:
 		fields["stderrTail"] = exit.StderrTail
 	}
 	sess.addSysLocked(fields)
+	// A closed tab's program is told gone only while no other runs for the tab.
+	told := !sess.closed || sess.service.lookup(sess.key) == nil
 	sess.mu.Unlock()
 	close(proc.done)
-	_ = sess.service.emit(EventExit, exit)
+	if told {
+		_ = sess.service.emit(EventExit, exit)
+	}
 }
 
 func (p *process) write(data []byte) error {
