@@ -151,8 +151,12 @@ function onEvents(events: readonly CliSessionEvent[]): void {
   if (queue.size > 0) flushSoon();
 }
 
+/**
+ * Sends what is batched in a while. The while runs from the first change:
+ * one a later change put off would never come while changes keep coming.
+ */
 function flushSoon(): void {
-  if (batchTimer !== null) clearTimeout(batchTimer);
+  if (batchTimer !== null) return;
   batchTimer = setTimeout(() => {
     batchTimer = null;
     flush();
@@ -187,6 +191,21 @@ function onTurnEnd(state: ChatTabState): void {
   );
 }
 
+/**
+ * A request of the manager's, waiting on the user: unread while its dock is
+ * shut, and maybe a notification. Its session's own notifications are left
+ * out (features/claude), so this is the one.
+ */
+function onAsk(state: ChatTabState): void {
+  const store = useManagerStore.getState();
+  if (!store.dockOpen) store.addUnread();
+  const tool = state.model.permissions[0]?.toolName ?? "";
+  void ipcCallResult("manager", "notify", {
+    title: i18next.t("manager.title"),
+    body: i18next.t("manager.asks", { tool }),
+  }).catch(() => {});
+}
+
 /** Starts the manager, if it is on, and follows its settings. Returns the stop. */
 export function startManager(): () => void {
   apply();
@@ -201,6 +220,9 @@ export function startManager(): () => void {
     const prev = was.tabs[running.key];
     if (!next || next === prev) return;
     if (prev?.phase === "ready" && prev.model.running && !next.model.running) onTurnEnd(next);
+    if (next.model.permissions.length > 0 && (prev?.model.permissions.length ?? 0) === 0) {
+      onAsk(next);
+    }
     if (queue.size > 0 && free(next) && !free(prev)) flushSoon();
   });
   const stopReveal = ipcListen("manager", "reveal", () => {

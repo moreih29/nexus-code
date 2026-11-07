@@ -1416,6 +1416,7 @@
     "new_conversation": "New conversation",
     "settings": "Manager settings",
     "close": "Close",
+    "asks": "Waiting for your permission to use {{tool}}",
     "starting": "Starting the manager",
     "off": {
       "title": "The agent manager is off",

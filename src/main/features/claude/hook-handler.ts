@@ -44,6 +44,7 @@ import {
   PROMPT_MAX_CHARS,
 } from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
@@ -352,6 +353,11 @@ function fireOsNotification(
   if (deps.notificationsEnabled !== undefined && !deps.notificationsEnabled()) {
     return;
   }
+  // The agent manager's session is shown in its dock, never as a tab, and
+  // its answers and requests become notifications of their own, under their
+  // own setting (features/manager): one of these, at every turn, would
+  // also open a workspace the app keeps out of its lists.
+  if (isManagerWorkspace(workspaceId)) return;
 
   const broadcastFn = deps.broadcastFn ?? broadcast;
   const NotificationCtor =

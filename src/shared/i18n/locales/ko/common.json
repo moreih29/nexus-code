@@ -1416,6 +1416,7 @@
     "new_conversation": "새 대화",
     "settings": "매니저 설정",
     "close": "닫기",
+    "asks": "{{tool}} 사용 허락을 기다립니다",
     "starting": "매니저 시작 중",
     "off": {
       "title": "에이전트 매니저가 꺼져 있습니다",
