@@ -250,6 +250,29 @@ describe("writeShimFiles", () => {
     },
   );
 
+  // A Windows Claude tab's Bash tool: NEXUS_WRAPPER_SELF_DIR is a Windows path
+  // there, and NEXUS_BASH_WRAPPER_DIR the wrappers' copies as Git Bash names them.
+  test.skipIf(!fsSync.existsSync("/bin/bash"))(
+    "bash puts Git Bash's wrapper directory first in place of the launchers'",
+    async () => {
+      const id = `test-ws-gitbash-${Date.now()}`;
+      const result = await writeShimFiles(id);
+      createdShimDir = result.dir;
+      const output = execSync(`/bin/bash -c 'echo "$PATH"'`, {
+        env: {
+          HOME: tmpBase,
+          PATH: "/usr/bin:/bin",
+          NEXUS_WRAPPER_SELF_DIR: "C:\\Users\\u\\.nexus-code\\cli",
+          NEXUS_BASH_WRAPPER_DIR: WRAPPERS,
+          BASH_ENV: path.join(result.dir, "bashenv"),
+        },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      expect(output.trim()).toBe(`${WRAPPERS}:/usr/bin:/bin`);
+    },
+  );
+
   test.skipIf(!fsSync.existsSync("/bin/zsh"))(
     "zsh puts the wrappers back first after its startup files reset the PATH",
     async () => {

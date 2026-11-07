@@ -10,6 +10,7 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  codexAppServerArgs,
   codexTabEnv,
   hostJoin,
   parseClaudeVersion,
@@ -119,9 +120,15 @@ export class ChatHost {
     const agentBin = workspaceManager.getWrapperAgentBin(workspaceId);
     let program = found.path;
     let hooksSettings: string | undefined;
+    let gitBash: { wrapperDir: string; bashEnv: string } | undefined;
     if (windows) {
       // cmd and PowerShell pass claude the hooks file the same way.
-      hooksSettings = (await this.options.windowsAgentFiles?.())?.settingsPath;
+      const files = await this.options.windowsAgentFiles?.();
+      hooksSettings = files?.settingsPath;
+      const shimDir = workspaceManager.getWrapperShimDir(workspaceId);
+      if (files && shimDir !== null) {
+        gitBash = { wrapperDir: files.binDir, bashEnv: hostJoin(shimDir, "bashenv", true) };
+      }
     } else if (wrapperBinDir !== null) {
       // The wrapper adds the hooks and the tab's mark, then runs the claude
       // the PATH has after it.
@@ -136,6 +143,7 @@ export class ChatHost {
       agentSocket: hookInfo?.socketPath,
       hookToken: hookInfo?.token,
       withoutWrapper: windows,
+      ...(gitBash ? { gitBash } : {}),
     });
 
     try {
@@ -211,7 +219,7 @@ export class ChatHost {
         tabId,
         cwd,
         program: found.path,
-        args: ["app-server"],
+        args: codexAppServerArgs(cwd, isManagerWorkspace(workspaceId)),
         env,
         ...(options.resetLog ? { resetLog: true } : {}),
       });

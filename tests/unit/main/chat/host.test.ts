@@ -5,7 +5,9 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
+  codexAppServerArgs,
   codexTabEnv,
+  gitBashPath,
   parseClaudeVersion,
 } from "../../../../src/main/features/chat/launch";
 import type {
@@ -137,6 +139,30 @@ describe("chat launch", () => {
     });
     expect(windows.NEXUS_CLAUDE_TAB_ID).toBe(TAB);
     expect(windows.NEXUS_CLAUDE_PRINT).toBe("1");
+    expect(windows.BASH_ENV).toBeUndefined();
+
+    // Its Bash tool's Git Bash puts the wrappers first, named as Git Bash names them.
+    const gitBash = claudeTabEnv({
+      workspaceId: WS,
+      tabId: TAB,
+      wrapperBinDir: null,
+      agentBin: null,
+      withoutWrapper: true,
+      gitBash: {
+        wrapperDir: "C:\\Users\\u\\.nexus-code\\bin",
+        bashEnv: "C:\\Users\\u\\.nexus-code\\shim\\ws\\bashenv",
+      },
+    });
+    expect(gitBash.BASH_ENV).toBe("/c/Users/u/.nexus-code/shim/ws/bashenv");
+    expect(gitBash.NEXUS_BASH_WRAPPER_DIR).toBe("/c/Users/u/.nexus-code/bin");
+    expect(gitBash.PATH).toBeUndefined();
+  });
+
+  test("a Windows path as Git Bash names it", () => {
+    expect(gitBashPath("C:\\Users\\u\\.nexus-code\\bin")).toBe("/c/Users/u/.nexus-code/bin");
+    expect(gitBashPath("d:\\x")).toBe("/d/x");
+    expect(gitBashPath("\\\\server\\share\\x")).toBe("//server/share/x");
+    expect(gitBashPath("/already/posix")).toBe("/already/posix");
   });
 
   test("a Codex tab's env marks its commands as inside the tab's own session", () => {
@@ -267,6 +293,45 @@ describe("ChatHost", () => {
     expect(start.program).toBe("/home/u/.local/bin/claude");
   });
 
+  test("start on Windows runs claude itself, its Bash tool's Git Bash on the wrappers", async () => {
+    const channel = new FakeChannel();
+    channel.found = { path: "C:\\Users\\u\\.local\\bin\\claude.exe" };
+    const host = new ChatHost({
+      workspaceManager: {
+        getAgentChannel: async () => channel,
+        tryGetAgentChannel: async () => channel,
+        onProviderReady: () => () => {},
+        getHookInfo: () => null,
+        getWrapperBinDir: () => "C:\\Users\\u\\.nexus-code\\cli",
+        getWrapperAgentBin: () => null,
+        getWrapperShimDir: () => "C:\\Users\\u\\.nexus-code\\shim\\ws",
+        isLocal: () => true,
+      },
+      broadcast: () => {},
+      windowsAgentFiles: async () => ({
+        binDir: "C:\\Users\\u\\.nexus-code\\bin",
+        settingsPath: "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
+        cmdCodexNoDaemon: false,
+      }),
+    });
+    await host.start(WS, TAB, "C:\\repo", {});
+    const start = channel.calls.find((c) => c.method === "chat.start")?.params as {
+      program: string;
+      args: string[];
+      env: Record<string, string>;
+    };
+    expect(start.program).toBe("C:\\Users\\u\\.local\\bin\\claude.exe");
+    expect(start.args.slice(0, 2)).toEqual([
+      "--settings",
+      "C:\\Users\\u\\.nexus-code\\bin\\claude-settings.json",
+    ]);
+    expect(start.env).toMatchObject({
+      NEXUS_CLAUDE_TAB_ID: TAB,
+      BASH_ENV: "/c/Users/u/.nexus-code/shim/ws/bashenv",
+      NEXUS_BASH_WRAPPER_DIR: "/c/Users/u/.nexus-code/bin",
+    });
+  });
+
   test("cli runs the claude the PATH has, in the folder", async () => {
     const { channel, host } = setup();
     await host.cli(WS, "/repo", { kind: "stop", id: "abc" });
@@ -315,6 +380,23 @@ describe("ChatHost", () => {
     channel.found = { path: "" };
     const missing = await host.startCodex(WS, TAB, "/repo", {});
     expect(missing.ok === false && missing.reason).toBe("not-found");
+  });
+
+  test("the agent manager's Codex trusts its folder, for its rules to be read", () => {
+    expect(codexAppServerArgs("/repo")).toEqual(["app-server"]);
+    for (const dir of [
+      "C:\\Users\\kih\\.nexus-code\\manager",
+      "/Users/o'brien/.nexus-code/manager",
+      'C:\\Users\\a "b"\\한글\\manager',
+    ]) {
+      const [flag, override, sub] = codexAppServerArgs(dir, true);
+      expect([flag, sub]).toEqual(["-c", "app-server"]);
+      // Codex reads the value as TOML; a key -c would split at its dots.
+      const parsed = Bun.TOML.parse(override ?? "") as {
+        projects: Record<string, { trust_level: string }>;
+      };
+      expect(parsed.projects).toEqual({ [dir]: { trust_level: "trusted" } });
+    }
   });
 
   test("start says when claude is not found", async () => {

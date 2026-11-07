@@ -126,18 +126,23 @@ autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrap
 _nexus_prepend_wrapper
 `;
 
+/** sh that puts the directory `variable` names first on PATH, if it names one. */
+function prependDir(variable: string): string {
+  return `if [ -n "\${${variable}-}" ]; then
+  case ":\$PATH:" in
+    ":\$${variable}:"*) ;;
+    *) PATH="\$${variable}:\${PATH//:\$${variable}:/:}" ;;
+  esac
+fi
+`;
+}
+
 /**
  * Puts NEXUS_WRAPPER_SELF_DIR back first on the PATH, which a startup file
  * may have reset: a shell that shows no prompt (the commands a Codex tab
  * runs) has no precmd hook to do it.
  */
-const PREPEND_WRAPPER = `if [ -n "\${NEXUS_WRAPPER_SELF_DIR-}" ]; then
-  case ":\$PATH:" in
-    ":\$NEXUS_WRAPPER_SELF_DIR:"*) ;;
-    *) PATH="\$NEXUS_WRAPPER_SELF_DIR:\${PATH//:\$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
-  esac
-fi
-`;
+const PREPEND_WRAPPER = prependDir("NEXUS_WRAPPER_SELF_DIR");
 
 /** zsh .zshenv shim: sources the user's original .zshenv, loaded by zsh
  * before any other startup file, and the only one `zsh -c` reads. */
@@ -186,12 +191,17 @@ _nexus_prepend_wrapper
 `;
 
 /**
- * bash BASH_ENV shim, for a Codex tab's `codex app-server`: bash reads it
- * as it runs each command (`bash -c`), and after a login shell's profile,
- * which may have reset the PATH.
+ * bash BASH_ENV shim, for a Codex tab's `codex app-server` and a Windows
+ * Claude tab's `claude`: bash reads it as it runs each command (`bash -c`),
+ * and after a login shell's profile, which may have reset the PATH. On
+ * Windows, NEXUS_BASH_WRAPPER_DIR is the wrappers' directory as Git Bash
+ * names it, and NEXUS_WRAPPER_SELF_DIR the Windows path of the nexus
+ * launchers, which would make no directory of the PATH bash reads.
  */
-export const BASHENV_CONTENT = `# Nexus shim — the BASH_ENV of a Codex tab's commands.
-${PREPEND_WRAPPER}`;
+export const BASHENV_CONTENT = `# Nexus shim — the BASH_ENV of a Codex tab's commands, and of a Windows Claude tab's Bash tool.
+_nexus_dir=\${NEXUS_BASH_WRAPPER_DIR:-\${NEXUS_WRAPPER_SELF_DIR-}}
+${prependDir("_nexus_dir")}unset _nexus_dir
+`;
 
 /**
  * Writes the PTY shim rc files (.zshrc, .zshenv, bashrc, and the zsh login

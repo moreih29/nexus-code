@@ -83,6 +83,17 @@ export interface ClaudeTabEnvContext extends ChatTabEnvContext {
    * wrapper would export.
    */
   readonly withoutWrapper?: boolean;
+  /**
+   * Where claude's Bash tool runs Git Bash (Windows): the wrappers' copies
+   * and the bash shim that puts them first on its PATH.
+   */
+  readonly gitBash?: { readonly wrapperDir: string; readonly bashEnv: string };
+}
+
+/** A Windows path as Git Bash names it: `C:\Users\u` is `/c/Users/u`. */
+export function gitBashPath(windowsPath: string): string {
+  const slashed = windowsPath.replaceAll("\\", "/");
+  return /^[A-Za-z]:/.test(slashed) ? `/${slashed[0]?.toLowerCase()}${slashed.slice(2)}` : slashed;
 }
 
 /**
@@ -123,6 +134,15 @@ export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, strin
     env.NEXUS_CLAUDE_TAB_ID = context.tabId;
     env.NEXUS_CLAUDE_PRINT = "1";
   }
+  if (context.gitBash) {
+    // Git Bash runs the wrappers, as in the app's Git Bash terminals, so a
+    // `codex exec` or `claude -p` the tab's commands start is one of its
+    // agents. They go first on bash's PATH alone: on claude's own, cmd and
+    // PowerShell would take a wrapper, a file without an extension, for the
+    // program.
+    env.BASH_ENV = gitBashPath(context.gitBash.bashEnv);
+    env.NEXUS_BASH_WRAPPER_DIR = gitBashPath(context.gitBash.wrapperDir);
+  }
   return env;
 }
 
@@ -153,6 +173,21 @@ export function codexTabEnv(context: CodexTabEnvContext): Record<string, string>
     env.BASH_ENV = hostJoin(context.shimDir, "bashenv", false);
   }
   return env;
+}
+
+/**
+ * A Codex tab's `codex app-server` arguments. The agent manager's trusts its
+ * folder, for its session alone: Codex reads a project's .codex/rules, where
+ * main lets `nexus` run outside the sandbox (features/manager/codex-rules),
+ * only in a project it trusts, and the folder is the app's. The user's own
+ * Codex settings are left as they are.
+ */
+export function codexAppServerArgs(cwd: string, manager = false): string[] {
+  if (!manager) return ["app-server"];
+  // The folder as a TOML basic string, whose escapes JSON's are. A dotted
+  // key would not do: -c splits it at every dot, the folder's own too.
+  const trusted = `projects = { ${JSON.stringify(cwd)} = { trust_level = "trusted" } }`;
+  return ["-c", trusted, "app-server"];
 }
 
 export type PluginAction = "install" | "enable" | "disable" | "update" | "uninstall";
