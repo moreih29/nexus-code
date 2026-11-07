@@ -94,6 +94,35 @@
     appearance: none;
     display: none;
   }
+
+  /*
+   * Keyboard focus on a control that draws no ring of its own gets the
+   * theme's ring rather than Chromium's default outline, which follows the
+   * system accent colour (orange, say) and so differs from the ring the
+   * design-system controls draw. A control that sets its own outline or
+   * ring (`outline-none`, `focus-visible:…`) still wins: utilities sit in a
+   * later layer.
+   */
+  :where(
+    button,
+    a[href],
+    summary,
+    select,
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="treeitem"]
+  ):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
 }
 
 /* ---------------------------------------------------------------------------
