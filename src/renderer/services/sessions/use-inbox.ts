@@ -19,14 +19,20 @@ import { useChatStore } from "../chat/store";
 import { requestTabFocus } from "../tab-focus";
 import { showTerminal } from "./actions";
 import { readTabActivity } from "./activity-poll";
-import { buildInbox, type Inbox, type InboxItem, nextInboxItem, sameInbox } from "./inbox";
+import {
+  buildInbox,
+  type Inbox,
+  type InboxInput,
+  type InboxItem,
+  nextInboxItem,
+  sameInbox,
+} from "./inbox";
 import type { AgentSession } from "./model";
 import { viewingKey } from "./viewing";
 
-
-/** The inbox of every workspace as the stores and `activity` tell it now. */
-function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
-  return buildInbox({
+/** Every workspace's sessions' records as the stores and `activity` tell them now. */
+export function sessionsInputNow(activity: ReadonlyMap<string, TabActivity>): InboxInput {
+  return {
     workspaces: useWorkspacesStore.getState().workspaces,
     tabsByWorkspace: useTabsStore.getState().byWorkspace,
     claudeByWorkspace: useClaudeStatusStore.getState().byWorkspace,
@@ -35,7 +41,26 @@ function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
     seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
     chats: useChatStore.getState().tabs,
     viewing: viewingKey(),
-  });
+  };
+}
+
+/** The stores a session's state is read from: a change to any may change one. */
+export const SESSION_STORES: readonly { subscribe(listener: () => void): () => void }[] = [
+  useWorkspacesStore,
+  useTabsStore,
+  useClaudeStatusStore,
+  useSessionSeenStore,
+  useChatStore,
+  useActiveStore,
+  useLayoutStore,
+  useAgentViewStore,
+  useAppFocusStore,
+  useTabActivityStore,
+];
+
+/** The inbox of every workspace as the stores and `activity` tell it now. */
+function inboxNow(activity: ReadonlyMap<string, TabActivity>): Inbox {
+  return buildInbox(sessionsInputNow(activity));
 }
 
 /**
@@ -51,18 +76,7 @@ export function useInbox(): Inbox {
       const next = inboxNow(useTabActivityStore.getState().activity);
       setInbox((prev) => (sameInbox(prev, next) ? prev : next));
     };
-    const stops = [
-      useWorkspacesStore.subscribe(update),
-      useTabsStore.subscribe(update),
-      useClaudeStatusStore.subscribe(update),
-      useSessionSeenStore.subscribe(update),
-      useChatStore.subscribe(update),
-      useActiveStore.subscribe(update),
-      useLayoutStore.subscribe(update),
-      useAgentViewStore.subscribe(update),
-      useAppFocusStore.subscribe(update),
-      useTabActivityStore.subscribe(update),
-    ];
+    const stops = SESSION_STORES.map((store) => store.subscribe(update));
     update();
     return () => {
       for (const stop of stops) stop();

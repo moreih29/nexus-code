@@ -1,9 +1,10 @@
 /**
  * A Claude or Codex tab's conversation as the nexus CLI tells it: where it
- * stands (chat state, chat wait) and its last messages (chat read). Pure.
+ * stands (chat state, chat wait), its messages (chat read) and a tool call
+ * whole (chat tool). Pure.
  */
 
-import type { CliChatEntry, CliChatInfo } from "../../../shared/cli/ui";
+import type { CliChatEntry, CliChatInfo, CliChatTool } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { ChatItem, ChatModel, ToolCall } from "../chat/model";
 import type { ChatTabState } from "../chat/store";
@@ -35,6 +36,16 @@ function turnError(model: ChatModel): string | undefined {
   return model.lastResult.subtype;
 }
 
+/** When the conversation last moved: its turn's start while one runs, else its last item. */
+function sinceOf(model: ChatModel): number | undefined {
+  if (model.running && model.turn?.startedAt !== undefined) return model.turn.startedAt;
+  for (let i = model.items.length - 1; i >= 0; i--) {
+    const at = model.items[i]?.at;
+    if (at !== undefined) return at;
+  }
+  return undefined;
+}
+
 /**
  * Where a tab stands. `unseen`: a message was sent that its conversation
  * does not show yet, so it counts as working before any turn begins.
@@ -46,35 +57,43 @@ export function chatInfoOf(
 ): CliChatInfo {
   if (!chat) return { agent, state: unseen ? "working" : "idle" };
   const { model } = chat;
+  const since = sinceOf(model);
+  const at = since === undefined ? {} : { since };
   if (chat.phase === "failed" || chat.phase === "not-found") {
     const message =
       chat.phase === "not-found" ? `${agent} was not found where the workspace runs` : chat.error;
-    return { agent, state: "error", ...(message ? { message } : {}) };
+    return { agent, state: "error", ...(message ? { message } : {}), ...at };
   }
   const asked = model.permissions.length > 0 ? askedOf(model) : undefined;
-  if (asked) return { agent, state: "asking", message: asked };
+  if (asked) return { agent, state: "asking", message: asked, ...at };
   const answer = lastAnswer(model);
   const told = answer ? { message: answer } : {};
   if (unseen || model.running || chat.phase === "starting" || chat.phase === "held") {
-    return { agent, state: "working", ...told };
+    return { agent, state: "working", ...told, ...at };
   }
   const error = turnError(model);
-  if (error) return { agent, state: "error", message: error };
-  return { agent, state: "idle", ...told };
+  if (error) return { agent, state: "error", message: error, ...at };
+  return { agent, state: "idle", ...told, ...at };
 }
 
-function toolEntry(call: ToolCall | undefined): CliChatEntry | null {
-  if (!call || call.parentToolUseId) return null;
+/** An entry before its place in the conversation is counted. */
+type Entry = Omit<CliChatEntry, "i">;
+
+function toolEntry(call: ToolCall | undefined): Entry | null {
+  if (!call) return null;
   const target = inputTarget(call.name, call.input);
   const failed =
     call.status === "error" ? " (failed)" : call.status === "denied" ? " (denied)" : "";
   return {
     role: "tool",
     text: `${call.displayName || call.name}${target ? ` ${target}` : ""}${failed}`,
+    toolUseId: call.id,
+    status: call.status,
+    ...(call.parentToolUseId ? { parentToolUseId: call.parentToolUseId } : {}),
   };
 }
 
-function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): CliChatEntry[] {
+function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
   switch (item.kind) {
     case "user": {
       const images = item.images.length;
@@ -82,7 +101,7 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): CliChatEntry[
       return [{ role: "user", text: `${item.text.trim()}${attached}` }];
     }
     case "assistant": {
-      const entries: CliChatEntry[] = [];
+      const entries: Entry[] = [];
       let text: string[] = [];
       const flush = () => {
         const joined = text.join("\n\n").trim();
@@ -105,15 +124,70 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): CliChatEntry[
 }
 
 /**
- * The last `messages` messages of a tab's conversation, its history before
- * the program's log included: what the user and the agent said, the tools
- * the agent ran on its main thread, and what the app noted.
+ * Every entry of a tab's conversation, its history before the program's log
+ * included, each with its place: what the user and the agent said, the tools
+ * the agent and its subagents ran, and what the app noted.
  */
-export function chatEntriesOf(chat: ChatTabState | undefined, messages: number): CliChatEntry[] {
-  if (!chat) return [];
+function allEntries(chat: ChatTabState): {
+  entries: CliChatEntry[];
+  tools: ChatModel["tools"];
+} {
   const { history, model } = chat;
   const items = history ? [...history.items, ...model.items] : model.items;
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-  const entries = items.flatMap((item) => entriesOfItem(item, tools));
-  return entries.slice(Math.max(0, entries.length - messages));
+  const entries = items
+    .flatMap((item) => entriesOfItem(item, tools))
+    .map((entry, i) => ({ i, ...entry }));
+  return { entries, tools };
+}
+
+export interface ChatEntriesQuery {
+  /** Only those after the entry with this i. */
+  readonly since?: number;
+  /** Only the last this many of them. */
+  readonly messages?: number;
+  /** Subagents' tool calls too; left out otherwise. */
+  readonly subagents?: boolean;
+}
+
+/**
+ * The entries of a tab's conversation a read asks for: those after `since`,
+ * the last `messages` of them; all when neither. Subagents' tool calls are
+ * left out unless asked for; the others keep their places.
+ */
+export function chatEntriesOf(
+  chat: ChatTabState | undefined,
+  query: ChatEntriesQuery = {},
+): CliChatEntry[] {
+  if (!chat) return [];
+  const since = query.since ?? -1;
+  const entries = allEntries(chat).entries.filter(
+    (entry) => entry.i > since && (query.subagents === true || !entry.parentToolUseId),
+  );
+  return query.messages === undefined
+    ? entries
+    : entries.slice(Math.max(0, entries.length - query.messages));
+}
+
+/**
+ * A tool call of a tab's conversation whole: `ref` is its entry's i, or its
+ * id. Null when it names no tool call.
+ */
+export function chatToolOf(chat: ChatTabState | undefined, ref: string): CliChatTool | null {
+  if (!chat) return null;
+  const { entries, tools } = allEntries(chat);
+  const entry = /^\d+$/.test(ref)
+    ? entries.find((e) => e.i === Number(ref))
+    : entries.find((e) => e.toolUseId === ref);
+  const call = entry?.toolUseId ? tools[entry.toolUseId] : undefined;
+  if (!entry || !call) return null;
+  return {
+    i: entry.i,
+    toolUseId: call.id,
+    name: call.displayName || call.name,
+    status: call.status,
+    input: call.input,
+    ...(call.result ? { result: { text: call.result.text, isError: call.result.isError } } : {}),
+    ...(call.parentToolUseId ? { parentToolUseId: call.parentToolUseId } : {}),
+  };
 }

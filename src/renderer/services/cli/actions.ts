@@ -110,7 +110,13 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
-    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp | `chat.${string}`
+    | "tabs.list"
+    | "terminal.read"
+    | "events.read"
+    | "settings.list"
+    | "settings.set"
+    | LayoutOp
+    | `chat.${string}`
   >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {

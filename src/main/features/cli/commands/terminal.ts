@@ -142,11 +142,19 @@ async function terminalRows(
   return rows;
 }
 
+/** A task's branch and the workspace it is a task of, for a session's JSON. */
+function taskJson(workspace: WorkspaceMeta) {
+  return workspace.task
+    ? { branch: workspace.task.branch, parentWorkspaceId: workspace.task.parentId }
+    : {};
+}
+
 function rowJson(ctx: CliContext, row: TerminalRow) {
   return {
     id: row.tab.id,
     workspaceId: row.workspace.id,
     workspace: row.workspace.name,
+    ...taskJson(row.workspace),
     title: row.tab.title,
     cwd: row.tab.cwd,
     current: row.tab.id === ctx.caller.tabId,
@@ -608,7 +616,9 @@ const sessionList: CliCommand = {
     "Claude Code in a terminal reports its state through the app's hooks. Other agents in\n" +
     "terminals are told by their title and the notifications they raise; their state is busy\n" +
     "while they print and quiet after. The app's Claude and Codex tabs (AGENT claude-tab or\n" +
-    "codex-tab) are working, asking (the user), idle or error; chat read/send/wait reach them.",
+    "codex-tab) are working, asking (the user), idle or error; chat read/send/wait reach them.\n" +
+    "LAST is cut to a line; --json and --jsonl carry it whole, with a task's branch.\n" +
+    'To follow the changes as they come, see "nexus events".',
   flags: {
     workspace: { ...WORKSPACE_FLAG, description: "Only this workspace (id, id prefix or name)" },
   },
@@ -629,6 +639,7 @@ const sessionList: CliCommand = {
           cells: [
             shortId(r.tab.id),
             r.workspace.name,
+            oneLine(r.tab.title, 30),
             r.state.agent ?? "?",
             you(r.tab, r.state.state),
             r.state.since ? ago(r.state.since, now) : "",
@@ -641,28 +652,31 @@ const sessionList: CliCommand = {
         cells: [
           shortId(c.tab.id),
           c.workspace.name,
+          oneLine(c.tab.title, 30),
           `${c.info.agent}-tab`,
           you(c.tab, c.info.state),
-          "",
+          c.info.since ? ago(c.info.since, now) : "",
           c.info.message ? oneLine(c.info.message, 60) : "",
         ],
         json: {
           id: c.tab.id,
           workspaceId: c.workspace.id,
           workspace: c.workspace.name,
+          ...taskJson(c.workspace),
           title: c.tab.title,
           current: c.tab.id === ctx.caller.tabId,
           tab: c.tab.type,
           agent: c.info.agent,
           state: c.info.state,
           ...(c.info.message ? { message: c.info.message } : {}),
+          ...(c.info.since !== undefined ? { since: c.info.since } : {}),
         },
       })),
     ];
     const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
     sessions.sort((a, b) => order(a) - order(b));
     const text = table(
-      ["ID", "WORKSPACE", "AGENT", "STATE", "SINCE", "LAST"],
+      ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"],
       sessions.map((s) => s.cells),
     );
     return output(

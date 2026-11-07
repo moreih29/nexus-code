@@ -12,6 +12,7 @@ import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { startTabActivityPolling } from "./services/sessions/activity-poll";
+import { startSessionEvents } from "./services/sessions/session-events";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -398,4 +399,7 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // Codex and other agents' output activity, for the tab bar, the sidebar
   // and the inbox.
   startTabActivityPolling();
+
+  // The sessions' state changes, for nexus events.
+  startSessionEvents();
 }

@@ -6,6 +6,7 @@
 nexus help              # 전체 명령
 nexus <명령> --help     # 명령별 플래그
 nexus status --json     # 모든 명령은 --json 으로 JSON 출력
+nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep · jq 용)
 ```
 
 - 앱 안 터미널(로컬 · SSH 워크스페이스)에서만 동작합니다. 앱 밖의 터미널에서는 `NexusCode is not reachable from this terminal` 이 나옵니다.
@@ -23,6 +24,7 @@ nexus status --json     # 모든 명령은 --json 으로 JSON 출력
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
 | `nexus chat read <탭>` | Claude · Codex 탭의 최근 대화와 상태 |
+| `nexus events` | 모든 워크스페이스 에이전트 세션의 상태 변화(번호순). `--since N --wait 10m` 으로 다음 변화를 기다림 |
 | `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 (SSH 워크스페이스면 이 컴퓨터에서 열리는 주소도) |
 
 읽기는 어느 워크스페이스든 허락 없이 됩니다.
@@ -81,14 +83,33 @@ nexus chat new --agent codex --prompt "테스트 고쳐줘" --show
 nexus chat wait 3fa2                                     # 턴이 끝날 때까지 기다린 뒤 마지막 답변 출력
 nexus chat send 3fa2 "이어서 문서도 고쳐줘" --wait       # 보내고 끝날 때까지
 nexus chat read 3fa2 --messages 10                       # 최근 메시지 10개와 상태
+nexus chat read 3fa2 --since 41                          # #41 다음부터 전부 (이어 읽기)
+nexus chat tool 3fa2 42                                  # #42 도구 호출의 입력과 출력 전체
+nexus chat wait 3fa2 9c1e                                # 여러 탭 중 먼저 끝나는 것까지
 ```
 
 - 상태는 `working`(일하는 중, 보낸 메시지를 아직 받지 않은 때 포함), `asking`(사용자의 도구 허용 · 질문 답변을 기다림), `idle`, `error` 입니다.
 - `chat wait` 는 턴이 끝나거나(마지막 답변 출력), 사용자를 기다리거나, 오류로 멈추면 끝납니다. 기본 대기 시간은 10분, 최대 30분입니다(`--timeout`). 시간이 다 되면 종료 코드 124 입니다.
 - `chat send` 는 턴 중이면 에이전트가 지금 도구 다음에 읽습니다. 프로그램이 꺼져 있으면 다시 켜고 보냅니다. 사용자를 기다리는 탭에는 보내지 않습니다. 허용 여부는 사용자가 정합니다.
-- `chat read` 는 사용자와 에이전트의 말, 에이전트가 실행한 도구, 앱의 알림(중단, 오류 등)을 순서대로 출력합니다.
+- `chat read` 는 사용자와 에이전트의 말, 에이전트가 실행한 도구, 앱의 알림(중단, 오류 등)을 순서대로 출력합니다. 기본은 최근 20개, `--all` 이면 전부입니다. 각 항목에는 번호(`#N`)가 붙어, 다음에 `--since N` 으로 그 뒤만 읽습니다. `--subagents` 면 서브에이전트의 도구 호출도, `--max-chars N` 이면 항목마다 N 자까지만 보입니다.
+- `chat tool <탭> <번호|id>` 는 도구 호출 하나의 입력(JSON)과 출력을 자르지 않고 보여줍니다.
+- `chat wait` 에 탭을 여러 개 주면 먼저 끝나는 탭에서 끝나고, 어느 탭인지 알려줍니다.
 - 앱을 켠 뒤 한 번도 보지 않은 탭은 읽거나 기다리거나 보낼 때 열립니다. 탭을 보여줄 때처럼 프로그램의 기록을 읽고, 프로그램이 없으면 켭니다.
 - 다른 워크스페이스의 탭은 `--workspace` 로 고릅니다.
+
+## 세션들의 변화 따라가기
+
+`nexus events` 는 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code · Codex 등과 Claude · Codex 탭)이 상태를 바꿀 때마다 남긴 기록입니다. 에이전트 보기가 보여주는 상태와 같습니다.
+
+```bash
+nexus events                                 # 최근 변화 (기본 100개)
+nexus events --since 57 --wait 10m --jsonl   # #57 다음 변화. 없으면 올 때까지 기다림
+nexus events --workspace api --limit 20
+```
+
+- 변화는 시작(일을 하며 나타남), 상태 바뀜(working, asking, idle, completed, error, ...), 닫힘이고, 마지막 답변이나 질문이 함께 나옵니다. 자기 세션의 변화에는 `(you)` 가 붙습니다.
+- 번호는 앱을 켤 때 1부터 다시 셉니다. 앱은 최근 1000개를 갖고 있고, 최신보다 큰 `--since` 는 처음부터 읽습니다.
+- `--wait` 은 최대 30분입니다. 시간이 다 되도록 변화가 없으면 종료 코드 124 입니다. 다시 실행하면 이어서 기다립니다.
 
 ## 세션의 에이전트 따라가기
 

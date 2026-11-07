@@ -174,13 +174,60 @@ export interface CliChatInfo {
   readonly state: CliChatState;
   /** Its last answer; when asking, what it asks; on an error, what went wrong. */
   readonly message?: string;
+  /** When its turn began while working; else when it last said or did something. */
+  readonly since?: number;
 }
 
 /** One message of a conversation as chat read prints it. */
 export interface CliChatEntry {
+  /**
+   * Its place in the whole conversation, from 0, subagents' tool calls
+   * counted: a later read can start after it, and chat tool names a call by it.
+   */
+  readonly i: number;
   /** Who said it: the user, the agent, a tool the agent ran, or the app. */
   readonly role: "user" | "agent" | "tool" | "notice";
   readonly text: string;
+  /** A tool call's id. */
+  readonly toolUseId?: string;
+  /** A tool call's: streaming, running, done, error, denied or stopped. */
+  readonly status?: string;
+  /** A subagent's tool call: the id of the Agent call it runs under. */
+  readonly parentToolUseId?: string;
+}
+
+/** A tool call whole, as chat tool prints it: what it was given and what came back. */
+export interface CliChatTool {
+  readonly i: number;
+  readonly toolUseId: string;
+  readonly name: string;
+  readonly status: string;
+  readonly input: unknown;
+  readonly result?: { readonly text: string; readonly isError: boolean };
+  readonly parentToolUseId?: string;
+}
+
+/**
+ * A session's state changing, as nexus events tells it: a terminal's agent,
+ * or a Claude or Codex tab. `from` is null for a session that just appeared;
+ * `to` is "closed" for one whose tab went.
+ */
+export interface CliSessionEvent {
+  /** Counts up from 1 while the app runs; nexus events --since takes it. */
+  readonly seq: number;
+  readonly at: number;
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly title: string;
+  /** The tab: a terminal, or a Claude or Codex tab. */
+  readonly kind: "terminal" | "claude" | "codex";
+  readonly agent?: string;
+  readonly from: string | null;
+  readonly to: string;
+  /** attention (waits on the user), running, done (a finished turn) or idle; closed. */
+  readonly phase: string;
+  /** Its last answer or question, or what went wrong. */
+  readonly message?: string;
 }
 
 /** What a new task starts with: an agent's tab, or a terminal running a command ("" for none). */
@@ -394,10 +441,33 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; peek?: boolean };
     result: CliChatInfo;
   };
-  /** A Claude or Codex tab's last `messages` messages, and where it stands. */
+  /**
+   * A Claude or Codex tab's messages, and where it stands: those after
+   * `since` (an entry's i), the last `messages` of them; all when neither.
+   * Subagents' tool calls only with `subagents`.
+   */
   "chat.read": {
-    args: { workspaceId: string; tabId: string; messages: number };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      messages?: number;
+      since?: number;
+      subagents?: boolean;
+    };
     result: CliChatInfo & { entries: CliChatEntry[] };
+  };
+  /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
+  "chat.tool": {
+    args: { workspaceId: string; tabId: string; ref: string };
+    result: CliChatTool;
+  };
+  /**
+   * The sessions' state changes after `since`, the last `limit` of them,
+   * and the seq of the latest one there is.
+   */
+  "events.read": {
+    args: { since?: number; limit: number };
+    result: { events: CliSessionEvent[]; cursor: number };
   };
   /**
    * Sends a Claude or Codex tab a message, as its composer does: during a
