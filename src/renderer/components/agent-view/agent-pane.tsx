@@ -9,6 +9,7 @@ import type { SplitLeaf } from "@/engine";
 import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
+import type { EndedAgent } from "@/services/agent-view/ended";
 import {
   type AgentLayout,
   closeLeaf,
@@ -41,6 +42,7 @@ import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import type { DropZone } from "../workspace/dnd/types";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
 import { agentDragKey, isAgentDrag, setAgentDrag, ZONE_DIRECTION } from "./drag";
+import { EndedBar } from "./ended-bar";
 
 const log = createLogger("agent-view");
 
@@ -54,12 +56,21 @@ function focusKey(key: string): void {
   if (session) requestTabFocus(session.tabId);
 }
 
-export function AgentPane({ leaf, agents }: { leaf: SplitLeaf; agents: Agents }) {
+export function AgentPane({
+  leaf,
+  agents,
+  ended,
+}: {
+  leaf: SplitLeaf;
+  agents: Agents;
+  ended: ReadonlyMap<string, EndedAgent>;
+}) {
   const { t } = useTranslation();
   const isActive = useAgentViewStore((s) => s.activeLeafId === leaf.id);
   const split = useAgentViewStore((s) => s.root.kind === "split");
   const lit = useAgentViewStore((s) => s.hoveredKey !== null && leaf.tabIds.includes(s.hoveredKey));
   const front = leaf.activeTabId !== null ? parseSessionKey(leaf.activeTabId) : null;
+  const frontEnded = leaf.activeTabId !== null ? ended.get(leaf.activeTabId) : undefined;
 
   const slotElRef = useRef<HTMLElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
@@ -231,6 +242,9 @@ export function AgentPane({ leaf, agents }: { leaf: SplitLeaf; agents: Agents })
         {front && <OfflinePane workspaceId={front.workspaceId} />}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
+      {frontEnded && leaf.activeTabId !== null && (
+        <EndedBar sessionKey={leaf.activeTabId} ended={frontEnded} />
+      )}
 
       {/* The panel of the agent the pointer is on in the list. */}
       {lit && (
