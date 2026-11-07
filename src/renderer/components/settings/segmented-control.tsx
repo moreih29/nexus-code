@@ -55,7 +55,8 @@ export function SegmentedControl<T extends string>({
       disabled={disabled}
       title={disabled ? disabledReason : undefined}
       className={cn(
-        "inline-flex rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
+        // w-fit: as wide as its options, also in a stretching flex column.
+        "inline-flex w-fit rounded-(--radius-raised) border border-border bg-muted p-0.5 gap-0.5",
         disabled && "opacity-60",
       )}
     >

@@ -4,40 +4,11 @@
  * and whether Claude Code sessions are told about it when they start.
  */
 
-import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { type CrossWorkspacePolicy, useAgentCliStore } from "../../../state/stores/agent-cli";
-import { Switch } from "../../ui/switch";
-import { SettingsSection } from "../section";
+import { SettingsSection, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
-
-function SwitchRow(props: {
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="flex flex-col gap-1 min-w-0">
-        <label htmlFor={id} className="text-app-body text-foreground cursor-pointer">
-          {props.label}
-        </label>
-        <p className="text-app-ui-sm text-muted-foreground">{props.description}</p>
-      </div>
-      <Switch
-        id={id}
-        checked={props.checked}
-        disabled={props.disabled}
-        onCheckedChange={props.onChange}
-        className="shrink-0 mt-1"
-      />
-    </div>
-  );
-}
 
 export function AgentCliPanel() {
   const { t } = useTranslation("settings");
@@ -55,7 +26,7 @@ export function AgentCliPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SwitchRow
+      <SettingsSwitch
         label={t("agentCli.enabled.label")}
         description={t("agentCli.enabled.description")}
         checked={enabled}
@@ -79,7 +50,7 @@ export function AgentCliPanel() {
           {t("agentCli.crossWorkspace.description")}
         </p>
       </SettingsSection>
-      <SwitchRow
+      <SettingsSwitch
         label={t("agentCli.agentContext.label")}
         description={t("agentCli.agentContext.description")}
         checked={agentContext}

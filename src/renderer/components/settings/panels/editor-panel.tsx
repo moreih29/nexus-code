@@ -3,7 +3,7 @@
 // Controls:
 //   - Font size: numeric input + ▲▼ stepper (12–32, step 1)
 //   - Font family: token-sealed Select + custom-name input branch
-//   - Font ligatures: Radix Checkbox + live mini-preview that toggles `liga`
+//   - Font ligatures: SettingsSwitch + live mini-preview that toggles `liga`
 //   - Line height: SegmentedControl (1.0 / 1.2 / 1.4), inline with its label
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
@@ -15,7 +15,6 @@ import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
-import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import {
   Select,
@@ -24,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../ui/select";
-import { SettingsRow, SettingsSection } from "../section";
+import { SettingsRow, SettingsSection, SettingsSwitch } from "../section";
 import { PreviewDefaultsSection } from "./preview-defaults-section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
@@ -164,7 +163,6 @@ export function EditorPanel() {
   );
 
   const customFamilyId = useId();
-  const ligaturesId = useId();
 
   // Reset helpers — clearing each field returns it to undefined (token fallback).
   const resetFamily = () => {
@@ -262,24 +260,14 @@ export function EditorPanel() {
         )}
       </SettingsSection>
 
-      {/* Ligatures — Checkbox + explanation + live preview */}
-      <SettingsSection
+      <SettingsSwitch
         label={t("editor.fontLigatures")}
+        description={t("editor.ligatures.description")}
+        checked={effectiveLigatures}
+        onChange={setLigatures}
         dirty={ligatures !== undefined}
         onReset={() => setLigatures(undefined)}
-      >
-        <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            id={ligaturesId}
-            checked={effectiveLigatures}
-            onCheckedChange={(v) => setLigatures(v === true)}
-          />
-          <span className="text-app-body text-foreground">{t("editor.ligatures.enable")}</span>
-        </label>
-        <p className="text-app-ui-sm text-muted-foreground">
-          {t("editor.ligatures.description")}
-        </p>
-      </SettingsSection>
+      />
 
       {/* The view each format with a preview opens in */}
       <PreviewDefaultsSection />

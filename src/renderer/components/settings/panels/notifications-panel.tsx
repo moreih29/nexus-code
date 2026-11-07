@@ -12,18 +12,16 @@
 // named `osNotificationsEnabled` (boolean today, expandable to a discriminated
 // object later) so the migration stays additive.
 
-import { useCallback, useId } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { useNotificationsStore } from "../../../state/stores/notifications";
-import { Switch } from "../../ui/switch";
+import { SettingsSwitch } from "../section";
 
 export function NotificationsPanel() {
   const { t } = useTranslation("settings");
   const osEnabled = useNotificationsStore((s) => s.osEnabled);
   const setOsEnabled = useNotificationsStore((s) => s.setOsEnabled);
-
-  const osToggleId = useId();
 
   const handleOsToggleChange = useCallback(
     (next: boolean) => {
@@ -39,29 +37,12 @@ export function NotificationsPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Row: stacked label + helper on the left, Switch pinned right —
-          mirrors the macOS / VSCode settings pattern used elsewhere in
-          this app. items-start so the switch lines up with the title row,
-          not the bottom of the helper text. */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1 min-w-0">
-          <label
-            htmlFor={osToggleId}
-            className="text-app-body text-foreground cursor-pointer"
-          >
-            {t("notifications.osEnabled.label")}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("notifications.osEnabled.description")}
-          </p>
-        </div>
-        <Switch
-          id={osToggleId}
-          checked={osEnabled}
-          onCheckedChange={handleOsToggleChange}
-          className="shrink-0 mt-1"
-        />
-      </div>
+      <SettingsSwitch
+        label={t("notifications.osEnabled.label")}
+        description={t("notifications.osEnabled.description")}
+        checked={osEnabled}
+        onChange={handleOsToggleChange}
+      />
     </div>
   );
 }

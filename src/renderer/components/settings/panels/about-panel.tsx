@@ -35,7 +35,7 @@
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
-import { type ReactNode, useCallback, useId } from "react";
+import { type ReactNode, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
@@ -44,7 +44,7 @@ import { updateCheckFailedMessage } from "../../../state/operations/update-check
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
-import { Switch } from "../../ui/switch";
+import { SettingsSwitch } from "../section";
 
 // ---------------------------------------------------------------------------
 // Static product metadata
@@ -65,7 +65,6 @@ export function AboutPanel() {
   const progress = useUpdatesStore((s) => s.progress);
   const storeManaged = window.host?.windowsStore === true;
 
-  const autoCheckId = useId();
 
   const handleAutoCheckChange = useCallback(
     (next: boolean) => {
@@ -115,27 +114,12 @@ export function AboutPanel() {
         </div>
       ) : (
         <>
-          {/* Auto-check row — stacked label + helper on the left, Switch
-              pinned right. Same pattern as the Notifications panel. */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex flex-col gap-1 min-w-0">
-              <label
-                htmlFor={autoCheckId}
-                className="text-app-body text-foreground cursor-pointer"
-              >
-                {t("about.autoCheck.label")}
-              </label>
-              <p className="text-app-ui-sm text-muted-foreground">
-                {t("about.autoCheck.description")}
-              </p>
-            </div>
-            <Switch
-              id={autoCheckId}
-              checked={autoCheckEnabled}
-              onCheckedChange={handleAutoCheckChange}
-              className="shrink-0 mt-1"
-            />
-          </div>
+          <SettingsSwitch
+            label={t("about.autoCheck.label")}
+            description={t("about.autoCheck.description")}
+            checked={autoCheckEnabled}
+            onChange={handleAutoCheckChange}
+          />
 
           <UpdateSection status={status} progress={progress} releaseNotes={false} />
         </>
