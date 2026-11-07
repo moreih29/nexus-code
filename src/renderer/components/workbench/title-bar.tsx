@@ -2,14 +2,17 @@ import { Menu, Settings } from "lucide-react";
 import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { ipcCallResult } from "../../ipc/client";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import { ipcCallResult } from "../../ipc/client";
+import { shortcutFor } from "../../keybindings/shortcut-labels";
 import { useActiveStore } from "../../state/stores/active";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
 import { ViewToggle } from "../agent-view/view-toggle";
+import { IconButton } from "../ui/icon-button";
 import { InboxButton } from "./inbox-button";
 import { ReleaseNewsButton } from "./release-news-button";
 import { TaskSwitcher } from "./task-switcher";
@@ -66,25 +69,18 @@ export function TitleBar() {
       }}
     >
       {!isMac() && (
-        <button
-          type="button"
+        <IconButton
+          label={t("titleBar.open_menu")}
+          size="md"
           onClick={openAppMenu}
           // Focus stays where it was, so Edit's items act on the editor or
           // input the user was in.
           onMouseDown={(e) => e.preventDefault()}
-          aria-label={t("titleBar.open_menu")}
           aria-haspopup="menu"
-          className={cn(
-            "app-no-drag -ml-1.5 mr-1.5",
-            "flex items-center justify-center",
-            "size-7 rounded-(--radius-control)",
-            "text-muted-foreground",
-            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "transition-colors duration-150",
-          )}
+          className="app-no-drag -ml-1.5 mr-1.5"
         >
           <Menu className="size-4" aria-hidden="true" />
-        </button>
+        </IconButton>
       )}
 
       {/* Brand — uppercase small-label per the warm design system */}
@@ -117,24 +113,20 @@ export function TitleBar() {
       <InboxButton />
 
       {/* Settings button — app-no-drag so click lands */}
-      <button
-        type="button"
+      <IconButton
+        label={t("titleBar.open_settings")}
+        shortcut={shortcutFor(COMMANDS.settingsOpen)}
+        size="md"
         onClick={toggleSettings}
-        aria-label={t("titleBar.open_settings")}
         aria-haspopup="dialog"
         aria-expanded={settingsOpen}
         className={cn(
           "app-no-drag ml-0.5",
-          "flex items-center justify-center",
-          "size-7 rounded-(--radius-control)",
-          "text-muted-foreground",
-          "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
           settingsOpen && "bg-[var(--state-active-bg)] text-foreground",
-          "transition-colors duration-150",
         )}
       >
         <Settings className="size-4" aria-hidden="true" />
-      </button>
+      </IconButton>
 
       {ownControls && <WindowControls />}
     </div>

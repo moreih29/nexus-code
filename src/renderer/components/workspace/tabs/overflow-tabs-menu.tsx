@@ -14,6 +14,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
+import { tooltipProps } from "../../ui/tooltip";
 
 export function OverflowTabsMenu({
   hidden,
@@ -39,7 +40,7 @@ export function OverflowTabsMenu({
         <button
           type="button"
           aria-label={label}
-          title={label}
+          {...tooltipProps(label)}
           className={cn(
             "flex h-6 shrink-0 items-center gap-0.5 rounded-(--radius-control) px-1.5",
             "text-app-ui-sm text-muted-foreground tabular-nums transition-colors",

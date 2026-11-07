@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { type PdfControls, PdfPreview } from "../../editor/preview/pdf-preview";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
+import { IconButton } from "../../ui/icon-button";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
 interface PdfEditorViewProps {
@@ -36,41 +37,21 @@ export function PdfEditorView({ filePath, workspaceId }: PdfEditorViewProps) {
 
 function PdfToolbar({ controls }: { controls: PdfControls }) {
   const { t } = useTranslation();
-  const button =
-    "inline-flex items-center justify-center size-6 rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
   return (
     <div className="flex shrink-0 items-center gap-1 text-app-ui-sm tabular-nums text-muted-foreground select-none">
       <span className="px-1">
         {controls.page} / {controls.pages}
       </span>
-      <button
-        type="button"
-        className={button}
-        onClick={() => controls.zoom(-1)}
-        aria-label={t("pdfPreview.zoom_out")}
-        title={t("pdfPreview.zoom_out")}
-      >
+      <IconButton label={t("pdfPreview.zoom_out")} onClick={() => controls.zoom(-1)}>
         <Minus className="size-3.5" />
-      </button>
+      </IconButton>
       <span className="w-10 text-center">{Math.round(controls.scale * 100)}%</span>
-      <button
-        type="button"
-        className={button}
-        onClick={() => controls.zoom(1)}
-        aria-label={t("pdfPreview.zoom_in")}
-        title={t("pdfPreview.zoom_in")}
-      >
+      <IconButton label={t("pdfPreview.zoom_in")} onClick={() => controls.zoom(1)}>
         <Plus className="size-3.5" />
-      </button>
-      <button
-        type="button"
-        className={button}
-        onClick={controls.fitWidth}
-        aria-label={t("pdfPreview.fit_width")}
-        title={t("pdfPreview.fit_width")}
-      >
+      </IconButton>
+      <IconButton label={t("pdfPreview.fit_width")} onClick={controls.fitWidth}>
         <Maximize2 className="size-3.5" />
-      </button>
+      </IconButton>
     </div>
   );
 }

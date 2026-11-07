@@ -5,6 +5,7 @@
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
 import type { LogEntry } from "../../../../../shared/git/types";
+import { IconButton } from "../../../ui/icon-button";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
@@ -148,17 +149,16 @@ export function HistoryRow({
           {shortSha}
         </span>
       ) : null}
-      <button
-        type="button"
-        className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
-        aria-label={`Open commit actions for ${shortSha}`}
+      <IconButton
+        label={`Open commit actions for ${shortSha}`}
+        className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
         onClick={(event) => {
           event.stopPropagation();
           openMenuFromElement(event.currentTarget);
         }}
       >
         <MoreHorizontal className="size-3.5" aria-hidden="true" />
-      </button>
+      </IconButton>
     </div>
   );
 }

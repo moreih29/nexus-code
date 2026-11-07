@@ -5,7 +5,7 @@
 import { X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
+import { IconButton } from "./icon-button";
 
 interface DialogCloseButtonProps {
   /** The accessible name; defaults to "Close". */
@@ -17,18 +17,9 @@ export function DialogCloseButton({ label, className }: DialogCloseButtonProps) 
   const { t } = useTranslation();
   return (
     <RadixDialog.Close asChild>
-      <button
-        type="button"
-        aria-label={label ?? t("action.close")}
-        className={cn(
-          "inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control)",
-          "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-          "transition-colors",
-          className,
-        )}
-      >
+      <IconButton label={label ?? t("action.close")} size="md" className={className}>
         <X className="size-4" aria-hidden="true" />
-      </button>
+      </IconButton>
     </RadixDialog.Close>
   );
 }

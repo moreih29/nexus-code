@@ -29,6 +29,7 @@ import {
 } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
 import { cn } from "../../../utils/cn";
+import { IconButton } from "../../ui/icon-button";
 
 /** How many matches there are, and which is current: from 1, or 0 for none. */
 export interface FindResult {
@@ -217,9 +218,6 @@ export function PreviewFindScope({
 /** How far down the find bar sits, in px. */
 const BAR_TOP = 8;
 
-const BUTTON_CLASS =
-  "inline-flex items-center justify-center size-6 rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-40 disabled:pointer-events-none focus-visible:outline-none focus-visible:bg-[var(--state-hover-bg)]";
-
 function FindBar({
   inputRef,
   query,
@@ -278,48 +276,31 @@ function FindBar({
       >
         {count}
       </span>
-      <button
-        type="button"
-        className={cn(
-          BUTTON_CLASS,
-          caseSensitive && "bg-[var(--state-selected-bg)] text-foreground",
-        )}
+      <IconButton
+        label={t("previewFind.matchCase")}
+        className={cn(caseSensitive && "bg-[var(--state-selected-bg)] text-foreground")}
         aria-pressed={caseSensitive}
-        aria-label={t("previewFind.matchCase")}
-        title={t("previewFind.matchCase")}
         onClick={() => onCaseSensitive(!caseSensitive)}
       >
         <CaseSensitive className="size-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={BUTTON_CLASS}
+      </IconButton>
+      <IconButton
+        label={t("previewFind.previous")}
         disabled={result.total === 0}
-        aria-label={t("previewFind.previous")}
-        title={t("previewFind.previous")}
         onClick={() => onMove(-1)}
       >
         <ChevronUp className="size-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={BUTTON_CLASS}
+      </IconButton>
+      <IconButton
+        label={t("previewFind.next")}
         disabled={result.total === 0}
-        aria-label={t("previewFind.next")}
-        title={t("previewFind.next")}
         onClick={() => onMove(1)}
       >
         <ChevronDown className="size-4" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        className={BUTTON_CLASS}
-        aria-label={t("previewFind.close")}
-        title={t("previewFind.close")}
-        onClick={onClose}
-      >
+      </IconButton>
+      <IconButton label={t("previewFind.close")} onClick={onClose}>
         <X className="size-4" aria-hidden="true" />
-      </button>
+      </IconButton>
     </search>
   );
 }

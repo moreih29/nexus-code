@@ -62,6 +62,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { IconButton } from "../ui/icon-button";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
@@ -586,15 +587,14 @@ export function Composer({
                       {formatSize(attachment.file.size)}
                     </div>
                   </div>
-                  <button
-                    type="button"
+                  <IconButton
+                    label={t("chat.composer.remove_file")}
+                    size="xs"
                     onClick={() => setFiles((prev) => prev.filter((f) => f.id !== attachment.id))}
-                    title={t("chat.composer.remove_file")}
-                    aria-label={t("chat.composer.remove_file")}
-                    className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+                    className="rounded-full"
                   >
                     <X className="size-3" />
-                  </button>
+                  </IconButton>
                 </div>
               ))}
             </div>
@@ -647,7 +647,8 @@ export function Composer({
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}
-                hint={`${t("chat.composer.stop")} · Esc`}
+                shortcut="Esc"
+                size="md"
                 onClick={() => void controller.interrupt().catch((err: Error) => showError(err))}
                 disabled={model.interrupting}
               >
@@ -699,15 +700,9 @@ function AddMenu({
   return (
     <DropdownMenuRoot>
       <DropdownMenuTrigger>
-        <button
-          type="button"
-          title={t("chat.composer.add")}
-          aria-label={t("chat.composer.add")}
-          className="rounded-(--radius-control) p-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-          data-testid="chat-add-menu"
-        >
+        <IconButton label={t("chat.composer.add")} size="md" data-testid="chat-add-menu">
           <Plus className="size-4" />
-        </button>
+        </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         side="top"
@@ -794,44 +789,16 @@ function QueueRow({
         {item.text || t("chat.queue.images", { count: item.images.length })}
       </span>
       {onEdit && (
-        <IconButton label={t("chat.queue.edit")} onClick={onEdit}>
+        <IconButton label={t("chat.queue.edit")} size="md" onClick={onEdit}>
           <Pencil className="size-3.5" />
         </IconButton>
       )}
       {onRemove && (
-        <IconButton label={t("chat.queue.remove")} onClick={onRemove}>
+        <IconButton label={t("chat.queue.remove")} size="md" onClick={onRemove}>
           <X className="size-3.5" />
         </IconButton>
       )}
     </li>
-  );
-}
-
-function IconButton({
-  label,
-  hint,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string;
-  /** Its tooltip, where it tells more than the label: the key that does the same. */
-  hint?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={hint ?? label}
-      aria-label={label}
-      className="rounded-(--radius-control) p-1.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-    >
-      {children}
-    </button>
   );
 }
 

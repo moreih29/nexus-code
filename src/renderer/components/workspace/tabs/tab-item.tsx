@@ -15,12 +15,14 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
+import { Tabs as RadixTabs } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { tooltipProps } from "@/components/ui/tooltip";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
+import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { useDiffWorkingFile } from "@/services/editor/tabs";
@@ -29,6 +31,7 @@ import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
+import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { useCodexTabStatus } from "../../../services/sessions/use-codex-status";
 import { useEstimatedTabGlyph } from "../../../services/sessions/use-estimated";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
@@ -593,33 +596,22 @@ export function TabItem({
         )}
       </RadixTabs.Trigger>
 
-      {/* Close button with Tooltip — sibling of trigger (never nested inside trigger).
+      {/* Close button — sibling of trigger (never nested inside trigger).
           Always positioned separately from the dirty dot (no replacement).
           Hit target is min-w-6 min-h-6 (24px) per design requirement. */}
-      <RadixTooltip.Root>
-        <RadixTooltip.Trigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloseTab(tab.id);
-            }}
-            aria-label={t("tabBar.close_tab")}
-          >
-            <X aria-hidden width={12} height={12} strokeWidth={2} />
-          </Button>
-        </RadixTooltip.Trigger>
-        <RadixTooltip.Portal>
-          <RadixTooltip.Content
-            className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
-            sideOffset={4}
-          >
-            {t("tabBar.close_tab")}
-          </RadixTooltip.Content>
-        </RadixTooltip.Portal>
-      </RadixTooltip.Root>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          onCloseTab(tab.id);
+        }}
+        aria-label={t("tabBar.close_tab")}
+        {...tooltipProps(t("tabBar.close_tab"), shortcutFor(COMMANDS.tabClose))}
+      >
+        <X aria-hidden width={12} height={12} strokeWidth={2} />
+      </Button>
     </div>
   );
 }
