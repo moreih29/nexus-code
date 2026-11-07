@@ -12,6 +12,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { type LspLogTarget, useLspLogViewerStore } from "../../state/stores/lsp-log-viewer";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
+import { DialogCloseButton } from "../ui/dialog-close-button";
 
 /** How often the open dialog asks for entries logged since. */
 const LOG_POLL_MS = 1_000;
@@ -113,15 +114,18 @@ function LspLogDialog({
         <RadixDialog.Title className="text-app-body-emphasis text-foreground truncate">
           {t("lsp.logTitle", { language, workspace })}
         </RadixDialog.Title>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={entries.length === 0}
-          onClick={() => void navigator.clipboard.writeText(entries.map(formatEntry).join("\n"))}
-        >
-          {t("lsp.copyLog")}
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={entries.length === 0}
+            onClick={() => void navigator.clipboard.writeText(entries.map(formatEntry).join("\n"))}
+          >
+            {t("lsp.copyLog")}
+          </Button>
+          <DialogCloseButton />
+        </div>
       </div>
       <div
         ref={listRef}
