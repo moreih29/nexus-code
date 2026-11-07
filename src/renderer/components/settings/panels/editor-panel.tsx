@@ -1,32 +1,22 @@
 // src/renderer/components/settings/panels/editor-panel.tsx
 //
-// Controls:
-//   - Font size: numeric input + ▲▼ stepper (12–32, step 1)
-//   - Font family: token-sealed Select + custom-name input branch
-//   - Font ligatures: SettingsSwitch + live mini-preview that toggles `liga`
-//   - Line height: SegmentedControl (1.0 / 1.2 / 1.4), inline with its label
+// Two groups. The font: a live preview, then family (FontFamilyRow), size
+// (12–32 stepper), line height (1.0 / 1.2 / 1.4) and ligatures. Then the view
+// each format with a preview opens in (PreviewDefaultsSection).
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
 import type { EditorFontLineHeight, EditorFontSize } from "../../../state/stores/editor-font";
 import { useEditorFontStore } from "../../../state/stores/editor-font";
 import { NumberInput } from "../../ui/number-input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../ui/select";
-import { SettingsRow, SettingsSection, SettingsSwitch } from "../section";
-import { PreviewDefaultsSection } from "./preview-defaults-section";
+import { FontFamilyRow } from "../font-family-row";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
+import { PreviewDefaultsSection } from "./preview-defaults-section";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -39,18 +29,6 @@ const LINE_HEIGHT_OPTIONS: SegmentedOption<string>[] = [
   { value: "1", label: "1.0" },
   { value: "1.2", label: "1.2" },
   { value: "1.4", label: "1.4" },
-];
-
-// Sentinel for "use the platform fallback (no override)". Stored as the
-// explicit "__system__" string in the Select UI because Radix Select reserves
-// the empty string for "no value selected". Mapped back to undefined at the
-// boundary.
-const FAMILY_SYSTEM_VALUE = "__system__";
-
-const PRESET_FONT_FAMILIES = [
-  { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
-  { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
-  { value: "Sarasa Term K", label: "Sarasa Term K" },
 ];
 
 const DEFAULT_FONT_SIZE_TOKEN = 16; // codeBody fallback
@@ -87,16 +65,6 @@ export function EditorPanel() {
   const setLigatures = useEditorFontStore((s) => s.setLigatures);
   const setLineHeight = useEditorFontStore((s) => s.setLineHeight);
 
-  // Build translated font family options inside the component so i18n is active.
-  const fontFamilyOptions = useMemo(
-    () => [
-      ...PRESET_FONT_FAMILIES,
-      { value: FAMILY_SYSTEM_VALUE, label: t("editor.fontFamilySystem") },
-      { value: "__custom__", label: t("editor.fontFamilyOther") },
-    ],
-    [t],
-  );
-
   const effectiveSize = size ?? DEFAULT_FONT_SIZE_TOKEN;
   // For preview we want the *literal* user choice to render. If family is
   // undefined ("System" in the select), fall back to plain ui-monospace so
@@ -106,172 +74,62 @@ export function EditorPanel() {
   const effectiveLineHeight = lineHeight ?? DEFAULT_LINE_HEIGHT_TOKEN;
   const effectiveLigatures = ligatures ?? false;
 
-  // Determine whether the current family is a preset or custom.
-  const isCustomFamily =
-    family !== undefined &&
-    family !== "" &&
-    !fontFamilyOptions.some((f) => f.value === family && f.value !== "__custom__");
-  const [familySelect, setFamilySelect] = useState<string>(
-    isCustomFamily
-      ? "__custom__"
-      : family && family !== ""
-        ? family
-        : FAMILY_SYSTEM_VALUE,
-  );
-  const [customFamilyInput, setCustomFamilyInput] = useState<string>(
-    isCustomFamily ? (family ?? "") : "",
-  );
-
-  // Font availability check for custom family. `null` = no check yet; `true` =
-  // detected on the system; `false` = browser fell back (font not installed
-  // or name typo). We show the result as a strongly-worded status line so
-  // users don't mistake the silent fallback for a successful apply.
-  const [fontAvailable, setFontAvailable] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (familySelect !== "__custom__") {
-      setFontAvailable(null);
-      return;
-    }
-    const trimmed = customFamilyInput.trim();
-    if (!trimmed) {
-      setFontAvailable(null);
-      return;
-    }
-    setFontAvailable(checkFontAvailable(trimmed));
-  }, [familySelect, customFamilyInput]);
-
-  const handleFamilySelectChange = useCallback(
-    (val: string) => {
-      setFamilySelect(val);
-      if (val !== "__custom__") {
-        setFamily(val === FAMILY_SYSTEM_VALUE ? undefined : val);
-        setCustomFamilyInput("");
-        setFontAvailable(null);
-      }
-    },
-    [setFamily],
-  );
-
-  const handleCustomFamilyChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value;
-      setCustomFamilyInput(val);
-      setFamily(val.trim() === "" ? undefined : val.trim());
-    },
-    [setFamily],
-  );
-
-  const customFamilyId = useId();
-
-  // Reset helpers — clearing each field returns it to undefined (token fallback).
-  const resetFamily = () => {
-    setFamily(undefined);
-    setFamilySelect(FAMILY_SYSTEM_VALUE);
-    setCustomFamilyInput("");
-  };
-
   return (
-    <div className="flex flex-col gap-5">
-      {/* Persistent preview — reflects every editor setting in real time so
-          the user can judge their choices before closing the dialog. */}
-      <EditorPreview
-        label={t("editor.preview")}
-        fontFamily={previewFamilyStack}
-        fontSize={effectiveSize}
-        lineHeight={effectiveLineHeight}
-        ligatures={effectiveLigatures}
-      />
-
-      {/* Font size — compact stepper on the right of its label */}
-      <SettingsRow
-        label={t("editor.fontSize")}
-        dirty={size !== undefined}
-        onReset={() => setSize(undefined)}
-      >
-        <NumberInput
-          value={effectiveSize}
-          onChange={(n) => setSize(n as EditorFontSize)}
-          min={FONT_SIZE_MIN}
-          max={FONT_SIZE_MAX}
-          step={1}
-          suffix="px"
-          ariaLabel={t("editor.ariaFontSize")}
+    <SettingsPage>
+      <SettingsGroup title={t("editor.font")}>
+        {/* Persistent preview — reflects every editor setting in real time so
+            the user can judge their choices before closing the dialog. */}
+        <EditorPreview
+          fontFamily={previewFamilyStack}
+          fontSize={effectiveSize}
+          lineHeight={effectiveLineHeight}
+          ligatures={effectiveLigatures}
         />
-      </SettingsRow>
 
-      {/* Line height — also compact on the right */}
-      <SettingsRow
-        label={t("editor.lineHeight")}
-        dirty={lineHeight !== undefined}
-        onReset={() => setLineHeight(undefined)}
-      >
-        <SegmentedControl
-          options={LINE_HEIGHT_OPTIONS}
-          value={lineHeightToValue(lineHeight)}
-          onChange={(v) => setLineHeight(valueToLineHeight(v))}
+        <FontFamilyRow scope="editor" family={family} setFamily={setFamily} />
+
+        <SettingsRow
+          label={t("editor.fontSize")}
+          dirty={size !== undefined}
+          onReset={() => setSize(undefined)}
+        >
+          <NumberInput
+            value={effectiveSize}
+            onChange={(n) => setSize(n as EditorFontSize)}
+            min={FONT_SIZE_MIN}
+            max={FONT_SIZE_MAX}
+            step={1}
+            suffix="px"
+            ariaLabel={t("editor.ariaFontSize")}
+          />
+        </SettingsRow>
+
+        <SettingsRow
           label={t("editor.lineHeight")}
+          dirty={lineHeight !== undefined}
+          onReset={() => setLineHeight(undefined)}
+        >
+          <SegmentedControl
+            options={LINE_HEIGHT_OPTIONS}
+            value={lineHeightToValue(lineHeight)}
+            onChange={(v) => setLineHeight(valueToLineHeight(v))}
+            label={t("editor.lineHeight")}
+          />
+        </SettingsRow>
+
+        <SettingsSwitch
+          label={t("editor.fontLigatures")}
+          description={t("editor.ligatures.description")}
+          checked={effectiveLigatures}
+          onChange={setLigatures}
+          dirty={ligatures !== undefined}
+          onReset={() => setLigatures(undefined)}
         />
-      </SettingsRow>
-
-      {/* Font family — full-width Select */}
-      <SettingsSection
-        label={t("editor.fontFamily")}
-        dirty={family !== undefined}
-        onReset={resetFamily}
-      >
-        <Select value={familySelect} onValueChange={handleFamilySelectChange}>
-          <SelectTrigger ariaLabel={t("editor.ariaFontFamily")}>
-            <SelectValue placeholder={t("editor.fontFamilyPlaceholder")} />
-          </SelectTrigger>
-          <SelectContent>
-            {fontFamilyOptions.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {familySelect === "__custom__" && (
-          <div className="flex flex-col gap-1 mt-1">
-            <input
-              id={customFamilyId}
-              type="text"
-              value={customFamilyInput}
-              onChange={handleCustomFamilyChange}
-              placeholder={t("editor.customFamilyPlaceholder")}
-              className={cn(
-                "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-                "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-                "focus-visible:ring-1 focus-visible:ring-ring",
-              )}
-            />
-            {fontAvailable === true && (
-              <span className="text-app-ui-sm text-muted-foreground">
-                {t("editor.fontDetected")}
-              </span>
-            )}
-            {fontAvailable === false && (
-              <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
-                {t("editor.fontNotFound")}
-              </span>
-            )}
-          </div>
-        )}
-      </SettingsSection>
-
-      <SettingsSwitch
-        label={t("editor.fontLigatures")}
-        description={t("editor.ligatures.description")}
-        checked={effectiveLigatures}
-        onChange={setLigatures}
-        dirty={ligatures !== undefined}
-        onReset={() => setLigatures(undefined)}
-      />
+      </SettingsGroup>
 
       {/* The view each format with a preview opens in */}
       <PreviewDefaultsSection />
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -294,50 +152,45 @@ const PREVIEW_CODE = `const fn = (x) => x !== 0;
 return \`Hi, \${name}!\`;`;
 
 function EditorPreview({
-  label,
   fontFamily,
   fontSize,
   lineHeight,
   ligatures,
 }: {
-  label: string;
   fontFamily: string;
   fontSize: number;
   lineHeight: number;
   ligatures: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-      <div
-        className={cn(
-          "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
-          // Clip overflow at the largest font sizes — the snippet is sized so
-          // it fits at 32px, but exotic fonts may render slightly wider.
-          // `text-wrap` instead of `whitespace-pre` lets long lines fold
-          // gracefully if anything does overflow, without the horizontal
-          // scrollbar leaking into the dialog.
-          "overflow-hidden",
-        )}
-        style={{
-          // `<pre>` carries a user-agent `font-family: monospace` rule that
-          // overrides any inline fontFamily inherited from a parent — so the
-          // preview used to look identical regardless of the family/ligature
-          // pick. We render the snippet on a plain <div> with white-space:pre
-          // instead; family + feature-settings now flow through. Quoting the
-          // first family token guards multi-word custom names like
-          // "Fira Code" / "D2 Coding" against the legacy unquoted parsing
-          // that splits on whitespace.
-          fontFamily: `"${fontFamily}", ui-monospace, monospace`,
-          fontSize,
-          lineHeight,
-          fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        {PREVIEW_CODE}
-      </div>
+    <div
+      className={cn(
+        "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
+        // Clip overflow at the largest font sizes — the snippet is sized so
+        // it fits at 32px, but exotic fonts may render slightly wider.
+        // `text-wrap` instead of `whitespace-pre` lets long lines fold
+        // gracefully if anything does overflow, without the horizontal
+        // scrollbar leaking into the dialog.
+        "overflow-hidden",
+      )}
+      style={{
+        // `<pre>` carries a user-agent `font-family: monospace` rule that
+        // overrides any inline fontFamily inherited from a parent — so the
+        // preview used to look identical regardless of the family/ligature
+        // pick. We render the snippet on a plain <div> with white-space:pre
+        // instead; family + feature-settings now flow through. Quoting the
+        // first family token guards multi-word custom names like
+        // "Fira Code" / "D2 Coding" against the legacy unquoted parsing
+        // that splits on whitespace.
+        fontFamily: `"${fontFamily}", ui-monospace, monospace`,
+        fontSize,
+        lineHeight,
+        fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}
+    >
+      {PREVIEW_CODE}
     </div>
   );
 }

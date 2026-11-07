@@ -1,6 +1,6 @@
 // The agents a new task can open with, as segmented-control options: Claude's
 // and Codex's own marks, and a terminal icon for "Terminal only", which opens
-// a shell with no agent. Shared by the New Task dialog and Settings › Terminal.
+// a shell with no agent. Shared by the New Task dialog and Settings › Agents.
 
 import i18next from "i18next";
 import { SquareTerminal } from "lucide-react";

@@ -46,7 +46,7 @@ const BUTTON_PICK_MS = 10 * 60_000;
 
 const DISABLED: CliResult = {
   stdout: "",
-  stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agent CLI)\n",
+  stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agents)\n",
   exitCode: 1,
 };
 const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
@@ -74,7 +74,7 @@ export interface SetupCliFeatureOptions {
   activeContext: ActiveContextStore;
   appVersion: string;
   notificationsEnabled: () => boolean;
-  /** The Agent CLI settings, read on every command. */
+  /** The nexus settings (Settings › Agents), read on every command. */
   settings: () => {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;

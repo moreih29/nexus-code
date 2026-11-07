@@ -1,32 +1,30 @@
 // src/renderer/components/settings/panels/appearance-panel.tsx
 //
-// Controls: Language (SegmentedControl) + Icon Theme (SegmentedControl) +
-// Theme (grid of visual theme cards) + Window Opacity (slider 0–100%).
+// Three groups: language and icon theme; the theme, a card each; the window
+// (opacity, inactive panel dimming), a slider each.
 //
 // Language picker: endonym labels (English / 한국어), live via
-// useLanguageStore.setPreference. Options threshold: ≤4 → SegmentedControl,
-// >4 → token-sealed Select (future-proof branch). Reset omitted — language
-// has no meaningful "default" (it follows OS locale on first boot, but the
-// user's explicit pick is the new baseline). Matching the reset pattern with
-// an arbitrary fallback to "en" would be a false affordance.
+// useLanguageStore.setPreference. Reset omitted — language has no meaningful
+// "default" (it follows OS locale on first boot, but the user's explicit pick
+// is the new baseline). Matching the reset pattern with an arbitrary fallback
+// to "en" would be a false affordance.
 //
-// Icon theme picker: "minimal" | "material" — exactly 2 options → SegmentedControl.
-// Option display names ("Minimal"/"Material") are proper nouns and are not
-// translated; only the section label and reset tooltip are localised.
-// Default is "minimal"; reset restores that value.
+// Icon theme picker: "minimal" | "material". Option display names are proper
+// nouns and are not translated. Default is "minimal"; reset restores that.
 //
 // Theme picker: each ThemeSource produces one card showing the theme's
-// dominant colors (bg + fg + accent + four syntax roles) so users select by
-// visual identity, not just by name. Selection commits immediately — the
-// resolved theme is applied via the [data-theme] attribute by useThemeEffect.
+// dominant colors (surfaces, accent, five syntax roles) and a few words on
+// it, so users select by visual identity, not just by name. Selection commits
+// immediately — the resolved theme is applied via the [data-theme] attribute
+// by useThemeEffect.
 //
 // Window opacity applies immediately via --window-opacity CSS var; the macOS
 // BrowserWindow is created with `transparent: true` unconditionally, and the
 // Windows 11 one with a system backdrop, so no restart is needed there. A Linux
 // window opens transparent only while the saved opacity is under 100%, so
-// lowering it there shows through after a restart; the section says so.
+// lowering it there shows through after a restart; the row says so.
 // Windows before 11 22H2 has no backdrop, so nothing shows through its
-// window: the slider is off there and the section says why.
+// window: the slider is off there and the row says why.
 //
 // Design seal: semantic tokens only on the chrome surrounding the cards.
 // The card swatches intentionally use raw theme colors (the swatches ARE the
@@ -53,7 +51,7 @@ import {
 } from "../../../state/stores/inactive-panel-dim";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
-import { SettingsSection } from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 
@@ -70,9 +68,8 @@ const OPACITY_STEP = 0.05;
 const DIM_STEP = 0.05;
 
 // Language options — endonym labels, fixed regardless of the active UI locale.
-// Rule: label is the language's own native name; never translated.
-// Threshold: ≤4 options → SegmentedControl, >4 → token-sealed Select.
-const LANGUAGE_SEGMENT_THRESHOLD = 4;
+// Rule: label is the language's own native name; never translated. A
+// SegmentedControl while there are few; past four, a Select would fit better.
 
 const LANGUAGE_OPTIONS: SegmentedOption<SupportedLanguage>[] = [
   { value: "en", label: "English" },
@@ -143,9 +140,6 @@ export function AppearancePanel() {
     setLocalDim(dim);
   }, [dim]);
 
-  const opacityPercent = Math.round(localOpacity * 100);
-  const dimPercent = Math.round(localDim * 100);
-
   const iconThemeDirty = iconThemePreference !== DEFAULT_ICON_THEME;
   const themeDirty = themePreference !== DEFAULT_THEME;
   const opacityDirty = opacity !== 1;
@@ -156,53 +150,39 @@ export function AppearancePanel() {
   const languageLabel = t("appearance.language");
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Section: Language — SegmentedControl (endonym labels, never translated).
-          Reset omitted: language has no well-defined "default" — the boot value
-          follows navigator.language, which is an OS approximation, not a stable
-          product default. Providing a reset button that silently falls back to
-          "en" would be a false affordance and potentially worse UX than doing
-          nothing. Design constraint documented in plan#65 issue8. */}
-      <SettingsSection label={languageLabel}>
-        {LANGUAGE_OPTIONS.length <= LANGUAGE_SEGMENT_THRESHOLD ? (
+    <SettingsPage>
+      <SettingsGroup>
+        {/* Language — endonym labels, never translated. No reset: the boot
+            value follows navigator.language, an OS approximation rather than
+            a product default, so a reset falling back to "en" would be a
+            false affordance (plan#65 issue8). */}
+        <SettingsRow label={languageLabel}>
           <SegmentedControl
             options={LANGUAGE_OPTIONS}
             value={languagePreference}
             onChange={(lang) => setLanguagePreference(lang)}
             label={languageLabel}
           />
-        ) : (
-          // Threshold guard: >4 languages → token-sealed Select would go here.
-          // Not yet reached — placeholder for future expansion.
-          <SegmentedControl
-            options={LANGUAGE_OPTIONS}
-            value={languagePreference}
-            onChange={(lang) => setLanguagePreference(lang)}
-            label={languageLabel}
-          />
-        )}
-      </SettingsSection>
+        </SettingsRow>
 
-      {/* Section: Icon Theme — SegmentedControl (Minimal / Material).
-          "Minimal" and "Material" are proper nouns and are not translated;
-          only the section label and reset tooltip are localised. Default
-          is "minimal". */}
-      <SettingsSection
-        label={t("appearance.iconTheme")}
-        dirty={iconThemeDirty}
-        onReset={() => setIconThemePreference(DEFAULT_ICON_THEME)}
-      >
-        <SegmentedControl
-          options={ICON_THEME_OPTIONS}
-          value={iconThemePreference}
-          onChange={(theme) => setIconThemePreference(theme)}
+        {/* Icon theme — "Minimal" and "Material" are proper nouns and are
+            not translated; only the label and reset tooltip are localised. */}
+        <SettingsRow
           label={t("appearance.iconTheme")}
-        />
-      </SettingsSection>
+          dirty={iconThemeDirty}
+          onReset={() => setIconThemePreference(DEFAULT_ICON_THEME)}
+        >
+          <SegmentedControl
+            options={ICON_THEME_OPTIONS}
+            value={iconThemePreference}
+            onChange={(theme) => setIconThemePreference(theme)}
+            label={t("appearance.iconTheme")}
+          />
+        </SettingsRow>
+      </SettingsGroup>
 
-      {/* Section: Theme — grid of visual cards */}
-      <SettingsSection
-        label={t("appearance.theme")}
+      <SettingsGroup
+        title={t("appearance.theme")}
         dirty={themeDirty}
         onReset={() => setThemePreference(DEFAULT_THEME)}
       >
@@ -220,104 +200,122 @@ export function AppearancePanel() {
             />
           ))}
         </RadioGroup.Root>
-      </SettingsSection>
+      </SettingsGroup>
 
-      {/* Section: Window Opacity */}
-      <SettingsSection
-        label={t("appearance.windowOpacity")}
-        dirty={opacityDirty}
-        onReset={() => setOpacity(1)}
-      >
-        <div className="flex items-center gap-3">
-          <Slider.Root
+      <SettingsGroup title={t("appearance.window")}>
+        <SettingsRow
+          label={t("appearance.windowOpacity")}
+          description={
+            opacityUnsupported
+              ? t("appearance.windowOpacityUnsupported")
+              : opacityNeedsRestart
+                ? t("appearance.windowOpacityRestart")
+                : undefined
+          }
+          dirty={opacityDirty}
+          onReset={() => setOpacity(1)}
+        >
+          <PercentSlider
+            label={t("appearance.windowOpacity")}
             min={OPACITY_MIN}
             max={OPACITY_MAX}
             step={OPACITY_STEP}
-            value={[localOpacity]}
-            onValueChange={(vals) => {
-              if (vals[0] !== undefined) {
-                setLocalOpacity(vals[0]);
-                // Preview live; each persisted write rewrites the whole app
-                // state file on the main process, so save once on commit.
-                setOpacity(vals[0], { persist: false });
-              }
-            }}
-            onValueCommit={(vals) => {
-              if (vals[0] !== undefined) setOpacity(vals[0]);
-            }}
+            value={localOpacity}
             disabled={opacityUnsupported}
-            aria-label={t("appearance.windowOpacity")}
-            className="relative flex flex-1 touch-none select-none items-center data-[disabled]:opacity-50"
-          >
-            <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
-              <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
-            </Slider.Track>
-            <Slider.Thumb
-              className={cn(
-                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                "transition-colors",
-              )}
-            />
-          </Slider.Root>
-          <span className="w-10 text-right text-app-ui-sm text-muted-foreground tabular-nums">
-            {opacityPercent}%
-          </span>
-        </div>
-        {opacityNeedsRestart && (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("appearance.windowOpacityRestart")}
-          </p>
-        )}
-        {opacityUnsupported && (
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("appearance.windowOpacityUnsupported")}
-          </p>
-        )}
-      </SettingsSection>
+            onPreview={(value) => {
+              setLocalOpacity(value);
+              // Preview live; each persisted write rewrites the whole app
+              // state file on the main process, so save once on commit.
+              setOpacity(value, { persist: false });
+            }}
+            onCommit={(value) => setOpacity(value)}
+          />
+        </SettingsRow>
 
-      {/* Section: Inactive Panel Dimming — multiplier on the theme's veil alpha.
-          100% = theme default, 0% = no dim, up to 200% = double. Applies
-          immediately via --inactive-panel-dim CSS var (no restart). */}
-      <SettingsSection
-        label={t("appearance.inactivePanelDim")}
-        dirty={dimDirty}
-        onReset={() => setDim(INACTIVE_PANEL_DIM_DEFAULT)}
-      >
-        <div className="flex items-center gap-3">
-          <Slider.Root
+        {/* Inactive panel dimming — multiplier on the theme's veil alpha.
+            100% = theme default, 0% = no dim, up to 200% = double. Applies
+            immediately via --inactive-panel-dim CSS var (no restart). */}
+        <SettingsRow
+          label={t("appearance.inactivePanelDim")}
+          dirty={dimDirty}
+          onReset={() => setDim(INACTIVE_PANEL_DIM_DEFAULT)}
+        >
+          <PercentSlider
+            label={t("appearance.inactivePanelDim")}
             min={INACTIVE_PANEL_DIM_MIN}
             max={INACTIVE_PANEL_DIM_MAX}
             step={DIM_STEP}
-            value={[localDim]}
-            onValueChange={(vals) => {
-              if (vals[0] !== undefined) {
-                setLocalDim(vals[0]);
-                setDim(vals[0], { persist: false });
-              }
+            value={localDim}
+            onPreview={(value) => {
+              setLocalDim(value);
+              setDim(value, { persist: false });
             }}
-            onValueCommit={(vals) => {
-              if (vals[0] !== undefined) setDim(vals[0]);
-            }}
-            aria-label={t("appearance.inactivePanelDim")}
-            className="relative flex flex-1 touch-none select-none items-center"
-          >
-            <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
-              <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
-            </Slider.Track>
-            <Slider.Thumb
-              className={cn(
-                "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                "transition-colors",
-              )}
-            />
-          </Slider.Root>
-          <span className="w-10 text-right text-app-ui-sm text-muted-foreground tabular-nums">
-            {dimPercent}%
-          </span>
-        </div>
-      </SettingsSection>
+            onCommit={(value) => setDim(value)}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+    </SettingsPage>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PercentSlider — a slider with its value in percent beside it
+// ---------------------------------------------------------------------------
+
+interface PercentSliderProps {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  disabled?: boolean;
+  /** Every drag tick: shown at once, not saved. */
+  onPreview: (value: number) => void;
+  /** Where the drag ends: saved. */
+  onCommit: (value: number) => void;
+}
+
+function PercentSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  disabled,
+  onPreview,
+  onCommit,
+}: PercentSliderProps) {
+  return (
+    <div className="flex w-56 items-center gap-3">
+      <Slider.Root
+        min={min}
+        max={max}
+        step={step}
+        value={[value]}
+        onValueChange={(vals) => {
+          if (vals[0] !== undefined) onPreview(vals[0]);
+        }}
+        onValueCommit={(vals) => {
+          if (vals[0] !== undefined) onCommit(vals[0]);
+        }}
+        disabled={disabled}
+        aria-label={label}
+        className="relative flex flex-1 touch-none select-none items-center data-[disabled]:opacity-50"
+      >
+        <Slider.Track className="relative h-1 w-full grow rounded-(--radius-control) bg-muted border border-border">
+          <Slider.Range className="absolute h-full rounded-(--radius-control) bg-[var(--state-selected-bg)]" />
+        </Slider.Track>
+        <Slider.Thumb
+          className={cn(
+            "block size-4 rounded-full border border-[var(--state-selected-bg)] bg-[var(--state-selected-bg)]",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "transition-colors",
+          )}
+        />
+      </Slider.Root>
+      <span className="w-10 text-right text-app-ui-sm text-muted-foreground tabular-nums">
+        {Math.round(value * 100)}%
+      </span>
     </div>
   );
 }
@@ -326,7 +324,8 @@ export function AppearancePanel() {
 // ThemeCard — visual preview + name. Click anywhere on the card to select.
 //
 // The card itself paints with the theme's own surface colors so each card is
-// a faithful preview of "what the app will look like if I pick this".
+// a faithful preview of "what the app will look like if I pick this": its
+// chrome and syntax colours in one row of swatches, and a few words on it.
 // ---------------------------------------------------------------------------
 
 interface ThemeCardProps {
@@ -336,17 +335,13 @@ interface ThemeCardProps {
 
 function ThemeCard({ source, selected }: ThemeCardProps) {
   const { t } = useTranslation("settings");
-  // Two rows of swatches paint the theme's own colours:
-  //   row 1 — surface chrome:  bg.primary, bg.secondary, bg.floating, fg.muted, accent
-  //   row 2 — syntax accents:  keyword, string, number, function, type
-  const surfaceSwatches: { value: string; label: string }[] = [
+  // Surface chrome first, then the syntax accents.
+  const swatches: { value: string; label: string }[] = [
     { value: source.bg.primary, label: "bg" },
     { value: source.bg.secondary, label: "panel" },
     { value: source.bg.floating, label: "float" },
     { value: source.fg.muted, label: "muted" },
     { value: source.accent, label: "accent" },
-  ];
-  const syntaxSwatches: { value: string; label: string }[] = [
     { value: source.syntax.keyword, label: "keyword" },
     { value: source.syntax.string, label: "string" },
     { value: source.syntax.number, label: "number" },
@@ -388,60 +383,28 @@ function ThemeCard({ source, selected }: ThemeCardProps) {
         </span>
       </div>
 
-      {/* Surface swatch row */}
       <div className="flex gap-1 px-3 pt-2">
-        {surfaceSwatches.map((s) => (
-          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} large />
+        {swatches.map((s) => (
+          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} />
         ))}
       </div>
 
-      {/* Syntax swatch row */}
-      <div className="flex gap-1 px-3 pt-1.5">
-        {syntaxSwatches.map((s) => (
-          <Swatch key={s.label} value={s.value} title={`${s.label}: ${s.value}`} large />
-        ))}
-      </div>
-
-      {/* Tiny code preview — three lines, hand-coloured so each card actually
-          shows keyword / string / function / comment hues in context. */}
       <div
-        className="mt-2 px-3 pb-2.5 font-mono text-app-micro leading-tight"
-        style={{ color: source.fg.primary }}
+        className="truncate px-3 pt-1.5 pb-2.5 text-app-micro"
+        style={{ color: source.fg.muted }}
       >
-        <div>
-          <span style={{ color: source.syntax.comment, fontStyle: "italic" }}>
-            {"// "}{t(`appearance.themeDescription.${source.id}`)}
-          </span>
-        </div>
-        <div className="truncate">
-          <span style={{ color: source.syntax.keyword }}>const</span>{" "}
-          <span style={{ color: source.syntax.variable }}>theme</span>{" "}
-          <span style={{ color: source.syntax.operator }}>=</span>{" "}
-          <span style={{ color: source.syntax.function }}>load</span>
-          <span style={{ color: source.syntax.operator }}>(</span>
-          <span style={{ color: source.syntax.string }}>{`"${source.id}"`}</span>
-          <span style={{ color: source.syntax.operator }}>);</span>
-        </div>
+        {t(`appearance.themeDescription.${source.id}`)}
       </div>
     </RadioGroup.Item>
   );
 }
 
-interface SwatchProps {
-  value: string;
-  title: string;
-  large?: boolean;
-}
-
-function Swatch({ value, title, large }: SwatchProps) {
+function Swatch({ value, title }: { value: string; title: string }) {
   return (
     <span
       title={title}
       aria-hidden
-      className={cn(
-        "block rounded-[3px] border border-black/10 dark:border-white/10",
-        large ? "h-4 flex-1" : "size-3",
-      )}
+      className="block h-3 flex-1 rounded-[3px] border border-black/10 dark:border-white/10"
       style={{ background: value }}
     />
   );

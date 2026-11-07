@@ -1,6 +1,6 @@
 /**
  * Whether nexus may change a workspace other than its terminal's own. The
- * Agent CLI setting answers, or, set to "ask", the user does: for this once,
+ * Agents setting answers, or, set to "ask", the user does: for this once,
  * or for that pair of workspaces until the app restarts.
  */
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
@@ -36,7 +36,7 @@ export class CrossWorkspaceConsent {
     if (policy === "allow") return;
     if (policy === "deny") {
       throw new CliError(
-        "changing other workspaces is turned off in NexusCode's settings (Agent CLI)",
+        "changing other workspaces is turned off in NexusCode's settings (Agents)",
       );
     }
     const pair = `${request.fromWorkspaceId}>${request.toWorkspaceId}`;
