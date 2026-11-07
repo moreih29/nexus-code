@@ -22,6 +22,7 @@ import {
   resolveFileLink,
   resultFiles,
 } from "../../services/chat/links";
+import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import {
   fileLinkTarget,
@@ -252,6 +253,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
 
   // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
+  // A tab put out of sight takes its quick look with it.
+  useEffect(() => {
+    if (!isVisible) setLook(null);
+  }, [isVisible]);
   // The previews may read what the tab links outside the workspace, while it is open.
   const [looked, setLooked] = useState<readonly string[]>([]);
   const outside = useMemo(() => {
@@ -524,6 +529,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
         <QuickLook
           workspaceId={workspaceId}
           list={look}
+          area={lookAreaOf(rootRef.current)}
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}

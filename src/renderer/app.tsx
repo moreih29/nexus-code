@@ -32,6 +32,7 @@ import { useInactivePanelDimEffect } from "./hooks/use-inactive-panel-dim-effect
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
+import { LOOK_AREA_ATTR } from "./services/chat/look-area";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
@@ -463,7 +464,11 @@ export function App() {
             />
           )}
           {!filesPanelHidden && !agentView && <FilesPanel />}
-          <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
+          {/* The panels, where quick look shows over them. */}
+          <div
+            className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden"
+            {...{ [LOOK_AREA_ATTR]: "" }}
+          >
             {workspaces.length === 0 && !agentView && (
               <div className="flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
                 <WelcomeScreen onAddWorkspace={handleAddWorkspace} />

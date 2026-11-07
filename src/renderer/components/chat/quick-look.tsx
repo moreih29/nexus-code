@@ -1,7 +1,9 @@
-// Quick look: a file the conversation names, shown over the Claude tab in
-// the app's previews, with the session's other results a step away.
-// ‹ › and ← → step through them, ↗ opens the file as a tab, esc closes.
-// A file the session changed shows as a diff, and can be reverted.
+// Quick look: a file the conversation names, shown in the app's previews
+// over the panels, with the session's other results a step away. The
+// sidebar and the title bar stay in sight, with what other agents ask.
+// ‹ › and ← → step through them, ↗ opens the file as a tab, esc closes, as
+// does clicking beside it or going elsewhere. A file the session changed
+// shows as a diff, and can be reverted.
 
 import Editor from "@monaco-editor/react";
 import {
@@ -15,6 +17,7 @@ import {
 } from "lucide-react";
 import type * as Monaco from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
@@ -34,6 +37,7 @@ import {
   type ViewMode,
 } from "../../services/editor/preview/previewable";
 import { isSpreadsheetFile } from "../../services/editor/preview/spreadsheet";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
@@ -67,9 +71,15 @@ export interface QuickLookList {
   at?: { path: string; line: number; column?: number };
 }
 
+/** Overlays that open from quick look, as the revert confirmation, and keep it open. */
+const FROM_LOOK =
+  '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]';
+
 interface QuickLookProps {
   workspaceId: string;
   list: QuickLookList;
+  /** Where it shows (lookAreaOf); over the tab when null. */
+  area: HTMLElement | null;
   onIndex: (index: number) => void;
   onClose: () => void;
   /** Opens the file as a tab of its own, at the line a link named in it. */
@@ -85,6 +95,7 @@ interface QuickLookProps {
 export function QuickLook({
   workspaceId,
   list,
+  area,
   onIndex,
   onClose,
   onOpenTab,
@@ -121,13 +132,31 @@ export function QuickLook({
   }
   const showDiff = diff && changed;
 
-  // The keys go to the overlay while it is open; the focus goes back after.
+  // The keys go to the overlay while it is open; the focus goes back after,
+  // unless it went elsewhere, which closed it.
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
-    rootRef.current?.focus();
-    return () => before?.focus?.();
+    const root = rootRef.current;
+    root?.focus();
+    return () => {
+      const now = document.activeElement;
+      if (!now || now === document.body || root?.contains(now)) before?.focus?.();
+    };
   }, []);
+
+  // Going elsewhere closes it: to the workspaces or the agents, or to
+  // another tab or agent, as a shortcut or a click in the sidebar does.
+  const view = useAgentViewStore((s) => s.mode);
+  const openedIn = useRef(view);
+  useEffect(() => {
+    if (view !== openedIn.current) onClose();
+  }, [view, onClose]);
+  const onBlur = (event: React.FocusEvent) => {
+    const next = event.relatedTarget as Element | null;
+    if (!next || rootRef.current?.contains(next) || next.closest(FROM_LOOK)) return;
+    onClose();
+  };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -148,7 +177,7 @@ export function QuickLook({
   const icon =
     "inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
 
-  return (
+  const dialog = (
     <div
       ref={rootRef}
       role="dialog"
@@ -156,7 +185,8 @@ export function QuickLook({
       aria-label={t("chat.look.aria", { name: baseName(path) })}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      className="absolute inset-0 z-40 flex flex-col bg-background outline-none"
+      onBlur={onBlur}
+      className="absolute inset-4 flex flex-col overflow-hidden rounded-(--radius-island) border border-[var(--surface-floating-border)] bg-background outline-none"
       data-testid="chat-quick-look"
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
@@ -269,6 +299,22 @@ export function QuickLook({
       </div>
     </div>
   );
+  const layer = (
+    <div className="absolute inset-0 z-40">
+      <div
+        aria-hidden
+        className="absolute inset-0 bg-[var(--floating-scrim)]"
+        onMouseDown={(event) => {
+          // The focus goes back where it was, not to the page.
+          event.preventDefault();
+          onClose();
+        }}
+        data-testid="chat-quick-look-scrim"
+      />
+      {dialog}
+    </div>
+  );
+  return area ? createPortal(layer, area) : layer;
 }
 
 /** Whether a file is shown as text: everything the binary viewers do not take. */

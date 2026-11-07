@@ -24,6 +24,7 @@ import {
   resolveFileLink,
   resultFiles,
 } from "../../services/chat/links";
+import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
@@ -115,6 +116,10 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
+  // A tab put out of sight takes its quick look with it.
+  useEffect(() => {
+    if (!isVisible) setLook(null);
+  }, [isVisible]);
   const [looked, setLooked] = useState<readonly string[]>([]);
   const outside = useMemo(
     () => outsideLinksOf(state.model.items, state.model.tools, props.cwd, rootPath, looked),
@@ -270,6 +275,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         <QuickLook
           workspaceId={workspaceId}
           list={look}
+          area={lookAreaOf(rootRef.current)}
           local={isLocal}
           onIndex={(index) => setLook({ ...look, index })}
           onClose={() => setLook(null)}
