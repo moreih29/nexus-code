@@ -3,11 +3,13 @@
 // Browser Permissions settings panel.
 //
 // (a) Global toggle section — lets the user pre-approve permission kinds for
-//     all workspaces.  Tier A items are always visible; Tier B items are
-//     collapsed under an "Advanced" disclosure.
+//     all workspaces, a line each (what one lets a site do shows on hover).
+//     Tier A items are always visible; Tier B items are collapsed under an
+//     "Advanced" disclosure.
 //
 // (b) Site memory section — lists previously remembered per-origin permission
-//     decisions with a segmented-control filter (current workspace / all).
+//     decisions with a segmented-control filter (current workspace / all)
+//     beside its label.
 //     Each row shows the origin, permission badges, and a revoke button.
 //
 // Design: semantic tokens only (no hex/rgba/oklch literals, no box-shadow).
@@ -42,9 +44,9 @@ import { useActiveStore } from "../../../state/stores/active";
 import { useBrowserPermissionsStore } from "../../../state/stores/browser-permissions";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
-import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { Switch } from "../../ui/switch";
+import { SettingsGroup, SettingsPage } from "../section";
 import { SegmentedControl } from "../segmented-control";
 
 const log = createLogger("browser-permissions");
@@ -226,21 +228,15 @@ export function BrowserPermissionsPanel() {
   })();
 
   return (
-    <div className="flex flex-col gap-6">
+    <SettingsPage>
       {/* ------------------------------------------------------------------ */}
       {/* (a) Global toggle section                                            */}
       {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="global-toggles-heading">
-        <div className="flex flex-col gap-1 mb-3">
-          <h2 id="global-toggles-heading" className="text-app-body-emphasis text-foreground">
-            {t("browserPermissions.globalHeading")}
-          </h2>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("browserPermissions.globalDescription")}
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-1">
+      <SettingsGroup
+        title={t("browserPermissions.globalHeading")}
+        description={t("browserPermissions.globalDescription")}
+      >
+        <div className="flex flex-col gap-2.5">
           {tierAToggles.map((toggle) => (
             <PermissionToggleRow
               key={toggle.key}
@@ -249,56 +245,46 @@ export function BrowserPermissionsPanel() {
               onToggle={(enabled) => setGrant(toggle.permissions, enabled)}
             />
           ))}
-
-          {/* Tier B — collapsible */}
-          <details className="group">
-            <summary
-              className={cn(
-                "flex items-center gap-1.5 px-1 py-1.5 cursor-pointer select-none",
-                "text-app-ui-sm text-muted-foreground",
-                "hover:text-foreground",
-                "list-none", // remove native triangle
-              )}
-            >
-              <span
-                className="inline-block transition-transform group-open:rotate-90"
-                aria-hidden="true"
-              >
-                ›
-              </span>
-              {t("browserPermissions.advanced")}
-            </summary>
-            <div className="flex flex-col gap-1 mt-1">
-              {tierBToggles.map((toggle) => (
-                <PermissionToggleRow
-                  key={toggle.key}
-                  toggle={toggle}
-                  enabled={toggle.permissions.every((p) => grants[p] === true)}
-                  onToggle={(enabled) => setGrant(toggle.permissions, enabled)}
-                />
-              ))}
-            </div>
-          </details>
         </div>
-      </section>
 
-      {/* Divider */}
-      <hr className="border-t border-border" />
+        {/* Tier B — collapsible */}
+        <details className="group">
+          <summary
+            className={cn(
+              "flex w-fit items-center gap-1.5 cursor-pointer select-none",
+              "text-app-ui-sm text-muted-foreground",
+              "hover:text-foreground",
+              "list-none", // remove native triangle
+            )}
+          >
+            <span
+              className="inline-block transition-transform group-open:rotate-90"
+              aria-hidden="true"
+            >
+              ›
+            </span>
+            {t("browserPermissions.advancedCount", { count: tierBToggles.length })}
+          </summary>
+          <div className="mt-2.5 flex flex-col gap-2.5">
+            {tierBToggles.map((toggle) => (
+              <PermissionToggleRow
+                key={toggle.key}
+                toggle={toggle}
+                enabled={toggle.permissions.every((p) => grants[p] === true)}
+                onToggle={(enabled) => setGrant(toggle.permissions, enabled)}
+              />
+            ))}
+          </div>
+        </details>
+      </SettingsGroup>
 
       {/* ------------------------------------------------------------------ */}
       {/* (b) Site memory section                                              */}
       {/* ------------------------------------------------------------------ */}
-      <section aria-labelledby="site-memory-heading">
-        <div className="flex flex-col gap-3 mb-3">
-          <div className="flex flex-col gap-1">
-            <h2 id="site-memory-heading" className="text-app-body-emphasis text-foreground">
-              {t("browserPermissions.siteMemoryHeading")}
-            </h2>
-            <p className="text-app-ui-sm text-muted-foreground">
-              {t("browserPermissions.siteMemoryDescription")}
-            </p>
-          </div>
-
+      <SettingsGroup
+        title={t("browserPermissions.siteMemoryHeading")}
+        description={t("browserPermissions.siteMemoryDescription")}
+        action={
           <SegmentedControl
             options={[
               { value: "current" as const, label: t("browserPermissions.scopeCurrent") },
@@ -310,8 +296,8 @@ export function BrowserPermissionsPanel() {
             disabled={!activeWorkspaceId && scopeTab === "current"}
             disabledReason={t("browserPermissions.noActiveWorkspace")}
           />
-        </div>
-
+        }
+      >
         {/* Loading skeleton */}
         {entries === null && !loadError && (
           <Skeleton label={t("browserPermissions.loadingPermissions")}>
@@ -322,16 +308,13 @@ export function BrowserPermissionsPanel() {
         )}
 
         {/* Error state */}
-        {loadError && <p className="text-app-ui-sm text-muted-foreground px-1">{loadError}</p>}
+        {loadError && <p className="text-app-ui-sm text-muted-foreground">{loadError}</p>}
 
-        {/* Empty state */}
+        {/* Empty state — a line, not a block: nothing to act on here */}
         {entries !== null && !loadError && entries.length === 0 && (
-          <EmptyState
-            icon={<ShieldCheck className="size-8" aria-hidden="true" />}
-            title={t("browserPermissions.noPermissionsTitle")}
-            description={t("browserPermissions.noPermissionsDescription")}
-            tone="status"
-          />
+          <p className="text-app-ui-sm text-muted-foreground">
+            {t("browserPermissions.noPermissionsTitle")}
+          </p>
         )}
 
         {/* Entry list */}
@@ -368,8 +351,8 @@ export function BrowserPermissionsPanel() {
             })}
           </div>
         )}
-      </section>
-    </div>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }
 
@@ -389,38 +372,24 @@ function PermissionToggleRow({ toggle, enabled, onToggle }: PermissionToggleRowP
   const IconComponent = ICON_MAP[toggle.icon];
   const i18nKey = TOGGLE_I18N_KEY[toggle.key];
   const label = i18nKey ? t(`browserPermissions.permission.${i18nKey}.label`) : toggle.label;
+  // What the permission lets a site do: on hover, the name says enough at a glance.
   const description = i18nKey
     ? t(`browserPermissions.permission.${i18nKey}.description`)
     : toggle.description;
 
   return (
-    <div
-      className={cn(
-        "flex items-start justify-between gap-4 rounded-(--radius-control) px-2 py-2",
-        "hover:bg-[var(--state-hover-bg)]",
-      )}
-    >
-      <div className="flex items-start gap-2.5 min-w-0">
+    <div className="flex items-center justify-between gap-4">
+      <label
+        htmlFor={switchId}
+        title={description}
+        className="flex min-w-0 items-center gap-2.5 cursor-pointer"
+      >
         {IconComponent && (
-          <IconComponent
-            className="size-4 shrink-0 text-muted-foreground mt-0.5"
-            aria-hidden="true"
-          />
+          <IconComponent className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         )}
-        <div className="flex flex-col gap-0.5 min-w-0">
-          <label htmlFor={switchId} className="text-app-body text-foreground cursor-pointer">
-            {label}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">{description}</p>
-        </div>
-      </div>
-      <Switch
-        id={switchId}
-        checked={enabled}
-        onCheckedChange={onToggle}
-        aria-label={label}
-        className="shrink-0 mt-0.5"
-      />
+        <span className="truncate text-app-body text-foreground">{label}</span>
+      </label>
+      <Switch id={switchId} checked={enabled} onCheckedChange={onToggle} className="shrink-0" />
     </div>
   );
 }

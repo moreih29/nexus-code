@@ -1,6 +1,6 @@
 /**
  * Whether nexus may change a workspace other than its terminal's own. The
- * Agent CLI setting answers, or, set to "ask", the user does: for this once,
+ * Agents setting answers, or, set to "ask", the user does: for this once,
  * or for that pair of workspaces until the app restarts.
  */
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
@@ -24,6 +24,25 @@ export interface ConsentDeps {
   ask(request: ChangeRequest, timeoutMs: number): Promise<CliConsentAnswer>;
 }
 
+/**
+ * Asks the user about `request` whatever the setting: for what is not to be
+ * allowed for good, as an answer to another session's permission request.
+ * Resolves when allowed; a CliError saying why when not.
+ */
+export async function askEachTime(request: ChangeRequest, ask: ConsentDeps["ask"]): Promise<void> {
+  const answer = await ask(request, CONSENT_TIMEOUT_MS);
+  if (answer === "once" || answer === "session") return;
+  throw refusal(answer);
+}
+
+function refusal(answer: CliConsentAnswer): CliError {
+  return new CliError(
+    answer === "timeout"
+      ? "the user did not answer in time; nothing was changed"
+      : "the user did not allow it",
+  );
+}
+
 export class CrossWorkspaceConsent {
   /** "from>to" pairs the user allowed until restart. */
   private readonly allowed = new Set<string>();
@@ -36,7 +55,7 @@ export class CrossWorkspaceConsent {
     if (policy === "allow") return;
     if (policy === "deny") {
       throw new CliError(
-        "changing other workspaces is turned off in NexusCode's settings (Agent CLI)",
+        "changing other workspaces is turned off in NexusCode's settings (Agents)",
       );
     }
     const pair = `${request.fromWorkspaceId}>${request.toWorkspaceId}`;
@@ -44,10 +63,6 @@ export class CrossWorkspaceConsent {
     const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
     if (answer === "session") this.allowed.add(pair);
     if (answer === "once" || answer === "session") return;
-    throw new CliError(
-      answer === "timeout"
-        ? "the user did not answer in time; nothing was changed"
-        : "the user did not allow it",
-    );
+    throw refusal(answer);
   }
 }

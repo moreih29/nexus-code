@@ -14,6 +14,11 @@ const log = createLogger("cli");
 export interface CliOutput {
   readonly text: string;
   readonly json: unknown;
+  /**
+   * The records --jsonl prints, a line each; by default the items of a
+   * `json` that is a list, else `json` alone.
+   */
+  readonly records?: readonly unknown[];
   readonly files?: readonly CliFile[];
   readonly exitCode?: number;
 }
@@ -75,7 +80,7 @@ export function overviewHelp(commands: readonly CliCommand[], group?: string): s
   const lines = [
     "nexus drives NexusCode from its terminals: workspaces, terminals, editors and the browser.",
     "",
-    "usage: nexus <command> [args] [--json]",
+    "usage: nexus <command> [args] [--json | --jsonl]",
     "",
     "commands:",
     ...shown.map((c, i) => `  ${(names[i] as string).padEnd(width)}  ${c.summary}`),
@@ -102,6 +107,12 @@ function findCommand(
 
 function result(stdout: string, stderr = "", exitCode = 0, files?: readonly CliFile[]): CliResult {
   return { stdout, stderr, exitCode, ...(files && files.length > 0 ? { files } : {}) };
+}
+
+/** An output as JSON Lines: its records, a line each. */
+function jsonLines(out: CliOutput): string {
+  const records = out.records ?? (Array.isArray(out.json) ? out.json : [out.json]);
+  return records.map((record) => `${JSON.stringify(record)}\n`).join("");
 }
 
 function withNewline(text: string): string {
@@ -135,7 +146,11 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
     if (parsed.flags.help === true) return result(commandHelp(command));
     const out = await command.run(ctx, parsed);
     const stdout =
-      parsed.flags.json === true ? `${JSON.stringify(out.json, null, 2)}\n` : withNewline(out.text);
+      parsed.flags.jsonl === true
+        ? jsonLines(out)
+        : parsed.flags.json === true
+          ? `${JSON.stringify(out.json, null, 2)}\n`
+          : withNewline(out.text);
     return result(stdout, "", out.exitCode ?? 0, out.files);
   } catch (error) {
     if (error instanceof CliUsageError) {

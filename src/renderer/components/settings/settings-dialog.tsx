@@ -94,7 +94,7 @@ export function SettingsDialog({
       id: "terminal",
       label: t("nav.terminal"),
       group: t("nav.group.settings"),
-      keywords: ["font", "size", "cursor", "family", "ligatures"],
+      keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
     },
     {
       id: "notifications",
@@ -103,10 +103,10 @@ export function SettingsDialog({
       keywords: ["alert", "desktop", "os", "notification", "claude"],
     },
     {
-      id: "agent-cli",
-      label: t("nav.agentCli"),
+      id: "agent",
+      label: t("nav.agent"),
       group: t("nav.group.settings"),
-      keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
+      keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "에이전트", "작업"],
     },
     {
       id: "browser-permissions",

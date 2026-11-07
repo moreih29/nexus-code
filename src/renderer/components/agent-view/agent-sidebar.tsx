@@ -17,11 +17,13 @@ import { chatRowFacts, hookRowFacts } from "@/services/sessions/rows";
 import { useSessionActivity } from "@/services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { useAgentViewStore } from "@/state/stores/agent-view";
+import { useManagerStore } from "@/state/stores/manager";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { ManagerChip } from "../manager/manager-chip";
 import { AgentRows } from "../sessions/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../sessions/session-status";
 import { AgentMark, RowLine } from "../sessions/status-view";
@@ -309,6 +311,7 @@ function AgentItem({
     leafShowing(s.root, key) !== null ? "shown" : leafHolding(s.root, key) ? "held" : null,
   );
   const duration = useDurationLabel(session.since);
+  const managers = useManagerStore((s) => s.tasks[key] !== undefined);
   const run = activity.get(key);
   const facts =
     session.kind === "terminal"
@@ -379,6 +382,7 @@ function AgentItem({
           )}
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
+          {managers && <ManagerChip />}
           <RowLine session={session} facts={facts} />
         </div>
       </div>

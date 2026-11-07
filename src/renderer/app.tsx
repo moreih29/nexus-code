@@ -10,12 +10,14 @@ import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
-import { AgentCliPanel } from "./components/settings/panels/agent-cli-panel";
+import { AgentPanel } from "./components/settings/panels/agent-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
+import { ManagerDock } from "./components/manager/manager-dock";
 import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
+import { ManagerPanel } from "./components/settings/panels/manager-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
@@ -199,7 +201,7 @@ export function App() {
         id: "terminal",
         label: t("nav.terminal"),
         group: t("nav.group.settings"),
-        keywords: ["font", "size", "cursor", "family", "ligatures"],
+        keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
         dirty: terminalDirty,
       },
       {
@@ -209,10 +211,16 @@ export function App() {
         keywords: ["alert", "desktop", "os", "notification", "claude"],
       },
       {
-        id: "agent-cli",
-        label: t("nav.agentCli"),
+        id: "agent",
+        label: t("nav.agent"),
         group: t("nav.group.settings"),
-        keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
+        keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "에이전트", "작업"],
+      },
+      {
+        id: "manager",
+        label: t("nav.manager"),
+        group: t("nav.group.settings"),
+        keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
       },
       {
         id: "browser-permissions",
@@ -446,7 +454,8 @@ export function App() {
             if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
-            if (activeId === "agent-cli") return <AgentCliPanel />;
+            if (activeId === "agent") return <AgentPanel />;
+            if (activeId === "manager") return <ManagerPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;
@@ -488,6 +497,7 @@ export function App() {
             <AgentView shown={agentView} />
             <ReleaseNotesView />
           </div>
+          <ManagerDock />
         </div>
       </div>
     </ErrorBoundary>

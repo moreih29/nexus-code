@@ -21,6 +21,7 @@ import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
@@ -110,7 +111,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
-    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp | `chat.${string}`
+    | "tabs.list"
+    | "terminal.read"
+    | "events.read"
+    | "settings.list"
+    | "settings.set"
+    | "manager.dispatched"
+    | LayoutOp
+    | `chat.${string}`
   >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
@@ -368,6 +376,7 @@ export const actionHandlers: {
     const answer = await askCliConsent({
       fromWorkspace: name(fromWorkspaceId),
       fromTab: fromTab?.title ?? fromTabId.slice(0, 8),
+      fromManager: isManagerWorkspace(fromWorkspaceId),
       toWorkspace: name(toWorkspaceId),
       change,
       timeoutMs,

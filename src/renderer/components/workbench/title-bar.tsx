@@ -12,6 +12,7 @@ import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
 import { ViewToggle } from "../agent-view/view-toggle";
+import { ManagerButton } from "../manager/manager-button";
 import { IconButton } from "../ui/icon-button";
 import { InboxButton } from "./inbox-button";
 import { ReleaseNewsButton } from "./release-news-button";
@@ -111,6 +112,9 @@ export function TitleBar() {
 
       {/* What follows is right-aligned. */}
       <div ref={endRef} className="ml-auto flex shrink-0 items-center">
+        {/* The agent manager's dock */}
+        <ManagerButton />
+
         {/* What an update brought, until its notes are read */}
         <ReleaseNewsButton />
 

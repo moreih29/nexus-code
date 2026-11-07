@@ -5,6 +5,7 @@
 
 import type { TabActivity } from "../../../../src/main/features/cli/activity";
 import {
+  askEachTime,
   type ChangeRequest,
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
@@ -32,15 +33,18 @@ import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
   CliChatEntry,
   CliChatInfo,
+  CliChatTool,
   CliConsentAnswer,
   CliLayoutNode,
   CliPanels,
   CliProblem,
+  CliSessionEvent,
   CliSettingInfo,
   CliTabInfo,
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
@@ -170,7 +174,11 @@ export interface FakeApp {
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
   /** The Agent CLI settings. */
-  settings: { crossWorkspace: CrossWorkspacePolicy; agentContext: boolean };
+  settings: {
+    crossWorkspace: CrossWorkspacePolicy;
+    agentContext: boolean;
+    managerPermissions: ManagerPermissions;
+  };
   /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
   /** The consent prompts shown. */
@@ -201,9 +209,15 @@ export interface FakeApp {
    * The Claude and Codex tabs' conversations, by tab id: where each stands
    * and its messages; a test may change them, as on a tick.
    */
-  chats: Map<string, { info: CliChatInfo; entries: CliChatEntry[] }>;
+  chats: Map<string, { info: CliChatInfo; entries: CliChatEntry[]; tools?: CliChatTool[] }>;
   /** The messages chat.send was given. */
   chatSent: Array<{ tabId: string; text: string }>;
+  /** The sessions' state changes events.read reads; a test may add to them, as on a tick. */
+  events: CliSessionEvent[];
+  /** The permission requests chat.answer answered. */
+  chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
+  /** What manager.dispatched was told: the sessions the manager handed work to. */
+  dispatched: Array<CliUiOps["manager.dispatched"]["args"]>;
 }
 
 /** Some of the app's settings: one only the user changes, one with many choices. */
@@ -402,7 +416,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
   const foreground: FakeApp["foreground"] = new Map();
-  const settings: FakeApp["settings"] = { crossWorkspace: "ask", agentContext: true };
+  const settings: FakeApp["settings"] = {
+    crossWorkspace: "ask",
+    agentContext: true,
+    managerPermissions: "user",
+  };
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
@@ -436,6 +454,9 @@ export function fakeApp(now = Date.now()): FakeApp {
   const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
   const chats: FakeApp["chats"] = new Map();
   const chatSent: FakeApp["chatSent"] = [];
+  const events: FakeApp["events"] = [];
+  const chatAnswered: FakeApp["chatAnswered"] = [];
+  const dispatched: FakeApp["dispatched"] = [];
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -494,14 +515,38 @@ export function fakeApp(now = Date.now()): FakeApp {
       } as CliUiOps[K]["result"];
     }
     if (op === "chat.open") return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    if (op === "chat.answer") {
+      chatAnswered.push(args as CliUiOps["chat.answer"]["args"]);
+      return {} as CliUiOps[K]["result"];
+    }
+    if (op === "manager.dispatched") {
+      dispatched.push(args as CliUiOps["manager.dispatched"]["args"]);
+      return {} as CliUiOps[K]["result"];
+    }
+    if (op === "chat.tool") {
+      const { tabId, ref } = args as CliUiOps["chat.tool"]["args"];
+      const tool = chats.get(tabId)?.tools?.find((t) => String(t.i) === ref || t.toolUseId === ref);
+      if (!tool) throw new CliError(`no tool call "${ref}" in that tab`);
+      return tool as CliUiOps[K]["result"];
+    }
+    if (op === "events.read") {
+      const { since, limit } = args as CliUiOps["events.read"]["args"];
+      const after = events.filter((event) => event.seq > (since ?? 0));
+      return {
+        events: after.slice(-limit),
+        cursor: events.at(-1)?.seq ?? 0,
+      } as CliUiOps[K]["result"];
+    }
     if (op === "chat.state" || op === "chat.read" || op === "chat.send") {
       const { tabId } = args as CliUiOps["chat.state"]["args"];
       const chat = chats.get(tabId);
       if (!chat) throw new CliError("that tab is not a Claude or Codex tab");
       if (op === "chat.state") return chat.info as CliUiOps[K]["result"];
       if (op === "chat.read") {
-        const { messages } = args as CliUiOps["chat.read"]["args"];
-        return { ...chat.info, entries: chat.entries.slice(-messages) } as CliUiOps[K]["result"];
+        const { messages, since } = args as CliUiOps["chat.read"]["args"];
+        const after = chat.entries.filter((entry) => entry.i > (since ?? -1));
+        const entries = messages === undefined ? after : after.slice(-messages);
+        return { ...chat.info, entries } as CliUiOps[K]["result"];
       }
       chatSent.push({ tabId, text: (args as CliUiOps["chat.send"]["args"]).text });
       return {} as CliUiOps[K]["result"];
@@ -591,6 +636,12 @@ export function fakeApp(now = Date.now()): FakeApp {
     },
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
+    askUser: (request) =>
+      askEachTime(request, async (asking) => {
+        asked.push(asking);
+        return answers.shift() ?? "deny";
+      }),
+    managerPermissions: () => settings.managerPermissions,
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
     listeningPorts: async (workspaceId) => {
@@ -651,6 +702,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     appSettings,
     chats,
     chatSent,
+    events,
+    chatAnswered,
+    dispatched,
   };
 }
 

@@ -22,6 +22,7 @@ import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
 import { setupCliFeature } from "./features/cli";
+import { registerManagerChannel } from "./features/manager";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -520,6 +521,25 @@ app.whenReady().then(async () => {
     resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
   });
 
+  // The agent manager's workspace and its reports.
+  registerManagerChannel({
+    workspaceManager,
+    shouldNotify: () => {
+      const state = stateService.getState();
+      if (!(state.managerReports ?? true) || !(state.osNotificationsEnabled ?? true)) return false;
+      const win = getFocusedAppWindow();
+      return win === null || win.isMinimized();
+    },
+    focusWindow: () => {
+      const win = getActiveAppWindow();
+      if (!win) return;
+      if (win.isMinimized()) win.restore();
+      win.show();
+      win.focus();
+    },
+    broadcast: forwardBroadcast,
+  });
+
   // The nexus command in the app's terminals.
   disposeCliFeature = setupCliFeature({
     agentHost: agentPtyHost,
@@ -536,6 +556,7 @@ app.whenReady().then(async () => {
         enabled: state.cliEnabled ?? true,
         crossWorkspace: state.cliCrossWorkspace ?? "ask",
         agentContext: state.cliAgentContext ?? true,
+        managerPermissions: state.managerPermissions ?? "user",
       };
     },
     getWindow: getActiveAppWindow,

@@ -1,6 +1,7 @@
 /**
  * The nexus CLI's requests for Claude and Codex tabs: open one with a
- * message, tell where one stands, read its conversation, send it a message.
+ * message, tell where one stands, read its conversation or one tool call of
+ * it, send it a message, answer its permission request.
  * A tab not shown since the app started is opened first, as showing it
  * would: its program's log is read, and the program started when it is
  * gone.
@@ -15,7 +16,7 @@ import {
   startAgentTab,
 } from "../chat/agent-tab";
 import { chatKey, useChatStore } from "../chat/store";
-import { chatEntriesOf, chatInfoOf } from "./chat-view";
+import { chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
 
@@ -58,10 +59,20 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId));
   },
 
-  "chat.read": async ({ workspaceId, tabId, messages }) => {
+  "chat.read": async ({ workspaceId, tabId, messages, since, subagents }) => {
     const target = await openedTab(workspaceId, tabId);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-    return { ...infoOf(workspaceId, tabId, target), entries: chatEntriesOf(chat, messages) };
+    return {
+      ...infoOf(workspaceId, tabId, target),
+      entries: chatEntriesOf(chat, { messages, since, subagents }),
+    };
+  },
+
+  "chat.tool": async ({ workspaceId, tabId, ref }) => {
+    await openedTab(workspaceId, tabId);
+    const tool = chatToolOf(useChatStore.getState().tabs[chatKey(workspaceId, tabId)], ref);
+    if (!tool) throw new UiRequestError(`no tool call "${ref}" in that tab`);
+    return tool;
   },
 
   "chat.send": async ({ workspaceId, tabId, text }) => {
@@ -72,6 +83,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       );
     }
     await sendToAgentTab(workspaceId, tabId, target, text);
+    return {};
+  },
+
+  "chat.answer": async ({ workspaceId, tabId, decision, message, expect }) => {
+    const target = await openedTab(workspaceId, tabId);
+    // Main allowed an answer to what the tab asked then: not to another.
+    const info = infoOf(workspaceId, tabId, target);
+    if (info.state !== "asking" || info.message !== expect) {
+      throw new UiRequestError("its request changed or was answered; read it again");
+    }
+    const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
+    if (!request) throw new UiRequestError("it no longer asks anything");
+    await target.controller.answerPermission(
+      request,
+      decision === "allow" ? { kind: "allow" } : { kind: "deny", message: message ?? "" },
+    );
     return {};
   },
 };

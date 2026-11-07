@@ -12,6 +12,8 @@ import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { startTabActivityPolling } from "./services/sessions/activity-poll";
+import { startManager } from "./services/manager/runtime";
+import { startSessionEvents } from "./services/sessions/session-events";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -41,6 +43,7 @@ import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
+import { useManagerStore } from "./state/stores/manager";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useSessionsViewStore } from "./state/stores/sessions-view";
@@ -251,6 +254,7 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
   useSessionsViewStore.getState().hydrate(state);
   usePreviewDefaultsStore.getState().hydrate(state.previewViewDefaults);
@@ -319,6 +323,8 @@ export async function bootstrapAppState(): Promise<void> {
 
   registerStatePersistence();
   markCliUiReady();
+  // The agent manager, if it is on: it starts with the app, the sessions restored.
+  startManager();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
@@ -398,4 +404,7 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // Codex and other agents' output activity, for the tab bar, the sidebar
   // and the inbox.
   startTabActivityPolling();
+
+  // The sessions' state changes, for nexus events.
+  startSessionEvents();
 }

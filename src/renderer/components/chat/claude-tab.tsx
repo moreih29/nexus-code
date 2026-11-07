@@ -10,6 +10,7 @@ import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand } from "../../services/chat/app-commands";
 import {
   type ChatController,
+  type ChatTabHooks,
   chatController,
   type PermissionAnswer,
   pruneAttachmentsOnce,
@@ -90,6 +91,11 @@ interface ClaudeTabViewProps {
   tabId: string;
   props: ClaudeTabProps;
   isVisible: boolean;
+  /**
+   * What the conversation keeps, where it is no tab of the tabs store (the
+   * agent manager's): what owns it opens it, and it forks into no tab.
+   */
+  hooks?: ChatTabHooks;
 }
 
 /** From this width the side panel sits beside the conversation. */
@@ -124,7 +130,7 @@ function writePanelPref(open: boolean): void {
   }
 }
 
-export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTabViewProps) {
+export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: ClaudeTabViewProps) {
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -143,7 +149,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           sessionId: props.sessionId,
           fork: props.fork,
         },
-        claudeTabHooks(workspaceId, tabId),
+        hooks ?? claudeTabHooks(workspaceId, tabId),
       ),
     [workspaceId, tabId],
   );
@@ -155,6 +161,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   useEffect(() => {
     if (!isVisible || opened.current) return;
     opened.current = true;
+    if (hooks) return;
     void controller.open();
     const tabs = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
     const open = Object.values(tabs).filter((tab) => tab.type === "claude");
@@ -162,7 +169,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       workspaceId,
       open.map((tab) => tab.id),
     );
-  }, [isVisible, controller, workspaceId]);
+  }, [isVisible, controller, workspaceId, hooks]);
 
   // A name the user gives the tab names its session too, as /rename does.
   const customTitle = useTabsStore((s) => s.byWorkspace[workspaceId]?.[tabId]?.customTitle);
@@ -186,9 +193,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
   const actions: MessageActions = {
     running: state.model.running,
-    canFork: controller.forkPoint("", { before: false }) !== null,
+    canFork: !hooks && controller.forkPoint("", { before: false }) !== null,
     onRewind: (item) => setRewinding(item),
-    onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
+    ...(hooks ? {} : { onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item) }),
     onBackground: (toolUseId) =>
       controller
         .backgroundTool(toolUseId)
@@ -353,6 +360,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   };
 
   const forkSession = () => {
+    if (hooks) return;
     const point = controller.forkPoint("", { before: false });
     if (point) openClaudeTab(workspaceId, { cwd: props.cwd, fork: { sessionId: point.sessionId } });
   };
@@ -405,6 +413,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           ) : (
             <MessageList
               workspaceId={workspaceId}
+              tabId={tabId}
               cwd={props.cwd}
               rootPath={rootPath}
               history={state.history}

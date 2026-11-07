@@ -6,7 +6,11 @@ import { describe, expect, it } from "bun:test";
 import type { ChatModel, PermissionRequest } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { chatEntriesOf, chatInfoOf } from "../../../../../src/renderer/services/cli/chat-view";
+import {
+  chatEntriesOf,
+  chatInfoOf,
+  chatToolOf,
+} from "../../../../../src/renderer/services/cli/chat-view";
 
 function chat(model: Partial<ChatModel>, rest: Partial<ChatTabState> = {}): ChatTabState {
   return { ...emptyTabState(), phase: "ready", model: { ...emptyModel(), ...model }, ...rest };
@@ -35,6 +39,7 @@ const conversation: Partial<ChatModel> = {
       name: "Bash",
       input: { command: "npm test" },
       status: "error",
+      result: { text: "1 failing", isError: true, images: [] },
       parentToolUseId: null,
     },
     t2: {
@@ -109,14 +114,35 @@ describe("chatInfoOf", () => {
 });
 
 describe("chatEntriesOf", () => {
-  it("tells what was said and the main thread's tools in order, thinking left out", () => {
-    expect(chatEntriesOf(chat(conversation), 10)).toEqual([
-      { role: "user", text: "Fix the login" },
-      { role: "agent", text: "Looking at the router." },
-      { role: "tool", text: "Bash npm test (failed)" },
-      { role: "agent", text: "Fixed it." },
-      { role: "notice", text: "interrupted" },
+  it("tells what was said and the main thread's tools in order, each in its place", () => {
+    // Thinking is left out; the subagent's call (#3) keeps its place, hidden.
+    expect(chatEntriesOf(chat(conversation), { messages: 10 })).toEqual([
+      { i: 0, role: "user", text: "Fix the login" },
+      { i: 1, role: "agent", text: "Looking at the router." },
+      {
+        i: 2,
+        role: "tool",
+        text: "Bash npm test (failed)",
+        toolUseId: "t1",
+        status: "error",
+      },
+      { i: 4, role: "agent", text: "Fixed it." },
+      { i: 5, role: "notice", text: "interrupted" },
     ]);
+  });
+
+  it("shows the subagents' calls when asked, and reads on after a place", () => {
+    const all = chatEntriesOf(chat(conversation), { subagents: true });
+    expect(all[3]).toEqual({
+      i: 3,
+      role: "tool",
+      text: "Read router.ts",
+      toolUseId: "t2",
+      status: "done",
+      parentToolUseId: "agent-1",
+    });
+    expect(chatEntriesOf(chat(conversation), { since: 2 }).map((e) => e.i)).toEqual([4, 5]);
+    expect(chatEntriesOf(chat(conversation), { since: 5 })).toEqual([]);
   });
 
   it("keeps the last messages, the history before the program's log first", () => {
@@ -125,11 +151,38 @@ describe("chatEntriesOf", () => {
       { items: [{ kind: "user", key: "u2", text: "and the docs", images: [], state: "taken" }] },
       { history },
     );
-    expect(chatEntriesOf(resumed, 10).map((e) => e.text)).toEqual([
-      "Fix the login",
-      "and the docs",
+    expect(chatEntriesOf(resumed).map((e) => [e.i, e.text])).toEqual([
+      [0, "Fix the login"],
+      [1, "and the docs"],
     ]);
-    expect(chatEntriesOf(chat(conversation), 2).map((e) => e.role)).toEqual(["agent", "notice"]);
-    expect(chatEntriesOf(undefined, 5)).toEqual([]);
+    expect(chatEntriesOf(chat(conversation), { messages: 2 }).map((e) => e.role)).toEqual([
+      "agent",
+      "notice",
+    ]);
+    expect(chatEntriesOf(undefined, { messages: 5 })).toEqual([]);
+  });
+});
+
+describe("chatToolOf", () => {
+  it("gives a call whole by its place or its id, a subagent's too", () => {
+    expect(chatToolOf(chat(conversation), "2")).toEqual({
+      i: 2,
+      toolUseId: "t1",
+      name: "Bash",
+      status: "error",
+      input: { command: "npm test" },
+      result: { text: "1 failing", isError: true },
+    });
+    expect(chatToolOf(chat(conversation), "t2")).toMatchObject({
+      i: 3,
+      name: "Read",
+      parentToolUseId: "agent-1",
+    });
+  });
+
+  it("is null for a place that is no tool call, an unknown id, or no tab", () => {
+    expect(chatToolOf(chat(conversation), "1")).toBeNull();
+    expect(chatToolOf(chat(conversation), "t9")).toBeNull();
+    expect(chatToolOf(undefined, "2")).toBeNull();
   });
 });

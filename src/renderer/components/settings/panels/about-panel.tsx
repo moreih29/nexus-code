@@ -3,9 +3,9 @@
 // About / Info panel — replaces the previous Updates panel.
 //
 // Shows the product name, the app version (injected at build time via the
-// `__APP_VERSION__` Vite define — see `electron.vite.config.ts`), the
-// copyright line, an auto-check toggle, and a manual "Check for Updates"
-// action.
+// `__APP_VERSION__` Vite define — see `electron.vite.config.ts`) and the
+// copyright line, with the release notes and a manual "Check for Updates"
+// beside them, then an auto-check toggle.
 //
 // The Update Channel SegmentedControl (stable / beta) is intentionally not
 // rendered at this stage: no GA release exists yet, so a channel toggle has
@@ -25,7 +25,7 @@
 // The release notes open from here over the panels (closing Settings): the
 // running version's, or the newer one's while one is on offer.
 //
-// Below the button the panel shows where an update stands, from the updates
+// Below the name the panel shows where an update stands, from the updates
 // store: the last check's answer, then the download with its progress, the
 // signature check (macOS), and the restart that installs it.
 //
@@ -44,7 +44,7 @@ import { updateCheckFailedMessage } from "../../../state/operations/update-check
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
-import { SettingsSwitch } from "../section";
+import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
 
 // ---------------------------------------------------------------------------
 // Static product metadata
@@ -80,51 +80,58 @@ export function AboutPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Product identity — left-aligned stack to match every other
-          Settings panel (Appearance / Editor / Terminal / Notifications). */}
-      <div className="flex flex-col gap-1">
-        <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
-        <div className="text-app-ui-sm text-muted-foreground">
-          {t("about.version", { version: __APP_VERSION__ })}
+    <SettingsPage>
+      <SettingsGroup>
+        {/* Product identity on the left, what can be done about it on the right. */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
+            <div className="text-app-ui-sm text-muted-foreground">
+              {t("about.version", { version: __APP_VERSION__ })}
+            </div>
+            <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {/* The notes of the running version, or of the newer one on offer. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
+              data-testid="about-release-notes"
+            >
+              {t("about.releaseNotes")}
+            </Button>
+            {storeManaged ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
+              >
+                {t("about.openStore")}
+              </Button>
+            ) : (
+              <UpdateActions status={status} releaseNotes={false} />
+            )}
+          </div>
         </div>
-        <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
-        {/* The notes of the running version, or of the newer one on offer. */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2 self-start"
-          onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
-          data-testid="about-release-notes"
-        >
-          {t("about.releaseNotes")}
-        </Button>
-      </div>
-
-      {storeManaged ? (
-        <div className="flex flex-col items-start gap-3">
+        {storeManaged ? (
           <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
-          >
-            {t("about.openStore")}
-          </Button>
-        </div>
-      ) : (
-        <>
+        ) : (
+          <UpdateProgressLines status={status} progress={progress} />
+        )}
+      </SettingsGroup>
+
+      {!storeManaged && (
+        <SettingsGroup>
           <SettingsSwitch
             label={t("about.autoCheck.label")}
             description={t("about.autoCheck.description")}
             checked={autoCheckEnabled}
             onChange={handleAutoCheckChange}
           />
-
-          <UpdateSection status={status} progress={progress} releaseNotes={false} />
-        </>
+        </SettingsGroup>
       )}
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -158,63 +165,86 @@ export function UpdateSection({
   releaseNotes?: boolean;
   children?: ReactNode;
 }) {
-  const { t } = useTranslation(["settings", "common"]);
-
-  const checkButton = (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={checkNow}
-      disabled={status?.kind === "checking"}
-    >
-      {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
-    </Button>
-  );
-
   return (
     <div className="flex flex-col items-start gap-3">
+      <UpdateProgressLines status={status} progress={progress} />
+      <div className="flex flex-wrap gap-2">
+        <UpdateActions status={status} releaseNotes={releaseNotes} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Where the update stands, in words, and the download's bar while there is one. */
+function UpdateProgressLines({
+  status,
+  progress,
+}: {
+  status: UpdateStatus | null;
+  progress: UpdateProgress | null;
+}) {
+  return (
+    <>
       <UpdateStatusLine status={status} />
       {(status?.kind === "downloading" || status?.kind === "verifying") && (
         <DownloadProgressBar status={status} progress={progress} />
       )}
-      <div className="flex flex-wrap gap-2">
-        {status?.kind === "newer" && status.canInstall && (
-          <Button
-            size="sm"
-            onClick={() => void ipcCallResult("updates", "install", undefined)}
-          >
-            {t("common:updates.install")}
-          </Button>
-        )}
-        {status?.kind === "newer" && !status.canInstall && (
-          <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-            {t("common:updates.download")}
-          </Button>
-        )}
-        {status?.kind === "newer" && releaseNotes && (
-          <Button variant="outline" size="sm" onClick={() => showReleaseNotes(status.latest)}>
-            {t("about.releaseNotes")}
-          </Button>
-        )}
-        {status?.kind === "ready" && (
-          <Button size="sm" onClick={() => void ipcCallResult("updates", "restart", undefined)}>
-            {t("common:updates.restart")}
-          </Button>
-        )}
-        {status?.kind === "installFailed" && (
-          <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-            {t("common:updates.openReleasePage")}
-          </Button>
-        )}
-        {(status === null ||
-          status.kind === "checking" ||
-          status.kind === "current" ||
-          status.kind === "error" ||
-          status.kind === "installFailed") &&
-          checkButton}
-        {children}
-      </div>
-    </div>
+    </>
+  );
+}
+
+/** The buttons the status offers: install, download, restart, check again. */
+function UpdateActions({
+  status,
+  releaseNotes,
+}: {
+  status: UpdateStatus | null;
+  releaseNotes: boolean;
+}) {
+  const { t } = useTranslation(["settings", "common"]);
+  return (
+    <>
+      {status?.kind === "newer" && status.canInstall && (
+        <Button size="sm" onClick={() => void ipcCallResult("updates", "install", undefined)}>
+          {t("common:updates.install")}
+        </Button>
+      )}
+      {status?.kind === "newer" && !status.canInstall && (
+        <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+          {t("common:updates.download")}
+        </Button>
+      )}
+      {status?.kind === "newer" && releaseNotes && (
+        <Button variant="outline" size="sm" onClick={() => showReleaseNotes(status.latest)}>
+          {t("about.releaseNotes")}
+        </Button>
+      )}
+      {status?.kind === "ready" && (
+        <Button size="sm" onClick={() => void ipcCallResult("updates", "restart", undefined)}>
+          {t("common:updates.restart")}
+        </Button>
+      )}
+      {status?.kind === "installFailed" && (
+        <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+          {t("common:updates.openReleasePage")}
+        </Button>
+      )}
+      {(status === null ||
+        status.kind === "checking" ||
+        status.kind === "current" ||
+        status.kind === "error" ||
+        status.kind === "installFailed") && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={checkNow}
+          disabled={status?.kind === "checking"}
+        >
+          {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
+        </Button>
+      )}
+    </>
   );
 }
 
