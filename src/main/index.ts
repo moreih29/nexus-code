@@ -99,13 +99,20 @@ const logger = createLogger("main");
 
 // One app at a time on a profile. A second one, on the same files, ran its own
 // terminals and agents, resumed the same chats again, and undid the first's
-// settings each time it saved its own. A second launch shows the first.
+// settings each time it saved its own. A second launch shows the first's
+// window, or opens one when every window is closed, as macOS keeps the app
+// running then.
 if (!app.requestSingleInstanceLock()) {
   logger.info("NexusCode already runs on this profile: showing it instead");
   // Before the app is ready this exits at once, before anything below runs.
   app.exit(0);
 }
-app.on("second-instance", () => showAppWindow());
+/** Opens the app window again after every one was closed; set once the app is ready. */
+let reopenAppWindow: (() => void) | null = null;
+app.on("second-instance", () => {
+  if (hasAppWindow()) showAppWindow();
+  else reopenAppWindow?.();
+});
 
 // Install global error safety net immediately after the logger is ready so
 // every subsequent initialisation step is covered. See error-safety-net.ts
@@ -659,30 +666,32 @@ app.whenReady().then(async () => {
     getBrowserRegistry()?.disposeAll();
   });
 
-  app.on("activate", () => {
-    if (!hasAppWindow()) {
-      const newWin = createMainWindow(stateService.getState());
-      wireAutofetchWindowFocus(newWin);
-      // On activate, reuse the existing permission manager with the new window.
-      initBrowserFeature(newWin, {
-        permissionDeps: {
-          getGlobalGrant: (permission) =>
-            stateService.getState().browserPermissionGrants?.[permission] === true,
-          getRemembered: (ws, origin, permission) => {
-            if (!workspaceStorage.isOpen(ws)) return null;
-            return workspaceStorage.getOriginPermission(ws, origin, permission);
-          },
-          promptManager: browserPermissionManager,
+  // With every window closed, as macOS keeps the app running: a click on its
+  // Dock icon, or a second launch, opens one again.
+  reopenAppWindow = () => {
+    if (hasAppWindow()) return;
+    const newWin = createMainWindow(stateService.getState());
+    wireAutofetchWindowFocus(newWin);
+    // Reuse the existing permission manager with the new window.
+    initBrowserFeature(newWin, {
+      permissionDeps: {
+        getGlobalGrant: (permission) =>
+          stateService.getState().browserPermissionGrants?.[permission] === true,
+        getRemembered: (ws, origin, permission) => {
+          if (!workspaceStorage.isOpen(ws)) return null;
+          return workspaceStorage.getOriginPermission(ws, origin, permission);
         },
         promptManager: browserPermissionManager,
-        workspaceStorage,
-        globalStorage,
-      });
-      newWin.on("closed", () => {
-        getBrowserRegistry()?.disposeAll();
-      });
-    }
-  });
+      },
+      promptManager: browserPermissionManager,
+      workspaceStorage,
+      globalStorage,
+    });
+    newWin.on("closed", () => {
+      getBrowserRegistry()?.disposeAll();
+    });
+  };
+  app.on("activate", reopenAppWindow);
 });
 
 app.on("window-all-closed", () => {
