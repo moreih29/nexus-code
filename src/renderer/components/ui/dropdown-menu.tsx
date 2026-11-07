@@ -10,6 +10,7 @@
  * are hidden under DOM menus without per-wrapper wiring.
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
+ *                 DropdownMenuAtPoint
  *                 DropdownMenuItem · DropdownMenuCheckboxItem
  *                 DropdownMenuRadioGroup · DropdownMenuRadioItem
  *                 DropdownMenuShortcut · DropdownMenuLabel · DropdownMenuText
@@ -18,6 +19,7 @@
  */
 import { Check, ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
+import { useLayoutEffect, useRef } from "react";
 import { cn } from "@/utils/cn";
 import { tooltipProps } from "./tooltip";
 
@@ -124,6 +126,86 @@ export function DropdownMenuContent({
 function keepFocusTakenElsewhere(event: Event): void {
   const focused = document.activeElement;
   if (focused && focused !== document.body) event.preventDefault();
+}
+
+// ---------------------------------------------------------------------------
+// Menu at a point
+// ---------------------------------------------------------------------------
+
+export interface DropdownMenuPoint {
+  readonly x: number;
+  readonly y: number;
+  /**
+   * The menu's top corner on the point: its start (the default) or its
+   * end, for a menu that drops from a button and lines up with its right.
+   */
+  readonly align?: "start" | "end";
+}
+
+/**
+ * A menu that opens at a point rather than under its own trigger: where a
+ * row was right-clicked, or under a button its caller measured. It is open
+ * while `point` is set; a pick, Escape or a click elsewhere calls `onClose`.
+ *
+ * Non-modal, so an item that opens a dialog or a picker keeps the keyboard
+ * there. Otherwise closing puts the keyboard back where it was when the
+ * menu opened: the row, or the button.
+ */
+export function DropdownMenuAtPoint({
+  point,
+  onClose,
+  children,
+}: {
+  point: DropdownMenuPoint | null;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const open = point !== null;
+  const returnFocusTo = useRef<HTMLElement | null>(null);
+  // Before the menu takes the keyboard: its content mounts after this.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const focused = document.activeElement;
+    returnFocusTo.current = focused instanceof HTMLElement ? focused : null;
+  }, [open]);
+
+  return (
+    <RadixDropdownMenu.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      modal={false}
+    >
+      <RadixDropdownMenu.Trigger asChild>
+        <span
+          aria-hidden
+          className="pointer-events-none fixed size-0"
+          style={point ? { left: point.x, top: point.y } : undefined}
+        />
+      </RadixDropdownMenu.Trigger>
+      <RadixDropdownMenu.Portal>
+        <RadixDropdownMenu.Content
+          className={CONTENT_CLASS}
+          align={point?.align ?? "start"}
+          side="bottom"
+          sideOffset={0}
+          collisionPadding={4}
+          onContextMenu={(event) => event.preventDefault()}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = returnFocusTo.current;
+            returnFocusTo.current = null;
+            const focused = document.activeElement;
+            if (focused && focused !== document.body) return;
+            if (target?.isConnected) target.focus();
+          }}
+        >
+          {children}
+        </RadixDropdownMenu.Content>
+      </RadixDropdownMenu.Portal>
+    </RadixDropdownMenu.Root>
+  );
 }
 
 // ---------------------------------------------------------------------------
