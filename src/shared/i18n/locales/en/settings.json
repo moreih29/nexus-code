@@ -441,6 +441,9 @@
         "hardReload": "Hard Reload (Browser)",
         "goBack": "Back (Browser)",
         "goForward": "Forward (Browser)"
+      },
+      "updates": {
+        "releaseNotes": "Show Release Notes"
       }
     }
   },

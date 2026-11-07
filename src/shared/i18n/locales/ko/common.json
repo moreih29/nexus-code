@@ -1369,5 +1369,23 @@
       "resume": "이어하기",
       "resume_title": "터미널에 {{line}} 입력"
     }
+  },
+  "releaseNotes": {
+    "title": "릴리스 노트",
+    "versions": "버전",
+    "current": "현재",
+    "newer": "새 버전",
+    "prerelease": "베타",
+    "openOnGitHub": "GitHub에서 보기",
+    "allReleases": "GitHub의 모든 릴리스",
+    "close": "닫기",
+    "loading": "릴리스 노트를 불러오는 중…",
+    "failed": "릴리스 노트를 불러오지 못했습니다.",
+    "failedNetwork": "릴리스 노트를 불러오지 못했습니다. 네트워크 연결을 확인하세요.",
+    "failedRateLimited": "릴리스 노트를 불러오지 못했습니다. GitHub 요청이 일시적으로 제한되었습니다. 잠시 후 다시 시도해 주세요.",
+    "retry": "다시 시도",
+    "empty": "아직 릴리스가 없습니다.",
+    "news": "{{version}} 새 소식",
+    "dismissNews": "새 소식 닫기"
   }
 }

@@ -52,6 +52,7 @@ const BOTH_VIEWS = new Set<CommandId>([
   COMMANDS.sessionNextWaiting,
   COMMANDS.settingsOpen,
   COMMANDS.updatesCheck,
+  COMMANDS.updatesReleaseNotes,
   COMMANDS.workbenchToggleSidebar,
   COMMANDS.workbenchToggleAgentView,
 ]);

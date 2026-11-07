@@ -22,6 +22,7 @@ import { registerPathCommands } from "../commands/domains/path";
 import { registerSettingsCommands } from "../commands/domains/settings";
 import { registerTabCommands } from "../commands/domains/tab";
 import { registerTerminalCommands } from "../commands/domains/terminal";
+import { registerUpdatesCommands } from "../commands/domains/updates";
 import { registerWorkbenchCommands } from "../commands/domains/workbench";
 import { registerWorkspaceCommands } from "../commands/domains/workspace";
 import { handleGlobalKeyDown } from "./dispatcher";
@@ -37,6 +38,7 @@ export function useGlobalKeybindings(): void {
       ...registerTerminalCommands(),
       ...registerWorkspaceCommands(),
       ...registerSettingsCommands(),
+      ...registerUpdatesCommands(),
       ...registerWorkbenchCommands(),
       ...registerBrowserCommands(),
       ...registerAgentViewCommands(),

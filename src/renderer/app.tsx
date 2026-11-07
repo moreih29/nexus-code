@@ -21,6 +21,7 @@ import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
+import { ReleaseNotesView } from "./components/workbench/release-notes";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
@@ -464,7 +465,7 @@ export function App() {
             />
           )}
           {!filesPanelHidden && !agentView && <FilesPanel />}
-          {/* The panels, where quick look shows over them. */}
+          {/* The panels, where quick look and the release notes show over them. */}
           <div
             className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden"
             {...{ [LOOK_AREA_ATTR]: "" }}
@@ -485,6 +486,7 @@ export function App() {
                 panels and the workspace's groups without leaving the
                 document, which would lose its scroll and reload its frames. */}
             <AgentView shown={agentView} />
+            <ReleaseNotesView />
           </div>
         </div>
       </div>

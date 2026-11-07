@@ -2,6 +2,7 @@
   "appMenu": {
     "about": "About {{appName}}",
     "checkForUpdates": "Check for Updates...",
+    "releaseNotes": "Release Notes",
     "settings": "Settings…"
   },
   "file": {

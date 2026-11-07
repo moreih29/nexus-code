@@ -11,6 +11,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
 import { ViewToggle } from "../agent-view/view-toggle";
 import { InboxButton } from "./inbox-button";
+import { ReleaseNewsButton } from "./release-news-button";
 import { TaskSwitcher } from "./task-switcher";
 import { UpdateButton } from "./update-button";
 import { WindowControls } from "./window-controls";
@@ -103,6 +104,9 @@ export function TitleBar() {
 
       {/* What follows is right-aligned. */}
       <div className="ml-auto" aria-hidden="true" />
+
+      {/* What an update brought, until its notes are read */}
+      <ReleaseNewsButton />
 
       {/* An update to take, while there is one */}
       <UpdateButton />
