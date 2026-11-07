@@ -60,7 +60,7 @@ export function InboxButton() {
           aria-label={t("inbox.aria", { count: inbox.attention })}
           title={t("inbox.title")}
           className={cn(
-            "app-no-drag ml-auto relative",
+            "app-no-drag relative",
             "flex items-center justify-center",
             "size-7 rounded-(--radius-control)",
             "text-muted-foreground",

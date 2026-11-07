@@ -808,14 +808,21 @@
     "ready": "Version {{version}} is ready. It installs when the app restarts.",
     "readyAsksPassword": "Version {{version}} is ready. Restart now and enter your admin password to install it.",
     "restart": "Restart Now",
-    "showProgress": "Show Progress",
     "installFailed": "Couldn't install the update. You can download it from the release page.",
     "openReleasePage": "Open Release Page",
     "upToDate": "You're on the latest version.",
     "failed": "Couldn't check for updates.",
     "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
     "failedNetwork": "Couldn't check for updates. Check your network connection.",
-    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment."
+    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment.",
+    "button": {
+      "available": "Update to {{version}}",
+      "downloading": "Downloading update",
+      "downloadingPercent": "Downloading update {{percent}}%",
+      "verifying": "Verifying update",
+      "ready": "Restart to update",
+      "failed": "Update failed"
+    }
   },
   "chat": {
     "tab_title": "Claude",

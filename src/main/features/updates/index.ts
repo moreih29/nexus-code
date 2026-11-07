@@ -8,8 +8,10 @@
  *     → registers `updates.check` and `updates.setIgnoredVersion` IPC handlers,
  *       and `updates.install` / `updates.restart` for an in-place update
  *       (installer.ts) when the app can replace itself
- *     → fires one silent auto-poll after app.whenReady() via the returned
- *       `runInitialAutoPoll()` callback (called by the bootstrap in index.ts)
+ *     → starts the silent auto-polls after app.whenReady() via the returned
+ *       `startAutoChecks()` (called by the bootstrap in index.ts): one now,
+ *       then every few hours while the app runs, and on waking from sleep
+ *       through `onResume()` (auto-check.ts)
  *     → subscribes to updateChannel changes so a channel switch resets
  *       ignoredUpdateVersion and triggers another silent auto-poll
  *
@@ -21,7 +23,8 @@
  * DEDUPE
  * ------
  *   The last broadcasted (kind, latest) pair is remembered.  An identical
- *   pair is skipped to avoid duplicate toasts.
+ *   pair from an auto-poll is skipped, so the polls every few hours do not
+ *   tell the renderer the same update again.
  *
  * IGNORED VERSION
  * ---------------
@@ -50,6 +53,7 @@ import {
   type UpdateProgress,
   type UpdateStatus,
 } from "../../../shared/updates/status";
+import { createAutoCheck } from "./auto-check";
 import { createUpdateInstaller, type UpdateBackend } from "./installer";
 import { STORE_PAGE_URL } from "./microsoft-store";
 import {
@@ -74,6 +78,8 @@ export interface InstallUpdatesDomainOptions {
   currentVersion: string;
   /** Optional timer injection for deterministic tests (default: real timers). */
   timerScheduler?: TimerScheduler;
+  /** Optional clock injection for deterministic tests (default: Date.now). */
+  now?: () => number;
   /**
    * Optional fetch implementation forwarded to the poller.
    * Omit in production; inject a mock in tests.
@@ -88,10 +94,13 @@ export interface InstallUpdatesDomainOptions {
 
 export interface UpdatesDomainHandle {
   /**
-   * Fire the initial silent auto-poll.  Must be called once inside
-   * `app.whenReady().then(...)` after `installUpdatesDomain` returns.
+   * Starts the silent auto-polls: one now, then every few hours. Must be
+   * called inside `app.whenReady().then(...)` after `installUpdatesDomain`
+   * returns; a second call does nothing.
    */
-  runInitialAutoPoll(): void;
+  startAutoChecks(): void;
+  /** The system woke from sleep: polls if the hours since the last poll call for one. */
+  onResume(): void;
   /**
    * Trigger a manual update check from main-process code (e.g. menu click).
    * Equivalent to the `updates.check` IPC call with `trigger:"manual"`,
@@ -110,7 +119,7 @@ const c = ipcContract.updates.call;
 
 /**
  * Installs the updates domain: registers IPC handlers and returns a handle
- * whose `runInitialAutoPoll()` should be called inside `app.whenReady()`.
+ * whose `startAutoChecks()` should be called inside `app.whenReady()`.
  */
 export function installUpdatesDomain(options: InstallUpdatesDomainOptions): UpdatesDomainHandle {
   const {
@@ -118,6 +127,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     stateService,
     currentVersion,
     timerScheduler = defaultTimerScheduler,
+    now = Date.now,
     fetchImpl,
     updateBackend,
   } = options;
@@ -269,26 +279,23 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   }
 
   // ------------------------------------------------------------------
-  // Guard: auto-poll fires at most once globally per process lifetime.
-  // Multiple workspace opens or repeated calls must not re-trigger it.
+  // Auto-polls: one once the app is ready, then every few hours while it
+  // runs. Each respects the user's preference at the time it falls due, so
+  // turning autoCheckForUpdates back on takes effect at the next one. Manual
+  // checks (App menu / About panel button) bypass this gate entirely.
   // ------------------------------------------------------------------
-  let autoPollFired = false;
-
-  function fireAutoPoll(): void {
-    if (autoPollFired) return;
-    // Respect the user's preference: when autoCheckForUpdates is false the
-    // auto-poll is skipped silently. We do NOT mark `autoPollFired = true`
-    // here — if the user re-enables the setting later (channel change path
-    // or future direct toggle wiring), the poll should fire then. Manual
-    // checks (App menu / About panel button) bypass this gate entirely.
-    const enabled = stateService.getState().autoCheckForUpdates ?? true;
-    if (!enabled) {
-      logger.info("updates: auto-poll suppressed (autoCheckForUpdates=false)");
-      return;
-    }
-    autoPollFired = true;
-    poll("auto");
-  }
+  const autoCheck = createAutoCheck({
+    timer: timerScheduler,
+    now,
+    check: () => {
+      const enabled = stateService.getState().autoCheckForUpdates ?? true;
+      if (!enabled) {
+        logger.info("updates: auto-poll suppressed (autoCheckForUpdates=false)");
+        return;
+      }
+      poll("auto");
+    },
+  });
 
   // ------------------------------------------------------------------
   // Subscribe to updateChannel changes.
@@ -321,9 +328,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         originalSetState({ ignoredUpdateVersion: null });
         // Reset dedupe state so the next result is always broadcast.
         lastBroadcastKey = null;
-        // Allow the auto poll to fire again after a channel change.
-        autoPollFired = false;
-        fireAutoPoll();
+        autoCheck.checkNow();
       }
     }
   };
@@ -382,8 +387,11 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
   });
 
   return {
-    runInitialAutoPoll(): void {
-      fireAutoPoll();
+    startAutoChecks(): void {
+      autoCheck.start();
+    },
+    onResume(): void {
+      autoCheck.resume();
     },
     checkManual(): void {
       poll("manual");

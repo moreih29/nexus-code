@@ -15,9 +15,10 @@
 // re-introduced control here.
 //
 // Auto-check toggle policy:
-//   - On  (default): app start fires one silent GH Releases poll. A toast
-//                    appears only when a newer version is found.
-//   - Off          : the startup poll is skipped. The "Check for Updates"
+//   - On  (default): the app polls GH Releases silently once it starts and
+//                    every few hours while it runs. A newer version shows on
+//                    the title bar's update button, with one toast a version.
+//   - Off          : those polls are skipped. The "Check for Updates"
 //                    button below always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
@@ -31,7 +32,7 @@
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
-import { useCallback, useId } from "react";
+import { type ReactNode, useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
@@ -142,13 +143,18 @@ function openReleasePage(url: string): void {
   void ipcCallResult("updates", "openReleasePage", { url });
 }
 
-/** The current status as a line of text and the actions it offers. */
+/**
+ * The current status as a line of text and the actions it offers, then
+ * `children` beside them. The title bar's update button shows it too.
+ */
 export function UpdateSection({
   status,
   progress,
+  children,
 }: {
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
+  children?: ReactNode;
 }) {
   const { t } = useTranslation(["settings", "common"]);
 
@@ -204,6 +210,7 @@ export function UpdateSection({
           status.kind === "error" ||
           status.kind === "installFailed") &&
           checkButton}
+        {children}
       </div>
     </div>
   );

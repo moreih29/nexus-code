@@ -303,7 +303,7 @@
     "version": "Version {{version}}",
     "autoCheck": {
       "label": "Automatically check for updates",
-      "description": "Fire one silent GitHub Releases check at app startup. Manual checks below always run regardless of this setting."
+      "description": "Checks GitHub Releases every few hours while the app runs. Manual checks below always run regardless of this setting."
     },
     "checkNow": "Check for Updates",
     "checking": "Checking…",

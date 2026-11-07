@@ -4,46 +4,88 @@
  * Subscribes to `updates.statusChanged` and fires the appropriate Toast
  * variant based on the discriminated-union payload and trigger type. Every
  * status, and each `updates.progress`, also goes to the updates store, which
- * the About panel shows.
+ * the About panel and the title bar's update button show.
  *
  * TOAST RULES
  * -----------
  *   kind=checking   (manual only)  → plain info toast, short duration
  *   kind=newer                     → action toast: "Update" (or "Download", which
  *                                    opens the release page, when the app cannot
- *                                    update in place) + "Skip this version"
+ *                                    update in place) + "Skip this version".
+ *                                    A check the user asked for always shows it;
+ *                                    one the app made by itself (every few
+ *                                    hours) shows a version once, and never one
+ *                                    skipped. The title bar's update button
+ *                                    shows it from then on.
  *   kind=current  + trigger=manual → plain info toast 3 s
  *   kind=current  + trigger=auto   → silent
  *   kind=error    + trigger=manual → error toast
  *   kind=error    + trigger=auto   → silent
- *   kind=downloading               → info toast + "Show Progress" (Settings › About),
- *                                    dismissed once the download moves on
- *   kind=verifying                 → silent (the About panel shows it)
- *   kind=ready                     → action toast: "Restart Now"
+ *   kind=downloading / verifying /
+ *        ready                     → silent: the title bar's update button
+ *                                    shows the download and the restart
  *   kind=installFailed             → error toast with "Open Release Page"
- *
- * DEDUPE
- * ------
- *   Main already dedupes identical (kind, latest) pairs before broadcasting.
- *   The renderer adds a second guard: it remembers the last `latest` string
- *   it showed a "newer" toast for and skips a second consecutive broadcast
- *   for the same version.  This is belt-and-suspenders protection against
- *   multiple renderer windows receiving the same broadcast.
  *
  * INITIALIZATION
  * --------------
  *   Call `initUpdatesSubscriptions()` once during app bootstrap (after the
  *   IPC bridge is installed).  The function is idempotent — a second call
  *   unsubscribes the previous listener and installs a fresh one (safe for HMR).
- *   It then reads the status the broadcasts so far left, for the store.
+ *   It then reads the status the broadcasts so far left, for the store, and
+ *   tells of a newer version found before the window listened.
  */
 
 import i18next from "i18next";
+import type { UpdateStatus } from "../../../shared/updates/status";
+import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
-import { dismissToast, showToast } from "../../components/ui/toast";
-import { useSettingsUIStore } from "../stores/settings-ui";
 import { useUpdatesStore } from "../stores/updates";
 import { updateCheckFailedMessage } from "./update-check-failure";
+
+type NewerStatus = Extract<UpdateStatus, { kind: "newer" }>;
+
+/** Skips `version`: the title bar stops offering it, and the app's own checks never tell of it. */
+export function skipVersion(version: string): void {
+  useUpdatesStore.getState().setIgnoredVersion(version);
+  void ipcCallResult("updates", "setIgnoredVersion", { version });
+}
+
+/**
+ * Tells the user of a newer version with a toast: always when they `asked`,
+ * otherwise once a version, and never one they skipped.
+ */
+function announceNewer(status: NewerStatus, asked: boolean): void {
+  const store = useUpdatesStore.getState();
+  const { latest, releaseUrl, canInstall } = status;
+  if (!asked && (latest === store.ignoredVersion || latest === store.announcedVersion)) return;
+  if (latest !== store.announcedVersion) {
+    store.setAnnouncedVersion(latest);
+    void ipcCallResult("appState", "set", { announcedUpdateVersion: latest });
+  }
+  showToast({
+    kind: "info",
+    message: i18next.t("common:updates.available", { version: latest }),
+    actions: [
+      canInstall
+        ? {
+            label: i18next.t("common:updates.install"),
+            onAction: () => {
+              void ipcCallResult("updates", "install", undefined);
+            },
+          }
+        : {
+            label: i18next.t("common:updates.download"),
+            onAction: () => {
+              void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
+            },
+          },
+      {
+        label: i18next.t("common:updates.skipVersion"),
+        onAction: () => skipVersion(latest),
+      },
+    ],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // IPC subscriptions
@@ -52,12 +94,6 @@ import { updateCheckFailedMessage } from "./update-check-failure";
 type Unsubscribe = () => void;
 
 let activeUnsub: Unsubscribe | null = null;
-
-/** Version string of the last "newer" toast shown. Used for renderer-side dedupe. */
-let lastShownNewerVersion: string | null = null;
-
-/** The download's toast, which never expires by itself (it has an action). */
-let downloadingToast: number | null = null;
 
 /**
  * Install (or reinstall) the `updates.statusChanged` → toast subscription.
@@ -72,12 +108,6 @@ export function initUpdatesSubscriptions(): void {
 
   const unsubscribeStatus = ipcListen("updates", "statusChanged", (status) => {
     useUpdatesStore.getState().applyStatus(status);
-    // The next step of the update replaces the download's toast; a check
-    // made meanwhile does not.
-    if (downloadingToast !== null && !("trigger" in status)) {
-      dismissToast(downloadingToast);
-      downloadingToast = null;
-    }
     switch (status.kind) {
       case "checking":
         // Only broadcast for manual trigger (main suppresses auto-trigger checking).
@@ -88,42 +118,9 @@ export function initUpdatesSubscriptions(): void {
         });
         break;
 
-      case "newer": {
-        // Renderer-side dedupe: skip if we already showed a toast for this version.
-        if (status.latest === lastShownNewerVersion) {
-          break;
-        }
-        lastShownNewerVersion = status.latest;
-
-        const { latest, releaseUrl, canInstall } = status;
-
-        showToast({
-          kind: "info",
-          message: i18next.t("common:updates.available", { version: latest }),
-          actions: [
-            canInstall
-              ? {
-                  label: i18next.t("common:updates.install"),
-                  onAction: () => {
-                    void ipcCallResult("updates", "install", undefined);
-                  },
-                }
-              : {
-                  label: i18next.t("common:updates.download"),
-                  onAction: () => {
-                    void ipcCallResult("updates", "openReleasePage", { url: releaseUrl });
-                  },
-                },
-            {
-              label: i18next.t("common:updates.skipVersion"),
-              onAction: () => {
-                void ipcCallResult("updates", "setIgnoredVersion", { version: latest });
-              },
-            },
-          ],
-        });
+      case "newer":
+        announceNewer(status, status.trigger === "manual");
         break;
-      }
 
       case "current":
         // Only show a toast for manual triggers; auto-triggered "current" is silent.
@@ -147,37 +144,8 @@ export function initUpdatesSubscriptions(): void {
         break;
 
       case "downloading":
-        downloadingToast = showToast({
-          kind: "info",
-          message: i18next.t("common:updates.downloading", { version: status.version }),
-          actions: [
-            {
-              label: i18next.t("common:updates.showProgress"),
-              onAction: () => useSettingsUIStore.getState().openSettingsAt("about"),
-            },
-          ],
-        });
-        break;
-
       case "verifying":
-        break;
-
       case "ready":
-        showToast({
-          kind: "info",
-          message: i18next.t(
-            status.asksForPassword ? "common:updates.readyAsksPassword" : "common:updates.ready",
-            { version: status.version },
-          ),
-          actions: [
-            {
-              label: i18next.t("common:updates.restart"),
-              onAction: () => {
-                void ipcCallResult("updates", "restart", undefined);
-              },
-            },
-          ],
-        });
         break;
 
       case "installFailed": {
@@ -214,5 +182,6 @@ export function initUpdatesSubscriptions(): void {
     if (status === null || store.status !== null) return;
     store.applyStatus(status);
     if (progress !== null) store.applyProgress(progress);
+    if (status.kind === "newer") announceNewer(status, false);
   });
 }
