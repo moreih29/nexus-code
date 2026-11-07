@@ -2,7 +2,6 @@
  * Scenario tests for MergeOptionsDialog radio behavior and squash draft copy.
  */
 import { describe, expect, it } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildSquashCommitDraft,
   MergeOptionsDialogContent,
@@ -10,10 +9,11 @@ import {
   mergeOptionsSubmitLabel,
 } from "../../../../../../src/renderer/components/files/git/pickers/merge-options-dialog";
 import type { LogEntry } from "../../../../../../src/shared/git/types";
+import { renderInDialog } from "../../../../../helpers/render-in-dialog";
 
 describe("MergeOptionsDialogContent", () => {
   it("renders three merge radio choices with merge as the default CTA", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <MergeOptionsDialogContent
         targetRef="feature/login"
         option="merge-commit"
@@ -32,7 +32,7 @@ describe("MergeOptionsDialogContent", () => {
   });
 
   it("shows squash explanatory copy and switches the CTA label", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <MergeOptionsDialogContent
         targetRef="feature/login"
         option="squash"

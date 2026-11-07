@@ -4,12 +4,12 @@
  * The parent replaces `prompt` as Git asks for username then password, so the
  * same dialog instance re-renders rather than stacking multiple modals.
  */
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AskpassPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
 
 interface CredentialPromptDialogProps {
   prompt: AskpassPrompt | null;
@@ -36,7 +36,8 @@ export function credentialPromptInputType(field: AskpassPrompt["field"]): "text"
 
 /**
  * Presents the form body separately from the Radix portal for static renderer
- * tests and for keeping modal chrome focused in the wrapper component.
+ * tests and for keeping modal chrome focused in the wrapper component. Its
+ * header is the dialog's Radix Title, so it renders inside a Dialog root.
  */
 export function CredentialPromptDialogContent({
   prompt,
@@ -62,8 +63,7 @@ export function CredentialPromptDialogContent({
 
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">{title}</h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">{prompt.service ?? prompt.prompt}</p>
+      <DialogHeader title={title} description={prompt.service ?? prompt.prompt} />
       <form className="mt-4 flex flex-col gap-2" onSubmit={onSubmit}>
         <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
           {label}
@@ -100,7 +100,6 @@ export function CredentialPromptDialog({
   onCancel,
   onSubmit,
 }: CredentialPromptDialogProps): React.JSX.Element {
-  const { t } = useTranslation("files");
   const [value, setValue] = useState("");
 
   useEffect(() => {
@@ -120,9 +119,7 @@ export function CredentialPromptDialog({
         if (!open) onCancel();
       }}
       size="sm"
-      aria-describedby={undefined}
     >
-      <RadixDialog.Title className="sr-only">{t("git.credentials.srTitle")}</RadixDialog.Title>
       {prompt ? (
         <CredentialPromptDialogContent
           prompt={prompt}

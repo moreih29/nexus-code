@@ -5,11 +5,11 @@
  * after its timeout and counts as turned down.
  */
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
@@ -64,21 +64,20 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         if (!open && active) settle(active, "deny");
       }}
       size="sm"
-      aria-describedby={undefined}
     >
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("agentCli.consent.title")}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {prompt
-          ? t("agentCli.consent.description", {
-              tab: prompt.fromTab,
-              from: prompt.fromWorkspace,
-              to: prompt.toWorkspace,
-              action,
-            })
-          : ""}
-      </RadixDialog.Description>
+      <DialogHeader
+        title={t("agentCli.consent.title")}
+        description={
+          prompt
+            ? t("agentCli.consent.description", {
+                tab: prompt.fromTab,
+                from: prompt.fromWorkspace,
+                to: prompt.toWorkspace,
+                action,
+              })
+            : ""
+        }
+      />
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("agentCli.consent.timeout", {
           seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),

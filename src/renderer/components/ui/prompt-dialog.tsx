@@ -10,6 +10,7 @@ import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { Button } from "./button";
 
 export interface PromptRequest {
@@ -68,15 +69,9 @@ export function PromptDialog({ request, busy = false, onCancel, onConfirm }: Pro
         if (!open) onCancel();
       }}
       size="sm"
+      {...(request?.description ? {} : { "aria-describedby": undefined })}
     >
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {request?.title ?? ""}
-      </RadixDialog.Title>
-      {request?.description ? (
-        <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-          {request.description}
-        </RadixDialog.Description>
-      ) : null}
+      <DialogHeader title={request?.title ?? ""} description={request?.description} />
       <form className="mt-4 flex flex-col gap-2" onSubmit={handleSubmit}>
         {showInput ? (
           <>

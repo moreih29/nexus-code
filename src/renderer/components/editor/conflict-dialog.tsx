@@ -9,11 +9,11 @@
 // second showConflictResolution() while another is open queues, and is shown
 // when the first resolves.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export type ConflictResolutionChoice = "overwrite" | "reload" | "cancel";
@@ -78,13 +78,11 @@ export function ConflictResolutionDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange} size="md" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("conflictDialog.title", { filename: active?.filename ?? "" })}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("conflictDialog.description")}
-      </RadixDialog.Description>
+    <Dialog open={open} onOpenChange={handleOpenChange} size="md">
+      <DialogHeader
+        title={t("conflictDialog.title", { filename: active?.filename ?? "" })}
+        description={t("conflictDialog.description")}
+      />
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="outline"

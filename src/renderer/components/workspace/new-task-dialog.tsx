@@ -6,7 +6,6 @@
 // it. Failures stay in the dialog so the name can be fixed and sent again.
 
 import i18next from "i18next";
-import { Dialog as RadixDialog } from "radix-ui";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -125,8 +124,6 @@ export function NewTaskDialogRoot(): React.JSX.Element {
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, cancel)}
       size="md"
     >
-      <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-      <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
       <FormDialogContent
         title={title}
         description={description}

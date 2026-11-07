@@ -2,7 +2,6 @@
 // lose (a dry run of rewind_files), then the conversation alone, or with
 // the files.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatController, RewindPreview } from "../../services/chat/controller";
@@ -10,6 +9,7 @@ import type { UserItem } from "../../services/chat/model";
 import { relPath } from "../../utils/path";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
+import { DialogHeader } from "../ui/dialog-header";
 import { showToast } from "../ui/toast";
 
 /** Most files the dialog names; the rest are counted. */
@@ -58,16 +58,8 @@ export function RewindDialog({
   const changes = ready && preview.canRewind && preview.filesChanged.length > 0 ? preview : null;
 
   return (
-    <Dialog
-      open={item !== null}
-      onOpenChange={(open) => !open && !busy && onClose()}
-      size="md"
-      aria-describedby={undefined}
-    >
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("chat.rewind.title")}
-      </RadixDialog.Title>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">{t("chat.rewind.description")}</p>
+    <Dialog open={item !== null} onOpenChange={(open) => !open && !busy && onClose()} size="md">
+      <DialogHeader title={t("chat.rewind.title")} description={t("chat.rewind.description")} />
       <div className="mt-3 text-app-ui-sm" data-testid="chat-rewind-files">
         {preview === "loading" ? (
           <span className="text-muted-foreground">{t("chat.rewind.checking")}</span>

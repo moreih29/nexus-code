@@ -10,11 +10,11 @@
 // showSaveConfirm() while another is open queues, and is shown when the
 // first resolves.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export type SaveConfirmChoice = "save" | "dont-save" | "cancel";
@@ -79,13 +79,11 @@ export function SaveConfirmDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("saveConfirm.title", { filename: active?.filename ?? "" })}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("saveConfirm.description")}
-      </RadixDialog.Description>
+    <Dialog open={open} onOpenChange={handleOpenChange} size="sm">
+      <DialogHeader
+        title={t("saveConfirm.title", { filename: active?.filename ?? "" })}
+        description={t("saveConfirm.description")}
+      />
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="outline"
