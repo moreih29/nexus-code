@@ -72,6 +72,7 @@ import {
   getActiveAppWindow,
   getFocusedAppWindow,
   hasAppWindow,
+  showAppWindow,
 } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
@@ -95,6 +96,16 @@ import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 initMainLogger();
 
 const logger = createLogger("main");
+
+// One app at a time on a profile. A second one, on the same files, ran its own
+// terminals and agents, resumed the same chats again, and undid the first's
+// settings each time it saved its own. A second launch shows the first.
+if (!app.requestSingleInstanceLock()) {
+  logger.info("NexusCode already runs on this profile: showing it instead");
+  // Before the app is ready this exits at once, before anything below runs.
+  app.exit(0);
+}
+app.on("second-instance", () => showAppWindow());
 
 // Install global error safety net immediately after the logger is ready so
 // every subsequent initialisation step is covered. See error-safety-net.ts
@@ -530,13 +541,7 @@ app.whenReady().then(async () => {
       const win = getFocusedAppWindow();
       return win === null || win.isMinimized();
     },
-    focusWindow: () => {
-      const win = getActiveAppWindow();
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    },
+    focusWindow: showAppWindow,
     broadcast: forwardBroadcast,
   });
 
@@ -564,13 +569,7 @@ app.whenReady().then(async () => {
       const win = getFocusedAppWindow();
       return win !== null && !win.isMinimized();
     },
-    focusWindow: () => {
-      const win = getActiveAppWindow();
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    },
+    focusWindow: showAppWindow,
     broadcast: forwardBroadcast,
     ports: portWatcher,
     forwards,

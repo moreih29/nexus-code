@@ -38,6 +38,15 @@ export function getActiveAppWindow(): BrowserWindow | null {
   return null;
 }
 
+/** Brings the app window to act on to the front, restored. */
+export function showAppWindow(): void {
+  const win = getActiveAppWindow();
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 /** The open app windows. */
 export function getAppWindows(): BrowserWindow[] {
   return appWindows.filter((win) => !win.isDestroyed());
