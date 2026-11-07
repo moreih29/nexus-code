@@ -57,6 +57,7 @@ import {
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
@@ -74,7 +75,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { type MessageActions, MessageList } from "./message-list";
-import { PermissionCard } from "./permission-card";
+import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { RewindDialog } from "./rewind-dialog";
@@ -196,6 +197,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
 
   // Where the side panel goes follows the tab's width.
   const rootRef = useRef<HTMLDivElement>(null);
+  // Brought to the front (its tab picked, the inbox, the agent view), it
+  // takes the keyboard.
+  useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   const [place, setPlace] = useState<PanelPlace>("beside");
   useLayoutEffect(() => {
     const el = rootRef.current;

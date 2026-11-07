@@ -142,6 +142,17 @@ function composerOf(tab: Element | null): HTMLTextAreaElement | null {
   return tab?.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"] textarea') ?? null;
 }
 
+/**
+ * Puts the keyboard in the chat tab `tab` as the user brings it to the
+ * front: in the request waiting on them, so its keys work at once, else in
+ * the message box. A request that showed while the tab was hidden never
+ * took it.
+ */
+export function focusChatTab(tab: Element | null): void {
+  const card = tab?.querySelector<HTMLElement>('[data-testid="chat-permission"] [tabindex="-1"]');
+  (card ?? composerOf(tab))?.focus({ preventScroll: true });
+}
+
 /** Whether `el` is on screen: a tab not in front is hidden, and keeps its hands off the keyboard. */
 function onScreen(el: Element | null): el is HTMLElement {
   return el instanceof HTMLElement && el.checkVisibility({ visibilityProperty: true });
