@@ -130,6 +130,8 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		return nil, protocolError("chat.start cwd and program are required")
 	}
 
+	// Out of the tab's lock: the login shell may take a while to answer.
+	env := mergeEnv(p.Env)
 	sess := s.sessionFor(key)
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
@@ -141,7 +143,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	// .cmd, cmd.exe would end the agent manager's prompt at its first line.
 	cmd := nodeshim.Command(p.Program, p.Args...)
 	cmd.Dir = p.Cwd
-	cmd.Env = mergeEnv(p.Env)
+	cmd.Env = env
 	cmd.SysProcAttr = newSysProcAttr()
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -596,10 +598,11 @@ func readLine(reader *bufio.Reader, limit int) ([]byte, error) {
 	}
 }
 
-// mergeEnv overlays the tab's variables on the agent's environment. The
-// app's wrapper directory goes first on the PATH, as for terminals, and
-// variables a parent Claude Code session sets are left out, so the program
-// starts as its own session.
+// mergeEnv overlays the login shell's environment (./login_env.go), then
+// the tab's variables, on the agent's environment. The app's wrapper
+// directory goes first on the PATH, as for terminals, and variables a
+// parent Claude Code session sets are left out, so the program starts as
+// its own session.
 func mergeEnv(overrides map[string]string) []string {
 	merged := make(map[string]string)
 	for _, entry := range os.Environ() {
@@ -607,6 +610,9 @@ func mergeEnv(overrides map[string]string) []string {
 		if !ok || inheritedOnly(key) {
 			continue
 		}
+		merged[key] = value
+	}
+	for key, value := range loginEnv() {
 		merged[key] = value
 	}
 	for key, value := range overrides {
