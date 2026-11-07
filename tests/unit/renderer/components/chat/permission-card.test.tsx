@@ -9,6 +9,7 @@ import { describe, expect, it } from "bun:test";
 import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  focusChatTab,
   PermissionCard,
   scopesOf,
 } from "../../../../../src/renderer/components/chat/permission-card";
@@ -145,5 +146,40 @@ describe("a plan", () => {
     expect(buttons(html)).toEqual(["Request changes", "Approve ↵", ""]);
     expect(html).toContain("Accept edits");
     expect(html).toContain('aria-label="Other ways to approve"');
+  });
+});
+
+describe("focusChatTab", () => {
+  /** A chat tab with its message box, and a request waiting when `waiting`; what took focus. */
+  function chatTab(waiting: boolean): { tab: Element; focused: string[] } {
+    const focused: string[] = [];
+    const part = (name: string) => ({ focus: () => focused.push(name) });
+    const tab = {
+      querySelector: (selector: string) =>
+        selector.includes("chat-permission")
+          ? waiting
+            ? part("card")
+            : null
+          : selector.includes("chat-composer")
+            ? part("box")
+            : null,
+    } as unknown as Element;
+    return { tab, focused };
+  }
+
+  it("puts the keyboard in a request waiting on the user, so Enter answers it", () => {
+    const { tab, focused } = chatTab(true);
+    focusChatTab(tab);
+    expect(focused).toEqual(["card"]);
+  });
+
+  it("puts it in the message box when nothing waits", () => {
+    const { tab, focused } = chatTab(false);
+    focusChatTab(tab);
+    expect(focused).toEqual(["box"]);
+  });
+
+  it("does nothing without a tab", () => {
+    expect(() => focusChatTab(null)).not.toThrow();
   });
 });

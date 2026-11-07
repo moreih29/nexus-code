@@ -30,6 +30,7 @@ import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
@@ -45,7 +46,7 @@ import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
-import { PermissionCard } from "./permission-card";
+import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { StatusLine } from "./status-line";
@@ -108,8 +109,11 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   };
   useAgentAsk(tabId, runs, showRun);
 
-  // What the conversation links opens over the tab, or beside it.
   const rootRef = useRef<HTMLDivElement>(null);
+  // Brought to the front (its tab picked, the inbox, the agent view), it
+  // takes the keyboard.
+  useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
+  // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
   const [looked, setLooked] = useState<readonly string[]>([]);
   const outside = useMemo(
