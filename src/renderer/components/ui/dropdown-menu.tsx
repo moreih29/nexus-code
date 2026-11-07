@@ -19,7 +19,7 @@
  */
 import { Check, ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
-import { useLayoutEffect, useRef } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useRef } from "react";
 import { cn } from "@/utils/cn";
 import { tooltipProps } from "./tooltip";
 
@@ -44,23 +44,11 @@ interface DropdownMenuRootProps {
   onOpenChange?: (open: boolean) => void;
   /** Set to open and close the menu from code; left out, the trigger does. */
   open?: boolean;
-  /**
-   * Whether the open menu holds the keyboard and blocks the page under it.
-   * Defaults to true. A menu whose items open a picker or a dialog sets it
-   * to false: a held keyboard pulls the focus back from what the item
-   * opened, and the menu's trigger takes it when the menu closes.
-   */
-  modal?: boolean;
 }
 
-export function DropdownMenuRoot({
-  children,
-  onOpenChange,
-  open,
-  modal = true,
-}: DropdownMenuRootProps) {
+export function DropdownMenuRoot({ children, onOpenChange, open }: DropdownMenuRootProps) {
   return (
-    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange} modal={modal}>
+    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       {children}
     </RadixDropdownMenu.Root>
   );
@@ -82,14 +70,51 @@ export function DropdownMenuTrigger({ children }: DropdownMenuTriggerProps) {
 // Content
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Running an item's action
+// ---------------------------------------------------------------------------
+
+/**
+ * How a picked item runs its action. Left to the menu, it runs once the
+ * menu has closed and the keyboard is back on its trigger (or the row it
+ * opened from). A dialog or a picker the action opens then takes the
+ * keyboard from a menu that no longer holds it, and gives it back to the
+ * trigger when it closes, not to the picked item, which is gone by then.
+ */
+type RunItem = (action: () => void) => void;
+
+function runNow(action: () => void): void {
+  action();
+}
+
+const RunItemContext = createContext<RunItem>(runNow);
+
+/** The action an item queued, for the menu to run once it has closed. */
+function useQueuedItemAction(): {
+  queue: RunItem;
+  take: () => (() => void) | null;
+} {
+  const queued = useRef<(() => void) | null>(null);
+  const queue = useCallback<RunItem>((action) => {
+    queued.current = action;
+  }, []);
+  const take = useCallback(() => {
+    const action = queued.current;
+    queued.current = null;
+    return action;
+  }, []);
+  return { queue, take };
+}
+
 interface DropdownMenuContentProps {
   children: React.ReactNode;
   /**
-   * Forwarded to Radix `DropdownMenu.Content`. Left out, closing puts the
-   * keyboard back on the trigger only when nothing else took it: an item
-   * that opened a dialog or a picker keeps the keyboard there. Consumers
-   * that hand focus off later than that should pass
-   * `(e) => e.preventDefault()` to prevent the focus race.
+   * Forwarded to Radix `DropdownMenu.Content`, for a menu that hands the
+   * keyboard off itself; its items then run their actions at once, while
+   * the menu is still open. Left out, the menu runs a picked item's action
+   * after closing, once the keyboard is back on the trigger; closed any
+   * other way, it puts the keyboard back on the trigger only when nothing
+   * else took it.
    */
   onCloseAutoFocus?: (event: Event) => void;
   /** Alignment relative to the trigger. Defaults to "start". */
@@ -107,6 +132,7 @@ export function DropdownMenuContent({
   side = "bottom",
   sideOffset = 4,
 }: DropdownMenuContentProps) {
+  const itemAction = useQueuedItemAction();
   return (
     <RadixDropdownMenu.Portal>
       <RadixDropdownMenu.Content
@@ -114,9 +140,20 @@ export function DropdownMenuContent({
         align={align}
         side={side}
         sideOffset={sideOffset}
-        onCloseAutoFocus={onCloseAutoFocus ?? keepFocusTakenElsewhere}
+        onCloseAutoFocus={
+          onCloseAutoFocus ??
+          ((event) => {
+            const action = itemAction.take();
+            // Radix puts the keyboard on the trigger right after this
+            // handler; the microtask runs the action after that.
+            if (action) queueMicrotask(action);
+            else keepFocusTakenElsewhere(event);
+          })
+        }
       >
-        {children}
+        <RunItemContext.Provider value={onCloseAutoFocus ? runNow : itemAction.queue}>
+          {children}
+        </RunItemContext.Provider>
       </RadixDropdownMenu.Content>
     </RadixDropdownMenu.Portal>
   );
@@ -147,9 +184,10 @@ export interface DropdownMenuPoint {
  * row was right-clicked, or under a button its caller measured. It is open
  * while `point` is set; a pick, Escape or a click elsewhere calls `onClose`.
  *
- * Non-modal, so an item that opens a dialog or a picker keeps the keyboard
- * there. Otherwise closing puts the keyboard back where it was when the
- * menu opened: the row, or the button.
+ * Closing puts the keyboard back where it was when the menu opened: the
+ * row, or the button. A picked item's action runs after that, as in
+ * DropdownMenuContent. Non-modal, so a right-click on another row closes
+ * this menu and opens one there.
  */
 export function DropdownMenuAtPoint({
   point,
@@ -162,6 +200,7 @@ export function DropdownMenuAtPoint({
 }) {
   const open = point !== null;
   const returnFocusTo = useRef<HTMLElement | null>(null);
+  const itemAction = useQueuedItemAction();
   // Before the menu takes the keyboard: its content mounts after this.
   useLayoutEffect(() => {
     if (!open) return;
@@ -197,11 +236,11 @@ export function DropdownMenuAtPoint({
             const target = returnFocusTo.current;
             returnFocusTo.current = null;
             const focused = document.activeElement;
-            if (focused && focused !== document.body) return;
-            if (target?.isConnected) target.focus();
+            if ((!focused || focused === document.body) && target?.isConnected) target.focus();
+            itemAction.take()?.();
           }}
         >
-          {children}
+          <RunItemContext.Provider value={itemAction.queue}>{children}</RunItemContext.Provider>
         </RadixDropdownMenu.Content>
       </RadixDropdownMenu.Portal>
     </RadixDropdownMenu.Root>
@@ -243,11 +282,12 @@ export function DropdownMenuItem({
   tooltip,
   className,
 }: DropdownMenuItemProps) {
+  const run = useContext(RunItemContext);
   return (
     <RadixDropdownMenu.Item
       className={cn(ITEM_CLASS, className)}
       disabled={disabled}
-      onSelect={onSelect != null ? () => onSelect() : undefined}
+      onSelect={onSelect != null ? () => run(onSelect) : undefined}
       {...(tooltip ? tooltipProps(tooltip) : {})}
     >
       {children}

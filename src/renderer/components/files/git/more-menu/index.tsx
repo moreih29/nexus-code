@@ -118,7 +118,7 @@ export function GitMoreMenu({
   const noRemoteReason = hasRemote ? undefined : t("git.moreMenu.addRemoteFirst");
 
   return (
-    <DropdownMenuRoot modal={false}>
+    <DropdownMenuRoot>
       <DropdownMenuTrigger>
         <Button
           type="button"

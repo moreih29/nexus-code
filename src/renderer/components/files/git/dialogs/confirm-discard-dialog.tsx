@@ -8,6 +8,7 @@ import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { DialogHeader } from "../../../ui/dialog-header";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 
 export interface DiscardConfirmRequest {
   title: string;
@@ -31,6 +32,7 @@ export function ConfirmDiscardDialog({
   onConfirm,
 }: ConfirmDiscardDialogProps) {
   const { t } = useTranslation("files");
+  const returnFocus = useDialogFocusReturn(request !== null);
   return (
     <RadixAlertDialog.Root
       open={request !== null}
@@ -40,7 +42,10 @@ export function ConfirmDiscardDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("sm", true, "flex flex-col")}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("sm", true, "flex flex-col")}
+          onCloseAutoFocus={returnFocus}
+        >
           <DialogHeader
             alert
             title={request?.title ?? t("git.discard.dialogTitle")}

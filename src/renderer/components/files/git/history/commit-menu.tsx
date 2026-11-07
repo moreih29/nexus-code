@@ -17,6 +17,7 @@ import {
   type DropdownMenuPoint,
   DropdownMenuSeparator,
 } from "../../../ui/dropdown-menu";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 
 export type HistoryCommitMenuPoint = DropdownMenuPoint;
 
@@ -174,6 +175,7 @@ function HistoryCommitConfirmDialog({
     request?.kind === "checkout"
       ? t("git.history.menu.confirmCheckout.confirmLabel")
       : t("git.history.menu.confirmResetSoft.confirmLabel");
+  const returnFocus = useDialogFocusReturn(request !== null);
 
   return (
     <RadixAlertDialog.Root
@@ -184,7 +186,10 @@ function HistoryCommitConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("sm", true)}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("sm", true)}
+          onCloseAutoFocus={returnFocus}
+        >
           <DialogHeader alert title={title} description={description} />
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
