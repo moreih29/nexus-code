@@ -1,23 +1,30 @@
 // Opening what a Claude tab names as a tab of its own: in the group beside
 // the Claude tab, split off when the tab is wide enough to share; in the
-// Claude tab's own group when it is narrow and has no neighbour.
+// Claude tab's own group when it is narrow and has no neighbour. From the
+// agent view, the Claude tab's workspace comes to the front to show it.
 
 import { Grid } from "@/engine";
 import type { MonacoRange } from "../../../shared/editor/monaco-range";
 import { ipcCallResult } from "../../ipc/client";
 import { openBrowserTabAt, revealTab } from "../../state/operations/tabs";
+import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout/store";
+import { showInAgentView } from "../agent-view/show";
 import { revealEditorAt } from "../editor/tabs";
 import { openExternalEditor } from "../editor/tabs/open-external-editor";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
+import { revealInWorkspace } from "../sessions/actions";
 import { type FileLink, isUnder, type LineAt } from "./links";
 
 /**
  * Makes the group the new tab goes in the active one: the group next to
  * the Claude tab's; with `split`, a new one when there is none; otherwise
- * the Claude tab's own.
+ * the Claude tab's own. From the agent view always a new one: how wide the
+ * Claude tab is there says nothing of its group in the workspace, and the
+ * conversation stays in sight beside what it opened.
  */
 function activateTarget(workspaceId: string, claudeTabId: string, split: boolean): void {
+  if (showWorkspaceOf(workspaceId, claudeTabId)) split = true;
   const store = useLayoutStore.getState();
   store.ensureLayout(workspaceId);
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
@@ -74,8 +81,27 @@ export async function fileLinkTarget(
   return stat?.ok ? { path: literal } : link;
 }
 
-/** Shows a tab of the workspace, wherever it is in the layout. */
+/**
+ * Leaves the agent view for the Claude tab's workspace, the Claude tab in
+ * front there: what it opens goes in that workspace, out of sight while
+ * the agent view is up. Whether it was up.
+ */
+function showWorkspaceOf(workspaceId: string, claudeTabId: string): boolean {
+  if (!isAgentViewShown()) return false;
+  revealInWorkspace({ workspaceId, tabId: claudeTabId });
+  useAgentViewStore.getState().setMode("workspace");
+  return true;
+}
+
+/**
+ * Shows a tab of the workspace, wherever it is in the layout; in the agent
+ * view while it is up.
+ */
 export function revealTabById(workspaceId: string, tabId: string): void {
+  if (isAgentViewShown()) {
+    showInAgentView(workspaceId, tabId);
+    return;
+  }
   const layout = useLayoutStore.getState().byWorkspace[workspaceId];
   if (!layout) return;
   const leaf = Grid.allLeaves(layout.root).find((l) => l.tabIds.includes(tabId));
