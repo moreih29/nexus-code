@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, type BrowserWindow, session } from "electron";
+import { app, type BrowserWindow, powerMonitor, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -348,7 +348,7 @@ registerWindowChannel();
 registerClipboardChannel();
 
 // Install the updates domain. IPC handlers are registered synchronously here;
-// the initial auto-poll fires inside app.whenReady() via runInitialAutoPoll().
+// the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
@@ -399,10 +399,14 @@ app.whenReady().then(async () => {
     keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
-  // Fire the one-time silent auto update check now that the app is ready. The
-  // Microsoft Store updates its own install, and a GitHub release has no
+  // Start the silent auto update checks now that the app is ready: one now,
+  // then every few hours, and on waking from sleep once that long has passed.
+  // The Microsoft Store updates its own install, and a GitHub release has no
   // build for it.
-  if (!process.windowsStore) updatesHandle?.runInitialAutoPoll();
+  if (!process.windowsStore) {
+    updatesHandle?.startAutoChecks();
+    powerMonitor.on("resume", () => updatesHandle?.onResume());
+  }
 
   // Remove nexus-ssh-* control-socket directories orphaned by previous app
   // instances that died without dispose() (crash, SIGKILL). Live masters —

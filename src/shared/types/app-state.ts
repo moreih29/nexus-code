@@ -163,11 +163,17 @@ export const AppStateSchema = z.object({
   // Reset to null when the user changes updateChannel.
   ignoredUpdateVersion: z.string().nullable().default(null),
 
-  // Auto-check toggle. When true (default), the updates domain fires one
-  // silent GH Releases poll at app startup and surfaces a toast if a newer
-  // version is available. When false, the auto-poll is skipped entirely;
-  // the user can still trigger a manual check from the About panel or the
-  // App menu — manual triggers always respond regardless of this setting.
+  // The newer version the user was last told of with a toast. A check by
+  // the app itself toasts a version once; after that only the title bar's
+  // update button shows it, however many hours the app keeps checking.
+  announcedUpdateVersion: z.string().max(64).nullable().default(null),
+
+  // Auto-check toggle. When true (default), the updates domain polls GH
+  // Releases silently once the app starts and every few hours while it
+  // runs, and the title bar shows a newer version. When false, the
+  // auto-polls are skipped; the user can still trigger a manual check from
+  // the About panel or the App menu — manual triggers always respond
+  // regardless of this setting.
   autoCheckForUpdates: z.boolean().default(true),
 
   // OS-level desktop notifications master toggle. When true (default), the

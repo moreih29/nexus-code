@@ -235,11 +235,14 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate inactive-panel dim multiplier from appState (authoritative store).
   useInactivePanelDimStore.getState().hydrate(state.inactivePanelDim);
 
-  // Hydrate update preferences (channel + auto-check toggle) from appState
-  // and install the statusChanged listener.
+  // Hydrate update preferences (channel, auto-check toggle, the versions
+  // skipped and told of) from appState and install the statusChanged
+  // listener.
   useUpdatesStore.getState().hydrate({
     channel: state.updateChannel,
     autoCheckEnabled: state.autoCheckForUpdates,
+    ignoredVersion: state.ignoredUpdateVersion,
+    announcedVersion: state.announcedUpdateVersion,
   });
   initUpdatesSubscriptions();
 

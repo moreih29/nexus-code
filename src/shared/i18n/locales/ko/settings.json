@@ -303,7 +303,7 @@
     "version": "버전 {{version}}",
     "autoCheck": {
       "label": "자동으로 업데이트 확인",
-      "description": "앱 시작 시 GitHub 릴리스를 자동으로 확인합니다. 아래의 수동 확인은 이 설정과 관계없이 항상 실행됩니다."
+      "description": "앱이 켜져 있는 동안 몇 시간마다 GitHub 릴리스를 확인합니다. 아래의 수동 확인은 이 설정과 관계없이 항상 실행됩니다."
     },
     "checkNow": "업데이트 확인",
     "checking": "확인 중…",

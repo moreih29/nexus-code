@@ -12,6 +12,7 @@ import { isMac } from "../../utils/platform";
 import { ViewToggle } from "../agent-view/view-toggle";
 import { InboxButton } from "./inbox-button";
 import { TaskSwitcher } from "./task-switcher";
+import { UpdateButton } from "./update-button";
 import { WindowControls } from "./window-controls";
 
 // ---------------------------------------------------------------------------
@@ -100,7 +101,13 @@ export function TitleBar() {
         <TaskSwitcher active={activeWorkspace} label={titleLabel} />
       )}
 
-      {/* Inbox — the sessions waiting on the user; right-aligned */}
+      {/* What follows is right-aligned. */}
+      <div className="ml-auto" aria-hidden="true" />
+
+      {/* An update to take, while there is one */}
+      <UpdateButton />
+
+      {/* Inbox — the sessions waiting on the user */}
       <InboxButton />
 
       {/* Settings button — app-no-drag so click lands */}
