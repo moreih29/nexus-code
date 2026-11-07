@@ -3,6 +3,7 @@ import {
   answerOf,
   isSupportedCodex,
   suggestedPaths,
+  threadSettings,
 } from "../../../../../src/renderer/services/chat/codex-controller";
 
 describe("codex answers", () => {
@@ -88,5 +89,20 @@ describe("codex @-mention suggestions", () => {
   test("nothing from a reply that is not a list of paths", () => {
     expect(suggestedPaths(undefined)).toEqual([]);
     expect(suggestedPaths([null, { path: 3 }, { path: "" }, { path: "a.ts" }])).toEqual(["a.ts"]);
+  });
+});
+
+describe("codex thread settings", () => {
+  const target = { workspaceId: "w", tabId: "t", cwd: "/home/u/.nexus-code/manager" };
+
+  test("a tab's thread is told nothing more", () => {
+    expect(threadSettings(target)).toEqual({});
+  });
+
+  test("the manager's thread gets its instructions, and its folder trusted for it alone", () => {
+    expect(threadSettings({ ...target, developerInstructions: "Manage.", trusted: true })).toEqual({
+      developerInstructions: "Manage.",
+      config: { projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } } },
+    });
   });
 });

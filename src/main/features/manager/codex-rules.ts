@@ -4,7 +4,8 @@
  * that connection. A rule in the folder's .codex/rules, which Codex reads
  * as its project's, lets `nexus` run outside the sandbox without asking, as
  * Claude's manager runs it with --allowedTools; its other commands stay as
- * the user's Codex settings say.
+ * the user's Codex settings say. Codex reads a project's rules only when it
+ * trusts the folder, which the manager's thread says (threadSettings).
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";

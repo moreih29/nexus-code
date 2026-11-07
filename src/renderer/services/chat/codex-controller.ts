@@ -87,6 +87,12 @@ export interface CodexTabTarget {
   threadId?: string;
   /** What the thread is told beside Codex's own instructions (the agent manager's). */
   developerInstructions?: string;
+  /**
+   * Whether Codex is to take the folder as trusted, so its own rules
+   * (.codex/rules) apply, though the user's config says nothing of it (the
+   * agent manager's).
+   */
+  trusted?: boolean;
 }
 
 export interface CodexTabHooks {
@@ -244,8 +250,8 @@ export class CodexController {
     }
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
-    const { cwd, developerInstructions } = this.target;
-    const instructions = developerInstructions ? { developerInstructions } : {};
+    const { cwd } = this.target;
+    const settings = threadSettings(this.target);
     const threadId = this.model.threadId ?? this.target.threadId;
     if (threadId) {
       try {
@@ -254,7 +260,7 @@ export class CodexController {
           threadId,
           cwd,
           excludeTurns: this.model.items.length > 0,
-          ...instructions,
+          ...settings,
         });
         return true;
       } catch (err) {
@@ -265,7 +271,7 @@ export class CodexController {
       const mode = this.next.mode;
       await this.request("thread/start", {
         cwd,
-        ...instructions,
+        ...settings,
         ...(this.next.model ? { model: this.next.model } : {}),
         ...(mode
           ? {
@@ -631,6 +637,23 @@ const CARD_REQUESTS = new Set([
   "item/permissions/requestApproval",
   "item/tool/requestUserInput",
 ]);
+
+/**
+ * What a tab's thread starts or goes on with beside its folder: the
+ * instructions it is given, and the folder's trust, for this thread only.
+ * Codex reads a folder's own rules only when it is trusted, and said here
+ * the trust is written to no config of the user's.
+ */
+export function threadSettings({
+  cwd,
+  developerInstructions,
+  trusted,
+}: CodexTabTarget): Record<string, unknown> {
+  return {
+    ...(developerInstructions ? { developerInstructions } : {}),
+    ...(trusted ? { config: { projects: { [cwd]: { trust_level: "trusted" } } } } : {}),
+  };
+}
 
 /** A path in a `.git` folder, by either separator: git's files, not the project's. */
 const IN_GIT = /(^|[\\/])\.git([\\/]|$)/;
