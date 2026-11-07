@@ -8,10 +8,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -42,6 +44,11 @@ func TestFakeProgramHelper(t *testing.T) {
 			continue
 		case "hang":
 			time.Sleep(time.Hour)
+		case "linger":
+			// Outlast a stop's polite ask, to be killed after its grace.
+			signal.Ignore(syscall.SIGTERM)
+			fmt.Println(`{"type":"lingering"}`)
+			continue
 		case "line":
 			fmt.Println(os.Getenv("NEXUS_CHAT_FAKE_LINE"))
 			continue
@@ -549,6 +556,53 @@ func TestCloseForgetsTheTab(t *testing.T) {
 	list, _ := service.List(context.Background(), nil)
 	if n := len(list.(ListResult).Sessions); n != 0 {
 		t.Fatalf("list has %d sessions", n)
+	}
+}
+
+func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signals")
+	}
+	service := New()
+	rec := newRecorder()
+	service.SetEventSink(rec.sink)
+	defer service.Close()
+
+	startFake(t, service, "tab", nil)
+	_ = send(t, service, "tab", "linger")
+	rec.waitFor(t, "the program to linger", func(lines []LinePayload, _ []ExitPayload) bool {
+		return hasOut(lines, `"lingering"`)
+	})
+	old := service.lookup(tabKey{workspaceID: "ws", tabID: "tab"}).running()
+	if _, err := service.CloseTab(context.Background(), tabParams("tab")); err != nil {
+		t.Fatalf("CloseTab: %v", err)
+	}
+	rec.reset()
+
+	// The tab opens again, as the agent manager's does on a new conversation.
+	startFake(t, service, "tab", nil)
+	_ = send(t, service, "tab", "hello")
+	rec.waitFor(t, "the new program's answer", func(lines []LinePayload, _ []ExitPayload) bool {
+		return hasOut(lines, `"hello!"`)
+	})
+	select {
+	case <-old.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the closed tab's program did not end")
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.exits) != 0 {
+		t.Fatalf("the old program's exit was told: %+v", rec.exits)
+	}
+	for _, line := range rec.lines {
+		if line.Dir == DirSys && strings.Contains(string(line.Message), `"exit"`) {
+			t.Fatalf("the old program's exit reached the tab: %s", describe(rec.lines))
+		}
+	}
+	if first := rec.lines[0]; first.Seq != 1 {
+		t.Fatalf("the new log starts at %d: %s", first.Seq, describe(rec.lines))
 	}
 }
 

@@ -4,6 +4,7 @@ import path from "node:path";
 import { createAbortError, isAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace, MANAGER_WORKSPACE_ID } from "../../../shared/manager/manager";
 import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
@@ -454,8 +455,38 @@ export class WorkspaceManager {
   // Queries
   // ---------------------------------------------------------------------------
 
+  /** The user's workspaces: the agent manager's own is not one of them. */
   list(): WorkspaceMeta[] {
-    return Array.from(this.contexts.values()).map((ctx) => ctx.getMeta());
+    return Array.from(this.contexts.values())
+      .map((ctx) => ctx.getMeta())
+      .filter((meta) => !isManagerWorkspace(meta.id));
+  }
+
+  /**
+   * Opens the agent manager's workspace (shared/manager), a local one at
+   * `rootPath` whose agent runs the manager's program and relays its nexus
+   * commands. It is kept apart from the user's: not saved, not listed, and
+   * its agent starts when the manager's program first needs it.
+   */
+  openManagerWorkspace(rootPath: string): WorkspaceMeta {
+    const open = this.contexts.get(MANAGER_WORKSPACE_ID);
+    if (open) return open.getMeta();
+    const meta: WorkspaceMeta = {
+      id: MANAGER_WORKSPACE_ID,
+      name: "Agent manager",
+      location: { kind: "local", rootPath },
+      rootPath,
+      colorTone: "default",
+      pinned: false,
+      lastOpenedAt: new Date().toISOString(),
+      tabs: [],
+      sortOrder: 0,
+      pinnedSortOrder: 0,
+    };
+    this.workspaceStorage.openForWorkspace(meta.id);
+    const ctx = new WorkspaceContext(meta, this.workspaceStorage, createInitialFsProvider(meta));
+    this.contexts.set(meta.id, ctx);
+    return meta;
   }
 
   /**
@@ -467,6 +498,7 @@ export class WorkspaceManager {
   findByLocation(location: WorkspaceLocation): WorkspaceMeta | null {
     const key = workspaceLocationKey(location);
     for (const ctx of this.contexts.values()) {
+      if (isManagerWorkspace(ctx.getMeta().id)) continue;
       if (workspaceLocationKey(ctx.getMeta().location) === key) {
         return ctx.getMeta();
       }

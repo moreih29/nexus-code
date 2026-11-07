@@ -13,7 +13,8 @@
     "group": {
       "settings": "Settings"
     },
-    "agent": "Agents"
+    "agent": "Agents",
+    "manager": "Agent manager"
   },
   "dialog": {
     "close": "Close settings",
@@ -250,6 +251,10 @@
     "osEnabled": {
       "label": "Desktop notifications",
       "description": "When an agent in a tab you aren't viewing finishes or waits"
+    },
+    "managerReports": {
+      "label": "Agent manager reports",
+      "description": "Also get the manager's done and waiting reports as notifications"
     }
   },
   "agentCli": {
@@ -297,8 +302,12 @@
         "worktreeNew": "create the task \"{{detail}}\"",
         "worktreeRemove": "delete the task and its worktree folder",
         "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
-        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders"
-      }
+        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders",
+        "permissionAllow": "allow {{detail}}",
+        "permissionDeny": "deny {{detail}}"
+      },
+      "permission_title": "Answer another session's permission request?",
+      "manager_description": "The agent manager asks to {{action}} in {{to}}."
     },
     "heading": "nexus CLI"
   },
@@ -480,5 +489,30 @@
   },
   "agent": {
     "newTask": "New tasks"
+  },
+  "manager": {
+    "enabled": {
+      "label": "Agent manager",
+      "description": "Starts with the app, sees every session and directs them"
+    },
+    "agent": {
+      "label": "Manager agent",
+      "description": "Uses that agent's own account and model"
+    },
+    "reports": "Reports and permissions",
+    "notify": {
+      "label": "Tell the manager about",
+      "tasks": "Its tasks",
+      "attention": "+ Waiting, errors",
+      "all": "Everything",
+      "description": "The more, the more usage"
+    },
+    "permissions": {
+      "label": "Permission requests",
+      "user": "Leave to me",
+      "ask": "Ask each time",
+      "answer": "Let it answer",
+      "description": "When another session asks to use a tool"
+    }
   }
 }

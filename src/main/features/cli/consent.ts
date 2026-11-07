@@ -24,6 +24,25 @@ export interface ConsentDeps {
   ask(request: ChangeRequest, timeoutMs: number): Promise<CliConsentAnswer>;
 }
 
+/**
+ * Asks the user about `request` whatever the setting: for what is not to be
+ * allowed for good, as an answer to another session's permission request.
+ * Resolves when allowed; a CliError saying why when not.
+ */
+export async function askEachTime(request: ChangeRequest, ask: ConsentDeps["ask"]): Promise<void> {
+  const answer = await ask(request, CONSENT_TIMEOUT_MS);
+  if (answer === "once" || answer === "session") return;
+  throw refusal(answer);
+}
+
+function refusal(answer: CliConsentAnswer): CliError {
+  return new CliError(
+    answer === "timeout"
+      ? "the user did not answer in time; nothing was changed"
+      : "the user did not allow it",
+  );
+}
+
 export class CrossWorkspaceConsent {
   /** "from>to" pairs the user allowed until restart. */
   private readonly allowed = new Set<string>();
@@ -44,10 +63,6 @@ export class CrossWorkspaceConsent {
     const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
     if (answer === "session") this.allowed.add(pair);
     if (answer === "once" || answer === "session") return;
-    throw new CliError(
-      answer === "timeout"
-        ? "the user did not answer in time; nothing was changed"
-        : "the user did not allow it",
-    );
+    throw refusal(answer);
   }
 }

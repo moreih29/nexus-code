@@ -12,6 +12,7 @@ import {
   FileText,
   GitFork,
   LoaderCircle,
+  Radio,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -25,6 +26,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
   type AssistantBlock,
@@ -40,8 +42,11 @@ import {
 import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
 import { isOwnScroll, nearBottom } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
+import { isReport, reportedSessions } from "../../services/manager/report";
+import { sentIn, useManagerStore } from "../../state/stores/manager";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
 import { useAgentContext } from "./chat-agent";
 import { ChatMarkdown } from "./chat-markdown";
@@ -50,6 +55,8 @@ import { ToolRow } from "./tool-row";
 
 interface MessageListProps {
   workspaceId: string;
+  /** The tab the conversation is, if it is one: messages the agent manager sent it are marked. */
+  tabId?: string;
   cwd: string;
   rootPath: string;
   history: ChatModel | null;
@@ -67,7 +74,8 @@ export interface MessageActions {
   running: boolean;
   /** The tab has a session to fork from. */
   canFork: boolean;
-  onFork: (item: UserItem | AssistantItem) => void;
+  /** Absent where the conversation forks into no tab. */
+  onFork?: (item: UserItem | AssistantItem) => void;
   onRewind: (item: UserItem) => void;
   /** Sends a running command or subagent to the background. */
   onBackground?: (toolUseId: string) => void;
@@ -82,6 +90,7 @@ function backgroundOf(actions: MessageActions | undefined, toolUseId: string) {
 
 export function MessageList({
   workspaceId,
+  tabId,
   cwd,
   rootPath,
   history,
@@ -175,7 +184,7 @@ export function MessageList({
     () => foldToolRuns([...(items ? [] : (history?.items ?? [])), ...liveItems], tools),
     [items, history, liveItems, tools],
   );
-  const ctx: ItemContext = { workspaceId, cwd, rootPath, tools, actions, extras, shown };
+  const ctx: ItemContext = { workspaceId, tabId, cwd, rootPath, tools, actions, extras, shown };
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -223,6 +232,7 @@ function lastUserKey(items: ChatItem[]): string | undefined {
 
 interface ItemContext {
   workspaceId: string;
+  tabId: string | undefined;
   cwd: string;
   rootPath: string;
   tools: Record<string, ToolCall>;
@@ -235,7 +245,11 @@ interface ItemContext {
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
   switch (item.kind) {
     case "user":
-      return <UserBubble item={item} actions={ctx.actions} />;
+      // The app's reports in the agent manager's conversation are no messages of the user's.
+      if (isManagerWorkspace(ctx.workspaceId) && isReport(item.text)) {
+        return <ManagerReport item={item} />;
+      }
+      return <UserBubble item={item} ctx={ctx} />;
     case "assistant":
       return <AssistantMessage item={item} ctx={ctx} />;
     case "notice":
@@ -243,13 +257,26 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
   }
 });
 
-function UserBubble({ item, actions }: { item: UserItem; actions?: MessageActions }) {
+function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const { t } = useTranslation();
   const agent = useAgentContext();
+  const { actions, workspaceId, tabId } = ctx;
+  const byManager = useManagerStore((s) =>
+    tabId ? sentIn(s.tasks, workspaceId, tabId, item.text) : false,
+  );
   const taken = item.uuid !== undefined;
   const { text, files } = splitAttachments(item.text);
   return (
     <div className="group/user flex flex-col items-end gap-1">
+      {byManager && (
+        <span
+          className="flex items-center gap-1 text-app-micro text-muted-foreground"
+          title={t("manager.sent_title")}
+        >
+          <ManagerIcon className="size-3.5 text-[var(--state-selected-indicator)]" aria-hidden />
+          {t("manager.sent")}
+        </span>
+      )}
       {item.images.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5">
           {item.images.map((image, i) => (
@@ -295,8 +322,8 @@ function UserBubble({ item, actions }: { item: UserItem; actions?: MessageAction
               <RotateCcw className="size-3.5" />
             </ActionButton>
           )}
-          {actions && taken && (
-            <ActionButton label={t("chat.fork.from_user")} onClick={() => actions.onFork(item)}>
+          {actions?.onFork && taken && (
+            <ActionButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
               <GitFork className="size-3.5" />
             </ActionButton>
           )}
@@ -327,7 +354,10 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
     .join("\n\n");
   // A fork from here keeps the answer whole: only from one that ends in text.
   const forkable =
-    ctx.actions?.canFork && item.uuid !== undefined && item.blocks.at(-1)?.type === "text";
+    ctx.actions?.canFork &&
+    ctx.actions.onFork !== undefined &&
+    item.uuid !== undefined &&
+    item.blocks.at(-1)?.type === "text";
   const extras = ctx.extras.get(item);
   const blocks = ctx.shown.get(item) ?? item.blocks;
   // Its calls went into a run an earlier message shows.
@@ -360,7 +390,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
           {forkable && ctx.actions && (
             <ActionButton
               label={t("chat.fork.from_assistant")}
-              onClick={() => ctx.actions?.onFork(item)}
+              onClick={() => ctx.actions?.onFork?.(item)}
             >
               <GitFork className="size-3.5" />
             </ActionButton>
@@ -550,6 +580,47 @@ const NOTICE_TINT: Partial<Record<NoticeItem["code"], string>> = {
 
 /** Notices whose detail, the program's own words, is shown only on hover. */
 const DETAIL_IN_TOOLTIP: ReadonlySet<NoticeItem["code"]> = new Set(["exited", "not_resumed"]);
+
+/**
+ * A report the app sent the agent manager of the sessions' changes: a line
+ * naming the first session and how it stands, and how many more, which
+ * opens to the report.
+ */
+function ManagerReport({ item }: { item: UserItem }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const lines = item.text.split("\n").slice(1);
+  const [first, ...more] = reportedSessions(item.text);
+  const state = first?.state ? t(`manager.state.${first.state}`) : "";
+  const label = !first
+    ? t("manager.report_empty")
+    : more.length > 0
+      ? t("manager.report_more", { title: first.title, count: more.length })
+      : state
+        ? `${first.title} · ${state}`
+        : first.title;
+  return (
+    <div className="flex flex-col gap-1 text-app-micro text-muted-foreground" role="note">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 hover:text-foreground"
+      >
+        <div className="h-px flex-1 bg-border" />
+        <Radio className="size-3.5 shrink-0" />
+        <span className="max-w-[70%] truncate">{label}</span>
+        <ChevronRight className={cn("size-3.5 shrink-0", open && "rotate-90")} />
+        <div className="h-px flex-1 bg-border" />
+      </button>
+      {open && (
+        <div className="rounded-(--radius-control) border border-border px-2 py-1.5 font-mono whitespace-pre-wrap break-words select-text">
+          {lines.join("\n")}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Notice({ item }: { item: NoticeItem }) {
   const { t } = useTranslation();

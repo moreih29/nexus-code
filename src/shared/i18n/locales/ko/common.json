@@ -1393,5 +1393,38 @@
     "empty": "아직 릴리스가 없습니다.",
     "news": "{{version}} 새 소식",
     "dismissNews": "새 소식 닫기"
+  },
+  "manager": {
+    "title": "에이전트 매니저",
+    "button": "매니저",
+    "button_unread_one": "에이전트 매니저, 새 보고 {{count}}개",
+    "button_unread_other": "에이전트 매니저, 새 보고 {{count}}개",
+    "chip": "매니저",
+    "task_title": "에이전트 매니저가 맡긴 작업",
+    "sent": "매니저가 보냄",
+    "sent_title": "에이전트 매니저가 보낸 메시지입니다",
+    "report_empty": "세션 변화",
+    "report_more_one": "{{title}} 외 {{count}}건",
+    "report_more_other": "{{title}} 외 {{count}}건",
+    "state": {
+      "completed": "완료",
+      "permissionPending": "권한 요청",
+      "needsInput": "응답 필요",
+      "error": "오류",
+      "closed": "닫힘"
+    },
+    "new_conversation": "새 대화",
+    "settings": "매니저 설정",
+    "close": "닫기",
+    "starting": "매니저 시작 중",
+    "off": {
+      "title": "에이전트 매니저가 꺼져 있습니다",
+      "description": "켜면 앱과 함께 시작해 모든 세션을 보고, 맡긴 일을 세션에 나눠 지시합니다.",
+      "enable": "켜기"
+    },
+    "tasks_one": "맡긴 작업 {{count}}",
+    "tasks_other": "맡긴 작업 {{count}}",
+    "tasks_waiting_one": "대기 {{count}}",
+    "tasks_waiting_other": "대기 {{count}}"
   }
 }

@@ -1,5 +1,6 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { CliTaskStart } from "../../../../shared/cli/ui";
+import { isManager } from "../../../../shared/manager/manager";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -7,6 +8,7 @@ import {
   CliError,
   describeLocation,
   mayChange,
+  noteDispatch,
   pick,
   resolveWorkspace,
   shortId,
@@ -64,16 +66,25 @@ const status: CliCommand = {
   path: ["status"],
   summary: "Show where this terminal is and what the user is looking at",
   async run(ctx) {
-    const workspace = resolveWorkspace(ctx, undefined);
     const shown = ctx.services.shownTab();
     const shownWorkspace = shown
       ? ctx.services.listWorkspaces().find((w) => w.id === shown.workspaceId)
       : undefined;
+    const sees = `user sees: ${shownWorkspace ? `${shownWorkspace.name} (${shortId(shownWorkspace.id)}), tab ${shortId(shown?.tabId ?? "")}` : "nothing"}`;
+    if (isManager(ctx.caller)) {
+      const text = [
+        `NexusCode ${ctx.services.appVersion}`,
+        "you are:   the agent manager, in no workspace",
+        sees,
+      ].join("\n");
+      return output(text, { version: ctx.services.appVersion, manager: true, shown });
+    }
+    const workspace = resolveWorkspace(ctx, undefined);
     const text = [
       `NexusCode ${ctx.services.appVersion}`,
       `workspace: ${workspace.name} (${shortId(workspace.id)}) ${describeLocation(workspace)}`,
       `terminal:  ${shortId(ctx.caller.tabId)}`,
-      `user sees: ${shownWorkspace ? `${shownWorkspace.name} (${shortId(shownWorkspace.id)}), tab ${shortId(shown?.tabId ?? "")}` : "nothing"}`,
+      sees,
     ].join("\n");
     return output(text, {
       version: ctx.services.appVersion,
@@ -254,6 +265,9 @@ const worktreeNew: CliCommand = {
     );
     const { workspaceId, tabId } = created;
     const prompted = prompt.trim() !== "";
+    if (prompted || ("command" in created.start && created.start.command !== "")) {
+      await noteDispatch(ctx, { workspaceId, tabId }, prompted ? prompt.trim() : undefined);
+    }
     const command = "command" in created.start ? created.start.command : undefined;
     if (command !== undefined && command !== "" && prompted) {
       ctx.services.startedAgents.mark({ workspaceId, tabId }, ctx.services.clock.now());

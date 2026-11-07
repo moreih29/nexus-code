@@ -3,6 +3,7 @@
  * gets about nexus, printed by the SessionStart hook the claude wrapper adds
  * (scripts/assets/claude-wrapper.sh). Prints nothing when the setting is off.
  */
+import { isManager } from "../../../../shared/manager/manager";
 import { resolveWorkspace, shortId } from "../context";
 import { type CliCommand, output } from "../registry";
 
@@ -12,6 +13,8 @@ const agentContext: CliCommand = {
   hidden: true,
   async run(ctx) {
     if (!ctx.services.agentContextEnabled()) return output("", { note: null });
+    // The manager is told what it is in its system prompt (shared/manager/prompt).
+    if (isManager(ctx.caller)) return output("", { note: null });
     const workspace = resolveWorkspace(ctx, undefined);
     const note = [
       `You are running in a terminal of NexusCode (workspace "${workspace.name}", terminal ${shortId(ctx.caller.tabId)}).`,

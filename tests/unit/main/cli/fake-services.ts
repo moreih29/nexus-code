@@ -5,6 +5,7 @@
 
 import type { TabActivity } from "../../../../src/main/features/cli/activity";
 import {
+  askEachTime,
   type ChangeRequest,
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
@@ -43,6 +44,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
@@ -172,7 +174,11 @@ export interface FakeApp {
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
   /** The Agent CLI settings. */
-  settings: { crossWorkspace: CrossWorkspacePolicy; agentContext: boolean };
+  settings: {
+    crossWorkspace: CrossWorkspacePolicy;
+    agentContext: boolean;
+    managerPermissions: ManagerPermissions;
+  };
   /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
   /** The consent prompts shown. */
@@ -208,6 +214,10 @@ export interface FakeApp {
   chatSent: Array<{ tabId: string; text: string }>;
   /** The sessions' state changes events.read reads; a test may add to them, as on a tick. */
   events: CliSessionEvent[];
+  /** The permission requests chat.answer answered. */
+  chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
+  /** What manager.dispatched was told: the sessions the manager handed work to. */
+  dispatched: Array<CliUiOps["manager.dispatched"]["args"]>;
 }
 
 /** Some of the app's settings: one only the user changes, one with many choices. */
@@ -406,7 +416,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
   const foreground: FakeApp["foreground"] = new Map();
-  const settings: FakeApp["settings"] = { crossWorkspace: "ask", agentContext: true };
+  const settings: FakeApp["settings"] = {
+    crossWorkspace: "ask",
+    agentContext: true,
+    managerPermissions: "user",
+  };
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
@@ -441,6 +455,8 @@ export function fakeApp(now = Date.now()): FakeApp {
   const chats: FakeApp["chats"] = new Map();
   const chatSent: FakeApp["chatSent"] = [];
   const events: FakeApp["events"] = [];
+  const chatAnswered: FakeApp["chatAnswered"] = [];
+  const dispatched: FakeApp["dispatched"] = [];
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -499,6 +515,14 @@ export function fakeApp(now = Date.now()): FakeApp {
       } as CliUiOps[K]["result"];
     }
     if (op === "chat.open") return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    if (op === "chat.answer") {
+      chatAnswered.push(args as CliUiOps["chat.answer"]["args"]);
+      return {} as CliUiOps[K]["result"];
+    }
+    if (op === "manager.dispatched") {
+      dispatched.push(args as CliUiOps["manager.dispatched"]["args"]);
+      return {} as CliUiOps[K]["result"];
+    }
     if (op === "chat.tool") {
       const { tabId, ref } = args as CliUiOps["chat.tool"]["args"];
       const tool = chats.get(tabId)?.tools?.find((t) => String(t.i) === ref || t.toolUseId === ref);
@@ -612,6 +636,12 @@ export function fakeApp(now = Date.now()): FakeApp {
     },
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
+    askUser: (request) =>
+      askEachTime(request, async (asking) => {
+        asked.push(asking);
+        return answers.shift() ?? "deny";
+      }),
+    managerPermissions: () => settings.managerPermissions,
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
     listeningPorts: async (workspaceId) => {
@@ -673,6 +703,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     chats,
     chatSent,
     events,
+    chatAnswered,
+    dispatched,
   };
 }
 

@@ -1,8 +1,9 @@
 /**
  * Asks the user whether an agent may change another workspace than its
- * terminal's own, for the nexus CLI (main/features/cli/consent). One prompt
- * at a time; more wait their turn. A prompt left unanswered is taken down
- * after its timeout and counts as turned down.
+ * terminal's own, or answer another session's permission request, for the
+ * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
+ * their turn. A prompt left unanswered is taken down after its timeout and
+ * counts as turned down.
  */
 
 import { useEffect, useState } from "react";
@@ -16,6 +17,8 @@ import { createListenerBus } from "../../../shared/util/listener-bus";
 export interface CliConsentPrompt {
   readonly fromWorkspace: string;
   readonly fromTab: string;
+  /** Whether the agent manager asks: it is in no workspace of the user's. */
+  readonly fromManager: boolean;
   readonly toWorkspace: string;
   readonly change: CliChange;
   readonly timeoutMs: number;
@@ -56,6 +59,19 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
+  // An answer to a permission request is asked about each time.
+  const permission =
+    prompt?.change.kind === "permissionAllow" || prompt?.change.kind === "permissionDeny";
+  const description = !prompt
+    ? ""
+    : prompt.fromManager
+      ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
+      : t("agentCli.consent.description", {
+          tab: prompt.fromTab,
+          from: prompt.fromWorkspace,
+          to: prompt.toWorkspace,
+          action,
+        });
 
   return (
     <Dialog
@@ -66,17 +82,8 @@ export function CliConsentDialogRoot(): React.JSX.Element {
       size="sm"
     >
       <DialogHeader
-        title={t("agentCli.consent.title")}
-        description={
-          prompt
-            ? t("agentCli.consent.description", {
-                tab: prompt.fromTab,
-                from: prompt.fromWorkspace,
-                to: prompt.toWorkspace,
-                action,
-              })
-            : ""
-        }
+        title={t(permission ? "agentCli.consent.permission_title" : "agentCli.consent.title")}
+        description={description}
       />
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("agentCli.consent.timeout", {
@@ -92,9 +99,11 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
-          {t("agentCli.consent.session")}
-        </Button>
+        {!permission && (
+          <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
+            {t("agentCli.consent.session")}
+          </Button>
+        )}
         <Button variant="default" size="sm" onClick={() => active && settle(active, "once")}>
           {t("agentCli.consent.once")}
         </Button>

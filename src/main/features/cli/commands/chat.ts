@@ -4,6 +4,7 @@
  * whole or a piece at a time, and wait on one or several tabs.
  */
 import type { CliChatEntry, CliChatInfo, CliTabInfo } from "../../../../shared/cli/ui";
+import { isManager } from "../../../../shared/manager/manager";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
@@ -11,6 +12,7 @@ import {
   type CliContext,
   CliError,
   mayChange,
+  noteDispatch,
   placementFor,
   resolveTab,
   resolveWorkspace,
@@ -247,6 +249,7 @@ const chatNew: CliCommand = {
       prompt,
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
+    if (prompt !== "") await noteDispatch(ctx, { workspaceId: workspace.id, tabId }, prompt);
     const reach =
       workspace.id === ctx.caller.workspaceId ? "" : ` --workspace ${shortId(workspace.id)}`;
     const text =
@@ -397,6 +400,7 @@ const chatSend: CliCommand = {
       { workspaceId: workspace.id, tabId: tab.id, text },
       SEND_TIMEOUT_MS,
     );
+    await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
     const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
     const json = { tabId: tab.id, workspaceId: workspace.id, text };
     if (timeoutMs === null) return output(sent, json);
@@ -441,4 +445,82 @@ const chatWait: CliCommand = {
   },
 };
 
-export const chatCommands: CliCommand[] = [chatNew, chatRead, chatTool, chatSend, chatWait];
+/** How chat.state tells a tool's permission request (renderer services/cli/chat-view). */
+const ASKS_TO_RUN = "asks to run ";
+
+const chatAnswer: CliCommand = {
+  path: ["chat", "answer"],
+  summary: "Allow or deny the tool a Claude or Codex tab asks to run",
+  args: "<tab> <allow|deny>",
+  details:
+    "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
+    "the agent why with a deny. A question or a plan the agent puts to the user is theirs to\n" +
+    "answer in the app. The agent manager answers as Settings › Agent manager lets it; anyone\n" +
+    "else, with the user's leave, asked each time.",
+  flags: {
+    message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector, decision] = exactArgs(positionals, "tab", "answer") as [string, string];
+    if (decision !== "allow" && decision !== "deny") {
+      throw new CliUsageError('the answer is "allow" or "deny"');
+    }
+    const message = (flags.message as string | undefined)?.trim();
+    if (message !== undefined && decision !== "deny") {
+      throw new CliUsageError("--message goes with deny");
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    if (tab.id === ctx.caller.tabId) {
+      throw new CliError("that is this tab; its requests are the user's to answer");
+    }
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    const info = await ctx.services.ui("chat.state", target);
+    const asked = info.state === "asking" ? (info.message ?? "") : "";
+    if (!asked.startsWith(ASKS_TO_RUN)) {
+      throw new CliError(
+        asked === ""
+          ? `${tab.title} waits on no permission request`
+          : `${tab.title} ${asked}; that is the user's to answer in the app`,
+      );
+    }
+    const tool = asked.slice(ASKS_TO_RUN.length);
+    const request = {
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: workspace.id,
+      change: {
+        kind: decision === "allow" ? ("permissionAllow" as const) : ("permissionDeny" as const),
+        detail: `${tool} (${tab.title})`,
+      },
+    };
+    const policy = isManager(ctx.caller) ? ctx.services.managerPermissions() : "ask";
+    if (policy === "user") {
+      throw new CliError(
+        `the user answers other sessions' permission requests (Settings › Agent manager); tell them ${tab.title} asks to run ${tool}`,
+      );
+    }
+    if (policy === "ask") await ctx.services.askUser(request);
+    await ctx.services.ui("chat.answer", {
+      ...target,
+      decision,
+      ...(message ? { message } : {}),
+      expect: asked,
+    });
+    return output(`${decision === "allow" ? "Allowed" : "Denied"} ${tool} in ${tab.title}.`, {
+      ...target,
+      decision,
+      tool,
+    });
+  },
+};
+
+export const chatCommands: CliCommand[] = [
+  chatNew,
+  chatRead,
+  chatTool,
+  chatSend,
+  chatAnswer,
+  chatWait,
+];

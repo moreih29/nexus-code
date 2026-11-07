@@ -2,6 +2,7 @@
 // with the tab's marks and the hooks a terminal's claude gets. A Codex tab's
 // `codex app-server` gets the same marks.
 
+import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import { injectHarnessTerminalEnv } from "../pty/harness-env";
 
 /** The arguments every Claude tab runs `claude` with. */
@@ -31,9 +32,28 @@ export interface ResumeOptions {
   readonly resetLog?: boolean;
 }
 
-/** The program's arguments for a tab, going on with a session when asked. */
-export function claudeTabArgs(options: ResumeOptions, hooksSettings?: string): string[] {
-  const args = [...CLAUDE_TAB_ARGS];
+/**
+ * What the agent manager's claude runs with besides a tab's arguments: what
+ * it is told it is, and the nexus commands it may run without asking, for
+ * its session alone (the user's settings are left as they are).
+ */
+export const MANAGER_ARGS: readonly string[] = [
+  "--append-system-prompt",
+  MANAGER_PROMPT,
+  "--allowedTools",
+  "Bash(nexus:*)",
+];
+
+/**
+ * The program's arguments for a tab, going on with a session when asked;
+ * the agent manager's (`manager`) with its own on top.
+ */
+export function claudeTabArgs(
+  options: ResumeOptions,
+  hooksSettings?: string,
+  manager = false,
+): string[] {
+  const args = [...CLAUDE_TAB_ARGS, ...(manager ? MANAGER_ARGS : [])];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
   if (options.resume !== undefined) {
     args.push("--resume", options.resume);

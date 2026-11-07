@@ -2,6 +2,7 @@
 // the workspace's agent and relays its chat.* events to the renderer.
 
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import {
@@ -143,7 +144,7 @@ export class ChatHost {
         tabId,
         cwd,
         program,
-        args: claudeTabArgs(resume, hooksSettings),
+        args: claudeTabArgs(resume, hooksSettings, isManagerWorkspace(workspaceId)),
         env,
         ...(resume.resetLog ? { resetLog: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),

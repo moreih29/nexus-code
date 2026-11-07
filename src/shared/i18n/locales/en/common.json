@@ -1393,5 +1393,38 @@
     "empty": "No releases yet.",
     "news": "What's new in {{version}}",
     "dismissNews": "Dismiss what's new"
+  },
+  "manager": {
+    "title": "Agent manager",
+    "button": "Manager",
+    "button_unread_one": "Agent manager, {{count}} new report",
+    "button_unread_other": "Agent manager, {{count}} new reports",
+    "chip": "Manager",
+    "task_title": "Work the agent manager handed out",
+    "sent": "Sent by the manager",
+    "sent_title": "The agent manager sent this message",
+    "report_empty": "Sessions changed",
+    "report_more_one": "{{title}} and {{count}} more",
+    "report_more_other": "{{title}} and {{count}} more",
+    "state": {
+      "completed": "Done",
+      "permissionPending": "Permission request",
+      "needsInput": "Needs you",
+      "error": "Error",
+      "closed": "Closed"
+    },
+    "new_conversation": "New conversation",
+    "settings": "Manager settings",
+    "close": "Close",
+    "starting": "Starting the manager",
+    "off": {
+      "title": "The agent manager is off",
+      "description": "Turned on, it starts with the app, follows every session and hands out the work you give it.",
+      "enable": "Turn on"
+    },
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks",
+    "tasks_waiting_one": "{{count}} waiting",
+    "tasks_waiting_other": "{{count}} waiting"
   }
 }

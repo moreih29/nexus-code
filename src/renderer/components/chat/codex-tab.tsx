@@ -11,6 +11,7 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import {
   type CodexController,
+  type CodexTabHooks,
   codexController,
   MIN_CODEX_VERSION,
 } from "../../services/chat/codex-controller";
@@ -57,12 +58,26 @@ interface CodexTabViewProps {
   tabId: string;
   props: CodexTabProps;
   isVisible: boolean;
+  /**
+   * What the conversation keeps, where it is no tab of the tabs store (the
+   * agent manager's): what owns it opens it.
+   */
+  hooks?: CodexTabHooks;
+  /** What the thread is told at its start, beside Codex's own instructions. */
+  developerInstructions?: string;
 }
 
 /** From this width a file opens in a group beside the tab. */
 const SPLIT_FROM_PX = 900;
 
-export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
+export function CodexTabView({
+  workspaceId,
+  tabId,
+  props,
+  isVisible,
+  hooks,
+  developerInstructions,
+}: CodexTabViewProps) {
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -74,8 +89,14 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const controller = useMemo(
     () =>
       codexController(
-        { workspaceId, tabId, cwd: props.cwd, threadId: props.threadId },
-        codexTabHooks(workspaceId, tabId),
+        {
+          workspaceId,
+          tabId,
+          cwd: props.cwd,
+          threadId: props.threadId,
+          ...(developerInstructions ? { developerInstructions } : {}),
+        },
+        hooks ?? codexTabHooks(workspaceId, tabId),
       ),
     [workspaceId, tabId],
   );
@@ -88,8 +109,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   useEffect(() => {
     if (!isVisible || opened.current) return;
     opened.current = true;
-    void controller.open();
-  }, [isVisible, controller]);
+    if (!hooks) void controller.open();
+  }, [isVisible, controller, hooks]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(() => {});
@@ -231,6 +252,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       ) : (
         <MessageList
           workspaceId={workspaceId}
+          tabId={tabId}
           cwd={props.cwd}
           rootPath={rootPath}
           history={null}

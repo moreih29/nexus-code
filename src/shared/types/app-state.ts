@@ -202,6 +202,22 @@ export const AppStateSchema = z.object({
   // their start (a SessionStart hook prints a short note).
   cliAgentContext: z.boolean().default(true),
 
+  // The agent manager (shared/manager): a Claude Code or Codex session the
+  // app starts with itself, which follows and directs every workspace's
+  // agent sessions through nexus.
+  managerEnabled: z.boolean().default(false),
+  managerAgent: z.enum(["claude", "codex"]).default("claude"),
+  // Which session changes the app tells it (shared/manager MANAGER_NOTIFY).
+  managerNotify: z.enum(["tasks", "attention", "all"]).default("attention"),
+  // What it may do with another session's permission request.
+  managerPermissions: z.enum(["user", "ask", "answer"]).default("user"),
+  // Its reports as desktop notifications too, while the user is not looking.
+  managerReports: z.boolean().default(true),
+  // The session (Claude) or thread (Codex) it goes on with when the app starts.
+  managerSession: z
+    .object({ agent: z.enum(["claude", "codex"]), id: z.string().max(128) })
+    .optional(),
+
   // Global browser permission toggles keyed by BrowserPermissionKind string.
   // Absent key (or absent field) means the permission is OFF (denied).
   // z.record key is z.string() for runtime compatibility; callers narrow the
