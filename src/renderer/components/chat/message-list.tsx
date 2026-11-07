@@ -96,6 +96,8 @@ export function MessageList({
   const stuck = useRef(true);
   // Where the code last scrolled to; its scroll event is not the user's.
   const ownTop = useRef<number | null>(null);
+  // Whether what shows before the first message is up.
+  const emptyShown = useRef(false);
   const [showJump, setShowJump] = useState(false);
 
   const toBottom = useCallback(() => {
@@ -108,6 +110,12 @@ export function MessageList({
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (emptyShown.current) {
+      // Looking through the past sessions; a conversation that comes starts at its bottom.
+      stuck.current = true;
+      setShowJump(false);
+      return;
+    }
     if (isOwnScroll(el, ownTop.current)) {
       // Ours, a frame late: what came in since goes down too.
       if (stuck.current) toBottom();
@@ -120,12 +128,13 @@ export function MessageList({
   }, [toBottom]);
 
   // Growth from any source (a new item, a streamed word, an opened row)
-  // keeps a stuck view at the bottom.
+  // keeps a stuck view at the bottom. What shows before the first message
+  // (the welcome, the past sessions) reads from the top.
   useLayoutEffect(() => {
     const content = contentRef.current;
     if (!content) return;
     const observer = new ResizeObserver(() => {
-      if (stuck.current) toBottom();
+      if (stuck.current && !emptyShown.current) toBottom();
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -147,6 +156,7 @@ export function MessageList({
   );
   const streaming = items ? null : model.streaming;
   const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
+  emptyShown.current = nothing && empty !== undefined;
   const tools = useMemo(
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],
