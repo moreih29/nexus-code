@@ -103,6 +103,8 @@ export interface SetupCliFeatureOptions {
 }
 
 export interface CliFeature {
+  /** A key typed into a terminal (activity.ts). */
+  noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
 }
 
@@ -314,6 +316,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
 
   return {
+    noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();
       offCancel();

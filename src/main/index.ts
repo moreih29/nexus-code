@@ -21,7 +21,7 @@ import {
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
-import { setupCliFeature } from "./features/cli";
+import { type CliFeature, setupCliFeature } from "./features/cli";
 import { registerManagerChannel } from "./features/manager";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
@@ -159,7 +159,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
-let disposeCliFeature: (() => void) | null = null;
+let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
 let portForwards: PortForwards | null = null;
 let gitRegistry: GitRegistry | null = null;
@@ -546,7 +546,7 @@ app.whenReady().then(async () => {
   });
 
   // The nexus command in the app's terminals.
-  disposeCliFeature = setupCliFeature({
+  cliFeature = setupCliFeature({
     agentHost: agentPtyHost,
     workspaceManager,
     claudeBroker: claudeSetup.broker,
@@ -573,7 +573,7 @@ app.whenReady().then(async () => {
     broadcast: forwardBroadcast,
     ports: portWatcher,
     forwards,
-  }).dispose;
+  });
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
   // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
@@ -582,7 +582,10 @@ app.whenReady().then(async () => {
     workspaceManager,
     isActiveTab: claudeSetup.isActiveTab,
     notificationsEnabled,
-    onInput: claudeSetup.noteInput,
+    onInput: (workspaceId, tabId, data) => {
+      claudeSetup.noteInput(workspaceId, tabId, data);
+      cliFeature?.noteInput(workspaceId, tabId);
+    },
     ports: portWatcher,
     forwards,
     getDefaultShell: () => stateService.getState().terminalShell,
@@ -701,7 +704,7 @@ app.on("window-all-closed", () => {
 // once every window has closed.
 app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
-  disposeCliFeature?.();
+  cliFeature?.dispose();
   disposeClaudeFeature?.();
   portWatcher?.dispose();
   portForwards?.dispose();

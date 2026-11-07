@@ -41,6 +41,43 @@ test("output, the last notification and the terminal's end", () => {
   expect(tracker.get("w", "t")).toBeNull();
 });
 
+test("what a terminal echoes of the keys typed in is no sign of work", () => {
+  const source = host();
+  let now = 1_000;
+  const tracker = new ActivityTracker(source, () => now);
+  const typed = (chunk: string, after: number) => {
+    tracker.noteInput("w", "t");
+    now += after;
+    source.emit("data", { workspaceId: "w", tabId: "t", chunk });
+  };
+
+  // Typed before the terminal printed anything: nothing is known of it yet.
+  typed("h", 10);
+  expect(tracker.get("w", "t")).toBeNull();
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "\x1b]9;Agent turn complete\x07" });
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
+
+  // The prompt typed into Codex, a key at a time: it is not at work.
+  now = 5_000;
+  typed("› f", 20);
+  typed("› fi", 300);
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(1_010);
+
+  // What it prints once the prompt went in and it works on past the echo.
+  typed("\r", 100);
+  now += 400;
+  source.emit("data", { workspaceId: "w", tabId: "t", chunk: "Working (1s)" });
+  expect(tracker.get("w", "t")?.lastOutputAt).toBe(now);
+
+  // A notification in an echo still counts; the output time stays.
+  const before = now;
+  typed("\x1b]9;Agent turn complete\x07", 10);
+  expect(tracker.get("w", "t")).toEqual({
+    lastOutputAt: before,
+    lastNotice: { body: "Agent turn complete", at: now },
+  });
+});
+
 test("snapshot lists every terminal with its workspace and tab", () => {
   const source = host();
   const tracker = new ActivityTracker(source, () => 2_000);
