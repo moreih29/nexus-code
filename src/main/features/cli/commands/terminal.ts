@@ -7,6 +7,7 @@ import {
   type CliContext,
   CliError,
   mayChange,
+  noteDispatch,
   placementFor,
   resolveTab,
   resolveWorkspace,
@@ -435,6 +436,7 @@ const terminalNew: CliCommand = {
       ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
+    if (command) await noteDispatch(ctx, { workspaceId: workspace.id, tabId });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
       tabId,
       workspaceId: workspace.id,
@@ -495,6 +497,9 @@ const terminalSend: CliCommand = {
       mode: "paste",
       enter,
     });
+    if (enter && text.trim() !== "") {
+      await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
+    }
     const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
     const json = { tabId: tab.id, workspaceId: workspace.id, text, enter };
     if (!times) return output(sent, json);

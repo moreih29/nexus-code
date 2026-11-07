@@ -150,7 +150,9 @@ export type CliChangeKind =
   | "worktreeNew"
   | "worktreeRemove"
   | "worktreeRemoveBranch"
-  | "workspaceRemove";
+  | "workspaceRemove"
+  | "permissionAllow"
+  | "permissionDeny";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
@@ -505,6 +507,30 @@ export interface CliUiOps {
    */
   "workspace.remove": {
     args: { workspaceId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Answers the permission request a Claude or Codex tab waits on, if it
+   * still asks what `expect` says (chat.state's message): a tool's, not a
+   * question or a plan, which only the user answers.
+   */
+  "chat.answer": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      decision: "allow" | "deny";
+      /** With deny: what to tell the agent. */
+      message?: string;
+      expect: string;
+    };
+    result: Record<string, never>;
+  };
+  /**
+   * The agent manager handed work to a session, sending it `text` when it
+   * did: the session is its task from now (services/manager).
+   */
+  "manager.dispatched": {
+    args: { workspaceId: string; tabId: string; text?: string };
     result: Record<string, never>;
   };
   /**

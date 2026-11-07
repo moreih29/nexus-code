@@ -13,7 +13,8 @@
     "group": {
       "settings": "설정"
     },
-    "agent": "에이전트"
+    "agent": "에이전트",
+    "manager": "에이전트 매니저"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -250,6 +251,10 @@
     "osEnabled": {
       "label": "데스크톱 알림",
       "description": "보고 있지 않은 탭의 에이전트가 끝나거나 기다릴 때"
+    },
+    "managerReports": {
+      "label": "에이전트 매니저 보고",
+      "description": "매니저의 완료·대기 보고도 알림으로 받습니다"
     }
   },
   "agentCli": {
@@ -297,8 +302,12 @@
         "worktreeNew": "작업 \"{{detail}}\" 만들기를",
         "worktreeRemove": "작업과 그 워크트리 폴더 삭제를",
         "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를",
-        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를"
-      }
+        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를",
+        "permissionAllow": "{{detail}} 허용을",
+        "permissionDeny": "{{detail}} 거부를"
+      },
+      "permission_title": "다른 세션의 권한 요청에 답할까요?",
+      "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다."
     },
     "heading": "nexus CLI"
   },
@@ -480,5 +489,30 @@
   },
   "agent": {
     "newTask": "새 작업"
+  },
+  "manager": {
+    "enabled": {
+      "label": "에이전트 매니저",
+      "description": "앱과 함께 켜져 모든 세션을 보고 지시합니다"
+    },
+    "agent": {
+      "label": "매니저 에이전트",
+      "description": "그 에이전트의 계정과 모델을 그대로 씁니다"
+    },
+    "reports": "보고와 권한",
+    "notify": {
+      "label": "매니저에게 알릴 일",
+      "tasks": "맡긴 작업",
+      "attention": "+ 대기·오류",
+      "all": "전부",
+      "description": "많을수록 사용량이 늘어납니다"
+    },
+    "permissions": {
+      "label": "권한 요청 응답",
+      "user": "넘기기",
+      "ask": "매번 묻기",
+      "answer": "대신 답하기",
+      "description": "다른 세션이 도구 권한을 물을 때"
+    }
   }
 }

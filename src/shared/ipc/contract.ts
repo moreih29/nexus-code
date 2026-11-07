@@ -2139,6 +2139,34 @@ export const ipcContract = {
       uiRequest: listen(CliUiRequestSchema),
     },
   },
+
+  // The agent manager (shared/manager): the session the app runs beside the
+  // user's to follow and direct them, in a workspace of its own.
+  manager: {
+    call: {
+      /**
+       * Opens the manager's workspace, its folder made if need be, so its
+       * program can start there. Answers where.
+       */
+      prepare: call(
+        z.void(),
+        z.object({ workspaceId: z.string().uuid(), tabId: z.string().uuid(), cwd: z.string() }),
+      ),
+      /**
+       * Tells the user what the manager reported, as a desktop notification
+       * when the user is not looking and notifications are on; a click shows
+       * the manager. Answers whether it was shown.
+       */
+      notify: call(
+        z.object({ title: z.string().max(200), body: z.string().max(4000) }),
+        z.object({ shown: z.boolean() }),
+      ),
+    },
+    listen: {
+      /** The user clicked a manager's notification: show the manager. */
+      reveal: listen(z.object({})),
+    },
+  },
 } as const satisfies Record<string, ChannelDefinition>;
 
 export type IpcContract = typeof ipcContract;

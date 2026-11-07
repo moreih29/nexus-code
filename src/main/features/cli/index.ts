@@ -17,6 +17,7 @@ import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace, type ManagerPermissions } from "../../../shared/manager/manager";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -30,7 +31,12 @@ import { formatPick, type PickedElement } from "./browser/pick";
 import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
-import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
+import {
+  askEachTime,
+  type ChangeRequest,
+  CrossWorkspaceConsent,
+  type CrossWorkspacePolicy,
+} from "./consent";
 import { CliError, type CliForwards, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
@@ -79,6 +85,8 @@ export interface SetupCliFeatureOptions {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
+    /** What the agent manager may do with another session's permission request. */
+    managerPermissions: ManagerPermissions;
   };
   /** The app window the renderer side of the CLI runs in. */
   getWindow: () => UiWindow | null;
@@ -118,11 +126,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   );
   const waits = new WaitRegistry(agentHost);
   const startedAgents = new StartedAgents(agentHost);
+  // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
+  const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
+    (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
-    // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
-    ask: async (request, timeoutMs) =>
-      (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer,
+    ask: askConsent,
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);
@@ -179,6 +188,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
+    // The manager is shown in its dock, not in a workspace.
+    if (isManagerWorkspace(workspaceId)) {
+      options.broadcast("manager", "reveal", {});
+      return;
+    }
     workspaceManager.activate(workspaceId).catch((error: unknown) => {
       log.warn(`activating ${workspaceId} failed: ${(error as Error).message}`);
     });
@@ -237,6 +251,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       }
     },
     allowChange: (request) => consent.check(request),
+    askUser: (request) => askEachTime(request, askConsent),
+    managerPermissions: () => options.settings().managerPermissions,
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),

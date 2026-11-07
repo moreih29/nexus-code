@@ -85,6 +85,8 @@ export interface CodexTabTarget {
   cwd: string;
   /** The thread the tab had, to go on with when its program is gone. */
   threadId?: string;
+  /** What the thread is told beside Codex's own instructions (the agent manager's). */
+  developerInstructions?: string;
 }
 
 export interface CodexTabHooks {
@@ -242,7 +244,8 @@ export class CodexController {
     }
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
-    const { cwd } = this.target;
+    const { cwd, developerInstructions } = this.target;
+    const instructions = developerInstructions ? { developerInstructions } : {};
     const threadId = this.model.threadId ?? this.target.threadId;
     if (threadId) {
       try {
@@ -251,6 +254,7 @@ export class CodexController {
           threadId,
           cwd,
           excludeTurns: this.model.items.length > 0,
+          ...instructions,
         });
         return true;
       } catch (err) {
@@ -261,6 +265,7 @@ export class CodexController {
       const mode = this.next.mode;
       await this.request("thread/start", {
         cwd,
+        ...instructions,
         ...(this.next.model ? { model: this.next.model } : {}),
         ...(mode
           ? {
