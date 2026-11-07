@@ -1,6 +1,4 @@
 export { useGitSession } from "../../../state/stores/git";
-export { GitBranchPopover } from "./branch/branch-popover";
-export { BranchChip } from "./branch/chip";
 export { GitCommitButton } from "./commit/commit-button";
 export { GitCommitInput } from "./commit/commit-input";
 export { CommitMessageDialog } from "./commit/message-dialog";

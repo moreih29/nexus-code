@@ -753,31 +753,6 @@
         "submitLabel": "Add Remote"
       }
     },
-    "branchPopover": {
-      "fetchNow": "Fetch now",
-      "noBranch": "No branch.",
-      "publishBranch": "Publish Branch",
-      "sync": "Sync",
-      "pull": "Pull",
-      "push": "Push",
-      "copyUpstream": "Copy upstream",
-      "autofetch": "Autofetch",
-      "requiresCommit": "Make an initial commit first.",
-      "addRemoteFirst": "Add a remote first.",
-      "setUpstreamFirst": "Set an upstream first.",
-      "alreadyHasUpstream": "Branch already has an upstream.",
-      "noUpstreamConfigured": "No upstream configured.",
-      "ariaLabel": "Branch details",
-      "noBranchName": "No branch",
-      "tracking": "Tracking {{upstream}}",
-      "noUpstreamStatus": "No upstream configured",
-      "fetching": "Fetching…",
-      "fetchFailed": "Fetch failed",
-      "retry": "Retry",
-      "chipAriaLabel": "Current branch {{name}}",
-      "chipTitle": "Repository at {{path}}",
-      "localBadge": "local"
-    },
     "actionButton": {
       "initializeRepository": "Initialize Repository",
       "makeInitialCommit": "Make Initial Commit",
