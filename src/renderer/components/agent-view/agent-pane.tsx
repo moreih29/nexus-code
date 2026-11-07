@@ -184,6 +184,12 @@ export function AgentPane({
   const splitTo = (direction: "right" | "down") =>
     update((layout) => splitLeaf(layout, leaf.id, direction));
 
+  // When every agent here is from one workspace, its chip is shown once,
+  // ahead of the tabs, instead of on each of them.
+  const workspaceIds = new Set(leaf.tabIds.map((key) => parseSessionKey(key)?.workspaceId));
+  const [onlyWorkspace] = workspaceIds;
+  const sharedWorkspace = workspaceIds.size === 1 ? onlyWorkspace : undefined;
+
   return (
     <div
       ref={setOuterEl}
@@ -192,6 +198,7 @@ export function AgentPane({
       data-leaf-id={leaf.id}
     >
       <div className="flex h-9 shrink-0 items-center gap-1 px-1.5">
+        {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         <div
           ref={stripRef}
           className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
@@ -202,6 +209,7 @@ export function AgentPane({
               sessionKey={key}
               agents={agents}
               active={key === leaf.activeTabId}
+              showWorkspace={sharedWorkspace === undefined}
               onSelect={() => select(key)}
               onRemove={() => remove(key)}
             />
@@ -290,16 +298,40 @@ function PaneTool({
   );
 }
 
+/** The workspace an agent is from: its name, with its color's dot. */
+function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
+  const name = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name);
+  const rootId = useWorkspacesStore((s) => rootWorkspaceId(s.workspaces, workspaceId));
+  return (
+    <span
+      className={cn(
+        "flex max-w-24 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground",
+        className,
+      )}
+    >
+      <span
+        aria-hidden
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ background: workspaceColor(rootId) }}
+      />
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
 function AgentTab({
   sessionKey: key,
   agents,
   active,
+  showWorkspace,
   onSelect,
   onRemove,
 }: {
   sessionKey: string;
   agents: Agents;
   active: boolean;
+  /** Off when the panel shows the one workspace of all its agents. */
+  showWorkspace: boolean;
   onSelect: () => void;
   onRemove: () => void;
 }) {
@@ -308,9 +340,6 @@ function AgentTab({
   const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
   const workspaceName = useWorkspacesStore((s) =>
     ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
-  );
-  const rootId = useWorkspacesStore((s) =>
-    ref ? rootWorkspaceId(s.workspaces, ref.workspaceId) : key,
   );
   if (!ref || !tab) return null;
   const session = agents.byKey.get(key)?.session;
@@ -337,14 +366,7 @@ function AgentTab({
         onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <span className="flex max-w-24 shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-muted-foreground">
-          <span
-            aria-hidden
-            className="size-1.5 shrink-0 rounded-full"
-            style={{ background: workspaceColor(rootId) }}
-          />
-          <span className="truncate">{workspaceName}</span>
-        </span>
+        {showWorkspace && <WorkspaceChip workspaceId={ref.workspaceId} />}
         {session ? (
           <AgentMark session={session} />
         ) : (
