@@ -13,13 +13,24 @@
  */
 
 import { Popover as RadixPopover } from "radix-ui";
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, type SyntheticEvent, useRef } from "react";
 import { cn } from "@/utils/cn";
 
 export const POPOVER_CLASS = cn(
   "floating-panel z-(--layer-floating) p-1 text-app-ui-sm outline-none",
   "max-h-(--radix-popover-content-available-height) overflow-y-auto app-scrollbar",
 );
+
+function stopPropagation(event: SyntheticEvent): void {
+  event.stopPropagation();
+}
+
+const CONTAINED = {
+  onClick: stopPropagation,
+  onDoubleClick: stopPropagation,
+  onContextMenu: stopPropagation,
+  onKeyDown: stopPropagation,
+} as const;
 
 export function Popover({
   open,
@@ -31,6 +42,7 @@ export function Popover({
   align = "end",
   className,
   testId,
+  containEvents = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -44,6 +56,13 @@ export function Popover({
   /** Width and padding over the default. */
   className?: string;
   testId?: string;
+  /**
+   * Keeps presses and keys in the panel from reaching what holds its
+   * button. React bubbles them out of the portal along the component tree,
+   * so a panel opened from inside a list row would also click the row or
+   * move the list.
+   */
+  containEvents?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   return (
@@ -69,6 +88,7 @@ export function Popover({
           }}
           data-testid={testId}
           className={cn(POPOVER_CLASS, className)}
+          {...(containEvents ? CONTAINED : {})}
         >
           {children}
         </RadixPopover.Content>
