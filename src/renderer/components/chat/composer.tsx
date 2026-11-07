@@ -375,6 +375,8 @@ export function Composer({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // A request's card has the keys, which the box passes on to it.
+    if (e.currentTarget.dataset.cardKeys !== undefined) return;
     if (menuOpen && items.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();

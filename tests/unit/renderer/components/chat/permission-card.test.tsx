@@ -5,7 +5,7 @@
  * approval.
  */
 
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -150,33 +150,106 @@ describe("a plan", () => {
 });
 
 describe("focusChatTab", () => {
-  /** A chat tab with its message box, and a request waiting when `waiting`; what took focus. */
-  function chatTab(waiting: boolean): { tab: Element; focused: string[] } {
+  /** A key as the page sends it; Bun has no KeyboardEvent of its own. */
+  class Key extends Event {
+    readonly key: string;
+    readonly isComposing: boolean;
+    readonly keyCode: number;
+    constructor(type: string, init: { key: string; keyCode?: number; cancelable?: boolean }) {
+      super(type, init);
+      this.key = init.key;
+      this.keyCode = init.keyCode ?? 0;
+      this.isComposing = false;
+    }
+  }
+  const g = globalThis as { KeyboardEvent?: unknown };
+  const had = "KeyboardEvent" in g;
+  beforeAll(() => {
+    if (!had) g.KeyboardEvent = Key;
+  });
+  afterAll(() => {
+    if (!had) delete g.KeyboardEvent;
+  });
+
+  /**
+   * A chat tab with its message box, and a request waiting when `waiting`,
+   * whose card takes Enter; what took the focus and the keys the card got.
+   */
+  function chatTab(waiting: boolean) {
     const focused: string[] = [];
-    const part = (name: string) => ({ focus: () => focused.push(name) });
+    const got: string[] = [];
+    const part = (name: string) =>
+      Object.assign(new EventTarget(), {
+        value: "",
+        dataset: {} as Record<string, string>,
+        isConnected: true,
+        focus: () => focused.push(name),
+      });
+    const box = part("box");
+    const card = part("card");
+    card.addEventListener("keydown", (event) => {
+      got.push((event as Key).key);
+      if ((event as Key).key === "Enter") event.preventDefault();
+    });
     const tab = {
       querySelector: (selector: string) =>
-        selector.includes("chat-permission")
-          ? waiting
-            ? part("card")
-            : null
-          : selector.includes("chat-composer")
-            ? part("box")
-            : null,
+        selector.includes("chat-permission") ? (waiting ? card : null) : box,
     } as unknown as Element;
-    return { tab, focused };
+    const press = (key: string, keyCode?: number) => {
+      const event = new Key("keydown", { key, keyCode, cancelable: true });
+      box.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    return { tab, box, focused, got, press };
   }
 
-  it("puts the keyboard in a request waiting on the user, so Enter answers it", () => {
-    const { tab, focused } = chatTab(true);
+  it("keeps the keyboard in the message box and gives a waiting request its keys", () => {
+    const { tab, box, focused, got, press } = chatTab(true);
+    focusChatTab(tab);
+    // A text field, where an IME stays on.
+    expect(focused).toEqual(["box"]);
+    expect(box.dataset.cardKeys).toBeDefined();
+    expect(press("Enter")).toBe(true);
+    expect(press("a")).toBe(false);
+    expect(got).toEqual(["Enter", "a"]);
+  });
+
+  it("gives the box back its keys once the user types in it", () => {
+    const { tab, box, got, press } = chatTab(true);
+    focusChatTab(tab);
+    // An IME's keys are its own, and what it types is the user's.
+    press("Process", 229);
+    box.dispatchEvent(new Event("input"));
+    expect(box.dataset.cardKeys).toBeUndefined();
+    expect(press("Enter")).toBe(false);
+    expect(got).toEqual([]);
+  });
+
+  it("passes no key once the box has text or the user left it", () => {
+    const typed = chatTab(true);
+    focusChatTab(typed.tab);
+    typed.box.value = "hi";
+    typed.press("Enter");
+    const left = chatTab(true);
+    focusChatTab(left.tab);
+    left.box.dispatchEvent(new Event("blur"));
+    left.press("Enter");
+    expect([...typed.got, ...left.got]).toEqual([]);
+  });
+
+  it("puts it in the request itself when the box has a draft, which Enter would send", () => {
+    const { tab, box, focused } = chatTab(true);
+    box.value = "a draft";
     focusChatTab(tab);
     expect(focused).toEqual(["card"]);
+    expect(box.dataset.cardKeys).toBeUndefined();
   });
 
   it("puts it in the message box when nothing waits", () => {
-    const { tab, focused } = chatTab(false);
+    const { tab, box, focused } = chatTab(false);
     focusChatTab(tab);
     expect(focused).toEqual(["box"]);
+    expect(box.dataset.cardKeys).toBeUndefined();
   });
 
   it("does nothing without a tab", () => {
