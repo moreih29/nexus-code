@@ -1355,6 +1355,12 @@
       "remove": "Remove from panel (the session goes on)",
       "empty": "Empty panel",
       "empty_hint": "Click an agent in the list, or drag one here"
+    },
+    "ended": {
+      "message": "{{agent}} session ended",
+      "agent": "Agent",
+      "resume": "Resume",
+      "resume_title": "Types {{line}} in the terminal"
     }
   }
 }

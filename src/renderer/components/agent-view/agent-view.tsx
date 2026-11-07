@@ -7,9 +7,11 @@ import { Grid, type SplitBranch, type SplitNode } from "@/engine";
 import { setRatio } from "@/services/agent-view/layout";
 import { mountHeldWorkspaces } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
+import { useEndedAgents } from "@/services/agent-view/use-ended";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { cn } from "@/utils/cn";
 import type { Agents } from "../../services/agent-view/agents";
+import type { EndedAgent } from "../../services/agent-view/ended";
 import { ResizeHandleRatio } from "../ui/resize-handle-ratio";
 import { AgentPane } from "./agent-pane";
 
@@ -17,6 +19,7 @@ import { AgentPane } from "./agent-pane";
 export function AgentView({ shown }: { shown: boolean }) {
   const root = useAgentViewStore((s) => s.root);
   const agents = useAgents(shown);
+  const ended = useEndedAgents(agents, root, shown);
   // An agent of a workspace not opened since launch runs once it is in a
   // panel shown.
   useEffect(() => {
@@ -32,17 +35,23 @@ export function AgentView({ shown }: { shown: boolean }) {
       inert={!shown || undefined}
       data-testid="agent-view"
     >
-      <AgentNode node={root} agents={agents} />
+      <AgentNode node={root} agents={agents} ended={ended} />
     </div>
   );
 }
 
-function AgentNode({ node, agents }: { node: SplitNode; agents: Agents }) {
-  if (node.kind === "leaf") return <AgentPane leaf={node} agents={agents} />;
-  return <AgentSplit split={node} agents={agents} />;
+/** What the panels show of the agents. */
+interface PanelsProps {
+  agents: Agents;
+  ended: ReadonlyMap<string, EndedAgent>;
 }
 
-function AgentSplit({ split, agents }: { split: SplitBranch; agents: Agents }) {
+function AgentNode({ node, ...panels }: PanelsProps & { node: SplitNode }) {
+  if (node.kind === "leaf") return <AgentPane leaf={node} {...panels} />;
+  return <AgentSplit split={node} {...panels} />;
+}
+
+function AgentSplit({ split, ...panels }: PanelsProps & { split: SplitBranch }) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const isHorizontal = split.orientation === "horizontal";
@@ -57,7 +66,7 @@ function AgentSplit({ split, agents }: { split: SplitBranch; agents: Agents }) {
         className="relative flex min-h-0 min-w-0"
         style={{ flexBasis: `calc(${split.ratio * 100}% - 3px)`, flexGrow: 0, flexShrink: 0 }}
       >
-        <AgentNode node={split.first} agents={agents} />
+        <AgentNode node={split.first} {...panels} />
         <ResizeHandleRatio
           orientation={isHorizontal ? "vertical" : "horizontal"}
           ratio={split.ratio}
@@ -77,7 +86,7 @@ function AgentSplit({ split, agents }: { split: SplitBranch; agents: Agents }) {
         className="relative flex min-h-0 min-w-0"
         style={{ flexBasis: `calc(${(1 - split.ratio) * 100}% - 3px)`, flexGrow: 0, flexShrink: 0 }}
       >
-        <AgentNode node={split.second} agents={agents} />
+        <AgentNode node={split.second} {...panels} />
       </div>
     </div>
   );
