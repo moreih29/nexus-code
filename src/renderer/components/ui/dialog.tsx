@@ -26,6 +26,7 @@
 
 import { Dialog as RadixDialog } from "radix-ui";
 import { cn } from "@/utils/cn";
+import { useDialogFocusReturn } from "./use-dialog-focus-return";
 
 /**
  * Dialog width steps. Centralising the three pixel widths here is what retires
@@ -113,6 +114,7 @@ export function Dialog({
   // for the rationale — wiring suspend per-component would silently miss
   // any dialog that bypasses this wrapper (e.g. the Settings dialog using
   // RadixDialog.Root directly).
+  const returnFocus = useDialogFocusReturn(open);
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -124,6 +126,7 @@ export function Dialog({
         <RadixDialog.Content
           className={dialogContentClass(size, padded, className)}
           style={contentStyle}
+          onCloseAutoFocus={returnFocus}
           {...aria}
         >
           {children}

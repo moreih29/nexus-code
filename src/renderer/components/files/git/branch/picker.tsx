@@ -17,6 +17,7 @@ import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
 import { DialogHeader } from "../../../ui/dialog-header";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../../ui/prompt-dialog";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 import {
   type BranchPickerSourceMode,
   type BranchPickItem,
@@ -284,6 +285,7 @@ function BranchDeleteConfirmDialog({
   const { t } = useTranslation("files");
   const view = buildBranchDeleteDialogView(request);
   const confirmDisabled = busy;
+  const returnFocus = useDialogFocusReturn(request !== null);
 
   return (
     <RadixAlertDialog.Root
@@ -294,7 +296,10 @@ function BranchDeleteConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("md", true)}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("md", true)}
+          onCloseAutoFocus={returnFocus}
+        >
           <DialogHeader
             alert
             title={view.title}

@@ -156,7 +156,7 @@ export function GitCommitButton({
         {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
         <span className="truncate">{action.label}</span>
       </Button>
-      <DropdownMenuRoot modal={false}>
+      <DropdownMenuRoot>
         <DropdownMenuTrigger>
           <Button
             type="button"

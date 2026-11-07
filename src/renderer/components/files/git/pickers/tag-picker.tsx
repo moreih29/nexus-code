@@ -12,6 +12,7 @@ import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../../ui/form-dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 import { RefPicker } from "./ref-picker";
 import {
   createTagPickerSource,
@@ -228,6 +229,7 @@ function TagDeleteConfirmDialog({
   onCancel: () => void;
   onConfirm: (request: DeleteTagRequest) => void;
 }) {
+  const returnFocus = useDialogFocusReturn(request !== null);
   return (
     <RadixAlertDialog.Root
       open={request !== null}
@@ -237,7 +239,10 @@ function TagDeleteConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("md", true)}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("md", true)}
+          onCloseAutoFocus={returnFocus}
+        >
           {request ? (
             <TagDeleteConfirmContent
               request={request}
