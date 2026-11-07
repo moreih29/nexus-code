@@ -1,4 +1,4 @@
-// diagnostic-popover.tsx — status-bar popover listing the workspace's
+// diagnostic-popover.tsx — the status-bar popover's list of the workspace's
 // errors or warnings, grouped by file. Clicking an item opens the file at
 // the diagnostic's range and dismisses the popover.
 //
@@ -10,11 +10,11 @@
 //   onDidChangeMarkers while it is open. Closing the popover unhooks the
 //   subscription.
 //
-// The trigger button + open state lives in status-bar.tsx; this file owns
-// the panel surface and the data-shape used inside it.
+// The trigger button, open state and panel live in status-bar.tsx; this
+// file owns what the panel lists and the data-shape used inside it.
 
 import { AlertTriangle, XCircle } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { toNativeDrivePath } from "../../../shared/fs/drive-path";
@@ -24,7 +24,6 @@ import { getEntryMetadata } from "../../services/editor/model";
 import { requireMonaco } from "../../services/editor/runtime/monaco-singleton";
 import { revealEditorAt } from "../../services/editor/tabs/reveal-editor-at";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { useDismissOnOutsideClick } from "../ui/use-dismiss-on-outside-click";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -148,19 +147,17 @@ function relativeDirOf(filePath: string, workspaceRoot: string | null): string {
 // Component
 // ---------------------------------------------------------------------------
 
-interface DiagnosticPopoverProps {
+interface DiagnosticListProps {
   workspaceId: string;
   kind: DiagnosticKind;
-  wrapperRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }
 
-export function DiagnosticPopover({
+export function DiagnosticList({
   workspaceId,
   kind,
-  wrapperRef,
   onClose,
-}: DiagnosticPopoverProps): React.JSX.Element {
+}: DiagnosticListProps): React.ReactNode {
   const { t } = useTranslation();
   const markers = useWorkspaceMarkers(workspaceId, kind);
   const location: WorkspaceLocation | null = useWorkspacesStore(
@@ -177,47 +174,22 @@ export function DiagnosticPopover({
     if (markers.length === 0) onClose();
   }, [markers.length, onClose]);
 
-  useDismissOnOutsideClick(wrapperRef, true, onClose);
-
-  const listRef = useRef<HTMLDivElement>(null);
-
-  return (
-    <div
-      role="dialog"
-      aria-label={kind === "error" ? t("diagnostics.errors_dialog") : t("diagnostics.warnings_dialog")}
-      className={cn(
-        // Anchored above the status bar segment. Wide enough for messages,
-        // capped so long workspaces still leave breathing room on the right.
-        "absolute bottom-full left-0 z-(--layer-in-panel) mb-1",
-        "w-[480px] max-w-[min(480px,calc(100vw-2rem))]",
-        "max-h-[min(360px,60vh)] overflow-y-auto",
-        "floating-panel p-1",
-      )}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-      ref={listRef}
-    >
-      {groups.length === 0 ? (
-        <p className="px-2 py-1 text-app-ui-sm text-muted-foreground">
-          {kind === "error" ? t("diagnostics.no_errors") : t("diagnostics.no_warnings")}
-        </p>
-      ) : (
-        groups.map((group) => (
-          <DiagnosticFileGroup
-            key={group.filePath}
-            group={group}
-            kind={kind}
-            workspaceId={workspaceId}
-            onJump={onClose}
-          />
-        ))
-      )}
-    </div>
-  );
+  if (groups.length === 0) {
+    return (
+      <p className="px-2 py-1 text-app-ui-sm text-muted-foreground">
+        {kind === "error" ? t("diagnostics.no_errors") : t("diagnostics.no_warnings")}
+      </p>
+    );
+  }
+  return groups.map((group) => (
+    <DiagnosticFileGroup
+      key={group.filePath}
+      group={group}
+      kind={kind}
+      workspaceId={workspaceId}
+      onJump={onClose}
+    />
+  ));
 }
 
 // ---------------------------------------------------------------------------

@@ -50,7 +50,7 @@ import {
   type LucideIcon,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo, GitStatus } from "../../../shared/git/types";
@@ -59,7 +59,8 @@ import type { GitInFlightOp } from "../../state/stores/git";
 import { useGitSession, useGitStore } from "../../state/stores/git";
 import { useUIStore } from "../../state/stores/ui";
 import { BranchPicker } from "../files/git/branch/picker";
-import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
+import { Popover } from "../ui/popover";
+import { type DiagnosticKind, DiagnosticList } from "./diagnostic-popover";
 import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
@@ -343,8 +344,7 @@ function ChangesSegment({
 // the glyph-only style and refers to the saturated hue, not a fill role.
 //
 // Interaction: clicking a non-zero segment opens a popover listing the
-// diagnostics grouped by file. The trigger and popover share a wrapper
-// div so useDismissOnOutsideClick treats clicks on either as "inside".
+// diagnostics grouped by file.
 // ---------------------------------------------------------------------------
 
 function DiagnosticSegment({
@@ -365,7 +365,6 @@ function DiagnosticSegment({
   const glyphColor = isError ? "var(--status-bar-error-bg)" : "var(--status-bar-warning-bg)";
 
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const disabled = count === 0;
 
   // If the count drops to zero while the popover is open, close it. The
@@ -376,47 +375,45 @@ function DiagnosticSegment({
   }, [disabled, open]);
 
   return (
-    <div ref={wrapperRef} className="relative inline-flex h-full">
-      <button
-        type="button"
-        title={title}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={title}
-        onClick={() => {
-          if (!disabled) setOpen((v) => !v);
-        }}
-        className={cn(
-          "inline-flex items-center gap-1 h-full px-2",
-          "text-app-ui-sm font-sans leading-none",
-          // Hover/focus affordance only when interactive.
-          !disabled &&
-            "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-          // Dim the entire segment to muted-foreground when there's nothing
-          // to look at; keep the segment visible so the user can read "0".
-          disabled && "text-muted-foreground/70 cursor-default",
-        )}
-      >
-        <Icon
-          className="size-3 shrink-0"
-          // Glyph color: keep the severity hue even at count=0 so the icon
-          // reads as "error slot" / "warning slot"; dim via opacity rather
-          // than swapping color so the meaning stays consistent.
-          style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
-          aria-hidden="true"
-        />
-        <span style={!disabled ? { color: glyphColor } : undefined}>{count}</span>
-      </button>
-      {open ? (
-        <DiagnosticPopover
-          workspaceId={workspaceId}
-          kind={kind}
-          wrapperRef={wrapperRef}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </div>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={isError ? t("diagnostics.errors_dialog") : t("diagnostics.warnings_dialog")}
+      align="start"
+      // Wide enough for messages, capped so long workspaces still leave
+      // breathing room on the right.
+      className="w-[480px] max-w-[min(480px,calc(100vw-2rem))] max-h-[min(360px,60vh)]"
+      trigger={
+        <button
+          type="button"
+          title={title}
+          disabled={disabled}
+          aria-label={title}
+          className={cn(
+            "inline-flex items-center gap-1 h-full px-2",
+            "text-app-ui-sm font-sans leading-none",
+            // Hover/focus affordance only when interactive.
+            !disabled &&
+              "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+            // Dim the entire segment to muted-foreground when there's nothing
+            // to look at; keep the segment visible so the user can read "0".
+            disabled && "text-muted-foreground/70 cursor-default",
+          )}
+        >
+          <Icon
+            className="size-3 shrink-0"
+            // Glyph color: keep the severity hue even at count=0 so the icon
+            // reads as "error slot" / "warning slot"; dim via opacity rather
+            // than swapping color so the meaning stays consistent.
+            style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
+            aria-hidden="true"
+          />
+          <span style={!disabled ? { color: glyphColor } : undefined}>{count}</span>
+        </button>
+      }
+    >
+      <DiagnosticList workspaceId={workspaceId} kind={kind} onClose={() => setOpen(false)} />
+    </Popover>
   );
 }
 

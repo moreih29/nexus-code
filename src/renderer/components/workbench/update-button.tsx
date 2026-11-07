@@ -6,8 +6,7 @@
 // About does.
 
 import { CircleArrowUp, RotateCw, TriangleAlert } from "lucide-react";
-import { Popover } from "radix-ui";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { type UpdateButton as Shown, updateButtonOf } from "../../services/updates/update-button";
@@ -15,6 +14,7 @@ import { skipVersion } from "../../state/operations/updates";
 import { useUpdatesStore } from "../../state/stores/updates";
 import { UpdateSection } from "../settings/panels/about-panel";
 import { Button } from "../ui/button";
+import { Popover } from "../ui/popover";
 
 const TONE: Record<Shown["kind"], string> = {
   available: "border-primary/40 bg-primary/15 text-(--state-info-fg) hover:bg-primary/25",
@@ -30,7 +30,6 @@ export function UpdateButton() {
   const progress = useUpdatesStore((s) => s.progress);
   const ignoredVersion = useUpdatesStore((s) => s.ignoredVersion);
   const [open, setOpen] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
   // The Microsoft Store updates its own install.
   const shown =
     window.host?.windowsStore === true ? null : updateButtonOf(status, progress, ignoredVersion);
@@ -61,11 +60,16 @@ export function UpdateButton() {
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={label}
+      side="bottom"
+      testId="update-popover"
+      className="flex w-80 flex-col gap-3 p-3"
+      trigger={
         <button
           type="button"
-          aria-haspopup="dialog"
           data-testid="update-button"
           className={cn(
             "app-no-drag mr-1.5 flex h-6 shrink-0 items-center gap-1.5 rounded-full border px-2",
@@ -76,44 +80,28 @@ export function UpdateButton() {
           <Icon className="size-3.5" aria-hidden="true" />
           <span>{label}</span>
         </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          ref={contentRef}
-          align="end"
-          sideOffset={6}
-          tabIndex={-1}
-          // The popover itself takes the keyboard, not its first button:
-          // an Enter meant for the terminal must not restart the app.
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            contentRef.current?.focus();
-          }}
-          data-testid="update-popover"
-          className="z-(--layer-floating) flex w-80 flex-col gap-3 rounded-(--radius-raised) border border-border bg-popover p-3 text-app-ui-sm text-popover-foreground outline-none"
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-app-body-emphasis text-foreground">NexusCode</span>
-            <span className="text-muted-foreground">
-              {t("settings:about.version", { version: __APP_VERSION__ })}
-            </span>
-          </div>
-          <UpdateSection status={status} progress={progress}>
-            {status?.kind === "newer" && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  skipVersion(status.latest);
-                  setOpen(false);
-                }}
-              >
-                {t("updates.skipVersion")}
-              </Button>
-            )}
-          </UpdateSection>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+      }
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-app-body-emphasis text-foreground">NexusCode</span>
+        <span className="text-muted-foreground">
+          {t("settings:about.version", { version: __APP_VERSION__ })}
+        </span>
+      </div>
+      <UpdateSection status={status} progress={progress}>
+        {status?.kind === "newer" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              skipVersion(status.latest);
+              setOpen(false);
+            }}
+          >
+            {t("updates.skipVersion")}
+          </Button>
+        )}
+      </UpdateSection>
+    </Popover>
   );
 }

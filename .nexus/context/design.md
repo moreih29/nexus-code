@@ -163,6 +163,8 @@ Floating(다이얼로그·메뉴·팝오버·툴팁·커맨드 팔레트)은 **�
 - 모달의 경우 `surface.floating.scrim` backdrop scrim으로 하위 레이어 차단
 - Floating 표면도 `island` 라디우스를 사용한다 (부유하는 섬)
 
+버튼에서 여는 패널은 `Popover`(`components/ui/popover.tsx`)로, 명령 목록은 `DropdownMenu`로 만든다. 둘 다 Radix가 자리(버튼에 붙고 창 안에 머묾)와 닫기(Escape, 바깥 클릭)를 맡는다 — `absolute`로 손수 띄우고 바깥 클릭 훅을 다는 패널은 새로 만들지 않는다. `Popover`는 열리면 키보드를 첫 버튼이 아니라 패널 자체에 두고, 닫히면 다른 곳이 키보드를 가져가지 않았을 때만 버튼으로 돌려준다 — 진단 항목을 눌러 연 에디터는 키보드를 그대로 갖는다.
+
 ---
 
 ## §3. Density — 4px 베이스 그리드 + Islands 지오메트리
@@ -256,7 +258,7 @@ Islands 모델은 "둥근 물체로서의 섬"을 핵심 미감으로 한다. �
 
 | 변수 | 값 | 무엇 |
 |---|---|---|
-| `--layer-in-panel` | 40 | 패널 안에 뜨는 것: 퀵룩, 릴리스 노트, 상태바·git 패널 팝오버 |
+| `--layer-in-panel` | 40 | 패널 안에 뜨는 것: 퀵룩, 릴리스 노트, git 패널 팝오버 |
 | `--layer-floating` | 50 | 창 전체 위로 포털되는 것: 다이얼로그와 scrim, 메뉴, 셀렉트, 팝오버 |
 | `--layer-toast` | 60 | 토스트 (열린 다이얼로그 위) |
 | `--layer-palette` | 70 | 커맨드 팔레트 |

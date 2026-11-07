@@ -8,7 +8,7 @@
 // language servers are off altogether.
 
 import { AlertTriangle, Braces, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { findLeaf } from "@/engine";
 import { cn } from "@/utils/cn";
@@ -27,7 +27,7 @@ import { useLspSettingsStore } from "../../state/stores/lsp-settings";
 import { type LspProgress, lspStatusKey, useLspStatusStore } from "../../state/stores/lsp-status";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useTabsStore } from "../../state/stores/tabs";
-import { useDismissOnOutsideClick } from "../ui/use-dismiss-on-outside-click";
+import { Popover } from "../ui/popover";
 
 /** The language of the file in the workspace's active editor, if a server serves it. */
 function useActiveEditorLanguage(workspaceId: string): BuiltinLspPresetLanguageId | null {
@@ -71,7 +71,6 @@ export function LspStatusSegment({
   const status = useLspStatusStore((s) => s.statuses[key]);
   const progress = useLspStatusStore((s) => s.progress[key]);
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
   if (!languageId || !settings.enabled) return null;
 
@@ -82,40 +81,41 @@ export function LspStatusSegment({
   const Icon = state === "busy" ? Loader2 : state === "failed" ? AlertTriangle : Braces;
 
   return (
-    <div ref={wrapperRef} className="relative inline-flex h-full">
-      <button
-        type="button"
-        title={title}
-        aria-label={title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-1 h-full px-2",
-          "text-app-ui-sm font-sans leading-none",
-          "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-          (state === "off" || state === "idle") && "text-muted-foreground/70",
-        )}
-      >
-        <Icon
-          className={cn("size-3 shrink-0", state === "busy" && "animate-spin")}
-          style={state === "failed" ? { color: "var(--status-bar-warning-bg)" } : undefined}
-          aria-hidden="true"
-        />
-        <span className="truncate max-w-40">{language}</span>
-      </button>
-      {open ? (
-        <LspStatusPopover
-          workspaceId={workspaceId}
-          languageId={languageId}
-          on={on}
-          status={status}
-          progress={progress}
-          wrapperRef={wrapperRef}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </div>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={t("lsp.menuTitle", { language })}
+      className="w-[300px] max-w-[min(300px,calc(100vw-2rem))]"
+      trigger={
+        <button
+          type="button"
+          title={title}
+          aria-label={title}
+          className={cn(
+            "inline-flex items-center gap-1 h-full px-2",
+            "text-app-ui-sm font-sans leading-none",
+            "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+            (state === "off" || state === "idle") && "text-muted-foreground/70",
+          )}
+        >
+          <Icon
+            className={cn("size-3 shrink-0", state === "busy" && "animate-spin")}
+            style={state === "failed" ? { color: "var(--status-bar-warning-bg)" } : undefined}
+            aria-hidden="true"
+          />
+          <span className="truncate max-w-40">{language}</span>
+        </button>
+      }
+    >
+      <LspStatusPopover
+        workspaceId={workspaceId}
+        languageId={languageId}
+        on={on}
+        status={status}
+        progress={progress}
+        onClose={() => setOpen(false)}
+      />
+    </Popover>
   );
 }
 
@@ -155,7 +155,6 @@ function LspStatusPopover({
   on,
   status,
   progress,
-  wrapperRef,
   onClose,
 }: {
   workspaceId: string;
@@ -163,15 +162,12 @@ function LspStatusPopover({
   on: boolean;
   status: LspServerStatus | undefined;
   progress: LspProgress | undefined;
-  wrapperRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const settings = useLspSettingsStore((s) => s.settings);
   const [memory, setMemory] = useState<number | null>(null);
   const running = status?.state === "running";
-
-  useDismissOnOutsideClick(wrapperRef, true, onClose);
 
   // The server's failure toast says what this popover says, over its actions.
   useEffect(() => {
@@ -203,15 +199,7 @@ function LspStatusPopover({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label={t("lsp.menuTitle", { language: t(`lsp.language.${languageId}`) })}
-      className={cn(
-        "absolute bottom-full right-0 z-(--layer-in-panel) mb-1",
-        "w-[300px] max-w-[min(300px,calc(100vw-2rem))]",
-        "floating-panel p-1",
-      )}
-    >
+    <>
       <div className="px-2 pt-1 pb-1.5 flex flex-col gap-0.5">
         <span className="text-app-ui-sm text-foreground font-medium">
           {t("lsp.menuTitle", { language: t(`lsp.language.${languageId}`) })}
@@ -278,6 +266,6 @@ function LspStatusPopover({
       >
         {t("lsp.openSettings")}
       </button>
-    </div>
+    </>
   );
 }
