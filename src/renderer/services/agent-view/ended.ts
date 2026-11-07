@@ -4,9 +4,11 @@
  * so and offers to take the conversation up again; once the user moves on
  * (another tab in front of the panel, or the workspaces) the terminal leaves
  * the panels, and stays in its workspace. Only an agent seen running this
- * run counts: a terminal not read yet reads as no agent at first. Pure.
+ * run counts, or one a panel showed ended before a restart: a terminal not
+ * read yet reads as no agent at first. Pure.
  */
 
+import type { EndedAgentSnapshot } from "../../../shared/types/agent-view";
 import type { AgentSession } from "../sessions/model";
 
 export type ResumableAgent = "claude" | "codex";
@@ -61,6 +63,44 @@ export function noteSeen(
     next.set(session.key, { agent, sessionId, prompted });
   }
   return next ?? seen;
+}
+
+/**
+ * `seen` with the ended agents `kept` tells, for the terminals it has none
+ * of: those a panel showed before a restart. The same map when there are
+ * none.
+ */
+export function withKept(seen: SeenAgents, kept: ReadonlyMap<string, EndedAgent>): SeenAgents {
+  let next: Map<string, EndedAgent> | null = null;
+  for (const [key, agent] of kept) {
+    if (seen.has(key)) continue;
+    next ??= new Map(seen);
+    next.set(key, agent);
+  }
+  return next ?? seen;
+}
+
+/** The ended agents as AppState stores them. */
+export function endedToStore(
+  ended: ReadonlyMap<string, EndedAgent>,
+): Record<string, EndedAgentSnapshot> {
+  const stored: Record<string, EndedAgentSnapshot> = {};
+  for (const [key, { agent, sessionId, prompted }] of ended) {
+    stored[key] = { ...(agent ? { agent } : {}), ...(sessionId ? { sessionId } : {}), prompted };
+  }
+  return stored;
+}
+
+/** The ended agents AppState stored, of the terminals the panels still hold. */
+export function endedFromStore(
+  stored: Readonly<Record<string, EndedAgentSnapshot>> | undefined,
+  held: ReadonlySet<string>,
+): ReadonlyMap<string, EndedAgent> {
+  const ended = new Map<string, EndedAgent>();
+  for (const [key, { agent, sessionId, prompted }] of Object.entries(stored ?? {})) {
+    if (held.has(key)) ended.set(key, { agent, sessionId, prompted });
+  }
+  return ended;
 }
 
 /**

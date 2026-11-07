@@ -81,4 +81,40 @@ describe("agent view store", () => {
     await settle();
     expect(stored).toEqual([]);
   });
+
+  it("restores the ended agents of the panels' terminals, and stores them as they change", async () => {
+    useAgentViewStore.getState().hydrate(
+      {
+        mode: "agents",
+        root: { kind: "leaf", id: P1, tabIds: [A], activeTabId: A },
+        activeLeafId: P1,
+        ended: {
+          [A]: { agent: "claude", sessionId: "s-1", prompted: true },
+          [B]: { agent: "codex", prompted: false },
+        },
+      },
+      () => true,
+    );
+    const { ended } = useAgentViewStore.getState();
+    expect([...ended.entries()]).toEqual([
+      [A, { agent: "claude", sessionId: "s-1", prompted: true }],
+    ]);
+
+    useAgentViewStore.getState().setEnded(new Map(ended));
+    await settle();
+    expect(stored).toEqual([]);
+
+    useAgentViewStore.getState().setEnded(new Map());
+    await settle();
+    expect(stored).toHaveLength(1);
+    expect((stored[0] as { agentView: object }).agentView).not.toHaveProperty("ended");
+
+    useAgentViewStore
+      .getState()
+      .setEnded(new Map([[A, { agent: "codex", sessionId: undefined, prompted: false }]]));
+    await settle();
+    expect((stored[1] as { agentView: { ended: unknown } }).agentView.ended).toEqual({
+      [A]: { agent: "codex", prompted: false },
+    });
+  });
 });

@@ -1,6 +1,7 @@
 /**
  * The agent view's ended agents (ended.ts), kept as the panels and the
- * agents change, and let go of as the user moves on.
+ * agents change, and over a restart in the store, and let go of as the user
+ * moves on.
  */
 
 import { useEffect, useRef } from "react";
@@ -16,6 +17,7 @@ import {
   noteSeen,
   type SeenAgents,
   sameEnded,
+  withKept,
 } from "./ended";
 import { heldKeys, leafShowing, parseSessionKey, pruneKeys } from "./layout";
 
@@ -38,10 +40,13 @@ export function useEndedAgents(
   }
   const activity = useSessionActivity([...claudeIn].sort(), shown);
   const tabs = useTabsStore((s) => s.byWorkspace);
+  // What the store keeps: what a panel showed before a restart, once it is
+  // restored, and what this wrote since.
+  const stored = useAgentViewStore((s) => s.ended);
 
   const seen = useRef<SeenAgents>(NONE);
   seen.current = noteSeen(
-    seen.current,
+    withKept(seen.current, stored),
     [...agents.byKey.values()].map((entry) => entry.session),
     (key) => activity.get(key)?.sessionId,
   );
@@ -58,6 +63,10 @@ export function useEndedAgents(
   const kept = useRef(NONE);
   if (!sameEnded(kept.current, next)) kept.current = next;
   const ended = kept.current;
+
+  useEffect(() => {
+    useAgentViewStore.getState().setEnded(ended);
+  }, [ended]);
 
   // Moving on lets the terminal go; it stays in its workspace.
   useEffect(() => {
