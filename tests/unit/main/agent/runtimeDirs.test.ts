@@ -15,6 +15,7 @@ import { execSync } from "node:child_process";
 import {
   binDir,
   ensureDir,
+  HOME_ENV,
   removeShimDir,
   root,
   shimDir,
@@ -26,11 +27,27 @@ import {
 const modeTest = test.skipIf(process.platform === "win32");
 
 describe("root", () => {
+  const named = process.env[HOME_ENV];
+  beforeEach(() => {
+    delete process.env[HOME_ENV];
+  });
+  afterEach(() => {
+    if (named === undefined) delete process.env[HOME_ENV];
+    else process.env[HOME_ENV] = named;
+  });
+
   test("returns path ending with .nexus-code under home directory", () => {
     const result = root();
     const home = os.homedir();
     expect(result).toBe(path.join(home, ".nexus-code"));
     expect(path.isAbsolute(result)).toBe(true);
+  });
+
+  test("is the directory NEXUS_CODE_HOME names, for a copy of the app beside the installed one", () => {
+    const dir = path.join(os.tmpdir(), "nexus-code-qa");
+    process.env[HOME_ENV] = dir;
+    expect(root()).toBe(dir);
+    expect(socketsDir()).toBe(path.join(dir, "sockets"));
   });
 });
 

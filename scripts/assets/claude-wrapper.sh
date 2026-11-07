@@ -128,7 +128,7 @@ SETTINGS_EOF
 #    to another still finds the file it needs.
 write_settings() {
   [[ -n "${HOME:-}" ]] || return 1
-  local dir="$HOME/.nexus-code" sum file tmp
+  local dir="${NEXUS_CODE_HOME:-$HOME/.nexus-code}" sum file tmp
   mkdir -p "$dir" 2>/dev/null || return 1
   sum="$(printf '%s' "$SETTINGS_JSON" | cksum | cut -d ' ' -f 1)" || return 1
   file="$dir/claude-settings-$sum.json"

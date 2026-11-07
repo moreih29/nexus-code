@@ -13,6 +13,7 @@
  *   ~/.nexus-code/shim/<workspaceId>/    ← shimDir(workspaceId)
  *
  * On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
+ * NEXUS_CODE_HOME names another root in place of ~/.nexus-code, for both.
  */
 
 import fs from "node:fs/promises";
@@ -22,10 +23,21 @@ import path from "node:path";
 const ROOT_DIR_NAME = ".nexus-code";
 
 /**
- * Returns the absolute path of the ~/.nexus-code runtime directory.
+ * Names a runtime directory in place of ~/.nexus-code: a copy of the app
+ * run beside the installed one, as a build under test, keeps its files and
+ * the installed app's apart. The agent and the terminals' wrappers read it
+ * too. Keep it short: the agents' sockets are under it.
+ */
+export const HOME_ENV = "NEXUS_CODE_HOME";
+
+/**
+ * Returns the absolute path of the ~/.nexus-code runtime directory, or of
+ * the one NEXUS_CODE_HOME names.
  * Throws if os.homedir() returns an empty string (rare in some CI environments).
  */
 export function root(): string {
+  const named = process.env[HOME_ENV];
+  if (named) return path.resolve(named);
   const home = os.homedir();
   if (!home) {
     throw new Error("agentpaths: cannot determine home directory (os.homedir() returned empty)");
