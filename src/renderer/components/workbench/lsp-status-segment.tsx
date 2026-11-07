@@ -207,7 +207,7 @@ function LspStatusPopover({
       role="dialog"
       aria-label={t("lsp.menuTitle", { language: t(`lsp.language.${languageId}`) })}
       className={cn(
-        "absolute bottom-full right-0 z-40 mb-1",
+        "absolute bottom-full right-0 z-(--layer-in-panel) mb-1",
         "w-[300px] max-w-[min(300px,calc(100vw-2rem))]",
         "floating-panel p-1",
       )}

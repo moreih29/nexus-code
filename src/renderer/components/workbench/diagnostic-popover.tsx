@@ -188,7 +188,7 @@ export function DiagnosticPopover({
       className={cn(
         // Anchored above the status bar segment. Wide enough for messages,
         // capped so long workspaces still leave breathing room on the right.
-        "absolute bottom-full left-0 z-40 mb-1",
+        "absolute bottom-full left-0 z-(--layer-in-panel) mb-1",
         "w-[480px] max-w-[min(480px,calc(100vw-2rem))]",
         "max-h-[min(360px,60vh)] overflow-y-auto",
         "floating-panel p-1",

@@ -300,7 +300,7 @@ export function QuickLook({
     </div>
   );
   const layer = (
-    <div className="absolute inset-0 z-40">
+    <div className="absolute inset-0 z-(--layer-in-panel)">
       <div
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"

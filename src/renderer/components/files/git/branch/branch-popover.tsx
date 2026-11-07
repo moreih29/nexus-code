@@ -214,7 +214,7 @@ export function GitBranchPopover({
         <div
           role="dialog"
           aria-label={i18next.t("files:git.branchPopover.ariaLabel")}
-          className="absolute bottom-full left-0 z-40 mb-1 w-[240px] floating-panel p-2"
+          className="absolute bottom-full left-0 z-(--layer-in-panel) mb-1 w-[240px] floating-panel p-2"
           onKeyDown={(event) => {
             if (event.key === "Escape") setOpen(false);
           }}
@@ -385,7 +385,7 @@ function BranchContextMenu({
   return (
     <div
       role="menu"
-      className="fixed z-50 min-w-[188px] floating-panel p-1"
+      className="fixed z-(--layer-floating) min-w-[188px] floating-panel p-1"
       style={contextMenuStyle(point)}
       onContextMenu={(event) => event.preventDefault()}
       onKeyDown={(event) => {
@@ -443,7 +443,7 @@ function BranchAutofetchSubmenu({
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open ? (
-        <div role="menu" className="absolute left-full top-0 z-50 min-w-[188px] floating-panel p-1">
+        <div role="menu" className="absolute left-full top-0 z-(--layer-floating) min-w-[188px] floating-panel p-1">
           {buildAutofetchMenuModel(selected).map((item) => (
             <ContextMenuButton
               key={item.intervalMin}

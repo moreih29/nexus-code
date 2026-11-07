@@ -90,7 +90,7 @@ export function UpdateButton() {
             contentRef.current?.focus();
           }}
           data-testid="update-popover"
-          className="z-50 flex w-80 flex-col gap-3 rounded-(--radius-raised) border border-border bg-popover p-3 text-app-ui-sm text-popover-foreground outline-none"
+          className="z-(--layer-floating) flex w-80 flex-col gap-3 rounded-(--radius-raised) border border-border bg-popover p-3 text-app-ui-sm text-popover-foreground outline-none"
         >
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-app-body-emphasis text-foreground">NexusCode</span>

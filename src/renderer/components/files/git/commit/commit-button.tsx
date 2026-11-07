@@ -196,7 +196,7 @@ export function GitCommitButton({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-8 z-40 min-w-[188px] floating-panel p-1"
+          className="absolute right-0 top-8 z-(--layer-in-panel) min-w-[188px] floating-panel p-1"
           onKeyDown={(event) => {
             if (event.key === "Escape") close();
           }}
@@ -290,7 +290,7 @@ function CommitOptionsSubmenu({
         <ChevronRight className="size-3.5" aria-hidden="true" />
       </button>
       {open ? (
-        <div role="menu" className="absolute left-full top-0 z-50 min-w-[152px] floating-panel p-1">
+        <div role="menu" className="absolute left-full top-0 z-(--layer-floating) min-w-[152px] floating-panel p-1">
           {items.map((item) => (
             <button
               key={item.id}

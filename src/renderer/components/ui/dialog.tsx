@@ -44,7 +44,7 @@ const SIZE_CLASS: Record<DialogSize, string> = {
  * Scrim + positioning for the Radix Overlay. Shared with AlertDialog modals.
  * The `dialog-overlay` class wires the fade in/out keyframes (globals.css).
  */
-export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-50 bg-[var(--floating-scrim)]";
+export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-(--layer-floating) bg-[var(--floating-scrim)]";
 
 /**
  * Floating-layer surface classes for a Radix Content node. The `dialog-content`
@@ -54,7 +54,7 @@ export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-50 bg-[var(-
  */
 export function dialogContentClass(size: DialogSize, padded: boolean, className?: string): string {
   return cn(
-    "dialog-content fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
+    "dialog-content fixed left-1/2 top-1/2 z-(--layer-floating) -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
     "rounded-(--radius-island) border border-[var(--surface-floating-border)]",
     "bg-popover text-popover-foreground outline-none",
     SIZE_CLASS[size],

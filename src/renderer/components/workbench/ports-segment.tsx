@@ -140,7 +140,7 @@ function PortsPopover({
       role="dialog"
       aria-label={t("statusBar.ports_menu_title")}
       className={cn(
-        "absolute bottom-full right-0 z-40 mb-1",
+        "absolute bottom-full right-0 z-(--layer-in-panel) mb-1",
         "w-[280px] max-w-[min(280px,calc(100vw-2rem))]",
         "floating-panel p-1",
       )}

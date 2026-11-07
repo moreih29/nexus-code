@@ -264,7 +264,7 @@ function RefChipOverflowPopover({
       id={id}
       role="menu"
       aria-label={i18next.t("files:git.refChip.moreRefs")}
-      className="fixed z-50 flex max-w-[240px] flex-col gap-1 overflow-y-auto floating-panel p-1"
+      className="fixed z-(--layer-floating) flex max-w-[240px] flex-col gap-1 overflow-y-auto floating-panel p-1"
       style={popoverPositionStyle(point)}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.stopPropagation()}

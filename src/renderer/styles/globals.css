@@ -45,6 +45,26 @@
    Unlayered CSS wins over layered CSS regardless of specificity.)
    --------------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+   Stacking layers — what floats over what, named instead of bare z-index
+   numbers. Within a component, small local numbers (z-10, z-20) still order
+   its own parts; these are for what lies over other components.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Over a panel's content, in its own box: quick look, the release notes,
+     the status bar's and the git panel's popovers. */
+  --layer-in-panel: 40;
+  /* Portalled over the whole window: dialogs and their scrim, menus,
+     selects, popovers. */
+  --layer-floating: 50;
+  /* Toasts, over a dialog that is open. */
+  --layer-toast: 60;
+  /* The command palette, over everything else but tooltips. */
+  --layer-palette: 70;
+  /* Tooltips, over whatever they describe. */
+  --layer-tooltip: 80;
+}
+
 @layer base {
   *,
   *::before,

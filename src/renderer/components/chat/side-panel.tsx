@@ -689,7 +689,7 @@ function Thumbnail({
   );
   return createPortal(
     <div
-      className="pointer-events-none fixed z-50 rounded-(--radius-raised) border border-border bg-popover p-1"
+      className="pointer-events-none fixed z-(--layer-floating) rounded-(--radius-raised) border border-border bg-popover p-1"
       style={{ top, right: window.innerWidth - near.left + 8 }}
     >
       <img
