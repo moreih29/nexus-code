@@ -78,7 +78,9 @@ describe("FormDialogContent", () => {
     );
 
     expect(html).toContain("Enter a valid URL");
-    expect(html).toContain("Required");
+    // An empty required field is marked, not reported as an error.
+    expect(html).not.toContain("Required");
+    expect(html).toContain('aria-required="true"');
     expect(html).toContain('disabled=""');
   });
 

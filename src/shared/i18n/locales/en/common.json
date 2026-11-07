@@ -31,8 +31,7 @@
     "open_connection_settings": "Open connection settings",
     "dismiss": "Dismiss",
     "increase": "Increase",
-    "decrease": "Decrease",
-    "required": "Required"
+    "decrease": "Decrease"
   },
   "palette": {
     "close_aria": "Close command palette",
