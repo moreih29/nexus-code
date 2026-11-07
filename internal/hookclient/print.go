@@ -40,6 +40,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/nexus-code/nexus-code/internal/nodeshim"
 )
 
 const (
@@ -222,7 +224,7 @@ func runPrint(
 			transcript.startAtEnd()
 		}
 	}
-	cmd := exec.Command(claude, args...)
+	cmd := nodeshim.Command(claude, args...)
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
 	// A json or stream-json run's output tells of the run, and a text run's
@@ -327,6 +329,7 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 		fmt.Fprintf(stderr, "nexus: %v\n", err)
 		return nil, false
 	}
+	tree := holdTree(cmd.Process)
 	stopped := make(chan os.Signal, 1)
 	go func() {
 		for s := range signals {
@@ -338,14 +341,17 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 		}
 	}()
 	teller.onStop(func() {
-		if s := stopProcess(cmd.Process); s != nil {
+		if s := stopProcess(cmd.Process, tree); s != nil {
 			select {
 			case stopped <- s:
 			default:
 			}
 		}
 	})
-	return &supervised{cmd: cmd, stopped: stopped, release: release}, true
+	return &supervised{cmd: cmd, stopped: stopped, release: func() {
+		release()
+		tree.release()
+	}}, true
 }
 
 // ending is how the run's process ended, once waited for: its exit code,

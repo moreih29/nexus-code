@@ -109,10 +109,22 @@ function result(stdout: string, stderr = "", exitCode = 0, files?: readonly CliF
   return { stdout, stderr, exitCode, ...(files && files.length > 0 ? { files } : {}) };
 }
 
+/**
+ * A value as JSON in ASCII alone, every other character escaped: a reader
+ * that takes the bytes in another code page than UTF-8 still reads it whole,
+ * as Windows PowerShell 5.1 does what it pipes into ConvertFrom-Json.
+ */
+function asciiJson(value: unknown, indent?: number): string {
+  return (JSON.stringify(value, null, indent) ?? "null").replace(
+    /[\u0080-￿]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /** An output as JSON Lines: its records, a line each. */
 function jsonLines(out: CliOutput): string {
   const records = out.records ?? (Array.isArray(out.json) ? out.json : [out.json]);
-  return records.map((record) => `${JSON.stringify(record)}\n`).join("");
+  return records.map((record) => `${asciiJson(record)}\n`).join("");
 }
 
 function withNewline(text: string): string {
@@ -149,7 +161,7 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
       parsed.flags.jsonl === true
         ? jsonLines(out)
         : parsed.flags.json === true
-          ? `${JSON.stringify(out.json, null, 2)}\n`
+          ? `${asciiJson(out.json, 2)}\n`
           : withNewline(out.text);
     return result(stdout, "", out.exitCode ?? 0, out.files);
   } catch (error) {

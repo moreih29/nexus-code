@@ -69,7 +69,7 @@ export function LanguageServersPanel() {
             title={t("languageServers.installed")}
             description={t("languageServers.installedDescription")}
           >
-            <LanguageGrid>
+            <LanguageGrid wide>
               {INSTALLED_LANGUAGES.map((languageId) => (
                 <LanguageRow
                   key={languageId}
@@ -100,9 +100,17 @@ export function LanguageServersPanel() {
   );
 }
 
-/** Languages two to a line: each is a checkbox and a few words at most. */
-function LanguageGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-2 items-start gap-x-4 gap-y-2.5">{children}</div>;
+/**
+ * Languages two to a line: each is a checkbox and a few words at most. One
+ * to a line with `wide`, for those that show where their server is: a path
+ * needs the width.
+ */
+function LanguageGrid({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={cn("grid items-start gap-x-4 gap-y-2.5", wide ? "grid-cols-1" : "grid-cols-2")}>
+      {children}
+    </div>
+  );
 }
 
 function LanguageRow({

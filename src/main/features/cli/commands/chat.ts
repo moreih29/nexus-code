@@ -181,7 +181,8 @@ export async function waitOnChats(
           };
         }
       }
-      if (clock.now() - startedAt >= timeoutMs) {
+      // A client that has gone (Ctrl-C) waits no more, nor shows as waiting.
+      if (clock.now() - startedAt >= timeoutMs || ctx.signal?.aborted) {
         const which = tabs.length === 1 ? (tabs[0] as CliTabInfo).title : "every tab";
         return {
           done: false,
@@ -269,7 +270,8 @@ const chatRead: CliCommand = {
     "What the user and the agent said, the tools the agent ran, and what the app noted, each\n" +
     "with its place (#i), then the tab's state: working, asking (the user), idle or error. The\n" +
     "last 20 by default. --since I reads on after #I, so a loop follows a tab without reading\n" +
-    "anything twice. A tool call's input and output whole: nexus chat tool <tab> <i>.\n" +
+    "anything twice; a conversation cleared or rewound since, ending before #I, is read from\n" +
+    "its start and says so. A tool call's input and output whole: nexus chat tool <tab> <i>.\n" +
     "--jsonl prints a record a line: the messages (each with role and i), then the state.",
   flags: {
     messages: {
@@ -301,7 +303,7 @@ const chatRead: CliCommand = {
     const maxChars = maxCharsFlag(flags);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
-    const { entries, ...info } = await ctx.services.ui("chat.read", {
+    const { entries, end, ...info } = await ctx.services.ui("chat.read", {
       workspaceId: workspace.id,
       tabId: tab.id,
       ...(messages !== undefined ? { messages } : {}),
@@ -317,16 +319,18 @@ const chatRead: CliCommand = {
       info.state === "idle"
         ? `${AGENT_NAMES[info.agent]} in ${tab.title} is idle.`
         : chatStateText(tab, info);
-    const last = entries.at(-1)?.i ?? since;
-    const json = {
-      ...infoJson(tab, workspace, info),
-      entries: shown,
-      ...(last !== undefined ? { last } : {}),
-    };
-    const nothingNew =
-      since !== undefined && entries.length === 0 ? `Nothing after #${since}.\n` : "";
-    return output(transcript ? `${transcript}\n\n${state}` : `${nothingNew}${state}`, json, {
-      records: [...shown, infoJson(tab, workspace, info)],
+    // Cleared or rewound since #since: the app read it from its start.
+    const restarted = since !== undefined && since > end;
+    const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
+    const stands = { ...infoJson(tab, workspace, info), ...(restarted ? { restarted } : {}) };
+    const json = { ...stands, entries: shown, ...(last !== undefined ? { last } : {}) };
+    const before = restarted
+      ? `The conversation was cleared or rewound: it ends before #${since} now. From its start:\n`
+      : since !== undefined && entries.length === 0
+        ? `Nothing after #${since}.\n`
+        : "";
+    return output(transcript ? `${before}${transcript}\n\n${state}` : `${before}${state}`, json, {
+      records: [...shown, stands],
     });
   },
 };
@@ -336,10 +340,17 @@ const chatTool: CliCommand = {
   summary: "Print one tool call of a Claude or Codex tab whole: its input and its output",
   args: "<tab> <call>",
   details:
-    "<call> is the #i chat read shows by the call, or the call's id. The input is printed as\n" +
-    "JSON, the output as the tool gave it back.",
+    "<call> is the number chat read shows by the call (#i), given alone, or the call's id: a\n" +
+    "shell drops a # and what follows. The input is printed as JSON, the output as the tool\n" +
+    "gave it back.",
   flags: { "max-chars": MAX_CHARS_FLAG, workspace: WORKSPACE_FLAG },
   async run(ctx, { positionals, flags }) {
+    if (positionals.length === 1) {
+      // `chat tool tab #3`: the shell took "#3" for a comment.
+      throw new CliUsageError(
+        "missing <call>: the number chat read shows by it, without its # (a shell drops a # and what follows)",
+      );
+    }
     const [selector, ref] = exactArgs(positionals, "tab", "call") as [string, string];
     const maxChars = maxCharsFlag(flags);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
@@ -448,6 +459,14 @@ const chatWait: CliCommand = {
 /** How chat.state tells a tool's permission request (renderer services/cli/chat-view). */
 const ASKS_TO_RUN = "asks to run ";
 
+/** Text set in under a line that introduces it. */
+function indent(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n");
+}
+
 const chatAnswer: CliCommand = {
   path: ["chat", "answer"],
   summary: "Allow or deny the tool a Claude or Codex tab asks to run",
@@ -478,7 +497,7 @@ const chatAnswer: CliCommand = {
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const info = await ctx.services.ui("chat.state", target);
     const asked = info.state === "asking" ? (info.message ?? "") : "";
-    if (!asked.startsWith(ASKS_TO_RUN)) {
+    if (!asked.startsWith(ASKS_TO_RUN) || !info.request) {
       throw new CliError(
         asked === ""
           ? `${tab.title} waits on no permission request`
@@ -486,19 +505,23 @@ const chatAnswer: CliCommand = {
       );
     }
     const tool = asked.slice(ASKS_TO_RUN.length);
+    // What is answered is the request whole: a command's first line, as the
+    // tab's row shows it, can hide what its next lines run.
+    const whole = info.request.input;
     const request = {
       fromWorkspaceId: ctx.caller.workspaceId,
       fromTabId: ctx.caller.tabId,
       toWorkspaceId: workspace.id,
       change: {
         kind: decision === "allow" ? ("permissionAllow" as const) : ("permissionDeny" as const),
-        detail: `${tool} (${tab.title})`,
+        detail: `${info.request.tool} (${tab.title})`,
+        body: whole,
       },
     };
     const policy = isManager(ctx.caller) ? ctx.services.managerPermissions() : "ask";
     if (policy === "user") {
       throw new CliError(
-        `the user answers other sessions' permission requests (Settings › Agent manager); tell them ${tab.title} asks to run ${tool}`,
+        `the user answers other sessions' permission requests (Settings › Agent manager); tell them ${tab.title} asks to run ${info.request.tool}:\n${indent(whole)}`,
       );
     }
     if (policy === "ask") await ctx.services.askUser(request);
@@ -506,7 +529,7 @@ const chatAnswer: CliCommand = {
       ...target,
       decision,
       ...(message ? { message } : {}),
-      expect: asked,
+      expect: info.request.id,
     });
     return output(`${decision === "allow" ? "Allowed" : "Denied"} ${tool} in ${tab.title}.`, {
       ...target,

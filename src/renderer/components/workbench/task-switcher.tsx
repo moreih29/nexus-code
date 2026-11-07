@@ -42,9 +42,11 @@ interface TaskSwitcherProps {
   active: WorkspaceMeta;
   /** The label of the task's workspace, e.g. with its SSH host. */
   label: (workspace: WorkspaceMeta) => string;
+  /** The widest it can be, in px, clear of the title bar's other buttons. */
+  maxWidth?: number;
 }
 
-export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
+export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
   const { t } = useTranslation();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const rootId = active.task?.parentId ?? active.id;
@@ -59,6 +61,7 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
           type="button"
           aria-label={t("task.switcher_aria")}
           title={rootLabel}
+          style={maxWidth === undefined ? undefined : { maxWidth: `min(40%, ${maxWidth}px)` }}
           className={cn(
             "app-no-drag absolute left-1/2 -translate-x-1/2 max-w-[40%]",
             "flex items-center gap-1.5 px-2 h-7 rounded-(--radius-control)",

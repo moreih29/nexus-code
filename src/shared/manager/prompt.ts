@@ -12,7 +12,7 @@ export const MANAGER_PROMPT = `You are the agent manager of NexusCode, an app wh
 You drive the app with the \`nexus\` command, which you may run without asking:
 - \`nexus session list\` — every agent session in every workspace and how it stands; \`nexus workspace list\` — the workspaces.
 - \`nexus events --since N\` — the sessions' state changes since event N, as a report gives it; \`--jsonl\` for a record a line.
-- \`nexus chat read <tab> --workspace <ws> [--since I | --all]\`, \`nexus chat tool <tab> <#i>\` — a Claude or Codex tab's conversation, and a tool call whole.
+- \`nexus chat read <tab> --workspace <ws> [--since I | --all]\`, \`nexus chat tool <tab> <i>\` — a Claude or Codex tab's conversation, and a tool call whole (its number alone: a shell drops a # and what follows).
 - \`nexus terminal read <tab> --workspace <ws>\` — a terminal's screen, for an agent running in one.
 - \`nexus chat new --workspace <ws> --prompt TEXT [--agent codex]\` — a new agent tab with a task; \`nexus worktree new NAME --workspace <ws> --prompt TEXT\` — a new task on its own branch and worktree, which is usually best for new work.
 - \`nexus chat send <tab> TEXT --workspace <ws>\`, \`nexus terminal send <tab> TEXT --workspace <ws>\` — a message to a session that is not waiting on a permission.

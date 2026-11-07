@@ -15,6 +15,7 @@ import { execSync } from "node:child_process";
 import {
   binDir,
   ensureDir,
+  HOME_ENV,
   removeShimDir,
   root,
   shimDir,
@@ -26,11 +27,27 @@ import {
 const modeTest = test.skipIf(process.platform === "win32");
 
 describe("root", () => {
+  const named = process.env[HOME_ENV];
+  beforeEach(() => {
+    delete process.env[HOME_ENV];
+  });
+  afterEach(() => {
+    if (named === undefined) delete process.env[HOME_ENV];
+    else process.env[HOME_ENV] = named;
+  });
+
   test("returns path ending with .nexus-code under home directory", () => {
     const result = root();
     const home = os.homedir();
     expect(result).toBe(path.join(home, ".nexus-code"));
     expect(path.isAbsolute(result)).toBe(true);
+  });
+
+  test("is the directory NEXUS_CODE_HOME names, for a copy of the app beside the installed one", () => {
+    const dir = path.join(os.tmpdir(), "nexus-code-qa");
+    process.env[HOME_ENV] = dir;
+    expect(root()).toBe(dir);
+    expect(socketsDir()).toBe(path.join(dir, "sockets"));
   });
 });
 
@@ -230,6 +247,29 @@ describe("writeShimFiles", () => {
         stdio: ["ignore", "pipe", "ignore"],
       });
       expect(login.trim().split(":")[0]).toBe(WRAPPERS);
+    },
+  );
+
+  // A Windows Claude tab's Bash tool: NEXUS_WRAPPER_SELF_DIR is a Windows path
+  // there, and NEXUS_BASH_WRAPPER_DIR the wrappers' copies as Git Bash names them.
+  test.skipIf(!fsSync.existsSync("/bin/bash"))(
+    "bash puts Git Bash's wrapper directory first in place of the launchers'",
+    async () => {
+      const id = `test-ws-gitbash-${Date.now()}`;
+      const result = await writeShimFiles(id);
+      createdShimDir = result.dir;
+      const output = execSync(`/bin/bash -c 'echo "$PATH"'`, {
+        env: {
+          HOME: tmpBase,
+          PATH: "/usr/bin:/bin",
+          NEXUS_WRAPPER_SELF_DIR: "C:\\Users\\u\\.nexus-code\\cli",
+          NEXUS_BASH_WRAPPER_DIR: WRAPPERS,
+          BASH_ENV: path.join(result.dir, "bashenv"),
+        },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      expect(output.trim()).toBe(`${WRAPPERS}:/usr/bin:/bin`);
     },
   );
 

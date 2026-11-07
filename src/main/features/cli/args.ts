@@ -71,7 +71,12 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       continue;
     }
     if (raw === undefined) {
-      if (i >= argv.length) throw new CliUsageError(`--${name} needs a value`);
+      if (i >= argv.length) {
+        // `--since #3`: the shell took "#3" for a comment.
+        const hint =
+          spec.type === "number" ? " (a number alone: a shell drops a # and what follows)" : "";
+        throw new CliUsageError(`--${name} needs a value${hint}`);
+      }
       raw = argv[i] as string;
       i++;
     }

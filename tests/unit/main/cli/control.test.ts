@@ -220,6 +220,22 @@ describe("terminal wait", () => {
     expect(app.time.now - start).toBe(8_000);
   });
 
+  test("waits no more once its client has gone, as one stopped with Ctrl-C", async () => {
+    const app = fakeApp();
+    const start = app.time.now;
+    const stop = new AbortController();
+    app.time.onTick = (now) => {
+      // Codex keeps printing; the client goes after a second.
+      app.activity.set(`${API}:${CODEX_TAB}`, { lastOutputAt: now });
+      if (now - start >= 1_000) stop.abort();
+    };
+    const ctx = contextFor(app, ["terminal", "wait", "codex", "--workspace", "api"]);
+    const result = await runCli(CLI_COMMANDS, { ...ctx, signal: stop.signal });
+    expect(result.exitCode).toBe(124);
+    expect(app.time.now - start).toBeLessThan(5_000);
+    expect(app.waits.snapshot()).toEqual([]);
+  });
+
   test("an agent's notification ends the wait", async () => {
     const app = fakeApp();
     const start = app.time.now;

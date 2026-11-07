@@ -39,9 +39,11 @@ interface ResizeHandleProps {
    *   hit-area on the boundary (shared 50/50 between parent and neighbour).
    * - 'rightInside': translates -1/2 width inward, keeping the hit-area fully
    *   inside the parent so it does not overlap the adjacent panel.
+   * - 'leftCentered': on the parent's left edge, centered in the gap there,
+   *   for a panel at the right of the window: dragging left widens it.
    * Only applies when orientation="vertical".
    */
-  placement?: "rightCentered" | "rightInside";
+  placement?: "rightCentered" | "rightInside" | "leftCentered";
   /**
    * Axis of the sash line.
    * - 'vertical' (default): a vertical divider dragged left/right (col-resize).
@@ -57,6 +59,8 @@ const POSITION_CLASS = {
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize translate-x-[calc(50%+3px)] [-webkit-app-region:no-drag]",
   rightInside:
     "group absolute right-0 top-0 h-full w-2 cursor-col-resize -translate-x-1/2 [-webkit-app-region:no-drag]",
+  leftCentered:
+    "group absolute left-0 top-0 h-full w-2 cursor-col-resize -translate-x-[calc(50%+3px)] [-webkit-app-region:no-drag]",
   horizontal:
     "group absolute left-0 right-0 bottom-0 h-2 cursor-row-resize translate-y-[calc(50%+3px)] [-webkit-app-region:no-drag]",
 } as const;
@@ -82,6 +86,8 @@ export function ResizeHandle({
 
   const onResizeRef = useRef(onResize);
   onResizeRef.current = onResize;
+  // A handle on the left edge widens its panel as it goes left.
+  const sign = orientation === "vertical" && placement === "leftCentered" ? -1 : 1;
 
   const { isDragging, handleMouseDown } = useDragHandle({
     orientation,
@@ -89,7 +95,7 @@ export function ResizeHandle({
       startValueRef.current = valueRef.current;
     },
     onDragMove: (deltaPx) => {
-      onResizeRef.current(startValueRef.current + deltaPx, false);
+      onResizeRef.current(startValueRef.current + sign * deltaPx, false);
     },
     onDragEnd: () => {
       // Persist the latest (post-clamp) value via the caller.
@@ -113,10 +119,10 @@ export function ResizeHandle({
     } else {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        onResize(valueRef.current - KEYBOARD_NUDGE_PX, true);
+        onResize(valueRef.current - sign * KEYBOARD_NUDGE_PX, true);
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        onResize(valueRef.current + KEYBOARD_NUDGE_PX, true);
+        onResize(valueRef.current + sign * KEYBOARD_NUDGE_PX, true);
       }
     }
   }
@@ -130,7 +136,12 @@ export function ResizeHandle({
   // island gap; a w-0.5 (2px) indicator centers within it at right-[3px].
   // rightInside: the indicator instead sits flush at the panel's right edge
   // (right-[-4px] cancels the -translate-x-1/2 inward shift).
-  const indicatorRight = placement === "rightInside" ? "right-[-4px]" : "right-[3px]";
+  const indicatorEdge =
+    placement === "rightInside"
+      ? "right-[-4px]"
+      : placement === "leftCentered"
+        ? "left-[3px]"
+        : "right-[3px]";
   // Islands model: the gap between panels IS the separator — there is no
   // resting divider line. The indicator appears only on hover (drag
   // affordance) and stays solid while dragging (active feedback).
@@ -140,8 +151,8 @@ export function ResizeHandle({
         ? "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)]"
         : "absolute left-0 bottom-[3px] w-full h-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
       : isDragging
-        ? `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)]`
-        : `absolute ${indicatorRight} top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100`;
+        ? `absolute ${indicatorEdge} top-0 h-full w-0.5 bg-[var(--splitter-hover)]`
+        : `absolute ${indicatorEdge} top-0 h-full w-0.5 bg-[var(--splitter-hover)] opacity-0 transition-opacity duration-100 group-hover:opacity-100`;
 
   return (
     // biome-ignore lint/a11y/useSemanticElements: separator/handle is not a button

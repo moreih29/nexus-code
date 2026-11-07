@@ -43,9 +43,17 @@ func reraise(n int) {
 // interrupt before it is terminated.
 const printStopGrace = 5 * time.Second
 
+// processTree: a run stopped on Unix is interrupted as the session's ^C
+// would, which reaches the program alone.
+type processTree struct{}
+
+func holdTree(*os.Process) *processTree { return nil }
+
+func (*processTree) release() {}
+
 // stopProcess stops a run as the session's ^C would, and terminates it if
 // it is still there after printStopGrace. It returns the signal sent.
-func stopProcess(p *os.Process) os.Signal {
+func stopProcess(p *os.Process, _ *processTree) os.Signal {
 	if p.Signal(syscall.SIGINT) != nil {
 		return nil
 	}

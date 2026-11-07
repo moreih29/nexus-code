@@ -230,7 +230,10 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
 
 describeOnPosix("claude-wrapper.sh — the settings file", () => {
   /** Runs the wrapper with a claude that prints the --settings path it got. */
-  function launch(home: string | undefined): {
+  function launch(
+    home: string | undefined,
+    env: Record<string, string> = {},
+  ): {
     status: number | null;
     settingsPath: string;
     stderr: string;
@@ -253,6 +256,7 @@ describeOnPosix("claude-wrapper.sh — the settings file", () => {
         NEXUS_AGENT_BIN: hookBin,
         ...(home === undefined ? {} : { HOME: home }),
         PATH: `${binDir}:/bin:/usr/bin`,
+        ...env,
       },
       timeout: 5000,
       encoding: "utf8",
@@ -271,6 +275,15 @@ describeOnPosix("claude-wrapper.sh — the settings file", () => {
       path.basename(first.settingsPath),
     ]);
     expect(JSON.parse(fs.readFileSync(first.settingsPath, "utf8")).hooks.Stop).toBeDefined();
+  });
+
+  test("writes it in the directory NEXUS_CODE_HOME names, for a copy of the app beside the installed one", () => {
+    const home = path.join(tmpDir, "home");
+    const named = path.join(tmpDir, "qa");
+    const { status, settingsPath } = launch(home, { NEXUS_CODE_HOME: named });
+    expect(status).toBe(0);
+    expect(path.dirname(settingsPath)).toBe(named);
+    expect(fs.existsSync(path.join(home, ".nexus-code"))).toBe(false);
   });
 
   test("rewrites a file whose content is not the settings", () => {

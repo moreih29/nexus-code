@@ -4,7 +4,12 @@
  * whole (chat tool). Pure.
  */
 
-import type { CliChatEntry, CliChatInfo, CliChatTool } from "../../../shared/cli/ui";
+import type {
+  CliChatEntry,
+  CliChatInfo,
+  CliChatRequest,
+  CliChatTool,
+} from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { ChatItem, ChatModel, ToolCall } from "../chat/model";
 import type { ChatTabState } from "../chat/store";
@@ -23,6 +28,27 @@ function askedOf(model: ChatModel): string | undefined {
     case "permission":
       return `asks to run ${wait.tool}${wait.target ? ` ${wait.target}` : ""}`;
   }
+}
+
+/** How much of a request's input is told: a command is whole well under it. */
+const REQUEST_CHARS = 8_000;
+
+/**
+ * The tool's permission request a tab waits on, whole: what an answer lets
+ * run, not the line the tab's row shows. None for a question or a plan.
+ */
+function requestOf(model: ChatModel): CliChatRequest | undefined {
+  const request = model.permissions[0];
+  if (!request || request.toolName === "AskUserQuestion" || request.toolName === "ExitPlanMode") {
+    return undefined;
+  }
+  const input = (request.preview?.input ?? request.input) as Record<string, unknown>;
+  const whole = typeof input.command === "string" ? input.command : JSON.stringify(input, null, 2);
+  return {
+    id: request.requestId,
+    tool: request.displayName || request.toolName,
+    input: whole.length > REQUEST_CHARS ? `${whole.slice(0, REQUEST_CHARS - 1)}…` : whole,
+  };
 }
 
 /** The error a tab's last turn ended on, when it did. */
@@ -65,7 +91,10 @@ export function chatInfoOf(
     return { agent, state: "error", ...(message ? { message } : {}), ...at };
   }
   const asked = model.permissions.length > 0 ? askedOf(model) : undefined;
-  if (asked) return { agent, state: "asking", message: asked, ...at };
+  if (asked) {
+    const request = requestOf(model);
+    return { agent, state: "asking", message: asked, ...(request ? { request } : {}), ...at };
+  }
   const answer = lastAnswer(model);
   const told = answer ? { message: answer } : {};
   if (unseen || model.running || chat.phase === "starting" || chat.phase === "held") {
@@ -153,20 +182,26 @@ export interface ChatEntriesQuery {
 /**
  * The entries of a tab's conversation a read asks for: those after `since`,
  * the last `messages` of them; all when neither. Subagents' tool calls are
- * left out unless asked for; the others keep their places.
+ * left out unless asked for; the others keep their places. A conversation
+ * that ends before `since`, cleared or rewound since, is read from its
+ * start. `end` is the i of its last entry, -1 when it has none.
  */
 export function chatEntriesOf(
   chat: ChatTabState | undefined,
   query: ChatEntriesQuery = {},
-): CliChatEntry[] {
-  if (!chat) return [];
-  const since = query.since ?? -1;
-  const entries = allEntries(chat).entries.filter(
+): { entries: CliChatEntry[]; end: number } {
+  if (!chat) return { entries: [], end: -1 };
+  const all = allEntries(chat).entries;
+  const end = all.length - 1;
+  const since = query.since !== undefined && query.since <= end ? query.since : -1;
+  const entries = all.filter(
     (entry) => entry.i > since && (query.subagents === true || !entry.parentToolUseId),
   );
-  return query.messages === undefined
-    ? entries
-    : entries.slice(Math.max(0, entries.length - query.messages));
+  const last =
+    query.messages === undefined
+      ? entries
+      : entries.slice(Math.max(0, entries.length - query.messages));
+  return { entries: last, end };
 }
 
 /**

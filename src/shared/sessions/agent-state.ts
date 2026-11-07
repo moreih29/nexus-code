@@ -17,9 +17,15 @@ export const BUSY_WINDOW_MS = 2_000;
  */
 export const NOTICE_SETTLE_MS = 2_000;
 
+/**
+ * Output this soon after a key was typed into the terminal is its echo, or
+ * the program redrawing its input: the program at work prints on past it.
+ */
+export const ECHO_MS = 500;
+
 /** What a terminal has printed lately, for agents other than Claude Code. */
 export interface TabActivity {
-  /** When the terminal last printed anything. */
+  /** When the terminal last printed anything but the echo of what was typed into it. */
   readonly lastOutputAt: number;
   /** The last notification the terminal raised. */
   readonly lastNotice?: { readonly title?: string; readonly body: string; readonly at: number };

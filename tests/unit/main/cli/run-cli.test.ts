@@ -67,7 +67,8 @@ describe("help and mistakes", () => {
     [
       "a flag missing its value",
       ["terminal", "read", "--lines"],
-      "nexus: --lines needs a value\nusage: nexus terminal read [<tab>] [flags]\n",
+      "nexus: --lines needs a value (a number alone: a shell drops a # and what follows)\n" +
+        "usage: nexus terminal read [<tab>] [flags]\n",
     ],
     [
       "a word for a number",
@@ -149,6 +150,17 @@ describe("terminals and sessions", () => {
     const status = (await nexus(["status", "--jsonl"])).stdout;
     expect(status.split("\n")).toHaveLength(2);
     expect(JSON.parse(status)).toHaveProperty("workspace.name", "app");
+  });
+
+  test("JSON is ASCII alone, for a reader that takes it in another code page", async () => {
+    for (const flag of ["--json", "--jsonl"]) {
+      const { stdout } = await nexus(["terminal", "list", flag]);
+      expect(stdout).toMatch(/^[ -~\n]*$/);
+      expect(stdout).toContain("\\u2733 Claude Code");
+      expect(stdout.includes("✳")).toBe(false);
+    }
+    const listed = JSON.parse((await nexus(["terminal", "list", "--json"])).stdout);
+    expect(listed.map((t: { title: string }) => t.title)).toContain("✳ Claude Code");
   });
 
   test("terminal read takes a terminal of another workspace by id prefix", async () => {

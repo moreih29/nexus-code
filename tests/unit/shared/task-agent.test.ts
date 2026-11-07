@@ -15,6 +15,15 @@ describe("taskAgentOfCommand", () => {
     expect(taskAgentOfCommand("codex --full-auto")).toBe("codex");
     expect(taskAgentOfCommand("/opt/homebrew/bin/codex -m gpt-5.5")).toBe("codex");
     expect(taskAgentOfCommand("C:\\tools\\codex.cmd")).toBe("codex");
+    expect(taskAgentOfCommand("C:/Users/me/AppData/Roaming/npm/codex.ps1 --full-auto")).toBe(
+      "codex",
+    );
+  });
+
+  it("reads a program at a quoted path, as PowerShell runs one", () => {
+    expect(taskAgentOfCommand('"C:\\Program Files\\nodejs\\codex.cmd" --full-auto')).toBe("codex");
+    expect(taskAgentOfCommand("& 'C:\\Program Files\\codex\\codex.exe' -m gpt-5.5")).toBe("codex");
+    expect(taskAgentOfCommand('& "C:\\Program Files\\claude\\claude.exe"')).toBe("claude");
   });
 
   it("takes no command for a terminal, and any other for Claude", () => {

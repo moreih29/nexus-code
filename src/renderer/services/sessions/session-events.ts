@@ -52,19 +52,24 @@ export function startSessionEvents(): () => void {
 }
 
 /**
- * The changes after `since` (all kept when left out), the last `limit` of
- * them, and the seq of the latest change there is.
+ * The changes after `since`, the first `limit` of them, so a loop reading on
+ * from the last it read misses none; with no `since`, the last `limit` kept.
+ * `more`: changes after `since` were left out. `cursor`: the seq of the
+ * latest change there is.
  */
 export function readSessionEvents(
   since: number | undefined,
   limit: number,
-): { events: CliSessionEvent[]; cursor: number } {
+): { events: CliSessionEvent[]; cursor: number; more: boolean } {
   // Pending changes count: a read right after one sees it.
   record();
+  if (since === undefined) {
+    return { events: log.slice(Math.max(0, log.length - limit)), cursor: lastSeq, more: false };
+  }
   // A seq from before the app restarted counts from the start.
-  const from = since === undefined || since > lastSeq ? 0 : since;
+  const from = since > lastSeq ? 0 : since;
   const after = log.filter((event) => event.seq > from);
-  return { events: after.slice(Math.max(0, after.length - limit)), cursor: lastSeq };
+  return { events: after.slice(0, limit), cursor: lastSeq, more: after.length > limit };
 }
 
 /** Calls `listener` with each batch of changes as it is logged. Returns the unsubscribe. */

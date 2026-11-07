@@ -18,7 +18,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-const { fileLinkTarget, openBrowserBeside, revealTabById } = await import(
+const { fileLinkTarget, openBrowserBeside, openFileBeside, revealTabById } = await import(
   "../../../../../src/renderer/services/chat/open-beside"
 );
 const { resolveFileLink } = await import("../../../../../src/renderer/services/chat/links");
@@ -31,6 +31,10 @@ const { useLayoutStore } = await import("../../../../../src/renderer/state/store
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
 const { leafShowing } = await import("../../../../../src/renderer/services/agent-view/layout");
 const { sessionKey } = await import("../../../../../src/renderer/services/sessions/model");
+const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
+const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
+  "../../../../../src/shared/manager/manager"
+);
 
 const target = (href: string) => {
   const link = resolveFileLink(href, "/w");
@@ -104,5 +108,75 @@ describe("what a conversation opens, from the agent view", () => {
 
     expect(useAgentViewStore.getState().mode).toBe("agents");
     expect(leafShowing(useAgentViewStore.getState().root, sessionKey(WS, chat))).not.toBeNull();
+  });
+});
+
+describe("what the agent manager's conversation opens", () => {
+  const SHOWN = "00000000-0000-4000-8000-0000000000b1";
+  const HOLDER = "00000000-0000-4000-8000-0000000000b2";
+  const REMOTE = "00000000-0000-4000-8000-0000000000b3";
+  const meta = (id: string, rootPath: string, kind: "local" | "ssh" = "local") => ({
+    id,
+    name: id.slice(-2),
+    location:
+      kind === "local"
+        ? { kind, rootPath }
+        : { kind, host: "h", user: "u", port: 22, remotePath: rootPath, authMode: "agent" },
+    rootPath,
+    colorTone: "default" as const,
+    pinned: false,
+    tabs: [],
+    sortOrder: 0,
+    pinnedSortOrder: 0,
+  });
+  const tabsOf = (workspaceId: string) =>
+    Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
+
+  beforeEach(() => {
+    useLayoutStore.setState({ byWorkspace: {} });
+    useTabsStore.setState({ byWorkspace: {} });
+    useWorkspacesStore.setState({
+      workspaces: [
+        meta(SHOWN, "/shown"),
+        meta(HOLDER, "/repo"),
+        meta(REMOTE, "/home/u/proj", "ssh"),
+      ] as never,
+    });
+    useActiveStore.getState().setActiveWorkspaceId(SHOWN);
+    useAgentViewStore.getState().setMode("agents");
+  });
+
+  afterEach(() => {
+    __resetAgentViewForTests();
+  });
+
+  test("a file opens in the workspace that holds it, brought to the front", () => {
+    openFileBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "/repo/src/a.ts", {
+      split: true,
+      inside: false,
+    });
+    expect(useActiveStore.getState().activeWorkspaceId).toBe(HOLDER);
+    expect(useAgentViewStore.getState().mode).toBe("workspace");
+    expect(tabsOf(HOLDER).map((tab) => tab.type)).toEqual(["editor"]);
+    expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
+  });
+
+  test("one no workspace holds opens read-only in the one shown", () => {
+    openFileBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "/elsewhere/b.ts", {
+      split: true,
+      inside: false,
+    });
+    expect(useActiveStore.getState().activeWorkspaceId).toBe(SHOWN);
+    expect(tabsOf(SHOWN)[0]?.props).toMatchObject({ origin: "external", readOnly: true });
+    expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
+  });
+
+  test("an address opens in the workspace shown", () => {
+    useActiveStore.getState().setActiveWorkspaceId(REMOTE);
+    openBrowserBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "http://localhost:5173/", {
+      split: true,
+    });
+    expect(tabsOf(REMOTE).map((tab) => tab.type)).toEqual(["browser"]);
+    expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
   });
 });

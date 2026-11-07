@@ -64,7 +64,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     return {
       ...infoOf(workspaceId, tabId, target),
-      entries: chatEntriesOf(chat, { messages, since, subagents }),
+      ...chatEntriesOf(chat, { messages, since, subagents }),
     };
   },
 
@@ -88,13 +88,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.answer": async ({ workspaceId, tabId, decision, message, expect }) => {
     const target = await openedTab(workspaceId, tabId);
-    // Main allowed an answer to what the tab asked then: not to another.
-    const info = infoOf(workspaceId, tabId, target);
-    if (info.state !== "asking" || info.message !== expect) {
-      throw new UiRequestError("its request changed or was answered; read it again");
-    }
+    // Main allowed an answer to the request the tab asked then: not to another.
     const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
     if (!request) throw new UiRequestError("it no longer asks anything");
+    if (request.requestId !== expect) {
+      throw new UiRequestError("its request changed or was answered; read it again");
+    }
     await target.controller.answerPermission(
       request,
       decision === "allow" ? { kind: "allow" } : { kind: "deny", message: message ?? "" },

@@ -51,6 +51,11 @@ function clip(text: string, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
 }
 
+/** A title on one line, whatever its agent made of it. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ");
+}
+
 /** What a session is: an agent and where it runs. */
 function whatOf(event: CliSessionEvent): string {
   if (event.kind === "terminal") return `${event.agent ?? "agent"} in a terminal`;
@@ -81,9 +86,13 @@ export function reportOf({ events, tasks, workspaceName }: ReportInput): string 
     const ids = `--workspace ${event.workspaceId.slice(0, 8)}, tab ${event.tabId.slice(0, 8)}`;
     const mine = tasks.has(`${event.workspaceId}:${event.tabId}`) ? " — your task" : "";
     lines.push(
-      `- "${clip(event.title, 80)}" ${stateLine(event.to)}: ${whatOf(event)} in ${ws} (${ids})${mine}`,
+      `- "${clip(oneLine(event.title), 80)}" ${stateLine(event.to)}: ${whatOf(event)} in ${ws} (${ids})${mine}`,
     );
-    if (event.message) lines.push(`  Last said: ${clip(event.message, MESSAGE_CHARS)}`);
+    // What a session says is quoted, as one JSON string: its lines cannot
+    // pass for the report's own, nor its words for the app's.
+    if (event.message) {
+      lines.push(`  Last said (quoted): ${JSON.stringify(clip(event.message, MESSAGE_CHARS))}`);
+    }
   }
   lines.push(`Every change since: nexus events --since ${Math.max(0, (events[0]?.seq ?? 1) - 1)}`);
   return lines.join("\n");

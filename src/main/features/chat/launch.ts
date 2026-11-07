@@ -83,6 +83,17 @@ export interface ClaudeTabEnvContext extends ChatTabEnvContext {
    * wrapper would export.
    */
   readonly withoutWrapper?: boolean;
+  /**
+   * Where claude's Bash tool runs Git Bash (Windows): the wrappers' copies
+   * and the bash shim that puts them first on its PATH.
+   */
+  readonly gitBash?: { readonly wrapperDir: string; readonly bashEnv: string };
+}
+
+/** A Windows path as Git Bash names it: `C:\Users\u` is `/c/Users/u`. */
+export function gitBashPath(windowsPath: string): string {
+  const slashed = windowsPath.replaceAll("\\", "/");
+  return /^[A-Za-z]:/.test(slashed) ? `/${slashed[0]?.toLowerCase()}${slashed.slice(2)}` : slashed;
 }
 
 /**
@@ -122,6 +133,15 @@ export function claudeTabEnv(context: ClaudeTabEnvContext): Record<string, strin
   if (context.withoutWrapper) {
     env.NEXUS_CLAUDE_TAB_ID = context.tabId;
     env.NEXUS_CLAUDE_PRINT = "1";
+  }
+  if (context.gitBash) {
+    // Git Bash runs the wrappers, as in the app's Git Bash terminals, so a
+    // `codex exec` or `claude -p` the tab's commands start is one of its
+    // agents. They go first on bash's PATH alone: on claude's own, cmd and
+    // PowerShell would take a wrapper, a file without an extension, for the
+    // program.
+    env.BASH_ENV = gitBashPath(context.gitBash.bashEnv);
+    env.NEXUS_BASH_WRAPPER_DIR = gitBashPath(context.gitBash.wrapperDir);
   }
   return env;
 }

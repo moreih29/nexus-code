@@ -144,13 +144,74 @@ function composerOf(tab: Element | null): HTMLTextAreaElement | null {
 
 /**
  * Puts the keyboard in the chat tab `tab` as the user brings it to the
- * front: in the request waiting on them, so its keys work at once, else in
- * the message box. A request that showed while the tab was hidden never
+ * front: with the request waiting on them, so its keys work at once, else
+ * in the message box. A request that showed while the tab was hidden never
  * took it.
  */
 export function focusChatTab(tab: Element | null): void {
   const card = tab?.querySelector<HTMLElement>('[data-testid="chat-permission"] [tabindex="-1"]');
-  (card ?? composerOf(tab))?.focus({ preventScroll: true });
+  if (card) takeKeys(card, tab);
+  else composerOf(tab)?.focus({ preventScroll: true });
+}
+
+/** Gives the card `card` its keys back, as a step in it ends. */
+function giveKeys(card: HTMLElement | null): void {
+  if (card) takeKeys(card, chatTabOf(card));
+}
+
+/** The card each message box passes its keys on to, and how it stops. */
+const passing = new WeakMap<HTMLTextAreaElement, { card: Element; stop: () => void }>();
+
+/**
+ * Gives `card` the keys: the message box of `tab` takes the focus and
+ * passes each key on to the card, until the user types in the box or
+ * leaves it. The focus stays in a text field so that an IME stays on: in
+ * the card, which takes no text, Windows turns it off, and the first letter
+ * typed on to the box came as a Latin one. While it passes them, the box
+ * acts on no key itself (`data-card-keys`). Without a box, or with a draft
+ * in it, which Enter would send, the card takes the focus.
+ */
+function takeKeys(card: HTMLElement, tab: Element | null): void {
+  const box = composerOf(tab);
+  if (!box || box.value !== "") {
+    card.focus({ preventScroll: true });
+    return;
+  }
+  passing.get(box)?.stop();
+  const pass = (event: globalThis.KeyboardEvent) => {
+    if (box.value !== "" || !card.isConnected) {
+      stop();
+      return;
+    }
+    if (isImeComposing(event)) return;
+    const passed = new KeyboardEvent("keydown", {
+      key: event.key,
+      code: event.code,
+      location: event.location,
+      repeat: event.repeat,
+      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      metaKey: event.metaKey,
+      bubbles: true,
+      cancelable: true,
+    });
+    card.dispatchEvent(passed);
+    if (passed.defaultPrevented) event.preventDefault();
+  };
+  const stop = () => {
+    box.removeEventListener("keydown", pass);
+    box.removeEventListener("input", stop);
+    box.removeEventListener("blur", stop);
+    delete box.dataset.cardKeys;
+    if (passing.get(box)?.stop === stop) passing.delete(box);
+  };
+  box.addEventListener("keydown", pass);
+  box.addEventListener("input", stop);
+  box.addEventListener("blur", stop);
+  box.dataset.cardKeys = "";
+  passing.set(box, { card, stop });
+  box.focus({ preventScroll: true });
 }
 
 /** Whether `el` is on screen: a tab not in front is hidden, and keeps its hands off the keyboard. */
@@ -159,10 +220,10 @@ function onScreen(el: Element | null): el is HTMLElement {
 }
 
 /**
- * Moves the focus to `ref` as a request shows, so its keys work at once:
- * from nowhere, or from the tab's own empty message box. Never from text
- * being typed, or from another tab or terminal. Once answered, the focus it
- * had goes back to the message box.
+ * Gives `ref` the keys as a request shows, so they work at once: from
+ * nowhere, or from the tab's own empty message box. Never from text being
+ * typed, or from another tab or terminal. Once answered, the focus it had
+ * goes back to the message box.
  */
 function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string): void {
   useEffect(() => {
@@ -174,11 +235,13 @@ function useTakeKeyboard(ref: RefObject<HTMLElement | null>, requestId: string):
       active === null ||
       active === document.body ||
       (tab?.contains(active) === true && isEmptyField(active));
-    if (idle && onScreen(el)) el.focus({ preventScroll: true });
+    if (idle && onScreen(el)) takeKeys(el, tab);
     return () => {
+      const box = composerOf(tab);
+      const held = box ? passing.get(box) : undefined;
+      if (held?.card === el) held.stop();
       // Gone with the card, the focus fell to the page.
       const now = document.activeElement;
-      const box = composerOf(tab);
       if ((now === null || now === document.body || el.contains(now)) && onScreen(box)) box.focus();
     };
   }, [ref, requestId]);
@@ -245,13 +308,14 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
     parentToolUseId: null,
   };
   const preview = request.preview !== undefined || hasPreview(request.toolName);
-  const summary = toolSummary(tool, cwd);
+  // A command of several lines shows them all: its first can hide the rest.
+  const summary = wholeCommand(tool.input) ?? toolSummary(tool, cwd);
   const scopes = scopesOf(request.suggestions, t);
   const deny = (stop: boolean) =>
     onAnswer(request, { kind: stop ? "deny-stop" : "deny", message: message.trim() || undefined });
   const back = () => {
     setDenying(false);
-    root.current?.focus();
+    giveKeys(root.current);
   };
 
   return (
@@ -296,7 +360,12 @@ function ToolApproval({ request, onAnswer, cwd }: FormProps & { cwd: string }) {
       </div>
       {summary && !preview && (
         <div
-          className="code-hl truncate rounded-(--radius-control) bg-background px-2 py-1 font-mono text-foreground"
+          className={cn(
+            "code-hl rounded-(--radius-control) bg-background px-2 py-1 font-mono text-foreground",
+            summary.includes("\n")
+              ? "max-h-40 overflow-auto whitespace-pre-wrap break-all"
+              : "truncate",
+          )}
           title={summary}
         >
           {request.toolName === "Bash" ? <Highlighted code={summary} language="bash" /> : summary}
@@ -412,6 +481,14 @@ function AllowAlways({
   );
 }
 
+/** A tool's command, when it runs one of more than a line. */
+function wholeCommand(input: unknown): string | undefined {
+  const command = (input as { command?: unknown } | undefined)?.command;
+  if (typeof command !== "string") return undefined;
+  const whole = command.trim();
+  return whole.includes("\n") ? whole : undefined;
+}
+
 /** Tools whose input reads best as the patch or command they carry. */
 function hasPreview(toolName: string): boolean {
   return toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit";
@@ -518,7 +595,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
 
   const show = (i: number) => {
     setCurrent(i);
-    root.current?.focus();
+    giveKeys(root.current);
   };
   const submit = () => {
     if (!complete) return;
@@ -630,7 +707,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
               data-option="true"
               onClick={() => {
                 toggle(q, option.label);
-                root.current?.focus();
+                giveKeys(root.current);
               }}
               aria-pressed={on}
               className={cn(
@@ -661,7 +738,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
               setOther((prev) => ({ ...prev, [q.question]: value }));
               if (value && !q.multiSelect) setPicked((prev) => ({ ...prev, [q.question]: [] }));
             }}
-            onKeyDown={(event) => reasonKeys(event, onward, () => root.current?.focus())}
+            onKeyDown={(event) => reasonKeys(event, onward, () => giveKeys(root.current))}
             aria-label={t("chat.question.other")}
             title={t("chat.question.other")}
             className="min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none"
@@ -800,7 +877,7 @@ function PlanApproval({
   };
   const back = () => {
     setChanging(false);
-    root.current?.focus();
+    giveKeys(root.current);
   };
 
   return (

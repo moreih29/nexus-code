@@ -14,6 +14,7 @@
 //	~/.nexus-code/run/      ← RunDir()
 //
 // On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
+// NEXUS_CODE_HOME names another root in place of ~/.nexus-code, for both.
 package agentpaths
 
 import (
@@ -24,9 +25,18 @@ import (
 
 const rootDirName = ".nexus-code"
 
-// Root returns the absolute path of the ~/.nexus-code runtime directory.
-// It delegates to os.UserHomeDir() and wraps any error with context.
+// HomeEnv names a runtime directory in place of ~/.nexus-code: a copy of the
+// app run beside the installed one, as a build under test, keeps its files
+// and the installed app's apart.
+const HomeEnv = "NEXUS_CODE_HOME"
+
+// Root returns the absolute path of the ~/.nexus-code runtime directory, or
+// of the one NEXUS_CODE_HOME names. It delegates to os.UserHomeDir() and
+// wraps any error with context.
 func Root() (string, error) {
+	if named := os.Getenv(HomeEnv); named != "" {
+		return filepath.Abs(named)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("agentpaths: cannot determine home directory: %w", err)

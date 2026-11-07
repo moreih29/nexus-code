@@ -39,6 +39,11 @@ export interface ManagerSession {
 
 const TASKS_KEY = "nexus.manager.tasks";
 const DOCK_KEY = "nexus.manager.dock";
+const DOCK_WIDTH_KEY = "nexus.manager.dockWidth";
+/** The dock's width, in CSS pixels. */
+export const DOCK_WIDTH_DEFAULT = 400;
+export const DOCK_WIDTH_MIN = 320;
+export const DOCK_WIDTH_MAX = 720;
 /** Tasks kept, the latest; and messages kept of each. */
 const MAX_TASKS = 50;
 const MAX_SENT = 20;
@@ -57,6 +62,7 @@ interface ManagerState extends ManagerSettings {
   session: ManagerSession | undefined;
   live: ManagerLive | undefined;
   dockOpen: boolean;
+  dockWidth: number;
   /** The manager's reports that came while its dock was shut. */
   unread: number;
   /** By session key (`${workspaceId}:${tabId}`). */
@@ -67,6 +73,8 @@ interface ManagerState extends ManagerSettings {
   setSession(session: ManagerSession | undefined): void;
   setLive(live: ManagerLive | undefined): void;
   setDockOpen(open: boolean): void;
+  /** Sets the dock's width, kept in this window's storage when `persist`. */
+  setDockWidth(width: number, persist: boolean): void;
   addUnread(): void;
   /** The manager handed work to a session, sending it `text` when it did. */
   dispatched(workspaceId: string, tabId: string, text: string | undefined, at: number): void;
@@ -90,6 +98,11 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
+function clampDockWidth(width: unknown): number {
+  if (typeof width !== "number" || !Number.isFinite(width)) return DOCK_WIDTH_DEFAULT;
+  return Math.round(Math.min(DOCK_WIDTH_MAX, Math.max(DOCK_WIDTH_MIN, width)));
+}
+
 function save(patch: Partial<ManagerAppState>): void {
   void ipcCallResult("appState", "set", patch);
 }
@@ -99,6 +112,7 @@ export const useManagerStore = create<ManagerState>((set, get) => ({
   session: undefined,
   live: undefined,
   dockOpen: readJson<unknown>(DOCK_KEY, false) === true,
+  dockWidth: clampDockWidth(readJson<unknown>(DOCK_WIDTH_KEY, DOCK_WIDTH_DEFAULT)),
   unread: 0,
   tasks: readJson<Record<string, ManagerTask>>(TASKS_KEY, {}),
 
@@ -139,6 +153,12 @@ export const useManagerStore = create<ManagerState>((set, get) => ({
   setDockOpen(dockOpen) {
     set(dockOpen ? { dockOpen, unread: 0 } : { dockOpen });
     writeJson(DOCK_KEY, dockOpen);
+  },
+
+  setDockWidth(width, persist) {
+    const dockWidth = clampDockWidth(width);
+    set({ dockWidth });
+    if (persist) writeJson(DOCK_WIDTH_KEY, dockWidth);
   },
 
   addUnread() {
