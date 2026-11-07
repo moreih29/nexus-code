@@ -7,6 +7,7 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { fetchConnectionProfiles, listSshConfigHosts } from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
+import { DialogCloseButton } from "../../ui/dialog-close-button";
 import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { type SshDirectoryPickerHandle, SshDirectoryPickerView } from "./ssh-directory-picker-view";
@@ -282,10 +283,10 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
   const { t } = useTranslation();
   return (
     <div className="shrink-0 px-4 pb-3 pt-4">
-      {/* Title row — ← Back on the left (intra-dialog navigation between the
-          4 views), title alongside. Flat-first: no header rule and no X close
-          button; Esc / outside-click / Cancel dismiss the dialog. The size-8
-          placeholder keeps the title's left edge fixed when Back is hidden. */}
+      {/* Title row — ← Back on the left on the views below the first
+          (intra-dialog navigation), the title, and × on the right: the dialog
+          has no Cancel button, so × is its visible way out besides Esc and an
+          outside click. On the first view the title starts at the body's edge. */}
       <div className="flex items-center gap-2">
         {showBack ? (
           <button
@@ -296,14 +297,13 @@ function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.
           >
             <ArrowLeft className="size-4" aria-hidden="true" />
           </button>
-        ) : (
-          <div className="size-8 shrink-0" aria-hidden="true" />
-        )}
+        ) : null}
 
         <div className="min-w-0 flex-1">
           <div className="text-app-body-emphasis text-foreground">{t("workspace.add_title")}</div>
           <div className="text-app-ui-sm text-muted-foreground">{viewSubtitle(view, t)}</div>
         </div>
+        <DialogCloseButton className="self-start" />
       </div>
     </div>
   );

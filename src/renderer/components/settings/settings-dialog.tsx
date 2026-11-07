@@ -26,6 +26,7 @@ import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
+import { DialogCloseButton } from "../ui/dialog-close-button";
 import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -329,20 +330,7 @@ export function SettingsDialog({
             <div className="flex flex-1 flex-col min-w-0 min-h-0">
               {/* Panel header with close button */}
               <div className="flex items-center justify-end px-4 py-3 border-b border-border">
-                <RadixDialog.Close asChild>
-                  <button
-                    type="button"
-                    aria-label={t("dialog.close")}
-                    className={cn(
-                      "inline-flex items-center justify-center",
-                      "size-7 rounded-(--radius-control)",
-                      "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-                      "transition-colors",
-                    )}
-                  >
-                    <X className="size-4" aria-hidden="true" />
-                  </button>
-                </RadixDialog.Close>
+                <DialogCloseButton label={t("dialog.close")} />
               </div>
 
               {/* Scrollable panel body */}
