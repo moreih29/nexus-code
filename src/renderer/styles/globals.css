@@ -237,6 +237,13 @@
   background-color: transparent !important;
 }
 
+/* Room between the island's edge and the terminal's text, as the editor
+   has. FitAddon takes the .xterm element's padding off the rows and columns
+   it fits; the right side has the scrollbar's reserved width. */
+.xterm {
+  padding: 6px 0 6px 12px;
+}
+
 /* xterm's .xterm-viewport is overflow-y:scroll, so it always reserves a
    scrollbar. Chromium's default classic scrollbar is an opaque light strip
    that breaks the transparency and reads as a white bar on the dark canvas.

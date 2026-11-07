@@ -405,7 +405,9 @@
     "copy_relative_path": "상대 경로 복사",
     "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", 터미널 종료됨",
-    "new_codex": "새 Codex 대화"
+    "new_codex": "새 Codex 대화",
+    "hidden_tabs_one": "가려진 탭 {{count}}개",
+    "hidden_tabs_other": "가려진 탭 {{count}}개"
   },
   "groupPlaceholder": {
     "no_tab": "열린 탭 없음",

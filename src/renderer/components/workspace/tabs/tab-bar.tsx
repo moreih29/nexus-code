@@ -1,6 +1,6 @@
 import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useCallback, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,8 +14,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
+import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
 import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
+import { requestTabFocus } from "@/services/tab-focus";
 import { basename } from "@/utils/path";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { type ShellChoice, sameShellChoice } from "../../../../shared/pty/shell";
@@ -27,7 +29,8 @@ import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
-import { TabItem } from "./tab-item";
+import { OverflowTabsMenu } from "./overflow-tabs-menu";
+import { TabIcon, TabItem } from "./tab-item";
 
 interface TabBarProps {
   workspaceId: string;
@@ -66,14 +69,9 @@ export function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
+  // The tabs scroll sideways in the strip; the bar around it, with the
+  // overflow menu and the + button, stays put.
   const stripRef = useRef<HTMLDivElement | null>(null);
-  const setStrip = useCallback(
-    (el: HTMLDivElement | null) => {
-      stripRef.current = el;
-      barRef(el);
-    },
-    [barRef],
-  );
   useTabInSight(stripRef, activeTabId, (strip) =>
     strip.querySelector('[role="tab"][data-state="active"]'),
   );
@@ -98,6 +96,10 @@ export function TabBar({
     const unpinned = tabs.filter((t) => !t.isPinned);
     return [...pinned, ...unpinned];
   }, [tabs]);
+  const sortedIds = useMemo(() => sortedTabs.map((tab) => tab.id), [sortedTabs]);
+  const overflow = useStripOverflow(stripRef, sortedIds, (strip, id) =>
+    strip.querySelector(`[data-tab-id="${CSS.escape(id)}"]`),
+  );
 
   // Basename collision disambiguation for external tabs in this group.
   // When ≥2 external editor tabs share the same basename, append the parent
@@ -152,49 +154,76 @@ export function TabBar({
       {/* role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
           탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다. */}
       <div
-        ref={setStrip}
+        ref={barRef}
         role="status"
         aria-live="polite"
         {...{ [DND_TAB_BAR_ATTR]: "" }}
-        className="flex items-center h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-center h-9 shrink-0 px-1.5"
       >
         <RadixTabs.Root
           value={activeTabId ?? ""}
           onValueChange={onSelectTab}
-          className="flex items-center h-full w-full"
+          className="flex items-center h-full w-full min-w-0"
         >
-          <RadixTabs.List
-            ref={tabsListRef}
-            className="relative flex items-center h-full"
-            aria-label={t("tabBar.open_tabs")}
+          <div
+            ref={stripRef}
+            className="h-full min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            style={{ maskImage: fadeMask(overflow) }}
           >
-            {sortedTabs.map((tab) => (
-              // Wrapper makes the close button a sibling of the trigger so
-              // <button> is never nested inside <button> (HTML invalid; React
-              // 19 hydration warning). Same pattern as Sidebar.tsx workspace
-              // × button.
-              <TabItem
-                key={tab.id}
-                workspaceId={workspaceId}
-                leafId={leafId}
-                tab={tab}
-                displayTitle={tab.title}
-                parentDirSuffix={diffTabRefSuffix.get(tab.id) ?? externalTabParentDir.get(tab.id)}
-                onCloseTab={onCloseTab}
-                onTabContextMenu={onTabContextMenu}
-              />
-            ))}
+            <RadixTabs.List
+              ref={tabsListRef}
+              className="relative flex items-center h-full w-max"
+              aria-label={t("tabBar.open_tabs")}
+            >
+              {sortedTabs.map((tab) => (
+                // Wrapper makes the close button a sibling of the trigger so
+                // <button> is never nested inside <button> (HTML invalid; React
+                // 19 hydration warning). Same pattern as Sidebar.tsx workspace
+                // × button.
+                <TabItem
+                  key={tab.id}
+                  workspaceId={workspaceId}
+                  leafId={leafId}
+                  tab={tab}
+                  displayTitle={tab.title}
+                  parentDirSuffix={diffTabRefSuffix.get(tab.id) ?? externalTabParentDir.get(tab.id)}
+                  onCloseTab={onCloseTab}
+                  onTabContextMenu={onTabContextMenu}
+                />
+              ))}
 
-            {/* Single "|" insertion-line indicator. Position is recomputed on
-                dragover. Visible only while a supported drag is over the bar. */}
-            {insertion && (
-              <div
-                aria-hidden
-                className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
-                style={{ left: insertion.x, transform: "translateX(-1px)" }}
-              />
-            )}
-          </RadixTabs.List>
+              {/* Single "|" insertion-line indicator. Position is recomputed on
+                  dragover. Visible only while a supported drag is over the bar. */}
+              {insertion && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
+                  style={{ left: insertion.x, transform: "translateX(-1px)" }}
+                />
+              )}
+            </RadixTabs.List>
+          </div>
+
+          <OverflowTabsMenu
+            hidden={overflow.hidden}
+            renderTab={(id) => {
+              const tab = tabs.find((candidate) => candidate.id === id);
+              if (!tab) return null;
+              const suffix = diffTabRefSuffix.get(id) ?? externalTabParentDir.get(id);
+              return (
+                <>
+                  <TabIcon tab={tab} />
+                  <span className="truncate">
+                    {suffix ? `${tab.title} · ${suffix}` : tab.title}
+                  </span>
+                </>
+              );
+            }}
+            onSelect={(id) => {
+              onSelectTab(id);
+              requestTabFocus(id);
+            }}
+          />
 
           {/* New tab dropdown */}
           <DropdownMenuRoot>
