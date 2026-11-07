@@ -16,6 +16,7 @@
 import { describe, expect, it } from "bun:test";
 import { buildFileTreeMenuItems } from "../../../../../src/renderer/components/files/file-tree/menu";
 import type { useFileTreeActions } from "../../../../../src/renderer/components/files/hooks/use-file-tree-actions";
+import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";
 
 type Actions = ReturnType<typeof useFileTreeActions>;
 
@@ -146,6 +147,28 @@ describe("buildFileTreeMenuItems — single file target", () => {
         it.kind === "item" && it.label === "Rename",
     );
     expect(rename?.shortcut).toBe("F2");
+  });
+
+  it("shows Delete with the platform's key: ⌘⌫ on the Mac, Delete elsewhere", () => {
+    const deleteShortcut = (targets: Parameters<typeof buildFileTreeMenuItems>[0]) =>
+      buildFileTreeMenuItems(targets, noopActions).find(
+        (it): it is Extract<typeof it, { kind: "item" }> =>
+          it.kind === "item" && it.label === "Delete",
+      )?.shortcut;
+    const one = [{ absPath: "/repo/a.ts", type: "file" as const }];
+    const two = [...one, { absPath: "/repo/b.ts", type: "file" as const }];
+    try {
+      setPlatformForTests("darwin");
+      expect(deleteShortcut(one)).toBe("⌘⌫");
+      expect(deleteShortcut(two)).toBe("⌘⌫");
+      for (const platform of ["win32", "linux"] as const) {
+        setPlatformForTests(platform);
+        expect(deleteShortcut(one)).toBe("Delete");
+        expect(deleteShortcut(two)).toBe("Delete");
+      }
+    } finally {
+      setPlatformForTests(null);
+    }
   });
 });
 

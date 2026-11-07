@@ -6,9 +6,10 @@ import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
 import {
   activityMap,
-  agentsOfSessions,
+  agentFlow,
   currentTool,
-  runningAgentCount,
+  rowAgents,
+  runMessages,
   sameActivityMap,
   shortTarget,
   toolLine,
@@ -69,16 +70,6 @@ describe("agents", () => {
     activity("b", [run("b1"), run("b2", 90, "stopped")]),
   ]);
 
-  it("counts the running agents of the family", () => {
-    expect(runningAgentCount(family, map)).toBe(2);
-  });
-
-  it("lists the live agents of sessions first, then the latest ended", () => {
-    expect(
-      agentsOfSessions(family.worktrees[0]?.sessions ?? [], map).map(({ agent }) => agent.id),
-    ).toEqual(["a1", "b1", "b2", "a2"]);
-  });
-
   it("tells a tool by its name and a short target", () => {
     const tool = (name: string, target?: string, end?: number): ToolRun => ({
       id: name,
@@ -107,5 +98,34 @@ describe("agents", () => {
       kind: "session",
       key: `${W}:a`,
     });
+  });
+});
+
+describe("the agents under a conversation's row", () => {
+  it("are those still running, and the one selected", () => {
+    const agents = [run("a1"), run("a2", 5, "completed"), run("a3", 6, "completed")];
+    expect(rowAgents(agents, undefined).map((agent) => agent.id)).toEqual(["a1"]);
+    expect(rowAgents(agents, "a3").map((agent) => agent.id)).toEqual(["a1", "a3"]);
+  });
+});
+
+describe("a run's messages", () => {
+  const said = (at: number, text: string) => ({ at, text });
+
+  it("leave out its answer, shown on its own", () => {
+    const messages = [said(1, "Looking."), said(5, "Done.")];
+    const ended = { ...run("p1", 6, "completed"), kind: "print" as const, messages };
+    expect(runMessages({ ...ended, answer: "Done." })).toEqual([said(1, "Looking.")]);
+    expect(runMessages({ ...ended, answer: "Something else." })).toEqual(messages);
+    expect(runMessages(run("p2"))).toEqual([]);
+  });
+
+  it("go with its tools in order, a message before the tool told with it", () => {
+    const tool = (id: string, start: number): ToolRun => ({ id, name: "Bash", start });
+    const entries = agentFlow(
+      [tool("t1", 2), tool("t2", 5)],
+      [said(1, "Looking."), said(5, "Running the tests.")],
+    );
+    expect(entries.map((entry) => entry.key)).toEqual(["message:0", "t1", "message:1", "t2"]);
   });
 });

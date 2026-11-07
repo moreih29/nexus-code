@@ -44,9 +44,11 @@ import {
   PROMPT_MAX_CHARS,
 } from "../../../shared/claude/status";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
+import type { ChatAnswers } from "./chat-answers";
 import { handlePermissionRequest } from "./permission";
 import type { AnsweredAsk, PermissionAsks } from "./permission-asks";
 import { MAIN_AGENT, PermissionDialogs } from "./permission-dialogs";
@@ -86,6 +88,8 @@ export interface HookHandlerDeps {
   activity?: SessionActivityLog;
   /** Holds permission requests for an answer from the sessions tab. */
   asks?: PermissionAsks;
+  /** Tells of the permission requests a Claude tab's user answered there. */
+  chatAnswers?: ChatAnswers;
   /** 사용자가 현재 보고 있는 (workspaceId, tabId) 컨텍스트 — Stop 알림 발사 결정에 사용. */
   activeContext: ActiveContextStore;
   agentHost: HookAgentHost;
@@ -271,15 +275,19 @@ const PRINT_FRAMES = new Set([
   "print-init",
   "print-tool-use",
   "print-tool-result",
+  "print-text",
   "print-end",
 ]);
 
 /**
- * The hook a `claude -p` run holds open while it goes on: never answered, it
- * is told gone once the run is over, as when it is killed before it tells
- * its end.
+ * The hook a `claude -p` run holds open while it goes on: answered only to
+ * stop the run, it is told gone once the run is over, as when it is killed
+ * before it tells its end.
  */
 const PRINT_WATCH = "print-watch";
+
+/** How a run's watch is answered to stop the run: hookclient's printStopAnswer. */
+export const PRINT_STOP_ANSWER = "stop";
 
 /** Hooks that belong to a turn, and so can arrive after it is over. */
 const TURN_HOOKS = new Set([
@@ -345,6 +353,11 @@ function fireOsNotification(
   if (deps.notificationsEnabled !== undefined && !deps.notificationsEnabled()) {
     return;
   }
+  // The agent manager's session is shown in its dock, never as a tab, and
+  // its answers and requests become notifications of their own, under their
+  // own setting (features/manager): one of these, at every turn, would
+  // also open a workspace the app keeps out of its lists.
+  if (isManagerWorkspace(workspaceId)) return;
 
   const broadcastFn = deps.broadcastFn ?? broadcast;
   const NotificationCtor =
@@ -386,7 +399,11 @@ async function handleHookEvent(
 
   // A `claude -p` run started inside the session tells of itself (hookclient's
   // print-run), for the sessions tab only: the session's own state is its turn's.
-  if (subcommand === PRINT_WATCH) return;
+  if (subcommand === PRINT_WATCH) {
+    const runId = (hookPayload as { run_id?: unknown } | undefined)?.run_id;
+    if (typeof runId === "string") deps.activity?.notePrintWatch(workspaceId, tabId, runId, hookId);
+    return;
+  }
   if (PRINT_FRAMES.has(subcommand)) {
     deps.activity?.notePrint(workspaceId, tabId, subcommand, hookPayload);
     await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
@@ -408,7 +425,7 @@ async function handleHookEvent(
     return;
   }
 
-  deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload);
+  deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload, parsed.data.agentMessages);
 
   // 공통 — 사용자가 현재 이 탭을 보고 있는지.
   // 알림 발사가 필요한 모든 훅(Notification/PermissionRequest/Stop)이 동일 기준을 쓴다.
@@ -738,6 +755,26 @@ function afterTerminalAnswer(
 }
 
 /**
+ * A Claude tab's user answered the last permission request it showed. No
+ * hook tells of it until the call allowed ends, which can be long: the
+ * session's dialogs are closed now. Stopping the turn leaves the session
+ * waiting on the user, as an interrupt does.
+ */
+function afterChatAnswer(
+  workspaceId: string,
+  tabId: string,
+  stopped: boolean,
+  deps: HookHandlerDeps,
+  dialogs: PermissionDialogs,
+): void {
+  const key = `${workspaceId}:${tabId}`;
+  if (!dialogs.closeAll(key)) return;
+  if (stopped) dialogs.setUnder(key, { status: "idle" });
+  const under = dialogs.takeUnder(key);
+  if (under) deps.broker.set(workspaceId, tabId, under.status, under.message);
+}
+
+/**
  * workspaceId의 AgentChannel을 통해 claude.respondHook dispatch 메서드를 호출한다.
  * 실패 시 경고 로그만 남기고 진행한다 — Claude Code의 timeout fallback에 맡긴다.
  */
@@ -811,10 +848,14 @@ export function registerHookHandler(deps: HookHandlerDeps): () => void {
   const offTerminal = deps.asks?.onAnsweredInTerminal((ask) => {
     afterTerminalAnswer(ask, deps, dialogs);
   });
+  const offChat = deps.chatAnswers?.onAnswered((workspaceId, tabId, stopped) => {
+    afterChatAnswer(workspaceId, tabId, stopped, deps, dialogs);
+  });
   return () => {
     offHook();
     offGone();
     offAnswered?.();
     offTerminal?.();
+    offChat?.();
   };
 }

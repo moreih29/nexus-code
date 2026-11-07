@@ -1,15 +1,23 @@
 import { Menu, Settings } from "lucide-react";
-import type { MouseEvent } from "react";
+import { type MouseEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { ipcCallResult } from "../../ipc/client";
+import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
+import { ipcCallResult } from "../../ipc/client";
+import { shortcutFor } from "../../keybindings/shortcut-labels";
 import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { isMac } from "../../utils/platform";
+import { ViewToggle } from "../agent-view/view-toggle";
+import { ManagerButton } from "../manager/manager-button";
+import { IconButton } from "../ui/icon-button";
 import { InboxButton } from "./inbox-button";
+import { ReleaseNewsButton } from "./release-news-button";
 import { TaskSwitcher } from "./task-switcher";
+import { UpdateButton } from "./update-button";
 import { WindowControls } from "./window-controls";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +41,7 @@ const TITLEBAR_HEIGHT_CLASS = "h-9"; // 36px — matches main/window.ts TITLEBAR
 const MAC_TRAFFIC_LIGHTS_INSET = 78; // px — clears the three traffic-light buttons
 const WIN_OVERLAY_INSET = 140; // px — clears the Electron-rendered control overlay
 const OWN_CONTROLS_INSET = 4; // px — right of the renderer-drawn window controls
+const CENTER_GAP = 8; // px — between the centered title and what is beside it
 
 export function TitleBar() {
   const { t } = useTranslation();
@@ -43,11 +52,18 @@ export function TitleBar() {
     activeWorkspaceId ? s.workspaces.find((w) => w.id === activeWorkspaceId) : null,
   );
 
+  const agentView = useAgentViewStore((s) => s.mode === "agents");
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const toggleSettings = useSettingsUIStore((s) => s.toggleSettings);
 
+  const barRef = useRef<HTMLDivElement>(null);
+  const startRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const room = useCenterRoom(barRef, startRef, endRef);
+
   return (
     <div
+      ref={barRef}
       role="presentation"
       className={cn(
         // backdrop-surface provides the window-opacity-aware background.
@@ -60,62 +76,105 @@ export function TitleBar() {
         paddingRight: isMac() ? 12 : ownControls ? OWN_CONTROLS_INSET : WIN_OVERLAY_INSET,
       }}
     >
-      {!isMac() && (
-        <button
-          type="button"
-          onClick={openAppMenu}
-          // Focus stays where it was, so Edit's items act on the editor or
-          // input the user was in.
-          onMouseDown={(e) => e.preventDefault()}
-          aria-label={t("titleBar.open_menu")}
-          aria-haspopup="menu"
-          className={cn(
-            "app-no-drag -ml-1.5 mr-1.5",
-            "flex items-center justify-center",
-            "size-7 rounded-(--radius-control)",
-            "text-muted-foreground",
-            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "transition-colors duration-150",
-          )}
-        >
-          <Menu className="size-4" aria-hidden="true" />
-        </button>
-      )}
+      <div ref={startRef} className="flex shrink-0 items-center">
+        {!isMac() && (
+          <IconButton
+            label={t("titleBar.open_menu")}
+            size="md"
+            onClick={openAppMenu}
+            // Focus stays where it was, so Edit's items act on the editor or
+            // input the user was in.
+            onMouseDown={(e) => e.preventDefault()}
+            aria-haspopup="menu"
+            className="app-no-drag -ml-1.5 mr-1.5"
+          >
+            <Menu className="size-4" aria-hidden="true" />
+          </IconButton>
+        )}
 
-      {/* Brand — uppercase small-label per the warm design system */}
-      <span className="text-app-label text-muted-foreground uppercase">NexusCode</span>
+        {/* Brand — uppercase small-label per the warm design system */}
+        <span lang="en" className="text-app-label text-muted-foreground uppercase">
+          NexusCode
+        </span>
+
+        {/* The workspaces or the agent view — beside the brand, clear of the
+            centered workspace name. */}
+        <ViewToggle />
+      </div>
 
       {/* Active workspace name — centered, editorial caption tone, and the
           menu of its tasks. SSH workspaces append "(ssh: <host>)" so the
-          remote target is visible alongside the user-chosen workspace name. */}
-      {activeWorkspace && <TaskSwitcher active={activeWorkspace} label={titleLabel} />}
+          remote target is visible alongside the user-chosen workspace name.
+          The agent view shows every workspace, so none is named. */}
+      {activeWorkspace && !agentView && (
+        <TaskSwitcher active={activeWorkspace} label={titleLabel} maxWidth={room} />
+      )}
 
-      {/* Inbox — the sessions waiting on the user; right-aligned */}
-      <InboxButton />
+      {/* What follows is right-aligned. */}
+      <div ref={endRef} className="ml-auto flex shrink-0 items-center">
+        {/* The agent manager's dock */}
+        <ManagerButton />
 
-      {/* Settings button — app-no-drag so click lands */}
-      <button
-        type="button"
-        onClick={toggleSettings}
-        aria-label={t("titleBar.open_settings")}
-        aria-haspopup="dialog"
-        aria-expanded={settingsOpen}
-        className={cn(
-          "app-no-drag ml-0.5",
-          "flex items-center justify-center",
-          "size-7 rounded-(--radius-control)",
-          "text-muted-foreground",
-          "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-          settingsOpen && "bg-[var(--state-selected-bg)] text-foreground",
-          "transition-colors duration-150",
-        )}
-      >
-        <Settings className="size-4" aria-hidden="true" />
-      </button>
+        {/* What an update brought, until its notes are read */}
+        <ReleaseNewsButton />
 
-      {ownControls && <WindowControls />}
+        {/* An update to take, while there is one */}
+        <UpdateButton />
+
+        {/* Inbox — the sessions waiting on the user */}
+        <InboxButton />
+
+        {/* Settings button — app-no-drag so click lands */}
+        <IconButton
+          label={t("titleBar.open_settings")}
+          shortcut={shortcutFor(COMMANDS.settingsOpen)}
+          size="md"
+          onClick={toggleSettings}
+          aria-haspopup="dialog"
+          aria-expanded={settingsOpen}
+          className={cn(
+            "app-no-drag ml-0.5",
+            settingsOpen && "bg-[var(--state-active-bg)] text-foreground",
+          )}
+        >
+          <Settings className="size-4" aria-hidden="true" />
+        </IconButton>
+
+        {ownControls && <WindowControls />}
+      </div>
     </div>
   );
+}
+
+/**
+ * The widest the title centered in `bar` can be and stay clear of what is
+ * at its start and end: a long workspace name, beside an update's buttons
+ * in a narrow window, ran under them.
+ */
+function useCenterRoom(
+  bar: RefObject<HTMLElement | null>,
+  start: RefObject<HTMLElement | null>,
+  end: RefObject<HTMLElement | null>,
+): number | undefined {
+  const [room, setRoom] = useState<number>();
+  useLayoutEffect(() => {
+    const [b, s, e] = [bar.current, start.current, end.current];
+    if (!b || !s || !e) return;
+    const measure = () => {
+      const box = b.getBoundingClientRect();
+      const center = box.left + box.width / 2;
+      const side = Math.min(
+        center - s.getBoundingClientRect().right,
+        e.getBoundingClientRect().left - center,
+      );
+      setRoom(Math.max(0, Math.floor(2 * (side - CENTER_GAP))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const el of [b, s, e]) observer.observe(el);
+    return () => observer.disconnect();
+  }, [bar, start, end]);
+  return room;
 }
 
 /** Opens the app menu under the menu button, as a menu bar's menu opens. */

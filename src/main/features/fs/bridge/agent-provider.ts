@@ -3,8 +3,11 @@ import {
   FS_COPY_FILE_METHOD,
   FS_CREATE_FILE_METHOD,
   FS_MKDIR_METHOD,
+  FS_READ_ABSOLUTE_BINARY_METHOD,
   FS_READ_ABSOLUTE_METHOD,
+  FS_READ_ABSOLUTE_RANGE_METHOD,
   FS_READ_BINARY_METHOD,
+  FS_READ_RANGE_METHOD,
   FS_REMOVE_ALL_METHOD,
   FS_RENAME_METHOD,
   FS_RMDIR_METHOD,
@@ -14,7 +17,9 @@ import {
   type FsCreateFileParams,
   type FsMkdirParams,
   type FsReadAbsoluteParams,
+  type FsReadAbsoluteRangeParams,
   type FsReadBinaryParams,
+  type FsReadRangeParams,
   type FsRemoveAllParams,
   type FsRenameParams,
   type FsRmdirParams,
@@ -96,6 +101,35 @@ export class AgentFsProvider implements AgentBackedProvider {
       absolutePath,
     } satisfies FsReadAbsoluteParams);
     return parseAgentResult(FileReadResultSchema, result);
+  }
+
+  async readAbsoluteBinary(absolutePath: string): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent(FS_READ_ABSOLUTE_BINARY_METHOD, {
+      absolutePath,
+    } satisfies FsReadAbsoluteParams);
+    return parseAgentResult(FileReadBinaryResultSchema, result);
+  }
+
+  async readRange(relPath: string, offset: number, length: number): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent(FS_READ_RANGE_METHOD, {
+      relPath,
+      offset,
+      length,
+    } satisfies FsReadRangeParams);
+    return parseAgentResult(FileReadBinaryResultSchema, result);
+  }
+
+  async readAbsoluteRange(
+    absolutePath: string,
+    offset: number,
+    length: number,
+  ): Promise<FileReadBinaryResult> {
+    const result = await this.callAgent(FS_READ_ABSOLUTE_RANGE_METHOD, {
+      absolutePath,
+      offset,
+      length,
+    } satisfies FsReadAbsoluteRangeParams);
+    return parseAgentResult(FileReadBinaryResultSchema, result);
   }
 
   async writeFile(

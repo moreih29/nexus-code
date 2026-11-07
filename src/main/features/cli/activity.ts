@@ -9,6 +9,7 @@ import { isLoginShell } from "../../../shared/pty/login-shell";
 import {
   agentFromProgram,
   BUSY_WINDOW_MS,
+  ECHO_MS,
   type TabActivity,
   type TabActivityEntry,
 } from "../../../shared/sessions/agent-state";
@@ -38,6 +39,8 @@ export class ActivityTracker {
   private readonly quietTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** When each terminal's foreground program was last asked for. */
   private readonly lookedAt = new Map<string, number>();
+  /** When a key was last typed into each terminal. */
+  private readonly typedAt = new Map<string, number>();
 
   constructor(
     source: ActivitySource,
@@ -67,8 +70,17 @@ export class ActivityTracker {
         clearTimeout(this.quietTimers.get(key));
         this.quietTimers.delete(key);
         this.lookedAt.delete(key);
+        this.typedAt.delete(key);
       }),
     );
+  }
+
+  /**
+   * Notes a key typed into a terminal, by the user or as `nexus terminal
+   * send` types: what the terminal prints back at once is no sign of work.
+   */
+  noteInput(workspaceId: string, tabId: string): void {
+    this.typedAt.set(`${workspaceId}:${tabId}`, this.now());
   }
 
   get(workspaceId: string, tabId: string): TabActivity | null {
@@ -90,6 +102,7 @@ export class ActivityTracker {
     for (const timer of this.quietTimers.values()) clearTimeout(timer);
     this.quietTimers.clear();
     this.lookedAt.clear();
+    this.typedAt.clear();
     this.byTab.clear();
   }
 
@@ -99,8 +112,13 @@ export class ActivityTracker {
     const previous = this.byTab.get(key);
     const notices = extractOscNotifications(chunk);
     const notice = notices[notices.length - 1];
+    // The echo of a key typed in, as Codex redraws its prompt as each comes:
+    // the program is not at work for it.
+    const typed = this.typedAt.get(key);
+    const echo = typed !== undefined && at - typed < ECHO_MS;
+    if (echo && !notice) return;
     this.byTab.set(key, {
-      lastOutputAt: at,
+      lastOutputAt: echo && previous ? previous.lastOutputAt : at,
       lastNotice: notice
         ? { ...(notice.title ? { title: notice.title } : {}), body: notice.body, at }
         : previous?.lastNotice,

@@ -52,7 +52,7 @@
   --text-app-micro--font-weight: 400;
   --text-app-label: 12px;
   --text-app-label--line-height: 1.35;
-  --text-app-label--letter-spacing: 1.5px;
+  --text-app-label--letter-spacing: 0px;
   --text-app-label--font-weight: 400;
   --space-1: 1px;
   --space-4: 4px;
@@ -138,6 +138,8 @@
   --state-warning-fg: #d29922;
   --state-warning-border: #d29922;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #3fb950;
+  --state-info-fg: #58a6ff;
   --border: #30363d;
   --input: #30363d;
   --ring: #1f6feb;
@@ -199,7 +201,7 @@
   --surface-island-bg: #0d1117;
   --surface-island-fg: #c9d1d9;
   --surface-island-border: #30363d;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #30363d;
   --state-drag-indicator: #1f6feb;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -271,6 +273,8 @@
   --state-warning-fg: #d29922;
   --state-warning-border: #d29922;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #3fb950;
+  --state-info-fg: #58a6ff;
   --border: #30363d;
   --input: #30363d;
   --ring: #1f6feb;
@@ -332,7 +336,7 @@
   --surface-island-bg: #0d1117;
   --surface-island-fg: #c9d1d9;
   --surface-island-border: #30363d;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #30363d;
   --state-drag-indicator: #1f6feb;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -397,6 +401,8 @@
   --state-warning-fg: #9a6700;
   --state-warning-border: #9a6700;
   --state-warning-bg: rgba(0, 0, 0, 0.06);
+  --state-success-fg: #1a7f37;
+  --state-info-fg: #0969da;
   --border: #d0d7de;
   --input: #d0d7de;
   --ring: #0969da;
@@ -523,6 +529,8 @@
   --state-warning-fg: #f1fa8c;
   --state-warning-border: #f1fa8c;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #50fa7b;
+  --state-info-fg: #8be9fd;
   --border: #191a21;
   --input: #191a21;
   --ring: #bd93f9;
@@ -584,7 +592,7 @@
   --surface-island-bg: #282a36;
   --surface-island-fg: #f8f8f2;
   --surface-island-border: #191a21;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #191a21;
   --state-drag-indicator: #bd93f9;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -649,6 +657,8 @@
   --state-warning-fg: #e5c07b;
   --state-warning-border: #e5c07b;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #98c379;
+  --state-info-fg: #61afef;
   --border: #181a1f;
   --input: #181a1f;
   --ring: #61afef;
@@ -710,7 +720,7 @@
   --surface-island-bg: #282c34;
   --surface-island-fg: #abb2bf;
   --surface-island-border: #181a1f;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #181a1f;
   --state-drag-indicator: #61afef;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -775,6 +785,8 @@
   --state-warning-fg: #e6db74;
   --state-warning-border: #e6db74;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #a6e22e;
+  --state-info-fg: #66d9ef;
   --border: #1e1f1c;
   --input: #1e1f1c;
   --ring: #a6e22e;
@@ -836,7 +848,7 @@
   --surface-island-bg: #272822;
   --surface-island-fg: #f8f8f2;
   --surface-island-border: #1e1f1c;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #1e1f1c;
   --state-drag-indicator: #a6e22e;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -901,6 +913,8 @@
   --state-warning-fg: #e0af68;
   --state-warning-border: #e0af68;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #9ece6a;
+  --state-info-fg: #7dcfff;
   --border: #15161e;
   --input: #15161e;
   --ring: #7aa2f7;
@@ -962,7 +976,7 @@
   --surface-island-bg: #1a1b26;
   --surface-island-fg: #c0caf5;
   --surface-island-border: #15161e;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #15161e;
   --state-drag-indicator: #7aa2f7;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1027,6 +1041,8 @@
   --state-warning-fg: #b58900;
   --state-warning-border: #b58900;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #859900;
+  --state-info-fg: #268bd2;
   --border: #073642;
   --input: #073642;
   --ring: #268bd2;
@@ -1088,7 +1104,7 @@
   --surface-island-bg: #002b36;
   --surface-island-fg: #839496;
   --surface-island-border: #073642;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #073642;
   --state-drag-indicator: #268bd2;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1153,6 +1169,8 @@
   --state-warning-fg: #ebcb8b;
   --state-warning-border: #ebcb8b;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #a3be8c;
+  --state-info-fg: #88c0d0;
   --border: #3b4252;
   --input: #3b4252;
   --ring: #88c0d0;
@@ -1214,7 +1232,7 @@
   --surface-island-bg: #2e3440;
   --surface-island-fg: #d8dee9;
   --surface-island-border: #3b4252;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #3b4252;
   --state-drag-indicator: #88c0d0;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1279,6 +1297,8 @@
   --state-warning-fg: #f9e2af;
   --state-warning-border: #f9e2af;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #a6e3a1;
+  --state-info-fg: #89dceb;
   --border: #181825;
   --input: #181825;
   --ring: #89b4fa;
@@ -1340,7 +1360,7 @@
   --surface-island-bg: #1e1e2e;
   --surface-island-fg: #cdd6f4;
   --surface-island-border: #181825;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #181825;
   --state-drag-indicator: #89b4fa;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);
@@ -1405,6 +1425,8 @@
   --state-warning-fg: #fabd2f;
   --state-warning-border: #fabd2f;
   --state-warning-bg: rgba(255, 255, 255, 0.06);
+  --state-success-fg: #b8bb26;
+  --state-info-fg: #83a598;
   --border: #3c3836;
   --input: #3c3836;
   --ring: #fabd2f;
@@ -1466,7 +1488,7 @@
   --surface-island-bg: #282828;
   --surface-island-fg: #ebdbb2;
   --surface-island-border: #3c3836;
-  --surface-island-inactive-veil: rgba(255, 255, 255, calc(0.2 * var(--inactive-panel-dim, 1)));
+  --surface-island-inactive-veil: rgba(0, 0, 0, calc(0.28 * var(--inactive-panel-dim, 1)));
   --surface-floating-border: #3c3836;
   --state-drag-indicator: #fabd2f;
   --state-drop-target-bg: rgba(255, 255, 255, 0.08);

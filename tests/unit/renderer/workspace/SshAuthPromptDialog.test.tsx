@@ -20,6 +20,7 @@ import {
 } from "../../../../src/renderer/components/workspace/use-ssh-auth-prompts";
 import type { ipcCallResult, ipcListen } from "../../../../src/renderer/ipc/client";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
+import { renderInDialog } from "../../../helpers/render-in-dialog";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -27,7 +28,7 @@ describe("SshAuthPromptDialogContent", () => {
   it("renders a masked password prompt with accessible dialog labels", () => {
     const prompt = makePasswordPrompt({ promptId: "password-1" });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""
@@ -43,14 +44,15 @@ describe("SshAuthPromptDialogContent", () => {
     expect(html).toContain("SSH password required");
     expect(html).toContain('type="password"');
     expect(html).toContain("alice@example.com:22");
-    expect(html).toContain('id="ssh-auth-title-password-1"');
-    expect(html).toContain('id="ssh-auth-description-password-1"');
+    // The dialog's Radix Title and Description, which name and describe it.
+    expect(html).toMatch(/<h2 id="[^"]+"[^>]*>SSH password required<\/h2>/);
+    expect(html).toMatch(/<p id="[^"]+"[^>]*>[^<]*alice@example\.com:22/);
   });
 
   it("renders a host-key trust prompt with the fingerprint and copy action", () => {
     const prompt = makeHostKeyPrompt({ promptId: "host-key-1" });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""
@@ -73,7 +75,7 @@ describe("SshAuthPromptDialogContent", () => {
   it("shows an inline retry alert when the password prompt is a retry", () => {
     const prompt = makePasswordPrompt({ promptId: "password-retry", retry: true });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""
@@ -92,7 +94,7 @@ describe("SshAuthPromptDialogContent", () => {
   it("omits the retry alert when the password prompt is fresh", () => {
     const prompt = makePasswordPrompt({ promptId: "password-fresh" });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""
@@ -110,7 +112,7 @@ describe("SshAuthPromptDialogContent", () => {
   it("renders host-key safety guidance and that trusting saves the key", () => {
     const prompt = makeHostKeyPrompt({ promptId: "host-key-guidance" });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""
@@ -149,7 +151,7 @@ describe("SshAuthPromptDialogContent", () => {
   it("shows reattach-context title when isReattach=true and prompt.kind=password", () => {
     const prompt = makePasswordPrompt({ promptId: "reattach-pw", host: "dev.example.com" });
 
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <SshAuthPromptDialogContent
         prompt={prompt}
         passwordValue=""

@@ -74,7 +74,7 @@ describe("changing another workspace", () => {
     expect((await nexus(app, argv)).exitCode).toBe(0);
     app.settings.crossWorkspace = "deny";
     expect((await nexus(app, argv)).stderr).toBe(
-      "nexus: changing other workspaces is turned off in NexusCode's settings (Agent CLI)\n",
+      "nexus: changing other workspaces is turned off in NexusCode's settings (Agents)\n",
     );
     expect(app.asked).toHaveLength(0);
   });
@@ -220,6 +220,22 @@ describe("terminal wait", () => {
     expect(app.time.now - start).toBe(8_000);
   });
 
+  test("waits no more once its client has gone, as one stopped with Ctrl-C", async () => {
+    const app = fakeApp();
+    const start = app.time.now;
+    const stop = new AbortController();
+    app.time.onTick = (now) => {
+      // Codex keeps printing; the client goes after a second.
+      app.activity.set(`${API}:${CODEX_TAB}`, { lastOutputAt: now });
+      if (now - start >= 1_000) stop.abort();
+    };
+    const ctx = contextFor(app, ["terminal", "wait", "codex", "--workspace", "api"]);
+    const result = await runCli(CLI_COMMANDS, { ...ctx, signal: stop.signal });
+    expect(result.exitCode).toBe(124);
+    expect(app.time.now - start).toBeLessThan(5_000);
+    expect(app.waits.snapshot()).toEqual([]);
+  });
+
   test("an agent's notification ends the wait", async () => {
     const app = fakeApp();
     const start = app.time.now;
@@ -301,8 +317,11 @@ describe("terminal wait", () => {
   });
 });
 
-describe("terminal wait after worktree new", () => {
-  const started = async (app: FakeApp, argv: string[] = ["--prompt", "add payments"]) => {
+describe("terminal wait after worktree new --command", () => {
+  const started = async (
+    app: FakeApp,
+    argv: string[] = ["--prompt", "add payments", "--command", "claude"],
+  ) => {
     await nexus(app, ["worktree", "new", "pay", ...argv]);
     app.tabs[FIX] = [{ id: NEW_TAB, type: "terminal", title: "zsh", groupId: "g1", shown: false }];
     app.foreground.set(NEW_TAB, "-zsh");
@@ -351,7 +370,7 @@ describe("terminal wait after worktree new", () => {
 
   test("returns at once without a prompt, which starts no turn", async () => {
     const app = fakeApp();
-    const start = await started(app, []);
+    const start = await started(app, ["--command", "claude"]);
     const result = await nexus(app, wait);
     expect(result.stdout).toBe("zsh is back at its prompt.\n");
     expect(app.time.now).toBe(start);

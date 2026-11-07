@@ -41,6 +41,7 @@ import {
   visibleRows,
 } from "@/services/editor/preview/json-tree";
 import { cn } from "../../../utils/cn";
+import { IconButton } from "../../ui/icon-button";
 import { type FindMark, type FindResult, MarkedLine, usePreviewFinder } from "./preview-find";
 
 /** A row's height, in px. */
@@ -327,30 +328,21 @@ function JsonTree({ root, count, format }: { root: JsonValue; count: number; for
     event.preventDefault();
   };
 
-  const button =
-    "inline-flex items-center justify-center size-6 rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
-
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--surface-backdrop-bg)]">
       <div className="flex shrink-0 items-center justify-end gap-1 px-2 py-1 border-b border-border">
-        <button
-          type="button"
-          className={button}
+        <IconButton
+          label={t("jsonPreview.expand_all")}
           onClick={() => setOpen({ base: "all", toggled: new Set() })}
-          aria-label={t("jsonPreview.expand_all")}
-          title={t("jsonPreview.expand_all")}
         >
           <ChevronsUpDown className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className={button}
+        </IconButton>
+        <IconButton
+          label={t("jsonPreview.collapse_all")}
           onClick={() => setOpen({ base: "none", toggled: new Set() })}
-          aria-label={t("jsonPreview.collapse_all")}
-          title={t("jsonPreview.collapse_all")}
         >
           <ChevronsDownUp className="size-3.5" />
-        </button>
+        </IconButton>
       </div>
       <div
         ref={scrollRef}

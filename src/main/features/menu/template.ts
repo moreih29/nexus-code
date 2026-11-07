@@ -129,6 +129,10 @@ function appMenu(appName: string, t?: TFunction): MenuItemSpec {
         t != null ? t("menu:appMenu.checkForUpdates") : "Check for Updates...",
         COMMANDS.updatesCheck,
       ),
+      cmd(
+        t != null ? t("menu:appMenu.releaseNotes") : "Release Notes",
+        COMMANDS.updatesReleaseNotes,
+      ),
       { type: "separator" },
       // macOS convention: Settings… right under About, ⌘, accelerator.
       cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen),
@@ -157,11 +161,17 @@ function fileMenu(isMac: boolean, t?: TFunction): MenuItemSpec {
     cmd(t != null ? t("menu:file.refreshFiles") : "Refresh Files", COMMANDS.filesRefresh),
   ];
 
-  // Win/Linux don't get the App menu, so Quit (and Settings, which on
-  // macOS lives in the App menu) live in File instead.
+  // Win/Linux don't get the App menu, so Quit (and Settings and the release
+  // notes, which on macOS live in the App menu) live in File instead.
   if (!isMac) {
     items.push({ type: "separator" });
     items.push(cmd(t != null ? t("menu:appMenu.settings") : "Settings…", COMMANDS.settingsOpen));
+    items.push(
+      cmd(
+        t != null ? t("menu:appMenu.releaseNotes") : "Release Notes",
+        COMMANDS.updatesReleaseNotes,
+      ),
+    );
     items.push({ type: "separator" });
     items.push({ type: "role", role: "quit", label: t != null ? t("menu:file.exit") : "Exit" });
   }
@@ -212,6 +222,10 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
       cmd(
         t != null ? t("menu:view.toggleSidebar") : "Toggle Sidebar",
         COMMANDS.workbenchToggleSidebar,
+      ),
+      cmd(
+        t != null ? t("menu:view.toggleAgentView") : "Toggle Agent View",
+        COMMANDS.workbenchToggleAgentView,
       ),
       { type: "separator" },
       cmd(revealLabel(platform, t), COMMANDS.pathReveal),

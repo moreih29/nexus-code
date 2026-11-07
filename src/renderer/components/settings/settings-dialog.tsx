@@ -26,6 +26,8 @@ import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
+import { DialogCloseButton } from "../ui/dialog-close-button";
+import { useDialogFocusReturn } from "../ui/use-dialog-focus-return";
 import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,7 @@ export function SettingsDialog({
   children,
 }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
+  const returnFocus = useDialogFocusReturn(open);
 
   // Build the translated default nav inside the component so that i18n is
   // active when the labels are read. Falls back only when nav prop is not
@@ -91,7 +94,7 @@ export function SettingsDialog({
       id: "terminal",
       label: t("nav.terminal"),
       group: t("nav.group.settings"),
-      keywords: ["font", "size", "cursor", "family", "ligatures"],
+      keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
     },
     {
       id: "notifications",
@@ -100,10 +103,10 @@ export function SettingsDialog({
       keywords: ["alert", "desktop", "os", "notification", "claude"],
     },
     {
-      id: "agent-cli",
-      label: t("nav.agentCli"),
+      id: "agent",
+      label: t("nav.agent"),
       group: t("nav.group.settings"),
-      keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
+      keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "에이전트", "작업"],
     },
     {
       id: "browser-permissions",
@@ -189,6 +192,7 @@ export function SettingsDialog({
         <RadixDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
         <RadixDialog.Content
           className={dialogContentClass("xl", false, "flex flex-col")}
+          onCloseAutoFocus={returnFocus}
           style={{
             // Fixed-height dialog: the body never reflows when controls change,
             // so the user never sees the modal jump as they tweak a slider /
@@ -285,16 +289,16 @@ export function SettingsDialog({
                           onClick={() => setActiveId(item.id)}
                           className={cn(
                             "flex w-full items-center justify-between gap-2 px-4 py-1.5 text-left text-app-body font-sans",
-                            // 2px indicator — matches workbench/sidebar.tsx and file-tree row.
-                            // The settings nav is a Floating-layer surface (design.md §2),
-                            // so it uses state.selected.* tokens rather than the sidebar
-                            // region's tokens (different region → different vocabulary).
+                            // Where you are, drawn like every other navigation list
+                            // (workbench/sidebar.tsx, file-tree row): a tint and a
+                            // 2px indicator. A solid state.selected fill is for a
+                            // control's value (design.md §8, "selected").
                             "border-l-2 transition-colors cursor-pointer select-none",
                             isActive
                               ? [
                                   "border-l-[var(--state-selected-indicator)]",
-                                  "bg-[var(--state-selected-bg)]",
-                                  "text-[var(--state-selected-fg)]",
+                                  "bg-[var(--sidebar-item-selected-bg)]",
+                                  "text-[var(--sidebar-item-selected-fg)]",
                                 ]
                               : [
                                   "border-l-transparent",
@@ -327,22 +331,12 @@ export function SettingsDialog({
 
             {/* Right panel */}
             <div className="flex flex-1 flex-col min-w-0 min-h-0">
-              {/* Panel header with close button */}
-              <div className="flex items-center justify-end px-4 py-3 border-b border-border">
-                <RadixDialog.Close asChild>
-                  <button
-                    type="button"
-                    aria-label={t("dialog.close")}
-                    className={cn(
-                      "inline-flex items-center justify-center",
-                      "size-7 rounded-(--radius-control)",
-                      "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-                      "transition-colors",
-                    )}
-                  >
-                    <X className="size-4" aria-hidden="true" />
-                  </button>
-                </RadixDialog.Close>
+              {/* Panel header — the open panel's name and the close button */}
+              <div className="flex items-center justify-between gap-4 pl-6 pr-4 py-3 border-b border-border">
+                <h2 className="truncate text-app-body-emphasis text-foreground">
+                  {resolvedNav.find((item) => item.id === activeId)?.label}
+                </h2>
+                <DialogCloseButton label={t("dialog.close")} />
               </div>
 
               {/* Scrollable panel body */}

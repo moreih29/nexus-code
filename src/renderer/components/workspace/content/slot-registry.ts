@@ -10,6 +10,12 @@ import { createListenerBus } from "../../../../shared/util/listener-bus";
 type WorkspaceId = string;
 type LeafId = string;
 
+/**
+ * The scope the agent view's panels register their slots under, in place
+ * of a workspace id: a panel there shows tabs of any workspace.
+ */
+export const AGENT_VIEW_SLOTS = "agent-view";
+
 const slots = new Map<string, HTMLElement>();
 const bus = createListenerBus();
 

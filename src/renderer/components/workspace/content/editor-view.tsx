@@ -129,7 +129,7 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
  *   during render" pattern (React docs §Derived State) to pull the new
  *   model's value synchronously whenever its identity changes.
  */
-function useModelSource(model: Monaco.editor.ITextModel | null): string {
+export function useModelSource(model: Monaco.editor.ITextModel | null): string {
   const [trackedModel, setTrackedModel] = useState(model);
   const [source, setSource] = useState<string>(() =>
     model && !model.isDisposed() ? model.getValue() : "",
@@ -446,7 +446,7 @@ interface PreviewPaneProps {
  * Pulled out so EditorView's render stays linear and the dispatch table is
  * easy to extend (e.g. adding `.json` schema preview later).
  */
-function PreviewPane({
+export function PreviewPane({
   filePath,
   workspaceId,
   workspaceRootAbsPath,

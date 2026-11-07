@@ -27,7 +27,15 @@ import {
 } from "../../../../../shared/agent/manifest";
 import { getAgentDistDir } from "../../getAgentBinDir";
 import { createSshError } from "../../pipe";
-import { BASHRC_CONTENT, ZSHENV_CONTENT, ZSHRC_CONTENT } from "../../runtimeDirs";
+import {
+  BASHENV_CONTENT,
+  BASHRC_CONTENT,
+  ZLOGIN_CONTENT,
+  ZLOGOUT_CONTENT,
+  ZPROFILE_CONTENT,
+  ZSHENV_CONTENT,
+  ZSHRC_CONTENT,
+} from "../../runtimeDirs";
 import {
   type AuthenticateSshControlMasterDependencies,
   authenticateSshControlMaster,
@@ -666,11 +674,11 @@ async function ensureRemoteLspArchive(
 }
 
 /**
- * Uploads the per-workspace PTY shim rc files (`.zshrc`, `.zshenv`, `bashrc`)
- * to `<remoteHome>/.nexus-code/shim/<workspaceId>/` and returns that
- * directory's absolute path. The content of every file is identical to what
- * `runtimeDirs.writeShimFiles()` writes locally — both ends share the same
- * exported constants (`ZSHRC_CONTENT` / `ZSHENV_CONTENT` / `BASHRC_CONTENT`)
+ * Uploads the per-workspace shim files (`.zshrc`, `.zshenv`, the zsh login
+ * files, `bashrc`, `bashenv`) to `<remoteHome>/.nexus-code/shim/<workspaceId>/`
+ * and returns that directory's absolute path. The content of every file is
+ * identical to what `runtimeDirs.writeShimFiles()` writes locally — both ends
+ * share the same exported constants (`ZSHRC_CONTENT`, `BASHRC_CONTENT`, …)
  * so there is exactly one source of truth.
  *
  * The shim files reference runtime env vars (`NEXUS_USER_ZDOTDIR` /
@@ -694,10 +702,16 @@ async function ensureRemoteShimFiles(
   // mode is sufficient.
   await runSsh(options, runner, `mkdir -p ${quoteShellArg(remoteShimDir)}`);
 
+  // The zsh login files too: ZDOTDIR at the shim directory would hide the
+  // user's own from a login zsh, as a Codex tab's commands start.
   const files: ReadonlyArray<{ name: string; content: string }> = [
     { name: ".zshrc", content: ZSHRC_CONTENT },
     { name: ".zshenv", content: ZSHENV_CONTENT },
+    { name: ".zprofile", content: ZPROFILE_CONTENT },
+    { name: ".zlogin", content: ZLOGIN_CONTENT },
+    { name: ".zlogout", content: ZLOGOUT_CONTENT },
     { name: "bashrc", content: BASHRC_CONTENT },
+    { name: "bashenv", content: BASHENV_CONTENT },
   ];
 
   for (const file of files) {

@@ -30,6 +30,29 @@ export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
 export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
 export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
 
+/**
+ * A Claude tab: a conversation with `claude -p` run in `cwd`. `sessionId` is
+ * the session it last had, to go on with once its program is gone. `fork`
+ * is the session its program copies, up to a message, until the copy has
+ * its own id: a tab opened as a fork, or one rewound.
+ */
+export const ClaudeTabPropsSchema = z.object({
+  cwd: z.string(),
+  sessionId: z.string().max(128).optional(),
+  fork: z.object({ sessionId: z.string().max(128), at: z.string().max(128).optional() }).optional(),
+});
+export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
+
+/**
+ * A Codex tab: a conversation with `codex app-server` run in `cwd`.
+ * `threadId` is the thread it last had, to go on with once its program is gone.
+ */
+export const CodexTabPropsSchema = z.object({
+  cwd: z.string(),
+  threadId: z.string().max(128).optional(),
+});
+export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
+
 /** The sessions tab shows the workspace it is in, with its tasks; it has no props. */
 export const SessionsTabPropsSchema = z.object({});
 export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
@@ -78,6 +101,22 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     type: z.literal("browser"),
     title: z.string(),
     props: BrowserTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("claude"),
+    title: z.string(),
+    props: ClaudeTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("codex"),
+    title: z.string(),
+    props: CodexTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

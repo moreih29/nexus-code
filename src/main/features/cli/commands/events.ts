@@ -1,0 +1,144 @@
+/**
+ * nexus events: the agent sessions' state changes across the app, as the
+ * agent view sees them, for an agent that follows several sessions at once.
+ * The renderer logs them (services/sessions/session-events.ts); this reads
+ * the log, and waits on it for the next change when asked to.
+ */
+import type { CliSessionEvent } from "../../../../shared/cli/ui";
+import { CliUsageError, exactArgs, parseDuration } from "../args";
+import { type CliContext, resolveWorkspace, shortId } from "../context";
+import { oneLine, table } from "../format";
+import { type CliCommand, output } from "../registry";
+import { MAX_WAIT_MS, WAIT_POLL_MS } from "../wait";
+
+const DEFAULT_LIMIT = 100;
+
+/** The session as session list names its agent: a terminal's agent, or a tab's kind. */
+function agentOf(event: CliSessionEvent): string {
+  return event.kind === "terminal" ? (event.agent ?? "?") : `${event.kind}-tab`;
+}
+
+/** The time of day a change came, as hh:mm:ss. */
+function clockTime(at: number): string {
+  return new Date(at).toTimeString().slice(0, 8);
+}
+
+/**
+ * The changes after `since`, the first `limit` of them (`more` when some
+ * were left out), of one workspace when given; with no `since`, the last
+ * `limit`. And the latest seq.
+ */
+async function readEvents(
+  ctx: CliContext,
+  since: number | undefined,
+  limit: number,
+  workspaceId: string | undefined,
+): Promise<{ events: CliSessionEvent[]; cursor: number; more: boolean }> {
+  // The log is filtered here, so the renderer is asked for all it keeps.
+  const read = await ctx.services.ui("events.read", {
+    ...(since !== undefined ? { since } : {}),
+    limit: workspaceId === undefined ? limit : Number.MAX_SAFE_INTEGER,
+  });
+  if (workspaceId === undefined) return read;
+  const ours = read.events.filter((event) => event.workspaceId === workspaceId);
+  return since === undefined
+    ? { events: ours.slice(-limit), cursor: read.cursor, more: false }
+    : { events: ours.slice(0, limit), cursor: read.cursor, more: ours.length > limit };
+}
+
+const events: CliCommand = {
+  path: ["events"],
+  summary: "Print the agent sessions' state changes in every workspace",
+  details:
+    "A change is a terminal's agent or a Claude or Codex tab going from one state to another\n" +
+    "(working, asking, idle, completed, error, ...), appearing at work, or closed, with its last\n" +
+    "answer or question. Each has a number (#seq): --since N prints those after #N, and --wait\n" +
+    "waits for the next one when there is none yet, so a loop follows every session:\n" +
+    "  nexus events --since N --wait 10m --jsonl\n" +
+    "--since prints the first --limit after #N, and says when there are more; without it, the\n" +
+    "last. The app keeps the last 1000; the numbers start again from 1 when it restarts, and a\n" +
+    "--since past the latest reads from the start. When the wait runs out, nexus exits with 124.",
+  flags: {
+    since: { type: "number", value: "N", description: "Only the changes after #N" },
+    wait: {
+      type: "string",
+      value: "DURATION",
+      description: "With none yet, wait up to DURATION (at most 30m) for the next one",
+    },
+    limit: {
+      type: "number",
+      value: "N",
+      description: `At most N: the first after --since, else the last (default ${DEFAULT_LIMIT})`,
+    },
+    workspace: {
+      type: "string",
+      value: "WORKSPACE",
+      description: "Only this workspace's sessions (id, id prefix or name)",
+    },
+  },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const since = flags.since as number | undefined;
+    if (since !== undefined && (!Number.isInteger(since) || since < 0)) {
+      throw new CliUsageError("--since takes the # of a change");
+    }
+    const limit = (flags.limit as number | undefined) ?? DEFAULT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new CliUsageError("--limit takes a positive whole number");
+    }
+    const waitMs = flags.wait === undefined ? 0 : parseDuration(flags.wait as string, "wait");
+    if (waitMs > MAX_WAIT_MS) throw new CliUsageError("--wait is at most 30m");
+    const workspaceId =
+      flags.workspace === undefined
+        ? undefined
+        : resolveWorkspace(ctx, flags.workspace as string).id;
+    const names = new Map(ctx.services.listWorkspaces().map((w) => [w.id, w.name]));
+
+    const { clock } = ctx.services;
+    const startedAt = clock.now();
+    let read = await readEvents(ctx, since, limit, workspaceId);
+    while (read.events.length === 0 && clock.now() - startedAt < waitMs) {
+      if (ctx.signal?.aborted) break;
+      await clock.sleep(WAIT_POLL_MS);
+      read = await readEvents(ctx, since, limit, workspaceId);
+    }
+    const timedOut = waitMs > 0 && read.events.length === 0;
+
+    const rows = read.events.map((event) => [
+      `#${event.seq}`,
+      clockTime(event.at),
+      shortId(event.tabId),
+      names.get(event.workspaceId) ?? shortId(event.workspaceId),
+      oneLine(event.title, 30),
+      agentOf(event),
+      `${event.from ?? "new"} → ${event.to}${event.tabId === ctx.caller.tabId ? " (you)" : ""}`,
+      event.message ? oneLine(event.message, 200) : "",
+    ]);
+    const none = since === undefined ? "No changes yet." : `No changes after #${since}.`;
+    const lastSeq = read.events.at(-1)?.seq;
+    const more =
+      read.more && lastSeq !== undefined
+        ? `\nMore after #${lastSeq}: nexus events --since ${lastSeq}`
+        : "";
+    const text =
+      rows.length === 0
+        ? `${none} The latest is #${read.cursor}.`
+        : table(["SEQ", "TIME", "TAB", "WORKSPACE", "TITLE", "AGENT", "CHANGE", "MESSAGE"], rows) +
+          more;
+    const json = read.events.map((event) => ({
+      ...event,
+      workspace: names.get(event.workspaceId),
+      ...(event.tabId === ctx.caller.tabId ? { current: true } : {}),
+    }));
+    return output(
+      text,
+      { events: json, cursor: read.cursor, ...(read.more ? { more: true } : {}) },
+      {
+        records: json,
+        ...(timedOut ? { exitCode: 124 } : {}),
+      },
+    );
+  },
+};
+
+export const eventCommands: CliCommand[] = [events];

@@ -31,8 +31,7 @@
     "open_connection_settings": "Open connection settings",
     "dismiss": "Dismiss",
     "increase": "Increase",
-    "decrease": "Decrease",
-    "required": "Required"
+    "decrease": "Decrease"
   },
   "palette": {
     "close_aria": "Close command palette",
@@ -125,9 +124,14 @@
     "op_working": "Working…",
     "ports_title": "Listening ports {{ports}} — click to open",
     "ports_menu_title": "Listening ports",
-    "ports_ssh_note": "These ports are on the SSH host, which the app does not forward ports from.",
+    "ports_ssh_note": "These ports are on {{host}}. Opening or copying one forwards it to this machine.",
+    "ports_not_listed": "Forwarded only",
+    "ports_forwarded": "Here at {{url}}",
+    "ports_forward_paused": "Here at {{url}} (back once reconnected)",
     "ports_open": "Open in browser tab",
-    "ports_copy": "Copy URL"
+    "ports_copy": "Copy URL",
+    "ports_forward": "Forward to this machine",
+    "ports_unforward": "Stop forwarding"
   },
   "titleBar": {
     "open_settings": "Open settings",
@@ -138,14 +142,14 @@
     "close": "Close"
   },
   "inbox": {
-    "title": "Sessions waiting on you",
-    "aria_one": "Sessions waiting on you: {{count}} needs you",
-    "aria_other": "Sessions waiting on you: {{count}} need you",
-    "waiting": "Waiting on you",
-    "done": "Done",
-    "empty": "No session is waiting on you",
-    "next": "Go to next waiting session",
-    "mark_read": "Mark done as read"
+    "title": "Conversations waiting on you",
+    "aria_one": "Conversations waiting on you: {{count}} needs you",
+    "aria_other": "Conversations waiting on you: {{count}} need you",
+    "waiting": "Needs you",
+    "done": "New results",
+    "empty": "No conversation is waiting on you",
+    "next": "Go to next waiting conversation",
+    "mark_read": "Mark new results read"
   },
   "diagnostics": {
     "errors_dialog": "Errors",
@@ -169,11 +173,15 @@
     "task_count_one": "{{count}} task",
     "task_count_other": "{{count}} tasks"
   },
+  "forward": {
+    "not_connected": "Port {{port}} cannot be opened: {{host}} is not connected.",
+    "failed": "Could not forward port {{port}} to this machine: {{error}}"
+  },
   "task": {
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
-    "show_sessions": "Sessions",
+    "show_sessions": "Agents",
     "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
@@ -182,17 +190,28 @@
     "name_helper": "The branch is named after it.",
     "prompt_label": "First prompt (optional)",
     "prompt_placeholder": "What should the agent do?",
-    "prompt_helper": "The task's terminal runs {{command}} with it.",
+    "prompt_helper": "Sent to the task's {{agent}} tab as its first message.",
     "create": "Create",
     "error_not_a_repo": "{{name}} is not in a Git repository.",
     "error_not_connected": "Connect to {{name}} first.",
     "error_invalid_name": "Put a letter or a digit in the name.",
     "remove_title": "Delete task “{{name}}”?",
-    "remove_description": "Its terminals close and its worktree folder is deleted.",
+    "remove_description": "Its terminals and agent tabs close and its worktree folder is deleted.",
     "remove_branch": "Also delete branch {{branch}}",
     "remove_dirty": "The worktree has changes that are not committed. Deleting the task throws them away.",
     "remove": "Delete",
-    "remove_anyway": "Delete anyway"
+    "remove_anyway": "Delete anyway",
+    "agent_label": "Agent",
+    "agents": {
+      "claude": "Claude",
+      "codex": "Codex",
+      "terminal": "Terminal only"
+    },
+    "agent_hints": {
+      "claude": "Opens a Claude tab in the worktree.",
+      "codex": "Opens a Codex tab in the worktree.",
+      "terminal": "Opens just a shell in the worktree, with no agent. Start one there yourself when you need it."
+    }
   },
   "workspace": {
     "remove_title": "Remove “{{name}}” from Nexus?",
@@ -370,7 +389,8 @@
     "new_terminal_with": "New Terminal With",
     "default_shell": "Default",
     "new_browser": "New Browser",
-    "sessions": "Sessions",
+    "new_claude": "New Claude conversation",
+    "sessions": "Agents",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -384,7 +404,10 @@
     "copy_path": "Copy Path",
     "copy_relative_path": "Copy Relative Path",
     "terminal_ended_suffix": "·",
-    "terminal_ended_aria": ", terminal ended"
+    "terminal_ended_aria": ", terminal ended",
+    "new_codex": "New Codex conversation",
+    "hidden_tabs_one": "1 more tab",
+    "hidden_tabs_other": "{{count}} more tabs"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
@@ -490,32 +513,24 @@
     "installHint": "Install: {{command}}"
   },
   "sessions": {
-    "tab_title": "Sessions",
-    "none": "No agent sessions",
+    "tab_title": "Agents",
+    "none": "No conversations",
     "count": "{{label}} {{count}}",
     "view_label": "View",
     "view": {
-      "tree": "Tree",
-      "board": "Board",
-      "lineage": "Graph",
-      "timeline": "Timeline"
-    },
-    "phase": {
-      "attention": "Needs attention",
-      "running": "Running",
-      "done": "Done",
-      "idle": "Idle"
+      "status": "By state",
+      "task": "By task"
     },
     "state": {
-      "running": "Running",
-      "completed": "Done",
-      "needsInput": "Needs input",
-      "permissionPending": "Needs permission",
+      "running": "Working",
+      "completed": "New result",
+      "needsInput": "Needs you",
+      "permissionPending": "Permission request",
       "error": "Error",
       "idle": "Idle",
-      "busy": "Running",
+      "busy": "Working",
       "quiet": "Idle",
-      "exited": "Exited"
+      "exited": "Ended"
     },
     "estimated": "{{label}} (estimated)",
     "duration": {
@@ -525,66 +540,53 @@
       "days": "{{count}}d"
     },
     "agent_unknown": "agent",
-    "no_sessions": "No sessions",
     "changed_files": "{{count}} changed",
     "column_empty": "None",
-    "lineage": {
-      "legend_created": "Created",
-      "legend_created_hint": "Tasks a session made with nexus worktree new",
-      "legend_waits": "Waiting on",
-      "legend_waits_hint": "Waiting for another terminal to finish (nexus terminal wait · send --wait)",
-      "separate": "Created directly",
-      "waiting": "Waiting · {{duration}}",
-      "sessions_one": "{{count}} session",
-      "sessions_other": "{{count}} sessions"
-    },
-    "timeline": {
-      "range_label": "Period",
-      "range": {
-        "30m": "30 min",
-        "2h": "2 hours",
-        "today": "Today"
-      },
-      "legend_waiting": "Waiting on",
-      "made_by": "Made in {{name}}",
-      "waiting_on": "Waiting on {{name}}",
-      "empty": "Nothing was recorded in this period. Activity is recorded while the app runs and kept for a day."
-    },
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",
       "interrupt": "Interrupt (Ctrl-C)",
       "remove_task": "Delete task…",
       "permission_hint": "Permission requests are answered in the terminal.",
-      "send_placeholder": "Input to send to this session (Shift+Enter for a new line)",
       "send": "Send",
-      "prompt": "Request",
-      "message": "Response",
       "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
       "screen_exited": "This terminal has exited.",
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
       "more_changes": "{{count}} more",
-      "no_session": "No agent session runs in this worktree.",
       "close": "Close details",
-      "now_thinking": "Thinking",
-      "turn": "Turn {{duration}}",
-      "files_written_one": "{{count}} file edited",
-      "files_written_other": "{{count}} files edited",
-      "agents_running_one": "{{count}} agent running",
-      "agents_running_other": "{{count}} agents running",
       "todos": "To do",
-      "todos_progress": "{{done}} / {{total}}",
-      "agents": "Agents",
-      "progress": "Progress",
       "screen_show": "Show terminal output",
-      "screen_hide": "Hide terminal output"
+      "screen_hide": "Hide terminal output",
+      "show_claude_tab": "Go to the Claude tab",
+      "show_codex_tab": "Go to the Codex tab",
+      "permission_hint_claude": "Its permission requests are answered in the Claude tab.",
+      "back": "Back to the list",
+      "cost": "Cost",
+      "answer_more": "Show more",
+      "answer_less": "Show less",
+      "steps": "Recent tool calls",
+      "step": {
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "send_keys": "{{send}} to send · {{newLine}} for a new line",
+      "follow_up": "Follow up",
+      "queue": "Queue",
+      "queued_one": "{{count}} message queued",
+      "queued_other": "{{count}} messages queued",
+      "not_loaded": "This conversation has not been opened yet. Open its tab to see it.",
+      "vs_base": "vs {{branch}}",
+      "ahead_behind": "Ahead of {{branch}} by {{ahead}}, behind by {{behind}}",
+      "lines": "{{added}} lines added, {{deleted}} deleted",
+      "binary": "binary"
     },
     "agents": {
-      "running_count": "Agents running {{count}}",
-      "ended_toggle": "Finished agents {{count}}",
-      "label_fallback": "Agent",
+      "label_fallback": "Subagent",
       "print": "claude -p",
+      "print_codex": "codex exec",
       "background": "background",
       "state": {
         "running": "Running",
@@ -597,38 +599,26 @@
       "tools_other": "{{count}} tools",
       "tools_failed_one": "{{count}} tool · {{failed}} failed",
       "tools_failed_other": "{{count}} tools · {{failed}} failed",
-      "asking_tool": "Needs permission · {{tool}}",
-      "asking_agent": "Agent “{{name}}” is asking for permission",
-      "summary_one": "{{count}} agent",
-      "summary_other": "{{count}} agents",
-      "count_running": "{{count}} running",
-      "count_asking": "{{count}} asking",
-      "count_ended": "{{count}} finished",
-      "more": "{{count}} more",
-      "session_crumb": "{{agent}} session",
-      "agent_crumb": "Agent",
+      "agent_crumb": "Subagent",
       "exit_code": "Exit code {{code}}",
-      "toggle_expand": "Show agents",
-      "toggle_collapse": "Hide agents",
-      "failed_tool": "Failed: {{tool}}",
       "detail": {
-        "prompt": "Request",
-        "activity": "Activity",
-        "answer": "Answer",
-        "answer_pending": "The agent's last answer shows here once it finishes.",
+        "answer_pending": "The subagent's last answer shows here once it finishes.",
+        "answer_pending_run": "The run's last answer shows here once it finishes.",
         "answer_none": "It finished without an answer.",
-        "tools_none": "No tools used yet.",
-        "tools_untold": "This run's tools are not recorded: it resumes a session, or keeps none.",
+        "tools_untold": "This run's tools are not recorded: it goes on a session found by -c or a search term, or keeps none.",
+        "tools_untold_codex": "This run's tools are not recorded: it keeps no session (--ephemeral), or writes straight to a terminal.",
         "denied": "Denied",
         "more_tools": "Show {{count}} earlier",
         "fewer_tools": "Show recent only",
         "running_for": "{{duration}} so far",
-        "permission_hint": "This agent is waiting on a permission request. Answer it in the terminal."
-      }
+        "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal.",
+        "permission_hint_claude": "This subagent is waiting on a permission request. Answer it in the Claude tab."
+      },
+      "parent": "A subagent of {{title}}"
     },
     "permission": {
       "title": "Permission request",
-      "from_agent": "Permission request from agent “{{name}}”",
+      "from_agent": "Permission request from subagent “{{name}}”",
       "allow": "Allow",
       "allow_always": "Always allow",
       "always_hint": "Always allows: {{what}}",
@@ -649,15 +639,48 @@
       "minutes_seconds": "{{minutes}}m {{seconds}}s",
       "minutes": "{{count}}m",
       "hours_minutes": "{{hours}}h {{minutes}}m"
+    },
+    "group": {
+      "attention": "Needs you",
+      "running": "Working",
+      "done": "New result",
+      "idle": "Idle",
+      "ended": "Ended"
+    },
+    "list": {
+      "search": "Find a conversation",
+      "no_match": "No conversation matches",
+      "questions_one": "{{count}} question",
+      "questions_other": "{{count}} questions",
+      "subagents": "Subagents",
+      "context": "Context",
+      "mark_read": "Mark as seen",
+      "answer_failed": "Could not send the answer",
+      "new_claude": "New Claude conversation",
+      "new_chat": "New conversation"
+    },
+    "task": {
+      "no_conversations": "No conversations",
+      "created_by": "Made by the conversation {{title}}",
+      "waiting_on": "Waiting for {{title}} to end",
+      "open_terminal": "Open a terminal in this task"
     }
   },
   "claudeStatus": {
-    "running": "Claude: running",
-    "completed": "Claude: response complete",
-    "needsInput": "Claude: waiting for input",
-    "permissionPending": "Claude: waiting for permission",
+    "running": "Claude: working",
+    "completed": "Claude: new result",
+    "needsInput": "Claude: needs you",
+    "permissionPending": "Claude: permission request",
     "error": "Claude: error",
     "idle": "Claude: idle"
+  },
+  "codexStatus": {
+    "running": "Codex: working",
+    "completed": "Codex: new result",
+    "needsInput": "Codex: needs you",
+    "permissionPending": "Codex: permission request",
+    "error": "Codex: error",
+    "idle": "Codex: idle"
   },
   "claudeNotification": {
     "needsAttention": "Needs your attention",
@@ -698,8 +721,7 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image.",
-    "too_large": "Image is too large to preview (max {{maxMb}} MB)."
+    "load_failed": "Could not load image."
   },
   "fontPreview": {
     "outside_workspace": "This font is outside the workspace and cannot be previewed.",
@@ -713,7 +735,6 @@
   "pdfPreview": {
     "outside_workspace": "This PDF is outside the workspace and cannot be previewed.",
     "load_failed": "Could not open this PDF.",
-    "too_large": "This PDF is too large to preview (max {{maxMb}} MB).",
     "password": "This PDF is protected by a password and cannot be previewed.",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
@@ -793,13 +814,619 @@
     "ready": "Version {{version}} is ready. It installs when the app restarts.",
     "readyAsksPassword": "Version {{version}} is ready. Restart now and enter your admin password to install it.",
     "restart": "Restart Now",
-    "showProgress": "Show Progress",
     "installFailed": "Couldn't install the update. You can download it from the release page.",
     "openReleasePage": "Open Release Page",
     "upToDate": "You're on the latest version.",
     "failed": "Couldn't check for updates.",
     "failedHttp": "Couldn't check for updates (HTTP {{status}}).",
     "failedNetwork": "Couldn't check for updates. Check your network connection.",
-    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment."
+    "failedRateLimited": "Couldn't check for updates. GitHub is limiting requests right now; try again in a moment.",
+    "button": {
+      "available": "Update to {{version}}",
+      "downloading": "Downloading update",
+      "downloadingPercent": "Downloading update {{percent}}%",
+      "verifying": "Verifying update",
+      "ready": "Restart to update",
+      "failed": "Update failed"
+    }
+  },
+  "chat": {
+    "tab_title": "Claude",
+    "copy": "Copy",
+    "jump_to_bottom": "Scroll to the latest message",
+    "thinking": "Thinking",
+    "thinking_live": "Thinking…",
+    "message": {
+      "sent": "Sent",
+      "taken": "Read by Claude",
+      "taken_codex": "Read by Codex"
+    },
+    "empty": {
+      "title": "What should Claude work on?"
+    },
+    "notice": {
+      "interrupted": "Interrupted",
+      "exited": "Claude exited",
+      "restarted": "Claude started again",
+      "compacted": "Conversation compacted",
+      "cleared": "Started over (/clear)",
+      "error": "Error",
+      "dropped": "Some lines were lost",
+      "exited_codex": "Codex exited",
+      "restarted_codex": "Codex started again",
+      "not_resumed": "Couldn't go on with the earlier conversation; started a new one",
+      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one"
+    },
+    "tool": {
+      "denied": "Denied",
+      "stopped": "Stopped",
+      "unsandboxed": "outside the sandbox",
+      "unsandboxed_hint": "A retry outside the sandbox, which stopped this command",
+      "no_output": "(no output)",
+      "subagent_calls_one": "{{count}} call",
+      "subagent_calls_other": "{{count}} calls",
+      "background": "To background",
+      "background_hint": "Keep it running in the background, and go on with the turn",
+      "run": {
+        "commands_one": "Ran {{count}} command",
+        "commands_other": "Ran {{count}} commands",
+        "reads_one": "Read {{count}} file",
+        "reads_other": "Read {{count}} files",
+        "edits_one": "Edited {{count}} file",
+        "edits_other": "Edited {{count}} files",
+        "searches_one": "Searched {{count}} time",
+        "searches_other": "Searched {{count}} times",
+        "others_one": "Used {{count}} tool",
+        "others_other": "Used {{count}} tools",
+        "failed_one": "{{count}} failed",
+        "failed_other": "{{count}} failed",
+        "denied_one": "{{count}} denied",
+        "denied_other": "{{count}} denied"
+      }
+    },
+    "permission": {
+      "aria": "Permission request",
+      "from_subagent": "Asked by a subagent",
+      "page": "{{current}} of {{total}}",
+      "previous": "Previous request",
+      "next": "Next request",
+      "allow": "Allow",
+      "allow_always": "Always allow",
+      "deny": "Deny",
+      "deny_send": "Deny",
+      "deny_stop": "Deny and stop",
+      "deny_placeholder": "Tell Claude what to do instead (optional)",
+      "back": "Back",
+      "suggest_mode": "Switch to {{mode}}",
+      "suggest_dirs": "Allow {{dirs}}",
+      "suggest_session": "Allowed without asking again until Codex restarts",
+      "deny_placeholder_codex": "Tell Codex what to do instead (optional)",
+      "back_esc": "Back (Esc)",
+      "deny_reason": "Reason for denying",
+      "allow_always_one": "Always allow just one"
+    },
+    "question": {
+      "other": "Other answer",
+      "skip": "Skip",
+      "submit": "Send answers",
+      "numbered": "Question {{n}}",
+      "expand": "Show more",
+      "collapse": "Show less",
+      "title": "Questions",
+      "waiting": "Waiting for an answer",
+      "skipped": "Questions skipped",
+      "no_answer": "No answer"
+    },
+    "plan": {
+      "title": "Plan",
+      "request_changes": "Request changes",
+      "approve_manual": "Approve, ask before edits",
+      "approve_accept_edits": "Approve, accept edits",
+      "feedback_placeholder": "What should change in the plan?",
+      "send_feedback": "Send",
+      "approve": "Approve",
+      "accept_edits": "Accept edits",
+      "approve_other": "Other ways to approve",
+      "waiting": "Waiting for approval",
+      "approved": "Plan approved",
+      "declined": "Changes requested"
+    },
+    "status": {
+      "working": "Working",
+      "requesting": "Waiting for the model",
+      "thinking": "Thinking",
+      "writing": "Writing",
+      "running_tool": "Running {{tool}}",
+      "waiting_permission": "Needs you",
+      "compacting": "Compacting",
+      "interrupting": "Stopping…",
+      "retrying": "Retrying (attempt {{attempt}})",
+      "retrying_of": "Retrying ({{attempt}}/{{max}})",
+      "tokens": "↓ {{count}} tokens",
+      "agents_one": "{{count}} subagent running",
+      "agents_other": "{{count}} subagents running"
+    },
+    "rate_limit": {
+      "warning": "Close to the usage limit",
+      "warning_until": "Close to the usage limit · resets at {{time}}",
+      "rejected": "Usage limit reached",
+      "rejected_until": "Usage limit reached · resets at {{time}}"
+    },
+    "twin": {
+      "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
+      "show": "Show the terminal"
+    },
+    "phase": {
+      "starting": "Starting Claude…",
+      "held": "The connection dropped. Claude keeps running and the tab catches up when it is back.",
+      "ended": "Claude is not running. Sending a message starts it again.",
+      "restart": "Restart",
+      "not_found": "Claude Code was not found where this workspace runs. Install it and try again.",
+      "failed": "Claude could not be started.",
+      "old_version": "Claude Code {{version}} is too old for this tab. {{min}} or later is needed.",
+      "retry": "Try again",
+      "truncated": "The oldest part of this conversation is no longer kept."
+    },
+    "queue": {
+      "aria": "Messages waiting to be read",
+      "label": "Waiting",
+      "after_turn": "After the turn",
+      "images_one": "{{count}} image",
+      "images_other": "{{count}} images",
+      "edit": "Edit",
+      "remove": "Remove",
+      "take_back": "↑ at the start of the box: edit the last one",
+      "already_read": "Already read; it can't be taken back."
+    },
+    "composer": {
+      "aria": "Message to Claude",
+      "hint": "{{send}} send · {{newLine}} new line · / commands · @ files",
+      "hint_codex": "{{send}} send · {{newLine}} new line · @ files",
+      "hint_running": "{{send}} queue · {{nowKey}} send now · {{queueKey}} send after the turn",
+      "hint_running_codex": "{{send}} send now · {{queueKey}} send after the turn",
+      "send": "Send",
+      "send_now": "Send now",
+      "queue": "Queue",
+      "stop": "Stop",
+      "remove_image": "Remove image",
+      "image_too_large": "{{name}} is larger than an image Claude can read.",
+      "add": "Add",
+      "attach_file": "Attach images or files",
+      "mention_file": "Mention a file",
+      "command": "Command",
+      "commands": "Commands",
+      "files": "Files",
+      "remove_file": "Remove file",
+      "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "aria_codex": "Message to Codex"
+    },
+    "mode": {
+      "aria": "Permission mode",
+      "label": "Permission mode",
+      "auto": "Auto",
+      "auto_hint": "Claude handles permission decisions",
+      "default": "Manual",
+      "default_hint": "Always ask before changes",
+      "acceptEdits": "Accept edits",
+      "acceptEdits_hint": "Accept every file edit",
+      "plan": "Plan",
+      "plan_hint": "Plan before changes",
+      "bypassPermissions": "Bypass permissions",
+      "bypassPermissions_hint": "Never ask",
+      "bypass_blocked": "Turned off by a setting or policy",
+      "bypass_confirm_title": "Bypass every permission?",
+      "bypass_confirm_body": "Claude will run commands and edit files without asking, including ones that delete data or reach the network. Use it only where nothing can be harmed.",
+      "bypass_confirm": "Bypass permissions"
+    },
+    "model": {
+      "aria": "Model",
+      "label": "Model",
+      "default": "Default model"
+    },
+    "effort": {
+      "aria": "Effort",
+      "label": "Effort",
+      "unset": "effort"
+    },
+    "rewind": {
+      "action": "Rewind to before this message",
+      "busy": "Can't rewind while Claude is working",
+      "title": "Rewind to before this message",
+      "description": "The conversation goes back to before this message, and the message goes back in the composer.",
+      "checking": "Checking the changed files…",
+      "files_unknown": "Couldn't check the changed files: {{error}}",
+      "files_unavailable": "The files can't be rewound. {{error}}",
+      "files_changed_one": "{{count}} file goes back",
+      "files_changed_other": "{{count}} files go back",
+      "more_files_one": "and {{count}} more",
+      "more_files_other": "and {{count}} more",
+      "no_files": "No file changes to undo.",
+      "conversation": "Rewind the conversation",
+      "conversation_and_files": "Rewind the conversation and code",
+      "failed": "Couldn't rewind: {{error}}"
+    },
+    "fork": {
+      "from_assistant": "Fork from here",
+      "from_user": "Fork from before this message"
+    },
+    "time": {
+      "now": "just now"
+    },
+    "panel": {
+      "aria": "Session details",
+      "show": "Show side panel",
+      "hide": "Hide side panel",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it",
+      "needs_version": "Needs Claude Code {{version}} or later",
+      "status": {
+        "running": "Running",
+        "completed": "Done",
+        "failed": "Failed",
+        "stopped": "Stopped"
+      },
+      "env": {
+        "title": "Environment",
+        "remote_control": "Remote",
+        "remote_unavailable": "Remote Control is not available for this account",
+        "remote_failed": "Could not switch Remote Control: {{error}}",
+        "copy_url": "Copy the Remote Control link",
+        "open_url": "Open the Remote Control link",
+        "folder": "Folder",
+        "branch": "Branch",
+        "session": "Session",
+        "copy_session": "Copy the session ID",
+        "fork_session": "Fork the whole session",
+        "model": "Model",
+        "version": "Version"
+      },
+      "context": {
+        "title": "Context",
+        "unknown": "Not measured yet",
+        "tokens": "{{used}} of {{max}} tokens",
+        "free": "{{count}} tokens left before compacting",
+        "compact": "Compact",
+        "compact_busy": "Compact once Claude finishes"
+      },
+      "agents": {
+        "title": "Subagents",
+        "open": "Show its transcript",
+        "teammate": "Teammate",
+        "tools_one": "{{count}} tool call",
+        "tools_other": "{{count}} tool calls",
+        "no_text": "Nothing written yet",
+        "open_run": "Show the run"
+      },
+      "jobs": {
+        "title": "Tasks"
+      },
+      "todos": {
+        "title": "To-dos"
+      },
+      "results": {
+        "title": "Results",
+        "created": "new"
+      },
+      "changed": {
+        "title": "Changed files"
+      },
+      "usage": {
+        "title": "Usage",
+        "cost": "This tab, at list price",
+        "cost_hint": "Claude Code's estimate at API list prices. A subscription plan isn't billed by it.",
+        "none": "No limits reported",
+        "resets": "Resets {{time}}",
+        "kind": {
+          "session": "Current session",
+          "weekly_all": "This week, all models",
+          "weekly_scoped": "This week, {{scope}}"
+        }
+      },
+      "mcp": {
+        "title": "MCP",
+        "none": "No MCP servers",
+        "reconnect": "Reconnect",
+        "enabled": "Use {{name}}",
+        "sign_in": "Sign in",
+        "signing_in": "Signing in…",
+        "signing_in_hint": "Sign in on the page that opened in the browser",
+        "reopen": "Open again",
+        "cancel": "Cancel",
+        "status": {
+          "connected": "Connected",
+          "needs-auth": "Needs auth",
+          "failed": "Failed",
+          "pending": "Connecting",
+          "disabled": "Off"
+        }
+      }
+    },
+    "strip": {
+      "aria": "Subagents",
+      "main": "Main",
+      "finished": "Finished {{count}}",
+      "permission_waiting": "A permission request is waiting in the main conversation",
+      "to_main": "To main",
+      "input_to_main": "Messages go to the main conversation",
+      "summary": {
+        "agents_one": "{{count}} subagent",
+        "agents_other": "{{count}} subagents",
+        "jobs_one": "{{count}} task",
+        "jobs_other": "{{count}} tasks",
+        "todos": "To-dos {{done}}/{{total}}",
+        "context": "Context {{percent}}%"
+      }
+    },
+    "look": {
+      "aria": "Quick look: {{name}}",
+      "previous": "Previous result (←)",
+      "next": "Next result (→)",
+      "open_tab": "Open as a tab",
+      "close": "Close (esc)",
+      "changes": "Changes since before the session",
+      "revert": "Revert this file to before the session",
+      "revert_busy": "Can't revert while Claude is working",
+      "revert_busy_codex": "Can't revert while Codex is working",
+      "revert_title": "Revert {{name}}?",
+      "revert_description": "The file goes back to how it was before this session changed it. What changed in it since, by Claude or by you, is lost.",
+      "revert_description_codex": "The file goes back to how it was before this session changed it. What changed in it since, by Codex or by you, is lost.",
+      "revert_confirm": "Revert",
+      "reverted": "Reverted {{name}}",
+      "revert_failed": "Couldn't revert {{name}}: {{error}}"
+    },
+    "links": {
+      "look": "Quick look",
+      "open_tab": "Open as a tab",
+      "copy_path": "Copy path",
+      "open_system": "Open in the system browser",
+      "open_app_browser": "Open in the app's browser",
+      "copy_link": "Copy link"
+    },
+    "run": {
+      "kind": "claude -p run",
+      "kind_codex": "codex exec run",
+      "stop": "Stop",
+      "stop_failed": "Could not stop it; the run may have ended.",
+      "open_in_tab": "Open as a tab"
+    },
+    "sessions": {
+      "title": "Earlier sessions",
+      "open": "Open in a tab",
+      "more": "Show {{count}} more",
+      "resume_failed": "Could not go on with the session: {{message}}"
+    },
+    "commands": {
+      "close": "Close",
+      "working": "Working…",
+      "btw_empty": "Write the question after /btw",
+      "btw_none": "No answer came. Try again, or ask in the conversation.",
+      "copy_none": "There is no such answer to copy",
+      "copied": "Copied the answer",
+      "export_bad_name": "Give a file name under the tab's folder",
+      "export_user": "You",
+      "export_exists": "{{name}} is already there",
+      "exported": "Wrote {{name}}",
+      "memory_none": "No memory files are loaded. A `CLAUDE.md` in the folder is read when the session starts.",
+      "help_intro": "The tab's own commands. Type `/` for Claude Code's.",
+      "add_dir_empty": "Write the folder after /add-dir",
+      "added_dir": "Claude may work in {{path}} too, for this tab",
+      "no_rules": "No permission rules.",
+      "not_in_effect": "not in effect",
+      "directories": "Folders",
+      "permissions_edit": "Rules come from the settings files; edit one and the session picks it up.",
+      "no_hooks": "No hooks are set.",
+      "sandbox_on": "The sandbox is on for this tab",
+      "sandbox_off": "The sandbox is off for this tab",
+      "sandbox_usage": "Write /sandbox on or /sandbox off",
+      "sandbox_is_on": "The sandbox is **on**: Bash commands run inside it. `/sandbox off` turns it off for this tab.",
+      "sandbox_is_off": "The sandbox is **off**. `/sandbox on` runs Bash commands inside it, for this tab; the host needs its tools (bubblewrap on Linux).",
+      "behavior": {
+        "allow": "Allowed",
+        "ask": "Asked",
+        "deny": "Denied"
+      },
+      "source": {
+        "userSettings": "user settings",
+        "projectSettings": "project settings",
+        "localSettings": "local settings",
+        "flagSettings": "flags",
+        "policySettings": "policy",
+        "cliArg": "command line",
+        "command": "command",
+        "session": "this session",
+        "added": "this tab (/add-dir)"
+      },
+      "describe": {
+        "btw": "Ask a quick question beside the conversation, without keeping it",
+        "copy": "Copy Claude's last answer, or the Nth from the end",
+        "export": "Write the conversation to a Markdown file in the folder",
+        "diff": "Show the uncommitted changes",
+        "memory": "Open the memory files (CLAUDE.md) the session reads",
+        "permissions": "List the permission rules and the folders Claude may work in",
+        "add-dir": "Let Claude work in another folder, for this tab",
+        "hooks": "List the hooks that run",
+        "sandbox": "Show or switch the Bash sandbox, for this tab",
+        "help": "List the tab's own commands",
+        "exit": "Close this tab",
+        "fork": "Copy this conversation into a new tab",
+        "subtask": "Send a fork of Claude, with the whole conversation, off on a task",
+        "tasks": "What runs now, and this folder's background sessions",
+        "workflows": "This session's workflows",
+        "background": "Send this session to Claude Code's background service and close the tab",
+        "skills": "The skills this session has",
+        "plugin": "The installed plugins: turn off or on, update, remove, install",
+        "upgrade": "Upgrade your plan (opens claude.ai)",
+        "update": "Update Claude Code, in a terminal",
+        "release-notes": "Claude Code's release notes",
+        "feedback": "Report a bug or send feedback (opens GitHub issues)",
+        "login": "Sign in or switch accounts, in a terminal",
+        "logout": "Sign out, in a terminal",
+        "teleport": "Resume a session from claude.ai, in a terminal",
+        "install-github-app": "Set up Claude GitHub Actions, in a terminal",
+        "install-slack-app": "Install the Claude Slack app, in a terminal",
+        "setup-bedrock": "Set up Amazon Bedrock, in a terminal",
+        "setup-vertex": "Set up Google Vertex AI, in a terminal",
+        "web-setup": "Set up cloud sessions with GitHub, in a terminal",
+        "remote-env": "Choose the cloud agents' default environment, in a terminal",
+        "ultrareview": "Review the branch in a cloud session, in a terminal",
+        "autofix-pr": "Watch the PR and fix what fails, in a terminal"
+      },
+      "fork_none": "Send a message first: there is no conversation to copy yet.",
+      "subtask_empty": "Say what the subtask should do: /subtask <task>",
+      "background_busy": "Wait for the turn to end, or stop it, before sending the session to the background.",
+      "background_empty": "Send a message first, or give the background session a prompt: /background <prompt>",
+      "background_sent": "Sent to the background as {{id}}. /tasks lists it.",
+      "tasks_title": "Running in this session",
+      "tasks_none": "Nothing is running.",
+      "workflows_title": "Workflows in this session",
+      "workflows_none": "No workflows have run.",
+      "background_title": "Background sessions of this folder",
+      "background_none": "None.",
+      "open": "Open",
+      "stop": "Stop",
+      "status": {
+        "running": "running",
+        "completed": "done",
+        "failed": "failed",
+        "killed": "stopped",
+        "stopped": "stopped",
+        "idle": "idle",
+        "blocked": "waiting",
+        "pending": "waiting"
+      },
+      "in_terminal": "Running `{{command}}` in a new terminal.",
+      "restart_after": "When it is done",
+      "restart_hint": "Start Claude again to use it here.",
+      "restart": "Restart",
+      "skills_title_one": "{{count}} skill",
+      "skills_title_other": "{{count}} skills",
+      "skills_none": "No skills are loaded.",
+      "plugin_usage": "/plugin lists the plugins; /plugin install <name>@<marketplace> installs one.",
+      "plugins_title": "Installed plugins",
+      "plugins_none": "No plugins are installed.",
+      "plugin_on": "on",
+      "plugin_off": "off",
+      "plugin_enable": "Turn on",
+      "plugin_disable": "Turn off",
+      "plugin_update": "Update",
+      "plugin_uninstall": "Remove",
+      "plugin_uninstall_title": "Remove {{name}}?",
+      "plugin_uninstall_body": "The plugin is uninstalled. Its saved data is kept, for if it is installed again.",
+      "marketplace_title": "Marketplaces",
+      "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
+      "marketplace_open": "Open in terminal"
+    },
+    "codex": {
+      "tab_title": "Codex",
+      "empty": "What should Codex work on?",
+      "starting": "Starting Codex…",
+      "held": "The connection dropped. Codex keeps running and the tab catches up when it is back.",
+      "ended": "Codex is not running. Sending a message starts it again, on the same thread.",
+      "not_found": "Codex was not found where this workspace runs. Install it (npm install -g @openai/codex) and try again.",
+      "failed": "Codex could not be started.",
+      "old_version": "Codex {{version}} is too old for this tab. {{min}} or later is needed.",
+      "signed_out": "Codex is not signed in. Sign in in a terminal, then check again.",
+      "sign_in": "Sign in in a terminal",
+      "sign_in_check": "Check again",
+      "mode": {
+        "readOnly": "Read only",
+        "readOnly_hint": "Reads files and runs commands read-only; editing or going online needs approval",
+        "auto": "Auto",
+        "auto_hint": "Edits and runs commands in the folder; asks to go outside it or online",
+        "fullAccess": "Full access",
+        "fullAccess_hint": "No sandbox: runs anything without asking",
+        "bypass_confirm_title": "Give Codex full access?",
+        "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
+        "bypass_confirm": "Give full access"
+      }
+    }
+  },
+  "agentView": {
+    "toggle": {
+      "aria": "View",
+      "workspaces": "Workspaces",
+      "agents": "Agents"
+    },
+    "list": {
+      "title": "Agents",
+      "filter_aria": "Filter agents",
+      "filter": {
+        "all": "All",
+        "running": "Running",
+        "attention": "Waiting"
+      },
+      "none_filtered": "No matching agents",
+      "no_agents": "No agents",
+      "worktree": "Worktree",
+      "new_agent": "New agent in {{name}}",
+      "shown": "Shown in a panel",
+      "held": "In a panel, behind another tab"
+    },
+    "pane": {
+      "reveal": "Open in workspace",
+      "close": "Close panel",
+      "remove": "Remove from panel (the session goes on)",
+      "empty": "Empty panel",
+      "empty_hint": "Click an agent in the list, or drag one here"
+    },
+    "ended": {
+      "message": "{{agent}} session ended",
+      "agent": "Agent",
+      "resume": "Resume",
+      "resume_title": "Types {{line}} in the terminal"
+    }
+  },
+  "releaseNotes": {
+    "title": "Release Notes",
+    "versions": "Versions",
+    "current": "Current",
+    "newer": "New",
+    "prerelease": "Beta",
+    "openOnGitHub": "View on GitHub",
+    "allReleases": "All releases on GitHub",
+    "close": "Close",
+    "loading": "Loading release notes…",
+    "failed": "Couldn't load the release notes.",
+    "failedNetwork": "Couldn't load the release notes. Check your network connection.",
+    "failedRateLimited": "Couldn't load the release notes. GitHub is limiting requests right now; try again in a moment.",
+    "retry": "Try Again",
+    "empty": "No releases yet.",
+    "news": "What's new in {{version}}",
+    "dismissNews": "Dismiss what's new"
+  },
+  "manager": {
+    "title": "Agent manager",
+    "button": "Manager",
+    "button_unread_one": "Agent manager, {{count}} new report",
+    "button_unread_other": "Agent manager, {{count}} new reports",
+    "chip": "Manager",
+    "task_title": "Work the agent manager handed out",
+    "sent": "Sent by the manager",
+    "sent_title": "The agent manager sent this message",
+    "report_empty": "Sessions changed",
+    "report_more_one": "{{title}} and {{count}} more",
+    "report_more_other": "{{title}} and {{count}} more",
+    "state": {
+      "completed": "Done",
+      "permissionPending": "Permission request",
+      "needsInput": "Needs you",
+      "error": "Error",
+      "closed": "Closed"
+    },
+    "new_conversation": "New conversation",
+    "settings": "Manager settings",
+    "close": "Close",
+    "resize": "Resize the manager",
+    "asks": "Waiting for your permission to use {{tool}}",
+    "starting": "Starting the manager",
+    "off": {
+      "title": "The agent manager is off",
+      "description": "Turned on, it starts with the app, follows every session and hands out the work you give it.",
+      "enable": "Turn on"
+    },
+    "tasks_one": "{{count}} task",
+    "tasks_other": "{{count}} tasks",
+    "tasks_waiting_one": "{{count}} waiting",
+    "tasks_waiting_other": "{{count}} waiting"
   }
 }

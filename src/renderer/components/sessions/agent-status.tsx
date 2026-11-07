@@ -11,11 +11,10 @@ import {
   CircleX,
   Loader,
   type LucideIcon,
-  SquareTerminal,
 } from "lucide-react";
 import { cn } from "@/utils/cn";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
-import { currentTool, toolLine } from "../../services/sessions/agents";
+import { agentDescription } from "../../services/sessions/agents";
 import { useDurationLabel } from "./session-status";
 
 interface AgentLook {
@@ -60,24 +59,46 @@ export function agentStateLabel(state: AgentRunState): string {
   return i18next.t(`common:sessions.agents.state.${state}`);
 }
 
+/** What a run started inside a session is called: `claude -p`, or `codex exec`. */
+export function printLabel(program: AgentRun["program"]): string {
+  return program === "codex"
+    ? i18next.t("common:sessions.agents.print_codex")
+    : i18next.t("common:sessions.agents.print");
+}
+
 /** What the agent was asked to do, else its type. */
 export function agentLabel(agent: AgentRun): string {
+  return (
+    agentDescription(agent) ??
+    agent.type ??
+    (agent.kind === "print"
+      ? printLabel(agent.program)
+      : i18next.t("common:sessions.agents.label_fallback"))
+  );
+}
+
+/**
+ * What the agent's detail is headed: what it was asked to do, else its
+ * type or its program, as its request shows under it.
+ */
+export function agentTitle(agent: AgentRun): string {
   return (
     agent.description ??
     agent.type ??
     (agent.kind === "print"
-      ? i18next.t("common:sessions.agents.print")
+      ? printLabel(agent.program)
       : i18next.t("common:sessions.agents.label_fallback"))
   );
 }
 
 /**
  * What the agent is, for a line under its name: its type and whether it runs
- * in the background; for a `claude -p` run, its model.
+ * in the background; for a `claude -p` or `codex exec` run, its model, where
+ * it is served when not by its program's own API, and the program.
  */
 export function agentKindParts(agent: AgentRun): string[] {
   if (agent.kind === "print") {
-    return [agent.model, i18next.t("common:sessions.agents.print")].filter(
+    return [agent.model, agent.endpoint, printLabel(agent.program)].filter(
       (part): part is string => part !== undefined,
     );
   }
@@ -85,28 +106,6 @@ export function agentKindParts(agent: AgentRun): string[] {
     agent.type,
     agent.background ? i18next.t("common:sessions.agents.background") : undefined,
   ].filter((part): part is string => part !== undefined);
-}
-
-/** What the agent does now, or did: its tool, its permission wait, its tool count. */
-export function agentActivityLine(agent: AgentRun): string {
-  const tool = currentTool(agent.tools);
-  if (agent.state === "permissionPending") {
-    return tool
-      ? i18next.t("common:sessions.agents.asking_tool", { tool: toolLine(tool) })
-      : agentStateLabel(agent.state);
-  }
-  if (agent.end === undefined && tool) return toolLine(tool);
-  if (agent.kind === "print" && !agent.toolsTold) {
-    return agent.exitCode !== undefined && agent.exitCode !== 0
-      ? i18next.t("common:sessions.agents.exit_code", { code: agent.exitCode })
-      : "";
-  }
-  return agent.failedCount > 0
-    ? i18next.t("common:sessions.agents.tools_failed", {
-        count: agent.toolCount,
-        failed: agent.failedCount,
-      })
-    : i18next.t("common:sessions.agents.tools", { count: agent.toolCount });
 }
 
 /** How long `ms` is, to the second under ten minutes: "8s", "1m 52s", "14m", "2h 5m". */
@@ -134,44 +133,4 @@ export function AgentDuration({ agent, className }: { agent: AgentRun; className
   return label ? (
     <span className={cn("shrink-0 text-app-micro text-muted-foreground", className)}>{label}</span>
   ) : null;
-}
-
-/**
- * An agent as two lines: glyph, name and duration; then what it is and what
- * it does. A `claude -p` run is marked with a terminal glyph.
- */
-export function AgentLines({ agent, dim }: { agent: AgentRun; dim?: boolean }) {
-  // A permission wait is what matters; else what it is, in a word, and what it does.
-  const detail = (
-    agent.state === "permissionPending"
-      ? [agentActivityLine(agent)]
-      : [agentKindParts(agent)[0], agentActivityLine(agent)]
-  ).filter((part): part is string => part !== undefined && part !== "");
-  return (
-    <>
-      <span className="flex w-full min-w-0 items-center gap-1.5">
-        <AgentGlyph state={agent.state} />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-app-ui-sm",
-            dim ? "text-muted-foreground" : "text-foreground",
-          )}
-        >
-          {agentLabel(agent)}
-        </span>
-        <AgentDuration agent={agent} />
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-1 pl-4 font-mono text-app-micro text-muted-foreground">
-        {agent.kind === "print" && <SquareTerminal aria-hidden className="size-3 shrink-0" />}
-        <span
-          className={cn(
-            "truncate",
-            agent.state === "permissionPending" && "text-(--state-warning-fg)",
-          )}
-        >
-          {detail.join(" · ")}
-        </span>
-      </span>
-    </>
-  );
 }

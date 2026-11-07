@@ -1,14 +1,16 @@
 /**
  * Tag flyout for GitMoreMenu plus its two nested remote-picker submenus.
  * Tag entries route to either the existing picker dialog or, when multiple
- * remotes are configured, into a second-level remote chooser that becomes
- * the next click target.
+ * remotes are configured, into a second-level remote chooser.
  */
-import { ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { useSubmenuPlacement } from "../../../ui/use-submenu-placement";
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "../../../ui/dropdown-menu";
 import {
   buildGitTagMenuModel,
   type GitTagMenuActionHandlers,
@@ -18,22 +20,17 @@ import {
   resolveGitPushTagsAction,
   runGitTagMenuAction,
 } from "../utils/more-menu-model";
-import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 
 export function TagSubmenu({
-  open,
   disabled,
   hasHead,
   remotes,
-  onOpenChange,
   onOpenTags,
   onPushTags,
 }: {
-  open: boolean;
   disabled?: boolean;
   hasHead: boolean;
   remotes: readonly string[];
-  onOpenChange: (open: boolean) => void;
   onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
   onPushTags: (remote: string) => void;
 }) {
@@ -41,21 +38,7 @@ export function TagSubmenu({
   const model = buildGitTagMenuModel({ disabled, hasHead, remotes });
   const deleteRemoteTagAction = resolveGitDeleteRemoteTagAction({ disabled, hasHead, remotes });
   const pushTagsAction = resolveGitPushTagsAction({ disabled, hasHead, remotes });
-  // Mirror the top-level rule: only one Tag-level remote picker open at a time.
-  const [openL2, setOpenL2] = useState<"delete-remote" | "push-tags" | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
   const tagHandlers: GitTagMenuActionHandlers = { onOpenTags };
-  const handleL2OpenChange = useCallback(
-    (kind: "delete-remote" | "push-tags") => (next: boolean) => {
-      setOpenL2(next ? kind : (prev) => (prev === kind ? null : prev));
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!open) setOpenL2(null);
-  }, [open]);
 
   function select(id: GitTagMenuItemId): void {
     if (id === "delete-remote" && deleteRemoteTagAction.kind === "open-picker") {
@@ -70,171 +53,64 @@ export function TagSubmenu({
   }
 
   return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        role="menuitem"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={disabled}
-        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onOpenChange(!open)}
-      >
-        <span>{t("git.moreMenu.tag.label")}</span>
-        <ChevronRight className="size-3.5" aria-hidden="true" />
-      </button>
-      {open
-        ? createPortal(
-            <div
-              ref={panelRef}
-              role="menu"
-              data-popover-root={PORTAL_MARKER}
-              style={style}
-              className="floating-panel z-50 max-h-[40vh] min-w-[188px] overflow-y-auto p-1"
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={disabled}>
+        {t("git.moreMenu.tag.label")}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {model.map((item) =>
+          item.kind === "separator" ? (
+            <DropdownMenuSeparator key={item.id} />
+          ) : item.id === "delete-remote" && deleteRemoteTagAction.kind === "choose-remote" ? (
+            <RemoteChooser
+              key={item.id}
+              label={t("git.moreMenu.tag.deleteRemote")}
+              remotes={deleteRemoteTagAction.remotes}
+              onPick={(remote) => onOpenTags("delete-remote", remote)}
+            />
+          ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
+            <RemoteChooser
+              key={item.id}
+              label={t("git.moreMenu.tag.pushTags")}
+              remotes={pushTagsAction.remotes}
+              onPick={onPushTags}
+            />
+          ) : (
+            <DropdownMenuItem
+              key={item.id}
+              disabled={item.disabled}
+              tooltip={item.title}
+              onSelect={() => select(item.id)}
             >
-              {model.map((item) =>
-                item.kind === "separator" ? (
-                  <MenuSeparator key={item.id} />
-                ) : item.id === "delete-remote" &&
-                  deleteRemoteTagAction.kind === "choose-remote" ? (
-                  <DeleteRemoteTagRemoteSubmenu
-                    key={item.id}
-                    open={openL2 === "delete-remote"}
-                    remotes={deleteRemoteTagAction.remotes}
-                    onOpenChange={handleL2OpenChange("delete-remote")}
-                    onOpenTags={onOpenTags}
-                  />
-                ) : item.id === "push-tags" && pushTagsAction.kind === "choose-remote" ? (
-                  <PushTagsRemoteSubmenu
-                    key={item.id}
-                    open={openL2 === "push-tags"}
-                    remotes={pushTagsAction.remotes}
-                    onOpenChange={handleL2OpenChange("push-tags")}
-                    onPushTags={onPushTags}
-                  />
-                ) : (
-                  <MenuButton
-                    key={item.id}
-                    label={item.label}
-                    disabled={item.disabled}
-                    title={item.title}
-                    onClick={() => select(item.id)}
-                  />
-                ),
-              )}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
+              {item.label}
+            </DropdownMenuItem>
+          ),
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
-/**
- * Renders the Delete Remote Tag multi-remote chooser nested under Tag.
- */
-function DeleteRemoteTagRemoteSubmenu({
-  open,
+/** A Tag entry that, with several remotes, asks which one in a submenu. */
+function RemoteChooser({
+  label,
   remotes,
-  onOpenChange,
-  onOpenTags,
+  onPick,
 }: {
-  open: boolean;
+  label: string;
   remotes: readonly string[];
-  onOpenChange: (open: boolean) => void;
-  onOpenTags: (mode: GitTagPickerMenuMode, remote?: string) => void;
+  onPick: (remote: string) => void;
 }) {
-  const { t } = useTranslation("files");
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
-
   return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        role="menuitem"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onOpenChange(!open)}
-      >
-        <span>{t("git.moreMenu.tag.deleteRemote")}</span>
-        <ChevronRight className="size-3.5" aria-hidden="true" />
-      </button>
-      {open
-        ? createPortal(
-            <div
-              ref={panelRef}
-              role="menu"
-              data-popover-root={PORTAL_MARKER}
-              style={style}
-              className="floating-panel z-50 max-h-[40vh] min-w-[152px] overflow-y-auto p-1"
-            >
-              {remotes.map((remote) => (
-                <MenuButton
-                  key={remote}
-                  label={remote}
-                  onClick={() => onOpenTags("delete-remote", remote)}
-                />
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
-  );
-}
-
-/**
- * Renders the Push Tags multi-remote chooser nested under the Tag flyout.
- */
-function PushTagsRemoteSubmenu({
-  open,
-  remotes,
-  onOpenChange,
-  onPushTags,
-}: {
-  open: boolean;
-  remotes: readonly string[];
-  onOpenChange: (open: boolean) => void;
-  onPushTags: (remote: string) => void;
-}) {
-  const { t } = useTranslation("files");
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const { panelRef, style } = useSubmenuPlacement(open, triggerRef);
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        type="button"
-        role="menuitem"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onOpenChange(!open)}
-      >
-        <span>{t("git.moreMenu.tag.pushTags")}</span>
-        <ChevronRight className="size-3.5" aria-hidden="true" />
-      </button>
-      {open
-        ? createPortal(
-            <div
-              ref={panelRef}
-              role="menu"
-              data-popover-root={PORTAL_MARKER}
-              style={style}
-              className="floating-panel z-50 max-h-[40vh] min-w-[152px] overflow-y-auto p-1"
-            >
-              {remotes.map((remote) => (
-                <MenuButton key={remote} label={remote} onClick={() => onPushTags(remote)} />
-              ))}
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {remotes.map((remote) => (
+          <DropdownMenuItem key={remote} onSelect={() => onPick(remote)}>
+            {remote}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

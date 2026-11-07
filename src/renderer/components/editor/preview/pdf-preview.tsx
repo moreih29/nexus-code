@@ -4,10 +4,11 @@
 // through the app's window.open policy). It zooms by the toolbar's steps, by
 // cmd/ctrl + wheel, or to the panel's width, which it opens at.
 //
-// pdf.js is loaded with the first PDF, not with the app. The file's bytes
-// come whole over fs.readBinary, for local and SSH workspaces alike, within
-// the readable file size limit. Scripts in the file do not run: the viewer
-// is given no scripting. A file changed on disk loads again at the same zoom
+// pdf.js is loaded with the first PDF, not with the app. The file is read
+// over fs.readRange a part at a time, as pdf.js asks for them, for local and
+// SSH workspaces alike: its first pages show before the rest is read, and a
+// file of any size opens. Scripts in the file do not run: the viewer is
+// given no scripting. A file changed on disk loads again at the same zoom
 // and place.
 //
 // Find (⌘F) is pdf.js's own: it goes through the text of every page, drawn
@@ -15,10 +16,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
+import { READ_RANGE_MAX_BYTES } from "../../../../shared/fs/defaults";
 import { FIND_COLORS } from "../../../services/editor/preview/find/dom-finder";
 import { nextZoomStep } from "../../../services/editor/preview/pdf";
-import { readWorkspaceBinary } from "../../../services/editor/preview/read-binary";
+import { type FilePart, readWorkspaceRange } from "../../../services/editor/preview/read-range";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
 import { type FindResult, usePreviewFinder } from "./preview-find";
@@ -100,7 +101,7 @@ export interface PdfControls {
 type Status =
   | { kind: "loading" }
   | { kind: "ready" }
-  | { kind: "failed" | "too_large" | "password" | "outside" | "no-workspace" };
+  | { kind: "failed" | "password" | "outside" | "no-workspace" };
 
 interface PdfPreviewProps {
   workspaceId: string;
@@ -187,10 +188,10 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
     /** Whether the viewer took the document, which it then destroys when done. */
     let shown = false;
     void (async () => {
-      const read = await readWorkspaceBinary(workspaceId, relPath);
+      const head = await readWorkspaceRange(workspaceId, relPath, 0, READ_RANGE_MAX_BYTES);
       if (cancelled) return;
-      if (read.kind !== "ok") {
-        setStatus({ kind: read.kind });
+      if (!head) {
+        setStatus({ kind: "failed" });
         return;
       }
       const { pdfjs, lib } = await loadPdfJs();
@@ -201,10 +202,25 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
         reportRef.current(result),
       );
       const { viewer, links } = viewerRef.current;
-      task = pdfjs.getDocument({
-        data: read.bytes,
-        enableXfa: false,
-      });
+      // A part that cannot be read, as of a file changed or gone since,
+      // fails the document; a change loads it again.
+      const failed = () => {
+        if (!cancelled) setStatus({ kind: "failed" });
+      };
+      task = pdfjs.getDocument(
+        head.bytes.length >= head.size
+          ? { data: head.bytes, enableXfa: false }
+          : {
+              range: rangeTransport(pdfjs, head, failed, (begin, end) =>
+                readWorkspaceRange(workspaceId, relPath, begin, end - begin, head.mtime),
+              ),
+              rangeChunkSize: PDF_CHUNK_BYTES,
+              // Only the parts the pages shown need are read.
+              disableAutoFetch: true,
+              disableStream: true,
+              enableXfa: false,
+            },
+      );
       try {
         const doc = await task.promise;
         if (cancelled) {
@@ -317,6 +333,29 @@ function PdfDocument({ workspaceId, relPath, onControls }: PdfDocumentProps) {
   );
 }
 
+/**
+ * How much pdf.js asks for at a time, past the first READ_RANGE_MAX_BYTES,
+ * which it divides.
+ */
+const PDF_CHUNK_BYTES = 256 * 1024;
+
+/** A range transport that reads the parts pdf.js asks for with `read`. */
+function rangeTransport(
+  pdfjs: PdfJs,
+  head: FilePart,
+  onFailed: () => void,
+  read: (begin: number, end: number) => Promise<FilePart | null>,
+): InstanceType<PdfJs["PDFDataRangeTransport"]> {
+  const transport = new pdfjs.PDFDataRangeTransport(head.size, head.bytes);
+  transport.requestDataRange = (begin, end) => {
+    void read(begin, end).then((part) => {
+      if (part) transport.onDataRange(begin, part.bytes);
+      else onFailed();
+    });
+  };
+  return transport;
+}
+
 function createViewer(
   lib: PdfViewerLib,
   container: HTMLDivElement,
@@ -356,14 +395,12 @@ function PdfStatus({ status }: { status: Status }) {
     return <div className="absolute inset-0" aria-busy />;
   }
   const title =
-    status.kind === "too_large"
-      ? t("pdfPreview.too_large", { maxMb: MAX_READABLE_FILE_SIZE / (1024 * 1024) })
-      : status.kind === "password"
-        ? t("pdfPreview.password")
-        : status.kind === "outside"
-          ? t("pdfPreview.outside_workspace")
-          : status.kind === "no-workspace"
-            ? t("imagePreview.workspace_not_found")
-            : t("pdfPreview.load_failed");
+    status.kind === "password"
+      ? t("pdfPreview.password")
+      : status.kind === "outside"
+        ? t("pdfPreview.outside_workspace")
+        : status.kind === "no-workspace"
+          ? t("imagePreview.workspace_not_found")
+          : t("pdfPreview.load_failed");
   return <EmptyState title={title} tone="status" className="absolute inset-0 min-h-0" />;
 }

@@ -16,7 +16,7 @@ import {
 import { useLanguageStore } from "@/state/stores/language";
 import { useNotificationsStore } from "@/state/stores/notifications";
 import { useSessionsViewStore } from "@/state/stores/sessions-view";
-import { DEFAULT_TASK_AGENT_COMMAND, useTerminalStore } from "@/state/stores/terminal";
+import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
@@ -24,6 +24,11 @@ import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/set
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../../../shared/i18n";
+import {
+  DEFAULT_TASK_AGENT,
+  TASK_AGENTS,
+  type TaskAgent,
+} from "../../../shared/sessions/task-agent";
 import { DEFAULT_SESSIONS_VIEW, SESSIONS_VIEWS } from "../../../shared/sessions/view";
 import { type AppState, ThemePreferenceSchema } from "../../../shared/types/app-state";
 import { type CliUiHandler, UiRequestError } from "./handler";
@@ -221,20 +226,20 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     reset: () => useTerminalStore.getState().setCursorStyle(undefined),
   },
   {
-    key: "terminal.taskAgentCommand",
-    summary: "What a new task's terminal runs, with the task's prompt after it",
-    type: "text",
-    maxLength: 1024,
+    key: "terminal.taskAgent",
+    summary: "What a new task opens: a Claude or Codex tab given its prompt, or a terminal",
+    type: "choice",
+    choices: TASK_AGENTS,
     get: () => {
-      const value = useTerminalStore.getState().taskAgentCommand;
-      return { value: value ?? DEFAULT_TASK_AGENT_COMMAND, changed: value !== undefined };
+      const value = useTerminalStore.getState().taskAgent;
+      return { value: value ?? DEFAULT_TASK_AGENT, changed: value !== undefined };
     },
-    set: (value) => useTerminalStore.getState().setTaskAgentCommand(String(value)),
-    reset: () => useTerminalStore.getState().setTaskAgentCommand(undefined),
+    set: (value) => useTerminalStore.getState().setTaskAgent(value as TaskAgent),
+    reset: () => useTerminalStore.getState().setTaskAgent(undefined),
   },
   {
     key: "sessions.defaultView",
-    summary: "The view a sessions tab opens in",
+    summary: "The view an agents tab opens in",
     type: "choice",
     choices: SESSIONS_VIEWS,
     get: () => {

@@ -15,29 +15,29 @@
  * Tooltips spell out the reason a disabled item is disabled so the user
  * knows what to do next without trial and error.
  *
- * All submenu flyout panels are rendered via React Portal (`document.body`)
- * with `position: fixed` coordinates so they escape any `overflow: hidden`
- * ancestor chain in the panel layout. Outside-click containment uses
- * `useDismissOnOutsideClickWithMarker` with the `data-popover-root="git-more"`
- * attribute so portal nodes are correctly included in the "inside" region.
- *
- * Each top-level flyout (Branch/Stash/Tag/Remotes/Autofetch) lives in its
- * own file under `./git-more-menu/` so this view stays focused on the
- * top-level menu, props plumbing, and open-state coordination.
+ * A Radix DropdownMenu (ui/dropdown-menu): its submenus open on hover or the
+ * arrow keys, one at a time, placed and kept inside the window by Radix.
+ * Each top-level submenu (Branch/Stash/Tag/Remotes/Autofetch) lives in its
+ * own file in this folder so this view stays focused on the top-level menu
+ * and props plumbing.
  */
 import { MoreHorizontal } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitAutofetchIntervalMin, RepoCapabilities } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
-import { useDismissOnOutsideClickWithMarker } from "../../../ui/use-dismiss-on-outside-click";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../../../ui/dropdown-menu";
+import type { GitTagPickerMenuMode } from "../utils/more-menu-model";
 import { AutofetchSubmenu } from "./autofetch-submenu";
 import { BranchSubmenu } from "./branch-submenu";
-import { MenuButton, MenuSeparator, PORTAL_MARKER } from "./menu-primitives";
 import { RemotesSubmenu } from "./remotes-submenu";
 import { StashSubmenu } from "./stash-submenu";
 import { TagSubmenu } from "./tag-submenu";
-import type { GitMoreL1Submenu, GitTagPickerMenuMode } from "../utils/more-menu-model";
 
 interface GitMoreMenuProps {
   disabled?: boolean;
@@ -107,35 +107,6 @@ export function GitMoreMenu({
   onSetAutofetchInterval,
 }: GitMoreMenuProps) {
   const { t } = useTranslation("files");
-  const [open, setOpen] = useState(false);
-  // Only one top-level submenu can be open at a time so clicking a sibling
-  // trigger swaps the open flyout instead of stacking two side-by-side.
-  const [openL1, setOpenL1] = useState<GitMoreL1Submenu | null>(null);
-  const [removeRemoteOpen, setRemoveRemoteOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => {
-    setOpen(false);
-    setOpenL1(null);
-    setRemoveRemoteOpen(false);
-  }, []);
-  const handleL1OpenChange = useCallback(
-    (kind: GitMoreL1Submenu) => (next: boolean) => {
-      setOpenL1(next ? kind : (prev) => (prev === kind ? null : prev));
-      // Closing the parent submenu naturally closes any nested L2 panel
-      // because TagSubmenu owns its own L2 state and resets on close.
-      if (!next) setRemoveRemoteOpen(false);
-    },
-    [],
-  );
-
-  // Use the marker-aware dismiss hook so portal panels (which live outside
-  // wrapperRef in the DOM) are treated as "inside" and do not trigger close.
-  useDismissOnOutsideClickWithMarker(wrapperRef, open, close, PORTAL_MARKER);
-
-  function run(action: () => void): void {
-    close();
-    action();
-  }
 
   const repoBusy = disabled || canInit || gitMissing;
   const remotes = capabilities?.remotes ?? [];
@@ -143,134 +114,106 @@ export function GitMoreMenu({
   const hasHead = capabilities?.hasHEAD ?? false;
   const stashCount = capabilities?.stashCount ?? 0;
 
-  // Disable reasons documented as tooltips so screen readers and hover
-  // surfaces explain the gating; an enabled action falls back to its label.
-  const fetchReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
-  const pullReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
-  const pushReason = hasRemote ? null : t("git.moreMenu.addRemoteFirst");
+  // Why fetch, pull and push are off without a remote: their tooltip.
+  const noRemoteReason = hasRemote ? undefined : t("git.moreMenu.addRemoteFirst");
 
   return (
-    <div className="relative" ref={wrapperRef}>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="size-7"
-        aria-label={t("git.panel.header.moreActions")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => {
-          if (open) {
-            close();
-          } else {
-            setOpen(true);
-          }
-        }}
-      >
-        <MoreHorizontal className="size-4" aria-hidden="true" />
-      </Button>
-      {open ? (
-        <div
-          role="menu"
-          className="absolute right-0 top-8 z-40 min-w-[188px] floating-panel p-1"
-          onKeyDown={(event) => {
-            if (event.key === "Escape") close();
-          }}
+    <DropdownMenuRoot>
+      <DropdownMenuTrigger>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-7"
+          aria-label={t("git.panel.header.moreActions")}
         >
-          <MenuButton label={t("git.moreMenu.refresh")} onClick={() => run(onRefresh)} disabled={disabled} />
-          {canInit ? (
-            <MenuButton
-              label={t("git.moreMenu.initRepo")}
-              onClick={() => run(onInit)}
-              disabled={disabled}
-            />
-          ) : null}
-          <MenuSeparator />
-          <MenuButton
-            label={t("git.moreMenu.fetch")}
-            onClick={() => run(onFetch)}
-            disabled={repoBusy || !hasRemote}
-            title={fetchReason ?? undefined}
-          />
-          <MenuButton
-            label={t("git.moreMenu.pull")}
-            onClick={() => run(onPull)}
-            disabled={repoBusy || !hasRemote}
-            title={pullReason ?? undefined}
-          />
-          <MenuButton
-            label={t("git.moreMenu.push")}
-            onClick={() => run(onPush)}
-            disabled={repoBusy || !hasRemote}
-            title={pushReason ?? undefined}
-          />
-          <MenuSeparator />
-          <MenuButton
-            label={t("git.moreMenu.checkoutTo")}
-            onClick={() => run(onSwitchBranch)}
-            disabled={repoBusy}
-          />
-          <BranchSubmenu
-            open={openL1 === "branch"}
-            disabled={repoBusy}
-            hasHead={hasHead}
-            onOpenChange={handleL1OpenChange("branch")}
-            onMergeBranch={() => run(onMergeBranch)}
-            onRebaseBranch={() => run(onRebaseBranch)}
-            onCreateBranch={() => run(onCreateBranch)}
-            onCreateBranchFrom={() => run(onCreateBranchFrom)}
-            onRenameBranch={() => run(onRenameBranch)}
-            onDeleteBranch={() => run(onDeleteBranch)}
-            onDeleteRemoteBranch={() => run(onDeleteRemoteBranch)}
-          />
-          <RemotesSubmenu
-            open={openL1 === "remote"}
-            removeOpen={removeRemoteOpen}
-            remotes={remotes}
-            disabled={repoBusy}
-            onOpenChange={handleL1OpenChange("remote")}
-            onRemoveOpenChange={setRemoveRemoteOpen}
-            onAddRemote={() => run(onAddRemote)}
-            onRemoveRemote={(remote) => run(() => onRemoveRemote(remote))}
-          />
-          <StashSubmenu
-            open={openL1 === "stash"}
-            disabled={repoBusy}
-            hasHead={hasHead}
-            stashCount={stashCount}
-            onOpenChange={handleL1OpenChange("stash")}
-            onStash={() => run(onStash)}
-            onStashPop={() => run(onStashPop)}
-            onOpenStashes={() => run(onOpenStashes)}
-            onDropStash={() => run(onDropStash)}
-          />
-          <TagSubmenu
-            open={openL1 === "tag"}
-            disabled={repoBusy}
-            hasHead={hasHead}
-            remotes={remotes}
-            onOpenChange={handleL1OpenChange("tag")}
-            onOpenTags={(mode, remote) => run(() => onOpenTags(mode, remote))}
-            onPushTags={(remote) => run(() => onPushTags(remote))}
-          />
-          <MenuSeparator />
-          <AutofetchSubmenu
-            open={openL1 === "autofetch"}
-            selected={autofetchIntervalMin}
-            lastFetchedAt={lastFetchedAt}
-            disabled={disabled}
-            onOpenChange={handleL1OpenChange("autofetch")}
-            onSelect={(intervalMin) => run(() => onSetAutofetchInterval(intervalMin))}
-          />
-          <MenuSeparator />
-          <MenuButton
-            label={t("git.moreMenu.discardAllChanges")}
-            onClick={() => run(onDiscardAll)}
-            disabled={repoBusy || !hasChanges}
-            destructive
-          />
-        </div>
-      ) : null}
-    </div>
+          <MoreHorizontal className="size-4" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={onRefresh} disabled={disabled}>
+          {t("git.moreMenu.refresh")}
+        </DropdownMenuItem>
+        {canInit ? (
+          <DropdownMenuItem onSelect={onInit} disabled={disabled}>
+            {t("git.moreMenu.initRepo")}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={onFetch}
+          disabled={repoBusy || !hasRemote}
+          tooltip={noRemoteReason}
+        >
+          {t("git.moreMenu.fetch")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={onPull}
+          disabled={repoBusy || !hasRemote}
+          tooltip={noRemoteReason}
+        >
+          {t("git.moreMenu.pull")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={onPush}
+          disabled={repoBusy || !hasRemote}
+          tooltip={noRemoteReason}
+        >
+          {t("git.moreMenu.push")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onSwitchBranch} disabled={repoBusy}>
+          {t("git.moreMenu.checkoutTo")}
+        </DropdownMenuItem>
+        <BranchSubmenu
+          disabled={repoBusy}
+          hasHead={hasHead}
+          onMergeBranch={onMergeBranch}
+          onRebaseBranch={onRebaseBranch}
+          onCreateBranch={onCreateBranch}
+          onCreateBranchFrom={onCreateBranchFrom}
+          onRenameBranch={onRenameBranch}
+          onDeleteBranch={onDeleteBranch}
+          onDeleteRemoteBranch={onDeleteRemoteBranch}
+        />
+        <RemotesSubmenu
+          remotes={remotes}
+          disabled={repoBusy}
+          onAddRemote={onAddRemote}
+          onRemoveRemote={onRemoveRemote}
+        />
+        <StashSubmenu
+          disabled={repoBusy}
+          hasHead={hasHead}
+          stashCount={stashCount}
+          onStash={onStash}
+          onStashPop={onStashPop}
+          onOpenStashes={onOpenStashes}
+          onDropStash={onDropStash}
+        />
+        <TagSubmenu
+          disabled={repoBusy}
+          hasHead={hasHead}
+          remotes={remotes}
+          onOpenTags={onOpenTags}
+          onPushTags={onPushTags}
+        />
+        <DropdownMenuSeparator />
+        <AutofetchSubmenu
+          selected={autofetchIntervalMin}
+          lastFetchedAt={lastFetchedAt}
+          disabled={disabled}
+          onSelect={onSetAutofetchInterval}
+        />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={onDiscardAll}
+          disabled={repoBusy || !hasChanges}
+          className="git-destructive-text"
+        >
+          {t("git.moreMenu.discardAllChanges")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenuRoot>
   );
 }

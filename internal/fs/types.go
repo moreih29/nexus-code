@@ -61,6 +61,13 @@ type ReadAbsoluteParams struct {
 	AbsolutePath string `json:"absolutePath"`
 }
 
+// ReadRangeParams — the range fs.readRange and fs.readAbsoluteRange read,
+// beside the path. Length is capped at MaxReadRangeLength.
+type ReadRangeParams struct {
+	Offset int64 `json:"offset"`
+	Length int64 `json:"length"`
+}
+
 // ReadBinaryResult is the wire shape for fs.readBinary. The "ok" variant
 // carries the file body as a base64 string so binary bytes survive the
 // JSON/NDJSON channel. Discriminated union with a "missing" variant on Kind,

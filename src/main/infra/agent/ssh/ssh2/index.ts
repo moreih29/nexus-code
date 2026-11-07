@@ -14,6 +14,7 @@
  */
 
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import type { Duplex } from "node:stream";
 import type { Client } from "ssh2";
 import { isWindows } from "../../../platform";
 import type { SshAuthPromptHandler } from "../auth-pty";
@@ -154,6 +155,42 @@ export function spawnSsh2Process(
   const process = start(own.client());
   process.once("close", () => own.dispose());
   return asChildProcess(process);
+}
+
+/** Opens channels to addresses as the SSH host sees them. */
+export interface Ssh2Forwarder {
+  /** A channel to `host:port` on the SSH host's side. */
+  open(host: string, port: number): Promise<Duplex>;
+  /** Closes the connection of its own, if it opened one. */
+  dispose(): void;
+}
+
+/**
+ * Forwards over the connection `controlPath` names, as `ssh -S <path> -L`
+ * would, or over a connection of its own (asking nothing, as BatchMode)
+ * without one.
+ */
+export function createSsh2Forwarder(
+  target: SshTarget,
+  controlPath: string | undefined,
+): Ssh2Forwarder {
+  const named = controlPath !== undefined ? shared.get(controlPath) : undefined;
+  const own = named === undefined ? new SharedConnection(target, null, {}) : null;
+  const connection = named ?? (own as SharedConnection);
+  return {
+    async open(host, port) {
+      const client = await connection.client();
+      return new Promise((resolve, reject) => {
+        client.forwardOut("127.0.0.1", 0, host, port, (error, stream) => {
+          if (error) reject(error);
+          else resolve(stream);
+        });
+      });
+    },
+    dispose() {
+      own?.dispose();
+    },
+  };
 }
 
 function asChildProcess(

@@ -109,9 +109,11 @@ describe("pickTargets", () => {
             folder: terminal("folder", "zsh ~/src/claude-proxy"),
             exited: terminal("exited", "codex"),
             notifier: terminal("notifier", "make"),
+            // A Claude tab takes messages, not a paste of keys.
+            tab: { ...terminal("tab", "Fix login"), type: "claude" } as Tab,
           },
         },
-        claudeByWorkspace: { [ROOT]: { hooks: claude("idle") } },
+        claudeByWorkspace: { [ROOT]: { hooks: claude("idle"), tab: claude("idle") } },
         activity: new Map([
           [`${ROOT}:codex`, activity("codex")],
           [`${ROOT}:folder`, activity("zsh")],

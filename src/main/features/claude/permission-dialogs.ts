@@ -82,6 +82,11 @@ export class PermissionDialogs {
     return this.close(key, (d) => d.agent === agent);
   }
 
+  /** The user answered every dialog the session showed, in the app. */
+  closeAll(key: string): boolean {
+    return this.close(key, () => true);
+  }
+
   /**
    * The state to show now that the last dialog closed, once: undefined while
    * one is still open, or when none was.

@@ -1,18 +1,17 @@
 /**
  * Scenario regression tests for history ref chip ordering, overflow, and actions.
  */
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { ReactElement, ReactNode } from "react";
 import * as React from "react";
+import {
+  RefChip,
+  RefChipList,
+  refChipDisplayKind,
+  sortRefsForDisplay,
+} from "../../../../../../src/renderer/components/files/git/history/ref-chip";
+import { Popover } from "../../../../../../src/renderer/components/ui/popover";
 import type { LogEntryRef } from "../../../../../../src/shared/git/types";
-
-mock.module("react-dom", () => ({
-  createPortal: (children: ReactNode) => children,
-}));
-
-const { RefChip, RefChipList, refChipDisplayKind, sortRefsForDisplay } = await import(
-  "../../../../../../src/renderer/components/files/git/history/ref-chip"
-);
 
 type EffectCallback = () => undefined | (() => void);
 
@@ -163,18 +162,6 @@ class RefChipListView {
   }
 }
 
-const originalDocument = (globalThis as { document?: unknown }).document;
-const originalWindow = (globalThis as { window?: unknown }).window;
-const originalNode = (globalThis as { Node?: unknown }).Node;
-
-beforeEach(() => {
-  installDomGlobals();
-});
-
-afterEach(() => {
-  restoreDomGlobals();
-});
-
 describe("RefChip sorting priority", () => {
   it("sorts a mixed decoration set as HEAD, current branch, local, remote, then tag", () => {
     const refs = [
@@ -282,12 +269,9 @@ describe("RefChipList overflow behavior", () => {
     expect(clickEvent.propagationStopped).toBe(true);
     const reopenedOverflow = buttonByLabel(view.root, "Show 2 more refs");
     expect(reopenedOverflow.props["aria-expanded"]).toBe(true);
-    expect(reopenedOverflow.props["aria-controls"]).toBeTruthy();
-    expect(getByRole(view.root, "menu").props["aria-label"]).toBe("More refs");
-    expect(getAllByRole(view.root, "menuitem").map((button) => button.textContent)).toEqual([
-      "origin/main",
-      "v1.0.0",
-    ]);
+    const popover = getByRole(view.root, "dialog");
+    expect(popover.props["aria-label"]).toBe("More refs");
+    expect(buttonTexts(popover)).toEqual(["origin/main", "v1.0.0"]);
   });
 
   it("renders no overflow trigger when all refs fit the visible count", () => {
@@ -295,7 +279,7 @@ describe("RefChipList overflow behavior", () => {
 
     expect(buttonTexts(view.root)).toEqual(["main", "v1.0.0"]);
     expect(queryButtonByLabel(view.root, /Show \d+ more refs/)).toBeNull();
-    expect(getAllByRole(view.root, "menu")).toHaveLength(0);
+    expect(getAllByRole(view.root, "dialog")).toHaveLength(0);
   });
 
   it("narrow density shows one visible ref and moves the rest behind +N", () => {
@@ -307,11 +291,7 @@ describe("RefChipList overflow behavior", () => {
 
     expect(buttonTexts(view.root)).toEqual(["HEAD", "+3"]);
     click(view, buttonByLabel(view.root, "Show 3 more refs"));
-    expect(getAllByRole(view.root, "menuitem").map((button) => button.textContent)).toEqual([
-      "main",
-      "origin/main",
-      "v1.0.0",
-    ]);
+    expect(buttonTexts(getByRole(view.root, "dialog"))).toEqual(["main", "origin/main", "v1.0.0"]);
   });
 
   it("adapts visible refs from history list breakpoints", () => {
@@ -353,7 +333,7 @@ describe("RefChipList overflow behavior", () => {
 
     expect(clickEvent.propagationStopped).toBe(true);
     expect(onRefChange).toHaveBeenCalledWith("origin/main");
-    expect(getAllByRole(view.root, "menu")).toHaveLength(0);
+    expect(getAllByRole(view.root, "dialog")).toHaveLength(0);
     expect(buttonByLabel(view.root, "Show 2 more refs").props["aria-expanded"]).toBe(false);
   });
 });
@@ -390,40 +370,6 @@ describe("RefChipList actions", () => {
     expect(onRefChange).not.toHaveBeenCalled();
   });
 });
-
-/** Installs the browser globals touched by RefChipList during portal/open logic. */
-function installDomGlobals(): void {
-  const body = new TestDomElement("body", {});
-  (globalThis as { Node?: unknown }).Node = TestDomElement;
-  (globalThis as { document?: unknown }).document = {
-    body,
-    addEventListener: () => {},
-    removeEventListener: () => {},
-  };
-  (globalThis as { window?: unknown }).window = {
-    innerWidth: 1024,
-    innerHeight: 768,
-  };
-}
-
-/** Restores globals so this file does not leak a fake DOM into nearby tests. */
-function restoreDomGlobals(): void {
-  if (originalDocument === undefined) {
-    delete (globalThis as { document?: unknown }).document;
-  } else {
-    (globalThis as { document?: unknown }).document = originalDocument;
-  }
-
-  // Use the setter (not delete) so the matchMedia-injecting window accessor
-  // installed by tests/setup.ts is not removed from globalThis.
-  (globalThis as Record<string, unknown>).window = originalWindow;
-
-  if (originalNode === undefined) {
-    delete (globalThis as { Node?: unknown }).Node;
-  } else {
-    (globalThis as { Node?: unknown }).Node = originalNode;
-  }
-}
 
 /** Builds a LogEntryRef fixture with Git's ref decoration shape. */
 function ref(name: string, kind: LogEntryRef["kind"], isHead = false): LogEntryRef {
@@ -470,6 +416,7 @@ function renderReactNode(node: ReactNode): TestNode[] {
 
   const { type, props } = node;
   if (type === React.Fragment) return renderReactNode(props.children as ReactNode);
+  if (type === Popover) return renderPopover(props as unknown as PopoverProps);
   if (typeof type === "function") return renderReactNode(type(props as never) as ReactNode);
   if (typeof type !== "string") return [];
 
@@ -477,6 +424,27 @@ function renderReactNode(node: ReactNode): TestNode[] {
   for (const child of renderReactNode(props.children as ReactNode)) element.append(child);
   attachRef(props.ref, element);
   return [element];
+}
+
+type PopoverProps = Parameters<typeof Popover>[0];
+
+/**
+ * Stands in for Radix's Popover, which needs a browser: its button toggles
+ * it, as Radix's trigger does, and the panel is there while it is open.
+ */
+function renderPopover(props: PopoverProps): TestNode[] {
+  const trigger = props.trigger as ReactElement<{ onClick?: (event: unknown) => void }>;
+  const toggling = React.cloneElement(trigger, {
+    "aria-expanded": props.open,
+    onClick: (event: unknown) => {
+      trigger.props.onClick?.(event);
+      props.onOpenChange(!props.open);
+    },
+  } as Record<string, unknown>);
+  const panel = props.open
+    ? React.createElement("div", { role: "dialog", "aria-label": props.label }, props.children)
+    : null;
+  return [...renderReactNode(toggling), ...renderReactNode(panel)];
 }
 
 /** Narrows arbitrary React nodes to element records. */

@@ -1,21 +1,24 @@
 /**
  * Asks the user whether an agent may change another workspace than its
- * terminal's own, for the nexus CLI (main/features/cli/consent). One prompt
- * at a time; more wait their turn. A prompt left unanswered is taken down
- * after its timeout and counts as turned down.
+ * terminal's own, or answer another session's permission request, for the
+ * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
+ * their turn. A prompt left unanswered is taken down after its timeout and
+ * counts as turned down.
  */
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
   readonly fromWorkspace: string;
   readonly fromTab: string;
+  /** Whether the agent manager asks: it is in no workspace of the user's. */
+  readonly fromManager: boolean;
   readonly toWorkspace: string;
   readonly change: CliChange;
   readonly timeoutMs: number;
@@ -56,6 +59,19 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
+  // An answer to a permission request is asked about each time.
+  const permission =
+    prompt?.change.kind === "permissionAllow" || prompt?.change.kind === "permissionDeny";
+  const description = !prompt
+    ? ""
+    : prompt.fromManager
+      ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
+      : t("agentCli.consent.description", {
+          tab: prompt.fromTab,
+          from: prompt.fromWorkspace,
+          to: prompt.toWorkspace,
+          action,
+        });
 
   return (
     <Dialog
@@ -64,21 +80,17 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         if (!open && active) settle(active, "deny");
       }}
       size="sm"
-      aria-describedby={undefined}
     >
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("agentCli.consent.title")}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {prompt
-          ? t("agentCli.consent.description", {
-              tab: prompt.fromTab,
-              from: prompt.fromWorkspace,
-              to: prompt.toWorkspace,
-              action,
-            })
-          : ""}
-      </RadixDialog.Description>
+      <DialogHeader
+        title={t(permission ? "agentCli.consent.permission_title" : "agentCli.consent.title")}
+        description={description}
+      />
+      {prompt?.change.body && (
+        // What an answer lets run, whole: its first line can hide the rest.
+        <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
+          {prompt.change.body}
+        </pre>
+      )}
       <p className="mt-2 text-app-ui-sm text-muted-foreground">
         {t("agentCli.consent.timeout", {
           seconds: Math.round((prompt?.timeoutMs ?? 0) / 1000),
@@ -93,9 +105,11 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
-          {t("agentCli.consent.session")}
-        </Button>
+        {!permission && (
+          <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
+            {t("agentCli.consent.session")}
+          </Button>
+        )}
         <Button variant="default" size="sm" onClick={() => active && settle(active, "once")}>
           {t("agentCli.consent.once")}
         </Button>

@@ -1,20 +1,21 @@
 /**
- * Git file/group context-menu primitives for the Source Control panel.
+ * Git file/group context menus for the Source Control panel.
  *
- * Menus intentionally mirror the lightweight GitMoreMenu popover pattern:
- * component-local open state, outside-click dismissal, Escape dismissal, and
- * data-driven item builders that tests can assert without a DOM menu library.
+ * A row keeps where its menu is open; the menu is the shared
+ * DropdownMenuAtPoint. Its items come from builders that tests assert
+ * without a DOM.
  */
-import { useCallback, useEffect, useRef } from "react";
 import i18next from "i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { revealInOSLabel } from "../../../../utils/reveal-label";
-import { useDismissOnOutsideClick } from "../../../ui/use-dismiss-on-outside-click";
+import {
+  DropdownMenuAtPoint,
+  DropdownMenuItem,
+  type DropdownMenuPoint,
+  DropdownMenuSeparator,
+} from "../../../ui/dropdown-menu";
 
-export interface GitContextMenuPoint {
-  readonly x: number;
-  readonly y: number;
-}
+export type GitContextMenuPoint = DropdownMenuPoint;
 
 interface GitMenuItemSpec {
   readonly kind: "item";
@@ -218,103 +219,32 @@ export function pointFromMouseEvent(event: React.MouseEvent): GitContextMenuPoin
   return { x: event.clientX, y: event.clientY };
 }
 
-/** Converts a kebab button rect into a fixed-position menu anchor point. */
+/** The point under a kebab button that its menu's right edge lines up with. */
 export function pointFromButtonRect(rect: DOMRect): GitContextMenuPoint {
-  return { x: rect.right - 188, y: rect.bottom + 2 };
+  return { x: rect.right, y: rect.bottom + 2, align: "end" };
 }
 
-/** Renders the shared fixed-position popover and wires dismiss behavior. */
+/** Renders the menu at its point. */
 function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverProps) {
-  const open = point !== null;
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const close = useCallback(() => onClose(), [onClose]);
-  useDismissOnOutsideClick(wrapperRef, open, close);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
-
-  if (!point) return null;
-
   return (
-    <div
-      ref={wrapperRef}
-      role="menu"
-      className="fixed z-50 min-w-[188px] floating-panel p-1"
-      style={popoverPositionStyle(point)}
-      onContextMenu={(event) => event.preventDefault()}
-    >
+    <DropdownMenuAtPoint point={point} onClose={onClose}>
       {items.map((item, index) =>
         item.kind === "separator" ? (
-          <MenuSeparator key={`separator-${previousMenuLabel(items, index) ?? "leading"}`} />
+          <DropdownMenuSeparator key={`separator-${previousMenuLabel(items, index) ?? "leading"}`} />
         ) : (
-          <MenuButton
+          <DropdownMenuItem
             key={item.label}
-            label={item.label}
             disabled={item.disabled}
-            title={item.title}
-            destructive={item.destructive}
-            onClick={() => {
-              if (item.disabled) return;
-              onClose();
-              item.onSelect();
-            }}
-          />
+            tooltip={item.title}
+            className={item.destructive ? "git-destructive-text" : undefined}
+            onSelect={item.onSelect}
+          >
+            {item.label}
+          </DropdownMenuItem>
         ),
       )}
-    </div>
+    </DropdownMenuAtPoint>
   );
-}
-
-/** Keeps the context menu inside the viewport when dimensions are available. */
-function popoverPositionStyle(point: GitContextMenuPoint): React.CSSProperties {
-  if (typeof window === "undefined") return { left: point.x, top: point.y };
-  return {
-    left: Math.max(4, Math.min(point.x, window.innerWidth - 196)),
-    top: Math.max(4, Math.min(point.y, window.innerHeight - 280)),
-  };
-}
-
-/** Renders one context-menu button using the GitMoreMenu visual treatment. */
-function MenuButton({
-  label,
-  disabled,
-  title,
-  destructive,
-  onClick,
-}: {
-  label: string;
-  disabled?: boolean;
-  title?: string;
-  destructive?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      title={title}
-      className={
-        destructive
-          ? "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm git-destructive-text hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-          : "flex w-full rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
-      }
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  );
-}
-
-/** Renders the separator shared by file and group context menus. */
-function MenuSeparator() {
-  return <hr className="my-1 h-px border-0 bg-border" />;
 }
 
 /** Removes leading/trailing/consecutive separators from generated menus. */

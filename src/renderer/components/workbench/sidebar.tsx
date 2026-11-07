@@ -2,10 +2,8 @@ import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
-import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
 import {
@@ -24,6 +22,7 @@ import {
   formatSshSecondaryLine,
   formatSshTooltip,
 } from "../workspace/add-workspace/ssh-helpers";
+import { IconButton } from "../ui/icon-button";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 import { RowDropSlot } from "./dnd/row-drop-slot";
@@ -46,6 +45,7 @@ import { useGitStore } from "../../state/stores/git/index";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import type { EstimatedGlyph } from "../../services/sessions/model";
 import { useEstimatedWorkspaceGlyph } from "../../services/sessions/use-estimated";
+import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -160,9 +160,11 @@ function WorkspaceRow({
       ? aggregate.status
       : null;
 
-  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태 — 더 강하면 글리프에 대신 보인다.
+  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태와 Codex 탭의 상태 —
+  // 더 강하면 글리프에 대신 보인다.
   const estimatedStatus = useEstimatedWorkspaceGlyph([ws.id, ...taskIds]);
-  const shownGlyph = cardGlyph(glyphStatus, estimatedStatus);
+  const codexStatus = useCodexWorkspaceStatus([ws.id, ...taskIds]);
+  const shownGlyph = cardGlyph(glyphStatus, estimatedStatus, codexStatus);
 
   // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message 첫 줄을
   // 50자로 컷한다. 멀티라인 마크다운/코드블록이 와도 첫 줄만, 50자 초과 시
@@ -368,6 +370,7 @@ function WorkspaceRow({
                       <WorkspaceStatusGlyph
                         status={shownGlyph.status}
                         estimated={shownGlyph.estimated}
+                        codex={shownGlyph.codex}
                       />
                     )}
                     {previewMessage && (
@@ -389,23 +392,21 @@ function WorkspaceRow({
           />
 
           {/* Remove button — hover 시 fade-in. */}
-          <button
-            type="button"
+          <IconButton
+            label={t("sidebar.remove_workspace", { name: ws.name })}
+            size="xs"
             draggable={false}
             onClick={(e) => {
               e.stopPropagation();
               onRemoveWorkspace(ws.id);
             }}
-            aria-label={t("sidebar.remove_workspace", { name: ws.name })}
             className={cn(
-              "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-              "size-5 rounded-(--radius-control)",
-              "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
+              "absolute top-1/2 -translate-y-1/2 right-2",
+              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
             )}
           >
             <X className="size-3" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -562,68 +563,66 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
-          <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
-            {/* Pinned group — rendered first; always float to the top of the list.
-                For N rows, pinnedSlots has N+1 entries; the indices align as
-                [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
-            {showLabels && pinnedGroup.length > 0 && (
-              <div className="text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1">
-                {t("sidebar.pinned")}
-              </div>
-            )}
-            {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
-            {pinnedGroup.map((ws, i) => (
-              <React.Fragment key={ws.id}>
-                <WorkspaceRow
-                  ws={ws}
-                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
-                  isActive={ws.id === activeRowId}
-                  isDragSource={dragSourceId === ws.id}
-                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
-                  connectionStatus={
-                    ws.location.kind !== "local"
-                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
-                      : "idle"
-                  }
-                  onSelectWorkspace={onSelectWorkspace}
-                  onTogglePin={togglePin}
-                  onRemoveWorkspace={onRemoveWorkspace}
-                />
-                {renderSlot(pinnedSlots[i + 1])}
-              </React.Fragment>
-            ))}
+        <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
+          {/* Pinned group — rendered first; always float to the top of the list.
+              For N rows, pinnedSlots has N+1 entries; the indices align as
+              [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
+          {showLabels && pinnedGroup.length > 0 && (
+            <div className="text-app-label text-muted-foreground uppercase px-4 py-1">
+              {t("sidebar.pinned")}
+            </div>
+          )}
+          {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
+          {pinnedGroup.map((ws, i) => (
+            <React.Fragment key={ws.id}>
+              <WorkspaceRow
+                ws={ws}
+                taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                isActive={ws.id === activeRowId}
+                isDragSource={dragSourceId === ws.id}
+                rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                connectionStatus={
+                  ws.location.kind !== "local"
+                    ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                    : "idle"
+                }
+                onSelectWorkspace={onSelectWorkspace}
+                onTogglePin={togglePin}
+                onRemoveWorkspace={onRemoveWorkspace}
+              />
+              {renderSlot(pinnedSlots[i + 1])}
+            </React.Fragment>
+          ))}
 
-            {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
-            {hasBothGroups && (
-              <div className={cn("mt-2", showLabels && "text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1")}>
-                {showLabels ? t("sidebar.recent") : null}
-              </div>
-            )}
+          {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
+          {hasBothGroups && (
+            <div className={cn("mt-2", showLabels && "text-app-label text-muted-foreground uppercase px-4 py-1")}>
+              {showLabels ? t("sidebar.recent") : null}
+            </div>
+          )}
 
-            {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
-            {unpinnedGroup.map((ws, i) => (
-              <React.Fragment key={ws.id}>
-                <WorkspaceRow
-                  ws={ws}
-                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
-                  isActive={ws.id === activeRowId}
-                  isDragSource={dragSourceId === ws.id}
-                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
-                  connectionStatus={
-                    ws.location.kind !== "local"
-                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
-                      : "idle"
-                  }
-                  onSelectWorkspace={onSelectWorkspace}
-                  onTogglePin={togglePin}
-                  onRemoveWorkspace={onRemoveWorkspace}
-                />
-                {renderSlot(unpinnedSlots[i + 1])}
-              </React.Fragment>
-            ))}
-          </div>
-        </RadixTooltip.Provider>
+          {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
+          {unpinnedGroup.map((ws, i) => (
+            <React.Fragment key={ws.id}>
+              <WorkspaceRow
+                ws={ws}
+                taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                isActive={ws.id === activeRowId}
+                isDragSource={dragSourceId === ws.id}
+                rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                connectionStatus={
+                  ws.location.kind !== "local"
+                    ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                    : "idle"
+                }
+                onSelectWorkspace={onSelectWorkspace}
+                onTogglePin={togglePin}
+                onRemoveWorkspace={onRemoveWorkspace}
+              />
+              {renderSlot(unpinnedSlots[i + 1])}
+            </React.Fragment>
+          ))}
+        </div>
 
         <div className="py-2">
           <button
@@ -734,15 +733,26 @@ function groupTaskIds(workspaces: readonly WorkspaceMeta[]): Map<string, string[
 }
 
 /**
- * The glyph a workspace card shows: Claude's state, or the state Codex and
- * other agents' output tells when that is stronger, marked as estimated.
+ * The glyph a workspace card shows: Claude's state, or a Codex tab's when
+ * that is stronger, or the state Codex and other agents' output tells in a
+ * terminal when that is stronger still, marked as estimated.
  */
 export function cardGlyph(
   claude: ClaudeStatus | null,
   estimated: EstimatedGlyph | null,
-): { status: ClaudeStatus; estimated: boolean } | null {
-  if (estimated === null || (claude !== null && STATUS_PRIORITY[claude] >= STATUS_PRIORITY[estimated])) {
-    return claude === null ? null : { status: claude, estimated: false };
+  codex: ClaudeStatus | null = null,
+): { status: ClaudeStatus; estimated: boolean; codex?: true } | null {
+  const told =
+    codex !== null && (claude === null || STATUS_PRIORITY[codex] > STATUS_PRIORITY[claude])
+      ? { status: codex, estimated: false, codex: true as const }
+      : claude === null
+        ? null
+        : { status: claude, estimated: false };
+  if (
+    estimated === null ||
+    (told !== null && STATUS_PRIORITY[told.status] >= STATUS_PRIORITY[estimated])
+  ) {
+    return told;
   }
   return { status: estimated, estimated: true };
 }

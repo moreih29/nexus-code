@@ -13,6 +13,7 @@
  */
 
 import { useEffect } from "react";
+import { registerAgentViewCommands } from "../commands/domains/agent-view";
 import { registerBrowserCommands } from "../commands/domains/browser";
 import { registerFileCommands } from "../commands/domains/file";
 import { registerGroupCommands } from "../commands/domains/group";
@@ -21,6 +22,7 @@ import { registerPathCommands } from "../commands/domains/path";
 import { registerSettingsCommands } from "../commands/domains/settings";
 import { registerTabCommands } from "../commands/domains/tab";
 import { registerTerminalCommands } from "../commands/domains/terminal";
+import { registerUpdatesCommands } from "../commands/domains/updates";
 import { registerWorkbenchCommands } from "../commands/domains/workbench";
 import { registerWorkspaceCommands } from "../commands/domains/workspace";
 import { handleGlobalKeyDown } from "./dispatcher";
@@ -36,8 +38,10 @@ export function useGlobalKeybindings(): void {
       ...registerTerminalCommands(),
       ...registerWorkspaceCommands(),
       ...registerSettingsCommands(),
+      ...registerUpdatesCommands(),
       ...registerWorkbenchCommands(),
       ...registerBrowserCommands(),
+      ...registerAgentViewCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

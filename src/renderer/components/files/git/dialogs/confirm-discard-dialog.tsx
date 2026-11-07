@@ -7,6 +7,8 @@ import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 
 export interface DiscardConfirmRequest {
   title: string;
@@ -30,6 +32,7 @@ export function ConfirmDiscardDialog({
   onConfirm,
 }: ConfirmDiscardDialogProps) {
   const { t } = useTranslation("files");
+  const returnFocus = useDialogFocusReturn(request !== null);
   return (
     <RadixAlertDialog.Root
       open={request !== null}
@@ -39,13 +42,15 @@ export function ConfirmDiscardDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("sm", true, "flex flex-col")}>
-          <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
-            {request?.title ?? t("git.discard.dialogTitle")}
-          </RadixAlertDialog.Title>
-          <RadixAlertDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            {request?.description ?? t("git.discard.dialogDescription")}
-          </RadixAlertDialog.Description>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("sm", true, "flex flex-col")}
+          onCloseAutoFocus={returnFocus}
+        >
+          <DialogHeader
+            alert
+            title={request?.title ?? t("git.discard.dialogTitle")}
+            description={request?.description ?? t("git.discard.dialogDescription")}
+          />
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>

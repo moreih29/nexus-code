@@ -60,6 +60,7 @@ export function buildFileTreeMenuItems(
     items.push({
       kind: "item",
       label: i18next.t("files:fileTree.menu.delete"),
+      shortcut: SHORTCUTS.fileDelete || undefined,
       onSelect: actions.delete,
     });
     return items;
@@ -133,6 +134,7 @@ export function buildFileTreeMenuItems(
     items.push({
       kind: "item",
       label: i18next.t("files:fileTree.menu.delete"),
+      shortcut: SHORTCUTS.fileDelete || undefined,
       onSelect: actions.delete,
     });
     items.push({ kind: "separator" });

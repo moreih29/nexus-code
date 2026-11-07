@@ -19,7 +19,7 @@ NexusCode는 사용자의 개인정보를 수집하지 않습니다. 앱에는 �
 
 ## 업데이트 확인
 
-Microsoft Store에서 설치한 앱은 Store가 업데이트하며, 앱이 따로 새 버전을 확인하지 않습니다. macOS와 Linux 빌드는 GitHub Releases(github.com)에서 새 버전 정보를 받아 옵니다. 이때 GitHub은 일반 웹 요청처럼 IP 주소 같은 접속 정보를 볼 수 있습니다.
+Microsoft Store에서 설치한 앱은 Store가 업데이트하며, 앱이 따로 새 버전을 확인하지 않습니다. macOS와 Linux 빌드는 앱을 켤 때와 켜져 있는 동안 4시간마다 GitHub Releases(github.com)에서 새 버전 정보를 받아 옵니다. 이때 GitHub은 일반 웹 요청처럼 IP 주소 같은 접속 정보를 볼 수 있습니다. **설정 → 정보** 에서 자동 확인을 끌 수 있습니다. 릴리스 노트를 열 때도 같은 곳에서 최근 릴리스 목록을 받아 옵니다.
 
 ## 다른 서비스
 
@@ -54,7 +54,7 @@ App state such as settings, the workspace list and open tabs is stored only in t
 
 ## Update checks
 
-The Microsoft Store updates the app installed from it; that app does not check for new versions itself. The macOS and Linux builds read new version information from GitHub Releases (github.com), which, as with any web request, can see connection details such as your IP address.
+The Microsoft Store updates the app installed from it; that app does not check for new versions itself. The macOS and Linux builds read new version information from GitHub Releases (github.com), which, as with any web request, can see connection details such as your IP address. Opening the release notes reads the recent releases from the same place.
 
 ## Other services
 

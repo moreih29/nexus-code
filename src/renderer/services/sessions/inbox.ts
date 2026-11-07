@@ -14,9 +14,9 @@ export interface InboxInput extends SessionsInput {
   /** workspaceId → tabId → when the user last looked at the terminal. */
   readonly seenByWorkspace: Readonly<Record<string, Readonly<Record<string, number>>>>;
   /**
-   * The terminal in front of the user, by session key: the active one while
-   * the app window has focus, as main counts it for notifications; none
-   * while the user is in another app.
+   * The tab in front of the user, by session key: the active one while the
+   * app window has focus, as main counts it for notifications; none while
+   * the user is in another app.
    */
   readonly viewing: string | null;
 }

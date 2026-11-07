@@ -95,6 +95,7 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () =
     expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
     expect(result.NEXUS_AGENT_BIN).toBe("/foo/agent");
     expect(result.NEXUS_AGENT_PRINT_RUN).toBe("1");
+    expect(result.NEXUS_AGENT_EXEC_RUN).toBe("1");
   });
 
   test("acceptance #7: binDir만 제공(agentBin optional) — NEXUS_AGENT_BIN 미주입", () => {
@@ -106,6 +107,7 @@ describe("injectHarnessTerminalEnv — NEXUS_* 주입 (acceptance #6, #7)", () =
     expect(result.NEXUS_WRAPPER_SELF_DIR).toBe("/foo");
     expect(result.NEXUS_AGENT_BIN).toBeUndefined();
     expect(result.NEXUS_AGENT_PRINT_RUN).toBeUndefined();
+    expect(result.NEXUS_AGENT_EXEC_RUN).toBeUndefined();
   });
 
   test("NEXUS_IN_APP=1 항상 주입 (context 있을 때)", () => {

@@ -1,6 +1,6 @@
 /** nexus browser list/open/goto/back/forward/reload. */
 import type { CliBrowserAction, CliTabInfo } from "../../../../shared/cli/ui";
-import { portUrl } from "../../../../shared/pty/ports";
+import { loopbackPort, portUrl } from "../../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { exactArgs } from "../args";
 import type { PageInfo } from "../browser/driver";
@@ -16,12 +16,13 @@ import {
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
 import { BACKGROUND_FLAG, WORKSPACE_FLAG } from "./flags";
-import { describePorts, workspacePorts } from "./port";
+import { describePorts, forwardFailed, workspacePorts } from "./port";
 import { workspaceTabs } from "./terminal";
 
 const BARE_PATH_DETAILS =
   "A bare path such as /login is on the port the workspace's terminals listen on (nexus\n" +
-  "port list), when there is just one; a file is file:///path.";
+  "port list), when there is just one; a file is file:///path. In an SSH workspace a\n" +
+  "local address is the host's, opened here through its forward (nexus port forward).";
 
 export const TAB_FLAG = {
   type: "string",
@@ -88,7 +89,7 @@ const browserOpen: CliCommand = {
     await mayChange(ctx, workspace, { kind: "browserOpen", detail: url });
     const opened = await ctx.services.ui("browser.open", {
       workspaceId: workspace.id,
-      url,
+      url: await forwardedUrl(ctx, workspace, url),
       placement: placementFor(ctx, workspace, flags.background === true),
     });
     const page = await ctx.services.browser.settle(opened.tabId);
@@ -116,11 +117,6 @@ async function devServerUrl(
   workspace: WorkspaceMeta,
   path: string,
 ): Promise<string> {
-  if (workspace.location.kind === "ssh") {
-    throw new CliError(
-      `${workspace.name}'s servers are on ${workspace.location.host}, which the app forwards nothing from; give a URL`,
-    );
-  }
   const ports = await workspacePorts(ctx, workspace);
   const [only] = ports;
   if (!only) {
@@ -134,6 +130,21 @@ async function devServerUrl(
     );
   }
   return `${portUrl(only.port)}${path}`;
+}
+
+/**
+ * In an SSH workspace, a local address opens on its forward, set up for it
+ * now; any other URL is as given.
+ */
+async function forwardedUrl(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  url: string,
+): Promise<string> {
+  if (workspace.location.kind !== "ssh") return url;
+  const full = /^[a-z][a-z\d+.-]*:\/\//i.test(url) ? url : `http://${url}`;
+  if (loopbackPort(full) === null) return url;
+  return ctx.services.forwards.localUrl(workspace.id, full).catch(forwardFailed);
 }
 
 /** What a navigation came to: the page loaded, or still loading when the wait for it ended. */
@@ -165,7 +176,7 @@ const browserGoto: CliCommand = {
       workspaceId: workspace.id,
       tabId: tab.id,
       action: "goto",
-      url,
+      url: await forwardedUrl(ctx, workspace, url),
     });
     const page = await ctx.services.browser.settle(tab.id);
     return output(`${loaded(page, went.url ?? url)} in ${shortId(tab.id)}.`, {

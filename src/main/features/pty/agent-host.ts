@@ -37,6 +37,11 @@ export interface AgentPtyWorkspaceManager {
    * racing condition rather than a bug.
    */
   tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
+  /**
+   * Tells when a workspace's agent is ready, a new one after a reconnect
+   * included: its channel is subscribed then, not at its first PTY call.
+   */
+  onProviderReady?(listener: (workspaceId: string) => void): () => void;
 }
 
 /**
@@ -64,8 +69,21 @@ class AgentPtyHostHandle implements PtyHostHandle {
    */
   private readonly heldWorkspaces = new Set<string>();
   private disposed = false;
+  private readonly disposeProviderReady: () => void;
 
-  constructor(private readonly workspaceManager: AgentPtyWorkspaceManager) {}
+  constructor(private readonly workspaceManager: AgentPtyWorkspaceManager) {
+    // An agent tells Claude Code hooks and `nexus` commands whether or not a
+    // terminal of its workspace ran yet: a Claude tab's hooks, or any after
+    // a reconnect to a new agent, whose terminals are gone. Its channel is
+    // subscribed once it is ready, so they are relayed (and answered) at once.
+    this.disposeProviderReady =
+      workspaceManager.onProviderReady?.((workspaceId) => {
+        if (this.disposed) return;
+        void this.tryChannelForWorkspace(workspaceId).catch((err: unknown) => {
+          log.warn(`subscribe failed for ${workspaceId}: ${(err as Error).message}`);
+        });
+      }) ?? (() => {});
+  }
 
   async call(method: string, args: unknown): Promise<unknown> {
     if (this.disposed) {
@@ -137,6 +155,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.disposeProviderReady();
     // Emit pty.exit for every active session before tearing down, so renderers
     // can enter a dead state rather than waiting indefinitely.
     const activeSessions = Array.from(this.sessions.values());

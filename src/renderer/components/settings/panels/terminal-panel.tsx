@@ -1,38 +1,25 @@
 // src/renderer/components/settings/panels/terminal-panel.tsx
 //
-// Controls:
-//   - Default shell: Select of the installed shells + custom program branch
-//     (terminal-shell-section.tsx)
-//   - Live preview: fake shell line + blinking cursor that mirrors font
-//     family, size, ligatures and cursor style (no xterm instance — too heavy)
-//   - Font size: numeric input + ▲▼ stepper (8–32, step 1)
-//   - Font family: token-sealed Select + custom-name input branch
-//   - Font ligatures: Radix Checkbox
-//   - Cursor style: SegmentedControl with inline glyph previews
-//   - Task agent command: what a new task's terminal runs
-//   - Sessions view: the view a sessions tab opens in
+// Two groups. The default shell (terminal-shell-section.tsx). The font: a
+// live preview — a fake shell line and blinking cursor that mirror family,
+// size, ligatures and cursor style (no xterm instance — too heavy) — then
+// family (FontFamilyRow), size (8–32 stepper), cursor style and ligatures.
 //
 // Terminal font settings are INDEPENDENT of the editor font — they live in
 // their own store (useTerminalStore) and persist to their own appState keys.
+// What a new task opens with is the Agent panel's.
 //
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import {
-  DEFAULT_SESSIONS_VIEW,
-  SESSIONS_VIEWS,
-} from "../../../../shared/sessions/view";
-import { checkFontAvailable } from "../../../services/editor/runtime/font-availability";
-import { useSessionsViewStore } from "../../../state/stores/sessions-view";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
-import { DEFAULT_TASK_AGENT_COMMAND, useTerminalStore } from "../../../state/stores/terminal";
-import { Checkbox } from "../../ui/checkbox";
+import { useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { SettingsRow, SettingsSection } from "../section";
+import { FontFamilyRow } from "../font-family-row";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 import { TerminalShellSection } from "./terminal-shell-section";
@@ -44,18 +31,6 @@ import { TerminalShellSection } from "./terminal-shell-section";
 const FONT_SIZE_MIN: TerminalFontSize = 8;
 const FONT_SIZE_MAX: TerminalFontSize = 32;
 const DEFAULT_FONT_SIZE_TOKEN = 14; // typeScale.codeUi fallback
-
-// Sentinel for "use the platform fallback (no override)". Stored as the
-// explicit "__system__" string in the Select UI because Radix Select reserves
-// the empty string for "no value selected". Mapped back to undefined at the
-// boundary. Mirrors the editor panel's family control.
-const FAMILY_SYSTEM_VALUE = "__system__";
-
-const PRESET_FONT_FAMILIES = [
-  { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
-  { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
-  { value: "Sarasa Term K", label: "Sarasa Term K" },
-];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -72,20 +47,6 @@ export function TerminalPanel() {
   const setCursorStyle = useTerminalStore((s) => s.setCursorStyle);
   const setFontFamily = useTerminalStore((s) => s.setFontFamily);
   const setFontLigatures = useTerminalStore((s) => s.setFontLigatures);
-  const taskAgentCommand = useTerminalStore((s) => s.taskAgentCommand);
-  const setTaskAgentCommand = useTerminalStore((s) => s.setTaskAgentCommand);
-  const sessionsView = useSessionsViewStore((s) => s.defaultView);
-  const setSessionsView = useSessionsViewStore((s) => s.setDefault);
-
-  // Build translated font family options inside the component so i18n is active.
-  const fontFamilyOptions = useMemo(
-    () => [
-      ...PRESET_FONT_FAMILIES,
-      { value: FAMILY_SYSTEM_VALUE, label: t("terminal.fontFamilySystem") },
-      { value: "__custom__", label: t("terminal.fontFamilyOther") },
-    ],
-    [t],
-  );
 
   // Inline cursor-shape previews — rendered with currentColor so they follow
   // the segmented control's text color (selected vs. unselected). Sized to sit
@@ -128,213 +89,62 @@ export function TerminalPanel() {
   // silently substituting JetBrains Mono.
   const previewFamilyStack = family && family !== "" ? family : "ui-monospace";
 
-  // Determine whether the current family is a preset or custom.
-  const isCustomFamily =
-    family !== undefined &&
-    family !== "" &&
-    !fontFamilyOptions.some((f) => f.value === family && f.value !== "__custom__");
-  const [familySelect, setFamilySelect] = useState<string>(
-    isCustomFamily ? "__custom__" : family && family !== "" ? family : FAMILY_SYSTEM_VALUE,
-  );
-  const [customFamilyInput, setCustomFamilyInput] = useState<string>(
-    isCustomFamily ? (family ?? "") : "",
-  );
-
-  // Font availability check for custom family. `null` = no check yet; `true` =
-  // detected; `false` = browser fell back (not installed or typo).
-  const [fontAvailable, setFontAvailable] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    if (familySelect !== "__custom__") {
-      setFontAvailable(null);
-      return;
-    }
-    const trimmed = customFamilyInput.trim();
-    if (!trimmed) {
-      setFontAvailable(null);
-      return;
-    }
-    setFontAvailable(checkFontAvailable(trimmed));
-  }, [familySelect, customFamilyInput]);
-
-  const handleFamilySelectChange = useCallback(
-    (val: string) => {
-      setFamilySelect(val);
-      if (val !== "__custom__") {
-        setFontFamily(val === FAMILY_SYSTEM_VALUE ? undefined : val);
-        setCustomFamilyInput("");
-        setFontAvailable(null);
-      }
-    },
-    [setFontFamily],
-  );
-
-  const handleCustomFamilyChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const val = e.target.value;
-      setCustomFamilyInput(val);
-      setFontFamily(val.trim() === "" ? undefined : val.trim());
-    },
-    [setFontFamily],
-  );
-
-  const customFamilyId = useId();
-  const ligaturesId = useId();
-
-  const resetFamily = () => {
-    setFontFamily(undefined);
-    setFamilySelect(FAMILY_SYSTEM_VALUE);
-    setCustomFamilyInput("");
-  };
-
   return (
-    <div className="flex flex-col gap-5">
-      <TerminalShellSection />
+    <SettingsPage>
+      <SettingsGroup>
+        <TerminalShellSection />
+      </SettingsGroup>
 
-      {/* Live preview — mirrors family, size, ligatures + cursor style */}
-      <TerminalPreview
-        label={t("terminal.preview")}
-        fontFamily={previewFamilyStack}
-        fontSize={effectiveSize}
-        ligatures={effectiveLigatures}
-        cursorStyle={effectiveCursor}
-      />
-
-      {/* Font size — compact stepper */}
-      <SettingsRow
-        label={t("terminal.fontSize")}
-        dirty={fontSize !== undefined}
-        onReset={() => setFontSize(undefined)}
-      >
-        <NumberInput
-          value={effectiveSize}
-          onChange={(n) => setFontSize(n as TerminalFontSize)}
-          min={FONT_SIZE_MIN}
-          max={FONT_SIZE_MAX}
-          step={1}
-          suffix="px"
-          ariaLabel={t("terminal.ariaFontSize")}
+      <SettingsGroup title={t("terminal.font")}>
+        {/* Live preview — mirrors family, size, ligatures + cursor style */}
+        <TerminalPreview
+          fontFamily={previewFamilyStack}
+          fontSize={effectiveSize}
+          ligatures={effectiveLigatures}
+          cursorStyle={effectiveCursor}
         />
-      </SettingsRow>
 
-      {/* Cursor style — segmented with shape previews */}
-      <SettingsRow
-        label={t("terminal.cursorStyle")}
-        dirty={cursorStyle !== undefined}
-        onReset={() => setCursorStyle(undefined)}
-      >
-        <SegmentedControl
-          options={cursorOptions}
-          value={effectiveCursor}
-          onChange={setCursorStyle}
-          label={t("terminal.cursorStyle")}
-        />
-      </SettingsRow>
+        <FontFamilyRow scope="terminal" family={family} setFamily={setFontFamily} />
 
-      {/* Font family — full-width Select (independent of the editor font) */}
-      <SettingsSection
-        label={t("terminal.fontFamily")}
-        dirty={family !== undefined}
-        onReset={resetFamily}
-      >
-        <Select value={familySelect} onValueChange={handleFamilySelectChange}>
-          <SelectTrigger ariaLabel={t("terminal.ariaFontFamily")}>
-            <SelectValue placeholder={t("terminal.fontFamilyPlaceholder")} />
-          </SelectTrigger>
-          <SelectContent>
-            {fontFamilyOptions.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {familySelect === "__custom__" && (
-          <div className="flex flex-col gap-1 mt-1">
-            <input
-              id={customFamilyId}
-              type="text"
-              value={customFamilyInput}
-              onChange={handleCustomFamilyChange}
-              placeholder={t("terminal.customFamilyPlaceholder")}
-              className={cn(
-                "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-                "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-                "focus-visible:ring-1 focus-visible:ring-ring",
-              )}
-            />
-            {fontAvailable === true && (
-              <span className="text-app-ui-sm text-muted-foreground">
-                {t("terminal.fontDetected")}
-              </span>
-            )}
-            {fontAvailable === false && (
-              <span className="text-app-ui-sm text-[var(--state-warning-fg)]">
-                {t("terminal.fontNotFound")}
-              </span>
-            )}
-          </div>
-        )}
-      </SettingsSection>
-
-      {/* Ligatures — Checkbox + explanation */}
-      <SettingsSection
-        label={t("terminal.fontLigatures")}
-        dirty={ligatures !== undefined}
-        onReset={() => setFontLigatures(undefined)}
-      >
-        <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            id={ligaturesId}
-            checked={effectiveLigatures}
-            onCheckedChange={(v) => setFontLigatures(v === true)}
+        <SettingsRow
+          label={t("terminal.fontSize")}
+          dirty={fontSize !== undefined}
+          onReset={() => setFontSize(undefined)}
+        >
+          <NumberInput
+            value={effectiveSize}
+            onChange={(n) => setFontSize(n as TerminalFontSize)}
+            min={FONT_SIZE_MIN}
+            max={FONT_SIZE_MAX}
+            step={1}
+            suffix="px"
+            ariaLabel={t("terminal.ariaFontSize")}
           />
-          <span className="text-app-body text-foreground">{t("terminal.ligatures.enable")}</span>
-        </label>
-        <p className="text-app-ui-sm text-muted-foreground">
-          {t("terminal.ligatures.description")}
-        </p>
-      </SettingsSection>
+        </SettingsRow>
 
-      {/* Task agent command — what a new task's terminal runs */}
-      <SettingsSection
-        label={t("terminal.taskAgent.label")}
-        dirty={taskAgentCommand !== undefined}
-        onReset={() => setTaskAgentCommand(undefined)}
-      >
-        <input
-          type="text"
-          value={taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND}
-          onChange={(e) => setTaskAgentCommand(e.target.value)}
-          aria-label={t("terminal.taskAgent.aria")}
-          spellCheck={false}
-          className={cn(
-            "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-            "font-mono text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-            "focus-visible:ring-1 focus-visible:ring-ring",
-          )}
-        />
-        <p className="text-app-ui-sm text-muted-foreground">{t("terminal.taskAgent.hint")}</p>
-      </SettingsSection>
+        <SettingsRow
+          label={t("terminal.cursorStyle")}
+          dirty={cursorStyle !== undefined}
+          onReset={() => setCursorStyle(undefined)}
+        >
+          <SegmentedControl
+            options={cursorOptions}
+            value={effectiveCursor}
+            onChange={setCursorStyle}
+            label={t("terminal.cursorStyle")}
+          />
+        </SettingsRow>
 
-      {/* Sessions view — the view a sessions tab opens in until switched there */}
-      <SettingsSection
-        label={t("terminal.sessionsView.label")}
-        dirty={sessionsView !== undefined}
-        onReset={() => setSessionsView(undefined)}
-      >
-        <SegmentedControl
-          options={SESSIONS_VIEWS.map((value) => ({
-            value,
-            label: t(`common:sessions.view.${value}`),
-          }))}
-          value={sessionsView ?? DEFAULT_SESSIONS_VIEW}
-          onChange={setSessionsView}
-          label={t("terminal.sessionsView.label")}
+        <SettingsSwitch
+          label={t("terminal.fontLigatures")}
+          description={t("terminal.ligatures.description")}
+          checked={effectiveLigatures}
+          onChange={setFontLigatures}
+          dirty={ligatures !== undefined}
+          onReset={() => setFontLigatures(undefined)}
         />
-        <p className="text-app-ui-sm text-muted-foreground">{t("terminal.sessionsView.hint")}</p>
-      </SettingsSection>
-    </div>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }
 
@@ -353,13 +163,11 @@ export function TerminalPanel() {
  * tracks what xterm renders in the live terminal panel.
  */
 function TerminalPreview({
-  label,
   fontFamily,
   fontSize,
   ligatures,
   cursorStyle,
 }: {
-  label: string;
   fontFamily: string;
   fontSize: number;
   ligatures: boolean;
@@ -378,46 +186,43 @@ function TerminalPreview({
         : { width: 2, height: cellH };
 
   return (
-    <div className="flex flex-col gap-2">
-      <span className="text-app-ui-sm text-muted-foreground">{label}</span>
-      <div
-        className={cn(
-          "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
-          // Clip rather than let long lines / large font sizes spill past the
-          // box border. Lines are kept short so nothing is clipped at 32px;
-          // exotic wide fonts fold via the wrap rules below instead of leaking
-          // a horizontal scrollbar.
-          "overflow-hidden",
-        )}
-        style={{
-          // Quote the first family token so multi-word custom names like
-          // "Fira Code" survive the unquoted-parsing split on whitespace.
-          fontFamily: `"${fontFamily}", ui-monospace, monospace`,
-          fontSize,
-          lineHeight: 1.4,
-          fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-      >
-        <div>
-          <span className="text-muted-foreground">$ </span>
-          <span>git push</span>
-        </div>
-        {/* Ligature showcase line — mirrors what the live terminal renders */}
-        <div>{"=> != >= <= === -> |>"}</div>
-        <div className="inline-flex items-baseline">
-          <span className="text-muted-foreground">$ </span>
-          <span
-            aria-hidden="true"
-            className={cn(
-              "preview-cursor-blink inline-block bg-foreground align-baseline",
-              // Underline sits at baseline; block/bar are top-aligned via inline-block.
-              cursorStyle === "underline" && "self-end",
-            )}
-            style={cursorStyleProps}
-          />
-        </div>
+    <div
+      className={cn(
+        "rounded-(--radius-control) border border-border bg-background px-3 py-2 text-foreground",
+        // Clip rather than let long lines / large font sizes spill past the
+        // box border. Lines are kept short so nothing is clipped at 32px;
+        // exotic wide fonts fold via the wrap rules below instead of leaking
+        // a horizontal scrollbar.
+        "overflow-hidden",
+      )}
+      style={{
+        // Quote the first family token so multi-word custom names like
+        // "Fira Code" survive the unquoted-parsing split on whitespace.
+        fontFamily: `"${fontFamily}", ui-monospace, monospace`,
+        fontSize,
+        lineHeight: 1.4,
+        fontFeatureSettings: ligatures ? '"liga", "calt"' : '"liga" 0, "calt" 0',
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}
+    >
+      <div>
+        <span className="text-muted-foreground">$ </span>
+        <span>git push</span>
+      </div>
+      {/* Ligature showcase line — mirrors what the live terminal renders */}
+      <div>{"=> != >= <= === -> |>"}</div>
+      <div className="inline-flex items-baseline">
+        <span className="text-muted-foreground">$ </span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            "preview-cursor-blink inline-block bg-foreground align-baseline",
+            // Underline sits at baseline; block/bar are top-aligned via inline-block.
+            cursorStyle === "underline" && "self-end",
+          )}
+          style={cursorStyleProps}
+        />
       </div>
     </div>
   );

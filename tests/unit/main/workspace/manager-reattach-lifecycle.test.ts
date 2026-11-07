@@ -715,7 +715,16 @@ describe("removing an SSH workspace", () => {
     readonly events: string[] = [];
     private answer: () => void = () => {};
 
+    private answerStop: () => void = () => {};
+
     override async call(method: string, params?: unknown): Promise<unknown> {
+      if (method === "agent.stopDaemon") {
+        this.events.push(`agent.stopDaemon ${(params as { root: string }).root}`);
+        await new Promise<void>((resolve) => {
+          this.answerStop = resolve;
+        });
+        return { stopped: true };
+      }
       if (method !== "agent.shutdown") return super.call(method, params);
       this.events.push("agent.shutdown");
       await new Promise<void>((resolve) => {
@@ -726,6 +735,10 @@ describe("removing an SSH workspace", () => {
 
     answerShutdown(): void {
       this.answer();
+    }
+
+    answerStopDaemon(): void {
+      this.answerStop();
     }
 
     override dispose(): void {
@@ -775,6 +788,68 @@ describe("removing an SSH workspace", () => {
     manager.remove(meta.id);
 
     expect(channel.events).toEqual(["dispose", "bootstrap.dispose"]);
+    globalDb.close();
+  });
+
+  function makeTask(
+    manager: ReturnType<typeof makeManager>["manager"],
+    parentId: string,
+    remotePath: string,
+    host = "test.example.com",
+  ) {
+    return manager.create({
+      location: {
+        kind: "ssh" as const,
+        host,
+        user: "user",
+        remotePath,
+        authMode: "interactive" as const,
+      },
+      name: path.posix.basename(remotePath),
+      task: { parentId, branch: path.posix.basename(remotePath), worktreePath: remotePath },
+    });
+  }
+
+  test("stops a task not connected through its parent's agent", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    const task = makeTask(manager, meta.id, "/home/user/worktrees/fix");
+
+    manager.remove(task.id);
+
+    expect(channel.events).toEqual(["agent.stopDaemon /home/user/worktrees/fix"]);
+    globalDb.close();
+  });
+
+  test("leaves a task on another host alone", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    const task = makeTask(manager, meta.id, "/home/user/worktrees/fix", "other.example.com");
+
+    manager.remove(task.id);
+
+    expect(channel.events).toEqual([]);
+    globalDb.close();
+  });
+
+  test("stops its tasks' daemons before its own agent exits", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    makeTask(manager, meta.id, "/home/user/worktrees/fix");
+
+    manager.remove(meta.id);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual(["agent.stopDaemon /home/user/worktrees/fix"]);
+
+    channel.answerStopDaemon();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual(["agent.stopDaemon /home/user/worktrees/fix", "agent.shutdown"]);
+
+    channel.answerShutdown();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual([
+      "agent.stopDaemon /home/user/worktrees/fix",
+      "agent.shutdown",
+      "dispose",
+      "bootstrap.dispose",
+    ]);
     globalDb.close();
   });
 });

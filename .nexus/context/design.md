@@ -163,6 +163,14 @@ Floating(다이얼로그·메뉴·팝오버·툴팁·커맨드 팔레트)은 **�
 - 모달의 경우 `surface.floating.scrim` backdrop scrim으로 하위 레이어 차단
 - Floating 표면도 `island` 라디우스를 사용한다 (부유하는 섬)
 
+버튼에서 여는 패널은 `Popover`(`components/ui/popover.tsx`)로, 명령 목록은 `DropdownMenu`로 만든다. 둘 다 Radix가 자리(버튼에 붙고 창 안에 머묾)와 닫기(Escape, 바깥 클릭)를 맡는다 — `absolute`로 손수 띄우고 바깥 클릭 훅을 다는 패널은 새로 만들지 않는다. `Popover`는 열리면 키보드를 첫 버튼이 아니라 패널 자체에 두고, 닫히면 다른 곳이 키보드를 가져가지 않았을 때만 버튼으로 돌려준다 — 진단 항목을 눌러 연 에디터는 키보드를 그대로 갖는다. 목록 행 안에서 여는 `Popover`는 `containEvents`를 켠다 — React가 포털 밖으로 올려 보내는 클릭과 키가 행을 누르거나 목록을 움직이지 않게.
+
+행을 우클릭한 자리나 버튼 아래에 여는 메뉴는 `DropdownMenuAtPoint`로 만든다 — 그 점에 보이지 않는 트리거를 두고, `align: "end"`면 메뉴 오른쪽 끝을 점에 맞춘다. 닫히면 열 때 키보드가 있던 행이나 버튼으로 돌아간다.
+
+메뉴에서 고른 항목의 동작은 메뉴가 닫히고 키보드가 트리거(점 메뉴는 연 행이나 버튼)로 돌아간 다음에 실행된다. 그래서 동작이 연 다이얼로그나 피커는 메뉴에 키보드를 빼앗기지 않고, 닫힐 때 이미 사라진 메뉴 항목이 아니라 트리거로 키보드를 돌려준다. 다이얼로그는 열릴 때 키보드가 있던 곳을 기억했다가 닫힐 때 그리로 돌려준다(`useDialogFocusReturn`, `Dialog`는 기본으로 쓴다) — Radix는 다이얼로그 자신의 Trigger로만 돌려주는데, 이 앱의 다이얼로그는 모두 코드로 열려 Trigger가 없다. 그 사이 다른 곳이 키보드를 가져갔으면(확인 후 연 에디터) 그대로 둔다.
+
+다이얼로그의 맨 위는 `DialogHeader`(`components/ui/dialog-header.tsx`)다 — 제목, 그 아래 무엇을 하는 다이얼로그인지, 오른쪽에 다이얼로그 전체에 대한 버튼과 ×. 제목과 설명은 Radix의 Title·Description이라 그대로 스크린 리더가 읽는 다이얼로그의 이름과 설명이 된다 — 숨긴 제목 옆에 보이는 사본을 따로 두지 않는다. ×는 취소 버튼이 없는 다이얼로그에만 단다.
+
 ---
 
 ## §3. Density — 4px 베이스 그리드 + Islands 지오메트리
@@ -252,6 +260,18 @@ Islands 모델은 "둥근 물체로서의 섬"을 핵심 미감으로 한다. �
 | scrim | 모달 다이얼로그는 `surface.floating.scrim`으로 하위 차단 |
 | 포커스 베일 | 비활성 에디터 패널 섬을 흐리게 (아래) |
 
+겹침 순서(z-index)는 숫자 대신 `globals.css`의 레이어 변수로 쓴다 — `z-(--layer-floating)`처럼.
+
+| 변수 | 값 | 무엇 |
+|---|---|---|
+| `--layer-in-panel` | 40 | 패널 안에 뜨는 것: 퀵룩, 릴리스 노트 |
+| `--layer-floating` | 50 | 창 전체 위로 포털되는 것: 다이얼로그와 scrim, 메뉴, 셀렉트, 팝오버 |
+| `--layer-toast` | 60 | 토스트 (열린 다이얼로그 위) |
+| `--layer-palette` | 70 | 커맨드 팔레트 |
+| `--layer-tooltip` | 80 | 툴팁 |
+
+한 컴포넌트 안에서 자기 부품끼리의 순서(z-10, z-20)는 숫자 그대로 둔다.
+
 ### 포커스 베일 (Inactive Veil)
 
 포커스 베일은 **에디터 분할 패널 섬**에 적용된다. 활성 그룹 섬만 완전한 선명도를 갖고,
@@ -285,7 +305,7 @@ Islands 모델은 "둥근 물체로서의 섬"을 핵심 미감으로 한다. �
 | appBodyEmphasis | 14px | 400 | 1.3 | 0 | 강조 본문 |
 | appUiSm | 12px | 400 | 1.5 | 0 | 소형 sentence-case 텍스트 — 캡션·힌트·상태·에러 문구 |
 | appMicro | 11px | 400 | 1.2 | 0 | 최소형 텍스트 — 툴팁, 보조 경로/메타데이터 힌트 |
-| appLabel | 12px | 400 | 1.35 | 2.4px | 대문자 카테고리 레이블 **전용** — 반드시 uppercase 텍스트에만 |
+| appLabel | 12px | 400 | 1.35 | 0 | 섹션·카테고리 레이블 — `uppercase`와 함께 쓰면 언어에 따라 모양이 정해진다 (아래 규칙) |
 
 실제 값 정본: `→ src/shared/design-tokens/index.ts` (`appTypeScale`)
 
@@ -305,7 +325,8 @@ In-app 텍스트 역할은 위 5개(`app*`) + 코드 2개(`code*`)가 전부인 
 규칙:
 - 마케팅 18-role 타입스케일은 in-app UI에 사용할 수 없다. 파이프라인(`generate-theme-css.ts`)에서 강제한다.
 - in-app 스케일에 없는 크기는 신규 역할 추가로 해결하며 매직넘버(`text-[Npx]`)를 직접 쓰지 않는다.
-- `appLabel`의 letterSpacing 2.4px는 역할의 일부다. 호출처가 `tracking-[…]`로 재지정하지 않는다.
+- 섹션 레이블은 `text-app-label uppercase`로 쓴다. 라틴 문자 언어(영어)에서는 대문자 + 자간 0.06em, 한국어에서는 글자 그대로 + Medium(500) — 한글엔 대소문자가 없고 자간은 음절만 벌린다. 규칙은 `globals.css`의 section-label 한 곳에 있고, 호출처가 `tracking-[…]`로 재지정하지 않는다.
+- 파일·폴더·브랜치·워크스페이스 이름처럼 사용자가 정한 이름은 대문자로 바꾸지 않는다 — 대소문자를 구분하는 이름이 다르게 보인다. 영어 고유명사(로고 등)를 언어와 상관없이 대문자로 두려면 요소에 `lang="en"`을 준다.
 - 사용자 가독성 설정(code/terminal 영역 한정)은 토큰 봉인의 명시적 예외 — 토큰 기본값은 미설정 시 fallback 역할만. UI 텍스트 역할(`app*`)에는 일절 전파 금지.
 
 ---
@@ -359,6 +380,20 @@ In-app 텍스트 역할은 위 5개(`app*`) + 코드 2개(`code*`)가 전부인 
 | disabled | opacity 감소 | pointer-events: none |
 | loading | — | 인라인 스피너 (`state.loading.indicator`) |
 | drag | 드롭 타깃 배경 강조 | 드래그 소스 opacity 감소 + 삽입선(`state.drag.indicator`) |
+
+> **selected의 세 가지 쓰임** — 같은 "선택됨"이라도 무엇을 고른 것인지에 따라 하나로 정한다.
+>
+> | 무엇 | 모양 | 예 |
+> |---|---|---|
+> | 현재 위치 (목록·내비게이션) | `sidebar.item.selected.bg` + 좌측 2px `state.selected.indicator` | 워크스페이스 사이드바, 파일 트리, 설정 nav |
+> | 현재 보기 (탭·보기 전환 아이콘) | `sidebar.item.selected.bg` 또는 `tab.active.bg` + 하단 `state.selected.indicator` 밑줄 | 에디터 탭, 파일 패널 보기 전환 |
+> | 컨트롤의 값 | `state.selected.bg` 채움 + `state.selected.fg` | 체크박스, 스위치, 세그먼트 값, 슬라이더 |
+>
+> 팝오버·메뉴를 연 트리거 버튼은 선택이 아니라 눌린 상태다 — `state.active.bg`. 타이틀바 보기 전환도 같은 배경을 쓴다.
+>
+> 켜고 끄는 설정 하나는 스위치(설정 패널은 `SettingsSwitch`), 목록에서 항목을 고르거나 보이는 것을 거르는 것은 체크박스다. 세그먼트 컨트롤은 선택지만큼의 폭이다.
+>
+> 설정 패널은 이름이 왼쪽, 컨트롤이 같은 줄 오른쪽이다(`SettingsRow`·`SettingsSwitch`). 설명은 이름 아래 한 줄로, 무엇을 하는지만 쓴다. 테마 목록·셸 선택처럼 넓은 컨트롤만 이름 아래에 둔다(`SettingsSection`). 함께 보는 설정은 `SettingsGroup`으로 묶는다 — 묶음 제목은 `text-app-label uppercase` 회색, 묶음 사이는 구분선. 설정 이름은 전경색, 묶음 제목과 설명은 회색 작은 글씨다.
 
 `success`는 컨트롤의 인터랙션 상태가 아니라 피드백 레이어다 — `feedback.success.*`로 분리(§10).
 
@@ -836,6 +871,12 @@ Minimal이 활성화된 경우(기본값, 또는 사용자가 Minimal을 선택�
   `aria-label`을 동반한다.
 
 ---
+
+### 아이콘 버튼과 툴팁
+
+아이콘만 있는 버튼은 `IconButton`(`components/ui/icon-button.tsx`)으로 만든다 — 크기 `xs` 20 · `sm` 24 · `md` 28 · `lg` 32px, 쉬는 상태는 muted, hover는 `state.hover.bg`, 메뉴·팝오버를 연 동안은 `state.active.bg`. `label`이 접근 이름이자 툴팁이고, `shortcut`을 주면 툴팁 오른쪽에 흐리게 붙는다.
+
+툴팁은 창 하나에 하나뿐인 레이어(`TooltipRoot`)가 `data-tooltip`을 가진 요소에 띄운다 — `tooltipProps(label, shortcut)`. 네이티브 `title`은 잘린 글자 전체를 보여줄 때만 쓴다. 비활성 버튼은 포인터를 받지 않으므로, 비활성인 이유는 감싸는 요소에 `tooltipProps`로 단다.
 
 ## §15. Code Editor Theming
 

@@ -15,12 +15,14 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
+import { Tabs as RadixTabs } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { tooltipProps } from "@/components/ui/tooltip";
 import { useDragSource } from "@/components/ui/use-drag-source";
 import { DND_TAB_ITEM_ATTR } from "@/components/workspace/dnd/markers";
+import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty, subscribeFileDirty } from "@/services/editor/model/dirty-tracker";
 import { useDiffWorkingFile } from "@/services/editor/tabs";
@@ -29,14 +31,17 @@ import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
+import { COMMANDS } from "../../../../shared/keybindings/commands";
+import { useCodexTabStatus } from "../../../services/sessions/use-codex-status";
 import { useEstimatedTabGlyph } from "../../../services/sessions/use-estimated";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { FileIcon } from "../../files/file-tree/file-icon";
-import { estimatedLabel } from "../../sessions/session-status";
+import { codexStatusLabel, estimatedLabel } from "../../sessions/session-status";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
@@ -93,7 +98,52 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
   if (tab.type === "sessions") return Radar;
+  if (tab.type === "claude") return ClaudeIcon;
+  if (tab.type === "codex") return CodexIcon;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
+}
+
+/**
+ * A tab's type icon: a browser tab's favicon, an editor tab's file icon
+ * (theme-aware), otherwise its type's lucide icon. The tab strip's overflow
+ * menu shows it too.
+ */
+export function TabIcon({ tab }: { tab: Tab }) {
+  const faviconUrl = useBrowserRuntimeStore((s) =>
+    tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
+  );
+  if (tab.type === "browser") {
+    return (
+      <span data-tab-icon className="inline-flex" aria-hidden>
+        <BrowserFaviconIcon faviconUrl={faviconUrl} />
+      </span>
+    );
+  }
+  if (tab.type === "editor") {
+    return (
+      <span data-tab-icon className="inline-flex" aria-hidden>
+        <FileIcon
+          kind="file"
+          name={basename(tab.props.filePath)}
+          size="sm"
+          tone="muted"
+          className="shrink-0"
+        />
+      </span>
+    );
+  }
+  const TypeIcon = tabTypeIcon(tab);
+  if (!TypeIcon) return null;
+  return (
+    <span data-tab-icon className="inline-flex" aria-hidden>
+      <TypeIcon
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-muted-foreground"
+      />
+    </span>
+  );
 }
 
 function PinIcon() {
@@ -139,7 +189,7 @@ function useTabDirty(tab: Tab): boolean {
 
 /**
  * Claude 상태에 대응하는 aria-label 텍스트를 반환한다.
- * 스크린리더가 "Claude: waiting for permission" 등 명시적 레이블을 읽는다.
+ * 스크린리더가 "Claude: permission request" 등 명시적 레이블을 읽는다.
  */
 function claudeAriaLabel(status: ClaudeStatus): string {
   switch (status) {
@@ -164,13 +214,26 @@ function claudeAriaLabel(status: ClaudeStatus): string {
  * 글리프 크기는 design.md §14 기준 12px(size-3). 색 토큰은 semantic CSS 변수 참조.
  * Redundant encoding을 위해 글리프 형태 + 색을 조합한다.
  */
-function ClaudeGlyph({ status, estimated = false }: { status: ClaudeStatus; estimated?: boolean }) {
+function ClaudeGlyph({
+  status,
+  estimated = false,
+  codex = false,
+}: {
+  status: ClaudeStatus;
+  estimated?: boolean;
+  /** A Codex tab's state, read from its conversation: named as Codex's. */
+  codex?: boolean;
+}) {
   if (status === "idle") return null;
 
   // aria-label은 부모가 tabindex가 없는 span에 붙으므로, role="img" + aria-label로
   // 스크린리더가 내용을 읽을 수 있게 한다. Codex 등 출력으로 추정한 상태는
   // 세션 탭처럼 "(추정)"이라고 밝히고, hover로도 보이게 한다.
-  const label = estimated ? estimatedLabel(status) : claudeAriaLabel(status);
+  const label = estimated
+    ? estimatedLabel(status)
+    : codex
+      ? codexStatusLabel(status)
+      : claudeAriaLabel(status);
   const title = estimated ? label : undefined;
 
   if (status === "running") {
@@ -279,14 +342,15 @@ export function TabItem({
   // Codex 등 Claude 상태가 없는 에이전트 터미널은 출력으로 추정한 상태를 보인다.
   const estimatedStatus = useEstimatedTabGlyph(workspaceId, tab, claudeStatus === undefined);
 
+  // Codex 탭은 대화에서 읽은 상태를 보인다.
+  const codexStatus = useCodexTabStatus(workspaceId, tab);
+
   // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
-  const isPermissionPending = claudeStatus === "permissionPending";
+  const isPermissionPending =
+    claudeStatus === "permissionPending" || codexStatus === "permissionPending";
 
   // 브라우저 탭 favicon — type === "browser"일 때만 runtime store에서 lookup.
   // 다른 type이면 항상 null (조건부 hook 회피를 위해 selector 자체는 항상 호출).
-  const faviconUrl = useBrowserRuntimeStore((s) =>
-    tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
-  );
 
   // Git decoration — 파일트리 row와 동일한 시맨틱: editor 탭의 작업트리 상태
   // (modified / added / deleted / untracked / conflict / renamed)를 라벨 색으로,
@@ -300,7 +364,7 @@ export function TabItem({
         : undefined;
 
   // ---------------------------------------------------------------------
-  // Inline rename — 터미널 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
+  // Inline rename — 터미널 · Claude 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
   //
   // 진입 트리거 2개를 동일 store(useTabEditingStore.editingTabId)로 묶어 어느
   // 경로든 같은 모드로 들어간다. 한 번에 한 탭만 편집 가능(store 단일성 보장).
@@ -352,16 +416,17 @@ export function TabItem({
     <div
       key={tab.id}
       className="group relative flex items-center h-full"
+      data-tab-id={tab.id}
       {...{ [DND_TAB_ITEM_ATTR]: "" }}
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
       // 더블클릭 동작은 탭 type별로 분기:
-      //  - terminal: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
+      //  - terminal, claude: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
       //  - 그 외 isPreview 탭: VSCode parity로 promote-from-preview
-      // terminal 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
+      // terminal · claude 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
       onDoubleClick={() => {
-        if (tab.type === "terminal") {
+        if (tab.type === "terminal" || tab.type === "claude" || tab.type === "codex") {
           useTabEditingStore.getState().startEditing(tab.id);
           return;
         }
@@ -430,38 +495,8 @@ export function TabItem({
             <PinIcon />
           </span>
         )}
-        {/* Type 아이콘 — browser는 favicon, editor는 FileIcon(테마 인지형),
-            그 외는 전용 lucide 아이콘. 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
-        {tab.type === "browser" ? (
-          <span data-tab-icon className="inline-flex" aria-hidden>
-            <BrowserFaviconIcon faviconUrl={faviconUrl} />
-          </span>
-        ) : tab.type === "editor" ? (
-          <span data-tab-icon className="inline-flex" aria-hidden>
-            <FileIcon
-              kind="file"
-              name={basename(tab.props.filePath)}
-              size="sm"
-              tone="muted"
-              className="shrink-0"
-            />
-          </span>
-        ) : (
-          (() => {
-            const TypeIcon = tabTypeIcon(tab);
-            if (!TypeIcon) return null;
-            return (
-              <span data-tab-icon className="inline-flex" aria-hidden>
-                <TypeIcon
-                  width={12}
-                  height={12}
-                  strokeWidth={1.5}
-                  className="shrink-0 text-muted-foreground"
-                />
-              </span>
-            );
-          })()
-        )}
+        {/* Type 아이콘 — 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
+        <TabIcon tab={tab} />
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
             <Lock
@@ -483,6 +518,11 @@ export function TabItem({
         {estimatedStatus && (
           <span data-tab-icon className="inline-flex">
             <ClaudeGlyph status={estimatedStatus} estimated />
+          </span>
+        )}
+        {codexStatus && (
+          <span data-tab-icon className="inline-flex">
+            <ClaudeGlyph status={codexStatus} codex />
           </span>
         )}
         {isEditing ? (
@@ -521,7 +561,11 @@ export function TabItem({
           />
         ) : (
           <span
+            // A long title (a chat's first message, a page's title) is cut
+            // to a tab's width; the whole of it shows on hover.
+            title={displayTitle}
             className={cn(
+              "min-w-0 max-w-64 truncate",
               tab.isPreview && "italic",
               // Ignored 파일 탭은 라벨이 receded — 파일트리 row와 동일한 신호.
               gitIgnored && "opacity-50",
@@ -552,33 +596,22 @@ export function TabItem({
         )}
       </RadixTabs.Trigger>
 
-      {/* Close button with Tooltip — sibling of trigger (never nested inside trigger).
+      {/* Close button — sibling of trigger (never nested inside trigger).
           Always positioned separately from the dirty dot (no replacement).
           Hit target is min-w-6 min-h-6 (24px) per design requirement. */}
-      <RadixTooltip.Root>
-        <RadixTooltip.Trigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCloseTab(tab.id);
-            }}
-            aria-label={t("tabBar.close_tab")}
-          >
-            <X aria-hidden width={12} height={12} strokeWidth={2} />
-          </Button>
-        </RadixTooltip.Trigger>
-        <RadixTooltip.Portal>
-          <RadixTooltip.Content
-            className="px-2 py-1 text-app-micro bg-muted text-foreground border border-border rounded-(--radius-control) shadow-none"
-            sideOffset={4}
-          >
-            {t("tabBar.close_tab")}
-          </RadixTooltip.Content>
-        </RadixTooltip.Portal>
-      </RadixTooltip.Root>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="absolute right-1 top-1/2 -translate-y-1/2 hover:bg-[var(--state-hover-bg)] shrink-0 opacity-50 hover:opacity-100"
+        onClick={(e) => {
+          e.stopPropagation();
+          onCloseTab(tab.id);
+        }}
+        aria-label={t("tabBar.close_tab")}
+        {...tooltipProps(t("tabBar.close_tab"), shortcutFor(COMMANDS.tabClose))}
+      >
+        <X aria-hidden width={12} height={12} strokeWidth={2} />
+      </Button>
     </div>
   );
 }

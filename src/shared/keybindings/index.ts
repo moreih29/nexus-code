@@ -23,7 +23,7 @@
 
 import { COMMANDS, type CommandId } from "./commands";
 import { parseAccelerator } from "./keybinding-parse";
-import { evaluateWhen, isPlatformOnlyWhen, parseWhen } from "./keybinding-when";
+import { evaluateWhen, PLATFORM_KEYS, parseWhen, type WhenExpr, whenKeys } from "./keybinding-when";
 
 /** Same shape Electron's `MenuItemConstructorOptions.accelerator` accepts. */
 export type AcceleratorString = string;
@@ -115,6 +115,14 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
     primary: "Cmd+Backspace",
     when: "fileTreeFocus && !inputFocus",
   },
+  // Windows and Linux file managers delete with Delete, and the label names
+  // it there. Declared second: a user's key for the command takes the first
+  // declaration's `when`, which must hold on the Mac too.
+  {
+    command: COMMANDS.fileDelete,
+    primary: "Delete",
+    when: "fileTreeFocus && !inputFocus && !isMac",
+  },
 
   // File clipboard — cut/copy/paste. Scoped to file-tree focus, not in edit row.
   { command: COMMANDS.fileCopy, primary: "CmdOrCtrl+C", when: "fileTreeFocus && !inputFocus" },
@@ -198,6 +206,8 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   // Workbench layout
   { command: COMMANDS.workbenchToggleFilesPanel, primary: "CmdOrCtrl+B", when: UNLESS_TERMINAL },
   { command: COMMANDS.workbenchToggleSidebar, primary: "CmdOrCtrl+Shift+B" },
+  // From the terminal too: shells and agent TUIs don't bind Ctrl+Shift+letter.
+  { command: COMMANDS.workbenchToggleAgentView, primary: "CmdOrCtrl+Shift+A" },
 
   // (No DevTools binding: ⌘⌥I is owned by the Electron menu toggleDevTools
   // role for app-window DevTools. Browser page DevTools is button-only.)
@@ -244,8 +254,10 @@ export function findChordBinding(command: CommandId): KeybindingDecl | undefined
  * first one; on Win/Linux a literal `Cmd+Ctrl` binding (Win/Super+Ctrl,
  * which the OS often takes) gives way to another primary of the command,
  * and so does one the terminal leaves to the shell, so the label names a
- * key that also works from the terminal (Ctrl+Shift+T, not Ctrl+T). One
- * declared for another platform only (`when: "isLinux"`) is never shown.
+ * key that also works from the terminal (Ctrl+Shift+T, not Ctrl+T). There
+ * one declared for this platform (`fileTreeFocus && !isMac`) goes first. One
+ * declared for another platform (`isLinux`, `fileTreeFocus && isMac`) is
+ * never shown.
  */
 export function findDisplayPrimary(
   bindings: readonly KeybindingDecl[],
@@ -254,18 +266,37 @@ export function findDisplayPrimary(
   isLinux = false,
 ): KeybindingDecl | undefined {
   const declared = bindings.filter((b) => b.command === command && b.primary !== undefined);
-  const here = declared.filter((b) => !forOtherPlatform(b, isMac, isLinux));
+  const scope = (b: KeybindingDecl) => platformScope(b.when, isMac, isLinux);
+  const here = declared.filter((b) => scope(b) !== false);
   const primaries = here.length > 0 ? here : declared;
   if (isMac) return primaries[0];
   const usable = primaries.filter((b) => !needsSuperKey(b.primary as string));
-  return usable.find((b) => !leavesTerminalToShell(b)) ?? usable[0] ?? primaries[0];
+  const pick = (list: KeybindingDecl[]) => list.find((b) => !leavesTerminalToShell(b)) ?? list[0];
+  return pick(usable.filter((b) => scope(b) === true)) ?? pick(usable) ?? primaries[0];
 }
 
-/** Whether a binding's `when` names only the platform, and another one. */
-function forOtherPlatform(binding: KeybindingDecl, isMac: boolean, isLinux: boolean): boolean {
-  if (binding.when === undefined || !isPlatformOnlyWhen(binding.when)) return false;
+/**
+ * Whether `when` scopes a binding to this platform: undefined when no part
+ * of it names the platform alone; otherwise whether every such part holds
+ * here. A part is the whole `when` (`isLinux`, `isMac || isLinux`) or one
+ * side of its top-level `&&` (`fileTreeFocus && !isMac`).
+ */
+function platformScope(
+  when: string | undefined,
+  isMac: boolean,
+  isLinux: boolean,
+): boolean | undefined {
+  if (when === undefined) return undefined;
   const platform: Record<string, boolean> = { isMac, isLinux, isWindows: !isMac && !isLinux };
-  return !evaluateWhen(parseWhen(binding.when), (key) => platform[key] === true);
+  const parts = conjuncts(parseWhen(when)).filter((part) =>
+    whenKeys(part).every((key) => PLATFORM_KEYS.has(key)),
+  );
+  if (parts.length === 0) return undefined;
+  return parts.every((part) => evaluateWhen(part, (key) => platform[key] === true));
+}
+
+function conjuncts(expr: WhenExpr): WhenExpr[] {
+  return expr.kind === "and" ? [...conjuncts(expr.left), ...conjuncts(expr.right)] : [expr];
 }
 
 function leavesTerminalToShell(binding: KeybindingDecl): boolean {

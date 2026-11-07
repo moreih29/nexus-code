@@ -8,6 +8,9 @@ import (
 	"testing"
 )
 
+// sessionA is a session id, as claude makes them.
+const sessionA = "8f7b63e3-a0e6-4b44-af95-03c2697fe716"
+
 func TestDescribePrintRun(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "")
 	cases := []struct {
@@ -46,14 +49,39 @@ func TestDescribePrintRun(t *testing.T) {
 			printRun{prompt: "hi", format: "text", sessionID: "s1"},
 		},
 		{
-			"a run that resumes a session",
+			"a run that goes on a session by its id",
+			[]string{"-p", "hi", "--resume", sessionA},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"-r and its id",
+			[]string{"-r", sessionA, "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"--resume= and its id",
+			[]string{"--resume=" + sessionA, "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: sessionA, resumed: true},
+		},
+		{
+			"a run that goes on a session found by a search term",
 			[]string{"-p", "hi", "--resume=s1"},
 			printRun{prompt: "hi", format: "text", noTranscript: true},
 		},
 		{
-			"a run that continues one",
+			"a run that goes on the latest session",
 			[]string{"-c", "-p", "hi"},
 			printRun{prompt: "hi", format: "text", noTranscript: true},
+		},
+		{
+			"a fork of a session, which starts one of its own",
+			[]string{"-p", "hi", "--resume", sessionA, "--fork-session"},
+			printRun{prompt: "hi", format: "text"},
+		},
+		{
+			"a fork of the latest session, given its id",
+			[]string{"-c", "--fork-session", "--session-id", "s2", "-p", "hi"},
+			printRun{prompt: "hi", format: "text", sessionID: "s2"},
 		},
 		{
 			"a run that keeps no session",
@@ -105,7 +133,8 @@ func TestPrintWatch_TellsTheRunsToolsAndAnswer(t *testing.T) {
 	}
 	watch.line([]byte("not json"))
 	want := []toldFrame{
-		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
+		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo", "session_id": "s1"}},
+		{"print-text", map[string]any{"text": "Looking."}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
 			"tool_name":   "Bash",
@@ -154,7 +183,11 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 		watch.line([]byte(line))
 	}
 	want := []toldFrame{
+		// Its prompt, which the run's arguments did not tell.
+		{"print-init", map[string]any{"prompt": "review it"}},
 		{"print-init", map[string]any{"model": "glm-4.6", "cwd": "/repo"}},
+		// What claude wrote, not the message Claude Code made up.
+		{"print-text", map[string]any{"text": "Looking."}},
 		{"print-tool-use", map[string]any{
 			"tool_use_id": "toolu_1",
 			"tool_name":   "Read",
@@ -165,6 +198,8 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 			"is_error":    true,
 			"error":       "File does not exist.",
 		}},
+		{"print-text", map[string]any{"text": "It is fine."}},
+		{"print-text", map[string]any{"text": "Ship it."}},
 	}
 	if !reflect.DeepEqual(told, want) {
 		t.Fatalf("told:\n%#v\nwant:\n%#v", told, want)
@@ -172,6 +207,33 @@ func TestPrintWatch_ReadsATranscript(t *testing.T) {
 	// Its answer is what claude wrote after its last tool.
 	if watch.reply != "It is fine.\nShip it." || watch.answer != "" {
 		t.Fatalf("reply = %q, answer = %q", watch.reply, watch.answer)
+	}
+}
+
+func TestPrintWatch_TellsThePromptOnceAndNotAMetaMessage(t *testing.T) {
+	var prompts []any
+	watch := &printWatch{tell: func(subcommand string, payload map[string]any) {
+		if p, ok := payload["prompt"]; ok {
+			prompts = append(prompts, p)
+		}
+	}}
+	for _, line := range []string{
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>x</local-command-caveat>"}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"  fix the test  "}]}}`,
+		`{"type":"user","message":{"role":"user","content":"and then this"}}`,
+	} {
+		watch.line([]byte(line))
+	}
+	if !reflect.DeepEqual(prompts, []any{"fix the test"}) {
+		t.Fatalf("prompts = %#v", prompts)
+	}
+
+	// One its arguments told is not told again.
+	prompts = nil
+	known := &printWatch{tell: watch.tell, promptTold: true}
+	known.line([]byte(`{"type":"user","message":{"role":"user","content":"review it"}}`))
+	if len(prompts) != 0 {
+		t.Fatalf("prompts = %#v", prompts)
 	}
 }
 

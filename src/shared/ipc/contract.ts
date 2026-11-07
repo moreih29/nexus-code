@@ -7,8 +7,7 @@ import {
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
-import { SessionSpanSchema } from "../sessions/history";
-import { WorkspacePortsSchema } from "../pty/ports";
+import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
@@ -33,6 +32,7 @@ import {
   GitAutofetchStateChangedSchema,
   GitBlobChunkSchema,
   GitBlobCompleteSchema,
+  GitChangeStatsSchema,
   GitCherryPickResultSchema,
   GitContinueOpResultSchema,
   GitEditorPromptSchema,
@@ -127,6 +127,7 @@ import {
   WorkspaceTaskSchema,
 } from "../types/workspace";
 import { WorkspaceIdSchema as WorkspaceIdPrimitive, workspaceScoped } from "../types/workspace-id";
+import { ReleaseNotesResultSchema } from "../updates/release-notes";
 import { UpdateProgressSchema, UpdateStatusSchema } from "../updates/status";
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,19 @@ export const WorkspaceReorderedEventSchema = z.object({
 });
 
 // Browse-session connection params — WorkspaceTestSshArgsSchema minus remotePath.
+/** A Claude Code session as a list shows it (the agent's chat.sessions). */
+const ClaudeSessionSchema = z.object({
+  sessionId: z.string(),
+  /** The title it was given, else its last prompt, else its first. */
+  title: z.string(),
+  customTitle: z.string().optional(),
+  firstPrompt: z.string().optional(),
+  gitBranch: z.string().optional(),
+  lastModified: z.number(),
+  createdAt: z.number().optional(),
+  size: z.number(),
+});
+
 const SshBrowseConnParamsSchema = z.object({
   host: z.string().min(1),
   user: z.string().min(1).optional(),
@@ -559,6 +573,8 @@ export const ipcContract = {
       reorder: call(WorkspaceReorderArgsSchema, WorkspaceMetaSchema),
       remove: call(WorkspaceIdSchema, z.void()),
       activate: call(WorkspaceIdSchema, z.void()),
+      /** The active workspace: the one restored at launch or last activated; null with none. */
+      active: call(z.void(), WorkspaceIdPrimitive.nullable()),
       testSsh: call(WorkspaceTestSshArgsSchema, WorkspaceTestSshResultSchema),
     },
     listen: {
@@ -738,10 +754,39 @@ export const ipcContract = {
        * for every workspace that has any; `ports` then tells of changes.
        */
       ports: call(z.object({}), z.array(WorkspacePortsSchema)),
+      /**
+       * The SSH workspaces' ports forwarded to this machine, for every
+       * workspace that has any; `forwards` then tells of changes.
+       */
+      forwards: call(z.object({}), z.array(WorkspaceForwardsSchema)),
+      /**
+       * Forwards a port of an SSH workspace's host to this machine, or
+       * answers the forward already there. Fails with "not-ssh",
+       * "not-connected" or "failed".
+       */
+      forward: call(
+        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        PortForwardSchema,
+      ),
+      /** Stops forwarding a port of an SSH workspace's host. */
+      unforward: call(
+        z.object({ workspaceId: z.string(), port: z.number().int().positive().max(65_535) }),
+        z.void(),
+      ),
+      /**
+       * The URL to open for `url` on this machine: in an SSH workspace, a
+       * local address goes to its forward, set up for it if need be.
+       */
+      localUrl: call(
+        z.object({ workspaceId: z.string(), url: z.string().max(8192) }),
+        z.object({ url: z.string() }),
+      ),
     },
     listen: {
       /** A workspace's ports changed; an empty list once its servers have stopped. */
       ports: listen(WorkspacePortsSchema),
+      /** A workspace's forwards changed; an empty list once all are stopped. */
+      forwards: listen(WorkspaceForwardsSchema),
       // data: args is string chunk — validation skipped on hot path.
       // `replay` marks output pty.replay sends again to redraw the terminal.
       data: listen(
@@ -771,6 +816,203 @@ export const ipcContract = {
        * dead-terminal banner.
        */
       expired: listen(PtyWorkspaceTabSchema),
+    },
+  },
+
+  // ---------------------------------------------------------------------------
+  // Claude tabs: one `claude -p` per tab, run by the workspace's agent, whose
+  // stream-json lines the renderer reads and writes (shared/chat/protocol.ts).
+  // ---------------------------------------------------------------------------
+  chat: {
+    call: {
+      /**
+       * Runs the tab's program, or attaches to the one the agent still runs
+       * for it (after a window reload), whose log the renderer then replays.
+       */
+      start: call(
+        PtyWorkspaceTabSchema.extend({
+          cwd: z.string(),
+          /** A session to go on with (`--resume`). */
+          resume: z.string().max(128).optional(),
+          /** Go on with a copy of `resume` (`--fork-session`). */
+          fork: z.boolean().optional(),
+          /** With fork: the message to copy the session up to (`--resume-session-at`). */
+          resumeAt: z.string().max(128).optional(),
+          /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
+          resetLog: z.boolean().optional(),
+        }),
+        z.discriminatedUnion("ok", [
+          z.object({
+            ok: z.literal(true),
+            pid: z.number().int(),
+            attached: z.boolean(),
+            /** `claude --version`'s x.y.z; null when it could not be read. */
+            version: z.string().nullable(),
+          }),
+          z.object({
+            ok: z.literal(false),
+            reason: z.enum(["not-found", "failed"]),
+            message: z.string(),
+          }),
+        ]),
+      ),
+      /** Runs a Codex tab's `codex app-server`, or attaches to the one the agent still runs. */
+      codexStart: call(
+        PtyWorkspaceTabSchema.extend({
+          cwd: z.string(),
+          /** Drop the tab's log first: the tab starts over. */
+          resetLog: z.boolean().optional(),
+        }),
+        z.discriminatedUnion("ok", [
+          z.object({
+            ok: z.literal(true),
+            pid: z.number().int(),
+            attached: z.boolean(),
+            /** `codex --version`'s x.y.z; null when it could not be read. */
+            version: z.string().nullable(),
+          }),
+          z.object({
+            ok: z.literal(false),
+            reason: z.enum(["not-found", "failed"]),
+            message: z.string(),
+          }),
+        ]),
+      ),
+      /** Writes one message to the program as a line. */
+      send: call(PtyWorkspaceTabSchema.extend({ message: z.record(z.unknown()) }), z.void()),
+      /** Ends the tab's program; its log stays, to show and to start again on. */
+      stop: call(PtyWorkspaceTabSchema, z.void()),
+      /** Ends the tab's program and forgets its log: the tab was closed. */
+      close: call(PtyWorkspaceTabSchema, z.void()),
+      /** Sends the tab's log again as `line` events, after `afterSeq`. */
+      replay: call(
+        PtyWorkspaceTabSchema.extend({ afterSeq: z.number().int().nonnegative().optional() }),
+        z.object({
+          found: z.boolean(),
+          running: z.boolean(),
+          truncated: z.boolean(),
+          lastSeq: z.number().int(),
+        }),
+      ),
+      /**
+       * Writes a file attached to a message where the tab's program can read
+       * it (on an SSH host, a file from this machine), and returns its path
+       * there. The agent removes it when the tab closes.
+       */
+      attach: call(
+        PtyWorkspaceTabSchema.extend({
+          name: z.string().min(1).max(255),
+          /** The file's bytes, base64: at most 20 MiB of them. */
+          data: z.string().max(28 * 1024 * 1024),
+        }),
+        z.object({ path: z.string() }),
+      ),
+      /** Removes the attached files of the workspace's Claude tabs that are no longer open. */
+      pruneAttachments: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          keepTabIds: z.array(z.string().max(128)).max(10_000),
+        }),
+        z.void(),
+      ),
+      /** A session's transcript, to show a conversation resumed after the agent restarted. */
+      transcript: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, sessionId: z.string().max(128) }),
+        z.object({
+          found: z.boolean(),
+          lines: z.array(z.unknown()),
+          truncated: z.boolean(),
+        }),
+      ),
+      /**
+       * Serves a page on this machine for an MCP server's sign-in to send the
+       * browser back to; its address is the redirect Claude Code is given.
+       */
+      oauthListen: call(z.object({}), z.object({ id: z.string(), redirectUri: z.string() })),
+      /** The address the browser came back to; null once the sign-in timed out or was cancelled. */
+      oauthWait: call(
+        z.object({ id: z.string().max(64) }),
+        z.object({ url: z.string().nullable() }),
+      ),
+      /** Stops waiting for a sign-in. */
+      oauthCancel: call(z.object({ id: z.string().max(64) }), z.void()),
+      /**
+       * Runs `claude` in a folder for what a tab does outside its session:
+       * the background sessions (`claude agents --json`, `claude --bg`,
+       * `claude stop`) and the plugins (`claude plugin …`).
+       */
+      cli: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          cwd: z.string().max(4096),
+          command: z.discriminatedUnion("kind", [
+            z.object({ kind: z.literal("agents") }),
+            z.object({
+              kind: z.literal("background"),
+              sessionId: z
+                .string()
+                .regex(/^[0-9A-Za-z-]{1,128}$/)
+                .optional(),
+              model: z
+                .string()
+                .regex(/^[0-9A-Za-z][0-9A-Za-z._:[\]-]{0,127}$/)
+                .optional(),
+              prompt: z.string().max(100_000).optional(),
+            }),
+            z.object({ kind: z.literal("stop"), id: z.string().regex(/^[0-9A-Za-z_-]{1,128}$/) }),
+            z.object({ kind: z.literal("plugins") }),
+            z.object({
+              kind: z.literal("plugin"),
+              action: z.enum(["install", "enable", "disable", "update", "uninstall"]),
+              /** name, or name@marketplace. */
+              plugin: z
+                .string()
+                .regex(/^[0-9A-Za-z][0-9A-Za-z._-]{0,127}(@[0-9A-Za-z][0-9A-Za-z._-]{0,127})?$/),
+              scope: z.enum(["user", "project", "local"]).optional(),
+            }),
+          ]),
+        }),
+        z.object({
+          code: z.number().int(),
+          stdout: z.string(),
+          stderr: z.string(),
+          timedOut: z.boolean().optional(),
+        }),
+      ),
+      /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
+      sessions: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive, cwd: z.string().max(4096) }),
+        z.array(ClaudeSessionSchema),
+      ),
+    },
+    listen: {
+      // Not validated: a line can carry megabytes of image data.
+      line: listen(
+        PtyWorkspaceTabSchema.extend({
+          seq: z.number().int(),
+          dir: z.enum(["out", "in", "sys"]),
+          message: z.unknown().optional(),
+          text: z.string().optional(),
+          /** When the agent got the line, in Unix milliseconds. */
+          at: z.number().optional(),
+          replay: z.boolean().optional(),
+        }),
+      ),
+      exit: listen(
+        PtyWorkspaceTabSchema.extend({
+          code: z.number().int().nullable(),
+          signal: z.string().optional(),
+          stderrTail: z.string().optional(),
+        }),
+      ),
+      /** The workspace's connection dropped; its programs may still run on the agent. */
+      held: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
+      /**
+       * The workspace's agent is reachable again, the same one or a new one:
+       * its tabs replay what they missed, and a tab the agent has no log for
+       * ended with the agent it ran on.
+       */
+      resync: listen(z.object({ workspaceId: WorkspaceIdPrimitive })),
     },
   },
 
@@ -980,6 +1222,14 @@ export const ipcContract = {
       refreshDetection: call(GitWorkspaceIdSchema, RepoInfoSchema),
       init: call(GitWorkspaceIdSchema, RepoInfoSchema),
       getStatus: call(GitWorkspaceIdSchema, GitStatusSchema),
+      /**
+       * The lines each uncommitted file adds and deletes, and how far HEAD
+       * is ahead of and behind `base`, the branch a task was made from.
+       */
+      getChangeStats: call(
+        GitWorkspaceIdSchema.extend({ base: z.string().min(1).optional() }),
+        GitChangeStatsSchema,
+      ),
       stage: call(GitRelPathsArgsSchema, z.void()),
       unstage: call(GitRelPathsArgsSchema, z.void()),
       /** Stages `content` as `relPath`'s index version, as staging part of a file does. */
@@ -1176,8 +1426,19 @@ export const ipcContract = {
       getExpanded: call(workspaceScoped({}), z.object({ relPaths: z.array(z.string()) })),
       setExpanded: call(workspaceScoped({ relPaths: z.array(z.string()) }), z.void()),
       readFile: call(workspaceScoped({ relPath: z.string() }), FileReadResultSchema),
-      // A file's bytes as base64, for previews that take them whole (PDF).
+      // A file's bytes as base64, for previews that take them whole (docx).
       readBinary: call(workspaceScoped({ relPath: z.string() }), FileReadBinaryResultSchema),
+      // Up to `length` bytes of a file from `offset`, as base64, with the
+      // file's size; at most READ_RANGE_MAX_BYTES a call. For previews that
+      // read a large file in pieces (PDF).
+      readRange: call(
+        workspaceScoped({
+          relPath: z.string(),
+          offset: z.number().int().min(0),
+          length: z.number().int().min(0),
+        }),
+        FileReadBinaryResultSchema,
+      ),
       writeFile: call(
         workspaceScoped({
           relPath: z.string(),
@@ -1234,6 +1495,18 @@ export const ipcContract = {
       // ----------------------------------------------------------------
       trash: call(workspaceScoped({ relPath: FsMutationRelPathSchema }), z.void()),
       readExternal: call(workspaceScoped({ absolutePath: z.string() }), FileReadResultSchema),
+      // The files outside the workspace a Claude tab links (`owner`, its
+      // tab id), which the previews may then read; `dirs` are the folders
+      // of its HTML files, whose pages load what sits beside them. Each
+      // call replaces what that owner granted; empty lists revoke it.
+      grantOutside: call(
+        workspaceScoped({
+          owner: z.string().min(1).max(200),
+          files: z.array(z.string().min(1).max(4096)).max(2000),
+          dirs: z.array(z.string().min(1).max(4096)).max(200),
+        }),
+        z.void(),
+      ),
     },
     listen: {
       changed: listen(FsChangedEventSchema),
@@ -1467,6 +1740,18 @@ export const ipcContract = {
           url: z.string(),
         }),
       ),
+      /**
+       * A local address of an SSH workspace was not opened: its port could
+       * not be forwarded. `kind` is "not-connected" or "failed".
+       */
+      refused: listen(
+        z.object({
+          tabId: z.string().uuid(),
+          url: z.string(),
+          kind: z.string(),
+          message: z.string(),
+        }),
+      ),
       /** Emitted when the page title changes. */
       titleUpdated: listen(z.object({ tabId: z.string().uuid(), title: z.string() })),
       /**
@@ -1626,6 +1911,25 @@ export const ipcContract = {
         }),
         z.boolean(),
       ),
+      /**
+       * A Claude tab's user answered there the last permission request it
+       * showed: the session waits on no dialog, its hooks tell nothing of
+       * that until the call allowed ends. `stopped` when the answer stopped
+       * the turn.
+       */
+      answeredInChat: call(
+        z.object({ workspaceId: z.string(), tabId: z.string(), stopped: z.boolean() }),
+        z.void(),
+      ),
+      /**
+       * Stops a session's running `claude -p` run (an activity agent of kind
+       * "print"), as an interrupt would. False when the app holds no watch
+       * of it, as for a run that ended.
+       */
+      stopPrintRun: call(
+        z.object({ workspaceId: z.string(), tabId: z.string(), agentId: z.string() }),
+        z.boolean(),
+      ),
     },
     listen: {
       /**
@@ -1692,6 +1996,11 @@ export const ipcContract = {
       ),
       /** Open the app's Microsoft Store page, where the Store updates it. */
       openStorePage: call(z.void(), z.void()),
+      /**
+       * The recent releases' notes on the user's channel, newest first, read
+       * from the GitHub releases feed when asked.
+       */
+      releaseNotes: call(z.void(), ReleaseNotesResultSchema),
     },
     listen: {
       /** Broadcast by main whenever the update status changes. */
@@ -1815,14 +2124,6 @@ export const ipcContract = {
       /** Which terminals are blocked in nexus terminal wait on which, for the sessions view. */
       waits: call(z.object({}), z.array(TerminalWaitSchema)),
       /**
-       * What the terminals of `workspaceIds` did from `since` on, for the
-       * sessions view's timeline.
-       */
-      history: call(
-        z.object({ workspaceIds: z.array(z.string()), since: z.number() }),
-        z.array(SessionSpanSchema),
-      ),
-      /**
        * Lets the user pick an element in a shown browser tab, as nexus
        * browser pick does, for the tab's pick button. Answers with the text
        * that tells an agent about the element, or why none was picked.
@@ -1836,6 +2137,34 @@ export const ipcContract = {
     },
     listen: {
       uiRequest: listen(CliUiRequestSchema),
+    },
+  },
+
+  // The agent manager (shared/manager): the session the app runs beside the
+  // user's to follow and direct them, in a workspace of its own.
+  manager: {
+    call: {
+      /**
+       * Opens the manager's workspace, its folder made if need be, so its
+       * program can start there. Answers where.
+       */
+      prepare: call(
+        z.void(),
+        z.object({ workspaceId: z.string().uuid(), tabId: z.string().uuid(), cwd: z.string() }),
+      ),
+      /**
+       * Tells the user what the manager reported, as a desktop notification
+       * when the user is not looking and notifications are on; a click shows
+       * the manager. Answers whether it was shown.
+       */
+      notify: call(
+        z.object({ title: z.string().max(200), body: z.string().max(4000) }),
+        z.object({ shown: z.boolean() }),
+      ),
+    },
+    listen: {
+      /** The user clicked a manager's notification: show the manager. */
+      reveal: listen(z.object({})),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

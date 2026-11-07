@@ -9,6 +9,8 @@ import { z } from "zod";
 export const SESSION_TOOLS_KEPT = 60;
 /** How many of an agent's tools are kept, the latest. */
 export const AGENT_TOOLS_KEPT = 30;
+/** How many of a run's messages are kept, the latest. */
+export const AGENT_MESSAGES_KEPT = 20;
 /** How many ended agents a session keeps, the latest. */
 export const ENDED_AGENTS_KEPT = 12;
 /** How long a tool's target, a description or a prompt may be. */
@@ -35,6 +37,13 @@ export const ToolRunSchema = z.object({
 });
 export type ToolRun = z.infer<typeof ToolRunSchema>;
 
+/** What a run wrote between its tools, as its output or transcript tells it. */
+export const AgentMessageSchema = z.object({
+  at: z.number(),
+  text: z.string(),
+});
+export type AgentMessage = z.infer<typeof AgentMessageSchema>;
+
 export const TodoSchema = z.object({
   /** The task list's id for the item; absent for a TodoWrite list. */
   id: z.string().optional(),
@@ -59,10 +68,17 @@ export const AgentRunStateSchema = z.enum([
 export type AgentRunState = z.infer<typeof AgentRunStateSchema>;
 
 export const AgentRunSchema = z.object({
-  /** Claude Code's agent_id, or the run's own id for a `claude -p` run. */
+  /** Claude Code's agent_id, or the run's own id for a `claude -p` or `codex exec` run. */
   id: z.string(),
-  /** A subagent of the session, or a `claude -p` run started inside it. */
+  /** A subagent of the session, or a `claude -p` or `codex exec` run started inside it. */
   kind: z.enum(["subagent", "print"]),
+  /** For a run: the program it runs, "codex" for a `codex exec` run; absent for `claude -p`. */
+  program: z.enum(["claude", "codex"]).optional(),
+  /**
+   * For a run: where its model is served when not by its program's own API,
+   * as the host of the gateway it was pointed at.
+   */
+  endpoint: z.string().optional(),
   /** The subagent's type, as "Explore" or "general-purpose". */
   type: z.string().optional(),
   model: z.string().optional(),
@@ -77,12 +93,19 @@ export const AgentRunSchema = z.object({
   answer: z.string().optional(),
   /** Its latest tools, oldest first. */
   tools: z.array(ToolRunSchema),
+  /** For a run: its latest messages, oldest first; its answer is the last once it ended. */
+  messages: z.array(AgentMessageSchema).optional(),
   toolCount: z.number().int(),
   failedCount: z.number().int(),
-  /** For a `claude -p` run: whether its tools are told (its output is a stream of events). */
+  /** For a run: whether its tools are told (its output is a stream of events). */
   toolsTold: z.boolean().optional(),
-  /** For a `claude -p` run: how it exited. */
+  /** For a run: how it exited. */
   exitCode: z.number().int().optional(),
+  /**
+   * For a run: its session's id, which `claude -p --resume` (or `codex exec
+   * resume`) goes on; a run that does is told as this one going on.
+   */
+  sessionId: z.string().optional(),
 });
 export type AgentRun = z.infer<typeof AgentRunSchema>;
 
@@ -131,6 +154,8 @@ export type PermissionAnswer = z.infer<typeof PermissionAnswerSchema>;
 export const SessionActivitySchema = z.object({
   workspaceId: z.string(),
   tabId: z.string(),
+  /** The Claude Code session the terminal runs, as its hooks tell. */
+  sessionId: z.string().optional(),
   /** When the user's last prompt came. */
   turnStart: z.number().optional(),
   /** The session's own latest tools, oldest first. */

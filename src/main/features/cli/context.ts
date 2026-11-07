@@ -2,6 +2,7 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
@@ -12,7 +13,8 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
-import type { ListeningPort } from "../../../shared/pty/ports";
+import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
+import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
@@ -54,6 +56,8 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
+  readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
   /**
@@ -74,6 +78,13 @@ export interface CliServices {
    * ahead, as the setting or the user says; a CliError saying why when not.
    */
   allowChange(request: ChangeRequest): Promise<void>;
+  /**
+   * Resolves when the user allows `request`, asked whatever the setting;
+   * a CliError saying why when not.
+   */
+  askUser(request: ChangeRequest): Promise<void>;
+  /** What the agent manager may do with another session's permission request. */
+  managerPermissions(): ManagerPermissions;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
@@ -83,6 +94,8 @@ export interface CliServices {
    * at now, in port order.
    */
   listeningPorts(workspaceId: string): Promise<readonly ListeningPort[]>;
+  /** The SSH workspaces' ports forwarded to this machine. */
+  readonly forwards: CliForwards;
   /**
    * Terminals whose agent nexus worktree new just started with a prompt, so
    * that a wait on one holds until the agent has begun its first turn.
@@ -140,11 +153,19 @@ export function pick<T>(
 
 /**
  * The workspace a --workspace flag names; the caller's own when it is left
- * out or is "." .
+ * out or is "." . The agent manager is in none of the user's: for it, the
+ * one the user is looking at.
  */
 export function resolveWorkspace(ctx: CliContext, selector: string | undefined): WorkspaceMeta {
   const workspaces = ctx.services.listWorkspaces();
-  const target = selector === undefined || selector === "." ? ctx.caller.workspaceId : selector;
+  const own = selector === undefined || selector === ".";
+  if (own && isManager(ctx.caller)) {
+    const shown = ctx.services.shownTab()?.workspaceId;
+    const workspace = workspaces.find((w) => w.id === shown);
+    if (workspace) return workspace;
+    throw new CliError("you are the agent manager, in no workspace: give --workspace");
+  }
+  const target = own ? ctx.caller.workspaceId : selector;
   return pick(
     workspaces,
     target,
@@ -164,12 +185,35 @@ export async function mayChange(
   change: CliChange,
 ): Promise<void> {
   if (workspace.id === ctx.caller.workspaceId) return;
+  // The user turned the manager on to direct every workspace.
+  if (isManager(ctx.caller)) return;
   await ctx.services.allowChange({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,
     toWorkspaceId: workspace.id,
     change,
   });
+}
+
+/** The agents of a terminal's Claude session (claude/session-activity.ts). */
+export interface CliClaudeAgents {
+  /** Running ones, then ended ones, latest first; none when the terminal runs no session. */
+  list(workspaceId: string, tabId: string): readonly AgentRun[];
+  /**
+   * Stops a running `claude -p` run, as an interrupt would; false when the
+   * app holds no watch of it to tell.
+   */
+  stop(workspaceId: string, tabId: string, agentId: string): Promise<boolean>;
+}
+
+/** An SSH workspace's ports forwarded to this machine (pty/forwards.ts). */
+export interface CliForwards {
+  list(workspaceId: string): readonly PortForward[];
+  /** Fails with a ForwardError when the workspace is not connected or ssh fails. */
+  forward(workspaceId: string, port: number): Promise<PortForward>;
+  stop(workspaceId: string, port: number): Promise<void>;
+  /** The URL to open here for `url`: a local address goes to its forward. */
+  localUrl(workspaceId: string, url: string): Promise<string>;
 }
 
 /** Where a tab the command opens in `workspace` goes: beside the caller in its own. */
@@ -207,4 +251,26 @@ export function describeLocation(workspace: WorkspaceMeta): string {
   if (location.kind === "wsl") return `WSL ${location.distro}:${location.remotePath}`;
   const user = location.user ? `${location.user}@` : "";
   return `${user}${location.host}:${location.remotePath}`;
+}
+
+/**
+ * Tells the app that the agent manager handed work to a session, sending it
+ * `text` when it did, so that the session counts as its task. Nothing for
+ * another caller; the work went out whether or not the app hears of it.
+ */
+export async function noteDispatch(
+  ctx: CliContext,
+  target: { readonly workspaceId: string; readonly tabId: string },
+  text?: string,
+): Promise<void> {
+  if (!isManager(ctx.caller)) return;
+  try {
+    await ctx.services.ui("manager.dispatched", {
+      workspaceId: target.workspaceId,
+      tabId: target.tabId,
+      ...(text ? { text } : {}),
+    });
+  } catch {
+    // Its tracking only: the session has the work.
+  }
 }

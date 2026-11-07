@@ -5,6 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import type { AgentRun } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -16,6 +17,7 @@ import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace, type ManagerPermissions } from "../../../shared/manager/manager";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -29,12 +31,16 @@ import { formatPick, type PickedElement } from "./browser/pick";
 import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
-import { CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
-import { CliError, type CliServices, shortId } from "./context";
+import {
+  askEachTime,
+  type ChangeRequest,
+  CrossWorkspaceConsent,
+  type CrossWorkspacePolicy,
+} from "./consent";
+import { CliError, type CliForwards, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
-import { type AgentRunSource, SessionHistory, type SessionSpanStore } from "./history";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
 import { WaitRegistry } from "./waits";
@@ -46,7 +52,7 @@ const BUTTON_PICK_MS = 10 * 60_000;
 
 const DISABLED: CliResult = {
   stdout: "",
-  stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agent CLI)\n",
+  stderr: "nexus: the nexus command is turned off in NexusCode's settings (Agents)\n",
   exitCode: 1,
 };
 const DISABLED_QUIETLY: CliResult = { stdout: "", stderr: "", exitCode: 0 };
@@ -65,18 +71,22 @@ export interface SetupCliFeatureOptions {
     activate(id: string): Promise<void>;
   };
   claudeBroker: ClaudeStatusBroker;
-  /** The agents of Claude sessions, for the timeline's spans of them. */
-  claudeActivity?: AgentRunSource;
+  /** The agents of Claude sessions, for nexus agent. */
+  claudeActivity?: {
+    get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+  };
+  /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
+  stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
-  /** Where the sessions timeline's spans are kept. */
-  sessionSpans: SessionSpanStore;
   appVersion: string;
   notificationsEnabled: () => boolean;
-  /** The Agent CLI settings, read on every command. */
+  /** The nexus settings (Settings › Agents), read on every command. */
   settings: () => {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
+    /** What the agent manager may do with another session's permission request. */
+    managerPermissions: ManagerPermissions;
   };
   /** The app window the renderer side of the CLI runs in. */
   getWindow: () => UiWindow | null;
@@ -88,9 +98,13 @@ export interface SetupCliFeatureOptions {
   broadcast: (channel: string, event: string, args: unknown) => void;
   /** Looks at the ports the programs in a workspace's terminals listen on. */
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
+  /** The SSH workspaces' ports forwarded to this machine. */
+  forwards: CliForwards;
 }
 
 export interface CliFeature {
+  /** A key typed into a terminal (activity.ts). */
+  noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
 }
 
@@ -113,14 +127,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     foregroundGroup(workspaceId, tabId, true),
   );
   const waits = new WaitRegistry(agentHost);
-  const history = new SessionHistory(options.sessionSpans, agentHost, options.claudeBroker);
-  if (options.claudeActivity) history.watchAgents(options.claudeActivity);
   const startedAgents = new StartedAgents(agentHost);
+  // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
+  const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
+    (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
-    // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
-    ask: async (request, timeoutMs) =>
-      (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer,
+    ask: askConsent,
   });
   const browser = new CdpBrowserDriver((tabId) => {
     const entry = getBrowserRegistry()?.get(tabId);
@@ -138,10 +151,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       },
       activity: async () => ipcOk(activity.snapshot()),
       waits: async () => ipcOk(waits.snapshot()),
-      history: async (args: unknown) => {
-        const { workspaceIds, since } = validateArgs(ipcContract.cli.call.history.args, args);
-        return ipcOk(history.list(workspaceIds, since));
-      },
       pickElement: async (args: unknown) => {
         const { tabId } = validateArgs(ipcContract.cli.call.pickElement.args, args);
         const result = await browser.pick(tabId, { timeoutMs: BUTTON_PICK_MS });
@@ -181,6 +190,11 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
+    // The manager is shown in its dock, not in a workspace.
+    if (isManagerWorkspace(workspaceId)) {
+      options.broadcast("manager", "reveal", {});
+      return;
+    }
     workspaceManager.activate(workspaceId).catch((error: unknown) => {
       log.warn(`activating ${workspaceId} failed: ${(error as Error).message}`);
     });
@@ -205,15 +219,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
+    claudeAgents: {
+      list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
+      stop: async (workspaceId, tabId, agentId) =>
+        (await options.stopPrintRun?.(workspaceId, tabId, agentId)) ?? false,
+    },
     waits: {
-      begin: (waiter, target, since) => {
-        const unlist = waits.begin(waiter, target, since);
-        const endSpan = history.beginWait(waiter, target, since);
-        return () => {
-          unlist();
-          endSpan();
-        };
-      },
+      begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
       bridge.ask(op, args, timeoutMs),
@@ -241,9 +253,12 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       }
     },
     allowChange: (request) => consent.check(request),
+    askUser: (request) => askEachTime(request, askConsent),
+    managerPermissions: () => options.settings().managerPermissions,
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),
+    forwards: options.forwards,
     startedAgents,
     clock: {
       now: () => Date.now(),
@@ -301,6 +316,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
 
   return {
+    noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();
       offCancel();
@@ -309,7 +325,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       activity.dispose();
       claudeExit.dispose();
       waits.dispose();
-      history.dispose();
       startedAgents.dispose();
       bridge.dispose();
     },

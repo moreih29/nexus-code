@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { cycleActiveWorkspace } from "../../../../../src/renderer/commands/domains/workspace";
 import { useActiveStore } from "../../../../../src/renderer/state/stores/active";
 import {
+  restoredWorkspace,
   rootWorkspaceId,
   tasksOf,
   useWorkspacesStore,
@@ -66,5 +67,20 @@ describe("cycleActiveWorkspace with tasks", () => {
     useActiveStore.getState().setActiveWorkspaceId(B_TASK);
     cycleActiveWorkspace(-1);
     expect(useActiveStore.getState().activeWorkspaceId).toBe(A);
+  });
+});
+
+describe("restoredWorkspace", () => {
+  const list = [workspace(A), workspace(A_TASK, A), workspace(B)];
+
+  test("opens on the workspace main restored, not the first in the sidebar", () => {
+    expect(restoredWorkspace(list, B)?.id).toBe(B);
+    expect(restoredWorkspace(list, A_TASK)?.id).toBe(A_TASK);
+  });
+
+  test("falls back to the first sidebar workspace without a known restored one", () => {
+    expect(restoredWorkspace(list, null)?.id).toBe(A);
+    expect(restoredWorkspace(list, "00000000-0000-4000-8000-0000000000ff")?.id).toBe(A);
+    expect(restoredWorkspace([], null)).toBeUndefined();
   });
 });

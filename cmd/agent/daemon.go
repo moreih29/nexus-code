@@ -55,6 +55,7 @@ import (
 
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 	"github.com/nexus-code/nexus-code/internal/agentrun"
+	agentchat "github.com/nexus-code/nexus-code/internal/chat"
 	"github.com/nexus-code/nexus-code/internal/dispatch"
 	agentfs "github.com/nexus-code/nexus-code/internal/fs"
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
@@ -222,6 +223,7 @@ func runDaemon(root string) {
 	git := agentgit.New(root)
 	lsp := agentlsp.New()
 	pty := agentpty.New()
+	chat := agentchat.New()
 	search, err := agentsearch.New(root)
 	if err != nil {
 		agentLogger.Error("failed to initialize search", "err", err)
@@ -243,6 +245,7 @@ func runDaemon(root string) {
 	agentgit.Register(d, git)
 	agentlsp.Register(d, lsp)
 	agentpty.Register(d, pty)
+	agentchat.Register(d, chat)
 	agentsearch.Register(d, search)
 	if hooksrv != nil {
 		hookserver.Register(d, hooksrv)
@@ -269,7 +272,8 @@ func runDaemon(root string) {
 	var shutdown sync.Once
 	cleanupAndExit := func(code int) {
 		shutdown.Do(func() {
-			pty.Close() // SIGKILL every PTY process group
+			pty.Close()  // SIGKILL every PTY process group
+			chat.Close() // and every Claude tab's program
 			lsp.Close()
 			if hooksrv != nil {
 				_ = hooksrv.Close()
@@ -290,6 +294,9 @@ func runDaemon(root string) {
 		time.AfterFunc(shutdownReplyDelay, func() { cleanupAndExit(0) })
 		return struct{}{}, nil
 	})
+	// agent.stopDaemon is agent.shutdown for another workspace's daemon on
+	// this host, removed while the app was not connected to it.
+	d.Register("agent.stopDaemon", newStopDaemonHandler(root))
 
 	// nextConn delivers incoming connections from the accept goroutine to the
 	// serve loop. Buffer of 1 so the acceptor never blocks while serve is busy.
@@ -357,6 +364,7 @@ func runDaemon(root string) {
 		git.SetEventSink(host.EmitEvent)
 		lsp.SetEventSink(host.EmitEvent)
 		pty.SetEventSink(host.EmitEvent)
+		chat.SetEventSink(host.EmitEvent)
 		search.SetEventSink(host.EmitEvent)
 		if hooksrv != nil {
 			hooksrv.SetEventSink(host.EmitEvent)

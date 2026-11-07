@@ -3,9 +3,9 @@
 // About / Info panel — replaces the previous Updates panel.
 //
 // Shows the product name, the app version (injected at build time via the
-// `__APP_VERSION__` Vite define — see `electron.vite.config.ts`), the
-// copyright line, an auto-check toggle, and a manual "Check for Updates"
-// action.
+// `__APP_VERSION__` Vite define — see `electron.vite.config.ts`) and the
+// copyright line, with the release notes and a manual "Check for Updates"
+// beside them, then an auto-check toggle.
 //
 // The Update Channel SegmentedControl (stable / beta) is intentionally not
 // rendered at this stage: no GA release exists yet, so a channel toggle has
@@ -15,13 +15,17 @@
 // re-introduced control here.
 //
 // Auto-check toggle policy:
-//   - On  (default): app start fires one silent GH Releases poll. A toast
-//                    appears only when a newer version is found.
-//   - Off          : the startup poll is skipped. The "Check for Updates"
+//   - On  (default): the app polls GH Releases silently once it starts and
+//                    every few hours while it runs. A newer version shows on
+//                    the title bar's update button, with one toast a version.
+//   - Off          : those polls are skipped. The "Check for Updates"
 //                    button below always works regardless of this setting —
 //                    it is the user's explicit ask and is never gated.
 //
-// Below the button the panel shows where an update stands, from the updates
+// The release notes open from here over the panels (closing Settings): the
+// running version's, or the newer one's while one is on offer.
+//
+// Below the name the panel shows where an update stands, from the updates
 // store: the last check's answer, then the download with its progress, the
 // signature check (macOS), and the restart that installs it.
 //
@@ -31,15 +35,16 @@
 // Toasts are driven by the global `initUpdatesSubscriptions()` listener
 // (bootstrap-level), which also feeds the store this panel reads.
 
-import { useCallback, useId } from "react";
+import { type ReactNode, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/status";
 import { ipcCallResult } from "../../../ipc/client";
+import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { updateCheckFailedMessage } from "../../../state/operations/update-check-failure";
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
-import { Switch } from "../../ui/switch";
+import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
 
 // ---------------------------------------------------------------------------
 // Static product metadata
@@ -60,7 +65,6 @@ export function AboutPanel() {
   const progress = useUpdatesStore((s) => s.progress);
   const storeManaged = window.host?.windowsStore === true;
 
-  const autoCheckId = useId();
 
   const handleAutoCheckChange = useCallback(
     (next: boolean) => {
@@ -76,56 +80,58 @@ export function AboutPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Product identity — left-aligned stack to match every other
-          Settings panel (Appearance / Editor / Terminal / Notifications). */}
-      <div className="flex flex-col gap-1">
-        <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
-        <div className="text-app-ui-sm text-muted-foreground">
-          {t("about.version", { version: __APP_VERSION__ })}
-        </div>
-        <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
-      </div>
-
-      {storeManaged ? (
-        <div className="flex flex-col items-start gap-3">
-          <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
-          >
-            {t("about.openStore")}
-          </Button>
-        </div>
-      ) : (
-        <>
-          {/* Auto-check row — stacked label + helper on the left, Switch
-              pinned right. Same pattern as the Notifications panel. */}
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex flex-col gap-1 min-w-0">
-              <label
-                htmlFor={autoCheckId}
-                className="text-app-body text-foreground cursor-pointer"
-              >
-                {t("about.autoCheck.label")}
-              </label>
-              <p className="text-app-ui-sm text-muted-foreground">
-                {t("about.autoCheck.description")}
-              </p>
+    <SettingsPage>
+      <SettingsGroup>
+        {/* Product identity on the left, what can be done about it on the right. */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="text-app-body-emphasis text-foreground">{APP_NAME}</div>
+            <div className="text-app-ui-sm text-muted-foreground">
+              {t("about.version", { version: __APP_VERSION__ })}
             </div>
-            <Switch
-              id={autoCheckId}
-              checked={autoCheckEnabled}
-              onCheckedChange={handleAutoCheckChange}
-              className="shrink-0 mt-1"
-            />
+            <div className="text-app-ui-sm text-muted-foreground">{COPYRIGHT}</div>
           </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {/* The notes of the running version, or of the newer one on offer. */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => showReleaseNotes(status?.kind === "newer" ? status.latest : null)}
+              data-testid="about-release-notes"
+            >
+              {t("about.releaseNotes")}
+            </Button>
+            {storeManaged ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
+              >
+                {t("about.openStore")}
+              </Button>
+            ) : (
+              <UpdateActions status={status} releaseNotes={false} />
+            )}
+          </div>
+        </div>
+        {storeManaged ? (
+          <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
+        ) : (
+          <UpdateProgressLines status={status} progress={progress} />
+        )}
+      </SettingsGroup>
 
-          <UpdateSection status={status} progress={progress} />
-        </>
+      {!storeManaged && (
+        <SettingsGroup>
+          <SettingsSwitch
+            label={t("about.autoCheck.label")}
+            description={t("about.autoCheck.description")}
+            checked={autoCheckEnabled}
+            onChange={handleAutoCheckChange}
+          />
+        </SettingsGroup>
       )}
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -142,70 +148,103 @@ function openReleasePage(url: string): void {
   void ipcCallResult("updates", "openReleasePage", { url });
 }
 
-/** The current status as a line of text and the actions it offers. */
+/**
+ * The current status as a line of text and the actions it offers, then
+ * `children` beside them. The title bar's update button and the release
+ * notes show it too. A newer version offers its release notes, unless
+ * `releaseNotes` is false, where they are a click away already.
+ */
 export function UpdateSection({
+  status,
+  progress,
+  releaseNotes = true,
+  children,
+}: {
+  status: UpdateStatus | null;
+  progress: UpdateProgress | null;
+  releaseNotes?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-3">
+      <UpdateProgressLines status={status} progress={progress} />
+      <div className="flex flex-wrap gap-2">
+        <UpdateActions status={status} releaseNotes={releaseNotes} />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** Where the update stands, in words, and the download's bar while there is one. */
+function UpdateProgressLines({
   status,
   progress,
 }: {
   status: UpdateStatus | null;
   progress: UpdateProgress | null;
 }) {
-  const { t } = useTranslation(["settings", "common"]);
-
-  const checkButton = (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={checkNow}
-      disabled={status?.kind === "checking"}
-    >
-      {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
-    </Button>
-  );
-
   return (
-    <div className="flex flex-col items-start gap-3">
+    <>
       <UpdateStatusLine status={status} />
       {(status?.kind === "downloading" || status?.kind === "verifying") && (
         <DownloadProgressBar status={status} progress={progress} />
       )}
-      <div className="flex flex-wrap gap-2">
-        {status?.kind === "newer" && status.canInstall && (
-          <>
-            <Button
-              size="sm"
-              onClick={() => void ipcCallResult("updates", "install", undefined)}
-            >
-              {t("common:updates.install")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-              {t("about.releaseNotes")}
-            </Button>
-          </>
-        )}
-        {status?.kind === "newer" && !status.canInstall && (
-          <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-            {t("common:updates.download")}
-          </Button>
-        )}
-        {status?.kind === "ready" && (
-          <Button size="sm" onClick={() => void ipcCallResult("updates", "restart", undefined)}>
-            {t("common:updates.restart")}
-          </Button>
-        )}
-        {status?.kind === "installFailed" && (
-          <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
-            {t("common:updates.openReleasePage")}
-          </Button>
-        )}
-        {(status === null ||
-          status.kind === "checking" ||
-          status.kind === "current" ||
-          status.kind === "error" ||
-          status.kind === "installFailed") &&
-          checkButton}
-      </div>
-    </div>
+    </>
+  );
+}
+
+/** The buttons the status offers: install, download, restart, check again. */
+function UpdateActions({
+  status,
+  releaseNotes,
+}: {
+  status: UpdateStatus | null;
+  releaseNotes: boolean;
+}) {
+  const { t } = useTranslation(["settings", "common"]);
+  return (
+    <>
+      {status?.kind === "newer" && status.canInstall && (
+        <Button size="sm" onClick={() => void ipcCallResult("updates", "install", undefined)}>
+          {t("common:updates.install")}
+        </Button>
+      )}
+      {status?.kind === "newer" && !status.canInstall && (
+        <Button size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+          {t("common:updates.download")}
+        </Button>
+      )}
+      {status?.kind === "newer" && releaseNotes && (
+        <Button variant="outline" size="sm" onClick={() => showReleaseNotes(status.latest)}>
+          {t("about.releaseNotes")}
+        </Button>
+      )}
+      {status?.kind === "ready" && (
+        <Button size="sm" onClick={() => void ipcCallResult("updates", "restart", undefined)}>
+          {t("common:updates.restart")}
+        </Button>
+      )}
+      {status?.kind === "installFailed" && (
+        <Button variant="outline" size="sm" onClick={() => openReleasePage(status.releaseUrl)}>
+          {t("common:updates.openReleasePage")}
+        </Button>
+      )}
+      {(status === null ||
+        status.kind === "checking" ||
+        status.kind === "current" ||
+        status.kind === "error" ||
+        status.kind === "installFailed") && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={checkNow}
+          disabled={status?.kind === "checking"}
+        >
+          {status?.kind === "checking" ? t("about.checking") : t("about.checkNow")}
+        </Button>
+      )}
+    </>
   );
 }
 

@@ -5,20 +5,25 @@ import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
 import { useCommandBridge } from "./commands/use-command-bridge";
+import { AgentSidebar } from "./components/agent-view/agent-sidebar";
+import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
-import { AgentCliPanel } from "./components/settings/panels/agent-cli-panel";
+import { AgentPanel } from "./components/settings/panels/agent-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
+import { ManagerDock } from "./components/manager/manager-dock";
 import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
+import { ManagerPanel } from "./components/settings/panels/manager-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import type { SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
+import { ReleaseNotesView } from "./components/workbench/release-notes";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
 import { WelcomeScreen } from "./components/workbench/welcome-screen";
@@ -30,11 +35,13 @@ import { useInactivePanelDimEffect } from "./hooks/use-inactive-panel-dim-effect
 import { useWindowOpacityEffect } from "./hooks/use-window-opacity-effect";
 import { ipcCallResult } from "./ipc/client";
 import { useGlobalKeybindings } from "./keybindings/use-global-keybindings";
+import { LOOK_AREA_ATTR } from "./services/chat/look-area";
 import { initializeEditorServices } from "./services/editor";
 import { rehydrateLspForWorkspace } from "./services/editor/model/cache";
 import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
+import { useAgentViewStore } from "./state/stores/agent-view";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
 import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
@@ -67,6 +74,9 @@ export function App() {
   // ready to restore on re-show.
   const sidebarHidden = useUIStore((s) => s.sidebarHidden);
   const filesPanelHidden = useUIStore((s) => s.filesPanelHidden);
+  // The agent view takes the place of the workspaces: its list for the
+  // sidebar and the files, its panels for the workspace's.
+  const agentView = useAgentViewStore((s) => s.mode === "agents");
 
   // Settings nav — each row carries an optional `dirty` dot. Dirty is
   // **session-scoped**: it means "this value changed while the current
@@ -191,7 +201,7 @@ export function App() {
         id: "terminal",
         label: t("nav.terminal"),
         group: t("nav.group.settings"),
-        keywords: ["font", "size", "cursor", "family", "ligatures"],
+        keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
         dirty: terminalDirty,
       },
       {
@@ -201,10 +211,16 @@ export function App() {
         keywords: ["alert", "desktop", "os", "notification", "claude"],
       },
       {
-        id: "agent-cli",
-        label: t("nav.agentCli"),
+        id: "agent",
+        label: t("nav.agent"),
         group: t("nav.group.settings"),
-        keywords: ["nexus", "cli", "agent", "claude", "codex", "에이전트"],
+        keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "에이전트", "작업"],
+      },
+      {
+        id: "manager",
+        label: t("nav.manager"),
+        group: t("nav.group.settings"),
+        keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
       },
       {
         id: "browser-permissions",
@@ -354,6 +370,7 @@ export function App() {
 
   const handleWorkspaceCreated = useCallback(
     async (meta: WorkspaceMeta) => {
+      useAgentViewStore.getState().setMode("workspace");
       setActiveWorkspaceId(meta.id);
       // Fire-and-forget: UI is already updated; notify main of new workspace activation.
       void ipcCallResult("workspace", "activate", { id: meta.id }).then((result) => {
@@ -437,7 +454,8 @@ export function App() {
             if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
-            if (activeId === "agent-cli") return <AgentCliPanel />;
+            if (activeId === "agent") return <AgentPanel />;
+            if (activeId === "manager") return <ManagerPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;
@@ -445,7 +463,8 @@ export function App() {
           }}
         </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
-          {!sidebarHidden && (
+          {!sidebarHidden && agentView && <AgentSidebar />}
+          {!sidebarHidden && !agentView && (
             <Sidebar
               workspaces={workspaces}
               activeWorkspaceId={activeWorkspaceId}
@@ -454,17 +473,31 @@ export function App() {
               onRemoveWorkspace={handleRemoveWorkspace}
             />
           )}
-          {!filesPanelHidden && <FilesPanel />}
-          <div className="grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden">
-            {workspaces.length === 0 && (
+          {!filesPanelHidden && !agentView && <FilesPanel />}
+          {/* The panels, where quick look and the release notes show over them. */}
+          <div
+            className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden"
+            {...{ [LOOK_AREA_ATTR]: "" }}
+          >
+            {workspaces.length === 0 && !agentView && (
               <div className="flex flex-col island-surface rounded-(--radius-island) overflow-hidden">
                 <WelcomeScreen onAddWorkspace={handleAddWorkspace} />
               </div>
             )}
             {mountedWorkspaces.map((ws) => (
-              <WorkspacePanel key={ws.id} workspace={ws} isActive={ws.id === activeWorkspaceId} />
+              <WorkspacePanel
+                key={ws.id}
+                workspace={ws}
+                isActive={!agentView && ws.id === activeWorkspaceId}
+              />
             ))}
+            {/* Kept mounted, as the workspaces are: a tab moves between its
+                panels and the workspace's groups without leaving the
+                document, which would lose its scroll and reload its frames. */}
+            <AgentView shown={agentView} />
+            <ReleaseNotesView />
           </div>
+          <ManagerDock />
         </div>
       </div>
     </ErrorBoundary>

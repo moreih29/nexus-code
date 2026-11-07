@@ -13,7 +13,7 @@
 //   - fontLigatures: token fallback = false
 //   - shell:         fallback = the system default shell (resolved in main)
 //   - customShells:  the shells the user added, besides the detected ones
-//   - taskAgentCommand: fallback = "claude"; what a new task's terminal runs
+//   - taskAgent:     fallback = "claude"; what a new task opens with
 //
 // fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
 // terminal owns its own typeface preferences.
@@ -28,6 +28,12 @@ import { create } from "zustand";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/renderer";
 import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
+import {
+  asTaskAgent,
+  DEFAULT_TASK_AGENT,
+  type TaskAgent,
+  taskAgentOfCommand,
+} from "../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../ipc/client";
 
 const log = createLogger("terminal");
@@ -53,8 +59,8 @@ interface TerminalSettingsState {
   shell: ShellChoice | undefined;
   /** Shells the user added in Settings › Terminal; main reads them at each spawn. */
   customShells: CustomShell[];
-  /** What a new task's terminal runs; see `resolvedTaskAgentCommand`. */
-  taskAgentCommand: string | undefined;
+  /** What a new task opens with; see `resolvedTaskAgent`. */
+  taskAgent: TaskAgent | undefined;
 
   /** Hydrate from persisted appState — called once during bootstrap. */
   hydrate(values: {
@@ -64,6 +70,8 @@ interface TerminalSettingsState {
     fontLigatures?: boolean | undefined;
     shell?: ShellChoice | undefined;
     customShells?: CustomShell[] | undefined;
+    taskAgent?: string | undefined;
+    /** The command earlier versions ran in a new task's terminal, carried over once. */
     taskAgentCommand?: string | undefined;
   }): void;
 
@@ -114,8 +122,8 @@ interface TerminalSettingsState {
    */
   setFontLigatures(value: boolean | undefined): void;
 
-  /** Set what a new task's terminal runs. Persists to appState. */
-  setTaskAgentCommand(value: string | undefined): void;
+  /** Set what a new task opens with. Persists to appState. */
+  setTaskAgent(value: TaskAgent | undefined): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +158,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
     fontLigatures: undefined,
     shell: undefined,
     customShells: [],
-    taskAgentCommand: undefined,
+    taskAgent: undefined,
 
     hydrate({
       fontSize,
@@ -159,8 +167,21 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
       fontLigatures,
       shell,
       customShells,
+      taskAgent,
       taskAgentCommand,
     }) {
+      let agent = asTaskAgent(taskAgent);
+      if (taskAgent === undefined && taskAgentCommand !== undefined) {
+        // The command an earlier version ran becomes the agent it was.
+        const carried = taskAgentOfCommand(taskAgentCommand);
+        agent = carried === DEFAULT_TASK_AGENT ? undefined : carried;
+        void ipcCallResult("appState", "set", {
+          taskAgent: agent,
+          taskAgentCommand: undefined,
+        }).then((result) => {
+          if (!result.ok) log.warn(`appState set (taskAgent) failed: ${result.message}`);
+        });
+      }
       set({
         fontSize,
         cursorStyle,
@@ -168,7 +189,7 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
         fontLigatures,
         shell,
         customShells: customShells ?? [],
-        taskAgentCommand,
+        taskAgent: agent,
       });
     },
 
@@ -249,13 +270,13 @@ export const useTerminalStore = create<TerminalSettingsState>((set, get) => {
       dispatchSettingsChanged();
     },
 
-    setTaskAgentCommand(value) {
-      set({ taskAgentCommand: value });
+    setTaskAgent(value) {
+      set({ taskAgent: value });
 
       void ipcCallResult("appState", "set", {
-        taskAgentCommand: value,
+        taskAgent: value,
       }).then((result) => {
-        if (!result.ok) log.warn(`appState set (taskAgentCommand) failed: ${result.message}`);
+        if (!result.ok) log.warn(`appState set (taskAgent) failed: ${result.message}`);
       });
     },
   };
@@ -290,13 +311,9 @@ export function resolvedTerminalFontFamily(): string {
   return fontFamily.monoDisplay;
 }
 
-/** What a new task's terminal runs when the setting is unset. */
-export const DEFAULT_TASK_AGENT_COMMAND = "claude";
-
-/** Resolve what a new task's terminal runs; empty means nothing. */
-export function resolvedTaskAgentCommand(): string {
-  const { taskAgentCommand } = useTerminalStore.getState();
-  return (taskAgentCommand ?? DEFAULT_TASK_AGENT_COMMAND).trim();
+/** Resolve what a new task opens with: the setting, else Claude. */
+export function resolvedTaskAgent(): TaskAgent {
+  return useTerminalStore.getState().taskAgent ?? DEFAULT_TASK_AGENT;
 }
 
 /** Resolve the effective ligatures toggle: store value or fallback false. */

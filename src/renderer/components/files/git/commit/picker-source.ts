@@ -52,7 +52,7 @@ export function createCommitPickerSource(
         id: "commit-picker:pick-from-branch",
         label: t("files:git.commitPicker.pickFromBranch"),
         description: t("files:git.commitPicker.pickFromBranchPlaceholder"),
-        kindLabel: "branch",
+        kindLabel: t("files:git.pickerKind.branch"),
         action: { kind: "pick-from-branch" },
       };
       return [

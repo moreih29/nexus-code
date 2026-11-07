@@ -13,6 +13,7 @@
  *   ~/.nexus-code/shim/<workspaceId>/    ← shimDir(workspaceId)
  *
  * On Windows, ~ is the user profile folder (USERPROFILE), for both modules.
+ * NEXUS_CODE_HOME names another root in place of ~/.nexus-code, for both.
  */
 
 import fs from "node:fs/promises";
@@ -22,10 +23,21 @@ import path from "node:path";
 const ROOT_DIR_NAME = ".nexus-code";
 
 /**
- * Returns the absolute path of the ~/.nexus-code runtime directory.
+ * Names a runtime directory in place of ~/.nexus-code: a copy of the app
+ * run beside the installed one, as a build under test, keeps its files and
+ * the installed app's apart. The agent and the terminals' wrappers read it
+ * too. Keep it short: the agents' sockets are under it.
+ */
+export const HOME_ENV = "NEXUS_CODE_HOME";
+
+/**
+ * Returns the absolute path of the ~/.nexus-code runtime directory, or of
+ * the one NEXUS_CODE_HOME names.
  * Throws if os.homedir() returns an empty string (rare in some CI environments).
  */
 export function root(): string {
+  const named = process.env[HOME_ENV];
+  if (named) return path.resolve(named);
   const home = os.homedir();
   if (!home) {
     throw new Error("agentpaths: cannot determine home directory (os.homedir() returned empty)");
@@ -114,15 +126,33 @@ autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrap
 _nexus_prepend_wrapper
 `;
 
+/** sh that puts the directory `variable` names first on PATH, if it names one. */
+function prependDir(variable: string): string {
+  return `if [ -n "\${${variable}-}" ]; then
+  case ":\$PATH:" in
+    ":\$${variable}:"*) ;;
+    *) PATH="\$${variable}:\${PATH//:\$${variable}:/:}" ;;
+  esac
+fi
+`;
+}
+
+/**
+ * Puts NEXUS_WRAPPER_SELF_DIR back first on the PATH, which a startup file
+ * may have reset: a shell that shows no prompt (the commands a Codex tab
+ * runs) has no precmd hook to do it.
+ */
+const PREPEND_WRAPPER = prependDir("NEXUS_WRAPPER_SELF_DIR");
+
 /** zsh .zshenv shim: sources the user's original .zshenv, loaded by zsh
- * before any other startup file. */
+ * before any other startup file, and the only one `zsh -c` reads. */
 export const ZSHENV_CONTENT = `# Nexus PTY shim — sourced via ZDOTDIR at PTY spawn time.
 if [ -n "\${NEXUS_USER_ZDOTDIR-}" ] && [ -f "$NEXUS_USER_ZDOTDIR/.zshenv" ]; then
   source "$NEXUS_USER_ZDOTDIR/.zshenv"
 elif [ -f "$HOME/.zshenv" ]; then
   source "$HOME/.zshenv"
 fi
-`;
+${PREPEND_WRAPPER}`;
 
 /** A zsh login-file shim (.zprofile, .zlogin, .zlogout): sources the user's
  * own copy, which ZDOTDIR pointing at the shim directory would otherwise hide
@@ -138,7 +168,8 @@ fi
 }
 
 export const ZPROFILE_CONTENT = zshLoginShim(".zprofile");
-export const ZLOGIN_CONTENT = zshLoginShim(".zlogin");
+/** The last file a login zsh reads, after the profile that may reset the PATH. */
+export const ZLOGIN_CONTENT = zshLoginShim(".zlogin") + PREPEND_WRAPPER;
 export const ZLOGOUT_CONTENT = zshLoginShim(".zlogout");
 
 /** bash bashrc shim: sources the user's original .bashrc and registers a
@@ -160,8 +191,21 @@ _nexus_prepend_wrapper
 `;
 
 /**
+ * bash BASH_ENV shim, for a Codex tab's `codex app-server` and a Windows
+ * Claude tab's `claude`: bash reads it as it runs each command (`bash -c`),
+ * and after a login shell's profile, which may have reset the PATH. On
+ * Windows, NEXUS_BASH_WRAPPER_DIR is the wrappers' directory as Git Bash
+ * names it, and NEXUS_WRAPPER_SELF_DIR the Windows path of the nexus
+ * launchers, which would make no directory of the PATH bash reads.
+ */
+export const BASHENV_CONTENT = `# Nexus shim — the BASH_ENV of a Codex tab's commands, and of a Windows Claude tab's Bash tool.
+_nexus_dir=\${NEXUS_BASH_WRAPPER_DIR:-\${NEXUS_WRAPPER_SELF_DIR-}}
+${prependDir("_nexus_dir")}unset _nexus_dir
+`;
+
+/**
  * Writes the PTY shim rc files (.zshrc, .zshenv, bashrc, and the zsh login
- * files) into the workspace-specific shim directory. The directory is created
+ * files), and a Codex tab's bashenv, into the workspace-specific shim directory. The directory is created
  * with 0o700 and each file is written with 0o644. Idempotent — safe to call
  * multiple times.
  *
@@ -188,6 +232,7 @@ export async function writeShimFiles(workspaceId: string): Promise<{
     fs.writeFile(path.join(dir, ".zprofile"), ZPROFILE_CONTENT, { mode: 0o644 }),
     fs.writeFile(path.join(dir, ".zlogin"), ZLOGIN_CONTENT, { mode: 0o644 }),
     fs.writeFile(path.join(dir, ".zlogout"), ZLOGOUT_CONTENT, { mode: 0o644 }),
+    fs.writeFile(path.join(dir, "bashenv"), BASHENV_CONTENT, { mode: 0o644 }),
   ]);
 
   return { dir, zshrc, zshenv, bashrc };

@@ -8,7 +8,6 @@
  */
 
 import { describe, expect, it, mock } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
   FormDialogContent,
   type FormDialogField,
@@ -17,6 +16,7 @@ import {
   initialFormDialogValues,
   isFormDialogSubmitDisabled,
 } from "../../../../../src/renderer/components/ui/form-dialog";
+import { renderInDialog } from "../../../../helpers/render-in-dialog";
 
 const cloneFields: FormDialogField[] = [
   {
@@ -40,7 +40,7 @@ const validCloneValues = {
 
 describe("FormDialogContent", () => {
   it("renders a four-field Clone-like form", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <FormDialogContent
         title="Clone repository"
         description="Create a local checkout from a remote URL."
@@ -64,7 +64,7 @@ describe("FormDialogContent", () => {
 
   it("shows inline validation errors and disables submit", () => {
     const values = { ...validCloneValues, url: "github.com/org/repo", name: "" };
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <FormDialogContent
         title="Clone repository"
         fields={cloneFields}
@@ -78,7 +78,9 @@ describe("FormDialogContent", () => {
     );
 
     expect(html).toContain("Enter a valid URL");
-    expect(html).toContain("Required");
+    // An empty required field is marked, not reported as an error.
+    expect(html).not.toContain("Required");
+    expect(html).toContain('aria-required="true"');
     expect(html).toContain('disabled=""');
   });
 

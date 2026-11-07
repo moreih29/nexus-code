@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, type BrowserWindow, session } from "electron";
+import { app, type BrowserWindow, powerMonitor, session } from "electron";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -8,14 +8,21 @@ import {
   lspSettingsFromState,
 } from "../shared/lsp/settings";
 import { ListeningPortsResultSchema } from "../shared/pty/ports";
+import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
 import { registerAppStateChannel } from "./features/app-state";
-import { getBrowserRegistry, initBrowserFeature, registerBrowserCloser } from "./features/browser";
+import {
+  getBrowserRegistry,
+  initBrowserFeature,
+  registerBrowserCloser,
+  setBrowserAddressResolver,
+} from "./features/browser";
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
 import { setupClaudeFeature } from "./features/claude/index";
-import { setupCliFeature } from "./features/cli";
+import { type CliFeature, setupCliFeature } from "./features/cli";
+import { registerManagerChannel } from "./features/manager";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -42,8 +49,11 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
+import { registerChatChannel } from "./features/chat/ipc";
+import type { ChatHost } from "./features/chat/host";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { registerPtyChannel } from "./features/pty/ipc";
+import { PortForwards } from "./features/pty/forwards";
 import { PortWatcher } from "./features/pty/ports";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
@@ -62,6 +72,7 @@ import {
   getActiveAppWindow,
   getFocusedAppWindow,
   hasAppWindow,
+  showAppWindow,
 } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
@@ -85,6 +96,23 @@ import { WorkspaceStorage } from "./infra/storage/workspace-storage";
 initMainLogger();
 
 const logger = createLogger("main");
+
+// One app at a time on a profile. A second one, on the same files, ran its own
+// terminals and agents, resumed the same chats again, and undid the first's
+// settings each time it saved its own. A second launch shows the first's
+// window, or opens one when every window is closed, as macOS keeps the app
+// running then.
+if (!app.requestSingleInstanceLock()) {
+  logger.info("NexusCode already runs on this profile: showing it instead");
+  // Before the app is ready this exits at once, before anything below runs.
+  app.exit(0);
+}
+/** Opens the app window again after every one was closed; set once the app is ready. */
+let reopenAppWindow: (() => void) | null = null;
+app.on("second-instance", () => {
+  if (hasAppWindow()) showAppWindow();
+  else reopenAppWindow?.();
+});
 
 // Install global error safety net immediately after the logger is ready so
 // every subsequent initialisation step is covered. See error-safety-net.ts
@@ -136,9 +164,11 @@ const stateService = new StateService(path.join(userData, "state.json"));
 // the wiring that constructed each disposer.
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
+let chatHost: ChatHost | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
-let disposeCliFeature: (() => void) | null = null;
+let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
+let portForwards: PortForwards | null = null;
 let gitRegistry: GitRegistry | null = null;
 let gitWatcher: AgentGitWatcher | null = null;
 let gitStatusCoalescer: StatusCoalescer | null = null;
@@ -160,11 +190,20 @@ const cachedSshAuthPromptHandler = createCachingAuthPromptHandler((prompt) =>
 );
 
 function wrappedBroadcast(channelName: string, event: string, args: unknown): void {
+  if (channelName === "workspace" && event === "connectionChanged") {
+    // Forwards close with the connection and come back with it.
+    const { workspaceId, status } = args as {
+      workspaceId: string;
+      status: WorkspaceConnectionEventStatus;
+    };
+    portForwards?.connectionChanged(workspaceId, status);
+  }
   if (channelName === "workspace" && event === "removed") {
     // Run every per-workspace disposer in one place. New subsystems with
     // workspace-scoped state should add their dispose call here rather
     // than registering a parallel listener.
     const removedWorkspaceId = (args as { id: string }).id;
+    portForwards?.removed(removedWorkspaceId);
     agentFsWatcher?.disposeWorkspace(removedWorkspaceId);
     gitWatcher?.disposeWorkspace(removedWorkspaceId);
     gitStatusCoalescer?.cancel(removedWorkspaceId);
@@ -328,7 +367,7 @@ registerWindowChannel();
 registerClipboardChannel();
 
 // Install the updates domain. IPC handlers are registered synchronously here;
-// the initial auto-poll fires inside app.whenReady() via runInitialAutoPoll().
+// the auto-polls start inside app.whenReady() via startAutoChecks().
 updatesHandle = installUpdatesDomain({
   broadcast: forwardBroadcast,
   stateService,
@@ -379,10 +418,14 @@ app.whenReady().then(async () => {
     keybindingOverrides: stateService.getState().keybindingOverrides,
   });
 
-  // Fire the one-time silent auto update check now that the app is ready. The
-  // Microsoft Store updates its own install, and a GitHub release has no
+  // Start the silent auto update checks now that the app is ready: one now,
+  // then every few hours, and on waking from sleep once that long has passed.
+  // The Microsoft Store updates its own install, and a GitHub release has no
   // build for it.
-  if (!process.windowsStore) updatesHandle?.runInitialAutoPoll();
+  if (!process.windowsStore) {
+    updatesHandle?.startAutoChecks();
+    powerMonitor.on("resume", () => updatesHandle?.onResume());
+  }
 
   // Remove nexus-ssh-* control-socket directories orphaned by previous app
   // instances that died without dispose() (crash, SIGKILL). Live masters —
@@ -441,6 +484,7 @@ app.whenReady().then(async () => {
   // is created first, PTY host second, then they are linked here.
   workspaceManager.setPtySessionCloser((workspaceId) => {
     agentPtyHost?.closeWorkspaceSessions(workspaceId);
+    chatHost?.closeWorkspace(workspaceId);
   });
   // Wire held-session restore / release callbacks so manager can drive PTY
   // session lifecycle across reauth boundaries (plan issue 4 + 6).
@@ -475,14 +519,47 @@ app.whenReady().then(async () => {
     (entry) => forwardBroadcast("pty", "ports", entry),
   );
 
+  // An SSH workspace's ports, forwarded here on demand; a local address its
+  // browser tabs open goes to its forward.
+  const forwards = new PortForwards({
+    ssh: (workspaceId) => workspaceManager.getSshForwarding(workspaceId),
+    broadcast: (entry) => forwardBroadcast("pty", "forwards", entry),
+    saved: stateService.getState().portForwardsByWorkspace,
+    save: (workspaceId, list) => {
+      const { [workspaceId]: _old, ...rest } =
+        stateService.getState().portForwardsByWorkspace ?? {};
+      stateService.setState({
+        portForwardsByWorkspace: list.length > 0 ? { ...rest, [workspaceId]: list } : rest,
+      });
+    },
+  });
+  portForwards = forwards;
+  setBrowserAddressResolver({
+    rewrites: (workspaceId, url) => forwards.rewrites(workspaceId, url),
+    resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
+  });
+
+  // The agent manager's workspace and its reports.
+  registerManagerChannel({
+    workspaceManager,
+    shouldNotify: () => {
+      const state = stateService.getState();
+      if (!(state.managerReports ?? true) || !(state.osNotificationsEnabled ?? true)) return false;
+      const win = getFocusedAppWindow();
+      return win === null || win.isMinimized();
+    },
+    focusWindow: showAppWindow,
+    broadcast: forwardBroadcast,
+  });
+
   // The nexus command in the app's terminals.
-  disposeCliFeature = setupCliFeature({
+  cliFeature = setupCliFeature({
     agentHost: agentPtyHost,
     workspaceManager,
     claudeBroker: claudeSetup.broker,
     claudeActivity: claudeSetup.activity,
+    stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
-    sessionSpans: globalStorage,
     appVersion: app.getVersion(),
     notificationsEnabled: () => stateService.getState().osNotificationsEnabled ?? true,
     settings: () => {
@@ -491,6 +568,7 @@ app.whenReady().then(async () => {
         enabled: state.cliEnabled ?? true,
         crossWorkspace: state.cliCrossWorkspace ?? "ask",
         agentContext: state.cliAgentContext ?? true,
+        managerPermissions: state.managerPermissions ?? "user",
       };
     },
     getWindow: getActiveAppWindow,
@@ -498,16 +576,11 @@ app.whenReady().then(async () => {
       const win = getFocusedAppWindow();
       return win !== null && !win.isMinimized();
     },
-    focusWindow: () => {
-      const win = getActiveAppWindow();
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    },
+    focusWindow: showAppWindow,
     broadcast: forwardBroadcast,
     ports: portWatcher,
-  }).dispose;
+    forwards,
+  });
 
   // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
   // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
@@ -516,11 +589,23 @@ app.whenReady().then(async () => {
     workspaceManager,
     isActiveTab: claudeSetup.isActiveTab,
     notificationsEnabled,
-    onInput: claudeSetup.noteInput,
+    onInput: (workspaceId, tabId, data) => {
+      claudeSetup.noteInput(workspaceId, tabId, data);
+      cliFeature?.noteInput(workspaceId, tabId);
+    },
     ports: portWatcher,
+    forwards,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
+  });
+
+  // Claude tabs: their programs run through the same agents as terminals.
+  chatHost = registerChatChannel({
+    workspaceManager,
+    ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
+    onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),
+    onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
   });
 
   // The host reads the settings at each spawn; the lsp IPC handlers stop
@@ -581,30 +666,32 @@ app.whenReady().then(async () => {
     getBrowserRegistry()?.disposeAll();
   });
 
-  app.on("activate", () => {
-    if (!hasAppWindow()) {
-      const newWin = createMainWindow(stateService.getState());
-      wireAutofetchWindowFocus(newWin);
-      // On activate, reuse the existing permission manager with the new window.
-      initBrowserFeature(newWin, {
-        permissionDeps: {
-          getGlobalGrant: (permission) =>
-            stateService.getState().browserPermissionGrants?.[permission] === true,
-          getRemembered: (ws, origin, permission) => {
-            if (!workspaceStorage.isOpen(ws)) return null;
-            return workspaceStorage.getOriginPermission(ws, origin, permission);
-          },
-          promptManager: browserPermissionManager,
+  // With every window closed, as macOS keeps the app running: a click on its
+  // Dock icon, or a second launch, opens one again.
+  reopenAppWindow = () => {
+    if (hasAppWindow()) return;
+    const newWin = createMainWindow(stateService.getState());
+    wireAutofetchWindowFocus(newWin);
+    // Reuse the existing permission manager with the new window.
+    initBrowserFeature(newWin, {
+      permissionDeps: {
+        getGlobalGrant: (permission) =>
+          stateService.getState().browserPermissionGrants?.[permission] === true,
+        getRemembered: (ws, origin, permission) => {
+          if (!workspaceStorage.isOpen(ws)) return null;
+          return workspaceStorage.getOriginPermission(ws, origin, permission);
         },
         promptManager: browserPermissionManager,
-        workspaceStorage,
-        globalStorage,
-      });
-      newWin.on("closed", () => {
-        getBrowserRegistry()?.disposeAll();
-      });
-    }
-  });
+      },
+      promptManager: browserPermissionManager,
+      workspaceStorage,
+      globalStorage,
+    });
+    newWin.on("closed", () => {
+      getBrowserRegistry()?.disposeAll();
+    });
+  };
+  app.on("activate", reopenAppWindow);
 });
 
 app.on("window-all-closed", () => {
@@ -626,10 +713,12 @@ app.on("window-all-closed", () => {
 // once every window has closed.
 app.on("will-quit", () => {
   sshBrowseRegistry.dispose();
-  disposeCliFeature?.();
+  cliFeature?.dispose();
   disposeClaudeFeature?.();
   portWatcher?.dispose();
+  portForwards?.dispose();
   agentPtyHost?.dispose();
+  chatHost?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();

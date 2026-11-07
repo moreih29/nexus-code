@@ -166,19 +166,14 @@ function overlay(base: "dark" | "light", alpha: number): string {
 }
 
 /**
- * Overlay whose alpha is scaled at runtime by a CSS custom property.
- * Emits `rgba(rgb, calc(<alpha> * var(<cssVar>, <fallback>)))` so the baked
- * per-theme alpha stays the default while a user setting can scale it live.
- * Used by surface.island.inactive.veil + the --inactive-panel-dim preference.
+ * Black shade whose alpha is scaled at runtime by a CSS custom property.
+ * Emits `rgba(0, 0, 0, calc(<alpha> * var(<cssVar>, <fallback>)))` so the
+ * baked per-theme alpha stays the default while a user setting can scale it
+ * live. Used by surface.island.inactive.veil + the --inactive-panel-dim
+ * preference.
  */
-function overlayScaled(
-  base: "dark" | "light",
-  alpha: number,
-  cssVar: string,
-  fallback: number,
-): string {
-  const rgb = base === "dark" ? "255, 255, 255" : "0, 0, 0";
-  return `rgba(${rgb}, calc(${alpha} * var(${cssVar}, ${fallback})))`;
+function shadeScaled(alpha: number, cssVar: string, fallback: number): string {
+  return `rgba(0, 0, 0, calc(${alpha} * var(${cssVar}, ${fallback})))`;
 }
 
 /**
@@ -246,9 +241,10 @@ export function buildSemanticTokens(source: ThemeSource): SemanticTokenSet {
     "surface.island.border": source.border,
     // Alpha scaled at runtime by the --inactive-panel-dim preference (default
     // multiplier 1 → each theme's tuned alpha; see use-inactive-panel-dim-effect).
-    "surface.island.inactive.veil": overlayScaled(
-      source.base,
-      source.base === "dark" ? 0.2 : 0.04,
+    // Both bases shade: a white veil on a dark theme lifted an inactive panel
+    // to grey, so it stood out more than the active one.
+    "surface.island.inactive.veil": shadeScaled(
+      source.base === "dark" ? 0.28 : 0.04,
       "--inactive-panel-dim",
       1,
     ),

@@ -1,10 +1,15 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
   describeTool,
+  type SaidMessage,
   SessionActivityLog,
 } from "../../../../src/main/features/claude/session-activity";
 import type { AgentRun } from "../../../../src/shared/claude/activity";
-import { ENDED_AGENTS_KEPT, SESSION_TOOLS_KEPT } from "../../../../src/shared/claude/activity";
+import {
+  AGENT_MESSAGES_KEPT,
+  ENDED_AGENTS_KEPT,
+  SESSION_TOOLS_KEPT,
+} from "../../../../src/shared/claude/activity";
 
 const WS = "ws-1";
 const TAB = "tab-1";
@@ -30,6 +35,17 @@ function activity() {
   if (!found) throw new Error("no activity");
   return found;
 }
+
+describe("session", () => {
+  test("the session id its hooks give, kept until the session ends", () => {
+    hook("session-start", { session_id: "s-1", source: "resume" });
+    expect(activity().sessionId).toBe("s-1");
+    hook("user-prompt-submit", { prompt: "go" });
+    expect(activity().sessionId).toBe("s-1");
+    hook("session-end", { session_id: "s-1" });
+    expect(log.get(WS, TAB)).toBeNull();
+  });
+});
 
 describe("tools", () => {
   test("a tool runs from its PreToolUse to its PostToolUse", () => {
@@ -235,6 +251,44 @@ describe("agents", () => {
     expect(changes.map((change) => change.state)).toEqual(["running", "completed"]);
   });
 
+  test("what a subagent wrote, as its hooks read it from its transcript", () => {
+    const said = (subcommand: string, payload: Record<string, unknown>, messages: SaidMessage[]) =>
+      log.noteHook(WS, TAB, subcommand, { cwd: CWD, agent_id: "a1", ...payload }, messages);
+    clock = 2_000;
+    said("pre-tool-use", { tool_name: "Bash", tool_use_id: "b1", tool_input: { command: "ls" } }, [
+      { id: "u1:0", text: " Listing first. " },
+    ]);
+    clock = 3_000;
+    // Each message is kept once, as of when it came.
+    said("post-tool-use", { tool_name: "Bash", tool_use_id: "b1" }, [
+      { id: "u1:0", text: "Listing first." },
+      { id: "u5:0", text: "Two files." },
+      { id: "u6:0", text: "  " },
+    ]);
+    expect(activity().agents[0]?.messages).toEqual([
+      { at: 2_000, text: "Listing first." },
+      { at: 3_000, text: "Two files." },
+    ]);
+    expect(activity().agents[0]?.tools[0]?.start).toBe(2_000);
+    // None is kept from a hook of the session's own call, or once it ended.
+    log.noteHook(WS, TAB, "pre-tool-use", { cwd: CWD, tool_name: "Read" }, [
+      { id: "x", text: "Not the subagent's." },
+    ]);
+    said("subagent-stop", { last_assistant_message: "Two files." }, [
+      { id: "u7:0", text: "Done." },
+    ]);
+    said("post-tool-use", { tool_name: "Bash", tool_use_id: "b2" }, [
+      { id: "u8:0", text: "Late." },
+    ]);
+    expect(activity().agents[0]?.messages?.map((message) => message.text)).toEqual([
+      "Listing first.",
+      "Two files.",
+      "Done.",
+    ]);
+    // What the app keeps of the agent tells only its messages.
+    expect(activity().agents[0]).not.toHaveProperty("said");
+  });
+
   test("a background agent is named by its tool's answer before it starts", () => {
     const first = { ...explore, description: "One", run_in_background: true };
     const second = { ...explore, description: "Two", run_in_background: true };
@@ -423,6 +477,58 @@ describe("`claude -p` runs", () => {
     expect(activity().tools.map((tool) => tool.id)).toEqual(["t1"]);
   });
 
+  test("a codex exec run is told as codex's, with where its model is served", () => {
+    print("print-start", {
+      program: "codex",
+      prompt: "",
+      model: "gpt-6-luna",
+      endpoint: "gw.example.com",
+      tools_told: false,
+    });
+    print("print-init", { prompt: "Fix the test", session_id: "01a1b19e", endpoint: "llm.corp" });
+    expect(activity().agents[0]).toMatchObject({
+      kind: "print",
+      program: "codex",
+      model: "gpt-6-luna",
+      endpoint: "llm.corp",
+      prompt: "Fix the test",
+      sessionId: "01a1b19e",
+      toolsTold: false,
+    });
+  });
+
+  test("a run's messages, the latest kept, and how long a tool told at its end took", () => {
+    print("print-start", { tools_told: true });
+    clock = 2_000;
+    print("print-text", { text: "  Looking at the tests.  " });
+    print("print-text", { text: "   " });
+    clock = 5_000;
+    // A codex rollout tells a command once it ended, with how long it took.
+    print("print-tool-use", {
+      tool_use_id: "c1",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+    });
+    print("print-tool-result", { tool_use_id: "c1", is_error: false, duration_ms: 1_500 });
+    expect(activity().agents[0]?.messages).toEqual([{ at: 2_000, text: "Looking at the tests." }]);
+    expect(activity().agents[0]?.tools[0]).toMatchObject({ start: 3_500, end: 5_000 });
+    // Read at once, a rollout's tool still starts after what came before it.
+    clock = 6_000;
+    print("print-text", { text: "Now the build." });
+    clock = 6_010;
+    print("print-tool-use", {
+      tool_use_id: "c2",
+      tool_name: "Bash",
+      tool_input: { command: "make" },
+    });
+    print("print-tool-result", { tool_use_id: "c2", is_error: false, duration_ms: 4_000 });
+    expect(activity().agents[0]?.tools[1]).toMatchObject({ start: 6_000, end: 6_010 });
+    for (let i = 0; i < AGENT_MESSAGES_KEPT + 2; i++) print("print-text", { text: `m${i}` });
+    const messages = activity().agents[0]?.messages ?? [];
+    expect(messages).toHaveLength(AGENT_MESSAGES_KEPT);
+    expect(messages[messages.length - 1]?.text).toBe(`m${AGENT_MESSAGES_KEPT + 1}`);
+  });
+
   test("a run ends as claude exited, with its answer", () => {
     print("print-start", { tools_told: true });
     print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
@@ -464,6 +570,12 @@ describe("`claude -p` runs", () => {
     expect(activity().agents[0]).toMatchObject({ toolsTold: true, model: "glm-4.6" });
   });
 
+  test("a run's prompt its arguments did not tell is told from its transcript", () => {
+    print("print-start", { tools_told: false });
+    print("print-init", { prompt: "Summarize the README" });
+    expect(activity().agents[0]?.prompt).toBe("Summarize the README");
+  });
+
   test("a command left in the background tells the run it started", () => {
     hook("pre-tool-use", {
       tool_name: "Bash",
@@ -496,6 +608,81 @@ describe("`claude -p` runs", () => {
     log.notePrint(WS, TAB, "print-end", { run_id: "p2", exit_code: 0 });
     log.notePrint(WS, TAB, "print-gone", { run_id: "p2" });
     expect(activity().agents.find((agent) => agent.id === "p2")?.state).toBe("completed");
+  });
+
+  test("a run is told with its Claude session id, given up front or by claude's start", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", tools_told: true });
+    log.notePrint(WS, TAB, "print-init", { run_id: "p2", session_id: "s-2" });
+    expect(activity().agents.map((agent) => [agent.id, agent.sessionId])).toEqual([
+      ["p1", "s-1"],
+      ["p2", "s-2"],
+    ]);
+  });
+
+  test("a run that goes on an ended run's session is that run going on", () => {
+    print("print-start", { session_id: "s-1", prompt: "review it", tools_told: true });
+    print("print-tool-use", { tool_use_id: "u1", tool_name: "Read", tool_input: {} });
+    clock = 2_000;
+    print("print-end", { exit_code: 0, answer: "Looks fine." });
+    clock = 3_000;
+    const more = (frame: string, payload: Record<string, unknown> = {}) =>
+      log.notePrint(WS, TAB, frame, { run_id: "p2", ...payload });
+    more("print-start", { session_id: "s-1", resumed: true, prompt: "fix it", tools_told: false });
+    expect(activity().agents).toHaveLength(1);
+    expect(activity().agents[0]).toMatchObject({
+      id: "p1",
+      sessionId: "s-1",
+      prompt: "fix it",
+      state: "running",
+      start: 1_000,
+      toolsTold: false,
+    });
+    expect(activity().agents[0]?.end).toBeUndefined();
+    expect(activity().agents[0]?.answer).toBeUndefined();
+    more("print-tool-use", { tool_use_id: "u2", tool_name: "Edit", tool_input: {} });
+    clock = 4_000;
+    more("print-end", { exit_code: 0, answer: "Fixed." });
+    expect(activity().agents[0]).toMatchObject({
+      state: "completed",
+      end: 4_000,
+      answer: "Fixed.",
+      toolCount: 2,
+    });
+    expect(changes.map((change) => change.state)).toEqual([
+      "running",
+      "completed",
+      "running",
+      "completed",
+    ]);
+  });
+
+  test("a run that goes on a session no run here told, or one still running, is a new one", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", session_id: "s-1", resumed: true });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p3", session_id: "s-9", resumed: true });
+    expect(activity().agents.map((agent) => agent.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  test("a running run's watch is kept until it ends, for stopping it", () => {
+    print("print-start");
+    log.notePrintWatch(WS, TAB, "p1", "hook-7");
+    expect(log.printWatch(WS, TAB, "p1")).toBe("hook-7");
+    print("print-end", { exit_code: 0 });
+    expect(log.printWatch(WS, TAB, "p1")).toBeUndefined();
+    // A subagent has none.
+    hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
+    expect(log.printWatch(WS, TAB, "a1")).toBeUndefined();
+  });
+
+  test("a run going on is stopped by its own watch", () => {
+    print("print-start", { session_id: "s-1" });
+    log.notePrintWatch(WS, TAB, "p1", "hook-1");
+    print("print-end", { exit_code: 0 });
+    log.notePrint(WS, TAB, "print-start", { run_id: "p2", session_id: "s-1", resumed: true });
+    expect(log.printWatch(WS, TAB, "p1")).toBeUndefined();
+    log.notePrintWatch(WS, TAB, "p2", "hook-2");
+    expect(log.printWatch(WS, TAB, "p1")).toBe("hook-2");
   });
 
   test("frames of a run that never told its start change nothing", () => {

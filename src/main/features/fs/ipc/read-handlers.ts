@@ -1,5 +1,6 @@
 /**
- * Read-only fs handlers — readdir / stat / readFile / readBinary / readExternal.
+ * Read-only fs handlers — readdir / stat / readFile / readBinary / readRange /
+ * readExternal.
  *
  * readdir/stat catch agent-thrown fs errors (NOT_FOUND, PERMISSION_DENIED, …)
  * and return them as a typed `ipcErr` envelope instead of letting them throw.
@@ -15,7 +16,9 @@ import type {
 } from "../../../../shared/fs/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
+import type { FsProvider } from "../bridge/provider";
 import type { WorkspaceManager } from "../../workspace/manager";
+import { isOutsideGranted, resolveOutsideGrant, setOutsideGrant } from "../outside-grants";
 import { type FsIpcErrorResult, fsErrorToIpcResult, isFsError } from "./fs-result";
 
 const c = ipcContract.fs.call;
@@ -60,13 +63,53 @@ export function readFileHandler(
   };
 }
 
+/**
+ * Where to read an absolute `relPath`, a file outside the workspace a
+ * Claude tab linked: its path when the tab granted it, null otherwise.
+ */
+async function grantedOutsidePath(
+  fs: FsProvider,
+  workspaceId: string,
+  relPath: string,
+): Promise<string | null> {
+  if (fs.kind === "local") return resolveOutsideGrant(workspaceId, relPath);
+  return isOutsideGranted(workspaceId, relPath) ? relPath : null;
+}
+
 export function readBinaryHandler(
   manager: WorkspaceManager,
 ): (args: unknown) => Promise<FileReadBinaryResult> {
   return async (args: unknown): Promise<FileReadBinaryResult> => {
     const { workspaceId, relPath } = validateArgs(c.readBinary.args, args);
     const fs = await manager.getFs(workspaceId);
+    if (relPath.startsWith("/")) {
+      const path = await grantedOutsidePath(fs, workspaceId, relPath);
+      if (!path) return { kind: "missing", reason: "not-found" };
+      return fs.readAbsoluteBinary(path);
+    }
     return fs.readBinary(relPath);
+  };
+}
+
+export function readRangeHandler(
+  manager: WorkspaceManager,
+): (args: unknown) => Promise<FileReadBinaryResult> {
+  return async (args: unknown): Promise<FileReadBinaryResult> => {
+    const { workspaceId, relPath, offset, length } = validateArgs(c.readRange.args, args);
+    const fs = await manager.getFs(workspaceId);
+    if (relPath.startsWith("/")) {
+      const path = await grantedOutsidePath(fs, workspaceId, relPath);
+      if (!path) return { kind: "missing", reason: "not-found" };
+      return fs.readAbsoluteRange(path, offset, length);
+    }
+    return fs.readRange(relPath, offset, length);
+  };
+}
+
+export function grantOutsideHandler(): (args: unknown) => Promise<void> {
+  return async (args: unknown): Promise<void> => {
+    const { workspaceId, owner, files, dirs } = validateArgs(c.grantOutside.args, args);
+    setOutsideGrant(workspaceId, owner, files, dirs);
   };
 }
 

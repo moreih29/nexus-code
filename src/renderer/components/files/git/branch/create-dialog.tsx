@@ -2,7 +2,6 @@
  * BranchCreateDialog hosts the validated branch-name input shared by
  * Branch ▸ Create New Branch and Branch ▸ Create New Branch From.
  */
-import { Dialog as RadixDialog } from "radix-ui";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import i18next from "i18next";
@@ -164,10 +163,6 @@ export function BranchCreateDialog({
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, onCancel)}
       size="md"
     >
-      <RadixDialog.Title className="sr-only">{branchCreateDialogTitle(request)}</RadixDialog.Title>
-      <RadixDialog.Description className="sr-only">
-        {branchCreateDialogDescription(request)}
-      </RadixDialog.Description>
       <FormDialogContent
         title={branchCreateDialogTitle(request)}
         description={branchCreateDialogDescription(request)}

@@ -34,6 +34,9 @@ mock.module("electron", () => ({
 const { registerHookHandler } = await import(
   "../../../../src/main/features/claude/hook-handler"
 );
+const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
+  "../../../../src/shared/manager/manager"
+);
 const { ClaudeStatusBroker } = await import(
   "../../../../src/main/features/claude/status"
 );
@@ -45,6 +48,7 @@ const { SessionActivityLog } = await import(
   "../../../../src/main/features/claude/session-activity"
 );
 const { PermissionAsks } = await import("../../../../src/main/features/claude/permission-asks");
+const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-answers");
 
 // ---------------------------------------------------------------------------
 // 헬퍼
@@ -137,6 +141,7 @@ interface Harness {
   activeContext: InstanceType<typeof ActiveContextStore>;
   activity: InstanceType<typeof SessionActivityLog>;
   asks: InstanceType<typeof PermissionAsks> | undefined;
+  chatAnswers: InstanceType<typeof ChatAnswers>;
   brokerCalls: Array<{ channel: string; event: string; args: unknown }>;
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
@@ -177,6 +182,7 @@ function makeHarness(
         return true;
       })
     : undefined;
+  const chatAnswers = new ChatAnswers();
 
   const getFocusedWindow = focused
     ? () => ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow)
@@ -187,6 +193,7 @@ function makeHarness(
     activeContext,
     activity,
     asks,
+    chatAnswers,
     agentHost,
     channelProvider: {
       tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
@@ -203,6 +210,7 @@ function makeHarness(
     activeContext,
     activity,
     asks,
+    chatAnswers,
     brokerCalls,
     agentHost,
     channel,
@@ -634,6 +642,34 @@ describe("hook-handler — subcommand 상태 전이", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
   });
+
+  test("an answer in a Claude tab ends the wait at once, before the call ends", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-test", false);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+    // The call's end, later, leaves it so.
+    emit(makeHookPayload("post-tool-use", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("running");
+  });
+
+  test("an answer in a Claude tab that stops the turn leaves the session waiting", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-test", true);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+  });
+
+  test("an answer in another tab leaves the dialog open", async () => {
+    const { broker, emit, chatAnswers } = makeHarness();
+    emit(makeHookPayload("permission-request", allowedCall));
+    await new Promise((r) => setTimeout(r, 0));
+    chatAnswers.answered("ws-test", "tab-other", false);
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("permissionPending");
+  });
 });
 
 describe("hook-handler — subagents and permission dialogs", () => {
@@ -811,6 +847,7 @@ describe("hook-handler — respondHook 호출", () => {
     ["session-end", undefined],
     ["print-start", { run_id: "p1" }],
     ["print-tool-use", { run_id: "p1", tool_name: "Read" }],
+    ["print-text", { run_id: "p1", text: "Reading it." }],
     ["print-end", { run_id: "p1", exit_code: 0 }],
   ])("%s: 즉시 claude.respondHook { exitCode:0 } 호출", async (subcommand, extra) => {
     const { channel, emit } = makeHarness();
@@ -884,6 +921,19 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBeGreaterThanOrEqual(1);
     expect(notifInstances[0].title).toContain("Permission");
+  });
+
+  test("the agent manager's session raises no notification of its own", async () => {
+    const { notifInstances, emit } = makeHarness(false /* unfocused */);
+    for (const subcommand of ["stop", "notification", "permission-request"]) {
+      emit({
+        ...makeHookPayload(subcommand, { tool_name: "Bash", message: "done" }),
+        workspaceId: MANAGER_WORKSPACE_ID,
+        tabId: MANAGER_TAB_ID,
+      });
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    expect(notifInstances).toHaveLength(0);
   });
 
   test("앱 포커스 + active 일치 시 permission-request OS 알림 미발사", async () => {
@@ -1121,6 +1171,25 @@ describe("hook-handler — session activity", () => {
     expect(recorded?.agents.map((agent) => agent.id)).toEqual(["a1"]);
   });
 
+  test("records what a subagent wrote, as its hook's client read it", async () => {
+    const { activity, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "go", prompt_id: "p1" }));
+    emit({
+      ...makeHookPayload("pre-tool-use", {
+        prompt_id: "p1",
+        agent_id: "a1",
+        tool_name: "Bash",
+        tool_use_id: "t1",
+        tool_input: { command: "ls" },
+      }),
+      agentMessages: [{ id: "u1:0", text: "Listing first." }],
+    });
+    await tick();
+    expect(activity.get("ws-test", "tab-test")?.agents[0]?.messages).toMatchObject([
+      { text: "Listing first." },
+    ]);
+  });
+
   test("a frame of a finished turn is not recorded", async () => {
     const { activity, emit } = makeHarness();
     emit(makeHookPayload("user-prompt-submit", { prompt_id: "p1" }));
@@ -1147,6 +1216,7 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
     await tick();
     emit(makeHookPayload("print-start", { run_id: "r1", prompt: "review", tools_told: true }));
     emit(makeHookPayload("print-tool-use", { run_id: "r1", tool_use_id: "u1", tool_name: "Read" }));
+    emit(makeHookPayload("print-text", { run_id: "r1", text: "Reading it." }));
     emit(makeHookPayload("print-end", { run_id: "r1", exit_code: 0, answer: "ok" }));
     await tick();
     expect(activity.get("ws-test", "tab-test")?.agents[0]).toMatchObject({
@@ -1154,6 +1224,7 @@ describe("hook-handler — `claude -p` runs inside a session", () => {
       kind: "print",
       state: "completed",
       toolCount: 1,
+      messages: [{ text: "Reading it." }],
       answer: "ok",
     });
     expect(broker.get("ws-test", "tab-test")?.status).toBe("running");

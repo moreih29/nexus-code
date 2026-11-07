@@ -49,6 +49,9 @@ export function registerWorkspaceChannel(
       list: (_args: unknown) => {
         return manager.list();
       },
+      active: (_args: unknown) => {
+        return manager.getActiveId();
+      },
       create: (args: unknown) => {
         const createArgs = validateArgs(c.create.args, args);
         const meta = manager.create(createArgs);

@@ -11,6 +11,7 @@
  */
 import { ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { IconButton } from "@/components/ui/icon-button";
 import { ipcCallResult } from "@/ipc/client";
 import { cn } from "@/utils/cn";
 
@@ -34,23 +35,15 @@ function NavButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
+    <IconButton
+      label={label}
+      size="md"
       disabled={disabled}
       onClick={onClick}
-      className={cn(
-        "flex items-center justify-center size-7 rounded-(--radius-control)",
-        "text-muted-foreground transition-colors outline-none",
-        "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        "active:bg-[var(--state-active-bg)]",
-        "focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        "disabled:pointer-events-none disabled:opacity-40",
-        "[&_svg]:size-4 [&_svg]:pointer-events-none",
-      )}
+      className="active:bg-[var(--state-active-bg)] [&_svg]:size-4 [&_svg]:pointer-events-none"
     >
       {children}
-    </button>
+    </IconButton>
   );
 }
 

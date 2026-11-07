@@ -64,6 +64,11 @@ const permissionRequestSubcmd = "permission-request"
 // printWatchSubcmd is the hook a `claude -p` run holds open while it goes on.
 const printWatchSubcmd = "print-watch"
 
+// goneRecheck is how often watchGone reads again for a client that went
+// away. On Windows a read started as the client closes can wait on with
+// the close missed, where a read started again returns at once.
+const goneRecheck = 500 * time.Millisecond
+
 // maxSocketPathLen 은 macOS에서 허용하는 Unix 소켓 경로 최대 길이다.
 const maxSocketPathLen = 104
 
@@ -89,6 +94,9 @@ type HookEventPayload struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	// AgentMessages is what the subagent of a hook's call wrote so far, as
+	// hookclient read it from the subagent's transcript.
+	AgentMessages json.RawMessage `json:"agentMessages,omitempty"`
 	// Print tells a hook of a `claude -p` run, which shows no dialog: Claude
 	// Code waits on its PermissionRequest, so main answers it at once.
 	Print bool `json:"print,omitempty"`
@@ -122,6 +130,7 @@ type hookWireRequest struct {
 	Subcommand    string          `json:"subcommand"`
 	Payload       json.RawMessage `json:"payload"`
 	AssistantText string          `json:"assistantText,omitempty"`
+	AgentMessages json.RawMessage `json:"agentMessages,omitempty"`
 	Print         bool            `json:"print,omitempty"`
 }
 
@@ -365,6 +374,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		Subcommand:    req.Subcommand,
 		Payload:       req.Payload,
 		AssistantText: req.AssistantText,
+		AgentMessages: req.AgentMessages,
 		Print:         req.Print,
 	}
 	delivered := false
@@ -412,11 +422,13 @@ func (s *Server) handleConn(conn net.Conn) {
 // interrupts at its dialog, and the app must stop offering an answer; a
 // print watch's client ends with its run. The client writes nothing after
 // its request, so a read returns only once the connection closes, from
-// either side.
+// either side, or as its deadline passes, when it reads again (see
+// goneRecheck).
 func (s *Server) watchGone(hookID string, conn net.Conn, req hookWireRequest) {
 	var b [1]byte
 	for {
-		if _, err := conn.Read(b[:]); err != nil {
+		_ = conn.SetReadDeadline(time.Now().Add(goneRecheck))
+		if _, err := conn.Read(b[:]); err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			break
 		}
 	}

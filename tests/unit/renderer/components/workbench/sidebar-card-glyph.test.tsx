@@ -25,12 +25,49 @@ describe("cardGlyph", () => {
     expect(cardGlyph("running", "completed")).toEqual({ status: "completed", estimated: true });
   });
 
+  it("shows a Codex tab's state when it is stronger than Claude's", () => {
+    expect(cardGlyph(null, null, "running")).toEqual({
+      status: "running",
+      estimated: false,
+      codex: true,
+    });
+    expect(cardGlyph("idle", null, "permissionPending")).toEqual({
+      status: "permissionPending",
+      estimated: false,
+      codex: true,
+    });
+    expect(cardGlyph("needsInput", null, "running")).toEqual({
+      status: "needsInput",
+      estimated: false,
+    });
+    expect(cardGlyph("completed", null, "completed")).toEqual({
+      status: "completed",
+      estimated: false,
+    });
+    // A terminal's estimate shows only over a weaker told state.
+    expect(cardGlyph(null, "completed", "running")).toEqual({
+      status: "completed",
+      estimated: true,
+    });
+    expect(cardGlyph(null, "running", "running")).toEqual({
+      status: "running",
+      estimated: false,
+      codex: true,
+    });
+  });
+
+  it("names a Codex tab's state as Codex's", () => {
+    const codex = renderToStaticMarkup(<WorkspaceStatusGlyph status="completed" codex />);
+    expect(codex).toContain('aria-label="Codex: new result"');
+    expect(codex).not.toContain("title=");
+  });
+
   it("says an estimated state is one, in words and on hover", () => {
     const estimated = renderToStaticMarkup(<WorkspaceStatusGlyph status="running" estimated />);
-    expect(estimated).toContain('aria-label="Running (estimated)"');
-    expect(estimated).toContain('title="Running (estimated)"');
+    expect(estimated).toContain('aria-label="Working (estimated)"');
+    expect(estimated).toContain('title="Working (estimated)"');
     const claude = renderToStaticMarkup(<WorkspaceStatusGlyph status="running" />);
-    expect(claude).toContain('aria-label="Claude: running"');
+    expect(claude).toContain('aria-label="Claude: working"');
     expect(claude).not.toContain("title=");
   });
 });

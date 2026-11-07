@@ -12,6 +12,7 @@ import (
 // TestLayout pins the ~/.nexus-code layout. Root, BinDir and SocketsDir must
 // match src/main/infra/agent/runtimeDirs.ts.
 func TestLayout(t *testing.T) {
+	t.Setenv(agentpaths.HomeEnv, "")
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("os.UserHomeDir() error: %v", err)
@@ -33,6 +34,19 @@ func TestLayout(t *testing.T) {
 		} else if got != tc.want {
 			t.Errorf("%s() = %q; want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestRoot_NamedByTheEnvironment: a copy of the app beside the installed one
+// keeps its files apart.
+func TestRoot_NamedByTheEnvironment(t *testing.T) {
+	named := filepath.Join(t.TempDir(), "qa")
+	t.Setenv(agentpaths.HomeEnv, named)
+	if got, err := agentpaths.Root(); err != nil || got != named {
+		t.Fatalf("Root() = %q, %v; want %q", got, err, named)
+	}
+	if got, err := agentpaths.SocketsDir(); err != nil || got != filepath.Join(named, "sockets") {
+		t.Fatalf("SocketsDir() = %q, %v", got, err)
 	}
 }
 

@@ -125,18 +125,17 @@ export const appTypeScale = {
     lineHeight: 1.2,
     letterSpacing: 0,
   },
-  // appLabel — uppercase label variant. The 1.5px letter-spacing is the single
-  // source of truth for ALL-CAPS label tracking: components MUST consume it via
-  // `text-app-label` and MUST NOT re-tighten it with a `tracking-[…]` override.
-  // This role MUST only be used on text that is rendered in uppercase (via the
-  // `uppercase` Tailwind utility or text-transform: uppercase in CSS). Using it
-  // on sentence-case body copy produces over-tracked, illegible text. For
-  // sentence-case small text use appUiSm instead.
+  // appLabel — section and category labels. Untracked here: a label written
+  // `text-app-label uppercase` is set in capitals and tracked out only in a
+  // Latin-script language, by the section-label rule in globals.css. Hangul has
+  // no case, and tracking only pulls its syllables apart, so in Korean the
+  // label keeps its text as written and takes Medium weight instead. Callers
+  // do not add their own `tracking-[…]`.
   appLabel: {
     fontFamily: fontFamily.display,
     fontSize: 12,
     fontWeight: 400,
     lineHeight: 1.35,
-    letterSpacing: 1.5,
+    letterSpacing: 0,
   },
 } as const;

@@ -2,7 +2,6 @@
  * Scenario tests for tag create/delete dialog content.
  */
 import { describe, expect, it, mock } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildCreateTagFields,
   CreateTagRefSelector,
@@ -12,6 +11,7 @@ import {
 } from "../../../../../../../src/renderer/components/files/git/pickers/tag-picker";
 import { FormDialogContent } from "../../../../../../../src/renderer/components/ui/form-dialog";
 import type { RemoteTag, Tag } from "../../../../../../../src/shared/git/types";
+import { renderInAlertDialog, renderInDialog } from "../../../../../../helpers/render-in-dialog";
 
 const workspaceId = "ws-tags";
 
@@ -32,7 +32,7 @@ const remoteTag: RemoteTag = {
 
 describe("tag create FormDialog content", () => {
   it("renders required name, optional message, and the at-ref picker affordance", () => {
-    const html = renderToStaticMarkup(
+    const html = renderInDialog(
       <FormDialogContent
         title="Create tag"
         description="Create a lightweight tag or add a message for an annotated tag."
@@ -61,7 +61,7 @@ describe("tag create FormDialog content", () => {
 describe("tag delete confirmation content", () => {
   it("renders a single local delete confirmation without a remote checkbox", () => {
     const request = deleteRequest({ kind: "local" });
-    const html = renderToStaticMarkup(
+    const html = renderInAlertDialog(
       <TagDeleteConfirmContent request={request} onCancel={() => {}} onConfirm={() => {}} />,
     );
 
@@ -73,7 +73,7 @@ describe("tag delete confirmation content", () => {
 
   it("renders a single remote delete confirmation without a local checkbox", () => {
     const request = deleteRequest({ kind: "remote", remote: "origin" });
-    const html = renderToStaticMarkup(
+    const html = renderInAlertDialog(
       <TagDeleteConfirmContent request={request} onCancel={() => {}} onConfirm={() => {}} />,
     );
 

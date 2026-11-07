@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
+import { ForwardError } from "../../../../src/main/features/pty/forwards";
 import type { ListeningPort } from "../../../../src/shared/pty/ports";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
@@ -66,7 +67,8 @@ describe("help and mistakes", () => {
     [
       "a flag missing its value",
       ["terminal", "read", "--lines"],
-      "nexus: --lines needs a value\nusage: nexus terminal read [<tab>] [flags]\n",
+      "nexus: --lines needs a value (a number alone: a shell drops a # and what follows)\n" +
+        "usage: nexus terminal read [<tab>] [flags]\n",
     ],
     [
       "a word for a number",
@@ -140,6 +142,25 @@ describe("terminals and sessions", () => {
       [CLAUDE_TAB, "app", "claude", "completed", "Fixed the login bug."],
       [CODEX_TAB, "api", "codex", "busy", "Agent turn complete"],
     ]);
+  });
+
+  test("--jsonl prints a list a record a line; one object on one line", async () => {
+    const lines = (await nexus(["session", "list", "--jsonl"])).stdout.trimEnd().split("\n");
+    expect(lines.map((line) => JSON.parse(line).id)).toEqual([CLAUDE_TAB, CODEX_TAB]);
+    const status = (await nexus(["status", "--jsonl"])).stdout;
+    expect(status.split("\n")).toHaveLength(2);
+    expect(JSON.parse(status)).toHaveProperty("workspace.name", "app");
+  });
+
+  test("JSON is ASCII alone, for a reader that takes it in another code page", async () => {
+    for (const flag of ["--json", "--jsonl"]) {
+      const { stdout } = await nexus(["terminal", "list", flag]);
+      expect(stdout).toMatch(/^[ -~\n]*$/);
+      expect(stdout).toContain("\\u2733 Claude Code");
+      expect(stdout.includes("✳")).toBe(false);
+    }
+    const listed = JSON.parse((await nexus(["terminal", "list", "--json"])).stdout);
+    expect(listed.map((t: { title: string }) => t.title)).toContain("✳ Claude Code");
   });
 
   test("terminal read takes a terminal of another workspace by id prefix", async () => {
@@ -525,17 +546,82 @@ describe("tabs, browsers and workspaces", () => {
     expect(lastCall(app, "browser.open")).toBeUndefined();
   });
 
-  test("browser open with a bare path is refused in an SSH workspace", async () => {
+  /** The app, with "api" on the SSH host devbox. */
+  function sshApp() {
     const app = fakeApp();
     const ssh = {
       ...WORKSPACES[1],
       location: { kind: "ssh", host: "devbox", remotePath: "/srv/api" },
     } as WorkspaceMeta;
     app.services = { ...app.services, listWorkspaces: () => [WORKSPACES[0], ssh] };
+    app.settings.crossWorkspace = "allow";
+    return app;
+  }
+
+  test("browser open in an SSH workspace opens a local address on its forward", async () => {
+    const app = sshApp();
     app.ports[API] = [listening(3000)];
-    const result = await nexus(["browser", "open", "/", "--workspace", "api"], app);
-    expect(result.stderr).toBe(
-      "nexus: api's servers are on devbox, which the app forwards nothing from; give a URL\n",
+    app.forwarding.to[3000] = 3001;
+    await nexus(["browser", "open", "/login", "--workspace", "api"], app);
+    expect(lastCall(app, "browser.open")).toMatchObject({
+      workspaceId: API,
+      url: "http://localhost:3001/login",
+    });
+    // A URL elsewhere is as given.
+    await nexus(["browser", "open", "example.com", "--workspace", "api"], app);
+    expect(lastCall(app, "browser.open")).toMatchObject({ url: "example.com" });
+    app.forwarding.error = new ForwardError("not-connected", "devbox is not connected");
+    const refused = await nexus(["browser", "open", "localhost:8080", "--workspace", "api"], app);
+    expect(refused.stderr).toBe("nexus: devbox is not connected\n");
+  });
+
+  test("port list in an SSH workspace shows where forwarded ports open here", async () => {
+    const app = sshApp();
+    app.ports[API] = [listening(3000, "node", CODEX_TAB), listening(8080, "java", CODEX_TAB)];
+    app.forwarding.forwards[API] = [{ remotePort: 3000, localPort: 3001, active: true }];
+    const result = await nexus(["port", "list", "--workspace", "api"], app);
+    expect(result.stdout).toContain("http://localhost:3001\n");
+    expect(result.stdout).toContain(
+      "These are on devbox; nexus port forward 8080 opens one here.\n",
+    );
+    const json = await nexus(["port", "list", "--workspace", "api", "--json"], app);
+    expect(JSON.parse(json.stdout).map((p: { url: unknown }) => p.url)).toEqual([
+      "http://localhost:3001",
+      null,
+    ]);
+
+    // A server started outside the terminals, forwarded all the same.
+    app.forwarding.forwards[API].push({ remotePort: 9000, localPort: 9000, active: false });
+    expect((await nexus(["port", "list", "--workspace", "api"], app)).stdout).toContain(
+      "Also forwarded: 9000 at http://localhost:9000 (once reconnected).\n",
+    );
+    app.ports[API] = [];
+    expect((await nexus(["port", "list", "--workspace", "api"], app)).stdout).toBe(
+      "No program in api's terminals listens on a port.\nAlso forwarded: 3000 at http://localhost:3001, 9000 at http://localhost:9000 (once reconnected).\n",
+    );
+  });
+
+  test("port forward and unforward start and stop a forward of an SSH workspace", async () => {
+    const app = sshApp();
+    app.forwarding.to[5173] = 5174;
+    expect((await nexus(["port", "forward", "5173", "--workspace", "api"], app)).stdout).toBe(
+      "devbox:5173 is at http://localhost:5174.\n",
+    );
+    expect(app.forwarding.forwards[API]).toEqual([
+      { remotePort: 5173, localPort: 5174, active: true },
+    ]);
+    expect((await nexus(["port", "unforward", ":5173", "--workspace", "api"], app)).stdout).toBe(
+      "Stopped forwarding devbox:5173.\n",
+    );
+    expect(app.forwarding.forwards[API]).toEqual([]);
+    expect((await nexus(["port", "unforward", "5173", "--workspace", "api"], app)).stderr).toBe(
+      "nexus: devbox:5173 is not forwarded\n",
+    );
+    expect((await nexus(["port", "forward", "http", "--workspace", "api"], app)).stderr).toContain(
+      '"http" is not a port number',
+    );
+    expect((await nexus(["port", "forward", "5173"], app)).stderr).toBe(
+      "nexus: app is on this machine; its ports need no forwarding\n",
     );
   });
 

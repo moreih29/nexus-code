@@ -1,55 +1,60 @@
-// Sessions tab — detail panel: the chosen session's state; for a Claude
-// session, what its turn does now, its todo list, the agents it runs and the
-// tools it ran; what it was asked and last said, its terminal's screen
-// (folded away when its hooks tell the rest), and its worktree's changes,
-// with the actions on it. A worktree with no session shows its changes
-// alone.
-//
-// A permission request is answered in the terminal, not here: the panel
-// does not press keys in a Claude Code dialog on the user's behalf.
+// Agents tab — the detail panel: a conversation's (conversation-detail.tsx),
+// a terminal agent's (agent-detail.tsx), or a task's: its branch and folder,
+// how far it has gone from its workspace's branch, its uncommitted changes in
+// lines and its conversations, with the actions on it.
 
-import { ChevronRight, GitBranch } from "lucide-react";
-import { type FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowUp,
+  FileDiff,
+  MessageSquarePlus,
+  SquareTerminal,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { isImeComposing } from "@/utils/ime";
+import type { FileLineStats, GitChangeStats } from "../../../shared/git/types";
+import type { TerminalWait } from "../../../shared/sessions/agent-state";
 import {
-  interrupt,
+  openWorktreeChat,
+  openWorktreeTerminal,
   removeTask,
-  sendLine,
   showChanges,
-  showTerminal,
 } from "../../services/sessions/actions";
 import { type ActivityByKey, findAgent } from "../../services/sessions/agents";
-import { type ScreenLineKind, screenLines } from "../../services/sessions/screen-lines";
-import {
-  type AgentSession,
-  allSessions,
-  type SessionFamily,
-  type WorktreeEntry,
-} from "../../services/sessions/model";
-import { useNow, type WorktreeChanges } from "../../services/sessions/use-family";
-import { getTerminalController } from "../../services/terminal/terminal-registry";
+import { allSessions, type SessionFamily, type WorktreeEntry } from "../../services/sessions/model";
+import { sessionsByGroup, waitedOn } from "../../services/sessions/rows";
+import { useChangeStats, type WorktreeChanges } from "../../services/sessions/use-family";
 import { Button } from "../ui/button";
-import { showToast } from "../ui/toast";
 import { AgentDetail } from "./agent-detail";
-import { PermissionAsks } from "./permission-asks";
-import { AgentsSection, NowCard, ProgressSection, TodoSection } from "./session-activity";
-import type { SessionActivity } from "../../../shared/claude/activity";
+import { ConversationDetail } from "./conversation-detail";
 import type { SessionsSelection } from "./selection";
-import { AgentBadge, SessionState } from "./session-status";
+import { TaskRow, WorktreeMark, worktreeName } from "./task-view";
 
-const SCREEN_LINES = 20;
-const SCREEN_POLL_MS = 1_000;
 const FILES_SHOWN = 50;
+
+/** How each change's letter is tinted: added green, deleted red, modified amber. */
+const CODE_TINT: Record<string, string> = {
+  A: "text-emerald-500",
+  "?": "text-emerald-500",
+  D: "text-(--state-error-fg)",
+  U: "text-(--state-error-fg)",
+  M: "text-(--state-warning-fg)",
+  R: "text-(--state-info-fg)",
+  C: "text-(--state-info-fg)",
+};
 
 interface SessionDetailProps {
   family: SessionFamily;
   selection: SessionsSelection;
   changes: ReadonlyMap<string, WorktreeChanges>;
   activity: ActivityByKey;
+  waits: readonly TerminalWait[];
   visible: boolean;
   onSelect: (selection: SessionsSelection) => void;
+  /** Back to the list, where the panel takes its place. */
+  onBack: () => void;
 }
 
 export function SessionDetail({
@@ -57,10 +62,11 @@ export function SessionDetail({
   selection,
   changes,
   activity,
+  waits,
   visible,
   onSelect,
+  onBack,
 }: SessionDetailProps) {
-  const { t } = useTranslation();
   const session =
     selection.kind === "worktree"
       ? undefined
@@ -69,406 +75,315 @@ export function SessionDetail({
     session?.workspaceId ?? (selection.kind === "worktree" ? selection.workspaceId : "");
   const worktree = family.worktrees.find((w) => w.workspace.id === workspaceId);
   if (!worktree) return null;
+  const worktreeChanges = changes.get(worktree.workspace.id);
+  const branch = worktree.branch ?? worktreeChanges?.branch;
   const agent =
     session && selection.kind === "agent"
       ? findAgent(activity, session.key, selection.agentId)
       : undefined;
-  if (session && agent) {
+  if (session && !agent) {
     return (
-      <AgentDetail
-        key={`${session.key}:${agent.id}`}
-        worktree={worktree}
+      <ConversationDetail
         session={session}
-        agent={agent}
-        asks={(activity.get(session.key)?.asks ?? []).filter((ask) => ask.agentId === agent.id)}
+        branch={branch}
+        activity={activity.get(session.key)}
         visible={visible}
         onSelect={onSelect}
+        onBack={onBack}
       />
     );
   }
-  const worktreeChanges = changes.get(worktree.workspace.id);
-  return (
-    <div className="flex min-w-0 flex-col gap-4 p-4">
-      <DetailHeader worktree={worktree} branch={worktree.branch ?? worktreeChanges?.branch}>
-        {session && (
-          <span className="flex min-w-0 items-center gap-2">
-            <AgentBadge agent={session.agent} />
-            <SessionState session={session} />
-          </span>
-        )}
-      </DetailHeader>
-      <DetailActions worktree={worktree} session={session} />
-      {session ? (
-        <SessionBody
-          // Keyed by the session, so each one opens with its screen folded or not by its own.
-          key={session.key}
-          session={session}
-          activity={activity.get(session.key)}
-          visible={visible}
-          onSelect={onSelect}
-        />
-      ) : (
-        <p className="text-app-ui-sm text-muted-foreground">{t("sessions.detail.no_session")}</p>
-      )}
-      <ChangedFiles changes={worktreeChanges} />
-    </div>
-  );
-}
-
-function DetailHeader({
-  worktree,
-  branch,
-  children,
-}: {
-  worktree: WorktreeEntry;
-  branch: string | undefined;
-  children: React.ReactNode;
-}) {
-  const path = worktree.workspace.task?.worktreePath ?? worktree.workspace.rootPath;
-  return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div className="flex min-w-0 flex-col gap-1">
-        <h2 className="truncate text-app-body-emphasis text-foreground">
-          {worktree.workspace.name}
-        </h2>
-        <span className="flex min-w-0 items-center gap-1 font-mono text-app-micro text-muted-foreground">
-          {branch && (
-            <>
-              <GitBranch aria-hidden className="size-3 shrink-0" />
-              <span className="shrink-0">{branch}</span>
-              <span aria-hidden>·</span>
-            </>
-          )}
-          <span className="truncate" title={path}>
-            {path}
-          </span>
-        </span>
-      </div>
-      {children}
-    </header>
-  );
-}
-
-function DetailActions({
-  worktree,
-  session,
-}: {
-  worktree: WorktreeEntry;
-  session: AgentSession | undefined;
-}) {
-  const { t } = useTranslation();
-  const canInterrupt = session && (session.state === "running" || session.state === "busy");
-  return (
-    <div className="flex flex-wrap gap-2">
-      {session && (
-        <Button size="sm" onClick={() => showTerminal(session)}>
-          {t("sessions.detail.show_terminal")}
-        </Button>
-      )}
-      <Button size="sm" variant="outline" onClick={() => showChanges(worktree.workspace.id)}>
-        {t("sessions.detail.show_changes")}
-      </Button>
-      {canInterrupt && (
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            interrupt(session).catch((failure: unknown) => {
-              showToast({ kind: "error", message: (failure as Error).message });
-            });
-          }}
-        >
-          {t("sessions.detail.interrupt")}
-        </Button>
-      )}
-      {!worktree.isRoot && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-(--state-error-fg)"
-          onClick={() => removeTask(worktree.workspace.id)}
-        >
-          {t("sessions.detail.remove_task")}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-function SessionBody({
-  session,
-  activity,
-  visible,
-  onSelect,
-}: {
-  session: AgentSession;
-  activity: SessionActivity | undefined;
-  visible: boolean;
-  onSelect: (selection: SessionsSelection) => void;
-}) {
-  const { t } = useTranslation();
-  // A Claude session's hooks tell what it does; its screen is folded away
-  // until asked for. Another agent's screen is all there is to tell.
-  const [screenToggled, setScreenToggled] = useState<boolean | undefined>(undefined);
-  const screenOpen = screenToggled ?? activity === undefined;
-  const screen = useTerminalScreen(session.tabId, visible && screenOpen);
-  const working = session.state === "running" || session.state === "permissionPending";
-  // Running tools count their seconds.
-  const now = useNow(visible && activity !== undefined && working);
-  const asks = activity?.asks ?? [];
-  return (
-    <>
-      {activity && <NowCard session={session} activity={activity} now={now} />}
-      {asks.length > 0 ? (
-        // Answered here, or in the terminal's own prompt.
-        <PermissionAsks session={session} asks={asks} agents={activity?.agents ?? []} />
-      ) : session.state === "permissionPending" ? (
-        <p className="text-app-ui-sm text-(--state-warning-fg)">
-          {t("sessions.detail.permission_hint")}
-        </p>
-      ) : (
-        // Keyed by the session, so a draft never carries over to another one.
-        session.state !== "exited" && <SendLine key={session.key} session={session} />
-      )}
-      {activity && <TodoSection todos={activity.todos} />}
-      {activity && <AgentsSection session={session} agents={activity.agents} onSelect={onSelect} />}
-      {activity && <ProgressSection activity={activity} now={now} />}
-      {session.prompt && (
-        <DetailSection title={t("sessions.detail.prompt")}>
-          <p className="whitespace-pre-wrap break-words text-app-body text-foreground">
-            {session.prompt}
-          </p>
-        </DetailSection>
-      )}
-      {session.message && (
-        <DetailSection title={t("sessions.detail.message")}>
-          <p className="whitespace-pre-wrap break-words text-app-body text-foreground">
-            {session.message}
-          </p>
-        </DetailSection>
-      )}
-      <section className="flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => setScreenToggled(!screenOpen)}
-          aria-expanded={screenOpen}
-          className="flex items-center gap-1 self-start rounded-(--radius-control) text-app-label uppercase text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronRight
-            aria-hidden
-            className={cn("size-3 shrink-0 transition-transform", screenOpen && "rotate-90")}
+  if (session && agent) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex shrink-0 px-2 pt-2 @2xl/agents:hidden">
+          <BackButton onBack={onBack} />
+        </div>
+        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
+          <AgentDetail
+            key={`${session.key}:${agent.id}`}
+            worktree={worktree}
+            session={session}
+            agent={agent}
+            asks={(activity.get(session.key)?.asks ?? []).filter((ask) => ask.agentId === agent.id)}
+            visible={visible}
+            onSelect={onSelect}
           />
-          {screenOpen ? t("sessions.detail.screen_hide") : t("sessions.detail.screen_show")}
-        </button>
-        {screenOpen &&
-          (screen === null ? (
-            <p className="text-app-ui-sm text-muted-foreground">
-              {session.state === "exited"
-                ? t("sessions.detail.screen_exited")
-                : t("sessions.detail.screen_not_started")}
-            </p>
-          ) : (
-            // Keyed by the session, so each one opens scrolled to its latest lines.
-            <ScreenText key={session.key} text={screen} />
-          ))}
-      </section>
-    </>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <TaskDetail
+      family={family}
+      worktree={worktree}
+      branch={branch}
+      base={worktree.isRoot ? undefined : changes.get(family.root.id)?.branch}
+      changes={worktreeChanges}
+      activity={activity}
+      waits={waits}
+      visible={visible}
+      onSelect={onSelect}
+      onBack={onBack}
+    />
   );
 }
 
-// How each kind of screen line is drawn.
-const LINE_CLASS: Record<ScreenLineKind, string> = {
-  item: "text-foreground",
-  result: "text-muted-foreground",
-  added: "bg-emerald-500/10 text-emerald-500",
-  removed: "bg-(--state-error-fg)/10 text-(--state-error-fg)",
-  status: "text-(--tab-claude-attention-fg)",
-  prompt: "text-foreground",
-  rule: "",
-  hint: "text-muted-foreground/70",
-  blank: "",
-  text: "text-foreground/90",
-};
+function BackButton({ onBack, className }: { onBack: () => void; className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <Button
+      size="icon-sm"
+      variant="ghost"
+      className={cn("@2xl/agents:hidden", className)}
+      title={t("sessions.detail.back")}
+      aria-label={t("sessions.detail.back")}
+      onClick={onBack}
+    >
+      <ArrowLeft aria-hidden className="size-3.5" />
+    </Button>
+  );
+}
 
 /**
- * The screen's lines, kept scrolled to the latest unless scrolled up, each
- * drawn by what it is: a tool call's bullet stands out, its result is
- * dimmed, a diff's lines are tinted, the agent's rules become thin lines.
- * It takes focus, so the keyboard can scroll it too.
+ * A worktree: its name and folder, a task's commits ahead of and behind its
+ * workspace's branch, its changes, its conversations, and what can be done
+ * in it.
  */
-function ScreenText({ text }: { text: string }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const atBottom = useRef(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll again whenever the text changes
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && atBottom.current) el.scrollTop = el.scrollHeight;
-  }, [text]);
-  return (
-    <pre
-      ref={ref}
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scroll region the keyboard must reach
-      tabIndex={0}
-      onScroll={(event) => {
-        const el = event.currentTarget;
-        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
-      }}
-      className="app-scrollbar max-h-80 overflow-y-auto whitespace-pre-wrap break-all rounded-(--radius-control) border border-border bg-background px-2 py-1.5 font-mono text-app-micro leading-relaxed text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-    >
-      {screenLines(text).map((line, index) =>
-        line.kind === "rule" ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: a screen's lines have no identity but their place
-          <span key={index} aria-hidden className="my-1 block h-px bg-border" />
-        ) : (
-          <span
-            // biome-ignore lint/suspicious/noArrayIndexKey: a screen's lines have no identity but their place
-            key={index}
-            className={cn(
-              "block min-h-[1lh]",
-              LINE_CLASS[line.kind],
-              line.kind === "item" && "mt-1 first:mt-0",
-            )}
-          >
-            {line.kind === "item" ? <ItemLine text={line.text} /> : line.text}
-          </span>
-        ),
-      )}
-    </pre>
-  );
-}
-
-/** A tool call or message line: its bullet in the agent's color, then its words. */
-function ItemLine({ text }: { text: string }) {
-  const match = /^(\s*)([⏺●◆])(\s.*)$/.exec(text);
-  if (!match) return <>{text}</>;
-  return (
-    <>
-      {match[1]}
-      <span className="text-emerald-500">{match[2]}</span>
-      {match[3]}
-    </>
-  );
-}
-
-/** The last lines of a terminal's screen, read every second while `visible`. */
-function useTerminalScreen(tabId: string, visible: boolean): string | null {
-  const [screen, setScreen] = useState<string | null>(null);
-  useEffect(() => {
-    if (!visible) return;
-    const read = () => {
-      const controller = getTerminalController(tabId);
-      if (!controller) {
-        setScreen(null);
-        return;
-      }
-      const lines = controller
-        .readText(SCREEN_LINES * 2)
-        .replace(/\s+$/, "")
-        .split("\n");
-      setScreen(lines.slice(-SCREEN_LINES).join("\n"));
-    };
-    read();
-    const timer = setInterval(read, SCREEN_POLL_MS);
-    return () => clearInterval(timer);
-  }, [tabId, visible]);
-  return screen;
-}
-
-function SendLine({ session }: { session: AgentSession }) {
+function TaskDetail({
+  family,
+  worktree,
+  branch,
+  base,
+  changes,
+  activity,
+  waits,
+  visible,
+  onSelect,
+  onBack,
+}: {
+  family: SessionFamily;
+  worktree: WorktreeEntry;
+  branch: string | undefined;
+  /** The workspace's branch, which a task is compared with. */
+  base: string | undefined;
+  changes: WorktreeChanges | undefined;
+  activity: ActivityByKey;
+  waits: readonly TerminalWait[];
+  visible: boolean;
+  onSelect: (selection: SessionsSelection) => void;
+  onBack: () => void;
+}) {
   const { t } = useTranslation();
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (text.trim() === "" || sending) return;
-    setSending(true);
-    setError(null);
-    try {
-      await sendLine(session, text);
-      setText("");
-    } catch (failure) {
-      setError((failure as Error).message);
-    } finally {
-      setSending(false);
-    }
-  };
-  // Enter sends and Shift+Enter starts a new line, as in Claude Code; the
-  // lines are typed with Ctrl+J between them, so the session takes them as
-  // one input.
-  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || event.shiftKey || isImeComposing(event)) return;
-    event.preventDefault();
-    event.currentTarget.form?.requestSubmit();
-  };
+  const { workspace } = worktree;
+  const stats = useChangeStats(workspace.id, base, visible);
+  const path = workspace.task?.worktreePath ?? workspace.rootPath;
+  const sessions = allSessions(family);
+  const rows = sessionsByGroup(worktree.sessions, "");
   return (
-    <form onSubmit={submit} className="flex flex-col gap-1">
-      <div className="flex items-end gap-2">
-        <textarea
-          rows={1}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={t("sessions.detail.send_placeholder")}
-          aria-label={t("sessions.detail.send_placeholder")}
-          className={cn(
-            "app-scrollbar field-sizing-content max-h-40 min-w-0 flex-1 resize-none overflow-y-auto",
-            "rounded-(--radius-control) border border-border bg-background px-2 py-1.5",
-            "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-            "focus-visible:ring-1 focus-visible:ring-ring",
-          )}
-        />
-        <Button size="sm" type="submit" variant="outline" loading={sending}>
-          {t("sessions.detail.send")}
-        </Button>
+    <div className="app-scrollbar h-full min-h-0 overflow-y-auto">
+      <div className="flex min-w-0 flex-col gap-4 p-4">
+        <header className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <BackButton onBack={onBack} className="-ml-1" />
+            <WorktreeMark worktree={worktree} className="size-4 text-foreground" />
+            <h2 className="min-w-0 truncate text-app-body-emphasis text-foreground">
+              {worktreeName(worktree, branch)}
+            </h2>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <Button
+                size="icon-sm"
+                title={t("sessions.detail.show_changes")}
+                aria-label={t("sessions.detail.show_changes")}
+                onClick={() => showChanges(workspace.id)}
+              >
+                <FileDiff aria-hidden className="size-3.5" />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                title={t("sessions.task.open_terminal")}
+                aria-label={t("sessions.task.open_terminal")}
+                onClick={() => openWorktreeTerminal(workspace)}
+              >
+                <SquareTerminal aria-hidden className="size-3.5" />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="outline"
+                title={t("sessions.list.new_claude")}
+                aria-label={t("sessions.list.new_claude")}
+                onClick={() => openWorktreeChat(workspace)}
+              >
+                <MessageSquarePlus aria-hidden className="size-3.5" />
+              </Button>
+              {!worktree.isRoot && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-2 gap-1 text-(--state-error-fg)"
+                  onClick={() => removeTask(workspace.id)}
+                >
+                  <Trash2 aria-hidden className="size-3.5" />
+                  {t("sessions.detail.remove_task")}
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="flex min-w-0 items-center gap-2 text-app-micro text-muted-foreground">
+            {base && stats?.ahead !== undefined && stats.behind !== undefined && (
+              <AheadBehind ahead={stats.ahead} behind={stats.behind} base={base} />
+            )}
+            <span className="truncate font-mono" title={path}>
+              {worktree.isRoot && branch ? `${branch} · ${path}` : path}
+            </span>
+          </div>
+        </header>
+        <ChangedFiles changes={changes} stats={stats} />
+        {rows.length > 0 ? (
+          <ul className="overflow-hidden rounded-(--radius-raised) border border-border">
+            {rows.map((session) => (
+              <li key={session.key} className="border-t border-border first:border-t-0">
+                <TaskRow
+                  session={session}
+                  activity={activity}
+                  waitingOn={waitedOn(session, waits, sessions)}
+                  selected={false}
+                  onSelect={() => onSelect({ kind: "session", key: session.key })}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-app-ui-sm text-muted-foreground">
+            {t("sessions.task.no_conversations")}
+          </p>
+        )}
       </div>
-      {error && <p className="text-app-ui-sm text-(--state-error-fg)">{error}</p>}
-    </form>
+    </div>
   );
 }
 
-function ChangedFiles({ changes }: { changes: WorktreeChanges | undefined }) {
+/** A task's commits ahead of and behind its workspace's branch, as ↑2 ↓1 vs main. */
+function AheadBehind({ ahead, behind, base }: { ahead: number; behind: number; base: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className="flex shrink-0 items-center gap-1.5 tabular-nums"
+      title={t("sessions.detail.ahead_behind", { ahead, behind, branch: base })}
+      data-testid="task-ahead-behind"
+    >
+      <span className="flex items-center">
+        <ArrowUp aria-hidden className="size-3" />
+        {ahead}
+      </span>
+      <span className="flex items-center">
+        <ArrowDown aria-hidden className="size-3" />
+        {behind}
+      </span>
+      <span className="max-w-40 truncate font-mono">
+        {t("sessions.detail.vs_base", { branch: base })}
+      </span>
+    </span>
+  );
+}
+
+function ChangedFiles({
+  changes,
+  stats,
+}: {
+  changes: WorktreeChanges | undefined;
+  /** Lines added and deleted, once read. */
+  stats: GitChangeStats | undefined;
+}) {
   const { t } = useTranslation();
   if (!changes) return null;
+  if (changes.files.length === 0) {
+    return (
+      <p className="text-app-ui-sm text-muted-foreground">{t("sessions.detail.no_changes")}</p>
+    );
+  }
   const shown = changes.files.slice(0, FILES_SHOWN);
+  const lines = new Map(stats?.files.map((file) => [file.path, file]));
+  const total = stats && totalLines(stats.files);
   return (
-    <DetailSection title={t("sessions.detail.changes", { count: changes.files.length })}>
-      {changes.files.length === 0 ? (
-        <p className="text-app-ui-sm text-muted-foreground">{t("sessions.detail.no_changes")}</p>
-      ) : (
-        <ul className="flex flex-col rounded-(--radius-control) border border-border">
-          {shown.map((file) => (
-            <li
-              key={file.relPath}
-              className="flex items-center gap-2 border-b border-border px-2 py-1 last:border-b-0"
+    <section
+      className="flex flex-col gap-1.5"
+      aria-label={t("sessions.detail.changes", { count: changes.files.length })}
+    >
+      <span className="flex items-center gap-1 text-app-ui-sm text-muted-foreground tabular-nums">
+        <FileDiff aria-hidden className="size-3.5" />
+        {t("sessions.detail.changes", { count: changes.files.length })}
+        {total && <LineCounts lines={total} className="ml-auto" />}
+      </span>
+      <ul className="flex flex-col rounded-(--radius-raised) border border-border py-1">
+        {shown.map((file) => (
+          <li key={file.relPath} className="flex min-w-0 items-center gap-3 px-3 py-1">
+            <span
+              className={cn(
+                "w-3 shrink-0 font-mono text-app-micro",
+                CODE_TINT[file.code] ?? "text-muted-foreground",
+              )}
             >
-              <span className="w-3 shrink-0 font-mono text-app-micro text-muted-foreground">
-                {file.code}
-              </span>
-              <span
-                className="truncate font-mono text-app-micro text-foreground"
-                title={file.relPath}
-              >
-                {file.relPath}
-              </span>
-            </li>
-          ))}
-          {changes.files.length > shown.length && (
-            <li className="px-2 py-1 text-app-micro text-muted-foreground">
-              {t("sessions.detail.more_changes", { count: changes.files.length - shown.length })}
-            </li>
-          )}
-        </ul>
-      )}
-    </DetailSection>
+              {file.code}
+            </span>
+            <span
+              className="truncate font-mono text-app-micro text-foreground"
+              title={file.relPath}
+            >
+              {file.relPath}
+            </span>
+            <LineCounts lines={lines.get(file.relPath)} className="ml-auto" />
+          </li>
+        ))}
+        {changes.files.length > shown.length && (
+          <li className="px-3 py-1 text-app-micro text-muted-foreground">
+            {t("sessions.detail.more_changes", { count: changes.files.length - shown.length })}
+          </li>
+        )}
+      </ul>
+    </section>
   );
 }
 
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+/** The lines all the files add and delete. */
+function totalLines(files: readonly FileLineStats[]): FileLineStats {
+  let added = 0;
+  let deleted = 0;
+  for (const file of files) {
+    added += file.added;
+    deleted += file.deleted;
+  }
+  return { path: "", added, deleted };
+}
+
+/** +12 −3, the parts that are not zero; "binary" for a binary file. */
+function LineCounts({
+  lines,
+  className,
+}: {
+  lines: FileLineStats | undefined;
+  className?: string;
+}) {
+  const { t } = useTranslation();
+  if (!lines) return null;
+  if (lines.binary) {
+    return (
+      <span className={cn("shrink-0 text-app-micro text-muted-foreground", className)}>
+        {t("sessions.detail.binary")}
+      </span>
+    );
+  }
+  if (lines.added === 0 && lines.deleted === 0) return null;
   return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-app-label uppercase text-muted-foreground">{title}</h3>
-      {children}
-    </section>
+    <span
+      className={cn("flex shrink-0 gap-1.5 font-mono text-app-micro tabular-nums", className)}
+      title={t("sessions.detail.lines", { added: lines.added, deleted: lines.deleted })}
+    >
+      {lines.added > 0 && <span className="text-emerald-500">+{lines.added}</span>}
+      {lines.deleted > 0 && (
+        <span className="text-(--state-error-fg)">{`\u2212${lines.deleted}`}</span>
+      )}
+    </span>
   );
 }

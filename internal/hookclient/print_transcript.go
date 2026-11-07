@@ -10,6 +10,7 @@ package hookclient
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,7 +25,10 @@ type printTranscript struct {
 	// projects is Claude Code's directory of projects, one directory each.
 	projects string
 	// name is the transcript's name in its project's directory.
-	name       string
+	name string
+	// from is where in it the run's part starts: its end before the run,
+	// for a run that goes on a session.
+	from       int64
 	stop, done chan struct{}
 }
 
@@ -50,7 +54,21 @@ func newPrintTranscript(sessionID string) *printTranscript {
 // follow hands each line written to the transcript to `watch` as it comes,
 // once it is found, which it tells `found` of, until the run's end.
 func (tr *printTranscript) follow(watch *printWatch, found func()) {
-	defer close(tr.done)
+	followFile(tr.open, tr.from, watch.line, found, tr.stop, tr.done)
+}
+
+// followFile hands each line written to the file `open` finds to `line` as
+// it comes, from `from` in it, once it is found, which it tells `found` of,
+// until `stop` closes; then it closes `done`.
+func followFile(
+	open func() *os.File,
+	from int64,
+	line func([]byte),
+	found func(),
+	stop <-chan struct{},
+	done chan<- struct{},
+) {
+	defer close(done)
 	ticker := time.NewTicker(printTranscriptPoll)
 	defer ticker.Stop()
 	var file *os.File
@@ -59,17 +77,20 @@ func (tr *printTranscript) follow(watch *printWatch, found func()) {
 			file.Close()
 		}
 	}()
-	lines := lineSplitter{line: watch.line}
+	lines := lineSplitter{line: line}
 	buf := make([]byte, 64<<10)
 	for {
 		ended := false
 		select {
-		case <-tr.stop:
+		case <-stop:
 			ended = true
 		case <-ticker.C:
 		}
 		if file == nil {
-			if file = tr.open(); file != nil {
+			if file = open(); file != nil {
+				if from > 0 {
+					_, _ = file.Seek(from, io.SeekStart)
+				}
 				found()
 			}
 		}
@@ -103,6 +124,19 @@ func (tr *printTranscript) open() *os.File {
 		}
 	}
 	return nil
+}
+
+// startAtEnd has the transcript followed from where it is now: a run that
+// goes on a session adds to its transcript.
+func (tr *printTranscript) startAtEnd() {
+	file := tr.open()
+	if file == nil {
+		return
+	}
+	defer file.Close()
+	if info, err := file.Stat(); err == nil {
+		tr.from = info.Size()
+	}
 }
 
 // end reads the rest of the transcript once the run is over, and waits up

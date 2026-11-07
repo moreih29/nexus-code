@@ -148,10 +148,10 @@ describe("WorkspaceStatusGlyph — idle", () => {
 describe("WorkspaceStatusGlyph — running", () => {
   beforeEach(resetAll);
 
-  test("running 탭이 있으면 'Claude: running' aria-label이 렌더된다", () => {
+  test("running 탭이 있으면 'Claude: working' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "running") };
     const html = renderSidebarForWs();
-    expect(html).toContain("Claude: running");
+    expect(html).toContain("Claude: working");
   });
 
   test("running 글리프는 emerald-500 색 + animate-spin 클래스를 사용한다", () => {
@@ -169,10 +169,10 @@ describe("WorkspaceStatusGlyph — running", () => {
 describe("WorkspaceStatusGlyph — completed", () => {
   beforeEach(resetAll);
 
-  test("completed 탭이 있으면 'response complete' aria-label이 렌더된다", () => {
+  test("completed 탭이 있으면 'new result' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "completed") };
     const html = renderSidebarForWs();
-    expect(html).toContain("Claude: response complete");
+    expect(html).toContain("Claude: new result");
   });
 
   test("completed 글리프는 tab-claude-attention-fg 토큰을 사용한다", () => {
@@ -189,10 +189,10 @@ describe("WorkspaceStatusGlyph — completed", () => {
 describe("WorkspaceStatusGlyph — needsInput", () => {
   beforeEach(resetAll);
 
-  test("needsInput 탭이 있으면 'waiting for input' aria-label이 렌더된다", () => {
+  test("needsInput 탭이 있으면 'needs you' aria-label이 렌더된다", () => {
     mockWsTabs = { t1: makeEntry("t1", "needsInput") };
     const html = renderSidebarForWs();
-    expect(html).toContain("Claude: waiting for input");
+    expect(html).toContain("Claude: needs you");
   });
 
   test("tab-claude-attention-fg 토큰 클래스가 적용된다", () => {
@@ -221,8 +221,8 @@ describe("WorkspaceStatusGlyph — permissionPending 우선순위", () => {
       t2: makeEntry("t2", "needsInput"),
     };
     const html = renderSidebarForWs();
-    expect(html).toContain("Claude: waiting for permission");
-    expect(html).not.toContain("Claude: waiting for input");
+    expect(html).toContain("Claude: permission request");
+    expect(html).not.toContain("Claude: needs you");
   });
 });
 
@@ -246,7 +246,7 @@ describe("WorkspaceStatusGlyph — error", () => {
     };
     const html = renderSidebarForWs();
     expect(html).toContain("Claude: error");
-    expect(html).not.toContain("Claude: waiting for input");
+    expect(html).not.toContain("Claude: needs you");
   });
 });
 
@@ -260,8 +260,8 @@ describe("WorkspaceStatusGlyph — StatusEntry 없음", () => {
   test("Claude StatusEntry가 없으면 글리프가 렌더되지 않는다", () => {
     // mockWsTabs는 {} 그대로 — wsTabs는 키 존재하나 entries.length === 0이라 aggregate null.
     const html = renderSidebarForWs();
-    expect(html).not.toContain("Claude: waiting for input");
-    expect(html).not.toContain("Claude: running");
+    expect(html).not.toContain("Claude: needs you");
+    expect(html).not.toContain("Claude: working");
     expect(html).not.toContain("Claude: idle");
     expect(html).not.toContain("Claude: error");
   });
@@ -293,7 +293,7 @@ describe("WorkspaceStatusGlyph — tasks", () => {
 
     const html = renderSidebarForWs([task]);
 
-    expect(html).toContain("Claude: waiting for permission");
+    expect(html).toContain("Claude: permission request");
     expect(html).toContain("1 task");
   });
 
@@ -303,7 +303,7 @@ describe("WorkspaceStatusGlyph — tasks", () => {
 
     const html = renderSidebarForWs([task]);
 
-    expect(html).toContain("Claude: waiting for input");
+    expect(html).toContain("Claude: needs you");
     // The task has no row of its own.
     expect(html).not.toContain("fix login");
   });

@@ -1,6 +1,7 @@
 // Reading a workspace file's bytes whole, for the previews that draw a
-// binary format themselves (PDF, spreadsheets). It goes through the
-// workspace, so local and SSH workspaces read the same.
+// zipped format themselves (spreadsheets, documents, presentations), which
+// need the whole zip. It goes through the workspace, so local and SSH
+// workspaces read the same.
 
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";

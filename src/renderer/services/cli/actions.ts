@@ -18,9 +18,10 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { useTerminalStore } from "@/state/stores/terminal";
+import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { classifyUrl } from "../browser/url-classifier";
@@ -42,7 +43,7 @@ import {
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { activateWorkspace, removeTask, startTask } from "../workspace/tasks";
+import { activateWorkspace, removeTask, startTask, taskStartOf } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
@@ -110,7 +111,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 export const actionHandlers: {
   [K in Exclude<
     CliUiOp,
-    "tabs.list" | "terminal.read" | "settings.list" | "settings.set" | LayoutOp
+    | "tabs.list"
+    | "terminal.read"
+    | "events.read"
+    | "settings.list"
+    | "settings.set"
+    | "manager.dispatched"
+    | LayoutOp
+    | `chat.${string}`
   >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
@@ -319,13 +327,14 @@ export const actionHandlers: {
     return {};
   },
 
-  "task.create": async ({ parentId, name, prompt, command, show, createdBy }) => {
-    const started = await startTask(parentId, name, prompt, command, createdBy);
+  "task.create": async ({ parentId, name, prompt, start, show, createdBy }) => {
+    const how = start ?? taskStartOf(resolvedTaskAgent());
+    const started = await startTask(parentId, name, prompt, how, createdBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
-    // Its terminal starts once its panel is mounted, shown or not.
+    // A terminal starts once its panel is mounted, shown or not.
     if (show) activateWorkspace(started.task.id);
     else useMountedWorkspacesStore.getState().mount(started.task.id);
-    return { workspaceId: started.task.id, tabId: started.tabId, command: started.command };
+    return { workspaceId: started.task.id, tabId: started.tabId, start: started.start };
   },
 
   "task.remove": async ({ taskId, force, deleteBranch }) => {
@@ -367,6 +376,7 @@ export const actionHandlers: {
     const answer = await askCliConsent({
       fromWorkspace: name(fromWorkspaceId),
       fromTab: fromTab?.title ?? fromTabId.slice(0, 8),
+      fromManager: isManagerWorkspace(fromWorkspaceId),
       toWorkspace: name(toWorkspaceId),
       change,
       timeoutMs,

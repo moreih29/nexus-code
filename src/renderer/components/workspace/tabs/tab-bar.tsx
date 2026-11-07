@@ -1,6 +1,6 @@
 import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
-import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useMemo } from "react";
+import { Tabs as RadixTabs } from "radix-ui";
+import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,18 +14,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
+import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
+import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
+import { requestTabFocus } from "@/services/tab-focus";
 import { basename } from "@/utils/path";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { type ShellChoice, sameShellChoice } from "../../../../shared/pty/shell";
-import { UI_TOOLTIP_DELAY_MS } from "../../../../shared/util/timing-constants";
 import { shellEntries, useInstalledShells } from "../../../services/terminal/installed-shells";
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
+import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
-import { TabItem } from "./tab-item";
+import { OverflowTabsMenu } from "./overflow-tabs-menu";
+import { TabIcon, TabItem } from "./tab-item";
 
 interface TabBarProps {
   workspaceId: string;
@@ -40,6 +44,10 @@ interface TabBarProps {
   onNewBrowserTab: () => void;
   /** Shows the workspace's sessions tab, opening it if there is none. */
   onShowSessions: () => void;
+  /** Opens a new Claude tab. */
+  onNewClaudeTab: () => void;
+  /** Opens a new Codex tab. */
+  onNewCodexTab: () => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
@@ -54,10 +62,18 @@ export function TabBar({
   onNewUntitledTab,
   onNewBrowserTab,
   onShowSessions,
+  onNewClaudeTab,
+  onNewCodexTab,
   onTabContextMenu,
 }: TabBarProps) {
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
+  // The tabs scroll sideways in the strip; the bar around it, with the
+  // overflow menu and the + button, stays put.
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  useTabInSight(stripRef, activeTabId, (strip) =>
+    strip.querySelector('[role="tab"][data-state="active"]'),
+  );
 
   // "New Terminal With ›" lists this machine's shells and the ones added in
   // the settings, so it is offered in local workspaces only (an SSH
@@ -79,6 +95,10 @@ export function TabBar({
     const unpinned = tabs.filter((t) => !t.isPinned);
     return [...pinned, ...unpinned];
   }, [tabs]);
+  const sortedIds = useMemo(() => sortedTabs.map((tab) => tab.id), [sortedTabs]);
+  const overflow = useStripOverflow(stripRef, sortedIds, (strip, id) =>
+    strip.querySelector(`[data-tab-id="${CSS.escape(id)}"]`),
+  );
 
   // Basename collision disambiguation for external tabs in this group.
   // When ≥2 external editor tabs share the same basename, append the parent
@@ -122,31 +142,34 @@ export function TabBar({
     return map;
   }, [tabs]);
 
+  // Outer wrapper carries the data-dnd-tab-bar marker AND the drop
+  // listeners (via barRef) so the entire bar — including the empty area
+  // beyond the last tab and around the "+" button — is treated as a tab-bar
+  // drop zone. The inner List is used for measurement so the "|" insertion
+  // line is positioned relative to the actual tab strip.
+  // role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
+  // 탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다.
   return (
-    <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
-      {/* Outer wrapper carries the data-dnd-tab-bar marker AND the drop
-          listeners (via barRef) so the entire bar — including the empty
-          area beyond the last tab and around the "+" button — is treated
-          as a tab-bar drop zone. The inner List is used for measurement
-          so the "|" insertion line is positioned relative to the actual
-          tab strip. */}
-      {/* role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
-          탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다. */}
-      <div
-        ref={barRef}
-        role="status"
-        aria-live="polite"
-        {...{ [DND_TAB_BAR_ATTR]: "" }}
-        className="flex items-center h-9 shrink-0 overflow-x-auto px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    <div
+      ref={barRef}
+      role="status"
+      aria-live="polite"
+      {...{ [DND_TAB_BAR_ATTR]: "" }}
+      className="flex items-center h-9 shrink-0 px-1.5"
+    >
+      <RadixTabs.Root
+        value={activeTabId ?? ""}
+        onValueChange={onSelectTab}
+        className="flex items-center h-full w-full min-w-0"
       >
-        <RadixTabs.Root
-          value={activeTabId ?? ""}
-          onValueChange={onSelectTab}
-          className="flex items-center h-full w-full"
+        <div
+          ref={stripRef}
+          className="h-full min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{ maskImage: fadeMask(overflow) }}
         >
           <RadixTabs.List
             ref={tabsListRef}
-            className="relative flex items-center h-full"
+            className="relative flex items-center h-full w-max"
             aria-label={t("tabBar.open_tabs")}
           >
             {sortedTabs.map((tab) => (
@@ -176,72 +199,99 @@ export function TabBar({
               />
             )}
           </RadixTabs.List>
+        </div>
 
-          {/* New tab dropdown */}
-          <DropdownMenuRoot>
-            <DropdownMenuTrigger>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
-                aria-label={t("tabBar.new_tab")}
-              >
-                <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
-              </Button>
-            </DropdownMenuTrigger>
-            {/* The new tab takes focus; returning it to the + button would
-                race that and leave Enter reopening this menu. */}
-            <DropdownMenuContent
-              align="start"
-              side="bottom"
-              sideOffset={4}
-              onCloseAutoFocus={(e) => e.preventDefault()}
+        <OverflowTabsMenu
+          hidden={overflow.hidden}
+          renderTab={(id) => {
+            const tab = tabs.find((candidate) => candidate.id === id);
+            if (!tab) return null;
+            const suffix = diffTabRefSuffix.get(id) ?? externalTabParentDir.get(id);
+            return (
+              <>
+                <TabIcon tab={tab} />
+                <span className="truncate">{suffix ? `${tab.title} · ${suffix}` : tab.title}</span>
+              </>
+            );
+          }}
+          onSelect={(id) => {
+            onSelectTab(id);
+            requestTabFocus(id);
+          }}
+        />
+
+        {/* New tab dropdown */}
+        <DropdownMenuRoot>
+          <DropdownMenuTrigger>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0 text-muted-foreground hover:text-foreground ml-0"
+              aria-label={t("tabBar.new_tab")}
             >
-              <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
-                <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">{t("tabBar.new_file")}</span>
-                <DropdownMenuShortcut>{shortcutFor(COMMANDS.fileNew)}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
-                <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">{t("tabBar.new_terminal")}</span>
-                <DropdownMenuShortcut>{shortcutFor(COMMANDS.terminalNew)}</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              {menuShells.length > 0 && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                    <span className="flex-1">{t("tabBar.new_terminal_with")}</span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    {menuShells.map((shell) => (
-                      <DropdownMenuItem
-                        key={`${shell.choice.kind}:${shell.choice.id}`}
-                        onSelect={() => onNewTerminalTab(shell.choice)}
-                      >
-                        <span className="flex-1">{shell.name}</span>
-                        {sameShellChoice(shell.choice, defaultShell) && (
-                          <span className="ml-4 text-muted-foreground">
-                            {t("tabBar.default_shell")}
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
-                <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">{t("tabBar.new_browser")}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => onShowSessions()}>
-                <Radar aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-                <span className="flex-1">{t("tabBar.sessions")}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenuRoot>
-        </RadixTabs.Root>
-      </div>
-    </RadixTooltip.Provider>
+              <Plus aria-hidden width={16} height={16} strokeWidth={1.5} />
+            </Button>
+          </DropdownMenuTrigger>
+          {/* The new tab takes focus; returning it to the + button would
+              race that and leave Enter reopening this menu. */}
+          <DropdownMenuContent
+            align="start"
+            side="bottom"
+            sideOffset={4}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+          >
+            <DropdownMenuItem onSelect={() => onNewUntitledTab()}>
+              <FilePlus aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.new_file")}</span>
+              <DropdownMenuShortcut>{shortcutFor(COMMANDS.fileNew)}</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onNewTerminalTab()}>
+              <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.new_terminal")}</span>
+              <DropdownMenuShortcut>{shortcutFor(COMMANDS.terminalNew)}</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            {menuShells.length > 0 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <SquareTerminal aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+                  <span className="flex-1">{t("tabBar.new_terminal_with")}</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {menuShells.map((shell) => (
+                    <DropdownMenuItem
+                      key={`${shell.choice.kind}:${shell.choice.id}`}
+                      onSelect={() => onNewTerminalTab(shell.choice)}
+                    >
+                      <span className="flex-1">{shell.name}</span>
+                      {sameShellChoice(shell.choice, defaultShell) && (
+                        <span className="ml-4 text-muted-foreground">
+                          {t("tabBar.default_shell")}
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            <DropdownMenuItem onSelect={() => onNewBrowserTab()}>
+              <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.new_browser")}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onNewClaudeTab()}>
+              <ClaudeIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.new_claude")}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onNewCodexTab()}>
+              <CodexIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.new_codex")}</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onShowSessions()}>
+              <Radar aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <span className="flex-1">{t("tabBar.sessions")}</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenuRoot>
+      </RadixTabs.Root>
+    </div>
   );
 }

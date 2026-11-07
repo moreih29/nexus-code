@@ -6,11 +6,13 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import type { Tag } from "../../../../../shared/git/types";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
 import { FormDialog, type FormDialogField, type FormDialogValues } from "../../../ui/form-dialog";
 import { CommandPalette } from "../../../ui/palette/command-palette";
+import { useDialogFocusReturn } from "../../../ui/use-dialog-focus-return";
 import { RefPicker } from "./ref-picker";
 import {
   createTagPickerSource,
@@ -227,6 +229,7 @@ function TagDeleteConfirmDialog({
   onCancel: () => void;
   onConfirm: (request: DeleteTagRequest) => void;
 }) {
+  const returnFocus = useDialogFocusReturn(request !== null);
   return (
     <RadixAlertDialog.Root
       open={request !== null}
@@ -236,7 +239,10 @@ function TagDeleteConfirmDialog({
     >
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
-        <RadixAlertDialog.Content className={dialogContentClass("md", true)}>
+        <RadixAlertDialog.Content
+          className={dialogContentClass("md", true)}
+          onCloseAutoFocus={returnFocus}
+        >
           {request ? (
             <TagDeleteConfirmContent
               request={request}
@@ -273,16 +279,25 @@ export function TagDeleteConfirmContent({
 
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">
-        {isRemote
-          ? t("git.tagPicker.deleteConfirm.titleRemote", { name: targetLabel })
-          : t("git.tagPicker.deleteConfirm.titleLocal", { name: targetLabel })}
-      </h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {isRemote
-          ? t("git.tagPicker.deleteConfirm.descriptionRemote", { name: request.item.tag.name, remote: request.remote })
-          : t("git.tagPicker.deleteConfirm.descriptionLocal", { name: request.item.tag.name, sha: request.item.tag.sha.slice(0, 7) })}
-      </p>
+      <DialogHeader
+        alert
+        title={
+          isRemote
+            ? t("git.tagPicker.deleteConfirm.titleRemote", { name: targetLabel })
+            : t("git.tagPicker.deleteConfirm.titleLocal", { name: targetLabel })
+        }
+        description={
+          isRemote
+            ? t("git.tagPicker.deleteConfirm.descriptionRemote", {
+                name: request.item.tag.name,
+                remote: request.remote,
+              })
+            : t("git.tagPicker.deleteConfirm.descriptionLocal", {
+                name: request.item.tag.name,
+                sha: request.item.tag.sha.slice(0, 7),
+              })
+        }
+      />
       <div className="mt-5 flex justify-end gap-2">
         <Button
           type="button"

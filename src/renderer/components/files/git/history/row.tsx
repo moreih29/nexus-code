@@ -5,6 +5,8 @@
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
 import type { LogEntry } from "../../../../../shared/git/types";
+import type { DropdownMenuPoint } from "../../../ui/dropdown-menu";
+import { IconButton } from "../../../ui/icon-button";
 import { relativeTime } from "../utils/relative-time";
 import type { HistoryListBreakpoint } from "./list";
 
@@ -26,7 +28,7 @@ const HISTORY_ROW_INTERACTION_CLASS =
 
 export interface HistoryRowMenuRequest {
   entry: LogEntry;
-  point: { x: number; y: number };
+  point: DropdownMenuPoint;
 }
 
 interface HistoryRowProps {
@@ -69,12 +71,12 @@ export function HistoryRow({
   const showSha = breakpoint === "medium" || breakpoint === "wide";
   const rowTitle = `${subject}\nAuthor: ${entry.authorName}\nSHA: ${entry.sha}`;
 
-  /** Opens the commit action menu aligned to the row or action trigger. */
+  /** Opens the commit action menu under the row, lined up with its right. */
   function openMenuFromElement(element: HTMLElement): void {
     const rect = element.getBoundingClientRect();
     onOpenMenu({
       entry,
-      point: { x: Math.max(4, rect.right - 188), y: rect.bottom + 2 },
+      point: { x: rect.right, y: rect.bottom + 2, align: "end" },
     });
   }
 
@@ -148,17 +150,16 @@ export function HistoryRow({
           {shortSha}
         </span>
       ) : null}
-      <button
-        type="button"
-        className="size-6 rounded p-1 text-muted-foreground opacity-0 hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 group-hover:opacity-100"
-        aria-label={`Open commit actions for ${shortSha}`}
+      <IconButton
+        label={`Open commit actions for ${shortSha}`}
+        className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
         onClick={(event) => {
           event.stopPropagation();
           openMenuFromElement(event.currentTarget);
         }}
       >
         <MoreHorizontal className="size-3.5" aria-hidden="true" />
-      </button>
+      </IconButton>
     </div>
   );
 }

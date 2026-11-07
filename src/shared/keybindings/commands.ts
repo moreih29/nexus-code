@@ -88,11 +88,16 @@ export const COMMANDS = {
   // Updates — dispatched directly to the main-process updates domain
   // (never forwarded to the renderer via IPC).
   updatesCheck: "updates.check",
+  // The recent releases' notes, over the panels; run in the renderer.
+  updatesReleaseNotes: "updates.releaseNotes",
 
   // Workbench layout toggles
   // ⌘B = files panel only; ⌘⇧B = both columns (VSCode-style full sidebar).
   workbenchToggleFilesPanel: "workbench.toggleFilesPanel",
   workbenchToggleSidebar: "workbench.toggleSidebar",
+  // The agent view: the agents of every workspace side by side, in place
+  // of the workspaces.
+  workbenchToggleAgentView: "workbench.toggleAgentView",
 
   // NOTE: DevTools has no app keybinding command. ⌘⌥I is owned by the
   // Electron menu `toggleDevTools` role (app-window DevTools, standard

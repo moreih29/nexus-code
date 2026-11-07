@@ -93,6 +93,7 @@ const APP_COMMANDS: readonly CommandId[] = [
   COMMANDS.sessionNextWaiting,
   COMMANDS.settingsOpen,
   COMMANDS.workbenchToggleSidebar,
+  COMMANDS.workbenchToggleAgentView,
 ];
 const PAGE_COMMAND_SET: ReadonlySet<string> = new Set([...BROWSER_COMMANDS, ...APP_COMMANDS]);
 

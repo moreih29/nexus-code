@@ -28,6 +28,10 @@ export class CliUsageError extends Error {}
 /** Flags every command takes. */
 export const GLOBAL_FLAGS: Record<string, FlagSpec> = {
   json: { type: "boolean", description: "Print JSON instead of text" },
+  jsonl: {
+    type: "boolean",
+    description: "Print JSON Lines: a record a line (the items of a list), for grep and jq",
+  },
   help: { type: "boolean", description: "Show help" },
 };
 
@@ -67,7 +71,12 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
       continue;
     }
     if (raw === undefined) {
-      if (i >= argv.length) throw new CliUsageError(`--${name} needs a value`);
+      if (i >= argv.length) {
+        // `--since #3`: the shell took "#3" for a comment.
+        const hint =
+          spec.type === "number" ? " (a number alone: a shell drops a # and what follows)" : "";
+        throw new CliUsageError(`--${name} needs a value${hint}`);
+      }
       raw = argv[i] as string;
       i++;
     }

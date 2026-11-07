@@ -4,12 +4,12 @@
  */
 import { describe, expect, it } from "bun:test";
 import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
+import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   buildFamily,
   estimatedGlyph,
   type FamilyInput,
   firstSession,
-  phaseCounts,
   phaseOf,
   workspaceEstimatedGlyph,
 } from "../../../../../src/renderer/services/sessions/model";
@@ -49,6 +49,22 @@ function terminal(id: string, title: string, dead = false): Tab {
     isPinned: false,
     props: { cwd: "/", ...(dead ? { dead } : {}) },
   } as Tab;
+}
+
+function claudeTab(id: string, title: string): Tab {
+  return {
+    id,
+    type: "claude",
+    title,
+    defaultTitle: title,
+    isPreview: false,
+    isPinned: false,
+    props: { cwd: "/" },
+  } as Tab;
+}
+
+function codexTab(id: string, title: string): Tab {
+  return { ...claudeTab(id, title), type: "codex" } as Tab;
 }
 
 function claude(status: StatusEntry["status"], extra: Partial<StatusEntry> = {}): StatusEntry {
@@ -100,6 +116,64 @@ describe("buildFamily", () => {
     }
   });
 
+  it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: {
+          [ROOT]: { k: claudeTab("k", "Fix login"), n: claudeTab("n", "Claude") },
+        },
+        claudeByWorkspace: {
+          [ROOT]: { k: claude("permissionPending", { message: "Bash", prompt: "fix it" }) },
+        },
+      }),
+    );
+    const [asking, fresh] = family?.worktrees[0].sessions ?? [];
+    expect(asking).toMatchObject({
+      key: `${ROOT}:k`,
+      kind: "claude",
+      title: "Fix login",
+      agent: "claude",
+      state: "permissionPending",
+      phase: "attention",
+      estimated: false,
+      message: "Bash",
+      prompt: "fix it",
+    });
+    expect(fresh).toMatchObject({ kind: "claude", state: "idle", phase: "idle" });
+  });
+
+  it("lists Codex tabs as Codex sessions, in the state their conversation tells", () => {
+    const empty = emptyTabState();
+    const family = buildFamily(
+      input({
+        tabsByWorkspace: { [ROOT]: { x: codexTab("x", "Codex"), y: codexTab("y", "Codex") } },
+        chats: {
+          [`${ROOT}:x`]: {
+            ...empty,
+            phase: "ready",
+            model: {
+              ...empty.model,
+              running: true,
+              turn: { startedAt: 2_000, outputTokens: 0, thinkingTokens: 0 },
+            },
+          },
+        },
+      }),
+    );
+    const [running, fresh] = family?.worktrees[0].sessions ?? [];
+    expect(running).toMatchObject({
+      key: `${ROOT}:x`,
+      kind: "codex",
+      agent: "codex",
+      state: "running",
+      phase: "running",
+      estimated: false,
+      since: 2_000,
+    });
+    // Its view not shown since the app started: nothing tells it yet.
+    expect(fresh).toMatchObject({ kind: "codex", state: "idle", phase: "idle" });
+  });
+
   it("is null for a workspace that is gone", () => {
     expect(buildFamily(input({ workspaceId: "gone" }))).toBeNull();
   });
@@ -121,6 +195,7 @@ describe("buildFamily", () => {
     expect(root.sessions).toHaveLength(1);
     expect(root.sessions[0]).toMatchObject({
       key: `${ROOT}:a`,
+      kind: "terminal",
       agent: "claude",
       state: "permissionPending",
       phase: "attention",
@@ -329,10 +404,6 @@ describe("what to show first", () => {
     }),
   );
   if (!family) throw new Error("no family");
-
-  it("counts each phase", () => {
-    expect(phaseCounts(family)).toEqual({ attention: 1, running: 1, done: 1, idle: 1 });
-  });
 
   it("starts with a session waiting on the user", () => {
     expect(firstSession(family)?.tabId).toBe("ask");

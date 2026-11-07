@@ -388,3 +388,99 @@ func TestDaemonExitsOnShutdown(t *testing.T) {
 		t.Errorf("socket left behind: %v", err)
 	}
 }
+
+// callOn sends one request on a dialer connection and returns its reply's
+// result and error, skipping the events and heartbeats in between.
+func callOn(t *testing.T, conn net.Conn, id, method, params string) (json.RawMessage, json.RawMessage) {
+	t.Helper()
+	line := `{"id":"` + id + `","method":"` + method + `"`
+	if params != "" {
+		line += `,"params":` + params
+	}
+	if _, err := conn.Write([]byte(line + "}\n")); err != nil {
+		t.Fatalf("write %s: %v", method, err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	defer func() { _ = conn.SetReadDeadline(time.Time{}) }()
+	sc := bufio.NewScanner(conn)
+	for sc.Scan() {
+		var frame struct {
+			ID     string          `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal(sc.Bytes(), &frame) == nil && frame.ID == id {
+			return frame.Result, frame.Error
+		}
+	}
+	t.Fatalf("no reply to %s: %v", method, sc.Err())
+	return nil, nil
+}
+
+// TestDaemonStopsAnotherDaemon verifies agent.stopDaemon: the daemon of one
+// workspace stops the daemon of another on the same host, reports a
+// workspace without a daemon as not stopped, and refuses to stop itself.
+func TestDaemonStopsAnotherDaemon(t *testing.T) {
+	t.Parallel()
+	bin := agentBinary(t)
+	fakeHome := shortHome(t)
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+
+	cmdA, runDir := startDaemon(t, bin, rootA, fakeHome)
+	defer func() { _ = cmdA.Process.Kill(); _ = cmdA.Wait() }()
+	cmdB, _ := startDaemon(t, bin, rootB, fakeHome)
+	exitedB := make(chan error, 1)
+	go func() { exitedB <- cmdB.Wait() }()
+	defer func() { _ = cmdB.Process.Kill() }()
+
+	sockA := filepath.Join(runDir, agentrun.WsID(rootA, proto.ServerVersion)+".sock")
+	sockB := filepath.Join(runDir, agentrun.WsID(rootB, proto.ServerVersion)+".sock")
+	for _, sock := range []string{sockA, sockB} {
+		deadline := time.Now().Add(5 * time.Second)
+		for _, err := os.Stat(sock); err != nil; _, err = os.Stat(sock) {
+			if time.Now().After(deadline) {
+				t.Fatalf("daemon socket %s did not appear: %v", sock, err)
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
+
+	conn, _ := readReady(t, sockA)
+	defer conn.Close()
+
+	params, _ := json.Marshal(map[string]string{"root": rootB})
+	result, callErr := callOn(t, conn, "stop-b", "agent.stopDaemon", string(params))
+	if len(callErr) > 0 && string(callErr) != "null" {
+		t.Fatalf("agent.stopDaemon failed: %s", callErr)
+	}
+	if string(result) != `{"stopped":true}` {
+		t.Fatalf("agent.stopDaemon result = %s, want stopped", result)
+	}
+	select {
+	case err := <-exitedB:
+		if err != nil {
+			t.Fatalf("daemon B exited with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon B still running 5 s after agent.stopDaemon")
+	}
+
+	// B is gone now.
+	result, callErr = callOn(t, conn, "stop-b-again", "agent.stopDaemon", string(params))
+	if len(callErr) > 0 && string(callErr) != "null" {
+		t.Fatalf("agent.stopDaemon without a daemon failed: %s", callErr)
+	}
+	if string(result) != `{"stopped":false}` {
+		t.Fatalf("agent.stopDaemon without a daemon = %s, want not stopped", result)
+	}
+
+	// A never stops itself through its own socket.
+	own, _ := json.Marshal(map[string]string{"root": rootA})
+	if _, callErr = callOn(t, conn, "stop-a", "agent.stopDaemon", string(own)); len(callErr) == 0 {
+		t.Fatal("agent.stopDaemon stopped the daemon's own root")
+	}
+	if _, callErr = callOn(t, conn, "ping", "ping", ""); len(callErr) > 0 && string(callErr) != "null" {
+		t.Fatalf("daemon A no longer answers: %s", callErr)
+	}
+}

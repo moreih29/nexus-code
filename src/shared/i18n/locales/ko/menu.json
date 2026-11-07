@@ -2,6 +2,7 @@
   "appMenu": {
     "about": "{{appName}} 정보",
     "checkForUpdates": "업데이트 확인...",
+    "releaseNotes": "릴리스 노트",
     "settings": "설정…"
   },
   "file": {
@@ -27,7 +28,8 @@
     "revealInExplorer": "파일 탐색기에서 표시",
     "openContainingFolder": "상위 폴더 열기",
     "copyPath": "경로 복사",
-    "copyRelativePath": "상대 경로 복사"
+    "copyRelativePath": "상대 경로 복사",
+    "toggleAgentView": "에이전트 뷰 전환"
   },
   "workspace": {
     "label": "워크스페이스",

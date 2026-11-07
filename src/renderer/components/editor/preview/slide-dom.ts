@@ -6,7 +6,9 @@
 // pictures only from data URLs out of the file, so nothing in it runs or
 // loads from elsewhere. Charts, video and audio are marked, not drawn.
 
+import { LINE_BREAK } from "../../../services/editor/preview/pptx-breaks";
 import { type RichNode, sanitizeRichText } from "../../../services/editor/preview/rich-text";
+import { type EndMark, lineEnds } from "./line-ends";
 
 type Presentation = Awaited<ReturnType<typeof import("pptxtojson")["parse"]>>;
 type Slide = Presentation["slides"][number];
@@ -22,7 +24,11 @@ export interface SlideLabels {
   media: string;
 }
 
-/** The pages' styles, for the shadow root they are drawn in. */
+/**
+ * The pages' styles, for the shadow root they are drawn in. Text more than
+ * its box holds runs out of it, as PowerPoint shows it, rather than being
+ * cut off: only the slide's edge cuts.
+ */
 export const SLIDE_STYLE = `
 :host { display: block; color: #000; }
 .deck { display: flex; flex-direction: column; align-items: safe center; gap: 8px; padding: 16px; }
@@ -32,7 +38,7 @@ export const SLIDE_STYLE = `
 .slide p, .notes p { margin: 0; }
 .slide ul, .slide ol { margin: 0; padding-left: 1.5em; }
 .box { position: absolute; }
-.text { display: flex; flex-direction: column; overflow: hidden; word-wrap: break-word; }
+.text { display: flex; flex-direction: column; word-wrap: break-word; }
 .text.nowrap { white-space: nowrap; }
 .text.vertical { writing-mode: vertical-rl; }
 .placeholder { display: flex; align-items: center; justify-content: center; border: 1px dashed rgb(0 0 0 / 0.35); color: rgb(0 0 0 / 0.55); font: 12px system-ui, sans-serif; }
@@ -161,14 +167,23 @@ function textBody(item: Extract<SlideElement, { type: "text" | "shape" }>): HTML
 
 /** DOM nodes for the rich text tree, its point font sizes times `fontScale`. */
 export function richNodes(nodes: readonly RichNode[], fontScale = 1): Node[] {
-  return nodes.map((node) => {
-    if (typeof node === "string") return document.createTextNode(node);
+  return nodes.flatMap((node) => {
+    if (typeof node === "string") return textNodes(node);
     const el = document.createElement(node.tag);
     for (const [property, value] of Object.entries(node.style)) {
       el.style.setProperty(property, styleValue(property, value, fontScale));
     }
     el.append(...richNodes(node.children, fontScale));
-    return el;
+    return [el];
+  });
+}
+
+/** Text, its line broken where the file breaks it within a paragraph. */
+function textNodes(text: string): Node[] {
+  return text.split(LINE_BREAK).flatMap((part, i) => {
+    const nodes: Node[] = i > 0 ? [document.createElement("br")] : [];
+    if (part !== "") nodes.push(document.createTextNode(part));
+    return nodes;
   });
 }
 
@@ -186,6 +201,9 @@ function styleValue(property: string, value: string, fontScale: number): string 
   }
   return value;
 }
+
+/** CSS pixels in a point. */
+const PX_PER_PT = 4 / 3;
 
 function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement {
   const ns = "http://www.w3.org/2000/svg";
@@ -211,14 +229,49 @@ function shapeSvg(item: Extract<SlideElement, { type: "shape" }>): SVGSVGElement
   const strokeWidth = item.borderWidth > 0 ? item.borderWidth : lineOnly ? 1 : 0;
   if (stroke && strokeWidth > 0) {
     path.setAttribute("stroke", stroke);
-    path.setAttribute("stroke-width", String(strokeWidth));
+    // A stroke that does not scale is as wide as it says in CSS pixels;
+    // the file gives it in points.
+    path.setAttribute("stroke-width", String(strokeWidth * PX_PER_PT));
     path.setAttribute("vector-effect", "non-scaling-stroke");
     if (item.borderType !== "solid" && /^[\d.\s,]+$/.test(item.borderStrokeDasharray)) {
       path.setAttribute("stroke-dasharray", item.borderStrokeDasharray);
     }
+    // The path is in points, as the box is, so its arrowheads are too.
+    const ends = lineEnds(item.path ?? "", strokeWidth, item.headEnd, item.tailEnd);
+    if (ends) {
+      path.setAttribute("d", ends.path);
+      svg.append(path, ...ends.marks.map((mark) => endMarkSvg(mark, stroke, strokeWidth)));
+      return svg;
+    }
   }
   svg.append(path);
   return svg;
+}
+
+/** An arrowhead in the line's color: filled, or an open one stroked as wide as the line. */
+function endMarkSvg(mark: EndMark, color: string, width: number): SVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  if (mark.kind === "ellipse") {
+    const ellipse = document.createElementNS(ns, "ellipse");
+    ellipse.setAttribute("cx", String(mark.center.x));
+    ellipse.setAttribute("cy", String(mark.center.y));
+    ellipse.setAttribute("rx", String(mark.rx));
+    ellipse.setAttribute("ry", String(mark.ry));
+    ellipse.setAttribute("transform", `rotate(${mark.angle} ${mark.center.x} ${mark.center.y})`);
+    ellipse.setAttribute("fill", color);
+    return ellipse;
+  }
+  const shape = document.createElementNS(ns, mark.kind);
+  shape.setAttribute("points", mark.points.map(({ x, y }) => `${x},${y}`).join(" "));
+  if (mark.kind === "polygon") {
+    shape.setAttribute("fill", color);
+  } else {
+    shape.setAttribute("fill", "none");
+    shape.setAttribute("stroke", color);
+    shape.setAttribute("stroke-width", String(width));
+    shape.setAttribute("stroke-linejoin", "miter");
+  }
+  return shape;
 }
 
 /** A picture cropped as the file crops it: `rect` takes percentages off each side. */

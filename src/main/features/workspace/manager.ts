@@ -4,6 +4,7 @@ import path from "node:path";
 import { createAbortError, isAbortError } from "../../../shared/abort";
 import { AgentManifestSchema } from "../../../shared/agent/manifest";
 import { createLogger } from "../../../shared/log/main";
+import { isManagerWorkspace, MANAGER_WORKSPACE_ID } from "../../../shared/manager/manager";
 import {
   rootPathFromLocation,
   type WorkspaceConnectionEventStatus,
@@ -39,6 +40,7 @@ import {
   type SshChannel,
   type SshChannelLifecycleEvent,
 } from "../../infra/agent/ssh/channel";
+import type { SshForwarding } from "../../infra/agent/ssh/forward";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import type { RemoteAgentPlatform } from "../../infra/agent/ssh/ssh-bootstrap/index";
 import {
@@ -69,6 +71,11 @@ const log = createLogger("workspace");
 
 /** How long a removed SSH workspace's agent has to answer agent.shutdown. */
 const SSH_AGENT_SHUTDOWN_TIMEOUT_MS = 2_000;
+/**
+ * How long another agent on the host has to stop a removed workspace's
+ * daemon; it dials that daemon and waits for its own agent.shutdown reply.
+ */
+const SSH_PEER_DAEMON_STOP_TIMEOUT_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // Broadcast callback type — injected so the manager has no hard import on
@@ -202,6 +209,27 @@ async function stopSshAgent(
   bootstrap?.dispose?.();
 }
 
+/**
+ * Asks the remote agent on `channel` to stop the daemon of another
+ * workspace on its host, at `root`: one removed while not connected, whose
+ * daemon would otherwise hold its terminals until its reattach grace ends.
+ */
+async function stopPeerDaemon(channel: SshChannel, root: string): Promise<void> {
+  await channel
+    .call("agent.stopDaemon", { root }, { timeoutMs: SSH_PEER_DAEMON_STOP_TIMEOUT_MS })
+    .catch((error: unknown) => {
+      log.warn(`agent.stopDaemon failed: ${(error as Error).message}`);
+    });
+}
+
+/** Whether two remote locations are on one host, as one user, where their daemons share a run folder. */
+function sameRemoteHost(a: WorkspaceLocation, b: WorkspaceLocation): boolean {
+  if (a.kind === "ssh" && b.kind === "ssh") {
+    return a.host === b.host && a.user === b.user && (a.port ?? 22) === (b.port ?? 22);
+  }
+  return a.kind === "wsl" && b.kind === "wsl" && a.distro === b.distro;
+}
+
 /** Rejects a provider boot whose workspace was removed while it was in flight. */
 function createWorkspaceRemovedError(id: string): Error {
   return createAbortError(`workspace ${id} was removed while its agent was starting`);
@@ -285,6 +313,11 @@ export class WorkspaceManager {
   private readonly sshChannels = new Map<string, SshChannel>();
   /** Channels of removed workspaces, kept open until their agent exits. */
   private readonly stoppingSshChannels = new Set<SshChannel>();
+  /**
+   * Other daemons a connected agent is stopping, by its channel. Its own
+   * stop waits for them: its agent exits, and drops them, once it answers.
+   */
+  private readonly peerDaemonStops = new Map<SshChannel, Promise<void>>();
   private readonly sshBootstraps = new Map<string, EnsureRemoteAgentResult>();
   private readonly sshProviderReady = new Map<string, Promise<void>>();
   // ControlMasters handed off from an SSH browse session, keyed by workspace
@@ -422,8 +455,38 @@ export class WorkspaceManager {
   // Queries
   // ---------------------------------------------------------------------------
 
+  /** The user's workspaces: the agent manager's own is not one of them. */
   list(): WorkspaceMeta[] {
-    return Array.from(this.contexts.values()).map((ctx) => ctx.getMeta());
+    return Array.from(this.contexts.values())
+      .map((ctx) => ctx.getMeta())
+      .filter((meta) => !isManagerWorkspace(meta.id));
+  }
+
+  /**
+   * Opens the agent manager's workspace (shared/manager), a local one at
+   * `rootPath` whose agent runs the manager's program and relays its nexus
+   * commands. It is kept apart from the user's: not saved, not listed, and
+   * its agent starts when the manager's program first needs it.
+   */
+  openManagerWorkspace(rootPath: string): WorkspaceMeta {
+    const open = this.contexts.get(MANAGER_WORKSPACE_ID);
+    if (open) return open.getMeta();
+    const meta: WorkspaceMeta = {
+      id: MANAGER_WORKSPACE_ID,
+      name: "Agent manager",
+      location: { kind: "local", rootPath },
+      rootPath,
+      colorTone: "default",
+      pinned: false,
+      lastOpenedAt: new Date().toISOString(),
+      tabs: [],
+      sortOrder: 0,
+      pinnedSortOrder: 0,
+    };
+    this.workspaceStorage.openForWorkspace(meta.id);
+    const ctx = new WorkspaceContext(meta, this.workspaceStorage, createInitialFsProvider(meta));
+    this.contexts.set(meta.id, ctx);
+    return meta;
   }
 
   /**
@@ -435,6 +498,7 @@ export class WorkspaceManager {
   findByLocation(location: WorkspaceLocation): WorkspaceMeta | null {
     const key = workspaceLocationKey(location);
     for (const ctx of this.contexts.values()) {
+      if (isManagerWorkspace(ctx.getMeta().id)) continue;
       if (workspaceLocationKey(ctx.getMeta().location) === key) {
         return ctx.getMeta();
       }
@@ -651,6 +715,28 @@ export class WorkspaceManager {
     const status = this.connectionStatuses.get(id);
     if (status !== "connected" && status !== "unstable") return null;
     return this.sshChannels.get(id) ?? null;
+  }
+
+  /**
+   * An SSH workspace's host and, while it is connected, the connection its
+   * ports are forwarded over: its ControlMaster, or none for key-only auth.
+   * Null for a workspace that is not on an SSH host.
+   */
+  getSshForwarding(id: string): SshForwarding | null {
+    const location = this.contexts.get(id)?.getMeta().location;
+    if (location?.kind !== "ssh") return null;
+    const status = this.connectionStatuses.get(id);
+    const bootstrap = this.sshBootstraps.get(id);
+    const connected = status === "connected" || status === "unstable";
+    const { host, user, port, identityFile } = location;
+    return {
+      host,
+      connecting: status === "connecting" || status === "reconnecting",
+      target:
+        connected && bootstrap
+          ? { host, user, port, identityFile, controlPath: bootstrap.controlPath }
+          : null,
+    };
   }
 
   /**
@@ -992,14 +1078,21 @@ export class WorkspaceManager {
 
     // Step 1c — a removed workspace's remote agent will not be dialed again,
     // so it is asked to exit. Its channel stays open for that, past the
-    // provider teardown in ctx.close(). One not connected cannot be asked.
+    // provider teardown in ctx.close(), and after the daemons it is
+    // stopping for others. One not connected is stopped by another agent
+    // on its host, if one is connected.
     const sshChannel = this.sshChannels.get(id);
     const status = this.connectionStatuses.get(id);
     if (sshChannel && (status === "connected" || status === "unstable")) {
       this.stoppingSshChannels.add(sshChannel);
-      void stopSshAgent(sshChannel, this.sshBootstraps.get(id)).finally(() => {
+      const bootstrap = this.sshBootstraps.get(id);
+      const stop = () => stopSshAgent(sshChannel, bootstrap);
+      const pending = this.peerDaemonStops.get(sshChannel);
+      void (pending ? pending.then(stop) : stop()).finally(() => {
         this.stoppingSshChannels.delete(sshChannel);
       });
+    } else {
+      this.stopDaemonThroughPeer(ctx.getMeta());
     }
 
     // Step 2 — dispose the workspace storage handle and agent channels.
@@ -1033,6 +1126,44 @@ export class WorkspaceManager {
     // arrive after the fact — idempotent, not a race.
     this.broadcastFn("workspace", "removed", { id });
     this.connectionStatuses.delete(id);
+  }
+
+  /**
+   * Asks another connected agent on the removed remote workspace's host —
+   * its parent's first — to stop that workspace's daemon, which may still
+   * run its terminals from an earlier connection.
+   */
+  private stopDaemonThroughPeer(meta: WorkspaceMeta): void {
+    const { location } = meta;
+    if (location.kind === "local") return;
+    const channel = this.connectedPeerChannel(meta);
+    if (!channel) return;
+    const stop = stopPeerDaemon(channel, location.remotePath);
+    const pending = this.peerDaemonStops.get(channel);
+    const all = pending ? Promise.all([pending, stop]).then(() => {}) : stop;
+    this.peerDaemonStops.set(channel, all);
+    void all.finally(() => {
+      if (this.peerDaemonStops.get(channel) === all) this.peerDaemonStops.delete(channel);
+    });
+  }
+
+  /** The channel of a connected workspace on `meta`'s host other than its own daemon's. */
+  private connectedPeerChannel(meta: WorkspaceMeta): SshChannel | undefined {
+    const { location } = meta;
+    if (location.kind === "local") return undefined;
+    const ids = [meta.task?.parentId, ...this.contexts.keys()];
+    for (const id of ids) {
+      if (id === undefined || id === meta.id) continue;
+      const other = this.contexts.get(id)?.getMeta().location;
+      const channel = this.sshChannels.get(id);
+      const status = this.connectionStatuses.get(id);
+      if (!other || other.kind === "local" || !channel) continue;
+      if (status !== "connected" && status !== "unstable") continue;
+      if (this.stoppingSshChannels.has(channel)) continue;
+      if (!sameRemoteHost(other, location) || other.remotePath === location.remotePath) continue;
+      return channel;
+    }
+    return undefined;
   }
 
   async activate(id: string): Promise<void> {

@@ -12,6 +12,7 @@ import type {
   DiffChunk,
   DiffComplete,
   DiffSpec,
+  GitChangeStats,
   GitCherryPickResult,
   GitContinueOpResult,
   GitExpandedGroupKey,
@@ -1085,6 +1086,18 @@ export class GitRepository {
    */
   commitDetail(sha: string, signal?: AbortSignal): Promise<CommitDetail> {
     return this.queue((queuedSignal) => this.readCommitDetail(sha, queuedSignal), signal);
+  }
+
+  /**
+   * Reads the lines each uncommitted file adds and deletes, untracked ones
+   * included, and how many commits HEAD is ahead of and behind `base`.
+   */
+  changeStats(base: string | undefined, signal?: AbortSignal): Promise<GitChangeStats> {
+    return this.queue((queuedSignal) => {
+      const changeStats = this.executor.changeStats;
+      if (!changeStats) throw missingExecutorMethodError("changeStats");
+      return changeStats.call(this.executor, { cwd: this.topLevel, base, signal: queuedSignal });
+    }, signal);
   }
 
   /**

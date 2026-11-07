@@ -131,6 +131,17 @@ export interface CssBounds {
 // Registry
 // ---------------------------------------------------------------------------
 
+/**
+ * Turns a URL a workspace's tab is to load into the one it loads: an SSH
+ * workspace's local address goes to its port forward (pty/forwards.ts).
+ */
+export interface BrowserAddressResolver {
+  /** Whether `url` loads as another URL in the workspace's tabs; answered at once. */
+  rewrites(workspaceId: string, url: string): boolean;
+  /** The URL to load for `url`; rejects with why it cannot be opened. */
+  resolve(workspaceId: string, url: string): Promise<string>;
+}
+
 /** One snapshot result for `suspendAll` — `dataUrl` is null when capture failed. */
 export interface SuspendSnapshot {
   tabId: string;
@@ -164,6 +175,9 @@ export class BrowserTabRegistry {
   private suspendGeneration = 0;
   /** Told of each tab's WebContents as it is created, before its first page loads. */
   private readonly createListeners = new Set<(tabId: string, contents: WebContents) => void>();
+  private addressResolver: BrowserAddressResolver | null = null;
+  /** Told of a URL the resolver would not open, and why. */
+  private readonly refusedListeners = new Set<(tabId: string, url: string, error: Error) => void>();
 
   constructor(win: BrowserWindow, permissionDeps?: PermissionHandlerDeps) {
     this.win = win;
@@ -234,10 +248,17 @@ export class BrowserTabRegistry {
     this.tabs.set(tabId, entry);
     for (const listener of this.createListeners) listener(tabId, view.webContents);
 
-    // Begin loading the initial URL.  Will-navigate guards are already wired.
-    view.webContents.loadURL(url).catch((err: Error) => {
-      logger.warn(`[create] initial loadURL failed for ${tabId}: ${err.message}`);
+    // A page's own move to a local address of an SSH workspace goes to the
+    // address's forward instead. Guards that blocked it already win.
+    view.webContents.on("will-navigate", (event, target) => {
+      if (event.defaultPrevented) return;
+      if (!this.addressResolver?.rewrites(workspaceId, target)) return;
+      event.preventDefault();
+      this.load(tabId, entry, target, "will-navigate");
     });
+
+    // Begin loading the initial URL.  Will-navigate guards are already wired.
+    this.load(tabId, entry, url, "create");
 
     logger.debug(`[create] tab ${tabId} created (partition=${partition})`);
   }
@@ -250,6 +271,42 @@ export class BrowserTabRegistry {
   onCreate(listener: (tabId: string, contents: WebContents) => void): () => void {
     this.createListeners.add(listener);
     return () => this.createListeners.delete(listener);
+  }
+
+  setAddressResolver(resolver: BrowserAddressResolver | null): void {
+    this.addressResolver = resolver;
+  }
+
+  /** Calls `listener` with each URL the address resolver would not open. */
+  onRefused(listener: (tabId: string, url: string, error: Error) => void): () => void {
+    this.refusedListeners.add(listener);
+    return () => this.refusedListeners.delete(listener);
+  }
+
+  /** Loads `url` in the tab, through the address resolver when it has a say. */
+  private load(tabId: string, entry: TabEntry, url: string, label: string): void {
+    const loadNow = (target: string) => {
+      entry.view.webContents.loadURL(target).catch((err: Error) => {
+        logger.warn(`[${label}] loadURL failed for ${tabId}: ${err.message}`);
+      });
+    };
+    const resolver = this.addressResolver;
+    if (!resolver?.rewrites(entry.workspaceId, url)) {
+      loadNow(url);
+      return;
+    }
+    resolver.resolve(entry.workspaceId, url).then(
+      (resolved) => {
+        // The tab may have closed while the forward was set up.
+        if (this.tabs.get(tabId) !== entry || entry.view.webContents.isDestroyed()) return;
+        loadNow(resolved);
+      },
+      (error: Error) => {
+        if (this.tabs.get(tabId) !== entry) return;
+        logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
+        for (const listener of this.refusedListeners) listener(tabId, url, error);
+      },
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -666,9 +723,7 @@ export class BrowserTabRegistry {
       logger.warn(`[navigate] unknown tabId: ${tabId}`);
       return;
     }
-    entry.view.webContents.loadURL(url).catch((err: Error) => {
-      logger.warn(`[navigate] loadURL failed for ${tabId}: ${err.message}`);
-    });
+    this.load(tabId, entry, url, "navigate");
   }
 
   goBack(args: { tabId: string }): void {

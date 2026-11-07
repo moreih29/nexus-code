@@ -241,7 +241,8 @@ export async function waitOnTerminal(
       const now = clock.now();
       const result = await waiter.check(now);
       if (result) return result;
-      if (now >= deadline) {
+      // A client that has gone (Ctrl-C) waits no more, nor shows as waiting.
+      if (now >= deadline || ctx.signal?.aborted) {
         return {
           done: false,
           state: "timeout",

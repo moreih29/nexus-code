@@ -7,13 +7,14 @@
     "terminal": "터미널",
     "workspaces": "워크스페이스",
     "notifications": "알림",
-    "agentCli": "에이전트 CLI",
     "browserPermissions": "브라우저 권한",
     "keybindings": "단축키",
     "about": "정보",
     "group": {
       "settings": "설정"
-    }
+    },
+    "agent": "에이전트",
+    "manager": "에이전트 매니저"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -29,16 +30,14 @@
   },
   "browserPermissions": {
     "globalHeading": "전역 권한",
-    "globalDescription": "켜져 있으면 모든 워크스페이스에서 해당 권한이 자동으로 허용됩니다. 기본적으로 모두 꺼져 있습니다.",
-    "advanced": "고급",
+    "globalDescription": "켜면 모든 워크스페이스에서 자동 허용",
     "siteMemoryHeading": "기억된 사이트 권한",
-    "siteMemoryDescription": "사이트가 권한을 요청할 때 기억하도록 선택한 결정 목록입니다.",
+    "siteMemoryDescription": "권한 요청에서 ‘기억’을 고른 사이트",
     "scopeLabel": "기억 범위",
     "scopeCurrent": "현재 워크스페이스",
     "scopeAll": "모든 워크스페이스",
     "loadingPermissions": "기억된 권한 불러오는 중",
     "noPermissionsTitle": "기억된 권한 없음",
-    "noPermissionsDescription": "사이트 권한을 허용하거나 차단할 때 \"기억\"을 선택하면 여기에 표시됩니다.",
     "allowedGlobally": "전역적으로 허용됨",
     "deleteAriaLabel": "{{origin}}의 기억된 권한 삭제",
     "deleteTitle": "기억된 권한 삭제",
@@ -125,7 +124,8 @@
       "windowManagement": "창 배치",
       "unknown": "알 수 없는 권한",
       "fileSystem": "파일 접근"
-    }
+    },
+    "advancedCount": "고급 권한 {{count}}개"
   },
   "permissionPrompt": {
     "srTitle": "브라우저 권한 요청",
@@ -142,45 +142,49 @@
     "theme": "테마",
     "iconTheme": "아이콘 테마",
     "themeDescription": {
-      "github-dark": "GitHub의 공식 다크. 차분한 청록/파랑 강조, 비교적 낮은 채도",
-      "github-light": "GitHub의 공식 라이트. 흰 배경, 진한 색 텍스트 — WCAG AA",
-      "dracula": "전설적인 보라/핑크 다크. 강한 채도, 8색 팔레트가 핵심",
-      "one-dark-pro": "Atom One Dark의 VS Code 포팅. 균형 잡힌 채도, 가장 무난한 다크",
-      "monokai": "Sublime Text의 클래식. 강한 채도, 마젠타/시안/노랑 트라이앵글",
-      "tokyo-night": "쿨톤 청보라. 차분하고 모던, 최근 가장 인기",
-      "solarized-dark": "Ethan Schoonover의 클래식. CIE 명도 균일 — 눈 피로 적음",
-      "nord": "북극의 푸른 톤. 16색의 절제된 팔레트로 유명",
-      "catppuccin-mocha": "파스텔 톤의 차분한 다크. 4가지 flavor 중 가장 어두운 mocha",
-      "gruvbox-dark": "레트로 감성. 따뜻한 갈색·올리브·머스타드 톤"
+      "github-dark": "차분한 청록·파랑",
+      "github-light": "흰 배경, 진한 글자",
+      "dracula": "보라·핑크, 강한 채도",
+      "one-dark-pro": "균형 잡힌 무난한 다크",
+      "monokai": "마젠타·시안·노랑",
+      "tokyo-night": "쿨톤 청보라",
+      "solarized-dark": "고른 명도, 눈이 편함",
+      "nord": "절제된 북극 블루",
+      "catppuccin-mocha": "파스텔 다크",
+      "gruvbox-dark": "따뜻한 레트로"
     },
     "windowOpacity": "창 불투명도",
-    "windowOpacityRestart": "리눅스에서는 앱을 다시 시작하면 창이 비쳐 보입니다.",
-    "windowOpacityUnsupported": "창 불투명도는 Windows 11 22H2 이상에서 쓸 수 있습니다.",
-    "inactivePanelDim": "비활성 패널 흐림 정도"
+    "windowOpacityRestart": "리눅스는 다시 시작해야 비쳐 보임",
+    "windowOpacityUnsupported": "Windows 11 22H2 이상에서 사용 가능",
+    "inactivePanelDim": "비활성 패널 흐림",
+    "themeBase": {
+      "dark": "다크",
+      "light": "라이트"
+    },
+    "window": "창"
   },
   "editor": {
     "fontSize": "글꼴 크기",
     "lineHeight": "줄 간격",
     "fontFamily": "글꼴 종류",
     "fontLigatures": "글꼴 합자",
-    "preview": "미리 보기",
     "ligatures": {
-      "enable": "합자 사용",
-      "description": "글꼴이 지원하는 경우 =>, !=, >= 같은 다중 문자 시퀀스를 하나의 글리프로 렌더링합니다. 토글하면 위 미리 보기에서 효과를 확인할 수 있습니다."
+      "description": "=>, != 같은 기호를 한 글자로 그립니다"
     },
     "fontFamilyPlaceholder": "글꼴 종류 선택",
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
     "fontDetected": "이 시스템에서 감지되었습니다.",
-    "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
+    "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "편집기 글꼴 크기",
     "ariaFontFamily": "글꼴 종류",
     "openIn": {
       "label": "파일을 여는 보기",
       "aria": "{{format}} 파일을 여는 보기",
-      "hint": "미리보기가 있는 파일을 처음 열 때의 보기입니다. 탭에서 바꾼 보기는 그 탭에 남습니다."
-    }
+      "hint": "미리보기가 있는 파일을 처음 열 때"
+    },
+    "font": "글꼴"
   },
   "terminal": {
     "shell": {
@@ -211,61 +215,63 @@
       "programNotFound": "이 경로나 이름의 프로그램을 찾을 수 없습니다.",
       "args": "인자 (선택)",
       "argsPlaceholder": "예: -l",
-      "hint": "새로 여는 터미널부터 적용됩니다. SSH 워크스페이스는 원격 서버의 로그인 셸을 씁니다."
+      "hint": "새 터미널부터 적용 · SSH 워크스페이스는 원격 로그인 셸"
     },
     "taskAgent": {
-      "label": "작업 에이전트 명령",
-      "hint": "새 작업의 터미널에서 실행합니다. 작업의 첫 프롬프트를 인자로 붙입니다. 비우면 아무것도 실행하지 않습니다.",
-      "aria": "작업 에이전트 명령"
+      "label": "작업 에이전트",
+      "hint": "새 작업이 처음 여는 탭"
     },
     "sessionsView": {
-      "label": "세션 기본 보기",
-      "hint": "세션 탭이 처음 여는 보기입니다. 세션 탭에서 보기를 바꾼 워크스페이스는 그 보기를 계속 씁니다."
+      "label": "에이전트 탭 기본 보기",
+      "hint": "처음 열 때의 보기"
     },
     "fontSize": "글꼴 크기",
     "cursorStyle": "커서 스타일",
     "fontFamily": "글꼴 종류",
     "fontLigatures": "글꼴 합자",
-    "preview": "미리 보기",
     "ligatures": {
-      "enable": "합자 사용",
-      "description": "글꼴이 지원하는 경우 =>, !=, >= 같은 다중 문자 시퀀스를 하나의 글리프로 렌더링합니다. 셸, TUI 등 터미널 프로그램에도 적용됩니다."
+      "description": "=>, != 같은 기호를 한 글자로 (TUI 포함)"
     },
     "fontFamilyPlaceholder": "글꼴 종류 선택",
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
     "fontDetected": "이 시스템에서 감지되었습니다.",
-    "fontNotFound": "이 시스템에서 찾을 수 없습니다 — 미리 보기는 대체 글꼴을 사용합니다.",
+    "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "터미널 글꼴 크기",
     "ariaFontFamily": "터미널 글꼴 종류",
     "cursor": {
       "block": "블록",
       "underline": "밑줄",
       "bar": "막대"
-    }
+    },
+    "font": "글꼴"
   },
   "notifications": {
     "osEnabled": {
-      "label": "데스크톱 알림 표시",
-      "description": "Claude가 주의를 요청할 때(응답 완료, 권한 요청, 알림 훅) 해당 탭을 보고 있지 않은 경우에만 OS 수준 데스크톱 알림을 표시합니다. 앱 내 표시기(사이드바 주의 점, 응답 미리 보기)는 항상 표시됩니다."
+      "label": "데스크톱 알림",
+      "description": "보고 있지 않은 탭의 에이전트가 끝나거나 기다릴 때"
+    },
+    "managerReports": {
+      "label": "에이전트 매니저 보고",
+      "description": "매니저의 완료·대기 보고도 알림으로 받습니다"
     }
   },
   "agentCli": {
     "enabled": {
-      "label": "에이전트가 nexus 명령을 쓰게 허용",
-      "description": "앱 터미널의 에이전트(Claude Code, Codex 등)가 nexus로 다른 워크스페이스의 터미널과 세션을 보고, 파일·디프·터미널·브라우저 탭을 열고, 다른 터미널에 입력할 수 있습니다. 끄면 모든 nexus 명령이 실패합니다."
+      "label": "nexus 명령 허용",
+      "description": "에이전트가 다른 탭과 세션을 보고 다룹니다"
     },
     "crossWorkspace": {
       "label": "다른 워크스페이스 변경",
       "ask": "매번 묻기",
       "allow": "허용",
       "deny": "허용 안 함",
-      "description": "nexus가 자기 터미널의 워크스페이스가 아닌 곳에서 하는 변경(탭 열기, 터미널 입력, 탭 닫기)에 적용됩니다. 다른 워크스페이스를 읽는 것은 항상 허용됩니다."
+      "description": "읽기는 항상 허용"
     },
     "agentContext": {
       "label": "Claude Code에 nexus 알려주기",
-      "description": "앱에서 시작한 Claude Code 세션이 시작할 때 nexus에 대한 짧은 안내를 받아 바로 쓸 수 있습니다. Codex에는 전달되지 않으니, 필요하면 AGENTS.md에 한 줄 추가하세요."
+      "description": "세션 시작 때 사용법 안내 (Codex 제외)"
     },
     "consent": {
       "title": "에이전트가 다른 워크스페이스를 변경하도록 허용할까요?",
@@ -280,12 +286,15 @@
         "commit": "커밋 {{detail}} 열기를",
         "terminalNew": "터미널 열기를",
         "terminalInput": "터미널 \"{{detail}}\"에 입력을",
+        "chatNew": "{{detail}} 탭 열기를",
+        "chatInput": "탭 \"{{detail}}\"에 메시지 보내기를",
         "tabClose": "탭 \"{{detail}}\" 닫기를",
         "tabSave": "탭 \"{{detail}}\" 저장을",
         "tabRevert": "탭 \"{{detail}}\"의 저장 안 한 변경 버리기를",
         "browserOpen": "브라우저 탭에서 {{detail}} 열기를",
         "browserNavigate": "브라우저 탭 \"{{detail}}\" 이동을",
         "browserControl": "브라우저 탭 \"{{detail}}\"에서 클릭·입력·스크립트 실행을",
+        "portForward": "포트 {{detail}} 포워딩 시작·중지를",
         "layout": "그룹 배치 변경({{detail}})을",
         "groupClose": "그룹 {{detail}} 및 그 안의 탭 닫기를",
         "tabRename": "탭 \"{{detail}}\" 이름 변경을",
@@ -293,15 +302,20 @@
         "worktreeNew": "작업 \"{{detail}}\" 만들기를",
         "worktreeRemove": "작업과 그 워크트리 폴더 삭제를",
         "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를",
-        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를"
-      }
-    }
+        "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를",
+        "permissionAllow": "{{detail}} 허용을",
+        "permissionDeny": "{{detail}} 거부를"
+      },
+      "permission_title": "다른 세션의 권한 요청에 답할까요?",
+      "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다."
+    },
+    "heading": "nexus CLI"
   },
   "about": {
     "version": "버전 {{version}}",
     "autoCheck": {
       "label": "자동으로 업데이트 확인",
-      "description": "앱 시작 시 GitHub 릴리스를 자동으로 확인합니다. 아래의 수동 확인은 이 설정과 관계없이 항상 실행됩니다."
+      "description": "켜져 있는 동안 몇 시간마다 확인"
     },
     "checkNow": "업데이트 확인",
     "checking": "확인 중…",
@@ -415,14 +429,15 @@
         "new": "새 작업"
       },
       "session": {
-        "nextWaiting": "다음 대기 세션으로 이동"
+        "nextWaiting": "다음 대기 대화로 이동"
       },
       "settings": {
         "open": "설정 열기"
       },
       "workbench": {
         "toggleFilesPanel": "파일 패널 토글",
-        "toggleSidebar": "사이드바 토글"
+        "toggleSidebar": "사이드바 토글",
+        "toggleAgentView": "에이전트 뷰 토글"
       },
       "terminal": {
         "new": "새 터미널"
@@ -438,15 +453,18 @@
         "hardReload": "강력 새로고침 (브라우저)",
         "goBack": "뒤로 가기 (브라우저)",
         "goForward": "앞으로 가기 (브라우저)"
+      },
+      "updates": {
+        "releaseNotes": "릴리스 노트 보기"
       }
     }
   },
   "languageServers": {
     "enable": "언어 서버 사용",
-    "description": "자동 완성, 정의로 이동, 오류 표시를 제공합니다. 상태 표시줄의 언어 이름을 누르면 서버 상태를 볼 수 있습니다.",
+    "description": "자동 완성, 정의로 이동, 오류 표시",
     "bundled": "기본 제공",
     "installed": "직접 설치",
-    "installedDescription": "경로를 비우면 PATH와 기본 설치 위치에서 찾습니다. 원격 워크스페이스는 그 호스트에서 찾습니다.",
+    "installedDescription": "경로를 비우면 PATH에서 찾습니다",
     "language": {
       "typescript": "TypeScript · JavaScript",
       "python": "Python",
@@ -456,8 +474,8 @@
       "go": "Go (gopls)",
       "rust": "Rust (rust-analyzer)"
     },
-    "lowMemory": "메모리 절약 모드",
-    "lowMemoryDescription": "메모리를 약 40% 덜 쓰고, 첫 응답이 조금 늦어집니다.",
+    "lowMemory": "메모리 절약",
+    "lowMemoryDescription": "약 40% 절약, 첫 응답이 조금 느림",
     "serverPath": "{{language}} 서버 경로",
     "serverPathPlaceholder": {
       "go": "~/go/bin/gopls",
@@ -466,7 +484,35 @@
       "rustWindows": "~\\.cargo\\bin\\rust-analyzer.exe"
     },
     "install": "설치:",
-    "maxWorkspaces": "동시에 실행할 워크스페이스 수",
-    "maxWorkspacesDescription": "넘으면 가장 오래 쓰지 않은 워크스페이스의 서버부터 멈춥니다."
+    "maxWorkspaces": "동시에 켤 워크스페이스",
+    "maxWorkspacesDescription": "넘으면 오래 안 쓴 것부터 멈춤"
+  },
+  "agent": {
+    "newTask": "새 작업"
+  },
+  "manager": {
+    "enabled": {
+      "label": "에이전트 매니저",
+      "description": "앱과 함께 켜져 모든 세션을 보고 지시합니다"
+    },
+    "agent": {
+      "label": "매니저 에이전트",
+      "description": "그 에이전트의 계정과 모델을 그대로 씁니다"
+    },
+    "reports": "보고와 권한",
+    "notify": {
+      "label": "매니저에게 알릴 일",
+      "tasks": "맡긴 작업",
+      "attention": "+ 대기·오류",
+      "all": "전부",
+      "description": "많을수록 사용량이 늘어납니다"
+    },
+    "permissions": {
+      "label": "권한 요청 응답",
+      "user": "넘기기",
+      "ask": "매번 묻기",
+      "answer": "대신 답하기",
+      "description": "다른 세션이 도구 권한을 물을 때"
+    }
   }
 }

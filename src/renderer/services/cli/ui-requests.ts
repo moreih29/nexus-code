@@ -9,11 +9,14 @@ import { ipcCallResult, ipcListen } from "@/ipc/client";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { allLeaves } from "@/state/stores/layout/helpers";
 import { useLayoutStore } from "@/state/stores/layout/store";
+import { useManagerStore } from "@/state/stores/manager";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
+import { readSessionEvents } from "../sessions/session-events";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
+import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { settingsHandlers } from "./settings";
 
@@ -66,7 +69,13 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     }
     return { text: controller.readText(lines) };
   },
+  "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
+  "manager.dispatched": async ({ workspaceId, tabId, text }) => {
+    useManagerStore.getState().dispatched(workspaceId, tabId, text, Date.now());
+    return {};
+  },
   ...actionHandlers,
+  ...chatHandlers,
   ...layoutHandlers,
   ...settingsHandlers,
 };

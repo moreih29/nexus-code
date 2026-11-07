@@ -3,6 +3,7 @@ import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
 import { CustomShellSchema, ShellChoiceSchema } from "../pty/shell";
+import { AgentViewSnapshotSchema } from "./agent-view";
 import { WorkspaceLayoutSnapshotSchema } from "./layout";
 
 // ThemePreferenceSchema mirrors the registered ThemeId set. The "system"
@@ -109,17 +110,44 @@ export const AppStateSchema = z.object({
   // Shells the user added in Settings › Terminal, besides the detected ones.
   terminalShells: z.array(CustomShellSchema).max(64).optional(),
 
-  // The command a new task's terminal runs, with the task's first prompt as
-  // its argument; absent = "claude", empty = run nothing.
+  // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
+  // task's first prompt, or a plain terminal; absent = "claude". Kept as a
+  // plain string so an agent this version lacks does not fail the state.
+  taskAgent: z.string().max(32).optional(),
+
+  // The command earlier versions ran in a new task's terminal; read once to
+  // carry the choice over to `taskAgent`, then dropped.
   taskAgentCommand: z.string().max(1024).optional(),
 
-  // The view a sessions tab opens in (a SessionsView); absent = "tree". Kept
+  // The view a sessions tab opens in (a SessionsView); absent = "status". Kept
   // as a plain string so a view this version lacks does not fail the state.
   sessionsViewDefault: z.string().max(32).optional(),
 
   // The view each workspace's sessions tab was last switched to, by the
   // workspace its tasks belong to; it outlasts a change of the default.
   sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+
+  // The agent view: whether the window shows it rather than the workspaces,
+  // and its panels, each holding agents by session key. Absent = the
+  // workspaces, and one empty panel.
+  agentView: AgentViewSnapshotSchema.optional(),
+
+  // The ports each SSH workspace forwards to this machine, and where each
+  // listens here, so a browser tab left on a forward's local port finds it
+  // again after a restart.
+  portForwardsByWorkspace: z
+    .record(
+      z.string().uuid(),
+      z
+        .array(
+          z.object({
+            remotePort: z.number().int().positive(),
+            localPort: z.number().int().positive(),
+          }),
+        )
+        .max(256),
+    )
+    .optional(),
 
   // The view a file with a preview opens in, by its format ("markdown",
   // "json", …); a format left out opens as it does by default. Keyed by a
@@ -135,11 +163,23 @@ export const AppStateSchema = z.object({
   // Reset to null when the user changes updateChannel.
   ignoredUpdateVersion: z.string().nullable().default(null),
 
-  // Auto-check toggle. When true (default), the updates domain fires one
-  // silent GH Releases poll at app startup and surfaces a toast if a newer
-  // version is available. When false, the auto-poll is skipped entirely;
-  // the user can still trigger a manual check from the About panel or the
-  // App menu — manual triggers always respond regardless of this setting.
+  // The newer version the user was last told of with a toast. A check by
+  // the app itself toasts a version once; after that only the title bar's
+  // update button shows it, however many hours the app keeps checking.
+  announcedUpdateVersion: z.string().max(64).nullable().default(null),
+
+  // The app version whose release notes the user has seen, or was taken to
+  // have: the first launch that finds it absent sets it to the running
+  // version without a word. While an update leaves it behind, the title bar
+  // offers that version's notes.
+  lastSeenReleaseNotesVersion: z.string().max(64).nullable().default(null),
+
+  // Auto-check toggle. When true (default), the updates domain polls GH
+  // Releases silently once the app starts and every few hours while it
+  // runs, and the title bar shows a newer version. When false, the
+  // auto-polls are skipped; the user can still trigger a manual check from
+  // the About panel or the App menu — manual triggers always respond
+  // regardless of this setting.
   autoCheckForUpdates: z.boolean().default(true),
 
   // OS-level desktop notifications master toggle. When true (default), the
@@ -161,6 +201,22 @@ export const AppStateSchema = z.object({
   // Whether Claude Code sessions started in the app are told about nexus at
   // their start (a SessionStart hook prints a short note).
   cliAgentContext: z.boolean().default(true),
+
+  // The agent manager (shared/manager): a Claude Code or Codex session the
+  // app starts with itself, which follows and directs every workspace's
+  // agent sessions through nexus.
+  managerEnabled: z.boolean().default(false),
+  managerAgent: z.enum(["claude", "codex"]).default("claude"),
+  // Which session changes the app tells it (shared/manager MANAGER_NOTIFY).
+  managerNotify: z.enum(["tasks", "attention", "all"]).default("attention"),
+  // What it may do with another session's permission request.
+  managerPermissions: z.enum(["user", "ask", "answer"]).default("user"),
+  // Its reports as desktop notifications too, while the user is not looking.
+  managerReports: z.boolean().default(true),
+  // The session (Claude) or thread (Codex) it goes on with when the app starts.
+  managerSession: z
+    .object({ agent: z.enum(["claude", "codex"]), id: z.string().max(128) })
+    .optional(),
 
   // Global browser permission toggles keyed by BrowserPermissionKind string.
   // Absent key (or absent field) means the permission is OFF (denied).

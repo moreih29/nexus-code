@@ -4,6 +4,7 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
+import type { ChatAgent } from "../sessions/task-agent";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
@@ -133,12 +134,15 @@ export type CliChangeKind =
   | "commit"
   | "terminalNew"
   | "terminalInput"
+  | "chatNew"
+  | "chatInput"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
   | "browserOpen"
   | "browserNavigate"
   | "browserControl"
+  | "portForward"
   | "layout"
   | "groupClose"
   | "tabRename"
@@ -146,16 +150,103 @@ export type CliChangeKind =
   | "worktreeNew"
   | "worktreeRemove"
   | "worktreeRemoveBranch"
-  | "workspaceRemove";
+  | "workspaceRemove"
+  | "permissionAllow"
+  | "permissionDeny";
 
 export interface CliChange {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
+  /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
+  readonly body?: string;
 }
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
 export type CliConsentAnswer = "once" | "session" | "deny" | "timeout";
+
+/**
+ * Where a Claude or Codex tab's conversation stands: working on a turn (or a
+ * message sent it has yet to take), asking the user (a permission or a
+ * question), idle between turns, or stopped on an error.
+ */
+export type CliChatState = "working" | "asking" | "idle" | "error";
+
+/** A Claude or Codex tab as the CLI tells it. */
+export interface CliChatInfo {
+  readonly agent: ChatAgent;
+  readonly state: CliChatState;
+  /** Its last answer; when asking, what it asks; on an error, what went wrong. */
+  readonly message?: string;
+  /** When its turn began while working; else when it last said or did something. */
+  readonly since?: number;
+  /** When asking to run a tool: the request, whole. */
+  readonly request?: CliChatRequest;
+}
+
+/** A tool's permission request a tab waits on. */
+export interface CliChatRequest {
+  /** Its id: an answer goes to this request and no other. */
+  readonly id: string;
+  readonly tool: string;
+  /** What it would run or work on, in full: the command, or the tool's input as JSON. */
+  readonly input: string;
+}
+
+/** One message of a conversation as chat read prints it. */
+export interface CliChatEntry {
+  /**
+   * Its place in the whole conversation, from 0, subagents' tool calls
+   * counted: a later read can start after it, and chat tool names a call by it.
+   */
+  readonly i: number;
+  /** Who said it: the user, the agent, a tool the agent ran, or the app. */
+  readonly role: "user" | "agent" | "tool" | "notice";
+  readonly text: string;
+  /** A tool call's id. */
+  readonly toolUseId?: string;
+  /** A tool call's: streaming, running, done, error, denied or stopped. */
+  readonly status?: string;
+  /** A subagent's tool call: the id of the Agent call it runs under. */
+  readonly parentToolUseId?: string;
+}
+
+/** A tool call whole, as chat tool prints it: what it was given and what came back. */
+export interface CliChatTool {
+  readonly i: number;
+  readonly toolUseId: string;
+  readonly name: string;
+  readonly status: string;
+  readonly input: unknown;
+  readonly result?: { readonly text: string; readonly isError: boolean };
+  readonly parentToolUseId?: string;
+}
+
+/**
+ * A session's state changing, as nexus events tells it: a terminal's agent,
+ * or a Claude or Codex tab. `from` is null for a session that just appeared;
+ * `to` is "closed" for one whose tab went.
+ */
+export interface CliSessionEvent {
+  /** Counts up from 1 while the app runs; nexus events --since takes it. */
+  readonly seq: number;
+  readonly at: number;
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly title: string;
+  /** The tab: a terminal, or a Claude or Codex tab. */
+  readonly kind: "terminal" | "claude" | "codex";
+  readonly agent?: string;
+  readonly from: string | null;
+  readonly to: string;
+  /** attention (waits on the user), running, done (a finished turn) or idle; closed. */
+  readonly phase: string;
+  /** Its last answer or question, or what went wrong. */
+  readonly message?: string;
+}
+
+/** What a new task starts with: an agent's tab, or a terminal running a command ("" for none). */
+export type CliTaskStart = { readonly agent: ChatAgent } | { readonly command: string };
 
 /** The operations, with what each takes and gives. */
 export interface CliUiOps {
@@ -328,22 +419,81 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
-   * Makes a task of `parentId`, as New Task does: its worktree, branch and a
-   * terminal running `command` (the task agent command when absent) with
-   * `prompt`. Shown if `show`, else started behind the user's view.
+   * Makes a task of `parentId`, as New Task does: its worktree, branch and
+   * one tab, `start` (the task agent when absent): an agent's tab sent
+   * `prompt`, or a terminal running the command with `prompt`. Shown if
+   * `show`, else started behind the user's view.
    */
   "task.create": {
     args: {
       parentId: string;
       name: string;
       prompt: string;
-      command?: string;
+      start?: CliTaskStart;
       show: boolean;
       /** The terminal whose agent asks for the task. */
       createdBy: { workspaceId: string; tabId: string };
     };
-    /** `command` is the agent command its terminal runs, "" for none. */
-    result: { workspaceId: string; tabId: string; command: string };
+    /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
+    result: { workspaceId: string; tabId: string; start: CliTaskStart };
+  };
+  /** Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is one. */
+  "chat.open": {
+    args: {
+      workspaceId: string;
+      agent: ChatAgent;
+      cwd: string;
+      prompt: string;
+      placement: CliPlacement;
+    };
+    result: { tabId: string };
+  };
+  /**
+   * Where a Claude or Codex tab's conversation stands; its program is opened
+   * if it was not, unless `peek`, which tells such a tab idle.
+   */
+  "chat.state": {
+    args: { workspaceId: string; tabId: string; peek?: boolean };
+    result: CliChatInfo;
+  };
+  /**
+   * A Claude or Codex tab's messages, and where it stands: those after
+   * `since` (an entry's i), the last `messages` of them; all when neither.
+   * Subagents' tool calls only with `subagents`. A conversation that now
+   * ends before `since`, cleared or rewound since, is read from its start.
+   */
+  "chat.read": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      messages?: number;
+      since?: number;
+      subagents?: boolean;
+    };
+    /** `end`: the i of the conversation's last entry, -1 when it has none. */
+    result: CliChatInfo & { entries: CliChatEntry[]; end: number };
+  };
+  /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
+  "chat.tool": {
+    args: { workspaceId: string; tabId: string; ref: string };
+    result: CliChatTool;
+  };
+  /**
+   * The sessions' state changes after `since`, the first `limit` of them
+   * (`more` when some were left out); with no `since`, the last `limit`.
+   * `cursor`: the seq of the latest one there is.
+   */
+  "events.read": {
+    args: { since?: number; limit: number };
+    result: { events: CliSessionEvent[]; cursor: number; more: boolean };
+  };
+  /**
+   * Sends a Claude or Codex tab a message, as its composer does: during a
+   * turn, the agent reads it after the tool it runs.
+   */
+  "chat.send": {
+    args: { workspaceId: string; tabId: string; text: string };
+    result: Record<string, never>;
   };
   /**
    * Removes a task, as Delete Task does. Refuses one with unsaved files, and
@@ -373,6 +523,31 @@ export interface CliUiOps {
    */
   "workspace.remove": {
     args: { workspaceId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Answers the permission request a Claude or Codex tab waits on, if it
+   * still asks what `expect` says (chat.state's message): a tool's, not a
+   * question or a plan, which only the user answers.
+   */
+  "chat.answer": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      decision: "allow" | "deny";
+      /** With deny: what to tell the agent. */
+      message?: string;
+      /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
+      expect: string;
+    };
+    result: Record<string, never>;
+  };
+  /**
+   * The agent manager handed work to a session, sending it `text` when it
+   * did: the session is its task from now (services/manager).
+   */
+  "manager.dispatched": {
+    args: { workspaceId: string; tabId: string; text?: string };
     result: Record<string, never>;
   };
   /**

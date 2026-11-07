@@ -2,7 +2,8 @@
 //
 // Controls:
 //   - Master switch
-//   - Bundled servers: one checkbox each, TypeScript's memory saver
+//   - Bundled servers: one checkbox each, two to a line; TypeScript's memory
+//     saver under its own
 //   - Servers the user installs (Go, Rust): checkbox, path, install command
 //   - How many workspaces run servers at once
 //
@@ -23,8 +24,7 @@ import { useLspSettingsStore } from "../../../state/stores/lsp-settings";
 import { isWindows } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
-import { Switch } from "../../ui/switch";
-import { SettingsRow, SettingsSection } from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 
 const BUNDLED_LANGUAGES: readonly BuiltinLspPresetLanguageId[] = [
   "typescript",
@@ -38,52 +38,53 @@ const INSTALLED_LANGUAGES: readonly BuiltinLspPresetLanguageId[] = ["go", "rust"
 
 export function LanguageServersPanel() {
   const { t } = useTranslation("settings");
-  const id = useId();
   const settings = useLspSettingsStore((s) => s.settings);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1 min-w-0">
-          <label htmlFor={id} className="text-app-body text-foreground cursor-pointer">
-            {t("languageServers.enable")}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">{t("languageServers.description")}</p>
-        </div>
-        <Switch
-          id={id}
+    <SettingsPage>
+      <SettingsGroup>
+        <SettingsSwitch
+          label={t("languageServers.enable")}
+          description={t("languageServers.description")}
           checked={settings.enabled}
-          onCheckedChange={(v) => void ipcCallResult("lsp", "setEnabled", { enabled: v })}
+          onChange={(v) => void ipcCallResult("lsp", "setEnabled", { enabled: v })}
         />
-      </div>
+      </SettingsGroup>
 
       {settings.enabled && (
         <>
-          <SettingsSection label={t("languageServers.bundled")}>
-            {BUNDLED_LANGUAGES.map((languageId) => (
-              <LanguageRow
-                key={languageId}
-                languageId={languageId}
-                settings={settings.languages[languageId] ?? {}}
-              />
-            ))}
-          </SettingsSection>
+          <SettingsGroup title={t("languageServers.bundled")}>
+            <LanguageGrid>
+              {BUNDLED_LANGUAGES.map((languageId) => (
+                <LanguageRow
+                  key={languageId}
+                  languageId={languageId}
+                  settings={settings.languages[languageId] ?? {}}
+                />
+              ))}
+            </LanguageGrid>
+          </SettingsGroup>
 
-          <SettingsSection label={t("languageServers.installed")}>
-            <p className="text-app-ui-sm text-muted-foreground">
-              {t("languageServers.installedDescription")}
-            </p>
-            {INSTALLED_LANGUAGES.map((languageId) => (
-              <LanguageRow
-                key={languageId}
-                languageId={languageId}
-                settings={settings.languages[languageId] ?? {}}
-              />
-            ))}
-          </SettingsSection>
+          <SettingsGroup
+            title={t("languageServers.installed")}
+            description={t("languageServers.installedDescription")}
+          >
+            <LanguageGrid wide>
+              {INSTALLED_LANGUAGES.map((languageId) => (
+                <LanguageRow
+                  key={languageId}
+                  languageId={languageId}
+                  settings={settings.languages[languageId] ?? {}}
+                />
+              ))}
+            </LanguageGrid>
+          </SettingsGroup>
 
-          <div className="flex flex-col gap-1">
-            <SettingsRow label={t("languageServers.maxWorkspaces")}>
+          <SettingsGroup>
+            <SettingsRow
+              label={t("languageServers.maxWorkspaces")}
+              description={t("languageServers.maxWorkspacesDescription")}
+            >
               <NumberInput
                 value={settings.maxActiveWorkspaces}
                 onChange={(count) => void ipcCallResult("lsp", "setMaxActiveWorkspaces", { count })}
@@ -92,12 +93,22 @@ export function LanguageServersPanel() {
                 ariaLabel={t("languageServers.maxWorkspaces")}
               />
             </SettingsRow>
-            <p className="text-app-ui-sm text-muted-foreground">
-              {t("languageServers.maxWorkspacesDescription")}
-            </p>
-          </div>
+          </SettingsGroup>
         </>
       )}
+    </SettingsPage>
+  );
+}
+
+/**
+ * Languages two to a line: each is a checkbox and a few words at most. One
+ * to a line with `wide`, for those that show where their server is: a path
+ * needs the width.
+ */
+function LanguageGrid({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className={cn("grid items-start gap-x-4 gap-y-2.5", wide ? "grid-cols-1" : "grid-cols-2")}>
+      {children}
     </div>
   );
 }
@@ -222,7 +233,8 @@ function ServerPathField({
       />
       {install && (
         <p className="text-app-ui-sm text-muted-foreground">
-          {t("languageServers.install")} <code className="font-mono select-text">{install}</code>
+          {t("languageServers.install")}{" "}
+          <code className="font-mono select-text break-all">{install}</code>
         </p>
       )}
     </div>

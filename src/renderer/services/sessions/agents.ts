@@ -4,14 +4,62 @@
  * activity main records (claude.activity).
  */
 
-import type { AgentRun, SessionActivity, ToolRun } from "../../../shared/claude/activity";
-import { type AgentSession, allSessions, type SessionFamily, sessionKey } from "./model";
+import type {
+  AgentMessage,
+  AgentRun,
+  SessionActivity,
+  ToolRun,
+} from "../../../shared/claude/activity";
+import { sessionKey } from "./model";
 
 /** The sessions' activity, by session key. */
 export type ActivityByKey = ReadonlyMap<string, SessionActivity>;
 
 export function activityMap(entries: readonly SessionActivity[]): ActivityByKey {
   return new Map(entries.map((entry) => [sessionKey(entry.workspaceId, entry.tabId), entry]));
+}
+
+/**
+ * What the agent was started to do: its Agent call's description, or what
+ * the command that started a `claude -p` or `codex exec` run was said to do;
+ * else a run's prompt, on one line, as a Codex tab's commands tell no more.
+ */
+export function agentDescription(agent: AgentRun): string | undefined {
+  if (agent.description !== undefined) return agent.description;
+  if (agent.kind !== "print") return undefined;
+  return agent.prompt?.replace(/\s+/g, " ").trim() || undefined;
+}
+
+/**
+ * What a run wrote between its tools, oldest first: without its answer,
+ * shown on its own once it ended.
+ */
+export function runMessages(agent: AgentRun): readonly AgentMessage[] {
+  const messages = agent.messages ?? [];
+  const last = messages[messages.length - 1];
+  return last !== undefined && last.text === agent.answer ? messages.slice(0, -1) : messages;
+}
+
+/** A step of what an agent did: a tool it ran, or what it wrote. */
+export type FlowEntry =
+  | { readonly key: string; readonly at: number; readonly tool: ToolRun }
+  | { readonly key: string; readonly at: number; readonly message: AgentMessage };
+
+/**
+ * What an agent did, in order, as its session's own turn reads: its tools
+ * and what it wrote between them. A message told with a tool was written
+ * before it.
+ */
+export function agentFlow(
+  tools: readonly ToolRun[],
+  messages: readonly AgentMessage[],
+): FlowEntry[] {
+  const entries: FlowEntry[] = [
+    ...messages.map((message, i) => ({ key: `message:${i}`, at: message.at, message })),
+    ...tools.map((tool) => ({ key: tool.id, at: tool.start, tool })),
+  ];
+  // Stable: at the same time, the message stays before the tool.
+  return entries.sort((a, b) => a.at - b.at);
 }
 
 /** Whether the agent still runs (or waits on a permission). */
@@ -28,38 +76,12 @@ export function liveAgents(agents: readonly AgentRun[]): AgentRun[] {
   return agents.filter(isLive);
 }
 
-export function endedAgents(agents: readonly AgentRun[]): AgentRun[] {
-  return agents.filter((agent) => !isLive(agent));
-}
-
-/** How many agents of the family's sessions are running now. */
-export function runningAgentCount(family: SessionFamily, activity: ActivityByKey): number {
-  let count = 0;
-  for (const session of allSessions(family)) {
-    count += liveAgents(agentsOf(activity, session.key)).length;
-  }
-  return count;
-}
-
-/** The agents of `sessions`, the live ones first, then the latest ended. */
-export function agentsOfSessions(
-  sessions: readonly AgentSession[],
-  activity: ActivityByKey,
-): { session: AgentSession; agent: AgentRun }[] {
-  const all = sessions.flatMap((session) =>
-    agentsOf(activity, session.key).map((agent) => ({ session, agent })),
-  );
-  return [
-    ...all.filter(({ agent }) => isLive(agent)),
-    ...all
-      .filter(({ agent }) => !isLive(agent))
-      .sort((a, b) => (b.agent.end ?? 0) - (a.agent.end ?? 0)),
-  ];
-}
-
-/** The agent first waiting on a permission among `agents`, if any. */
-export function askingAgent<T extends { agent: AgentRun }>(agents: readonly T[]): T | undefined {
-  return agents.find(({ agent }) => agent.state === "permissionPending");
+/**
+ * The agents a conversation's row lists under it: those still running, and
+ * the one selected, so where it belongs shows in the list.
+ */
+export function rowAgents(agents: readonly AgentRun[], selectedId: string | undefined): AgentRun[] {
+  return agents.filter((agent) => isLive(agent) || agent.id === selectedId);
 }
 
 /** A tool still running, the latest of them. */

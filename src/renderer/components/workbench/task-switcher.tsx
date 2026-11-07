@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
 import { activateWorkspace } from "../../services/workspace/tasks";
 import { openSessionsTab } from "../../state/operations/tabs";
 import {
@@ -31,6 +32,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { cardGlyph } from "./sidebar";
 
 /** How many of a task's ports its menu item lists before "+N". */
 const SHOWN_PORTS = 2;
@@ -40,9 +42,11 @@ interface TaskSwitcherProps {
   active: WorkspaceMeta;
   /** The label of the task's workspace, e.g. with its SSH host. */
   label: (workspace: WorkspaceMeta) => string;
+  /** The widest it can be, in px, clear of the title bar's other buttons. */
+  maxWidth?: number;
 }
 
-export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
+export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
   const { t } = useTranslation();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const rootId = active.task?.parentId ?? active.id;
@@ -57,11 +61,12 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
           type="button"
           aria-label={t("task.switcher_aria")}
           title={rootLabel}
+          style={maxWidth === undefined ? undefined : { maxWidth: `min(40%, ${maxWidth}px)` }}
           className={cn(
             "app-no-drag absolute left-1/2 -translate-x-1/2 max-w-[40%]",
             "flex items-center gap-1.5 px-2 h-7 rounded-(--radius-control)",
             "text-app-body-emphasis text-foreground",
-            "hover:bg-[var(--state-hover-bg)] data-[state=open]:bg-[var(--state-hover-bg)]",
+            "hover:bg-[var(--state-hover-bg)] data-[state=open]:bg-[var(--state-active-bg)]",
             "transition-colors duration-150",
           )}
         >
@@ -75,6 +80,8 @@ export function TaskSwitcher({ active, label }: TaskSwitcherProps) {
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
+      {/* Its items run once the menu has closed, so the new and remove task
+          dialogs take the keyboard and give it back to this button. */}
       <DropdownMenuContent align="center">
         <TaskItem workspace={root} active={active.id === root.id} />
         {tasks.map((task) => (
@@ -117,6 +124,8 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
       ? aggregate.status
       : null;
   }, [tabs, workspace.id]);
+  const codexStatus = useCodexWorkspaceStatus([workspace.id]);
+  const glyph = cardGlyph(status, null, codexStatus);
   const branch = gitBranch ?? workspace.task?.branch ?? null;
   const ports = usePortsStore((s) => s.byWorkspace[workspace.id] ?? NO_PORTS);
 
@@ -127,7 +136,7 @@ function TaskItem({ workspace, active }: { workspace: WorkspaceMeta; active: boo
           {active && <Check className="size-3.5" aria-hidden="true" />}
         </span>
         <span className="truncate max-w-[240px]">{workspace.name}</span>
-        {status && <WorkspaceStatusGlyph status={status} />}
+        {glyph && <WorkspaceStatusGlyph status={glyph.status} codex={glyph.codex} />}
       </span>
       {branch && (
         <span className="ml-4 truncate max-w-[180px] text-muted-foreground">{branch}</span>

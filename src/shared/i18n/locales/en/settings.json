@@ -7,13 +7,14 @@
     "terminal": "Terminal",
     "workspaces": "Workspaces",
     "notifications": "Notifications",
-    "agentCli": "Agent CLI",
     "browserPermissions": "Browser Permissions",
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
     "group": {
       "settings": "Settings"
-    }
+    },
+    "agent": "Agents",
+    "manager": "Agent manager"
   },
   "dialog": {
     "close": "Close settings",
@@ -29,16 +30,14 @@
   },
   "browserPermissions": {
     "globalHeading": "Global permissions",
-    "globalDescription": "When on, a permission is auto-allowed in every workspace. All off by default.",
-    "advanced": "Advanced",
+    "globalDescription": "On, a permission is allowed in every workspace",
     "siteMemoryHeading": "Remembered site permissions",
-    "siteMemoryDescription": "Decisions you chose to remember when sites requested permissions.",
+    "siteMemoryDescription": "Sites you chose to remember when they asked",
     "scopeLabel": "Remembered scope",
     "scopeCurrent": "Current workspace",
     "scopeAll": "All workspaces",
     "loadingPermissions": "Loading remembered permissions",
     "noPermissionsTitle": "No remembered permissions",
-    "noPermissionsDescription": "When you choose \"Remember\" while allowing or blocking a site permission, it appears here.",
     "allowedGlobally": "Allowed globally",
     "deleteAriaLabel": "Delete remembered permission for {{origin}}",
     "deleteTitle": "Delete remembered permission",
@@ -125,7 +124,8 @@
       "windowManagement": "Window placement",
       "unknown": "Unknown permission",
       "fileSystem": "File access"
-    }
+    },
+    "advancedCount": "Advanced ({{count}})"
   },
   "permissionPrompt": {
     "srTitle": "Browser permission request",
@@ -142,45 +142,49 @@
     "theme": "Theme",
     "iconTheme": "Icon Theme",
     "themeDescription": {
-      "github-dark": "GitHub's official dark. Calm teal and blue accents, fairly low saturation",
-      "github-light": "GitHub's official light. White background, dark text — WCAG AA",
-      "dracula": "The legendary purple and pink dark. Vivid saturation built on an 8-color palette",
-      "one-dark-pro": "The VS Code port of Atom One Dark. Balanced saturation, the safest dark",
-      "monokai": "The Sublime Text classic. Vivid magenta, cyan and yellow",
-      "tokyo-night": "Cool blue-violet. Calm and modern, one of the most popular lately",
-      "solarized-dark": "Ethan Schoonover's classic. Even CIE lightness that is easy on the eyes",
-      "nord": "Arctic and north-bluish. Known for its restrained 16-color palette",
-      "catppuccin-mocha": "A calm pastel dark. Mocha is the darkest of the four flavors",
-      "gruvbox-dark": "Retro groove. Warm brown, olive and mustard tones"
+      "github-dark": "Calm teal and blue",
+      "github-light": "White background, dark text",
+      "dracula": "Vivid purple and pink",
+      "one-dark-pro": "Balanced, the safest dark",
+      "monokai": "Magenta, cyan and yellow",
+      "tokyo-night": "Cool blue-violet",
+      "solarized-dark": "Even lightness, easy on the eyes",
+      "nord": "Restrained arctic blue",
+      "catppuccin-mocha": "Pastel dark",
+      "gruvbox-dark": "Warm retro tones"
     },
     "windowOpacity": "Window opacity",
-    "windowOpacityRestart": "On Linux, the window shows through after the app restarts.",
-    "windowOpacityUnsupported": "Window opacity needs Windows 11 version 22H2 or later.",
-    "inactivePanelDim": "Inactive panel dimming"
+    "windowOpacityRestart": "On Linux, shows through after a restart",
+    "windowOpacityUnsupported": "Needs Windows 11 22H2 or later",
+    "inactivePanelDim": "Inactive panel dimming",
+    "themeBase": {
+      "dark": "Dark",
+      "light": "Light"
+    },
+    "window": "Window"
   },
   "editor": {
     "fontSize": "Font size",
     "lineHeight": "Line height",
     "fontFamily": "Font family",
     "fontLigatures": "Font ligatures",
-    "preview": "Preview",
     "ligatures": {
-      "enable": "Enable ligatures",
-      "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Toggle to see the effect in the preview above."
+      "description": "Draws =>, != and the like as one glyph"
     },
     "fontFamilyPlaceholder": "Select font family",
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
     "fontDetected": "Detected on this system.",
-    "fontNotFound": "Not found on this system — the preview will use the fallback font.",
+    "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Editor font size",
     "ariaFontFamily": "Font family",
     "openIn": {
       "label": "Open files in",
       "aria": "View {{format}} files open in",
-      "hint": "The view a file with a preview opens in. A view switched to in a tab stays with that tab."
-    }
+      "hint": "When a file with a preview first opens"
+    },
+    "font": "Font"
   },
   "terminal": {
     "shell": {
@@ -211,61 +215,63 @@
       "programNotFound": "No program with this path or name was found.",
       "args": "Arguments (optional)",
       "argsPlaceholder": "e.g. -l",
-      "hint": "Applies to terminals opened from now on. SSH workspaces use the remote server's login shell."
+      "hint": "New terminals only · SSH workspaces use the remote login shell"
     },
     "taskAgent": {
-      "label": "Task agent command",
-      "hint": "A new task's terminal runs this, with the task's first prompt as its argument. Leave it empty to run nothing.",
-      "aria": "Task agent command"
+      "label": "Task agent",
+      "hint": "The tab a new task opens with"
     },
     "sessionsView": {
-      "label": "Default sessions view",
-      "hint": "The view a sessions tab opens in. A workspace whose sessions tab was switched to another view keeps that one."
+      "label": "Default agents tab view",
+      "hint": "The view it opens in"
     },
     "fontSize": "Font size",
     "cursorStyle": "Cursor style",
     "fontFamily": "Font family",
     "fontLigatures": "Font ligatures",
-    "preview": "Preview",
     "ligatures": {
-      "enable": "Enable ligatures",
-      "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Applies to terminal programs (shells, TUIs) too."
+      "description": "Draws =>, != and the like as one glyph, in TUIs too"
     },
     "fontFamilyPlaceholder": "Select font family",
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
     "fontDetected": "Detected on this system.",
-    "fontNotFound": "Not found on this system — the preview will use the fallback font.",
+    "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Terminal font size",
     "ariaFontFamily": "Terminal font family",
     "cursor": {
       "block": "Block",
       "underline": "Underline",
       "bar": "Bar"
-    }
+    },
+    "font": "Font"
   },
   "notifications": {
     "osEnabled": {
-      "label": "Show desktop notifications",
-      "description": "When Claude needs your attention (response complete, permission request, or a notification hook), the app surfaces an OS-level desktop notification — but only while you are not viewing that tab. In-app indicators (sidebar attention dot, response preview) remain regardless."
+      "label": "Desktop notifications",
+      "description": "When an agent in a tab you aren't viewing finishes or waits"
+    },
+    "managerReports": {
+      "label": "Agent manager reports",
+      "description": "Also get the manager's done and waiting reports as notifications"
     }
   },
   "agentCli": {
     "enabled": {
-      "label": "Let agents use the nexus command",
-      "description": "Agents in the app's terminals (Claude Code, Codex, ...) can run nexus to see other workspaces' terminals and sessions, open files, diffs, terminals and browser tabs, and type into other terminals. Off, every nexus command fails."
+      "label": "Allow nexus commands",
+      "description": "Agents can see and drive other tabs and sessions"
     },
     "crossWorkspace": {
       "label": "Changes to other workspaces",
       "ask": "Ask each time",
       "allow": "Allow",
       "deny": "Don't allow",
-      "description": "What nexus may change in a workspace other than its terminal's own: open tabs, type into terminals, close tabs. Reading other workspaces is always allowed."
+      "description": "Reading them is always allowed"
     },
     "agentContext": {
       "label": "Tell Claude Code about nexus",
-      "description": "Claude Code sessions started in the app get a short note on nexus when they start, so they know they can use it. Codex is not told; add a line to its AGENTS.md if you want it to."
+      "description": "A short how-to when a session starts (not Codex)"
     },
     "consent": {
       "title": "Allow an agent to change another workspace?",
@@ -280,12 +286,15 @@
         "commit": "open the commit {{detail}}",
         "terminalNew": "open a terminal",
         "terminalInput": "type into the terminal \"{{detail}}\"",
+        "chatNew": "open a {{detail}} tab",
+        "chatInput": "send a message to the tab \"{{detail}}\"",
         "tabClose": "close the tab \"{{detail}}\"",
         "tabSave": "save the tab \"{{detail}}\"",
         "tabRevert": "drop the unsaved changes of the tab \"{{detail}}\"",
         "browserOpen": "open {{detail}} in a browser tab",
         "browserNavigate": "move the browser tab \"{{detail}}\"",
         "browserControl": "click, type or run scripts in the browser tab \"{{detail}}\"",
+        "portForward": "start or stop forwarding port {{detail}}",
         "layout": "rearrange its groups ({{detail}})",
         "groupClose": "close group {{detail}} and its tabs",
         "tabRename": "rename the tab \"{{detail}}\"",
@@ -293,15 +302,20 @@
         "worktreeNew": "create the task \"{{detail}}\"",
         "worktreeRemove": "delete the task and its worktree folder",
         "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
-        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders"
-      }
-    }
+        "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders",
+        "permissionAllow": "allow {{detail}}",
+        "permissionDeny": "deny {{detail}}"
+      },
+      "permission_title": "Answer another session's permission request?",
+      "manager_description": "The agent manager asks to {{action}} in {{to}}."
+    },
+    "heading": "nexus CLI"
   },
   "about": {
     "version": "Version {{version}}",
     "autoCheck": {
       "label": "Automatically check for updates",
-      "description": "Fire one silent GitHub Releases check at app startup. Manual checks below always run regardless of this setting."
+      "description": "Every few hours while the app runs"
     },
     "checkNow": "Check for Updates",
     "checking": "Checking…",
@@ -415,14 +429,15 @@
         "new": "New Task"
       },
       "session": {
-        "nextWaiting": "Go to Next Waiting Session"
+        "nextWaiting": "Go to Next Waiting Conversation"
       },
       "settings": {
         "open": "Open Settings"
       },
       "workbench": {
         "toggleFilesPanel": "Toggle Files Panel",
-        "toggleSidebar": "Toggle Sidebar"
+        "toggleSidebar": "Toggle Sidebar",
+        "toggleAgentView": "Toggle Agent View"
       },
       "terminal": {
         "new": "New Terminal"
@@ -438,15 +453,18 @@
         "hardReload": "Hard Reload (Browser)",
         "goBack": "Back (Browser)",
         "goForward": "Forward (Browser)"
+      },
+      "updates": {
+        "releaseNotes": "Show Release Notes"
       }
     }
   },
   "languageServers": {
     "enable": "Use language servers",
-    "description": "Completion, go to definition and error checking. Click a language's name in the status bar to see its server.",
+    "description": "Completion, go to definition, error checking",
     "bundled": "Built in",
     "installed": "Installed by you",
-    "installedDescription": "Left empty, the server is looked for on the PATH and where its installer puts it. Remote workspaces look on their host.",
+    "installedDescription": "Left empty, the server is looked for on the PATH",
     "language": {
       "typescript": "TypeScript · JavaScript",
       "python": "Python",
@@ -457,7 +475,7 @@
       "rust": "Rust (rust-analyzer)"
     },
     "lowMemory": "Memory saver",
-    "lowMemoryDescription": "Uses about 40% less memory; the first answer comes a little later.",
+    "lowMemoryDescription": "About 40% less; first answer a bit slower",
     "serverPath": "{{language}} server path",
     "serverPathPlaceholder": {
       "go": "~/go/bin/gopls",
@@ -467,6 +485,34 @@
     },
     "install": "Install:",
     "maxWorkspaces": "Workspaces running at once",
-    "maxWorkspacesDescription": "Beyond this, the servers of the workspace used least recently stop first."
+    "maxWorkspacesDescription": "Beyond this, the least recently used stops first"
+  },
+  "agent": {
+    "newTask": "New tasks"
+  },
+  "manager": {
+    "enabled": {
+      "label": "Agent manager",
+      "description": "Starts with the app, sees every session and directs them"
+    },
+    "agent": {
+      "label": "Manager agent",
+      "description": "Uses that agent's own account and model"
+    },
+    "reports": "Reports and permissions",
+    "notify": {
+      "label": "Tell the manager about",
+      "tasks": "Its tasks",
+      "attention": "+ Waiting, errors",
+      "all": "Everything",
+      "description": "The more, the more usage"
+    },
+    "permissions": {
+      "label": "Permission requests",
+      "user": "Leave to me",
+      "ask": "Ask each time",
+      "answer": "Let it answer",
+      "description": "When another session asks to use a tool"
+    }
   }
 }

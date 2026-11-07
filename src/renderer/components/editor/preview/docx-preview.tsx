@@ -6,7 +6,12 @@
 // the app's stay apart. Links go where the Markdown preview's go: out to
 // the browser, to a workspace file, or to a place in the document. Embedded
 // HTML (altChunk) and comments are not shown, and macros do not run. A file
-// changed on disk is drawn again at the same place.
+// changed on disk is drawn again at the same place. Bullets and symbols set
+// in Word's symbol fonts are drawn as the Unicode characters they stand for,
+// and equations as Word sets them: letters in italic, numbers upright,
+// signs spaced. A list item's text starts at its indent, past the number.
+// Hangul breaks between words, not letters, where Word's setting keeps its
+// words whole, as Korean Word's template does.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,6 +26,10 @@ import { readWorkspaceBinary } from "../../../services/editor/preview/read-binar
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
+import { wordListMarkers } from "./docx-lists";
+import { wordMathTokens } from "./docx-math";
+import { unicodeSymbols } from "./docx-symbols";
+import { wordHangulWrap } from "./docx-wrap";
 import { useFileVersion } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
 
@@ -59,11 +68,14 @@ const PAGE_GUTTER_PX = 16;
 /**
  * The pages on the editor's backdrop, rather than docx-preview's gray, and
  * centered only while they fit: a wider page scrolls from its left edge.
+ * Equations are set in Word's math font where there is one, else in the
+ * math font the system has.
  */
 const PAGE_STYLE = `
 :host { display: block; color: #000; color-scheme: light; }
 :host .docx-wrapper { background: transparent; padding: 24px ${PAGE_GUTTER_PX}px 0; align-items: safe center; }
 :host .docx-wrapper > section.docx { box-shadow: 0 1px 4px rgb(0 0 0 / 0.35); margin-bottom: 24px; }
+:host math { font-family: "Cambria Math", "STIX Two Math", math; }
 `;
 
 type Status =
@@ -163,6 +175,10 @@ function DocxDocument({ workspaceId, relPath, filePath }: DocxDocumentProps) {
         }
         return;
       }
+      unicodeSymbols(styles, body);
+      wordMathTokens(body);
+      wordListMarkers(styles);
+      wordHangulWrap(read.bytes, body, OPTIONS.className);
       const host = hostRef.current;
       if (cancelled || !host) return;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });

@@ -12,18 +12,19 @@
 // named `osNotificationsEnabled` (boolean today, expandable to a discriminated
 // object later) so the migration stays additive.
 
-import { useCallback, useId } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
+import { useManagerStore } from "../../../state/stores/manager";
 import { useNotificationsStore } from "../../../state/stores/notifications";
-import { Switch } from "../../ui/switch";
+import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
 
 export function NotificationsPanel() {
   const { t } = useTranslation("settings");
   const osEnabled = useNotificationsStore((s) => s.osEnabled);
   const setOsEnabled = useNotificationsStore((s) => s.setOsEnabled);
-
-  const osToggleId = useId();
+  const managerReports = useManagerStore((s) => s.reports);
+  const setManager = useManagerStore((s) => s.setSettings);
 
   const handleOsToggleChange = useCallback(
     (next: boolean) => {
@@ -38,30 +39,23 @@ export function NotificationsPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Row: stacked label + helper on the left, Switch pinned right —
-          mirrors the macOS / VSCode settings pattern used elsewhere in
-          this app. items-start so the switch lines up with the title row,
-          not the bottom of the helper text. */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1 min-w-0">
-          <label
-            htmlFor={osToggleId}
-            className="text-app-body text-foreground cursor-pointer"
-          >
-            {t("notifications.osEnabled.label")}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {t("notifications.osEnabled.description")}
-          </p>
-        </div>
-        <Switch
-          id={osToggleId}
+    <SettingsPage>
+      <SettingsGroup>
+        <SettingsSwitch
+          label={t("notifications.osEnabled.label")}
+          description={t("notifications.osEnabled.description")}
           checked={osEnabled}
-          onCheckedChange={handleOsToggleChange}
-          className="shrink-0 mt-1"
+          onChange={handleOsToggleChange}
         />
-      </div>
-    </div>
+        {/* The agent manager's answers, while the app is not in front. */}
+        <SettingsSwitch
+          label={t("notifications.managerReports.label")}
+          description={t("notifications.managerReports.description")}
+          checked={managerReports}
+          onChange={(next) => setManager({ reports: next })}
+          disabled={!osEnabled}
+        />
+      </SettingsGroup>
+    </SettingsPage>
   );
 }

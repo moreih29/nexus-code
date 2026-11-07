@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useSyncExternalStore } from "react";
 import { cn } from "@/utils/cn";
+import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { AgentSession } from "../../services/sessions/model";
 
 interface StateLook {
@@ -46,6 +47,11 @@ function lookOf(state: string): StateLook {
   }
 }
 
+/** The color a state's glyph has, for words told beside it. */
+export function stateColor(state: string): string {
+  return lookOf(state).colorClass;
+}
+
 /** The state in words, e.g. "Waiting for permission" or "Running (estimated)". */
 export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): string {
   const label = i18next.t(`common:sessions.state.${session.state}`, {
@@ -62,6 +68,24 @@ export function stateLabel(session: Pick<AgentSession, "state" | "estimated">): 
  */
 export function estimatedLabel(status: string): string {
   return stateLabel({ state: status === "running" ? "busy" : status, estimated: true });
+}
+
+/** A Codex tab's state in words, as the tab bar and the sidebar name it. */
+export function codexStatusLabel(status: ClaudeStatus): string {
+  switch (status) {
+    case "running":
+      return i18next.t("common:codexStatus.running");
+    case "completed":
+      return i18next.t("common:codexStatus.completed");
+    case "needsInput":
+      return i18next.t("common:codexStatus.needsInput");
+    case "permissionPending":
+      return i18next.t("common:codexStatus.permissionPending");
+    case "error":
+      return i18next.t("common:codexStatus.error");
+    case "idle":
+      return i18next.t("common:codexStatus.idle");
+  }
 }
 
 /** How long ago `since` was: "just now", "12m", "3h", "2d". */
@@ -125,23 +149,6 @@ export function useDurationLabel(since: number | undefined): string | null {
   const now = useSyncExternalStore(subscribeClock, readClock, readClock);
   // A state that began after the last tick has lasted no time yet.
   return durationLabel(since, Math.max(now, since ?? 0));
-}
-
-/** Glyph, state and how long it has lasted, e.g. "◌ Running · 12m". */
-export function SessionState({ session, className }: { session: AgentSession; className?: string }) {
-  const duration = useDurationLabel(session.since);
-  const { colorClass } = lookOf(session.state);
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 min-w-0 text-app-ui-sm", className)}>
-      <StateGlyph state={session.state} />
-      <span
-        className={cn("truncate", session.phase === "idle" ? "text-muted-foreground" : colorClass)}
-      >
-        {stateLabel(session)}
-      </span>
-      {duration && <span className="shrink-0 text-muted-foreground">· {duration}</span>}
-    </span>
-  );
 }
 
 /** The agent's name in a small monospace badge. */

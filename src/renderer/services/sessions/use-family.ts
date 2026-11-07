@@ -2,20 +2,20 @@
  * The live data of a sessions tab: its workspace's family of sessions, the
  * output activity that tells Codex and other agents' state, what Claude
  * sessions are doing (their tools and agents), each worktree's uncommitted
- * changes, and what the sessions did over time. Polls only while the tab
- * is shown.
+ * changes, and which terminals wait on which. Polls only while the tab is
+ * shown.
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { GitStatus } from "../../../shared/git/types";
+import type { GitChangeStats, GitStatus } from "../../../shared/git/types";
 import { createLogger } from "../../../shared/log/renderer";
 import type { TabActivity, TerminalWait } from "../../../shared/sessions/agent-state";
-import type { SessionSpan } from "../../../shared/sessions/history";
 import { ipcCallResult } from "../../ipc/client";
 import { useClaudeStatusStore } from "../../state/stores/claude-status";
 import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabsStore } from "../../state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import { useChatStore } from "../chat/store";
 import {
   activityByKey,
   buildFamily,
@@ -24,14 +24,13 @@ import {
   sameFamily,
 } from "./model";
 import { type ActivityByKey, activityMap, sameActivityMap } from "./agents";
-import { rangeStart, type TimelineRange } from "./timeline";
+import { viewingKey } from "./viewing";
 
 const log = createLogger("sessions");
 
 const ACTIVITY_POLL_MS = 1_000;
 const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
-const HISTORY_POLL_MS = 2_000;
 const CHANGES_POLL_MS = 5_000;
 
 /** The current time, ticking every `everyMs` while `enabled`. */
@@ -122,32 +121,6 @@ export function useSessionActivity(
   return activity;
 }
 
-/**
- * What the terminals of `workspaceIds` did over `range`, polled while
- * `enabled`.
- */
-export function useSessionHistory(
-  workspaceIds: readonly string[],
-  range: TimelineRange,
-  enabled: boolean,
-): readonly SessionSpan[] {
-  const ids = workspaceIds.join(",");
-  const [spans, setSpans] = useState<readonly SessionSpan[]>([]);
-  useEffect(() => {
-    if (!enabled || ids === "") return;
-    return startPolling(async (isLatest) => {
-      const result = await ipcCallResult("cli", "history", {
-        workspaceIds: ids.split(","),
-        since: rangeStart(range, Date.now()),
-      });
-      if (isLatest() && result.ok) {
-        setSpans((prev) => (sameJson(prev, result.value) ? prev : result.value));
-      }
-    }, HISTORY_POLL_MS);
-  }, [ids, range, enabled]);
-  return spans;
-}
-
 /** The family of `workspaceId` as the stores and `activity` tell it now. */
 function familyNow(
   workspaceId: string,
@@ -161,6 +134,8 @@ function familyNow(
     activity,
     now: Date.now(),
     seenByWorkspace: useSessionSeenStore.getState().byWorkspace,
+    chats: useChatStore.getState().tabs,
+    viewing: viewingKey(),
   });
 }
 
@@ -185,6 +160,7 @@ export function useSessionFamily(workspaceId: string, visible: boolean): Session
       useTabsStore.subscribe(update),
       useClaudeStatusStore.subscribe(update),
       useSessionSeenStore.subscribe(update),
+      useChatStore.subscribe(update),
       startPolling(async (isLatest) => {
         const result = await ipcCallResult("cli", "activity", {});
         if (!isLatest()) return;
@@ -243,6 +219,39 @@ export function mergeChanges(
     if (kept) next.set(id, kept);
   }
   return next;
+}
+
+/**
+ * A connected worktree's uncommitted changes in lines, file by file, and its
+ * commits ahead of and behind `base`, polled while `visible`. Undefined
+ * until read, and for a worktree not connected.
+ */
+export function useChangeStats(
+  workspaceId: string,
+  base: string | undefined,
+  visible: boolean,
+): GitChangeStats | undefined {
+  const online = useWorkspacesStore((s) => selectIsWorkspaceOnline(s, workspaceId));
+  const [read, setRead] = useState<{ key: string; stats: GitChangeStats }>();
+  // What a read is of, so one of another worktree or base is not shown.
+  const key = `${workspaceId}:${base ?? ""}`;
+  useEffect(() => {
+    if (!visible || !online) return;
+    const readKey = `${workspaceId}:${base ?? ""}`;
+    return startPolling(async (isLatest) => {
+      const result = await ipcCallResult("git", "getChangeStats", {
+        workspaceId,
+        ...(base ? { base } : {}),
+      }).catch(() => null);
+      if (!result?.ok || !isLatest()) return;
+      setRead((prev) =>
+        prev?.key === readKey && sameJson(prev.stats, result.value)
+          ? prev
+          : { key: readKey, stats: result.value },
+      );
+    }, CHANGES_POLL_MS);
+  }, [workspaceId, base, online, visible]);
+  return online && read?.key === key ? read.stats : undefined;
 }
 
 /**

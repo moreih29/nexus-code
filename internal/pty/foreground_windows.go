@@ -41,6 +41,15 @@ var passThrough = map[string]bool{
 	"pwsh":       true,
 }
 
+// agentHosts names the programs that run an agent's script: an npm
+// package's Codex is node running a script that runs Codex's own program.
+// The program in front is the agent when it is the one the host runs, and
+// the host otherwise, as when it runs a server or a command.
+var agentHosts = map[string]bool{"node": true}
+
+// agentPrograms names the agents' own programs.
+var agentPrograms = map[string]bool{"codex": true, "claude": true}
+
 // maxForegroundDepth bounds the walk down the process tree.
 const maxForegroundDepth = 16
 
@@ -49,7 +58,8 @@ const maxForegroundDepth = 16
 //
 // A console has no foreground process group. The program in front is taken
 // to be the shell's newest child that is a console program, followed down
-// through the programs in passThrough to the one they run. A window program
+// through the programs in passThrough to the one they run, and through an
+// agent host to the agent it runs. A window program
 // the shell started runs apart from the console, and a child older than its
 // parent belongs to an earlier process that had the parent's id.
 //
@@ -75,13 +85,15 @@ func foregroundOf(
 	if !ok {
 		return current.name
 	}
-	for depth := 0; depth < maxForegroundDepth; depth++ {
+	// newest is the newest console child of a process, from its Windows
+	// children or else the MSYS runtime's.
+	newest := func(parent processEntry, parentDetail processDetail) (processEntry, processDetail, bool) {
 		var next processEntry
 		var nextDetail processDetail
 		found := false
 		consider := func(entry processEntry) {
 			d, ok := detail(entry.pid)
-			if !ok || !d.console || d.created < currentDetail.created {
+			if !ok || !d.console || d.created < parentDetail.created {
 				return
 			}
 			if !found || d.created > nextDetail.created {
@@ -89,22 +101,33 @@ func foregroundOf(
 			}
 		}
 		for _, entry := range entries {
-			if entry.parent == current.pid && entry.pid != current.pid {
+			if entry.parent == parent.pid && entry.pid != parent.pid {
 				consider(entry)
 			}
 		}
 		if !found && msys != nil {
-			for _, pid := range msys(current.pid) {
-				if entry, ok := byPID[pid]; ok && pid != current.pid {
+			for _, pid := range msys(parent.pid) {
+				if entry, ok := byPID[pid]; ok && pid != parent.pid {
 					consider(entry)
 				}
 			}
 		}
+		return next, nextDetail, found
+	}
+	for depth := 0; depth < maxForegroundDepth; depth++ {
+		next, nextDetail, found := newest(current, currentDetail)
 		if !found {
 			return current.name
 		}
 		current, currentDetail = next, nextDetail
-		if !passThrough[strings.ToLower(current.name)] {
+		name := strings.ToLower(current.name)
+		if agentHosts[name] {
+			if agent, _, ok := newest(current, currentDetail); ok && agentPrograms[strings.ToLower(agent.name)] {
+				return agent.name
+			}
+			return current.name
+		}
+		if !passThrough[name] {
 			return current.name
 		}
 	}

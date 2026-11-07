@@ -10,7 +10,10 @@ import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
+import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { startTabActivityPolling } from "./services/sessions/activity-poll";
+import { startManager } from "./services/manager/runtime";
+import { startSessionEvents } from "./services/sessions/session-events";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -25,10 +28,12 @@ import { initGitErrorToasts } from "./state/operations/git-error-toasts";
 import { initLspSettingsSync } from "./state/operations/lsp-settings";
 import { initLspStatusSync } from "./state/operations/lsp-status";
 import { initPortsSync } from "./state/operations/ports";
+import { hydrateReleaseNotesSeen } from "./state/operations/release-notes";
 import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
@@ -38,17 +43,18 @@ import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
+import { useManagerStore } from "./state/stores/manager";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useSessionsViewStore } from "./state/stores/sessions-view";
-import { useTabsStore } from "./state/stores/tabs";
+import { defaultTitle as defaultTabTitle, useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
 import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
-import { visibleWorkspaces } from "./state/stores/workspaces";
+import { restoredWorkspace } from "./state/stores/workspaces";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 const log = createLogger("bootstrap");
@@ -217,6 +223,7 @@ export async function bootstrapAppState(): Promise<void> {
     fontLigatures: state.terminalFontLigatures,
     shell: state.terminalShell,
     customShells: state.terminalShells,
+    taskAgent: state.taskAgent,
     taskAgentCommand: state.taskAgentCommand,
   });
 
@@ -232,17 +239,22 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate inactive-panel dim multiplier from appState (authoritative store).
   useInactivePanelDimStore.getState().hydrate(state.inactivePanelDim);
 
-  // Hydrate update preferences (channel + auto-check toggle) from appState
-  // and install the statusChanged listener.
+  // Hydrate update preferences (channel, auto-check toggle, the versions
+  // skipped and told of) from appState and install the statusChanged
+  // listener.
   useUpdatesStore.getState().hydrate({
     channel: state.updateChannel,
     autoCheckEnabled: state.autoCheckForUpdates,
+    ignoredVersion: state.ignoredUpdateVersion,
+    announcedVersion: state.announcedUpdateVersion,
   });
   initUpdatesSubscriptions();
+  hydrateReleaseNotesSeen(state.lastSeenReleaseNotesVersion);
 
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
   useSessionsViewStore.getState().hydrate(state);
   usePreviewDefaultsStore.getState().hydrate(state.previewViewDefaults);
@@ -268,9 +280,24 @@ export async function bootstrapAppState(): Promise<void> {
           const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
           // 마이그레이션: defaultTitle 필드가 없는 옛 스냅샷은 현재 title을 fallback으로
           // 사용. 이후 정상 동작 — set 경로들이 같은 invariant를 유지한다.
-          const defaultTitle =
+          const saved =
             "defaultTitle" in t && typeof t.defaultTitle === "string" ? t.defaultTitle : t.title;
-          tabsMap[t.id] = { ...t, isPreview, isPinned, defaultTitle };
+          // The agents tab is named by the app, not by what it shows: one
+          // saved under an older name takes the current one.
+          if (t.type === "sessions") {
+            const defaultTitle = defaultTabTitle({ type: "sessions", props: {} });
+            const customTitle =
+              "customTitle" in t && typeof t.customTitle === "string" ? t.customTitle : undefined;
+            tabsMap[t.id] = {
+              ...t,
+              isPreview,
+              isPinned,
+              defaultTitle,
+              title: customTitle ?? defaultTitle,
+            };
+            continue;
+          }
+          tabsMap[t.id] = { ...t, isPreview, isPinned, defaultTitle: saved };
         }
         useTabsStore.setState((s) => ({
           byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },
@@ -289,8 +316,15 @@ export async function bootstrapAppState(): Promise<void> {
     }
   }
 
+  // The agent view's panels hold tabs, so they come back after the tabs,
+  // keeping those that still exist, and let go of each tab as it closes.
+  useAgentViewStore.getState().hydrate(state.agentView, tabExists);
+  startAgentViewPruning();
+
   registerStatePersistence();
   markCliUiReady();
+  // The agent manager, if it is on: it starts with the app, the sessions restored.
+  startManager();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState
@@ -314,8 +348,9 @@ export async function bootstrapAppState(): Promise<void> {
  * Does NOT call workspace:activate at startup. Main's init() is the source
  * of truth for the restored active workspace and its conditional auto-connect
  * (key-only SSH and local connect automatically; interactive SSH restores in
- * the disconnected state). Calling activate here would both trigger a
- * connection and wrongly bump the recency list on every app launch.
+ * the disconnected state), so the selection is the workspace main restored.
+ * Calling activate here would both trigger a connection and wrongly bump the
+ * recency list on every app launch.
  */
 export async function bootstrapWorkspaces(
   setAll: (list: WorkspaceMeta[]) => void,
@@ -324,8 +359,9 @@ export async function bootstrapWorkspaces(
   // Bootstrap is an initialization path — no recovery possible if workspace list is unavailable.
   const list = mustSucceed(await ipcCallResult("workspace", "list", undefined));
   setAll(list);
-  const first = visibleWorkspaces(list)[0];
-  if (first) setActiveWorkspaceId(first.id);
+  const active = await ipcCallResult("workspace", "active", undefined);
+  const selected = restoredWorkspace(list, active.ok ? active.value : null);
+  if (selected) setActiveWorkspaceId(selected.id);
 }
 
 /**
@@ -368,4 +404,7 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // Codex and other agents' output activity, for the tab bar, the sidebar
   // and the inbox.
   startTabActivityPolling();
+
+  // The sessions' state changes, for nexus events.
+  startSessionEvents();
 }

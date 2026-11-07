@@ -34,6 +34,14 @@ func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 		{pid: 54, parent: 53, name: "claude"},  // the program the script runs
 		{pid: 60, parent: 1, name: "bash"},     // Git Bash's launcher
 		{pid: 61, parent: 60, name: "bash"},    // the real bash, running nothing
+		{pid: 70, parent: 1, name: "pwsh"},     // a shell running an npm package's Codex
+		{pid: 71, parent: 70, name: "cmd"},     // the package's .cmd
+		{pid: 72, parent: 71, name: "node"},    // node on the package's script
+		{pid: 73, parent: 72, name: "codex"},   // Codex's own program
+		{pid: 74, parent: 73, name: "pwsh"},    // a command Codex runs
+		{pid: 80, parent: 1, name: "pwsh"},     // a shell running node
+		{pid: 81, parent: 80, name: "node"},    // a script, or an npm package's Claude
+		{pid: 82, parent: 81, name: "bash"},    // a command it runs
 	}
 	details := map[uint32]processDetail{
 		10: {created: 100, console: true},
@@ -56,6 +64,14 @@ func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 		54: {created: 140, console: true},
 		60: {created: 100, console: true},
 		61: {created: 110, console: true},
+		70: {created: 100, console: true},
+		71: {created: 110, console: true},
+		72: {created: 120, console: true},
+		73: {created: 130, console: true},
+		74: {created: 140, console: true},
+		80: {created: 100, console: true},
+		81: {created: 110, console: true},
+		82: {created: 120, console: true},
 	}
 	detail := func(pid uint32) (processDetail, bool) {
 		d, ok := details[pid]
@@ -69,7 +85,7 @@ func TestForegroundOfFollowsTheShellsNewestConsoleChild(t *testing.T) {
 		}
 		return nil
 	}
-	want := map[uint32]string{10: "claude", 20: "claude", 30: "pwsh", 40: "node", 50: "claude", 60: "bash", 99: ""}
+	want := map[uint32]string{10: "claude", 20: "claude", 30: "pwsh", 40: "node", 50: "claude", 60: "bash", 70: "codex", 80: "node", 99: ""}
 	for shell, want := range want {
 		if got := foregroundOf(entries, shell, detail, msys); got != want {
 			t.Errorf("foregroundOf(shell %d) = %q, want %q", shell, got, want)

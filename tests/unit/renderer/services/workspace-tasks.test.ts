@@ -1,6 +1,7 @@
 /**
- * Tasks on the renderer side: creating one switches to it and has its
- * terminal start the agent; failures come back as the IPC kind and message.
+ * Tasks on the renderer side: creating one switches to it and opens the
+ * agent's tab with the prompt, or a terminal running a command; failures
+ * come back as the IPC kind and message.
  */
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
@@ -11,6 +12,7 @@ const TASK = "00000000-0000-4000-8000-000000000002";
 const CLIENT = "../../../../src/renderer/ipc/client";
 const OPEN_TERMINAL = "../../../../src/renderer/services/terminal/open-terminal";
 const PTY_CLIENT = "../../../../src/renderer/services/terminal/pty-client";
+const AGENT_TAB = "../../../../src/renderer/services/chat/agent-tab";
 
 // Module mocks are process-wide: this file puts back what it found when it
 // is done, so later files get the real modules.
@@ -18,11 +20,13 @@ const previous = {
   client: { ...(await import(CLIENT)) },
   openTerminal: { ...(await import(OPEN_TERMINAL)) },
   ptyClient: { ...(await import(PTY_CLIENT)) },
+  agentTab: { ...(await import(AGENT_TAB)) },
 };
 afterAll(() => {
   mock.module(CLIENT, () => previous.client);
   mock.module(OPEN_TERMINAL, () => previous.openTerminal);
   mock.module(PTY_CLIENT, () => previous.ptyClient);
+  mock.module(AGENT_TAB, () => previous.agentTab);
 });
 
 const calls: Array<{ method: string; args: unknown }> = [];
@@ -56,11 +60,19 @@ mock.module(PTY_CLIENT, () => ({
   },
 }));
 
+const agentTabs: Array<{ workspaceId: string; agent: string; cwd: string; message: string }> = [];
+mock.module(AGENT_TAB, () => ({
+  ...previous.agentTab,
+  openAgentTab: (workspaceId: string, agent: string, cwd: string, message: string) => {
+    agentTabs.push({ workspaceId, agent, cwd, message });
+    return "chat-1";
+  },
+}));
+
 const { agentCommandLine, createTask, removeTask, startTask } = await import(
   "../../../../src/renderer/services/workspace/tasks"
 );
 const { useActiveStore } = await import("../../../../src/renderer/state/stores/active");
-const { useTerminalStore } = await import("../../../../src/renderer/state/stores/terminal");
 const { useWorkspacesStore } = await import("../../../../src/renderer/state/stores/workspaces");
 
 const task: WorkspaceMeta = {
@@ -80,9 +92,9 @@ beforeEach(() => {
   calls.length = 0;
   opened.length = 0;
   startup.length = 0;
+  agentTabs.length = 0;
   useWorkspacesStore.setState({ workspaces: [] });
   useActiveStore.getState().setActiveWorkspaceId(PARENT);
-  useTerminalStore.setState({ taskAgentCommand: undefined });
 });
 
 describe("agentCommandLine", () => {
@@ -99,57 +111,68 @@ describe("agentCommandLine", () => {
 });
 
 describe("createTask", () => {
-  it("switches to the task and starts the agent in its terminal", async () => {
+  it("switches to the task and opens the agent's tab with the prompt", async () => {
     createResult = { ok: true, value: task };
 
-    expect(await createTask(PARENT, "fix login", "fix the redirect")).toBeNull();
+    expect(await createTask(PARENT, "fix login", "fix the redirect", "claude")).toBeNull();
 
     expect(calls[0]).toEqual({ method: "create", args: { parentId: PARENT, name: "fix login" } });
     expect(useWorkspacesStore.getState().workspaces.map((w) => w.id)).toEqual([TASK]);
-    expect(opened).toEqual([{ workspaceId: TASK, cwd: task.rootPath }]);
-    expect(startup).toEqual([{ tabId: "tab-1", line: "claude 'fix the redirect'\r" }]);
+    expect(agentTabs).toEqual([
+      { workspaceId: TASK, agent: "claude", cwd: task.rootPath, message: "fix the redirect" },
+    ]);
+    expect(opened).toEqual([]);
     expect(useActiveStore.getState().activeWorkspaceId).toBe(TASK);
     expect(calls.at(-1)).toEqual({ method: "activate", args: { id: TASK } });
   });
 
-  it("startTask starts the agent without switching, and says in which terminal", async () => {
+  it("startTask opens the agent's tab without switching, and says which tab", async () => {
     createResult = { ok: true, value: task };
 
-    const started = await startTask(PARENT, "fix login", "fix the redirect");
+    const started = await startTask(PARENT, "fix login", "fix the redirect", { agent: "codex" });
 
-    expect(started).toMatchObject({ task: { id: TASK }, tabId: "tab-1", command: "claude" });
-    expect(startup).toEqual([{ tabId: "tab-1", line: "claude 'fix the redirect'\r" }]);
+    expect(started).toMatchObject({
+      task: { id: TASK },
+      tabId: "chat-1",
+      start: { agent: "codex" },
+    });
+    expect(agentTabs.map((t) => t.agent)).toEqual(["codex"]);
     expect(useActiveStore.getState().activeWorkspaceId).toBe(PARENT);
     expect(calls.some((c) => c.method === "activate")).toBe(false);
   });
 
-  it("startTask runs the command it is given over the setting", async () => {
+  it("startTask runs a command in a terminal, with the prompt", async () => {
     createResult = { ok: true, value: task };
 
-    const started = await startTask(PARENT, "fix login", "fix it", " codex -m gpt-5.5 ");
+    const started = await startTask(PARENT, "fix login", "fix it", {
+      command: " codex -m gpt-5.5 ",
+    });
 
-    expect(started).toMatchObject({ command: "codex -m gpt-5.5" });
+    expect(started).toMatchObject({ tabId: "tab-1", start: { command: "codex -m gpt-5.5" } });
+    expect(opened).toEqual([{ workspaceId: TASK, cwd: task.rootPath }]);
     expect(startup).toEqual([{ tabId: "tab-1", line: "codex -m gpt-5.5 'fix it'\r" }]);
+    expect(agentTabs).toEqual([]);
   });
 
-  it("opens a plain terminal when the agent command is empty", async () => {
+  it("opens a plain terminal for the terminal agent", async () => {
     createResult = { ok: true, value: task };
-    useTerminalStore.setState({ taskAgentCommand: "" });
 
-    await createTask(PARENT, "fix login", "fix the redirect");
+    await createTask(PARENT, "fix login", "fix the redirect", "terminal");
 
     expect(opened).toHaveLength(1);
     expect(startup).toEqual([]);
+    expect(agentTabs).toEqual([]);
   });
 
   it("returns a failure and stays put", async () => {
     createResult = { ok: false, kind: "not-a-repo", message: "/w is not in a git repository" };
 
-    expect(await createTask(PARENT, "fix login", "")).toEqual({
+    expect(await createTask(PARENT, "fix login", "", "claude")).toEqual({
       kind: "not-a-repo",
       message: "/w is not in a git repository",
     });
     expect(opened).toEqual([]);
+    expect(agentTabs).toEqual([]);
     expect(useActiveStore.getState().activeWorkspaceId).toBe(PARENT);
   });
 });

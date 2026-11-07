@@ -2,7 +2,8 @@
 //
 // A Select like the font family one: "System default (…)" first, then the
 // shells found on this machine and the ones the user added, each with its
-// path as a second line. "Manage shells…" opens a dialog that lists them and
+// path as a second line; the closed select shows the chosen one's name and
+// command line. "Manage shells…", beside the label, opens a dialog that lists them and
 // adds, edits and removes the added ones (name, program with Browse… and a
 // check that it exists, arguments), so the panel stays the same height however
 // many there are. Added shells show in the tab bar's "New Terminal With ›"
@@ -10,7 +11,6 @@
 // every spawn.
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { Dialog as RadixDialog } from "radix-ui";
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -33,6 +33,7 @@ import {
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
+import { DialogHeader } from "../../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsSection } from "../section";
 import { isWindows } from "../../../utils/platform";
@@ -122,56 +123,65 @@ function DefaultShellSection({
     shell === undefined
       ? installed && commandLine(installed.systemDefault.path, installed.systemDefault.args)
       : chosen && commandLine(chosen.path, chosen.args);
+  const systemName = installed
+    ? t("terminal.shell.system", { name: shellDisplayName(t, installed.systemDefault) })
+    : t("terminal.shell.systemPlain");
+  const chosenName =
+    shell === undefined
+      ? systemName
+      : (chosen?.name ?? (shell.kind === "detected" ? shell.id : t("terminal.shell.removed")));
 
   return (
     <SettingsSection
       label={t("terminal.shell.label")}
+      description={t("terminal.shell.hint")}
       dirty={shell !== undefined}
       onReset={() => setShell(undefined)}
-    >
-      <div className="flex gap-2">
-        <div className="min-w-0 flex-1">
-          <Select value={shell ? choiceValue(shell) : SYSTEM_VALUE} onValueChange={handleSelect}>
-            <SelectTrigger ariaLabel={t("terminal.shell.label")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SYSTEM_VALUE}>
-                {installed
-                  ? t("terminal.shell.system", {
-                      name: shellDisplayName(t, installed.systemDefault),
-                    })
-                  : t("terminal.shell.systemPlain")}
-              </SelectItem>
-              {entries.map((e) => (
-                <SelectItem
-                  key={choiceValue(e.choice)}
-                  value={choiceValue(e.choice)}
-                  description={commandLine(e.path, e.args)}
-                >
-                  {e.name}
-                </SelectItem>
-              ))}
-              {chosenMissing && shell !== undefined && (
-                <SelectItem value={choiceValue(shell)} description={t("terminal.shell.notFound")}>
-                  {shell.kind === "detected" ? shell.id : t("terminal.shell.removed")}
-                </SelectItem>
-              )}
-            </SelectContent>
-          </Select>
-        </div>
-        <Button variant="outline" size="sm" className="h-auto self-stretch" onClick={onManage}>
+      action={
+        <button
+          type="button"
+          onClick={onManage}
+          className="shrink-0 rounded-(--radius-control) text-app-ui-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
           {t("terminal.shell.manage")}
-        </Button>
-      </div>
-
-      {shown && <p className="truncate text-app-ui-sm text-muted-foreground">{shown}</p>}
+        </button>
+      }
+    >
+      <Select value={shell ? choiceValue(shell) : SYSTEM_VALUE} onValueChange={handleSelect}>
+        <SelectTrigger ariaLabel={t("terminal.shell.label")}>
+          {/* The shell's name, then the command line it runs. */}
+          <SelectValue>
+            <span className="flex min-w-0 items-baseline gap-2">
+              <span className="shrink-0">{chosenName}</span>
+              {shown && (
+                <span className="truncate text-app-ui-sm text-muted-foreground">{shown}</span>
+              )}
+            </span>
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SYSTEM_VALUE}>{systemName}</SelectItem>
+          {entries.map((e) => (
+            <SelectItem
+              key={choiceValue(e.choice)}
+              value={choiceValue(e.choice)}
+              description={commandLine(e.path, e.args)}
+            >
+              {e.name}
+            </SelectItem>
+          ))}
+          {chosenMissing && shell !== undefined && (
+            <SelectItem value={choiceValue(shell)} description={t("terminal.shell.notFound")}>
+              {shell.kind === "detected" ? shell.id : t("terminal.shell.removed")}
+            </SelectItem>
+          )}
+        </SelectContent>
+      </Select>
       {(chosenMissing || customFound === null) && (
         <p className="text-app-ui-sm text-[var(--state-warning-fg)]">
           {t("terminal.shell.missingFallback")}
         </p>
       )}
-      <p className="text-app-ui-sm text-muted-foreground">{t("terminal.shell.hint")}</p>
     </SettingsSection>
   );
 }
@@ -196,7 +206,6 @@ function ManageShellsDialog({
   // The form in place of the list: the added shell being edited, "new"
   // while adding one, or null for the list.
   const [editing, setEditing] = useState<string | null>(null);
-  const titleId = useId();
   const editingShell = customShells.find((s) => s.id === editing);
 
   const handleOpenChange = (next: boolean) => {
@@ -214,16 +223,18 @@ function ManageShellsDialog({
       open={open}
       onOpenChange={handleOpenChange}
       size="lg"
-      aria-labelledby={titleId}
-      aria-describedby={undefined}
+      {...(editing === null ? {} : { "aria-describedby": undefined })}
     >
-      <RadixDialog.Title id={titleId} className="text-app-body-emphasis text-foreground">
-        {editing === null
-          ? t("terminal.shell.manageTitle")
-          : editingShell
-            ? t("terminal.shell.edit", { name: editingShell.name })
-            : t("terminal.shell.add")}
-      </RadixDialog.Title>
+      <DialogHeader
+        title={
+          editing === null
+            ? t("terminal.shell.manageTitle")
+            : editingShell
+              ? t("terminal.shell.edit", { name: editingShell.name })
+              : t("terminal.shell.add")
+        }
+        description={editing === null ? t("terminal.shell.listHint") : undefined}
+      />
 
       {editing !== null ? (
         <div className="mt-3">
@@ -236,9 +247,6 @@ function ManageShellsDialog({
         </div>
       ) : (
         <>
-          <p className="mt-1 text-app-ui-sm text-muted-foreground">
-            {t("terminal.shell.listHint")}
-          </p>
           <div className="app-scrollbar mt-3 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
             {entries.map((entry) => {
               const custom =
