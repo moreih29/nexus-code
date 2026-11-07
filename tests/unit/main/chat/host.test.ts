@@ -5,7 +5,6 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
-  codexAppServerArgs,
   codexTabEnv,
   gitBashPath,
   parseClaudeVersion,
@@ -380,23 +379,6 @@ describe("ChatHost", () => {
     channel.found = { path: "" };
     const missing = await host.startCodex(WS, TAB, "/repo", {});
     expect(missing.ok === false && missing.reason).toBe("not-found");
-  });
-
-  test("the agent manager's Codex trusts its folder, for its rules to be read", () => {
-    expect(codexAppServerArgs("/repo")).toEqual(["app-server"]);
-    for (const dir of [
-      "C:\\Users\\kih\\.nexus-code\\manager",
-      "/Users/o'brien/.nexus-code/manager",
-      'C:\\Users\\a "b"\\한글\\manager',
-    ]) {
-      const [flag, override, sub] = codexAppServerArgs(dir, true);
-      expect([flag, sub]).toEqual(["-c", "app-server"]);
-      // Codex reads the value as TOML; a key -c would split at its dots.
-      const parsed = Bun.TOML.parse(override ?? "") as {
-        projects: Record<string, { trust_level: string }>;
-      };
-      expect(parsed.projects).toEqual({ [dir]: { trust_level: "trusted" } });
-    }
   });
 
   test("start says when claude is not found", async () => {

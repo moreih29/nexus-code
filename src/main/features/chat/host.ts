@@ -10,7 +10,6 @@ import {
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
-  codexAppServerArgs,
   codexTabEnv,
   hostJoin,
   parseClaudeVersion,
@@ -219,7 +218,7 @@ export class ChatHost {
         tabId,
         cwd,
         program: found.path,
-        args: codexAppServerArgs(cwd, isManagerWorkspace(workspaceId)),
+        args: ["app-server"],
         env,
         ...(options.resetLog ? { resetLog: true } : {}),
       });

@@ -175,21 +175,6 @@ export function codexTabEnv(context: CodexTabEnvContext): Record<string, string>
   return env;
 }
 
-/**
- * A Codex tab's `codex app-server` arguments. The agent manager's trusts its
- * folder, for its session alone: Codex reads a project's .codex/rules, where
- * main lets `nexus` run outside the sandbox (features/manager/codex-rules),
- * only in a project it trusts, and the folder is the app's. The user's own
- * Codex settings are left as they are.
- */
-export function codexAppServerArgs(cwd: string, manager = false): string[] {
-  if (!manager) return ["app-server"];
-  // The folder as a TOML basic string, whose escapes JSON's are. A dotted
-  // key would not do: -c splits it at every dot, the folder's own too.
-  const trusted = `projects = { ${JSON.stringify(cwd)} = { trust_level = "trusted" } }`;
-  return ["-c", trusted, "app-server"];
-}
-
 export type PluginAction = "install" | "enable" | "disable" | "update" | "uninstall";
 
 /**
