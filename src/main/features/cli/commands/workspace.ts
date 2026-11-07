@@ -203,7 +203,7 @@ const worktreeNew: CliCommand = {
   details:
     "As New Task in the app: a branch named after <name> from the workspace's HEAD, its worktree,\n" +
     "and a Claude or Codex tab there that is sent --prompt as its first message: --agent's, else\n" +
-    "the task agent's (Settings › Terminal; Claude by default). --command runs a command in a\n" +
+    "the task agent's (Settings › Agents; Claude by default). --command runs a command in a\n" +
     "terminal instead, with --prompt as its last argument; an empty one opens a plain shell. It\n" +
     "starts behind the user's view unless --show. The tab's id is printed for chat wait/read/send\n" +
     "(a terminal's for terminal wait/read/send), which reach it with --workspace <its id>.",

@@ -16,7 +16,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
 import { useNotificationsStore } from "../../../state/stores/notifications";
-import { SettingsSwitch } from "../section";
+import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
 
 export function NotificationsPanel() {
   const { t } = useTranslation("settings");
@@ -36,13 +36,15 @@ export function NotificationsPanel() {
   );
 
   return (
-    <div className="flex flex-col gap-6">
-      <SettingsSwitch
-        label={t("notifications.osEnabled.label")}
-        description={t("notifications.osEnabled.description")}
-        checked={osEnabled}
-        onChange={handleOsToggleChange}
-      />
-    </div>
+    <SettingsPage>
+      <SettingsGroup>
+        <SettingsSwitch
+          label={t("notifications.osEnabled.label")}
+          description={t("notifications.osEnabled.description")}
+          checked={osEnabled}
+          onChange={handleOsToggleChange}
+        />
+      </SettingsGroup>
+    </SettingsPage>
   );
 }

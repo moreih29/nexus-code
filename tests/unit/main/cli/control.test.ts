@@ -74,7 +74,7 @@ describe("changing another workspace", () => {
     expect((await nexus(app, argv)).exitCode).toBe(0);
     app.settings.crossWorkspace = "deny";
     expect((await nexus(app, argv)).stderr).toBe(
-      "nexus: changing other workspaces is turned off in NexusCode's settings (Agent CLI)\n",
+      "nexus: changing other workspaces is turned off in NexusCode's settings (Agents)\n",
     );
     expect(app.asked).toHaveLength(0);
   });

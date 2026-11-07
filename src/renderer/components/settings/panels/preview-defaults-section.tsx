@@ -8,7 +8,7 @@ import {
   type ViewMode,
 } from "../../../services/editor/preview/previewable";
 import { usePreviewDefaultsStore } from "../../../state/stores/preview-defaults";
-import { SettingsRow, SettingsSection } from "../section";
+import { SettingsGroup, SettingsRow } from "../section";
 import { SegmentedControl, type SegmentedOption } from "../segmented-control";
 
 export function PreviewDefaultsSection(): React.JSX.Element {
@@ -21,8 +21,9 @@ export function PreviewDefaultsSection(): React.JSX.Element {
     { value: "preview", label: t("common:editor.view_preview") },
   ];
   return (
-    <SettingsSection
-      label={t("editor.openIn.label")}
+    <SettingsGroup
+      title={t("editor.openIn.label")}
+      description={t("editor.openIn.hint")}
       dirty={Object.keys(byFormat).length > 0}
       onReset={clear}
     >
@@ -41,7 +42,6 @@ export function PreviewDefaultsSection(): React.JSX.Element {
           />
         </SettingsRow>
       ))}
-      <p className="text-app-ui-sm text-muted-foreground">{t("editor.openIn.hint")}</p>
-    </SettingsSection>
+    </SettingsGroup>
   );
 }
