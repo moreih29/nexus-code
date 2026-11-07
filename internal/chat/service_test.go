@@ -59,6 +59,10 @@ func TestFakeProgramHelper(t *testing.T) {
 			// Start a child that runs until it is ended, and tell its pid.
 			child := exec.Command(os.Args[0], "-test.run=^TestFakeSleeperHelper$")
 			child.Env = append(os.Environ(), "NEXUS_CHAT_SLEEPER=1")
+			// As Claude and Codex start each command, out of the program's group.
+			if os.Getenv("NEXUS_CHAT_OWN_SESSION") == "1" {
+				ownSession(child)
+			}
 			if err := child.Start(); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(4)
@@ -163,6 +167,29 @@ func hasOut(lines []LinePayload, text string) bool {
 		}
 	}
 	return false
+}
+
+// childPid starts a command under the tab's fake program and returns its pid.
+func childPid(t *testing.T, service *Service, rec *recorder) int {
+	t.Helper()
+	if err := send(t, service, "tab", "spawn"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	pid := 0
+	rec.waitFor(t, "the command's pid", func(lines []LinePayload, _ []ExitPayload) bool {
+		for _, line := range lines {
+			var msg struct {
+				Type string `json:"type"`
+				PID  int    `json:"pid"`
+			}
+			if line.Dir == DirOut && json.Unmarshal(line.Message, &msg) == nil && msg.Type == "child" {
+				pid = msg.PID
+				return true
+			}
+		}
+		return false
+	})
+	return pid
 }
 
 func startFake(t *testing.T, service *Service, tabID string, env map[string]string) StartResult {
