@@ -572,7 +572,7 @@ export function Sidebar({
                 For N rows, pinnedSlots has N+1 entries; the indices align as
                 [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
             {showLabels && pinnedGroup.length > 0 && (
-              <div className="text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1">
+              <div className="text-app-label text-muted-foreground uppercase px-4 py-1">
                 {t("sidebar.pinned")}
               </div>
             )}
@@ -600,7 +600,7 @@ export function Sidebar({
 
             {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
             {hasBothGroups && (
-              <div className={cn("mt-2", showLabels && "text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1")}>
+              <div className={cn("mt-2", showLabels && "text-app-label text-muted-foreground uppercase px-4 py-1")}>
                 {showLabels ? t("sidebar.recent") : null}
               </div>
             )}

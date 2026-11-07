@@ -348,7 +348,7 @@ export function BrowserPermissionsPanel() {
                   {/* Group header shown only in "all" scope */}
                   {scopeTab === "all" && wsName && (
                     <div className="px-1 pb-1.5">
-                      <span className="text-app-label uppercase text-muted-foreground">
+                      <span className="text-app-label font-medium text-muted-foreground">
                         {wsName}
                       </span>
                     </div>
