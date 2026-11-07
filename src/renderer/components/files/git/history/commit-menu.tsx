@@ -74,7 +74,7 @@ export function HistoryCommitMenu({ target, actions, onClose }: HistoryCommitMen
         <div
           ref={wrapperRef}
           role="menu"
-          className="fixed z-50 min-w-[212px] floating-panel p-1"
+          className="fixed z-(--layer-floating) min-w-[212px] floating-panel p-1"
           style={popoverPositionStyle(target.point)}
           onContextMenu={(event) => event.preventDefault()}
         >

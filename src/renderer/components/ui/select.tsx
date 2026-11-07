@@ -64,7 +64,7 @@ function SelectContent({
         position={position}
         className={cn(
           // Floating-layer surface (design.md §2): popover bg + island radius + outlined
-          "z-50 max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]",
+          "z-(--layer-floating) max-h-[var(--radix-select-content-available-height)] min-w-[var(--radix-select-trigger-width)]",
           "overflow-hidden rounded-(--radius-island)",
           "border border-[var(--surface-floating-border)] bg-popover text-popover-foreground",
           // Slight offset so the popup doesn't crowd the trigger

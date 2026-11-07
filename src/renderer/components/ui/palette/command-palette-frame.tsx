@@ -59,7 +59,7 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
   const activeDescendant = activeItem ? optionId(listboxId, activeItem.id) : undefined;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-[var(--floating-scrim)]">
+    <div className="fixed inset-0 z-(--layer-palette) bg-[var(--floating-scrim)]">
       <button
         type="button"
         aria-label={t("palette.close_aria")}

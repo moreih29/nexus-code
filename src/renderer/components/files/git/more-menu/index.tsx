@@ -172,7 +172,7 @@ export function GitMoreMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute right-0 top-8 z-40 min-w-[188px] floating-panel p-1"
+          className="absolute right-0 top-8 z-(--layer-in-panel) min-w-[188px] floating-panel p-1"
           onKeyDown={(event) => {
             if (event.key === "Escape") close();
           }}

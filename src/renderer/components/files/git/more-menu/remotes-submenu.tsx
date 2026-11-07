@@ -59,7 +59,7 @@ export function RemotesSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="floating-panel z-50 min-w-[188px] p-1"
+              className="floating-panel z-(--layer-floating) min-w-[188px] p-1"
             >
               <div className="max-h-[40vh] overflow-y-auto">
                 {currentRemotes.map((item) =>
@@ -148,7 +148,7 @@ function RemoveRemoteSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="floating-panel z-50 max-h-[40vh] min-w-[152px] overflow-y-auto p-1"
+              className="floating-panel z-(--layer-floating) max-h-[40vh] min-w-[152px] overflow-y-auto p-1"
             >
               {remotes.map((remote) => (
                 <MenuButton key={remote} label={remote} onClick={() => onRemoveRemote(remote)} />

@@ -76,7 +76,7 @@ export function BranchSubmenu({
               role="menu"
               data-popover-root={PORTAL_MARKER}
               style={style}
-              className="floating-panel z-50 max-h-[40vh] min-w-[220px] overflow-y-auto p-1"
+              className="floating-panel z-(--layer-floating) max-h-[40vh] min-w-[220px] overflow-y-auto p-1"
             >
               {model.map((item) =>
                 item.kind === "separator" ? (
