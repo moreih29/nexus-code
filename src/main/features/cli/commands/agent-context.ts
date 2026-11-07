@@ -21,6 +21,7 @@ const agentContext: CliCommand = {
       "type into another agent's session and wait for it (nexus terminal send --wait), and notify",
       "the user (nexus notify). The app's Claude and Codex tabs are agents too: nexus chat new",
       "--prompt TEXT (--agent codex) opens one, and chat read, send --wait and wait follow it.",
+      "nexus events --since N --wait 10m follows every session's state changes as they come.",
       "Work can be handed to another agent on its own branch and worktree: nexus worktree new",
       "NAME --prompt TEXT (--agent claude or codex; the task agent set in the app by default),",
       "then the chat wait it prints. Make worktrees with nexus worktree new, not git worktree add",

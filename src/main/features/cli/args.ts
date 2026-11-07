@@ -28,6 +28,10 @@ export class CliUsageError extends Error {}
 /** Flags every command takes. */
 export const GLOBAL_FLAGS: Record<string, FlagSpec> = {
   json: { type: "boolean", description: "Print JSON instead of text" },
+  jsonl: {
+    type: "boolean",
+    description: "Print JSON Lines: a record a line (the items of a list), for grep and jq",
+  },
   help: { type: "boolean", description: "Show help" },
 };
 

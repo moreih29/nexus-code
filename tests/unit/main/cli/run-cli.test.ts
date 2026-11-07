@@ -143,6 +143,14 @@ describe("terminals and sessions", () => {
     ]);
   });
 
+  test("--jsonl prints a list a record a line; one object on one line", async () => {
+    const lines = (await nexus(["session", "list", "--jsonl"])).stdout.trimEnd().split("\n");
+    expect(lines.map((line) => JSON.parse(line).id)).toEqual([CLAUDE_TAB, CODEX_TAB]);
+    const status = (await nexus(["status", "--jsonl"])).stdout;
+    expect(status.split("\n")).toHaveLength(2);
+    expect(JSON.parse(status)).toHaveProperty("workspace.name", "app");
+  });
+
   test("terminal read takes a terminal of another workspace by id prefix", async () => {
     const app = fakeApp();
     const result = await nexus(
