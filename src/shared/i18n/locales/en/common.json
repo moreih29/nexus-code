@@ -405,7 +405,9 @@
     "copy_relative_path": "Copy Relative Path",
     "terminal_ended_suffix": "·",
     "terminal_ended_aria": ", terminal ended",
-    "new_codex": "New Codex conversation"
+    "new_codex": "New Codex conversation",
+    "hidden_tabs_one": "1 more tab",
+    "hidden_tabs_other": "{{count}} more tabs"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",

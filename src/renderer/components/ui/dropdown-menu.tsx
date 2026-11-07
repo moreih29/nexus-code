@@ -17,8 +17,10 @@
 import { ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
 
+// A menu taller than the room the window gives it scrolls (a long list of
+// hidden tabs, say) instead of running off the window.
 const CONTENT_CLASS =
-  "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-50";
+  "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-50 max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto app-scrollbar";
 
 const ITEM_CLASS =
   "flex items-center justify-between px-2 py-1 rounded-(--radius-control) cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-[var(--state-hover-bg)] data-[disabled]:opacity-50 data-[disabled]:pointer-events-none";

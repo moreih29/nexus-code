@@ -6,6 +6,7 @@ import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
+import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
 import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
@@ -21,6 +22,7 @@ import {
   splitLeaf,
 } from "@/services/agent-view/layout";
 import { openInWorkspace } from "@/services/sessions/actions";
+import type { AgentSession } from "@/services/sessions/model";
 import { requestTabFocus } from "@/services/tab-focus";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useTabsStore } from "@/state/stores/tabs";
@@ -41,6 +43,7 @@ import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-regist
 import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import type { DropZone } from "../workspace/dnd/types";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
+import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
 import { agentDragKey, isAgentDrag, setAgentDrag, ZONE_DIRECTION } from "./drag";
 import { EndedBar } from "./ended-bar";
 
@@ -74,9 +77,10 @@ export function AgentPane({
 
   const slotElRef = useRef<HTMLElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
-  useTabInSight(stripRef, leaf.activeTabId, (strip) =>
-    strip.querySelector(`[data-agent-tab="${CSS.escape(leaf.activeTabId ?? "")}"]`),
-  );
+  const findTab = (strip: HTMLElement, key: string) =>
+    strip.querySelector(`[data-agent-tab="${CSS.escape(key)}"]`);
+  useTabInSight(stripRef, leaf.activeTabId, (strip) => findTab(strip, leaf.activeTabId ?? ""));
+  const overflow = useStripOverflow(stripRef, leaf.tabIds, findTab);
   const slotRef = useCallback(
     (el: HTMLElement | null) => {
       slotElRef.current = el;
@@ -202,6 +206,7 @@ export function AgentPane({
         <div
           ref={stripRef}
           className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{ maskImage: fadeMask(overflow) }}
         >
           {leaf.tabIds.map((key) => (
             <AgentTab
@@ -215,6 +220,17 @@ export function AgentPane({
             />
           ))}
         </div>
+        <OverflowTabsMenu
+          hidden={overflow.hidden}
+          renderTab={(key) => (
+            <AgentTabLabel
+              sessionKey={key}
+              agents={agents}
+              showWorkspace={sharedWorkspace === undefined}
+            />
+          )}
+          onSelect={select}
+        />
         <div className="flex shrink-0 items-center gap-0.5">
           {front && (
             <PaneTool label={t("agentView.pane.reveal")} onClick={() => openInWorkspace(front)}>
@@ -319,6 +335,62 @@ function WorkspaceChip({ workspaceId, className }: { workspaceId: string; classN
   );
 }
 
+/** What a tab shows of the agent `key` names, or null once its tab is gone. */
+function useAgentTabInfo(key: string, agents: Agents) {
+  const ref = parseSessionKey(key);
+  const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
+  const workspaceName = useWorkspacesStore((s) =>
+    ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
+  );
+  if (!ref || !tab) return null;
+  const session = agents.byKey.get(key)?.session;
+  const mark: AgentSession = session ?? {
+    key,
+    workspaceId: ref.workspaceId,
+    tabId: ref.tabId,
+    title: tab.title,
+    kind: tab.type === "claude" || tab.type === "codex" ? tab.type : "terminal",
+    agent: undefined,
+    state: "idle",
+    phase: "idle",
+    estimated: false,
+    since: undefined,
+    message: undefined,
+    prompt: undefined,
+  };
+  return { ref, session, mark, title: session?.title ?? tab.title, workspaceName };
+}
+
+/**
+ * An agent's workspace chip (unless the panel shows it once for all), mark,
+ * title and state: its tab's face, and its row in the overflow menu.
+ */
+function AgentTabLabel({
+  sessionKey,
+  agents,
+  showWorkspace,
+}: {
+  sessionKey: string;
+  agents: Agents;
+  showWorkspace: boolean;
+}) {
+  const info = useAgentTabInfo(sessionKey, agents);
+  if (!info) return null;
+  const { ref, session, mark, title } = info;
+  return (
+    <>
+      {showWorkspace && <WorkspaceChip workspaceId={ref.workspaceId} />}
+      <AgentMark session={mark} />
+      <span className="min-w-0 truncate">{title}</span>
+      {session && session.phase !== "idle" && (
+        <span role="img" aria-label={stateLabel(session)} className="inline-flex">
+          <StateGlyph state={session.state} />
+        </span>
+      )}
+    </>
+  );
+}
+
 function AgentTab({
   sessionKey: key,
   agents,
@@ -336,14 +408,9 @@ function AgentTab({
   onRemove: () => void;
 }) {
   const { t } = useTranslation();
-  const ref = parseSessionKey(key);
-  const tab = useTabsStore((s) => (ref ? s.byWorkspace[ref.workspaceId]?.[ref.tabId] : undefined));
-  const workspaceName = useWorkspacesStore((s) =>
-    ref ? s.workspaces.find((w) => w.id === ref.workspaceId)?.name : undefined,
-  );
-  if (!ref || !tab) return null;
-  const session = agents.byKey.get(key)?.session;
-  const title = session?.title ?? tab.title;
+  const info = useAgentTabInfo(key, agents);
+  if (!info) return null;
+  const { title, workspaceName } = info;
   return (
     <div
       data-agent-tab={key}
@@ -366,33 +433,7 @@ function AgentTab({
         onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        {showWorkspace && <WorkspaceChip workspaceId={ref.workspaceId} />}
-        {session ? (
-          <AgentMark session={session} />
-        ) : (
-          <AgentMark
-            session={{
-              key,
-              workspaceId: ref.workspaceId,
-              tabId: ref.tabId,
-              title,
-              kind: tab.type === "claude" || tab.type === "codex" ? tab.type : "terminal",
-              agent: undefined,
-              state: "idle",
-              phase: "idle",
-              estimated: false,
-              since: undefined,
-              message: undefined,
-              prompt: undefined,
-            }}
-          />
-        )}
-        <span className="min-w-0 truncate">{title}</span>
-        {session && session.phase !== "idle" && (
-          <span role="img" aria-label={stateLabel(session)} className="inline-flex">
-            <StateGlyph state={session.state} />
-          </span>
-        )}
+        <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
       </button>
       <button
         type="button"

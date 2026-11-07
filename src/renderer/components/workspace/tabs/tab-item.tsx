@@ -100,6 +100,49 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 
+/**
+ * A tab's type icon: a browser tab's favicon, an editor tab's file icon
+ * (theme-aware), otherwise its type's lucide icon. The tab strip's overflow
+ * menu shows it too.
+ */
+export function TabIcon({ tab }: { tab: Tab }) {
+  const faviconUrl = useBrowserRuntimeStore((s) =>
+    tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
+  );
+  if (tab.type === "browser") {
+    return (
+      <span data-tab-icon className="inline-flex" aria-hidden>
+        <BrowserFaviconIcon faviconUrl={faviconUrl} />
+      </span>
+    );
+  }
+  if (tab.type === "editor") {
+    return (
+      <span data-tab-icon className="inline-flex" aria-hidden>
+        <FileIcon
+          kind="file"
+          name={basename(tab.props.filePath)}
+          size="sm"
+          tone="muted"
+          className="shrink-0"
+        />
+      </span>
+    );
+  }
+  const TypeIcon = tabTypeIcon(tab);
+  if (!TypeIcon) return null;
+  return (
+    <span data-tab-icon className="inline-flex" aria-hidden>
+      <TypeIcon
+        width={12}
+        height={12}
+        strokeWidth={1.5}
+        className="shrink-0 text-muted-foreground"
+      />
+    </span>
+  );
+}
+
 function PinIcon() {
   return (
     // biome-ignore lint/a11y/noSvgWithoutTitle: decorative pin icon, hidden via aria-hidden
@@ -305,9 +348,6 @@ export function TabItem({
 
   // 브라우저 탭 favicon — type === "browser"일 때만 runtime store에서 lookup.
   // 다른 type이면 항상 null (조건부 hook 회피를 위해 selector 자체는 항상 호출).
-  const faviconUrl = useBrowserRuntimeStore((s) =>
-    tab.type === "browser" ? (s.runtimes.get(tab.id)?.faviconUrl ?? null) : null,
-  );
 
   // Git decoration — 파일트리 row와 동일한 시맨틱: editor 탭의 작업트리 상태
   // (modified / added / deleted / untracked / conflict / renamed)를 라벨 색으로,
@@ -373,6 +413,7 @@ export function TabItem({
     <div
       key={tab.id}
       className="group relative flex items-center h-full"
+      data-tab-id={tab.id}
       {...{ [DND_TAB_ITEM_ATTR]: "" }}
       draggable
       onDragStart={onDragStart}
@@ -451,38 +492,8 @@ export function TabItem({
             <PinIcon />
           </span>
         )}
-        {/* Type 아이콘 — browser는 favicon, editor는 FileIcon(테마 인지형),
-            그 외는 전용 lucide 아이콘. 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
-        {tab.type === "browser" ? (
-          <span data-tab-icon className="inline-flex" aria-hidden>
-            <BrowserFaviconIcon faviconUrl={faviconUrl} />
-          </span>
-        ) : tab.type === "editor" ? (
-          <span data-tab-icon className="inline-flex" aria-hidden>
-            <FileIcon
-              kind="file"
-              name={basename(tab.props.filePath)}
-              size="sm"
-              tone="muted"
-              className="shrink-0"
-            />
-          </span>
-        ) : (
-          (() => {
-            const TypeIcon = tabTypeIcon(tab);
-            if (!TypeIcon) return null;
-            return (
-              <span data-tab-icon className="inline-flex" aria-hidden>
-                <TypeIcon
-                  width={12}
-                  height={12}
-                  strokeWidth={1.5}
-                  className="shrink-0 text-muted-foreground"
-                />
-              </span>
-            );
-          })()
-        )}
+        {/* Type 아이콘 — 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
+        <TabIcon tab={tab} />
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
             <Lock
