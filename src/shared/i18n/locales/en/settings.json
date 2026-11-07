@@ -169,7 +169,6 @@
     "fontLigatures": "Font ligatures",
     "preview": "Preview",
     "ligatures": {
-      "enable": "Enable ligatures",
       "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Toggle to see the effect in the preview above."
     },
     "fontFamilyPlaceholder": "Select font family",
@@ -231,7 +230,6 @@
     "fontLigatures": "Font ligatures",
     "preview": "Preview",
     "ligatures": {
-      "enable": "Enable ligatures",
       "description": "Renders multi-character sequences like =>, !=, >= as single glyphs when the font supports it. Applies to terminal programs (shells, TUIs) too."
     },
     "fontFamilyPlaceholder": "Select font family",

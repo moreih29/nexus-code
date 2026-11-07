@@ -328,8 +328,11 @@ export function SettingsDialog({
 
             {/* Right panel */}
             <div className="flex flex-1 flex-col min-w-0 min-h-0">
-              {/* Panel header with close button */}
-              <div className="flex items-center justify-end px-4 py-3 border-b border-border">
+              {/* Panel header — the open panel's name and the close button */}
+              <div className="flex items-center justify-between gap-4 pl-6 pr-4 py-3 border-b border-border">
+                <h2 className="truncate text-app-body-emphasis text-foreground">
+                  {resolvedNav.find((item) => item.id === activeId)?.label}
+                </h2>
                 <DialogCloseButton label={t("dialog.close")} />
               </div>
 
