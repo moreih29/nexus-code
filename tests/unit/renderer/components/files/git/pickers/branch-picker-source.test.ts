@@ -101,7 +101,7 @@ describe("createBranchPickerSource — empty query layout", () => {
     const labels = items.map((it) => it.label);
     expect(labels).toEqual(["feat/work", "main", "stable", "dev"]);
 
-    expect(items[0]?.kindLabel).toBe("current");
+    expect(items[0]).toMatchObject({ current: true, kindLabel: "Current" });
     expect(items[3]?.description).toBe("Remote origin/dev");
   });
 

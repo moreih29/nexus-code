@@ -69,7 +69,7 @@ export function buildMergeTargetItems(
       id: `merge-local:${name}`,
       label: name,
       description: t("files:git.mergePicker.descriptionLocal"),
-      kindLabel: "branch",
+      kindLabel: t("files:git.pickerKind.branch"),
       kind: "local" as const,
       ref: name,
     }));
@@ -82,7 +82,7 @@ export function buildMergeTargetItems(
       id: `merge-remote:${name}`,
       label: name,
       description: t("files:git.mergePicker.descriptionRemote"),
-      kindLabel: "remote",
+      kindLabel: t("files:git.pickerKind.remote"),
       kind: "remote" as const,
       ref: name,
     }));

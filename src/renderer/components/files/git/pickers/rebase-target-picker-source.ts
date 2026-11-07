@@ -67,7 +67,7 @@ export function buildRebaseTargetItems(
       id: `rebase-local:${name}`,
       label: name,
       description: t("files:git.rebasePicker.descriptionLocal"),
-      kindLabel: "branch",
+      kindLabel: t("files:git.pickerKind.branch"),
       kind: "local" as const,
       ref: name,
     }));
@@ -80,7 +80,7 @@ export function buildRebaseTargetItems(
       id: `rebase-remote:${name}`,
       label: name,
       description: t("files:git.rebasePicker.descriptionRemote"),
-      kindLabel: "remote",
+      kindLabel: t("files:git.pickerKind.remote"),
       kind: "remote" as const,
       ref: name,
     }));
