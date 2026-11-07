@@ -11,6 +11,7 @@ import { MANAGER_TAB_ID } from "../../../shared/manager/manager";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ensureDir, root } from "../../infra/agent/runtimeDirs";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { writeManagerCodexRules } from "./codex-rules";
 
 const log = createLogger("manager");
 const c = ipcContract.manager.call;
@@ -40,6 +41,9 @@ export function registerManagerChannel(options: ManagerFeatureOptions): void {
       prepare: async () => {
         const cwd = managerDir();
         await ensureDir(cwd);
+        await writeManagerCodexRules(cwd).catch((err: Error) => {
+          log.warn(`the manager's Codex rules were not written: ${err.message}`);
+        });
         const workspace = options.workspaceManager.openManagerWorkspace(cwd);
         return ipcOk({ workspaceId: workspace.id, tabId: MANAGER_TAB_ID, cwd });
       },
