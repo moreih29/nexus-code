@@ -1,4 +1,7 @@
-package hookclient
+// Package nodeshim runs a program found on PATH with its arguments as they
+// are: on Windows a node package's command (npm's or pnpm's) runs as node
+// on its script, not through the .cmd or sh script that wraps it.
+package nodeshim
 
 import (
 	"path/filepath"
@@ -18,9 +21,9 @@ var (
 	cmdNodeProg = regexp.MustCompile(`(?m)SET "_prog=%dp0%\\node\.exe"`)
 )
 
-// nodeShimOf reads `content` as the node shim at `path`: the script node
+// shimOf reads `content` as the node shim at `path`: the script node
 // runs, and node's own options. False when it is none.
-func nodeShimOf(path string, content []byte) (script string, nodeArgs []string, ok bool) {
+func shimOf(path string, content []byte) (script string, nodeArgs []string, ok bool) {
 	text := string(content)
 	var m []string
 	switch strings.ToLower(filepath.Ext(path)) {

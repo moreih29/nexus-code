@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
+	"github.com/nexus-code/nexus-code/internal/nodeshim"
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
@@ -136,7 +137,9 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		return StartResult{PID: sess.proc.cmd.Process.Pid, Attached: true}, nil
 	}
 
-	cmd := exec.Command(p.Program, p.Args...)
+	// A node package's command runs as node on its script: through npm's
+	// .cmd, cmd.exe would end the agent manager's prompt at its first line.
+	cmd := nodeshim.Command(p.Program, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = mergeEnv(p.Env)
 	cmd.SysProcAttr = newSysProcAttr()

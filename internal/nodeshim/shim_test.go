@@ -1,4 +1,4 @@
-package hookclient
+package nodeshim
 
 import (
 	"path/filepath"
@@ -50,7 +50,7 @@ else
 fi
 `
 
-func TestNodeShimOf(t *testing.T) {
+func TestShimOf(t *testing.T) {
 	dir := filepath.Join("C:", "npm")
 	codexJS := filepath.Join(dir, "node_modules", "@openai", "codex", "bin", "codex.js")
 	for _, tc := range []struct {
@@ -75,10 +75,10 @@ func TestNodeShimOf(t *testing.T) {
 		{name: "a program", path: filepath.Join(dir, "codex.exe"), content: "MZ"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			script, nodeArgs, ok := nodeShimOf(tc.path, []byte(tc.content))
+			script, nodeArgs, ok := shimOf(tc.path, []byte(tc.content))
 			if ok != (tc.script != "") || script != tc.script ||
 				strings.Join(nodeArgs, " ") != strings.Join(tc.nodeArgs, " ") {
-				t.Fatalf("nodeShimOf = %q, %q, %v", script, nodeArgs, ok)
+				t.Fatalf("shimOf = %q, %q, %v", script, nodeArgs, ok)
 			}
 		})
 	}

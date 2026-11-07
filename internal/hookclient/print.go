@@ -40,6 +40,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/nexus-code/nexus-code/internal/nodeshim"
 )
 
 const (
@@ -222,7 +224,7 @@ func runPrint(
 			transcript.startAtEnd()
 		}
 	}
-	cmd := programCommand(claude, args...)
+	cmd := nodeshim.Command(claude, args...)
 	cmd.Stdin = stdin
 	cmd.Stderr = stderr
 	// A json or stream-json run's output tells of the run, and a text run's

@@ -26,6 +26,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/nexus-code/nexus-code/internal/nodeshim"
 )
 
 // RunCodexExec is the `agent exec-run` entrypoint: args are codex's path and
@@ -328,7 +330,7 @@ func runCodexExec(
 	if teller != nil {
 		endpoint = run.settle()
 	}
-	cmd := programCommand(codex, args...)
+	cmd := nodeshim.Command(codex, args...)
 	// A run that prints events tells of itself on its output, and a text
 	// run's output is its answer. A text run's stderr tells its model and
 	// session, unless it is a terminal, which stays codex's.

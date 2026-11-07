@@ -1,6 +1,6 @@
 //go:build windows
 
-package hookclient
+package nodeshim
 
 import (
 	"io"
@@ -13,12 +13,12 @@ import (
 // shimReadMax is as much of a command as is read to tell a node shim.
 const shimReadMax = 8 << 10
 
-// programCommand runs the program at `path`, which the wrapper found on
-// PATH. A node package's command runs as node on its script: the .cmd
-// Windows would run instead passes the arguments through cmd.exe, which
-// ends a prompt at its first line and expands its %VARS%, and the sh
-// script through Git Bash, which splits them.
-func programCommand(path string, args ...string) *exec.Cmd {
+// Command runs the program at `path`, as found on PATH. A node package's
+// command runs as node on its script: the .cmd Windows would run instead
+// passes the arguments through cmd.exe, which ends a prompt at its first
+// line and expands its %VARS%, and the sh script through Git Bash, which
+// splits them.
+func Command(path string, args ...string) *exec.Cmd {
 	if node, script, nodeArgs, ok := nodeShim(path); ok {
 		return exec.Command(node, append(append(nodeArgs, script), args...)...)
 	}
@@ -39,7 +39,7 @@ func nodeShim(path string) (node, script string, nodeArgs []string, ok bool) {
 		if err != nil {
 			continue
 		}
-		script, nodeArgs, ok = nodeShimOf(candidate, content)
+		script, nodeArgs, ok = shimOf(candidate, content)
 		if !ok || !isFile(script) {
 			continue
 		}
