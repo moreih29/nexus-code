@@ -238,7 +238,7 @@ function remoteTagToItem(tag: RemoteTag): RemoteTagPickItem {
     label: `${tag.remote}/${tag.name}`,
     description: formatted,
     detail: `Remote ${tag.remote} · ${formatted}`,
-    kindLabel: "delete",
+    kindLabel: t("files:git.pickerKind.delete"),
     ariaLabel: t("files:git.tagPicker.deleteRemoteTagAria", { remote: tag.remote, name: tag.name }),
     tooltip: t("files:git.tagPicker.deleteRemoteTagTooltip", { remote: tag.remote }),
     tone: "destructive",
@@ -292,9 +292,10 @@ function kindLabelForLocalMode(
   tagType: Tag["type"],
   exactCreateConflict: boolean,
 ): string {
-  if (mode === "delete-local") return "delete";
-  if (mode === "create" && exactCreateConflict) return "exists";
-  return tagType;
+  const t = i18next.t.bind(i18next);
+  if (mode === "delete-local") return t("files:git.pickerKind.delete");
+  if (mode === "create" && exactCreateConflict) return t("files:git.pickerKind.exists");
+  return t(`files:git.pickerKind.${tagType}`);
 }
 
 /**

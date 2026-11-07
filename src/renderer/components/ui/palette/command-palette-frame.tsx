@@ -153,9 +153,12 @@ export function CommandPaletteFrame<TItem extends PaletteItem>({
                       </div>
                     </div>
                     {item.kindLabel ? (
+                      // A small badge, in the row's language and case: it may be
+                      // a translated kind ("현재") or the user's data (a SHA, a
+                      // branch name), so it is never capitalised.
                       <div
                         className={cn(
-                          "self-start text-app-label uppercase",
+                          "self-start shrink-0 rounded-full border border-border px-1.5 text-app-micro leading-4",
                           destructive ? "git-destructive-text" : "text-stone-gray",
                         )}
                       >

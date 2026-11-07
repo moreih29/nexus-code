@@ -800,6 +800,15 @@
     "helperPrompt": {
       "awaitingCredentials": "자격 증명 기다리는 중…",
       "editingCommitMessage": "커밋 메시지 편집 중…"
+    },
+    "pickerKind": {
+      "current": "현재",
+      "branch": "브랜치",
+      "remote": "원격",
+      "delete": "삭제",
+      "exists": "이미 있음",
+      "lightweight": "경량",
+      "annotated": "주석"
     }
   }
 }

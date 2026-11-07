@@ -84,8 +84,8 @@ describe("createTagPickerSource", () => {
 
     const items = await search(source, "");
     expect(items.map((item) => item.label)).toEqual(["Create tag…", "snapshot", "v1.0.0"]);
-    expect(items[1]).toMatchObject({ kind: "tag", kindLabel: "lightweight", scope: "local" });
-    expect(items[2]).toMatchObject({ kind: "tag", kindLabel: "annotated", scope: "local" });
+    expect(items[1]).toMatchObject({ kind: "tag", kindLabel: "Lightweight", scope: "local" });
+    expect(items[2]).toMatchObject({ kind: "tag", kindLabel: "Annotated", scope: "local" });
   });
 
   it("filters browse tags and carries a typed query into the create row", async () => {
@@ -131,7 +131,7 @@ describe("createTagPickerSource", () => {
     const existingItem = items.find((item) => item.kind === "tag");
 
     expect(items.map((item) => item.label)).toEqual(["Create tag: 'v1.0.0'", "v1.0.0"]);
-    expect(existingItem).toMatchObject({ kindLabel: "exists", detail: "Already exists · release" });
+    expect(existingItem).toMatchObject({ kindLabel: "Exists", detail: "Already exists · release" });
 
     if (!createItem || !existingItem) throw new Error("expected create and tag items");
     source.accept(createItem, { mode: "default", modifiers: noModifiers() });
@@ -156,7 +156,7 @@ describe("createTagPickerSource", () => {
     expect(items.map((item) => item.label)).toEqual(["local"]);
     expect(items[0]).toMatchObject({
       kind: "tag",
-      kindLabel: "delete",
+      kindLabel: "Delete",
       detail: "Local tag · release",
       tone: "destructive",
     });
@@ -191,7 +191,7 @@ describe("createTagPickerSource", () => {
     expect(items.map((item) => item.label)).toEqual(["origin/v1.0.0"]);
     expect(items[0]).toMatchObject({
       kind: "tag",
-      kindLabel: "delete",
+      kindLabel: "Delete",
       scope: "remote",
       remote: "origin",
       detail: "Remote origin · aaaaaaa",

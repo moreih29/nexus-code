@@ -800,6 +800,15 @@
     "helperPrompt": {
       "awaitingCredentials": "Awaiting credentials…",
       "editingCommitMessage": "Editing commit message…"
+    },
+    "pickerKind": {
+      "current": "Current",
+      "branch": "Branch",
+      "remote": "Remote",
+      "delete": "Delete",
+      "exists": "Exists",
+      "lightweight": "Lightweight",
+      "annotated": "Annotated"
     }
   }
 }
