@@ -1,6 +1,6 @@
 import { FilePlus, Globe, Plus, Radar, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs, Tooltip as RadixTooltip } from "radix-ui";
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { DND_TAB_BAR_ATTR } from "@/components/workspace/dnd/markers";
+import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
 import { basename } from "@/utils/path";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
@@ -65,6 +66,17 @@ export function TabBar({
 }: TabBarProps) {
   const { t } = useTranslation();
   const { barRef, tabsListRef, insertion } = useTabBarDropTarget({ workspaceId, leafId });
+  const stripRef = useRef<HTMLDivElement | null>(null);
+  const setStrip = useCallback(
+    (el: HTMLDivElement | null) => {
+      stripRef.current = el;
+      barRef(el);
+    },
+    [barRef],
+  );
+  useTabInSight(stripRef, activeTabId, (strip) =>
+    strip.querySelector('[role="tab"][data-state="active"]'),
+  );
 
   // "New Terminal With ›" lists this machine's shells and the ones added in
   // the settings, so it is offered in local workspaces only (an SSH
@@ -140,7 +152,7 @@ export function TabBar({
       {/* role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
           탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다. */}
       <div
-        ref={barRef}
+        ref={setStrip}
         role="status"
         aria-live="polite"
         {...{ [DND_TAB_BAR_ATTR]: "" }}
