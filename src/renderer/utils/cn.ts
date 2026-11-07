@@ -13,6 +13,9 @@ import { appTypeScale, typeScale } from "../../shared/design-tokens";
 // `text-muted-foreground` in the same `cn()` call — the size utility is
 // silently dropped during merge. Register every typeScale + appTypeScale
 // role here so they are correctly placed in the font-size group.
+//
+// `git-destructive-text` (globals.css) is a text colour: registered so it
+// replaces `text-foreground` when a Git menu item marks itself destructive.
 // ---------------------------------------------------------------------------
 
 function camelToKebab(s: string): string {
@@ -25,6 +28,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     classGroups: {
       "font-size": [{ text: TYPO_ROLE_NAMES }],
+      "text-color": ["git-destructive-text"],
     },
   },
 });

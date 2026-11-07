@@ -10,20 +10,26 @@
  * are hidden under DOM menus without per-wrapper wiring.
  *
  * Public surface: DropdownMenuRoot · DropdownMenuTrigger · DropdownMenuContent
- *                 DropdownMenuItem · DropdownMenuShortcut · DropdownMenuLabel
+ *                 DropdownMenuItem · DropdownMenuCheckboxItem
+ *                 DropdownMenuRadioGroup · DropdownMenuRadioItem
+ *                 DropdownMenuShortcut · DropdownMenuLabel · DropdownMenuText
  *                 DropdownMenuSeparator
  *                 DropdownMenuSub · DropdownMenuSubTrigger · DropdownMenuSubContent
  */
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { DropdownMenu as RadixDropdownMenu } from "radix-ui";
+import { cn } from "@/utils/cn";
+import { tooltipProps } from "./tooltip";
 
 // A menu taller than the room the window gives it scrolls (a long list of
 // hidden tabs, say) instead of running off the window.
 const CONTENT_CLASS =
   "bg-popover text-popover-foreground border border-border rounded-(--radius-control) shadow-none py-1 min-w-[180px] z-(--layer-floating) max-h-(--radix-dropdown-menu-content-available-height) overflow-y-auto app-scrollbar";
 
+// A disabled item still takes the pointer, for the tooltip that says why it
+// is off; Radix neither highlights nor selects it.
 const ITEM_CLASS =
-  "flex items-center justify-between px-2 py-1 rounded-(--radius-control) cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-[var(--state-hover-bg)] data-[disabled]:opacity-50 data-[disabled]:pointer-events-none";
+  "flex items-center justify-between px-2 py-1 rounded-(--radius-control) cursor-default outline-none text-app-ui-sm text-foreground data-[highlighted]:bg-[var(--state-hover-bg)] data-[disabled]:opacity-50";
 
 const SEPARATOR_CLASS = "h-px bg-border my-1";
 
@@ -36,11 +42,23 @@ interface DropdownMenuRootProps {
   onOpenChange?: (open: boolean) => void;
   /** Set to open and close the menu from code; left out, the trigger does. */
   open?: boolean;
+  /**
+   * Whether the open menu holds the keyboard and blocks the page under it.
+   * Defaults to true. A menu whose items open a picker or a dialog sets it
+   * to false: a held keyboard pulls the focus back from what the item
+   * opened, and the menu's trigger takes it when the menu closes.
+   */
+  modal?: boolean;
 }
 
-export function DropdownMenuRoot({ children, onOpenChange, open }: DropdownMenuRootProps) {
+export function DropdownMenuRoot({
+  children,
+  onOpenChange,
+  open,
+  modal = true,
+}: DropdownMenuRootProps) {
   return (
-    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+    <RadixDropdownMenu.Root open={open} onOpenChange={onOpenChange} modal={modal}>
       {children}
     </RadixDropdownMenu.Root>
   );
@@ -65,9 +83,10 @@ export function DropdownMenuTrigger({ children }: DropdownMenuTriggerProps) {
 interface DropdownMenuContentProps {
   children: React.ReactNode;
   /**
-   * Forwarded to Radix `DropdownMenu.Content`. Radix's default behavior
-   * is to return focus to the trigger element after the menu closes.
-   * Consumers that hand focus off to a freshly-mounted element should pass
+   * Forwarded to Radix `DropdownMenu.Content`. Left out, closing puts the
+   * keyboard back on the trigger only when nothing else took it: an item
+   * that opened a dialog or a picker keeps the keyboard there. Consumers
+   * that hand focus off later than that should pass
    * `(e) => e.preventDefault()` to prevent the focus race.
    */
   onCloseAutoFocus?: (event: Event) => void;
@@ -93,12 +112,18 @@ export function DropdownMenuContent({
         align={align}
         side={side}
         sideOffset={sideOffset}
-        onCloseAutoFocus={onCloseAutoFocus}
+        onCloseAutoFocus={onCloseAutoFocus ?? keepFocusTakenElsewhere}
       >
         {children}
       </RadixDropdownMenu.Content>
     </RadixDropdownMenu.Portal>
   );
+}
+
+/** Lets the trigger have the keyboard back only when it went nowhere else. */
+function keepFocusTakenElsewhere(event: Event): void {
+  const focused = document.activeElement;
+  if (focused && focused !== document.body) event.preventDefault();
 }
 
 // ---------------------------------------------------------------------------
@@ -123,17 +148,101 @@ interface DropdownMenuItemProps {
   children: React.ReactNode;
   disabled?: boolean;
   onSelect?: () => void;
+  /** Its tooltip: why a disabled item is off. */
+  tooltip?: string;
+  /** Over the item's text, as a destructive action's colour. */
+  className?: string;
 }
 
-export function DropdownMenuItem({ children, disabled, onSelect }: DropdownMenuItemProps) {
+export function DropdownMenuItem({
+  children,
+  disabled,
+  onSelect,
+  tooltip,
+  className,
+}: DropdownMenuItemProps) {
   return (
     <RadixDropdownMenu.Item
-      className={ITEM_CLASS}
+      className={cn(ITEM_CLASS, className)}
       disabled={disabled}
       onSelect={onSelect != null ? () => onSelect() : undefined}
+      {...(tooltip ? tooltipProps(tooltip) : {})}
     >
       {children}
     </RadixDropdownMenu.Item>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Checkbox and radio items
+// ---------------------------------------------------------------------------
+
+/** The check before a checkbox or radio item, its place kept when unset. */
+function ItemCheck() {
+  return (
+    <span className="flex size-3.5 shrink-0 items-center justify-center">
+      <RadixDropdownMenu.ItemIndicator>
+        <Check aria-hidden className="size-3.5" />
+      </RadixDropdownMenu.ItemIndicator>
+    </span>
+  );
+}
+
+/**
+ * An option that is on or off. Setting it leaves the menu open, so several
+ * can be set in one go.
+ */
+export function DropdownMenuCheckboxItem({
+  children,
+  checked,
+  onCheckedChange,
+}: {
+  children: React.ReactNode;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <RadixDropdownMenu.CheckboxItem
+      className={cn(ITEM_CLASS, "justify-start gap-2")}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      onSelect={(event) => event.preventDefault()}
+    >
+      <ItemCheck />
+      {children}
+    </RadixDropdownMenu.CheckboxItem>
+  );
+}
+
+/** One choice of several; picking one closes the menu. */
+export function DropdownMenuRadioGroup({
+  children,
+  value,
+  onValueChange,
+}: {
+  children: React.ReactNode;
+  value: string;
+  onValueChange: (value: string) => void;
+}) {
+  return (
+    <RadixDropdownMenu.RadioGroup value={value} onValueChange={onValueChange}>
+      {children}
+    </RadixDropdownMenu.RadioGroup>
+  );
+}
+
+export function DropdownMenuRadioItem({
+  children,
+  value,
+}: {
+  children: React.ReactNode;
+  value: string;
+}) {
+  return (
+    <RadixDropdownMenu.RadioItem className={cn(ITEM_CLASS, "justify-start gap-2")} value={value}>
+      <ItemCheck />
+      {children}
+    </RadixDropdownMenu.RadioItem>
   );
 }
 
@@ -154,6 +263,26 @@ export function DropdownMenuLabel({ children }: { children: React.ReactNode }) {
 // Separator
 // ---------------------------------------------------------------------------
 
+/** A line of text in the menu that is not an item: a list it shows, a note. */
+export function DropdownMenuText({
+  children,
+  muted = false,
+}: {
+  children: React.ReactNode;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "px-2 py-1 text-app-ui-sm",
+        muted ? "text-muted-foreground" : "text-foreground",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function DropdownMenuSeparator() {
   return <RadixDropdownMenu.Separator className={SEPARATOR_CLASS} />;
 }
@@ -167,10 +296,21 @@ export function DropdownMenuSub({ children }: { children: React.ReactNode }) {
 }
 
 /** An item that opens its submenu, with a chevron at the end. */
-export function DropdownMenuSubTrigger({ children }: { children: React.ReactNode }) {
+export function DropdownMenuSubTrigger({
+  children,
+  disabled,
+  tooltip,
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  /** Its tooltip: why a disabled submenu is off. */
+  tooltip?: string;
+}) {
   return (
     <RadixDropdownMenu.SubTrigger
       className={`${ITEM_CLASS} data-[state=open]:bg-[var(--state-hover-bg)]`}
+      disabled={disabled}
+      {...(tooltip ? tooltipProps(tooltip) : {})}
     >
       {children}
       <ChevronRight aria-hidden className="ml-4 size-3.5 shrink-0 text-muted-foreground" />
