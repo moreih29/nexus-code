@@ -122,11 +122,18 @@ export function TooltipRoot() {
     const onBlur = (e: FocusEvent) => {
       if (current && e.target === current) hide();
     };
+    // The pointer gone from the page: out of the window, or onto its
+    // caption buttons or a region that drags it, of which the page hears
+    // no more.
+    const onOut = (e: PointerEvent) => {
+      if (e.relatedTarget === null && current) hide();
+    };
     const onAway = () => {
       if (current) hide();
     };
 
     document.addEventListener("pointerover", onOver, true);
+    document.addEventListener("pointerout", onOut, true);
     document.addEventListener("pointerdown", onDown, true);
     document.addEventListener("focusin", onFocus, true);
     document.addEventListener("focusout", onBlur, true);
@@ -138,6 +145,7 @@ export function TooltipRoot() {
     return () => {
       clearTimeout(timer);
       document.removeEventListener("pointerover", onOver, true);
+      document.removeEventListener("pointerout", onOut, true);
       document.removeEventListener("pointerdown", onDown, true);
       document.removeEventListener("focusin", onFocus, true);
       document.removeEventListener("focusout", onBlur, true);

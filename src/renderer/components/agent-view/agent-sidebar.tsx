@@ -101,7 +101,7 @@ export function AgentSidebar() {
               {t("agentView.list.title")}
             </span>
           </div>
-          <fieldset aria-label={t("agentView.list.filter_aria")} className="flex gap-1">
+          <fieldset aria-label={t("agentView.list.filter_aria")} className="flex flex-wrap gap-1">
             {FILTERS.map((value) => (
               <button
                 key={value}
@@ -109,7 +109,7 @@ export function AgentSidebar() {
                 aria-pressed={filter === value}
                 onClick={() => setFilter(value)}
                 className={cn(
-                  "flex items-center gap-1 rounded-full border px-2 py-0.5 text-app-micro transition-colors",
+                  "flex items-center gap-1 rounded-full border px-2 py-0.5 text-app-micro whitespace-nowrap transition-colors",
                   filter === value
                     ? "border-[var(--state-selected-indicator)] bg-[var(--sidebar-item-selected-bg)] text-foreground"
                     : "border-border text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
