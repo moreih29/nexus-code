@@ -16,6 +16,7 @@ import {
   AtSign,
   FileText,
   ListPlus,
+  Mic,
   Paperclip,
   Pencil,
   Plus,
@@ -34,6 +35,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { ipcCallResult } from "../../ipc/client";
 import { appCommandsBeside } from "../../services/chat/app-commands";
 import {
   applyCompletion,
@@ -622,6 +624,21 @@ export function Composer({
             <ModelChip controller={controller} state={state} />
             <EffortChip controller={controller} state={state} />
             <div className="flex-1" />
+            {isMac() && (
+              <IconButton
+                label={t("chat.composer.dictate")}
+                size="md"
+                disabled={sending}
+                // Dictation types where the keyboard is, so the box keeps it.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  areaRef.current?.focus();
+                  void ipcCallResult("window", "startDictation", undefined);
+                }}
+              >
+                <Mic className="size-4" />
+              </IconButton>
+            )}
             <AddMenu
               onAttach={() => fileRef.current?.click()}
               onMention={

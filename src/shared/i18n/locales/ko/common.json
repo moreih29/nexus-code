@@ -991,6 +991,7 @@
       "remove_image": "이미지 제거",
       "image_too_large": "{{name}}은(는) Claude가 읽을 수 있는 크기보다 큽니다.",
       "add": "추가",
+      "dictate": "받아쓰기 시작",
       "attach_file": "이미지나 파일 첨부",
       "mention_file": "파일 참조",
       "command": "명령",

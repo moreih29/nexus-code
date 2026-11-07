@@ -1548,6 +1548,12 @@ export const ipcContract = {
        * menu button opens it instead.
        */
       showAppMenu: call(z.object({ x: z.number(), y: z.number() }), z.void()),
+      /**
+       * Starts the OS's own dictation in whatever field of the window has the
+       * keyboard, as Edit > Start Dictation does on macOS. Other platforms
+       * have no such action yet, so there it does nothing.
+       */
+      startDictation: call(z.void(), z.void()),
     },
     listen: {
       /** Sent to one window only, when it is maximized or restored. */

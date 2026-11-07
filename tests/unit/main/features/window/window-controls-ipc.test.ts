@@ -82,6 +82,23 @@ describe("window channel", () => {
     expect(opened).toHaveLength(1);
   });
 
+  test("starts dictation in the window of the renderer that called", () => {
+    const own = makeWindow();
+    const other = makeWindow();
+    const ownSender = { id: 1 } as WebContents;
+    const dictated: ControlledWindow[] = [];
+    const handlers = windowControlHandlers(
+      (sender): ControlledWindow | null => (sender === ownSender ? own.win : other.win),
+      () => {},
+      (win) => dictated.push(win),
+    );
+
+    handlers.startDictation(undefined, { sender: ownSender });
+    handlers.startDictation(undefined, {});
+
+    expect(dictated).toEqual([own.win]);
+  });
+
   test("the contract matches what the handlers return", () => {
     const own = makeWindow();
     const handlers = windowControlHandlers(

@@ -991,6 +991,7 @@
       "remove_image": "Remove image",
       "image_too_large": "{{name}} is larger than an image Claude can read.",
       "add": "Add",
+      "dictate": "Start dictation",
       "attach_file": "Attach images or files",
       "mention_file": "Mention a file",
       "command": "Command",
