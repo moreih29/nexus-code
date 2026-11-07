@@ -84,6 +84,8 @@ async function start(agent: ChatAgent): Promise<void> {
             cwd,
             ...(session ? { threadId: session } : {}),
             developerInstructions: MANAGER_PROMPT,
+            // Its rules let nexus out of Codex's sandbox (main writes them).
+            trusted: true,
           },
           managerCodexHooks,
         );

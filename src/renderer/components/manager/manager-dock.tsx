@@ -96,6 +96,7 @@ export function ManagerDock() {
                 isVisible
                 hooks={managerCodexHooks}
                 developerInstructions={MANAGER_PROMPT}
+                trusted
               />
             ) : (
               <div className="flex flex-1 items-center justify-center text-muted-foreground">
