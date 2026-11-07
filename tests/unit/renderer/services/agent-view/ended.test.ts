@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   type EndedAgent,
   endedAgents,
+  endedFromStore,
   endedToRemove,
+  endedToStore,
   noteSeen,
   resumeLine,
   type SeenAgents,
   sameEnded,
+  withKept,
 } from "../../../../../src/renderer/services/agent-view/ended";
 import type { AgentSession } from "../../../../../src/renderer/services/sessions/model";
 
@@ -147,5 +150,58 @@ describe("resumeLine", () => {
       "codex resume",
     );
     expect(resumeLine({ agent: undefined, sessionId: undefined, prompted: false })).toBeNull();
+  });
+});
+
+describe("withKept", () => {
+  const kept = new Map<string, EndedAgent>([
+    ["w:a", { agent: "claude", sessionId: "s-1", prompted: true }],
+    ["w:b", { agent: "codex", sessionId: undefined, prompted: false }],
+  ]);
+
+  test("adds what a panel showed ended before a restart", () => {
+    const seen = withKept(NONE, kept);
+    expect([...seen.keys()]).toEqual(["w:a", "w:b"]);
+    expect(seen.get("w:a")).toEqual({ agent: "claude", sessionId: "s-1", prompted: true });
+  });
+
+  test("keeps what was seen this run over what was kept", () => {
+    const now: SeenAgents = new Map([
+      ["w:a", { agent: "claude", sessionId: "s-2", prompted: false }],
+    ]);
+    expect(withKept(now, kept).get("w:a")?.sessionId).toBe("s-2");
+  });
+
+  test("returns the same map when it adds nothing", () => {
+    const seen = withKept(NONE, kept);
+    expect(withKept(seen, kept)).toBe(seen);
+    expect(withKept(NONE, new Map())).toBe(NONE);
+  });
+});
+
+describe("endedToStore / endedFromStore", () => {
+  const ended = new Map<string, EndedAgent>([
+    ["w:a", { agent: "claude", sessionId: "s-1", prompted: true }],
+    ["w:b", { agent: undefined, sessionId: undefined, prompted: false }],
+  ]);
+
+  test("stores each ended agent without the fields it lacks", () => {
+    expect(endedToStore(ended)).toEqual({
+      "w:a": { agent: "claude", sessionId: "s-1", prompted: true },
+      "w:b": { prompted: false },
+    });
+  });
+
+  test("restores the ended agents of the terminals the panels still hold", () => {
+    const restored = endedFromStore(endedToStore(ended), new Set(["w:a"]));
+    expect([...restored.entries()]).toEqual([
+      ["w:a", { agent: "claude", sessionId: "s-1", prompted: true }],
+    ]);
+    expect(endedFromStore(undefined, new Set(["w:a"])).size).toBe(0);
+  });
+
+  test("restores what a panel can show again", () => {
+    const restored = endedFromStore(endedToStore(ended), new Set(["w:a", "w:b"]));
+    expect(sameEnded(restored, ended)).toBe(true);
   });
 });

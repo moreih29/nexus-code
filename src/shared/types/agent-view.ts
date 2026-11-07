@@ -57,9 +57,24 @@ export const AgentViewNodeSchema: z.ZodType<AgentViewNode> = z.lazy(() =>
   ]),
 );
 
+/**
+ * A terminal agent that ended while a panel held it, as the panel tells it
+ * and takes it up again: kept over a restart, since the terminal comes back
+ * a shell and nothing else tells what ran there.
+ */
+export const EndedAgentSnapshotSchema = z.object({
+  agent: z.enum(["claude", "codex"]).optional(),
+  sessionId: z.string().max(200).optional(),
+  prompted: z.boolean(),
+});
+export type EndedAgentSnapshot = z.infer<typeof EndedAgentSnapshotSchema>;
+
 export const AgentViewSnapshotSchema = z.object({
   mode: AgentViewModeSchema,
   root: AgentViewNodeSchema,
   activeLeafId: z.string().uuid(),
+  // The ended agents the panels show, by session key. Ones this version
+  // cannot read are dropped rather than costing the panels.
+  ended: z.record(SessionKeySchema, EndedAgentSnapshotSchema).optional().catch(undefined),
 });
 export type AgentViewSnapshot = z.infer<typeof AgentViewSnapshotSchema>;
