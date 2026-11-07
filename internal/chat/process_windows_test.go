@@ -4,34 +4,15 @@ package chat
 
 import (
 	"context"
-	"encoding/json"
+	"os/exec"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
 
-// childPid starts a command under the tab's fake program and returns its pid.
-func childPid(t *testing.T, service *Service, rec *recorder) int {
-	t.Helper()
-	if err := send(t, service, "tab", "spawn"); err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	pid := 0
-	rec.waitFor(t, "the command's pid", func(lines []LinePayload, _ []ExitPayload) bool {
-		for _, line := range lines {
-			var msg struct {
-				Type string `json:"type"`
-				PID  int    `json:"pid"`
-			}
-			if line.Dir == DirOut && json.Unmarshal(line.Message, &msg) == nil && msg.Type == "child" {
-				pid = msg.PID
-				return true
-			}
-		}
-		return false
-	})
-	return pid
-}
+// ownSession leaves a command in the program's job: Windows has no
+// sessions to start it out of the program's reach.
+func ownSession(*exec.Cmd) {}
 
 // ended waits for the process to end, false when it is still running after
 // a few seconds.
