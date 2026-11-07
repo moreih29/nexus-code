@@ -31,7 +31,7 @@
 // stroke, which is fine — the only bare-Enter default is scope-gated).
 
 import { ChevronRight, Pencil, RotateCcw, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { ALL_COMMAND_IDS, COMMANDS, type CommandId } from "../../../../shared/keybindings/commands";
@@ -57,6 +57,7 @@ import { inheritedWhen, type KeybindingOverride } from "../../../../shared/keybi
 import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
 import { isLinux, isMac } from "../../../utils/platform";
+import { Checkbox } from "../../ui/checkbox";
 
 // `updates.check` is dispatched inside the main process from the menu —
 // the renderer registry has no handler for it, so a keybinding would be
@@ -132,6 +133,8 @@ export function KeybindingsPanel() {
   const [query, setQuery] = useState("");
   const [modifiedOnly, setModifiedOnly] = useState(false);
   const [conflictsOnly, setConflictsOnly] = useState(false);
+  const modifiedOnlyId = useId();
+  const conflictsOnlyId = useId();
   // One recorder at a time across BOTH sections — keyed by command id.
   const [recordingFor, setRecordingFor] = useState<string | null>(null);
   const [confirmResetAll, setConfirmResetAll] = useState(false);
@@ -230,24 +233,28 @@ export function KeybindingsPanel() {
             "placeholder:text-muted-foreground focus:ring-1 focus:ring-ring",
           )}
         />
-        <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-app-ui-sm text-muted-foreground">
-          <input
-            type="checkbox"
+        <label
+          htmlFor={modifiedOnlyId}
+          className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-app-ui-sm text-muted-foreground"
+        >
+          <Checkbox
+            id={modifiedOnlyId}
             checked={modifiedOnly}
-            onChange={(e) => setModifiedOnly(e.target.checked)}
+            onCheckedChange={(v) => setModifiedOnly(v === true)}
           />
           {t("keybindings.modifiedOnly")}
         </label>
         <label
+          htmlFor={conflictsOnlyId}
           className={cn(
             "flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-app-ui-sm",
             conflictCount > 0 ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          <input
-            type="checkbox"
+          <Checkbox
+            id={conflictsOnlyId}
             checked={conflictsOnly}
-            onChange={(e) => setConflictsOnly(e.target.checked)}
+            onCheckedChange={(v) => setConflictsOnly(v === true)}
           />
           {conflictCount > 0
             ? t("keybindings.conflictsOnlyCount", { count: conflictCount })

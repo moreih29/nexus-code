@@ -16,7 +16,8 @@
  * un-driftable: a call site cannot reintroduce `bg-black/40` or `shadow-lg`.
  *
  * The shell renders Radix `Root → Portal → Overlay → Content`. Callers own the
- * body, including the required `Dialog.Title` (Radix a11y contract).
+ * body, which starts with a `DialogHeader` (dialog-header.tsx): its Radix
+ * Title and Description name and describe the dialog.
  *
  * Radix AlertDialog-based modals cannot use the <Dialog> component (different
  * primitive) but MUST stay visually identical — they import DIALOG_OVERLAY_CLASS
@@ -44,7 +45,7 @@ const SIZE_CLASS: Record<DialogSize, string> = {
  * Scrim + positioning for the Radix Overlay. Shared with AlertDialog modals.
  * The `dialog-overlay` class wires the fade in/out keyframes (globals.css).
  */
-export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-50 bg-[var(--floating-scrim)]";
+export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-(--layer-floating) bg-[var(--floating-scrim)]";
 
 /**
  * Floating-layer surface classes for a Radix Content node. The `dialog-content`
@@ -54,7 +55,7 @@ export const DIALOG_OVERLAY_CLASS = "dialog-overlay fixed inset-0 z-50 bg-[var(-
  */
 export function dialogContentClass(size: DialogSize, padded: boolean, className?: string): string {
   return cn(
-    "dialog-content fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
+    "dialog-content fixed left-1/2 top-1/2 z-(--layer-floating) -translate-x-1/2 -translate-y-1/2 max-w-[90vw]",
     "rounded-(--radius-island) border border-[var(--surface-floating-border)]",
     "bg-popover text-popover-foreground outline-none",
     SIZE_CLASS[size],
@@ -77,17 +78,18 @@ export interface DialogProps {
   /** Inline style for the Content node (e.g. min/max-height constraints). */
   contentStyle?: React.CSSProperties;
   /**
-   * Forwarded to Radix Content. Names the dialog when the body uses a plain
-   * heading element instead of a `RadixDialog.Title` (whose context wiring
-   * would otherwise supply the accessible name automatically).
+   * Forwarded to Radix Content, and only when given: left out, Radix points
+   * it at the dialog's Title. Names the dialog when the body uses a plain
+   * heading element instead.
    */
   "aria-labelledby"?: string;
   /**
-   * Forwarded to Radix Content. Pass `undefined` explicitly to opt out of the
-   * description-id wiring when the dialog has no Dialog.Description.
+   * Forwarded to Radix Content, and only when given: left out, Radix points
+   * it at the dialog's Description. Pass `undefined` explicitly for a dialog
+   * that has none.
    */
   "aria-describedby"?: string;
-  /** Dialog body — must include a `RadixDialog.Title` for the a11y contract. */
+  /** Dialog body — starts with a `DialogHeader`, whose Title Radix requires. */
   children: React.ReactNode;
 }
 
@@ -103,7 +105,7 @@ export function Dialog({
   className,
   contentStyle,
   children,
-  ...rest
+  ...aria
 }: DialogProps): React.JSX.Element {
   // Browser-overlay suspend is handled centrally by the MutationObserver-based
   // auto-suspend in `state/operations/browser-suspend-auto.ts`, which watches
@@ -116,11 +118,13 @@ export function Dialog({
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+        {/* Spread, not set one by one: a key left out keeps Radix's own
+            wiring to the Title and Description, which an explicit
+            undefined would erase. */}
         <RadixDialog.Content
           className={dialogContentClass(size, padded, className)}
           style={contentStyle}
-          aria-labelledby={rest["aria-labelledby"]}
-          aria-describedby={rest["aria-describedby"]}
+          {...aria}
         >
           {children}
         </RadixDialog.Content>

@@ -14,6 +14,7 @@ import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
 import { CommandPalette } from "../../../ui/palette/command-palette";
 import { PromptDialog, type PromptRequest } from "../../../ui/prompt-dialog";
 import {
@@ -225,7 +226,7 @@ function defaultFooterForMode(mode: Exclude<BranchPickerMode, "checkout">): stri
  * Converts a branch picker row into the correct local or remote delete request.
  */
 function branchDeleteRequestFromItem(item: BranchPickItem): BranchDeleteRequest | null {
-  if (item.kindLabel === "current") return null;
+  if (item.current) return null;
   if (item.action.kind === "checkout") {
     return { kind: "local", name: item.action.ref, force: false };
   }
@@ -294,16 +295,15 @@ function BranchDeleteConfirmDialog({
       <RadixAlertDialog.Portal>
         <RadixAlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
         <RadixAlertDialog.Content className={dialogContentClass("md", true)}>
-          <RadixAlertDialog.Title className="text-app-body-emphasis text-foreground">
-            {view.title}
-          </RadixAlertDialog.Title>
-          <RadixAlertDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-            {view.description.map((line, index) => (
+          <DialogHeader
+            alert
+            title={view.title}
+            description={view.description.map((line, index) => (
               <span key={line} className={index === 0 ? "block" : "mt-2 block"}>
                 {line}
               </span>
             ))}
-          </RadixAlertDialog.Description>
+          />
           <div className="mt-5 flex justify-end gap-2">
             <RadixAlertDialog.Cancel asChild>
               <Button type="button" variant="ghost" size="sm" autoFocus disabled={busy}>

@@ -196,7 +196,7 @@ export function ToastRoot(): React.JSX.Element | null {
       data-toast-viewport=""
       // Above the status bar, so its items stay clickable while a toast is
       // up: the language server's warning sits at its right end.
-      className="fixed bottom-10 right-4 z-[60] flex flex-col gap-2 w-[360px] max-w-[90vw]"
+      className="fixed bottom-10 right-4 z-(--layer-toast) flex flex-col gap-2 w-[360px] max-w-[90vw]"
     >
       {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology

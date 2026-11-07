@@ -11,11 +11,11 @@
  * first resolves.
  */
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 /**
@@ -139,15 +139,13 @@ export function ConfirmDialogRoot(): React.JSX.Element {
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange} size="sm" aria-describedby={undefined}>
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {active?.title}
-      </RadixDialog.Title>
-      {active?.description ? (
-        <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-          {active.description}
-        </RadixDialog.Description>
-      ) : null}
+    <Dialog
+      open={open}
+      onOpenChange={handleOpenChange}
+      size="sm"
+      {...(active?.description ? {} : { "aria-describedby": undefined })}
+    >
+      <DialogHeader title={active?.title} description={active?.description} />
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={handleCancelClick}>
           {cancelLabel}

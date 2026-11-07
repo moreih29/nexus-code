@@ -4,7 +4,7 @@
 // Height h-6 (24px). Receives the workspaceId of the panel it lives in.
 //
 // Segment layout — unified across local and SSH workspaces:
-//   LEFT:  git branch · changes (+~?!) · error count · warning count
+//   LEFT:  git branch · changes · error count · warning count
 //   RIGHT: git in-flight operation indicator · the ports the terminals'
 //          programs listen on (ports-segment.tsx) · the active editor's
 //          encoding (encoding-segment.tsx) and language server
@@ -39,8 +39,18 @@
 //   - redundant encoding for errors/warnings: color + glyph (design.md §7)
 //   - neutral / dimmed render when repo absent
 
-import { AlertTriangle, GitBranch, Loader2, XCircle } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  FileCheck,
+  FileDiff,
+  FilePlus,
+  FileWarning,
+  GitBranch,
+  Loader2,
+  type LucideIcon,
+  XCircle,
+} from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo, GitStatus } from "../../../shared/git/types";
@@ -49,7 +59,8 @@ import type { GitInFlightOp } from "../../state/stores/git";
 import { useGitSession, useGitStore } from "../../state/stores/git";
 import { useUIStore } from "../../state/stores/ui";
 import { BranchPicker } from "../files/git/branch/picker";
-import { type DiagnosticKind, DiagnosticPopover } from "./diagnostic-popover";
+import { Popover } from "../ui/popover";
+import { type DiagnosticKind, DiagnosticList } from "./diagnostic-popover";
 import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
@@ -86,7 +97,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
 
   const isRepo = gitSession?.repoInfo.kind === "repo";
   const branchInfo = isRepo ? (gitSession?.branchInfo ?? null) : null;
-  // Status groups feed the +~?! changes segment. Null when the workspace is
+  // Status groups feed the changes segment. Null when the workspace is
   // not a repo or the first status fetch hasn't landed yet — the segment
   // gracefully renders nothing in that case.
   const status = isRepo ? (gitSession?.status ?? null) : null;
@@ -213,19 +224,18 @@ export function BranchSegment({
 // Changes segment
 //
 // Renders the branch's working state as colored count tokens next to the
-// branch button. Follows the +~?! convention shared with git-prompt.sh /
-// posh-git / vim-airline / Starship so users transferring from those
-// environments read it without learning a new notation:
+// branch button, each an icon and a count like the error / warning segments
+// beside it (a bare "?3" read as a question, not as three new files):
 //
-//   +N  staged    — index has N changes ready to commit       (success hue)
-//   ~N  modified  — working tree has N unstaged modify/delete (warning hue)
-//   ?N  untracked — N new files git does not yet know about   (info hue)
-//   !N  conflict  — N files in merge conflict (rendered FIRST) (error hue)
+//   FileCheck   staged    — index has N changes ready to commit       (success hue)
+//   FileDiff    modified  — working tree has N unstaged modify/delete (warning hue)
+//   FilePlus    untracked — N new files git does not yet know about   (info hue)
+//   FileWarning conflict  — N files in merge conflict (rendered FIRST) (error hue)
 //
 // Empty tokens are omitted (0 count → no chip), and a fully clean tree
 // hides the whole segment so the status bar stays quiet during steady
 // state. Conflict tokens lead so position itself signals priority
-// (design.md §7 redundant encoding: color + position + glyph).
+// (design.md §7 redundant encoding: color + position + icon).
 //
 // Click target: opens the Source Control panel via setFilesPanelMode. This
 // matches diagnostic segment semantics — counts are summaries; the panel
@@ -256,10 +266,17 @@ function ChangesSegment({
 
   // Tokens, in render order. Conflicts lead so the most urgent state is
   // the first thing the eye reaches after the branch name.
-  const tokens: Array<{ glyph: string; count: number; color: string; label: string }> = [];
+  const tokens: Array<{
+    key: string;
+    Icon: LucideIcon;
+    count: number;
+    color: string;
+    label: string;
+  }> = [];
   if (conflictCount > 0) {
     tokens.push({
-      glyph: "!",
+      key: "conflict",
+      Icon: FileWarning,
       count: conflictCount,
       color: "var(--status-bar-conflict-fg)",
       label: t("statusBar.conflict_one", { count: conflictCount }),
@@ -267,7 +284,8 @@ function ChangesSegment({
   }
   if (stagedCount > 0) {
     tokens.push({
-      glyph: "+",
+      key: "staged",
+      Icon: FileCheck,
       count: stagedCount,
       color: "var(--status-bar-added-fg)",
       label: t("statusBar.staged", { count: stagedCount }),
@@ -275,7 +293,8 @@ function ChangesSegment({
   }
   if (workingCount > 0) {
     tokens.push({
-      glyph: "~",
+      key: "modified",
+      Icon: FileDiff,
       count: workingCount,
       color: "var(--status-bar-modified-fg)",
       label: t("statusBar.modified", { count: workingCount }),
@@ -283,7 +302,8 @@ function ChangesSegment({
   }
   if (untrackedCount > 0) {
     tokens.push({
-      glyph: "?",
+      key: "untracked",
+      Icon: FilePlus,
       count: untrackedCount,
       color: "var(--status-bar-untracked-fg)",
       label: t("statusBar.untracked", { count: untrackedCount }),
@@ -304,10 +324,10 @@ function ChangesSegment({
         "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
       )}
     >
-      {tokens.map((t) => (
-        <span key={t.glyph} style={{ color: t.color }} className="inline-flex items-baseline">
-          <span aria-hidden="true">{t.glyph}</span>
-          <span>{t.count}</span>
+      {tokens.map(({ key, Icon, count, color }) => (
+        <span key={key} style={{ color }} className="inline-flex items-center gap-1">
+          <Icon aria-hidden="true" className="size-3.5" />
+          <span>{count}</span>
         </span>
       ))}
     </button>
@@ -324,8 +344,7 @@ function ChangesSegment({
 // the glyph-only style and refers to the saturated hue, not a fill role.
 //
 // Interaction: clicking a non-zero segment opens a popover listing the
-// diagnostics grouped by file. The trigger and popover share a wrapper
-// div so useDismissOnOutsideClick treats clicks on either as "inside".
+// diagnostics grouped by file.
 // ---------------------------------------------------------------------------
 
 function DiagnosticSegment({
@@ -346,7 +365,6 @@ function DiagnosticSegment({
   const glyphColor = isError ? "var(--status-bar-error-bg)" : "var(--status-bar-warning-bg)";
 
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const disabled = count === 0;
 
   // If the count drops to zero while the popover is open, close it. The
@@ -357,47 +375,45 @@ function DiagnosticSegment({
   }, [disabled, open]);
 
   return (
-    <div ref={wrapperRef} className="relative inline-flex h-full">
-      <button
-        type="button"
-        title={title}
-        disabled={disabled}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label={title}
-        onClick={() => {
-          if (!disabled) setOpen((v) => !v);
-        }}
-        className={cn(
-          "inline-flex items-center gap-1 h-full px-2",
-          "text-app-ui-sm font-sans leading-none",
-          // Hover/focus affordance only when interactive.
-          !disabled &&
-            "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-          // Dim the entire segment to muted-foreground when there's nothing
-          // to look at; keep the segment visible so the user can read "0".
-          disabled && "text-muted-foreground/70 cursor-default",
-        )}
-      >
-        <Icon
-          className="size-3 shrink-0"
-          // Glyph color: keep the severity hue even at count=0 so the icon
-          // reads as "error slot" / "warning slot"; dim via opacity rather
-          // than swapping color so the meaning stays consistent.
-          style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
-          aria-hidden="true"
-        />
-        <span style={!disabled ? { color: glyphColor } : undefined}>{count}</span>
-      </button>
-      {open ? (
-        <DiagnosticPopover
-          workspaceId={workspaceId}
-          kind={kind}
-          wrapperRef={wrapperRef}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </div>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={isError ? t("diagnostics.errors_dialog") : t("diagnostics.warnings_dialog")}
+      align="start"
+      // Wide enough for messages, capped so long workspaces still leave
+      // breathing room on the right.
+      className="w-[480px] max-w-[min(480px,calc(100vw-2rem))] max-h-[min(360px,60vh)]"
+      trigger={
+        <button
+          type="button"
+          title={title}
+          disabled={disabled}
+          aria-label={title}
+          className={cn(
+            "inline-flex items-center gap-1 h-full px-2",
+            "text-app-ui-sm font-sans leading-none",
+            // Hover/focus affordance only when interactive.
+            !disabled &&
+              "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+            // Dim the entire segment to muted-foreground when there's nothing
+            // to look at; keep the segment visible so the user can read "0".
+            disabled && "text-muted-foreground/70 cursor-default",
+          )}
+        >
+          <Icon
+            className="size-3 shrink-0"
+            // Glyph color: keep the severity hue even at count=0 so the icon
+            // reads as "error slot" / "warning slot"; dim via opacity rather
+            // than swapping color so the meaning stays consistent.
+            style={{ color: glyphColor, opacity: disabled ? 0.45 : 1 }}
+            aria-hidden="true"
+          />
+          <span style={!disabled ? { color: glyphColor } : undefined}>{count}</span>
+        </button>
+      }
+    >
+      <DiagnosticList workspaceId={workspaceId} kind={kind} onClose={() => setOpen(false)} />
+    </Popover>
   );
 }
 

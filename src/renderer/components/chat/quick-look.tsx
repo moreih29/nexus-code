@@ -47,6 +47,8 @@ import { ImagePreview } from "../editor/preview/image-preview";
 import { PreviewFindScope } from "../editor/preview/preview-find";
 import { ViewModeToggle } from "../editor/preview/view-mode-toggle";
 import { EmptyState } from "../ui/empty-state";
+import { IconButton } from "../ui/icon-button";
+import { tooltipProps } from "../ui/tooltip";
 import { DocxEditorView } from "../workspace/content/docx-editor-view";
 import { useSharedModelAttach } from "../workspace/content/editor-mount/use-shared-model-attach";
 import { PreviewPane, useModelSource } from "../workspace/content/editor-view";
@@ -174,9 +176,6 @@ export function QuickLook({
     step(event.key === "ArrowRight" ? 1 : -1);
   };
 
-  const icon =
-    "inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
-
   const dialog = (
     <div
       ref={rootRef}
@@ -190,26 +189,12 @@ export function QuickLook({
       data-testid="chat-quick-look"
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
-        <button
-          type="button"
-          className={icon}
-          onClick={() => step(-1)}
-          disabled={count < 2}
-          aria-label={t("chat.look.previous")}
-          title={t("chat.look.previous")}
-        >
+        <IconButton label={t("chat.look.previous")} onClick={() => step(-1)} disabled={count < 2}>
           <ChevronLeft className="size-4" />
-        </button>
-        <button
-          type="button"
-          className={icon}
-          onClick={() => step(1)}
-          disabled={count < 2}
-          aria-label={t("chat.look.next")}
-          title={t("chat.look.next")}
-        >
+        </IconButton>
+        <IconButton label={t("chat.look.next")} onClick={() => step(1)} disabled={count < 2}>
           <ChevronRight className="size-4" />
-        </button>
+        </IconButton>
         {count > 1 && (
           <span className="shrink-0 px-1 text-app-micro tabular-nums text-muted-foreground">
             {index + 1} / {count}
@@ -220,30 +205,28 @@ export function QuickLook({
           {baseName(path)}
         </span>
         {changed && (
-          <button
-            type="button"
-            className={cn(icon, showDiff && "bg-[var(--state-active-bg)] text-foreground")}
+          <IconButton
+            label={t("chat.look.changes")}
+            className={cn(showDiff && "bg-[var(--state-active-bg)] text-foreground")}
             onClick={() => setDiff(!showDiff)}
             aria-pressed={showDiff}
-            aria-label={t("chat.look.changes")}
-            title={t("chat.look.changes")}
             data-testid="chat-quick-look-diff"
           >
             <GitCompareArrows className="size-3.5" />
-          </button>
+          </IconButton>
         )}
         {changed && onRevert && isUnder(path, root) && (
-          <button
-            type="button"
-            className={icon}
-            onClick={() => onRevert(path)}
-            disabled={revertBlocked !== undefined}
-            aria-label={t("chat.look.revert")}
-            title={revertBlocked ?? t("chat.look.revert")}
-            data-testid="chat-quick-look-revert"
-          >
-            <Undo2 className="size-3.5" />
-          </button>
+          // A disabled button takes no pointer: its wrapper says why.
+          <span className="inline-flex" {...(revertBlocked ? tooltipProps(revertBlocked) : {})}>
+            <IconButton
+              label={t("chat.look.revert")}
+              onClick={() => onRevert(path)}
+              disabled={revertBlocked !== undefined}
+              data-testid="chat-quick-look-revert"
+            >
+              <Undo2 className="size-3.5" />
+            </IconButton>
+          </span>
         )}
         {!showDiff && textual && support !== "none" && (
           <ViewModeToggle
@@ -254,35 +237,23 @@ export function QuickLook({
           />
         )}
         {local && (
-          <button
-            type="button"
-            className={icon}
+          <IconButton
+            label={revealInOSLabel()}
             onClick={() => void ipcCallResult("system", "revealInOS", { absPath: path })}
-            aria-label={revealInOSLabel()}
-            title={revealInOSLabel()}
           >
             <FolderOpen className="size-3.5" />
-          </button>
+          </IconButton>
         )}
-        <button
-          type="button"
-          className={icon}
+        <IconButton
+          label={t("chat.look.open_tab")}
           onClick={() => onOpenTab(path, line)}
-          aria-label={t("chat.look.open_tab")}
-          title={t("chat.look.open_tab")}
           data-testid="chat-quick-look-open"
         >
           <SquareArrowOutUpRight className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className={icon}
-          onClick={onClose}
-          aria-label={t("chat.look.close")}
-          title={t("chat.look.close")}
-        >
+        </IconButton>
+        <IconButton label={t("chat.look.close")} onClick={onClose}>
           <X className="size-4" />
-        </button>
+        </IconButton>
       </div>
       <div className="relative min-h-0 flex-1">
         {showDiff ? (
@@ -300,7 +271,7 @@ export function QuickLook({
     </div>
   );
   const layer = (
-    <div className="absolute inset-0 z-40">
+    <div className="absolute inset-0 z-(--layer-in-panel)">
       <div
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"

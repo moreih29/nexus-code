@@ -7,11 +7,11 @@
  * onCancel via Radix's onOpenChange contract.
  */
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "./button";
+import { DialogHeader } from "./dialog-header";
 
 export type FormDialogValues = Record<string, string>;
 
@@ -124,7 +124,8 @@ export function handleFormDialogOpenChange(nextOpen: boolean, onCancel: () => vo
 
 /**
  * Renders the form body without the Radix portal so unit tests can assert the
- * field layout in a no-DOM server-render environment.
+ * field layout in a no-DOM server-render environment. Its header is the
+ * dialog's Radix Title, so it renders inside a Dialog root.
  */
 export function FormDialogContent({
   title,
@@ -142,29 +143,31 @@ export function FormDialogContent({
   renderFieldAccessory,
   children,
 }: FormDialogContentProps): React.JSX.Element {
-  const { t } = useTranslation();
   const fieldStates = getFormDialogFieldStates(fields, values);
   const submitDisabled = isFormDialogSubmitDisabled(fields, values, busy);
 
   return (
     <>
-      <div className="text-app-body-emphasis text-foreground" aria-hidden="true">
-        {title}
-      </div>
-      {description ? (
-        <div className="mt-2 text-app-ui-sm text-muted-foreground" aria-hidden="true">
-          {description}
-        </div>
-      ) : null}
+      <DialogHeader title={title} description={description} />
       <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
         {extraContent}
-        {fieldStates.map(({ field, value, error }) => {
+        {fieldStates.map(({ field, value, error: fieldError }) => {
           const inputId = `form-dialog-${field.name}`;
           const helpId = `${inputId}-help`;
+          const required = field.required !== false;
+          // An empty required field is marked by its label's asterisk and the
+          // disabled submit button, not scolded before anything was typed; a
+          // value that fails its validator says why.
+          const error = fieldError === "Required" ? null : fieldError;
           return (
             <div key={field.name} className="flex flex-col gap-2">
               <label htmlFor={inputId} className="text-app-ui-sm text-foreground">
                 {field.label}
+                {required && !field.readOnly ? (
+                  <span aria-hidden="true" className="ml-0.5 text-destructive">
+                    *
+                  </span>
+                ) : null}
               </label>
               <div className="flex items-center gap-2">
                 {field.multiline ? (
@@ -173,9 +176,17 @@ export function FormDialogContent({
                     name={field.name}
                     value={value}
                     onChange={(event) => onValueChange(field.name, event.target.value)}
+                    onKeyDown={(event) => {
+                      // Enter writes a newline here; ⌘/Ctrl+Enter submits.
+                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault();
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
                     placeholder={field.placeholder}
                     className={`min-h-20 w-full resize-y rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
                     aria-invalid={error ? true : undefined}
+                    aria-required={required || undefined}
                     aria-describedby={error || field.helperText ? helpId : undefined}
                     disabled={busy}
                     readOnly={field.readOnly}
@@ -192,6 +203,7 @@ export function FormDialogContent({
                     placeholder={field.placeholder}
                     className={`w-full rounded-(--radius-control) border border-border bg-background px-2 py-1 text-app-body text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring ${field.inputClassName ?? ""}`}
                     aria-invalid={error ? true : undefined}
+                    aria-required={required || undefined}
                     aria-describedby={error || field.helperText ? helpId : undefined}
                     disabled={busy}
                     readOnly={field.readOnly}
@@ -203,7 +215,7 @@ export function FormDialogContent({
               </div>
               {error ? (
                 <p id={helpId} className={`text-app-ui-sm ${errorClassName}`}>
-                  {error === "Required" ? t("action.required") : error}
+                  {error}
                 </p>
               ) : field.helperText ? (
                 <p id={helpId} className="text-app-ui-sm text-muted-foreground">
@@ -271,13 +283,8 @@ export function FormDialog({
       open={open}
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, onCancel)}
       size="md"
+      {...(description ? {} : { "aria-describedby": undefined })}
     >
-      <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-      {description ? (
-        <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
-      ) : (
-        <RadixDialog.Description className="sr-only" />
-      )}
       <FormDialogContent
         title={title}
         description={description}

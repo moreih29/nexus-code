@@ -12,7 +12,7 @@
  *                          match against either local or remote-short).
  *
  * Switch-mode item layout (mirrors VS Code "Git: Checkout to..."):
- *   1) Local branches — current first (kindLabel "current"), then alphabetical.
+ *   1) Local branches — current first (marked `current`), then alphabetical.
  *   2) Remote branches — short-name labels, hidden when a local branch with
  *      the same short name already exists.
  *   3) `+ Create new branch: '<query>'` — only when the query is non-empty
@@ -39,6 +39,8 @@ export type BranchPickAction =
 
 export interface BranchPickItem extends PaletteItem {
   action: BranchPickAction;
+  /** The branch checked out now, which cannot be deleted from the picker. */
+  current?: true;
 }
 
 export type BranchPickerSourceMode =
@@ -115,7 +117,8 @@ export function createBranchPickerSource(
         localItems.push({
           id: `local:${currentName}`,
           label: currentName,
-          kindLabel: "current",
+          kindLabel: i18next.t("files:git.pickerKind.current"),
+          current: true,
           description: i18next.t("files:git.branch.picker.descriptionLocal"),
           action: { kind: "checkout", ref: currentName },
         });

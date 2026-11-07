@@ -2,10 +2,8 @@ import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
 import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
-import { Tooltip as RadixTooltip } from "radix-ui";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { UI_TOOLTIP_DELAY_MS } from "../../../shared/util/timing-constants";
 import { useUIStore } from "../../state/stores/ui";
 import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
 import {
@@ -24,6 +22,7 @@ import {
   formatSshSecondaryLine,
   formatSshTooltip,
 } from "../workspace/add-workspace/ssh-helpers";
+import { IconButton } from "../ui/icon-button";
 import { PinToggle } from "./pin-toggle";
 import { SidebarResizeHandle } from "./sidebar-resize-handle";
 import { RowDropSlot } from "./dnd/row-drop-slot";
@@ -393,23 +392,21 @@ function WorkspaceRow({
           />
 
           {/* Remove button — hover 시 fade-in. */}
-          <button
-            type="button"
+          <IconButton
+            label={t("sidebar.remove_workspace", { name: ws.name })}
+            size="xs"
             draggable={false}
             onClick={(e) => {
               e.stopPropagation();
               onRemoveWorkspace(ws.id);
             }}
-            aria-label={t("sidebar.remove_workspace", { name: ws.name })}
             className={cn(
-              "absolute top-1/2 -translate-y-1/2 right-2 inline-flex items-center justify-center",
-              "size-5 rounded-(--radius-control)",
-              "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity",
+              "absolute top-1/2 -translate-y-1/2 right-2",
+              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
             )}
           >
             <X className="size-3" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -566,68 +563,66 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <RadixTooltip.Provider delayDuration={UI_TOOLTIP_DELAY_MS}>
-          <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
-            {/* Pinned group — rendered first; always float to the top of the list.
-                For N rows, pinnedSlots has N+1 entries; the indices align as
-                [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
-            {showLabels && pinnedGroup.length > 0 && (
-              <div className="text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1">
-                {t("sidebar.pinned")}
-              </div>
-            )}
-            {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
-            {pinnedGroup.map((ws, i) => (
-              <React.Fragment key={ws.id}>
-                <WorkspaceRow
-                  ws={ws}
-                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
-                  isActive={ws.id === activeRowId}
-                  isDragSource={dragSourceId === ws.id}
-                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
-                  connectionStatus={
-                    ws.location.kind !== "local"
-                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
-                      : "idle"
-                  }
-                  onSelectWorkspace={onSelectWorkspace}
-                  onTogglePin={togglePin}
-                  onRemoveWorkspace={onRemoveWorkspace}
-                />
-                {renderSlot(pinnedSlots[i + 1])}
-              </React.Fragment>
-            ))}
+        <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
+          {/* Pinned group — rendered first; always float to the top of the list.
+              For N rows, pinnedSlots has N+1 entries; the indices align as
+              [slot 0, row 0, slot 1, row 1, ..., row N-1, slot N]. */}
+          {showLabels && pinnedGroup.length > 0 && (
+            <div className="text-app-label text-muted-foreground uppercase px-4 py-1">
+              {t("sidebar.pinned")}
+            </div>
+          )}
+          {pinnedGroup.length > 0 && renderSlot(pinnedSlots[0])}
+          {pinnedGroup.map((ws, i) => (
+            <React.Fragment key={ws.id}>
+              <WorkspaceRow
+                ws={ws}
+                taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                isActive={ws.id === activeRowId}
+                isDragSource={dragSourceId === ws.id}
+                rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                connectionStatus={
+                  ws.location.kind !== "local"
+                    ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                    : "idle"
+                }
+                onSelectWorkspace={onSelectWorkspace}
+                onTogglePin={togglePin}
+                onRemoveWorkspace={onRemoveWorkspace}
+              />
+              {renderSlot(pinnedSlots[i + 1])}
+            </React.Fragment>
+          ))}
 
-            {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
-            {hasBothGroups && (
-              <div className={cn("mt-2", showLabels && "text-app-micro text-muted-foreground tracking-wide uppercase px-4 py-1")}>
-                {showLabels ? t("sidebar.recent") : null}
-              </div>
-            )}
+          {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
+          {hasBothGroups && (
+            <div className={cn("mt-2", showLabels && "text-app-label text-muted-foreground uppercase px-4 py-1")}>
+              {showLabels ? t("sidebar.recent") : null}
+            </div>
+          )}
 
-            {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
-            {unpinnedGroup.map((ws, i) => (
-              <React.Fragment key={ws.id}>
-                <WorkspaceRow
-                  ws={ws}
-                  taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
-                  isActive={ws.id === activeRowId}
-                  isDragSource={dragSourceId === ws.id}
-                  rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
-                  connectionStatus={
-                    ws.location.kind !== "local"
-                      ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
-                      : "idle"
-                  }
-                  onSelectWorkspace={onSelectWorkspace}
-                  onTogglePin={togglePin}
-                  onRemoveWorkspace={onRemoveWorkspace}
-                />
-                {renderSlot(unpinnedSlots[i + 1])}
-              </React.Fragment>
-            ))}
-          </div>
-        </RadixTooltip.Provider>
+          {unpinnedGroup.length > 0 && renderSlot(unpinnedSlots[0])}
+          {unpinnedGroup.map((ws, i) => (
+            <React.Fragment key={ws.id}>
+              <WorkspaceRow
+                ws={ws}
+                taskIds={taskIdsByParent.get(ws.id) ?? NO_TASKS}
+                isActive={ws.id === activeRowId}
+                isDragSource={dragSourceId === ws.id}
+                rowDragProps={getRowDragSourceProps(ws.id, ws.pinned)}
+                connectionStatus={
+                  ws.location.kind !== "local"
+                    ? (connectionStatusByWorkspaceId[ws.id] ?? "idle")
+                    : "idle"
+                }
+                onSelectWorkspace={onSelectWorkspace}
+                onTogglePin={togglePin}
+                onRemoveWorkspace={onRemoveWorkspace}
+              />
+              {renderSlot(unpinnedSlots[i + 1])}
+            </React.Fragment>
+          ))}
+        </div>
 
         <div className="py-2">
           <button

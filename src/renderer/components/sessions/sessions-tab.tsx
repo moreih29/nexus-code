@@ -168,7 +168,8 @@ function SearchBox({ query, onQuery }: { query: string; onQuery: (query: string)
           }
         }}
         aria-label={t("sessions.list.search")}
-        className="min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none"
+        placeholder={t("sessions.list.search")}
+        className="min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none placeholder:text-muted-foreground"
       />
     </label>
   );

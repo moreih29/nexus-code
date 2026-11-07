@@ -5,20 +5,14 @@
    Self-hosted @font-face declarations (no external font requests)
    --------------------------------------------------------------------------- */
 
+/* Pretendard 1.3.9, variable: every weight from one file, so a 600 heading
+   or `strong` is the font's SemiBold rather than a synthesised bold. */
 @font-face {
   font-family: "Pretendard";
-  font-weight: 400;
+  font-weight: 45 920;
   font-style: normal;
   font-display: swap;
-  src: url("../assets/fonts/Pretendard/Pretendard-Regular.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Pretendard";
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  src: url("../assets/fonts/Pretendard/Pretendard-Medium.woff2") format("woff2");
+  src: url("../assets/fonts/Pretendard/PretendardVariable.woff2") format("woff2");
 }
 
 @font-face {
@@ -50,6 +44,26 @@
    utilities, which are in @layer utilities, can still override them.
    Unlayered CSS wins over layered CSS regardless of specificity.)
    --------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------
+   Stacking layers — what floats over what, named instead of bare z-index
+   numbers. Within a component, small local numbers (z-10, z-20) still order
+   its own parts; these are for what lies over other components.
+   --------------------------------------------------------------------------- */
+:root {
+  /* Over a panel's content, in its own box: quick look, the release notes,
+     the status bar's and the git panel's popovers. */
+  --layer-in-panel: 40;
+  /* Portalled over the whole window: dialogs and their scrim, menus,
+     selects, popovers. */
+  --layer-floating: 50;
+  /* Toasts, over a dialog that is open. */
+  --layer-toast: 60;
+  /* The command palette, over everything else but tooltips. */
+  --layer-palette: 70;
+  /* Tooltips, over whatever they describe. */
+  --layer-tooltip: 80;
+}
 
 @layer base {
   *,
@@ -94,6 +108,55 @@
     appearance: none;
     display: none;
   }
+
+  /*
+   * Keyboard focus on a control that draws no ring of its own gets the
+   * theme's ring rather than Chromium's default outline, which follows the
+   * system accent colour (orange, say) and so differs from the ring the
+   * design-system controls draw. A control that sets its own outline or
+   * ring (`outline-none`, `focus-visible:…`) still wins: utilities sit in a
+   * later layer.
+   */
+  :where(
+    button,
+    a[href],
+    summary,
+    select,
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    [role="treeitem"]
+  ):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Section labels — `text-app-label uppercase` (design.md §5)
+   In a Latin-script language the label is set in capitals, tracked out so
+   they don't crowd. Hangul has no case: `uppercase` does nothing to it and
+   the tracking only pulls the syllables apart, so a Korean label keeps its
+   text as written and takes Medium weight to still read as a label. Text
+   that should stay in capitals whatever the language (the wordmark) carries
+   lang="en". Unlayered, so it wins over the utilities it adjusts.
+   --------------------------------------------------------------------------- */
+
+.text-app-label.uppercase {
+  letter-spacing: 0.06em;
+}
+
+.text-app-label.uppercase:lang(ko) {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
 }
 
 /* ---------------------------------------------------------------------------
@@ -192,6 +255,13 @@
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
   background-color: transparent !important;
+}
+
+/* Room between the island's edge and the terminal's text, as the editor
+   has. FitAddon takes the .xterm element's padding off the rows and columns
+   it fits; the right side has the scrollbar's reserved width. */
+.xterm {
+  padding: 6px 0 6px 12px;
 }
 
 /* xterm's .xterm-viewport is overflow-y:scroll, so it always reserves a

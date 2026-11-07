@@ -7,7 +7,7 @@
 //     family, size, ligatures and cursor style (no xterm instance — too heavy)
 //   - Font size: numeric input + ▲▼ stepper (8–32, step 1)
 //   - Font family: token-sealed Select + custom-name input branch
-//   - Font ligatures: Radix Checkbox
+//   - Font ligatures: SettingsSwitch
 //   - Cursor style: SegmentedControl with inline glyph previews
 //   - Task agent command: what a new task's terminal runs
 //   - Sessions view: the view a sessions tab opens in
@@ -21,7 +21,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { DEFAULT_TASK_AGENT, TASK_AGENTS } from "../../../../shared/sessions/task-agent";
+import { DEFAULT_TASK_AGENT } from "../../../../shared/sessions/task-agent";
 import {
   DEFAULT_SESSIONS_VIEW,
   SESSIONS_VIEWS,
@@ -30,10 +30,10 @@ import { checkFontAvailable } from "../../../services/editor/runtime/font-availa
 import { useSessionsViewStore } from "../../../state/stores/sessions-view";
 import type { TerminalCursorStyle, TerminalFontSize } from "../../../state/stores/terminal";
 import { useTerminalStore } from "../../../state/stores/terminal";
-import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
-import { SettingsRow, SettingsSection } from "../section";
+import { taskAgentOptions } from "../../workspace/task-agent-options";
+import { SettingsRow, SettingsSection, SettingsSwitch } from "../section";
 import type { SegmentedOption } from "../segmented-control";
 import { SegmentedControl } from "../segmented-control";
 import { TerminalShellSection } from "./terminal-shell-section";
@@ -180,7 +180,6 @@ export function TerminalPanel() {
   );
 
   const customFamilyId = useId();
-  const ligaturesId = useId();
 
   const resetFamily = () => {
     setFontFamily(undefined);
@@ -278,24 +277,14 @@ export function TerminalPanel() {
         )}
       </SettingsSection>
 
-      {/* Ligatures — Checkbox + explanation */}
-      <SettingsSection
+      <SettingsSwitch
         label={t("terminal.fontLigatures")}
+        description={t("terminal.ligatures.description")}
+        checked={effectiveLigatures}
+        onChange={setFontLigatures}
         dirty={ligatures !== undefined}
         onReset={() => setFontLigatures(undefined)}
-      >
-        <label htmlFor={ligaturesId} className="flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            id={ligaturesId}
-            checked={effectiveLigatures}
-            onCheckedChange={(v) => setFontLigatures(v === true)}
-          />
-          <span className="text-app-body text-foreground">{t("terminal.ligatures.enable")}</span>
-        </label>
-        <p className="text-app-ui-sm text-muted-foreground">
-          {t("terminal.ligatures.description")}
-        </p>
-      </SettingsSection>
+      />
 
       {/* Task agent — what a new task opens with */}
       <SettingsSection
@@ -304,10 +293,7 @@ export function TerminalPanel() {
         onReset={() => setTaskAgent(undefined)}
       >
         <SegmentedControl
-          options={TASK_AGENTS.map((value) => ({
-            value,
-            label: t(`common:task.agents.${value}`),
-          }))}
+          options={taskAgentOptions()}
           value={taskAgent ?? DEFAULT_TASK_AGENT}
           onChange={setTaskAgent}
           label={t("terminal.taskAgent.label")}

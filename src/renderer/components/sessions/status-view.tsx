@@ -90,7 +90,8 @@ export function StatusView({
 }: StatusViewProps) {
   const { t } = useTranslation();
   const chats = useChatStore((s) => s.tabs);
-  const [open, setOpen] = useState<ReadonlySet<RowGroup>>(() => new Set());
+  // The groups the user opened or folded, against how they start.
+  const [flipped, setFlipped] = useState<ReadonlySet<RowGroup>>(() => new Set());
   const sessions = allSessions(family);
   const worktreeOf = (session: AgentSession) =>
     family.worktrees.find((w) => w.workspace.id === session.workspaceId);
@@ -111,8 +112,10 @@ export function StatusView({
   return (
     <div className="flex flex-col gap-3 p-2" data-testid="sessions-status-view">
       {groups.map(({ group, rows }) => {
-        // A search shows what it found, folded groups too.
-        const folded = FOLDED.has(group) && !open.has(group) && !searching;
+        // Idle and ended start folded, unless they are all there is; a
+        // search shows what it found, folded groups too.
+        const startsFolded = FOLDED.has(group) && groups.length > 1;
+        const folded = !searching && startsFolded !== flipped.has(group);
         const label = t(`sessions.group.${group}`);
         return (
           <section key={group} aria-label={label} className="flex flex-col gap-1">
@@ -121,7 +124,7 @@ export function StatusView({
                 type="button"
                 aria-expanded={!folded}
                 onClick={() =>
-                  setOpen((prev) => {
+                  setFlipped((prev) => {
                     const next = new Set(prev);
                     if (next.has(group)) next.delete(group);
                     else next.add(group);

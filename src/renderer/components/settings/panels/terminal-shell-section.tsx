@@ -10,7 +10,6 @@
 // every spawn.
 
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { Dialog as RadixDialog } from "radix-ui";
 import { type FormEvent, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -33,6 +32,7 @@ import {
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
+import { DialogHeader } from "../../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsSection } from "../section";
 import { isWindows } from "../../../utils/platform";
@@ -196,7 +196,6 @@ function ManageShellsDialog({
   // The form in place of the list: the added shell being edited, "new"
   // while adding one, or null for the list.
   const [editing, setEditing] = useState<string | null>(null);
-  const titleId = useId();
   const editingShell = customShells.find((s) => s.id === editing);
 
   const handleOpenChange = (next: boolean) => {
@@ -214,16 +213,18 @@ function ManageShellsDialog({
       open={open}
       onOpenChange={handleOpenChange}
       size="lg"
-      aria-labelledby={titleId}
-      aria-describedby={undefined}
+      {...(editing === null ? {} : { "aria-describedby": undefined })}
     >
-      <RadixDialog.Title id={titleId} className="text-app-body-emphasis text-foreground">
-        {editing === null
-          ? t("terminal.shell.manageTitle")
-          : editingShell
-            ? t("terminal.shell.edit", { name: editingShell.name })
-            : t("terminal.shell.add")}
-      </RadixDialog.Title>
+      <DialogHeader
+        title={
+          editing === null
+            ? t("terminal.shell.manageTitle")
+            : editingShell
+              ? t("terminal.shell.edit", { name: editingShell.name })
+              : t("terminal.shell.add")
+        }
+        description={editing === null ? t("terminal.shell.listHint") : undefined}
+      />
 
       {editing !== null ? (
         <div className="mt-3">
@@ -236,9 +237,6 @@ function ManageShellsDialog({
         </div>
       ) : (
         <>
-          <p className="mt-1 text-app-ui-sm text-muted-foreground">
-            {t("terminal.shell.listHint")}
-          </p>
           <div className="app-scrollbar mt-3 flex max-h-80 flex-col gap-0.5 overflow-y-auto">
             {entries.map((entry) => {
               const custom =

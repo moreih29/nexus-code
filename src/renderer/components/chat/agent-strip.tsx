@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRow, AgentStatus } from "../../services/chat/panel";
 import { cn } from "../../utils/cn";
+import { IconButton } from "../ui/icon-button";
 
 interface AgentStripProps {
   agents: AgentRow[];
@@ -61,13 +62,10 @@ export function AgentStrip({ agents, shown, onShow, panel }: AgentStripProps) {
         )}
       </div>
       {panel && (
-        <button
-          type="button"
+        <IconButton
+          label={panel.open ? t("chat.panel.hide") : t("chat.panel.show")}
           onClick={panel.onToggle}
-          title={panel.open ? t("chat.panel.hide") : t("chat.panel.show")}
-          aria-label={panel.open ? t("chat.panel.hide") : t("chat.panel.show")}
           aria-pressed={panel.open}
-          className="shrink-0 rounded-(--radius-control) p-1 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           data-testid="chat-panel-toggle"
         >
           {panel.open ? (
@@ -75,7 +73,7 @@ export function AgentStrip({ agents, shown, onShow, panel }: AgentStripProps) {
           ) : (
             <PanelRightOpen className="size-4" />
           )}
-        </button>
+        </IconButton>
       )}
     </div>
   );

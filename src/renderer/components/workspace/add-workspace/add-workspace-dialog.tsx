@@ -1,5 +1,4 @@
 import { ArrowLeft, FolderOpen, LoaderCircle, Server } from "lucide-react";
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ConnectionProfile } from "../../../../shared/types/entry-points";
@@ -7,6 +6,8 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { fetchConnectionProfiles, listSshConfigHosts } from "../../../services/workspace";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
+import { DialogHeader } from "../../ui/dialog-header";
+import { IconButton } from "../../ui/icon-button";
 import { MainListView } from "./main-list-view";
 import { SshConnectionListView } from "./ssh-connection-list-view";
 import { type SshDirectoryPickerHandle, SshDirectoryPickerView } from "./ssh-directory-picker-view";
@@ -222,14 +223,9 @@ export function AddWorkspaceDialog({
       // internally. A fixed height also removes the resize jump between views.
       contentStyle={{ height: "min(640px, 90vh)" }}
     >
-      <RadixDialog.Title className="sr-only">{t("workspace.add_title")}</RadixDialog.Title>
-      <RadixDialog.Description className="sr-only">
-        {t("workspace.add_subtitle_main")}
-      </RadixDialog.Description>
-
       <div className="flex min-h-0 flex-1 flex-col">
         {/* Fixed header */}
-        <DialogHeader view={view} showBack={showBack} onBack={handleBack} />
+        <AddWorkspaceHeader view={view} showBack={showBack} onBack={handleBack} />
 
         {/* Scrollable body — flex column so a view can fill the height
             (the directory picker grows its list into the available space). */}
@@ -269,43 +265,41 @@ export function AddWorkspaceDialog({
 }
 
 // ---------------------------------------------------------------------------
-// DialogHeader
+// AddWorkspaceHeader
 // ---------------------------------------------------------------------------
 
-interface DialogHeaderProps {
+interface AddWorkspaceHeaderProps {
   readonly view: ModalView;
   readonly showBack: boolean;
   readonly onBack: () => void;
 }
 
-function DialogHeader({ view, showBack, onBack }: DialogHeaderProps): React.JSX.Element {
+/**
+ * ← Back on the views below the first (intra-dialog navigation), the title
+ * with what the view is for, and × on the right: the dialog has no Cancel
+ * button, so × is its visible way out besides Esc and an outside click. On
+ * the first view the title starts at the body's edge.
+ */
+function AddWorkspaceHeader({
+  view,
+  showBack,
+  onBack,
+}: AddWorkspaceHeaderProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="shrink-0 px-4 pb-3 pt-4">
-      {/* Title row — ← Back on the left (intra-dialog navigation between the
-          4 views), title alongside. Flat-first: no header rule and no X close
-          button; Esc / outside-click / Cancel dismiss the dialog. The size-8
-          placeholder keeps the title's left edge fixed when Back is hidden. */}
-      <div className="flex items-center gap-2">
-        {showBack ? (
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label={t("action.back")}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50"
-          >
+    <DialogHeader
+      className="shrink-0 px-4 pb-3 pt-4"
+      title={t("workspace.add_title")}
+      description={viewSubtitle(view, t)}
+      close
+      leading={
+        showBack ? (
+          <IconButton label={t("action.back")} size="lg" onClick={onBack}>
             <ArrowLeft className="size-4" aria-hidden="true" />
-          </button>
-        ) : (
-          <div className="size-8 shrink-0" aria-hidden="true" />
-        )}
-
-        <div className="min-w-0 flex-1">
-          <div className="text-app-body-emphasis text-foreground">{t("workspace.add_title")}</div>
-          <div className="text-app-ui-sm text-muted-foreground">{viewSubtitle(view, t)}</div>
-        </div>
-      </div>
-    </div>
+          </IconButton>
+        ) : null
+      }
+    />
   );
 }
 

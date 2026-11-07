@@ -4,12 +4,12 @@
  * The helper manager writes the saved content back to Git's temporary message
  * file; cancel maps to a non-zero editor exit so Git aborts the commit.
  */
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitEditorPrompt } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
 import { Dialog } from "../../../ui/dialog";
+import { DialogHeader } from "../../../ui/dialog-header";
 
 interface CommitMessageDialogProps {
   prompt: GitEditorPrompt | null;
@@ -38,7 +38,8 @@ export function hasCommitMessageBody(content: string): boolean {
 
 /**
  * Renders the editor form body without creating a portal, keeping static tests
- * focused on the commit-message controls.
+ * focused on the commit-message controls. Its header is the dialog's Radix
+ * Title, so it renders inside a Dialog root.
  */
 export function CommitMessageDialogContent({
   prompt,
@@ -54,10 +55,10 @@ export function CommitMessageDialogContent({
 
   return (
     <>
-      <h2 className="text-app-body-emphasis text-foreground">{t("git.commit.messageDialog.title")}</h2>
-      <p className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("git.commit.messageDialog.description")}
-      </p>
+      <DialogHeader
+        title={t("git.commit.messageDialog.title")}
+        description={t("git.commit.messageDialog.description")}
+      />
       <form className="mt-4 flex flex-col gap-2" onSubmit={onSubmit}>
         <label htmlFor={textareaId} className="text-app-ui-sm text-foreground">
           {t("git.commit.messageDialog.messageLabel")}
@@ -112,9 +113,7 @@ export function CommitMessageDialog({
         if (!open) onCancel();
       }}
       size="lg"
-      aria-describedby={undefined}
     >
-      <RadixDialog.Title className="sr-only">{/* sr-only title loaded in content */}Commit message</RadixDialog.Title>
       {prompt ? (
         <CommitMessageDialogContent
           prompt={prompt}

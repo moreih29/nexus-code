@@ -11,7 +11,7 @@
 // forwarded.
 
 import { Globe } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -30,7 +30,7 @@ import {
 import { NO_FORWARDS, NO_PORTS, useForwardsStore, usePortsStore } from "../../state/stores/ports";
 import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
-import { useDismissOnOutsideClick } from "../ui/use-dismiss-on-outside-click";
+import { Popover } from "../ui/popover";
 
 /** How many ports the segment lists before "+N". */
 const SHOWN_PORTS = 3;
@@ -72,7 +72,6 @@ export function PortsSegmentView({
 }): React.JSX.Element | null {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
   const rows = rowsOf(ports, forwards);
   if (rows.length === 0) return null;
@@ -81,32 +80,29 @@ export function PortsSegmentView({
   const title = t("statusBar.ports_title", { ports: portsLabel(rows, rows.length) });
 
   return (
-    <div ref={wrapperRef} className="relative inline-flex h-full">
-      <button
-        type="button"
-        title={title}
-        aria-label={title}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "inline-flex items-center gap-1 h-full px-2",
-          "text-app-ui-sm font-sans leading-none tabular-nums",
-          "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
-        )}
-      >
-        <Globe className="size-3 shrink-0" aria-hidden="true" />
-        <span className="truncate max-w-40">{label}</span>
-      </button>
-      {open ? (
-        <PortsPopover
-          workspaceId={workspaceId}
-          rows={rows}
-          wrapperRef={wrapperRef}
-          onClose={() => setOpen(false)}
-        />
-      ) : null}
-    </div>
+    <Popover
+      open={open}
+      onOpenChange={setOpen}
+      label={t("statusBar.ports_menu_title")}
+      className="w-[280px] max-w-[min(280px,calc(100vw-2rem))]"
+      trigger={
+        <button
+          type="button"
+          title={title}
+          aria-label={title}
+          className={cn(
+            "inline-flex items-center gap-1 h-full px-2",
+            "text-app-ui-sm font-sans leading-none tabular-nums",
+            "hover:bg-[var(--status-bar-item-hover-bg)] focus-visible:bg-[var(--status-bar-item-hover-bg)] focus-visible:outline-none transition-colors",
+          )}
+        >
+          <Globe className="size-3 shrink-0" aria-hidden="true" />
+          <span className="truncate max-w-40">{label}</span>
+        </button>
+      }
+    >
+      <PortsPopover workspaceId={workspaceId} rows={rows} onClose={() => setOpen(false)} />
+    </Popover>
   );
 }
 
@@ -116,19 +112,15 @@ const MENU_ITEM_CLASS =
 function PortsPopover({
   workspaceId,
   rows,
-  wrapperRef,
   onClose,
 }: {
   workspaceId: string;
   rows: readonly PortRow[];
-  wrapperRef: React.RefObject<HTMLDivElement | null>;
   onClose: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const tabs = useTabsStore((s) => s.byWorkspace[workspaceId]);
   const host = sshHostOf(workspaceId);
-
-  useDismissOnOutsideClick(wrapperRef, true, onClose);
 
   function act(action: () => void): void {
     action();
@@ -136,15 +128,7 @@ function PortsPopover({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-label={t("statusBar.ports_menu_title")}
-      className={cn(
-        "absolute bottom-full right-0 z-40 mb-1",
-        "w-[280px] max-w-[min(280px,calc(100vw-2rem))]",
-        "floating-panel p-1",
-      )}
-    >
+    <>
       <div className="px-2 pt-1 pb-1.5 flex flex-col gap-0.5">
         <span className="text-app-ui-sm text-foreground font-medium">
           {t("statusBar.ports_menu_title")}
@@ -213,6 +197,6 @@ function PortsPopover({
           </div>
         );
       })}
-    </div>
+    </>
   );
 }

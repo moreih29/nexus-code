@@ -1,8 +1,11 @@
 // src/renderer/components/settings/section.tsx — Shared section helpers.
 //
-// Three layout primitives reused by every Settings panel:
+// Layout primitives reused by every Settings panel:
 //   - SettingsSection: stacked label + control (full-width controls)
 //   - SettingsRow:     inline label + compact control on the right
+//   - SettingsSwitch:  an on/off setting — label and description, a Switch on
+//                      the right. On/off settings are switches; checkboxes are
+//                      for picking items from a list and for filters.
 //   - ResetButton:     small ↺ icon button surfaced when a section is dirty;
 //                      clicking reverts that section's fields to the token
 //                      fallback (undefined in the store).
@@ -15,8 +18,11 @@
 // §14 grid (size-3).
 
 import { RotateCcw } from "lucide-react";
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { IconButton } from "../ui/icon-button";
+import { Switch } from "../ui/switch";
 
 // ---------------------------------------------------------------------------
 // SettingsSection — stacked layout
@@ -67,6 +73,53 @@ export function SettingsRow({ label, dirty, onReset, children }: SettingsRowProp
 }
 
 // ---------------------------------------------------------------------------
+// SettingsSwitch — an on/off setting
+// ---------------------------------------------------------------------------
+
+interface SettingsSwitchProps {
+  label: string;
+  description?: React.ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  /** As SettingsRow: a reset affordance next to the label once changed. */
+  dirty?: boolean;
+  onReset?: () => void;
+}
+
+export function SettingsSwitch({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+  dirty,
+  onReset,
+}: SettingsSwitchProps) {
+  const id = useId();
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <label htmlFor={id} className="text-app-body text-foreground cursor-pointer">
+            {label}
+          </label>
+          {onReset && <ResetButton onClick={onReset} label={label} visible={!!dirty} />}
+        </div>
+        {description && <p className="text-app-ui-sm text-muted-foreground">{description}</p>}
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        className="shrink-0 mt-1"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ResetButton — small icon button (always rendered, slot reserved)
 // ---------------------------------------------------------------------------
 
@@ -87,22 +140,15 @@ function ResetButton({ onClick, label, visible }: ResetButtonProps) {
   const { t } = useTranslation("settings");
   const resetLabel = t("dialog.resetSetting", { label });
   return (
-    <button
-      type="button"
-      aria-label={resetLabel}
-      title={resetLabel}
+    <IconButton
+      label={resetLabel}
+      size="xs"
       onClick={onClick}
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible || undefined}
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center",
-        "size-5 rounded-(--radius-control)",
-        "text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-        "transition-colors",
-        !visible && "invisible pointer-events-none",
-      )}
+      className={cn(!visible && "invisible pointer-events-none")}
     >
       <RotateCcw className="size-3" aria-hidden="true" />
-    </button>
+    </IconButton>
   );
 }

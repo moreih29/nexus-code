@@ -4,13 +4,13 @@
 // it. A worktree with changes turns the dialog into a second confirmation,
 // since deleting it throws the changes away.
 
-import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MOUNT_CLICK_GRACE_MS } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
+import { DialogHeader } from "@/components/ui/dialog-header";
 import { countUnsavedBuffers } from "../../services/editor/save/unsaved-guard";
 import { removeTask } from "../../services/workspace/tasks";
 import { useTaskUIStore } from "../../state/stores/task-ui";
@@ -78,24 +78,25 @@ export function RemoveTaskDialogRoot(): React.JSX.Element {
         if (!next) cancel();
       }}
       size="sm"
-      aria-describedby={undefined}
     >
-      <RadixDialog.Title className="text-app-body-emphasis text-foreground">
-        {t("task.remove_title", { name: task?.name ?? "" })}
-      </RadixDialog.Title>
-      <RadixDialog.Description className="mt-2 text-app-ui-sm text-muted-foreground">
-        {t("task.remove_description")}
-        {unsavedCount > 0 && (
-          <span className="mt-2 block text-foreground">
-            {t("workspace.remove_unsaved", { count: unsavedCount })}
-          </span>
-        )}
-        {dirty && (
-          <span className="mt-2 block text-[var(--state-warning-fg)]">
-            {t("task.remove_dirty")}
-          </span>
-        )}
-      </RadixDialog.Description>
+      <DialogHeader
+        title={t("task.remove_title", { name: task?.name ?? "" })}
+        description={
+          <>
+            {t("task.remove_description")}
+            {unsavedCount > 0 && (
+              <span className="mt-2 block text-foreground">
+                {t("workspace.remove_unsaved", { count: unsavedCount })}
+              </span>
+            )}
+            {dirty && (
+              <span className="mt-2 block text-[var(--state-warning-fg)]">
+                {t("task.remove_dirty")}
+              </span>
+            )}
+          </>
+        }
+      />
       <label htmlFor={branchId} className="mt-4 flex items-center gap-2 cursor-pointer">
         <Checkbox
           id={branchId}

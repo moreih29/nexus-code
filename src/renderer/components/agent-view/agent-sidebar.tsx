@@ -31,6 +31,7 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { setAgentDrag } from "./drag";
@@ -275,14 +276,9 @@ function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
   return (
     <DropdownMenuRoot>
       <DropdownMenuTrigger>
-        <button
-          type="button"
-          aria-label={t("agentView.list.new_agent", { name: workspace.name })}
-          title={t("agentView.list.new_agent", { name: workspace.name })}
-          className="flex size-5 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground data-[state=open]:bg-[var(--state-selected-bg)]"
-        >
+        <IconButton label={t("agentView.list.new_agent", { name: workspace.name })} size="xs">
           <Plus aria-hidden className="size-3.5" />
-        </button>
+        </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={() => start("claude")}>

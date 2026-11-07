@@ -9,7 +9,6 @@
 import { Inbox } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
@@ -33,6 +32,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { IconButton } from "../ui/icon-button";
 
 export function InboxButton() {
   const { t } = useTranslation();
@@ -55,19 +55,11 @@ export function InboxButton() {
   return (
     <DropdownMenuRoot onOpenChange={setOpen}>
       <DropdownMenuTrigger>
-        <button
-          type="button"
+        <IconButton
+          label={t("inbox.title")}
           aria-label={t("inbox.aria", { count: inbox.attention })}
-          title={t("inbox.title")}
-          className={cn(
-            "app-no-drag relative",
-            "flex items-center justify-center",
-            "size-7 rounded-(--radius-control)",
-            "text-muted-foreground",
-            "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-            "data-[state=open]:bg-[var(--state-selected-bg)] data-[state=open]:text-foreground",
-            "transition-colors duration-150",
-          )}
+          size="md"
+          className="app-no-drag relative"
         >
           <Inbox className="size-4" aria-hidden="true" />
           {inbox.attention > 0 ? (
@@ -83,7 +75,7 @@ export function InboxButton() {
               className="absolute top-1 right-1 size-1.5 rounded-full bg-(--tab-claude-attention-fg)"
             />
           ) : null}
-        </button>
+        </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"

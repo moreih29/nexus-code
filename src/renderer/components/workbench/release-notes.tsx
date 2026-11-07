@@ -25,6 +25,7 @@ import { useUpdatesStore } from "../../state/stores/updates";
 import { cn } from "../../utils/cn";
 import { UpdateSection } from "../settings/panels/about-panel";
 import { Button } from "../ui/button";
+import { IconButton } from "../ui/icon-button";
 
 /** Overlays that open from the view, as a tooltip, and keep it open. */
 const FROM_VIEW =
@@ -104,9 +105,6 @@ function ReleaseNotesDialog() {
     status?.kind === "ready" ||
     status?.kind === "installFailed";
 
-  const icon =
-    "inline-flex size-6 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground";
-
   let body: ReactNode;
   if (shown && notes) {
     body = (
@@ -153,7 +151,7 @@ function ReleaseNotesDialog() {
   }
 
   return (
-    <div className="absolute inset-0 z-40">
+    <div className="absolute inset-0 z-(--layer-in-panel)">
       <div
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"
@@ -191,15 +189,9 @@ function ReleaseNotesDialog() {
               {t("releaseNotes.openOnGitHub")}
             </Button>
           )}
-          <button
-            type="button"
-            className={icon}
-            onClick={closeReleaseNotes}
-            aria-label={t("releaseNotes.close")}
-            title={t("releaseNotes.close")}
-          >
+          <IconButton label={t("releaseNotes.close")} onClick={closeReleaseNotes}>
             <X className="size-4" aria-hidden="true" />
-          </button>
+          </IconButton>
         </div>
         {body}
       </div>

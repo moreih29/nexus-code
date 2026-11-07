@@ -23,8 +23,7 @@ import { useLspSettingsStore } from "../../../state/stores/lsp-settings";
 import { isWindows } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
 import { NumberInput } from "../../ui/number-input";
-import { Switch } from "../../ui/switch";
-import { SettingsRow, SettingsSection } from "../section";
+import { SettingsRow, SettingsSection, SettingsSwitch } from "../section";
 
 const BUNDLED_LANGUAGES: readonly BuiltinLspPresetLanguageId[] = [
   "typescript",
@@ -38,24 +37,16 @@ const INSTALLED_LANGUAGES: readonly BuiltinLspPresetLanguageId[] = ["go", "rust"
 
 export function LanguageServersPanel() {
   const { t } = useTranslation("settings");
-  const id = useId();
   const settings = useLspSettingsStore((s) => s.settings);
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-1 min-w-0">
-          <label htmlFor={id} className="text-app-body text-foreground cursor-pointer">
-            {t("languageServers.enable")}
-          </label>
-          <p className="text-app-ui-sm text-muted-foreground">{t("languageServers.description")}</p>
-        </div>
-        <Switch
-          id={id}
-          checked={settings.enabled}
-          onCheckedChange={(v) => void ipcCallResult("lsp", "setEnabled", { enabled: v })}
-        />
-      </div>
+      <SettingsSwitch
+        label={t("languageServers.enable")}
+        description={t("languageServers.description")}
+        checked={settings.enabled}
+        onChange={(v) => void ipcCallResult("lsp", "setEnabled", { enabled: v })}
+      />
 
       {settings.enabled && (
         <>

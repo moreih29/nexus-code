@@ -8,7 +8,7 @@
 //     before first paint so the dim level is correct on the first frame.
 //
 // Semantics: a MULTIPLIER on each theme's tuned inactive-veil alpha (dark
-// themes overlay white @0.2, light themes overlay black @0.04 — see
+// themes shade black @0.28, light themes black @0.04 — see
 // theme-adapter.ts). 1 = theme default (no change), 0 = no dim, 2 = double the
 // default strength. Applied at runtime via useInactivePanelDimEffect →
 // --inactive-panel-dim CSS var → the veil token's calc() in the generated

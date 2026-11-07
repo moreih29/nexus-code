@@ -1,11 +1,11 @@
 // New Task dialog — a name, the agent the task opens with (a Claude or Codex
-// tab, or a terminal), and the first prompt for that agent.
+// tab, or "Terminal only": a shell with no agent), and the first prompt for
+// that agent.
 //
 // Mounted once in GlobalRoots; `useTaskUIStore.openNewTask(parentId)` opens
 // it. Failures stay in the dialog so the name can be fixed and sent again.
 
 import i18next from "i18next";
-import { Dialog as RadixDialog } from "radix-ui";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
@@ -16,17 +16,14 @@ import {
   handleFormDialogOpenChange,
   isFormDialogSubmitDisabled,
 } from "@/components/ui/form-dialog";
-import {
-  DEFAULT_TASK_AGENT,
-  TASK_AGENTS,
-  type TaskAgent,
-} from "../../../shared/sessions/task-agent";
+import { DEFAULT_TASK_AGENT, type TaskAgent } from "../../../shared/sessions/task-agent";
 import { createTask, type TaskFailure } from "../../services/workspace/tasks";
 import { useGitStore } from "../../state/stores/git/index";
 import { useTaskUIStore } from "../../state/stores/task-ui";
 import { useTerminalStore } from "../../state/stores/terminal";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { SegmentedControl } from "../settings/segmented-control";
+import { taskAgentOptions } from "./task-agent-options";
 
 const EMPTY_VALUES: FormDialogValues = { name: "", prompt: "" };
 
@@ -49,6 +46,7 @@ export function newTaskFields(agent: TaskAgent): readonly FormDialogField[] {
       placeholder: t("task.prompt_placeholder"),
       helperText: t("task.prompt_helper", { agent: t(`task.agents.${agent}`) }),
       required: false,
+      multiline: true,
     },
   ];
 }
@@ -126,8 +124,6 @@ export function NewTaskDialogRoot(): React.JSX.Element {
       onOpenChange={(nextOpen) => handleFormDialogOpenChange(nextOpen, cancel)}
       size="md"
     >
-      <RadixDialog.Title className="sr-only">{title}</RadixDialog.Title>
-      <RadixDialog.Description className="sr-only">{description}</RadixDialog.Description>
       <FormDialogContent
         title={title}
         description={description}
@@ -140,18 +136,20 @@ export function NewTaskDialogRoot(): React.JSX.Element {
         onCancel={cancel}
         onSubmit={(event) => void handleSubmit(event)}
         extraContent={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-start gap-2">
             <span className="text-app-ui-sm text-foreground">{i18next.t("task.agent_label")}</span>
             <SegmentedControl
-              options={TASK_AGENTS.map((value) => ({
-                value,
-                label: i18next.t(`task.agents.${value}`),
-              }))}
+              options={taskAgentOptions()}
               value={agent}
               onChange={setAgent}
               label={i18next.t("task.agent_label")}
               disabled={busy}
             />
+            {/* What the pick opens — and, for Terminal only, why the prompt
+                field went away. */}
+            <p className="text-app-ui-sm text-muted-foreground">
+              {i18next.t(`task.agent_hints.${agent}`)}
+            </p>
           </div>
         }
       >
