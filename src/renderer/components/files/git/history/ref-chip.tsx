@@ -2,18 +2,15 @@
  * Ref chips render compact git decorations beside a commit subject and expose
  * branch/tag navigation without changing the row context-menu behavior.
  */
+import i18next from "i18next";
 import { GitBranch, Tag } from "lucide-react";
 import type React from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import i18next from "i18next";
+import { useMemo, useState } from "react";
 import type { LogEntryRef } from "../../../../../shared/git/types";
 import { cn } from "../../../../utils/cn";
-import { useDismissOnOutsideClickMulti } from "../../../ui/use-dismiss-on-outside-click";
+import { Popover } from "../../../ui/popover";
 
 const DEFAULT_VISIBLE_REF_COUNT = 2;
-const POPOVER_WIDTH_PX = 220;
-const POPOVER_MAX_HEIGHT_PX = 240;
 
 export type RefChipDisplayKind = "head" | "current" | "branch" | "remote" | "tag";
 export type RefChipVisibleCount = 1 | 2;
@@ -26,7 +23,6 @@ export type RefChipContextMenuHandler = (
 export interface RefChipProps {
   readonly refInfo: LogEntryRef;
   readonly currentRefName?: string;
-  readonly role?: React.AriaRole;
   readonly className?: string;
   readonly iconOnly?: boolean;
   readonly onRefChange: (refName: string) => void;
@@ -46,7 +42,6 @@ export interface RefChipListProps {
 export function RefChip({
   refInfo,
   currentRefName,
-  role,
   className,
   iconOnly = false,
   onRefChange,
@@ -71,7 +66,6 @@ export function RefChip({
   return (
     <button
       type="button"
-      role={role}
       title={refInfo.name}
       className={cn(refChipClassName(displayKind, showIconOnly), className)}
       aria-label={refChipAriaLabel(refInfo, displayKind)}
@@ -84,7 +78,7 @@ export function RefChip({
   );
 }
 
-/** Renders prioritized visible ref chips plus a portal popover for overflow. */
+/** Renders prioritized visible ref chips plus a popover for the overflow. */
 export function RefChipList({
   refs,
   currentRefName,
@@ -93,10 +87,7 @@ export function RefChipList({
   onRefChange,
   onOpenMenu,
 }: RefChipListProps) {
-  const popoverId = useId();
-  const wrapperRef = useRef<HTMLSpanElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [popoverPoint, setPopoverPoint] = useState<PopoverPoint | null>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const orderedRefs = useMemo(
     () => sortRefsForDisplay(refs ?? [], currentRefName),
     [currentRefName, refs],
@@ -107,28 +98,12 @@ export function RefChipList({
   );
   const visibleRefs = orderedRefs.slice(0, normalizedVisibleCount);
   const overflowRefs = orderedRefs.slice(normalizedVisibleCount);
-  const popoverOpen = popoverPoint !== null;
-  const closePopover = useCallback(() => setPopoverPoint(null), []);
-
-  useDismissOnOutsideClickMulti([wrapperRef, popoverRef], popoverOpen, closePopover);
-
-  useEffect(() => {
-    if (!popoverOpen) return;
-
-    /** Closes the overflow menu with the conventional Escape key. */
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") closePopover();
-    }
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [closePopover, popoverOpen]);
 
   if (orderedRefs.length === 0) return null;
   if (breakpoint === "compact" || breakpoint === "narrow") {
     if (!headRef) return null;
     return (
-      <span ref={wrapperRef} className="inline-flex min-w-0 items-center">
+      <span className="inline-flex min-w-0 items-center">
         <RefChip
           refInfo={headRef}
           currentRefName={currentRefName}
@@ -140,25 +115,16 @@ export function RefChipList({
     );
   }
 
-  /** Toggles the overflow popover at the overflow trigger location. */
-  function handleOverflowClick(event: React.MouseEvent<HTMLButtonElement>): void {
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    setPopoverPoint((current) =>
-      current ? null : { x: rect.left, y: rect.bottom + 4, triggerWidth: rect.width },
-    );
-  }
-
   /** Forwards right-click on the overflow trigger to the commit menu. */
   function handleOverflowContextMenu(event: React.MouseEvent<HTMLButtonElement>): void {
     event.preventDefault();
     event.stopPropagation();
-    closePopover();
+    setOverflowOpen(false);
     onOpenMenu?.(event);
   }
 
   return (
-    <span ref={wrapperRef} className="inline-flex min-w-0 items-center gap-1">
+    <span className="inline-flex min-w-0 items-center gap-1">
       {visibleRefs.map((refInfo) => (
         <RefChip
           key={refChipKey(refInfo)}
@@ -169,33 +135,46 @@ export function RefChipList({
         />
       ))}
       {overflowRefs.length > 0 ? (
-        <button
-          type="button"
-          className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--color-git-chip-border)] px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--color-git-chip-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-          aria-label={i18next.t("files:git.refChip.showMoreRefs", { count: overflowRefs.length })}
-          aria-haspopup="menu"
-          aria-expanded={popoverOpen}
-          aria-controls={popoverOpen ? popoverId : undefined}
-          onClick={handleOverflowClick}
-          onContextMenu={handleOverflowContextMenu}
+        <Popover
+          open={overflowOpen}
+          onOpenChange={setOverflowOpen}
+          label={i18next.t("files:git.refChip.moreRefs")}
+          side="bottom"
+          align="start"
+          className="flex max-h-60 max-w-60 flex-col gap-1"
+          containEvents
+          trigger={
+            <button
+              type="button"
+              className="inline-flex h-5 shrink-0 items-center rounded-full border border-[var(--color-git-chip-border)] px-2 text-app-ui-sm text-muted-foreground hover:bg-[var(--color-git-chip-hover-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+              aria-label={i18next.t("files:git.refChip.showMoreRefs", {
+                count: overflowRefs.length,
+              })}
+              // The row under it would select the commit too.
+              onClick={(event) => event.stopPropagation()}
+              onContextMenu={handleOverflowContextMenu}
+            >
+              +{overflowRefs.length}
+            </button>
+          }
         >
-          +{overflowRefs.length}
-        </button>
-      ) : null}
-      {popoverOpen && popoverPoint ? (
-        <RefChipOverflowPopover
-          id={popoverId}
-          point={popoverPoint}
-          refs={overflowRefs}
-          currentRefName={currentRefName}
-          popoverRef={popoverRef}
-          onRefChange={(refName) => {
-            closePopover();
-            onRefChange(refName);
-          }}
-          onClose={closePopover}
-          onOpenMenu={onOpenMenu}
-        />
+          {overflowRefs.map((refInfo) => (
+            <RefChip
+              key={refChipKey(refInfo)}
+              refInfo={refInfo}
+              currentRefName={currentRefName}
+              className="w-full max-w-none justify-start"
+              onRefChange={(refName) => {
+                setOverflowOpen(false);
+                onRefChange(refName);
+              }}
+              onOpenMenu={(event, openedRef) => {
+                setOverflowOpen(false);
+                onOpenMenu?.(event, openedRef);
+              }}
+            />
+          ))}
+        </Popover>
       ) : null}
     </span>
   );
@@ -226,70 +205,6 @@ export function refChipDisplayKind(
     return "current";
   }
   return refInfo.kind;
-}
-
-interface PopoverPoint {
-  readonly x: number;
-  readonly y: number;
-  readonly triggerWidth: number;
-}
-
-interface RefChipOverflowPopoverProps {
-  readonly id: string;
-  readonly point: PopoverPoint;
-  readonly refs: readonly LogEntryRef[];
-  readonly currentRefName?: string;
-  readonly popoverRef: React.RefObject<HTMLDivElement | null>;
-  readonly onRefChange: (refName: string) => void;
-  readonly onClose: () => void;
-  readonly onOpenMenu?: RefChipContextMenuHandler;
-}
-
-/** Portal-renders overflow refs so row clipping cannot hide the popover. */
-function RefChipOverflowPopover({
-  id,
-  point,
-  refs,
-  currentRefName,
-  popoverRef,
-  onRefChange,
-  onClose,
-  onOpenMenu,
-}: RefChipOverflowPopoverProps) {
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      ref={popoverRef}
-      id={id}
-      role="menu"
-      aria-label={i18next.t("files:git.refChip.moreRefs")}
-      className="fixed z-(--layer-floating) flex max-w-[240px] flex-col gap-1 overflow-y-auto floating-panel p-1"
-      style={popoverPositionStyle(point)}
-      onClick={(event) => event.stopPropagation()}
-      onContextMenu={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape") onClose();
-      }}
-    >
-      {refs.map((refInfo) => (
-        <RefChip
-          key={refChipKey(refInfo)}
-          refInfo={refInfo}
-          currentRefName={currentRefName}
-          role="menuitem"
-          className="w-full max-w-none justify-start"
-          onRefChange={onRefChange}
-          onOpenMenu={(event, openedRef) => {
-            onClose();
-            onOpenMenu?.(event, openedRef);
-          }}
-        />
-      ))}
-    </div>,
-    document.body,
-  );
 }
 
 /** Renders the icon/marker that differentiates the five chip display kinds. */
@@ -392,18 +307,4 @@ function visibleCountForBreakpoint(
   if (breakpoint === "medium") return 1;
   if (breakpoint === "wide") return DEFAULT_VISIBLE_REF_COUNT;
   return visibleCount === 1 ? 1 : DEFAULT_VISIBLE_REF_COUNT;
-}
-
-/** Positions the portal popover inside the viewport near the overflow chip. */
-function popoverPositionStyle(point: PopoverPoint): React.CSSProperties {
-  if (typeof window === "undefined") {
-    return { left: point.x, top: point.y, minWidth: point.triggerWidth };
-  }
-
-  return {
-    left: Math.max(4, Math.min(point.x, window.innerWidth - POPOVER_WIDTH_PX)),
-    top: Math.max(4, Math.min(point.y, window.innerHeight - POPOVER_MAX_HEIGHT_PX)),
-    minWidth: point.triggerWidth,
-    maxHeight: POPOVER_MAX_HEIGHT_PX,
-  };
 }
