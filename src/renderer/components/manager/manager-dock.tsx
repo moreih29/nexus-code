@@ -14,7 +14,12 @@ import {
 import { useManagerTasks } from "../../services/manager/use-tasks";
 import type { AgentSession } from "../../services/sessions/model";
 import { goToSession } from "../../services/sessions/use-inbox";
-import { useManagerStore } from "../../state/stores/manager";
+import {
+  DOCK_WIDTH_DEFAULT,
+  DOCK_WIDTH_MAX,
+  DOCK_WIDTH_MIN,
+  useManagerStore,
+} from "../../state/stores/manager";
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
@@ -25,24 +30,43 @@ import { StateGlyph, stateLabel } from "../sessions/session-status";
 import { AgentMark } from "../sessions/status-view";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
+import { ResizeHandle } from "../ui/resize-handle";
 import { ManagerIcon } from "./manager-chip";
-
-/** The dock's width, in CSS pixels. */
-const DOCK_WIDTH = 400;
 
 export function ManagerDock() {
   const { t } = useTranslation();
   const open = useManagerStore((s) => s.dockOpen);
+  const width = useManagerStore((s) => s.dockWidth);
+  if (!open) return null;
+
+  return (
+    // At most half the window's width, whatever it was given: the workspace keeps the rest.
+    <div className="relative flex min-w-0 shrink-0" style={{ width, maxWidth: "50%" }}>
+      <ResizeHandle
+        value={width}
+        min={DOCK_WIDTH_MIN}
+        max={DOCK_WIDTH_MAX}
+        placement="leftCentered"
+        ariaLabel={t("manager.resize")}
+        onResize={(next, persist) => useManagerStore.getState().setDockWidth(next, persist)}
+        onReset={() => useManagerStore.getState().setDockWidth(DOCK_WIDTH_DEFAULT, true)}
+      />
+      <Dock />
+    </div>
+  );
+}
+
+/** The dock itself: its header, and the manager's tasks and conversation. */
+function Dock() {
+  const { t } = useTranslation();
   const enabled = useManagerStore((s) => s.enabled);
   const agent = useManagerStore((s) => s.agent);
   const live = useManagerStore((s) => s.live);
-  if (!open) return null;
   const AgentIcon = agent === "codex" ? CodexIcon : ClaudeIcon;
 
   return (
     <aside
-      className="flex shrink-0 flex-col overflow-hidden island-surface rounded-(--radius-island)"
-      style={{ width: DOCK_WIDTH }}
+      className="flex min-w-0 flex-1 flex-col overflow-hidden island-surface rounded-(--radius-island)"
       aria-label={t("manager.title")}
       data-testid="manager-dock"
     >

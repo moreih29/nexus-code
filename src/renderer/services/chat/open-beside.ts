@@ -2,18 +2,25 @@
 // the Claude tab, split off when the tab is wide enough to share; in the
 // Claude tab's own group when it is narrow and has no neighbour. From the
 // agent view, the Claude tab's workspace comes to the front to show it.
+// The agent manager's conversation, whose workspace is never shown, opens
+// what it names in one of the user's.
 
 import { Grid } from "@/engine";
 import type { MonacoRange } from "../../../shared/editor/monaco-range";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { openBrowserTabAt, revealTab } from "../../state/operations/tabs";
+import { useActiveStore } from "../../state/stores/active";
 import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout/store";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { showInAgentView } from "../agent-view/show";
 import { revealEditorAt } from "../editor/tabs";
 import { openExternalEditor } from "../editor/tabs/open-external-editor";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import { revealInWorkspace } from "../sessions/actions";
+import { activateWorkspace } from "../workspace/tasks";
 import { type FileLink, isUnder, type LineAt } from "./links";
 
 /**
@@ -49,7 +56,17 @@ export function openFileBeside(
   path: string,
   opts: { split: boolean; inside: boolean; at?: LineAt },
 ): void {
+  if (isManagerWorkspace(workspaceId)) {
+    const place = managerFilePlace(path);
+    if (place) openFile(place.id, path, { inside: isUnder(path, place.rootPath), at: opts.at });
+    return;
+  }
   activateTarget(workspaceId, claudeTabId, opts.split);
+  openFile(workspaceId, path, opts);
+}
+
+/** Opens a file in the workspace's active group. */
+function openFile(workspaceId: string, path: string, opts: { inside: boolean; at?: LineAt }): void {
   const range = opts.at?.line ? cursorAt(opts.at.line, opts.at.column) : undefined;
   if (opts.inside) {
     revealEditorAt({ workspaceId, filePath: path }, { preview: true, selection: range });
@@ -63,6 +80,44 @@ export function openFileBeside(
 
 function cursorAt(line: number, column = 1): MonacoRange {
   return { startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: column };
+}
+
+/**
+ * Where a file the agent manager's conversation names opens, its own
+ * workspace being out of sight: the workspace whose folder holds it, else
+ * the one shown, or another of this machine's, where the manager runs. That
+ * workspace comes to the front. Undefined with none.
+ */
+function managerFilePlace(path: string): WorkspaceMeta | undefined {
+  const { workspaces } = useWorkspacesStore.getState();
+  const holder = workspaces
+    .filter((w) => isUnder(path, w.rootPath))
+    .sort((a, b) => b.rootPath.length - a.rootPath.length)[0];
+  const local = workspaces.filter((w) => w.location.kind === "local");
+  const shown = useActiveStore.getState().activeWorkspaceId;
+  const place = holder ?? local.find((w) => w.id === shown) ?? local[0];
+  if (place) showWorkspace(place.id);
+  return place;
+}
+
+/**
+ * The workspace an address the agent manager's conversation names opens in:
+ * the one shown, as `nexus browser open` from the manager.
+ */
+function managerBrowserPlace(): string | null {
+  const shown = useActiveStore.getState().activeWorkspaceId;
+  if (!shown || !useWorkspacesStore.getState().workspaces.some((w) => w.id === shown)) return null;
+  showWorkspace(shown);
+  return shown;
+}
+
+/** Shows the workspace, out of the agent view. */
+function showWorkspace(workspaceId: string): void {
+  if (useActiveStore.getState().activeWorkspaceId === workspaceId) {
+    useAgentViewStore.getState().setMode("workspace");
+  } else {
+    activateWorkspace(workspaceId);
+  }
 }
 
 /**
@@ -115,6 +170,11 @@ export function openBrowserBeside(
   url: string,
   opts: { split: boolean },
 ): void {
+  if (isManagerWorkspace(workspaceId)) {
+    const place = managerBrowserPlace();
+    if (place) openBrowserTabAt(place, url);
+    return;
+  }
   activateTarget(workspaceId, claudeTabId, opts.split);
   openBrowserTabAt(workspaceId, url);
 }
