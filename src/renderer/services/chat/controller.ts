@@ -94,6 +94,11 @@ export interface ChatTabHooks {
   onFirstMessage?: (text: string) => void;
   /** The title Claude made for the conversation, to take the first message's place. */
   onTitle?: (title: string) => void;
+  /**
+   * The session's name, as the user gave it: by /rename, by renaming the
+   * tab, or one it had when it was taken up again. The tab is called by it.
+   */
+  onRename?: (title: string) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -159,6 +164,8 @@ export class ChatController {
   private titled = false;
   /** When the line under the composer last asked for the plan's usage. */
   private usageAskedAt = Number.NEGATIVE_INFINITY;
+  /** The name the program last said its session has. */
+  private sessionName: string | undefined;
   private sessionId: string | undefined;
 
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
@@ -413,6 +420,8 @@ export class ChatController {
   async renameSession(title: string): Promise<boolean> {
     const sessionId = this.state.model.sessionId ?? this.sessionId;
     if (!sessionId || !title.trim()) return false;
+    // The tab took the name from the session: it has it already.
+    if (title.trim() === this.sessionName) return true;
     if (!(await this.ensureRunning()) || !this.supports("rename_session")) return false;
     await this.request("rename_session", {
       title: title.trim(),
@@ -954,6 +963,15 @@ export class ChatController {
       this.pending.delete(id);
       if (response?.subtype === "error") entry.reject(new Error(String(response.error ?? "error")));
       else entry.resolve((response?.response as Record<string, unknown>) ?? {});
+    } else if (message.type === "system" && message.subtype === "session_title_changed") {
+      // Said when the name changes, and as the program starts on a session
+      // that has one; the CLI has trimmed it and made it unique.
+      const title = typeof message.title === "string" ? message.title.trim() : "";
+      if (title && title !== this.sessionName) {
+        this.sessionName = title;
+        this.titled = true;
+        this.hooks.onRename?.(title);
+      }
     } else if (message.type === "control_request") {
       const request = message.request as Record<string, unknown> | undefined;
       // Requests the app has no answer for are refused, so the CLI does not wait.
