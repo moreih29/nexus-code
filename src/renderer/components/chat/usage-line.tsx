@@ -2,8 +2,8 @@
 // much of the plan's usage limits is spent, in the colours of the context
 // ring, turning to the warning colour from 80%. The narrower the tab, the
 // less it says: first the token counts go, then the week's reset time, then
-// the session's, and at the narrowest the words shorten; the percentages
-// stay. Hovering a part tells it whole.
+// the session's, then the words shorten, and at the narrowest the bars go;
+// the percentages stay. Hovering a part tells it whole.
 
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -16,6 +16,7 @@ const WARN_AT = 80;
 
 /** Where a detail shows, by the line's width: the most wanted holds out longest. */
 const DETAIL = {
+  bar: "hidden @3xs:block",
   sessionReset: "hidden @sm:inline",
   weekReset: "hidden @lg:inline",
   tokens: "hidden @xl:inline",
@@ -31,7 +32,12 @@ function Percent({ percent }: { percent: number }) {
 
 function Bar({ percent }: { percent: number }) {
   return (
-    <span className="relative h-1 w-6 shrink-0 overflow-hidden rounded-full bg-current/25">
+    <span
+      className={cn(
+        DETAIL.bar,
+        "relative h-1 w-6 shrink-0 overflow-hidden rounded-full bg-current/25",
+      )}
+    >
       <span
         className={cn(
           "absolute inset-y-0 left-0 rounded-full",
