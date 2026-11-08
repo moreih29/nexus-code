@@ -3,7 +3,7 @@
 // writes one JSON entry per line: the messages, and its own bookkeeping
 // (summaries, file snapshots), which is skipped.
 
-import { applyLines, type ChatLine, type ChatModel, emptyModel } from "./model";
+import { applyLines, type ChatLine, type ChatModel, emptyModel, isCommandOutput } from "./model";
 
 type Rec = Record<string, unknown>;
 
@@ -30,8 +30,7 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
     if (entry.type === "user") {
       const text = textOf(message.content);
       // A command's output, which went to the user and not the model.
-      if (text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>"))
-        continue;
+      if (isCommandOutput(text)) continue;
       const command = commandText(text);
       // The /clear a session starts with: the tab shows that as it happens.
       if (command === "/clear") continue;

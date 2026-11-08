@@ -839,6 +839,17 @@ function pushAgentBlocks(
   m.agentItems = { ...m.agentItems, [parent]: next };
 }
 
+/**
+ * A command's output, as the CLI writes it in a user message: it went to
+ * the user, not the model. Claude 2.1.319 echoes one once a session has
+ * started when the tab sets the model (set_model, or apply_flag_settings
+ * with a model: "Set model to ..."), and after /compact ("Compacted"),
+ * which its own notice tells.
+ */
+export function isCommandOutput(text: string): boolean {
+  return text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>");
+}
+
 function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
   const m = draft.next;
   const body = rec(message.message);
@@ -846,6 +857,9 @@ function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | unde
   const when = time(message.timestamp) ?? at;
 
   if (message.isReplay === true) {
+    // Echoed as a message taken, it is none the app wrote: shown, it would
+    // read as the user's, and take a message the user wrote for its own.
+    if (isCommandOutput(userContent(content).text)) return;
     // The CLI took a message the app wrote: the one it was written with
     // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
