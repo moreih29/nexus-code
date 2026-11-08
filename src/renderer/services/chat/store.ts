@@ -43,6 +43,21 @@ export interface ChatTabState {
   mcpSignIn?: McpSignIn;
   /** What an app command shows above the composer (/btw's answer, /help). */
   card?: CommandCard;
+  /** A part of the tab a command typed bare asked to see, till it is shown. */
+  reveal?: Reveal;
+}
+
+/**
+ * The parts of a tab a bare command shows rather than the CLI's text: the
+ * side panel's context, usage and MCP servers, the composer's model and
+ * effort menus.
+ */
+export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort";
+
+export interface Reveal {
+  part: RevealPart;
+  /** Tells one ask from the next, so the same part asked twice opens twice. */
+  seq: number;
 }
 
 export interface CommandCard {
@@ -113,6 +128,23 @@ export const useChatStore = create<ChatStore>((set) => ({
       return { tabs: rest };
     }),
 }));
+
+/** Asks the tab with `key` to show one of its parts. */
+export function revealPart(key: string, part: RevealPart): void {
+  useChatStore.getState().update(key, (prev) => ({
+    ...prev,
+    reveal: { part, seq: (prev.reveal?.seq ?? 0) + 1 },
+  }));
+}
+
+/** The part asked for is shown: the ask is done, unless another came since. */
+export function takeReveal(key: string, seq: number): void {
+  useChatStore.getState().update(key, (prev) => {
+    if (prev.reveal?.seq !== seq) return prev;
+    const { reveal: _done, ...rest } = prev;
+    return rest;
+  });
+}
 
 export function chatKey(workspaceId: string, tabId: string): string {
   return `${workspaceId}:${tabId}`;

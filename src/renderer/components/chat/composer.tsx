@@ -50,7 +50,12 @@ import {
   type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
-import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
+import {
+  type ChatTabState,
+  type QueuedMessage,
+  type RevealPart,
+  takeReveal,
+} from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
 import { isMac } from "../../utils/platform";
@@ -757,6 +762,28 @@ function useFitStep(row: RefObject<HTMLElement | null>, content: string): number
   return step;
 }
 
+/**
+ * A chip's menu, open as the user opens it or as a bare command (/model,
+ * /effort) asks; one that cannot open says why instead.
+ */
+function useRevealedMenu(
+  controller: ComposerController,
+  state: ChatTabState,
+  part: RevealPart,
+  unavailable: string | null,
+): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(false);
+  const reveal = state.reveal?.part === part ? state.reveal.seq : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
+  useEffect(() => {
+    if (reveal === undefined) return;
+    takeReveal(controller.key, reveal);
+    if (unavailable) showToast({ kind: "info", message: unavailable });
+    else setOpen(true);
+  }, [reveal]);
+  return [open, setOpen];
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
@@ -1094,8 +1121,14 @@ function ModelChip({ controller, state, short }: ChipProps & { short: boolean })
   const current = currentModelInfo(models, state.model.model);
   const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
   const ready = state.model.process === "running" && models.length > 0;
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "model",
+    ready ? null : t("chat.reveal.not_ready"),
+  );
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"
@@ -1131,10 +1164,23 @@ function EffortChip({ controller, state }: ChipProps) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
+  const supported = controller.supports("apply_flag_settings");
+  const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "effort",
+    levels.length === 0
+      ? t("chat.effort.none")
+      : !supported
+        ? note
+        : state.model.process !== "running"
+          ? t("chat.reveal.not_ready")
+          : null,
+  );
   if (levels.length === 0) return null;
   const effort = state.model.effort;
-  if (!controller.supports("apply_flag_settings")) {
-    const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  if (!supported) {
     return (
       <button
         type="button"
@@ -1147,7 +1193,7 @@ function EffortChip({ controller, state }: ChipProps) {
     );
   }
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"

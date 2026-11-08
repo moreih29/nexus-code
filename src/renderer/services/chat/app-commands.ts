@@ -4,6 +4,7 @@
 // gains one runs its own. Pure, for the tab and its tests.
 
 import type { AssistantItem, ChatItem, CommandInfo, ToolCall } from "./model";
+import type { RevealPart } from "./store";
 
 export interface AppCommand {
   name: string;
@@ -90,6 +91,26 @@ export function parseAppCommand(
   if (cli.some((c) => namesOf(c).includes(typed))) return null;
   const command = APP_COMMANDS.find((c) => namesOf(c).includes(typed));
   return command ? { name: command.name, args: (match[2] ?? "").trim() } : null;
+}
+
+/**
+ * The CLI's commands that, typed with nothing after them, the tab answers
+ * by showing its own view of the same thing rather than the CLI's text.
+ */
+const SHOWN_WHEN_BARE: Readonly<Record<string, RevealPart>> = {
+  context: "context",
+  usage: "usage",
+  mcp: "mcp",
+  model: "model",
+  effort: "effort",
+};
+
+/** The part of the tab a bare command shows; null for one that has arguments, or another. */
+export function revealOf(text: string, parts?: readonly RevealPart[]): RevealPart | null {
+  const match = COMMAND_RE.exec(text.trim());
+  if (!match || (match[2] ?? "").trim()) return null;
+  const part = SHOWN_WHEN_BARE[match[1].toLowerCase()];
+  return part && (!parts || parts.includes(part)) ? part : null;
 }
 
 /** What Claude said in each turn, oldest first: its text, without the tools. */

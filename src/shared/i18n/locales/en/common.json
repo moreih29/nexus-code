@@ -1027,7 +1027,8 @@
     "effort": {
       "aria": "Effort",
       "label": "Effort",
-      "unset": "effort"
+      "unset": "effort",
+      "none": "This model has no effort levels to choose"
     },
     "rewind": {
       "action": "Rewind to before this message",
@@ -1360,6 +1361,9 @@
         "session": "Session",
         "weekly": "Week"
       }
+    },
+    "reveal": {
+      "not_ready": "Try again once the program is ready"
     }
   },
   "agentView": {

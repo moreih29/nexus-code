@@ -21,6 +21,7 @@ import {
   permissionsOf,
   pluginResultOf,
   pluginsOf,
+  revealOf,
   sandboxOn,
   skillsOf,
   subtaskPrompt,
@@ -62,6 +63,29 @@ const items: ChatItem[] = [
   said("a4", "Done."),
 ];
 const tools = { t1: tool("t1", "Bash"), t2: tool("t2", "Edit"), t3: tool("t3", "Read", "t1") };
+
+describe("bare commands shown in the tab", () => {
+  test("a bare /context, /usage, /mcp, /model or /effort shows the tab's own view", () => {
+    expect(revealOf("/context")).toBe("context");
+    expect(revealOf("  /USAGE ")).toBe("usage");
+    expect(revealOf("/mcp")).toBe("mcp");
+    expect(revealOf("/model")).toBe("model");
+    expect(revealOf("/effort\n")).toBe("effort");
+  });
+
+  test("with arguments, or another command, it goes to the CLI", () => {
+    expect(revealOf("/model sonnet")).toBeNull();
+    expect(revealOf("/effort high")).toBeNull();
+    expect(revealOf("/mcp reconnect github")).toBeNull();
+    expect(revealOf("/compact")).toBeNull();
+    expect(revealOf("what is /context?")).toBeNull();
+  });
+
+  test("a tab without a side panel takes only its menus", () => {
+    expect(revealOf("/context", ["model", "effort"])).toBeNull();
+    expect(revealOf("/model", ["model", "effort"])).toBe("model");
+  });
+});
 
 describe("app commands", () => {
   test("are listed beside the CLI's, unless the CLI has them", () => {
