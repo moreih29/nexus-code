@@ -253,6 +253,22 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
+  // The drawer covers the composer, so it takes the keyboard while open:
+  // Escape closes it from there. Closed, the keyboard goes back to where it
+  // was (the composer a bare /context was typed in), unless the user has
+  // put it somewhere else meanwhile.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawerOpen || !drawer) return;
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!drawer.contains(document.activeElement)) drawer.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      const dropped = now === null || now === document.body || drawer.contains(now);
+      if (dropped && back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [drawerOpen]);
   // A bare /context, /usage or /mcp opens the panel; its section opens itself.
   const reveal = state.reveal;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
@@ -562,9 +578,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             />
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
             <div
+              ref={drawerRef}
+              tabIndex={-1}
               className={cn(
                 // Below the strip, whose toggle closes it again.
-                "absolute right-0 bottom-0 z-20 border-l border-border bg-background",
+                "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
                 place === "summary" ? "top-7 w-full" : "top-8 w-80",
               )}
               onKeyDown={(event) => {
