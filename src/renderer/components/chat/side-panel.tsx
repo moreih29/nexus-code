@@ -40,6 +40,7 @@ import {
   usageLimitsOf,
 } from "../../services/chat/panel";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
+import { formatTokens } from "../../services/chat/usage-line";
 import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
@@ -967,13 +968,6 @@ function Elapsed({ from, to, now }: { from?: number; to?: number; now: number })
       {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
     </span>
   );
-}
-
-/** Tokens as "942", "24.5k" or "1.2M". */
-export function formatTokens(count: number): string {
-  if (count < 1000) return String(count);
-  if (count < 1_000_000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
 function useTicker(ticking: boolean): number {

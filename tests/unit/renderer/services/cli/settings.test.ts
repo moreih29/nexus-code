@@ -29,6 +29,7 @@ const { useNotificationsStore } = await import(
   "../../../../../src/renderer/state/stores/notifications"
 );
 const { useAgentCliStore } = await import("../../../../../src/renderer/state/stores/agent-cli");
+const { useChatFontStore } = await import("../../../../../src/renderer/state/stores/chat-font");
 
 const set = (key: string, value: string | null) => settingsHandlers["settings.set"]({ key, value });
 
@@ -50,6 +51,7 @@ beforeEach(() => {
   useNotificationsStore.getState().setOsEnabled(true);
   useNotificationsStore.getState().setRateLimitWarnings(true);
   useAgentCliStore.getState().hydrate({});
+  useChatFontStore.getState().hydrate({});
   writes.length = 0;
 });
 
@@ -86,6 +88,20 @@ describe("settings.set", () => {
     const { setting } = await set("editor.lineHeight", null);
     expect(setting).toMatchObject({ value: "1.4", changed: false });
     expect(useEditorFontStore.getState().lineHeight).toBeUndefined();
+  });
+
+  it("sets the chat tabs' text size and font, a kind of font such as system-ui too", async () => {
+    const { setting } = await set("chat.fontSize", "18");
+    expect(setting).toMatchObject({ key: "chat.fontSize", value: 18, changed: true });
+    expect(writes).toContainEqual({ chatFontSize: 18 });
+    await expect(set("chat.fontSize", "30")).rejects.toThrow();
+    await set("chat.fontFamily", "system-ui");
+    expect(useChatFontStore.getState().family).toBe("system-ui");
+    await set("chat.fontFamily", "");
+    expect(useChatFontStore.getState().family).toBeUndefined();
+    await expect(set("chat.fontFamily", "x;}body{")).rejects.toThrow(
+      "chat.fontFamily: a font family is letters, digits, spaces, hyphens, commas and quotes",
+    );
   });
 
   it('takes "" as the system\'s font', async () => {

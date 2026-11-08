@@ -69,6 +69,7 @@ import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useNotificationsStore } from "../../state/stores/notifications";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
@@ -229,6 +230,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
 
   // Where the side panel goes follows the tab's width.
   const rootRef = useRef<HTMLDivElement>(null);
+  const fontStyle = useChatFontStyle();
   // Brought to the front (its tab picked, the inbox, the agent view), it
   // takes the keyboard.
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
@@ -455,7 +457,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     // biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the tab
     <div
       ref={rootRef}
-      className="relative flex h-full flex-col bg-background"
+      className="chat-font relative flex h-full flex-col bg-background"
+      style={fontStyle}
       data-testid="claude-tab"
       data-chat-drop
       onKeyDown={onKeyDown}

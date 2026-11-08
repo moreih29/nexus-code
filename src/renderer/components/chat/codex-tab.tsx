@@ -41,6 +41,7 @@ import { queueStartupInput } from "../../services/terminal/pty-client";
 import { agentCommandLine } from "../../services/workspace/tasks";
 import { localUrlFor } from "../../state/operations/ports";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -145,6 +146,7 @@ export function CodexTabView({
   useAgentAsk(tabId, runs, showRun);
 
   const rootRef = useRef<HTMLDivElement>(null);
+  const fontStyle = useChatFontStyle();
   // Brought to the front (its tab picked, the inbox, the agent view), it
   // takes the keyboard.
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
@@ -238,7 +240,8 @@ export function CodexTabView({
   const view = (
     <div
       ref={rootRef}
-      className="relative flex h-full flex-col bg-background"
+      className="chat-font relative flex h-full flex-col bg-background"
+      style={fontStyle}
       data-testid="codex-tab"
       data-chat-drop
     >
