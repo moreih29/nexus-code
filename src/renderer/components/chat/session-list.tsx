@@ -1,7 +1,9 @@
 // The folder's earlier sessions, under a new Claude tab's empty conversation:
 // picking one goes on with it in this tab, or shows the tab that has it open.
+// They start folded behind one button, so an empty tab fits a small panel
+// without a scrollbar over a list nobody asked to see.
 
-import { History } from "lucide-react";
+import { ChevronDown, ChevronUp, History } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { revealTabById } from "../../services/chat/open-beside";
@@ -25,18 +27,42 @@ export function SessionList({
   const { t, i18n } = useTranslation();
   const sessions = useClaudeSessions(workspaceId, cwd, true);
   const openIn = useSessionTabs(workspaceId, tabId);
+  const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   if (!sessions || sessions.length === 0) return null;
+  if (!open) {
+    return (
+      <button
+        type="button"
+        aria-expanded={false}
+        onClick={() => setOpen(true)}
+        className="mt-3 flex items-center gap-1.5 rounded-(--radius-control) border border-border px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+        data-testid="chat-sessions-toggle"
+      >
+        <History className="size-3.5" />
+        {t("chat.sessions.show", { count: sessions.length })}
+        <ChevronDown className="size-3.5" />
+      </button>
+    );
+  }
   const shown = all ? sessions : sessions.slice(0, SHOWN_FIRST);
   const now = Date.now();
   return (
     <section
-      className="mt-6 flex w-full max-w-[560px] flex-col gap-1 text-left"
+      className="mt-3 flex w-full max-w-[560px] flex-col gap-1 text-left"
       data-testid="chat-sessions"
     >
-      <h3 className="flex items-center gap-1.5 px-2 text-app-label uppercase text-muted-foreground">
-        <History className="size-3.5" />
-        {t("chat.sessions.title")}
+      <h3 className="px-2 text-app-label uppercase text-muted-foreground">
+        <button
+          type="button"
+          aria-expanded
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-1.5 rounded-(--radius-control) hover:text-foreground"
+        >
+          <History className="size-3.5" />
+          {t("chat.sessions.title")}
+          <ChevronUp className="size-3.5" />
+        </button>
       </h3>
       <ul className="flex flex-col">
         {shown.map((session) => {

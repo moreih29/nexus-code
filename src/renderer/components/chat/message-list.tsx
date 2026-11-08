@@ -194,7 +194,14 @@ export function MessageList({
         className="app-scrollbar absolute inset-0 overflow-y-auto"
         data-testid="chat-messages"
       >
-        <div ref={contentRef} className="mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-4">
+        <div
+          ref={contentRef}
+          className={cn(
+            "mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-4",
+            // Room for an empty conversation's notice to sit in the middle.
+            nothing && empty ? "min-h-full" : undefined,
+          )}
+        >
           {nothing && empty}
           {historyItems.map((item) => (
             <Item key={`h-${item.key}`} item={item} ctx={ctx} />

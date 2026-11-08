@@ -422,7 +422,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               items={shown ? agentTranscript(state.model, shown) : undefined}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
-                  <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                  <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                     <ClaudeIcon className="size-8" />
                     <div className="text-app-body">{t("chat.empty.title")}</div>
                     <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>

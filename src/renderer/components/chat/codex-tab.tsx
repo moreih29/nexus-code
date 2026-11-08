@@ -263,7 +263,7 @@ export function CodexTabView({
           model={state.model}
           empty={
             state.phase === "ready" || state.phase === "ended" ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+              <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                 <CodexIcon className="size-8" />
                 <div className="text-app-body">{t("chat.codex.empty")}</div>
                 <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
