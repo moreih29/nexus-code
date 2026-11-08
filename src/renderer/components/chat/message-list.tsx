@@ -390,7 +390,14 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
           <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} />
         ),
       )}
-      {extras && <AnswerExtrasView extras={extras} workspaceId={ctx.workspaceId} cwd={ctx.cwd} />}
+      {extras && (
+        <AnswerExtrasView
+          extras={extras}
+          workspaceId={ctx.workspaceId}
+          cwd={ctx.cwd}
+          rootPath={ctx.rootPath}
+        />
+      )}
       {text && (
         <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
           <CopyButton text={text} />
