@@ -846,8 +846,10 @@ function SendButton({
   );
 }
 
+// One line each: in a narrow panel the chips keep their words whole and
+// the model's name, the longest, gives way first (ModelChip truncates it).
 const CHIP_CLASS =
-  "flex items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
+  "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
 /** Claude Code's permission modes; keys 1 to 5 pick them. */
 const CLAUDE_MODES: ModeSet = {
@@ -1006,12 +1008,12 @@ function ModelChip({ controller, state }: ChipProps) {
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={CHIP_CLASS}
+          className={cn(CHIP_CLASS, "min-w-0 shrink")}
           disabled={!ready}
-          title={t("chat.model.aria")}
+          title={`${t("chat.model.aria")} · ${label}`}
           aria-label={t("chat.model.aria")}
         >
-          {label}
+          <span className="truncate">{label}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
