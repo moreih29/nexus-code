@@ -141,6 +141,7 @@ export const actionHandlers: {
           endLineNumber: at.lineNumber,
           endColumn: at.column,
         },
+        preserveFocus: true,
       });
     }
     return { tabId };
