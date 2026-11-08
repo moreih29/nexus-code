@@ -236,6 +236,7 @@ export function CodexTabView({
       ref={rootRef}
       className="relative flex h-full flex-col bg-background"
       data-testid="codex-tab"
+      data-chat-drop
     >
       <PhaseBanner controller={controller} state={state} />
       {model.signedOut && model.process === "running" && (

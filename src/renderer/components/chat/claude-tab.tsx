@@ -453,6 +453,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       ref={rootRef}
       className="relative flex h-full flex-col bg-background"
       data-testid="claude-tab"
+      data-chat-drop
       onKeyDown={onKeyDown}
     >
       <PhaseBanner controller={controller} state={state} />
