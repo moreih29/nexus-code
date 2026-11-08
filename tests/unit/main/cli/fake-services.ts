@@ -32,6 +32,7 @@ import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
   CliAgentView,
+  CliChatChoices,
   CliChatEntry,
   CliChatInfo,
   CliChatTool,
@@ -179,6 +180,8 @@ export interface FakeApp {
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
     managerPermissions: ManagerPermissions;
+    /** Whether the agent manager is on, as manager.dock tells. */
+    managerEnabled: boolean;
   };
   /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
@@ -224,6 +227,12 @@ export interface FakeApp {
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
   /** What manager.dispatched was told: the sessions the manager handed work to. */
   dispatched: Array<CliUiOps["manager.dispatched"]["args"]>;
+  /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
+  chatChoices: Map<string, CliChatChoices>;
+  /** What chat.open answers it could not set; it sets everything when absent. */
+  chatOpenError: { message?: string };
+  /** Why tab.close leaves a tab open, by tab id; it closes the others. */
+  closeRefused: Map<string, string>;
 }
 
 /** Some of the app's settings: one only the user changes, one with many choices. */
@@ -426,6 +435,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     crossWorkspace: "ask",
     agentContext: true,
     managerPermissions: "user",
+    managerEnabled: true,
   };
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
@@ -485,6 +495,9 @@ export function fakeApp(now = Date.now()): FakeApp {
   const events: FakeApp["events"] = [];
   const chatAnswered: FakeApp["chatAnswered"] = [];
   const dispatched: FakeApp["dispatched"] = [];
+  const chatChoices: FakeApp["chatChoices"] = new Map();
+  const chatOpenError: FakeApp["chatOpenError"] = {};
+  const closeRefused: FakeApp["closeRefused"] = new Map();
   const consent = new CrossWorkspaceConsent({
     policy: () => settings.crossWorkspace,
     ask: async (request) => {
@@ -542,7 +555,28 @@ export function fakeApp(now = Date.now()): FakeApp {
         start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
     }
-    if (op === "chat.open") return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    if (op === "chat.open") {
+      const error = chatOpenError.message;
+      return { tabId: NEW_TAB, ...(error ? { error } : {}) } as CliUiOps[K]["result"];
+    }
+    if (op === "manager.dock") {
+      return { enabled: settings.managerEnabled } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.settings") {
+      const { tabId, settings: wanted } = args as CliUiOps["chat.settings"]["args"];
+      const now = chatChoices.get(tabId);
+      if (!now) throw new CliError("its program is not running");
+      const next = { ...now, ...wanted };
+      chatChoices.set(tabId, next);
+      return next as CliUiOps[K]["result"];
+    }
+    if (op === "tab.close") {
+      const { workspaceId, tabId } = args as CliUiOps["tab.close"]["args"];
+      const refused = closeRefused.get(tabId);
+      if (refused) throw new CliError(refused);
+      tabs[workspaceId] = (tabs[workspaceId] ?? []).filter((t) => t.id !== tabId);
+      return {} as CliUiOps[K]["result"];
+    }
     if (op === "chat.answer") {
       chatAnswered.push(args as CliUiOps["chat.answer"]["args"]);
       return {} as CliUiOps[K]["result"];
@@ -754,6 +788,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     events,
     chatAnswered,
     dispatched,
+    chatChoices,
+    chatOpenError,
+    closeRefused,
   };
 }
 

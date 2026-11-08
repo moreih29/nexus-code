@@ -119,6 +119,9 @@ export const actionHandlers: {
     | "settings.list"
     | "settings.set"
     | "manager.dispatched"
+    | "manager.dock"
+    | "manager.new"
+    | "settings.open"
     | LayoutOp
     | `chat.${string}`
     | `agentView.${string}`

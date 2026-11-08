@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import type { ChatAgent } from "../sessions/task-agent";
+import type { SettingsPage } from "./settings";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
@@ -36,6 +37,8 @@ export interface CliTabInfo {
   readonly dead?: boolean;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
+  /** Pinned to the front of its group. */
+  readonly pinned?: boolean;
 }
 
 /** Where a tab the CLI opens goes. */
@@ -161,6 +164,9 @@ export type CliChangeKind =
   | "terminalInput"
   | "chatNew"
   | "chatInput"
+  | "chatInterrupt"
+  | "chatSettings"
+  | "chatMode"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -185,6 +191,26 @@ export interface CliChange {
   readonly detail?: string;
   /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
   readonly body?: string;
+}
+
+/** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
+export interface CliChatSettings {
+  readonly model?: string;
+  readonly effort?: string;
+  readonly mode?: string;
+}
+
+/** What a Claude or Codex tab runs with, and what it may be set to. */
+export interface CliChatChoices {
+  readonly agent: ChatAgent;
+  /** The model it runs, as its list names it; null before it says. */
+  readonly model: string | null;
+  readonly effort: string | null;
+  readonly mode: string;
+  /** The models it offers: the name to give, and the one shown. */
+  readonly models: readonly { readonly value: string; readonly name: string }[];
+  /** The effort levels its model takes; none when it takes none. */
+  readonly efforts: readonly string[];
 }
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
@@ -514,7 +540,11 @@ export interface CliUiOps {
     /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
     result: { workspaceId: string; tabId: string; start: CliTaskStart };
   };
-  /** Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is one. */
+  /**
+   * Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is
+   * one. With `settings`, its program starts and is set to them first; when
+   * that fails, `error` says why and nothing is sent.
+   */
   "chat.open": {
     args: {
       workspaceId: string;
@@ -522,8 +552,23 @@ export interface CliUiOps {
       cwd: string;
       prompt: string;
       placement: CliPlacement;
+      settings?: CliChatSettings;
     };
-    result: { tabId: string };
+    result: { tabId: string; error?: string };
+  };
+  /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
+  "chat.interrupt": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Sets a Claude or Codex tab's model, effort and permission mode, as its
+   * composer's chips do, those given only; tells what it runs with then and
+   * what it takes. Its program is started if it was not.
+   */
+  "chat.settings": {
+    args: { workspaceId: string; tabId: string; settings: CliChatSettings };
+    result: CliChatChoices;
   };
   /**
    * Where a Claude or Codex tab's conversation stands; its program is opened
@@ -594,6 +639,11 @@ export interface CliUiOps {
     args: { key: string; value: string | null };
     result: { setting: CliSettingInfo };
   };
+  /** Opens the Settings dialog for the user: at `page`, or where it was left. */
+  "settings.open": {
+    args: { page?: SettingsPage };
+    result: Record<string, never>;
+  };
   /**
    * Removes a workspace from the app with its tasks, as Remove Workspace
    * does; their folders stay. Refuses one with unsaved files.
@@ -625,6 +675,19 @@ export interface CliUiOps {
    */
   "manager.dispatched": {
     args: { workspaceId: string; tabId: string; text?: string };
+    result: Record<string, never>;
+  };
+  /** Opens or shuts the agent manager's dock; tells whether the manager is on. */
+  "manager.dock": {
+    args: { open: boolean };
+    result: { enabled: boolean };
+  };
+  /**
+   * Starts the agent manager over, as its dock's New conversation does: the
+   * old conversation is left to resume. Refused while the manager is off.
+   */
+  "manager.new": {
+    args: Record<string, never>;
     result: Record<string, never>;
   };
   /**

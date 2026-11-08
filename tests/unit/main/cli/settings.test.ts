@@ -63,3 +63,26 @@ describe("settings set and reset", () => {
     expect((await nexus(app, ["settings", "set", "editor.fontSize"])).exitCode).toBe(2);
   });
 });
+
+describe("settings open", () => {
+  test("opens the dialog at a page, named or by one of its settings' keys", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["settings", "open", "Keybindings"])).stdout).toBe(
+      "Opened Settings at keybindings.\n",
+    );
+    expect(app.uiCalls.at(-1)).toEqual({ op: "settings.open", args: { page: "keybindings" } });
+    await nexus(app, ["settings", "open", "terminal.taskAgent"]);
+    expect(app.uiCalls.at(-1)?.args).toEqual({ page: "agent" });
+    await nexus(app, ["settings", "open", "lsp"]);
+    expect(app.uiCalls.at(-1)?.args).toEqual({ page: "language-servers" });
+  });
+
+  test("opens it where it was left with no page, and lists the pages for a wrong one", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["settings", "open"])).stdout).toBe("Opened Settings.\n");
+    expect(app.uiCalls.at(-1)?.args).toEqual({});
+    const wrong = await nexus(app, ["settings", "open", "fonts"]);
+    expect(wrong.exitCode).toBe(2);
+    expect(wrong.stderr).toContain('no page "fonts"; the pages are appearance, editor,');
+  });
+});
