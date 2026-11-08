@@ -202,9 +202,15 @@ export function Composer({
 
   // The row under the box leaves out what it must to stay on one line.
   const footerRef = useRef<HTMLDivElement>(null);
+  // A chip whose menu is open, or asked for by a bare /model or /effort,
+  // stays in the row however narrow it is.
+  const [menuOf, setMenuOf] = useState<RevealPart | null>(null);
+  const kept = (part: RevealPart) => state.reveal?.part === part || menuOf === part;
+  const onMenu = (part: RevealPart) => (open: boolean) =>
+    setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}`,
+    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -651,10 +657,17 @@ export function Composer({
           />
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
             <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
-            {fit < FIT.NO_MODEL && (
-              <ModelChip controller={controller} state={state} short={fit >= FIT.SHORT_MODEL} />
+            {(fit < FIT.NO_MODEL || kept("model")) && (
+              <ModelChip
+                controller={controller}
+                state={state}
+                short={fit >= FIT.SHORT_MODEL}
+                onMenu={onMenu("model")}
+              />
             )}
-            {fit < FIT.NO_EFFORT && <EffortChip controller={controller} state={state} />}
+            {(fit < FIT.NO_EFFORT || kept("effort")) && (
+              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+            )}
             <div className="flex-1" />
             <AddMenu
               onAttach={() => fileRef.current?.click()}
@@ -764,15 +777,21 @@ function useFitStep(row: RefObject<HTMLElement | null>, content: string): number
 
 /**
  * A chip's menu, open as the user opens it or as a bare command (/model,
- * /effort) asks; one that cannot open says why instead.
+ * /effort) asks; one that cannot open says why instead. `onMenu` hears it
+ * open and close in the same update, so the row keeps the chip it opens.
  */
 function useRevealedMenu(
   controller: ComposerController,
   state: ChatTabState,
   part: RevealPart,
   unavailable: string | null,
+  onMenu: (open: boolean) => void,
 ): [boolean, (open: boolean) => void] {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onMenu(next);
+  };
   const reveal = state.reveal?.part === part ? state.reveal.seq : undefined;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
   useEffect(() => {
@@ -1115,7 +1134,12 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
-function ModelChip({ controller, state, short }: ChipProps & { short: boolean }) {
+function ModelChip({
+  controller,
+  state,
+  short,
+  onMenu,
+}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model);
@@ -1126,6 +1150,7 @@ function ModelChip({ controller, state, short }: ChipProps & { short: boolean })
     state,
     "model",
     ready ? null : t("chat.reveal.not_ready"),
+    onMenu,
   );
   return (
     <DropdownMenuRoot open={open} onOpenChange={setOpen}>
@@ -1160,7 +1185,11 @@ function ModelChip({ controller, state, short }: ChipProps & { short: boolean })
   );
 }
 
-function EffortChip({ controller, state }: ChipProps) {
+function EffortChip({
+  controller,
+  state,
+  onMenu,
+}: ChipProps & { onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
@@ -1177,6 +1206,7 @@ function EffortChip({ controller, state }: ChipProps) {
         : state.model.process !== "running"
           ? t("chat.reveal.not_ready")
           : null,
+    onMenu,
   );
   if (levels.length === 0) return null;
   const effort = state.model.effort;
