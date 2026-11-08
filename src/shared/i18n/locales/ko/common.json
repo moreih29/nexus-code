@@ -999,6 +999,8 @@
       "files": "파일",
       "remove_file": "파일 제거",
       "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다.",
+      "drop_title": "여기에 놓아 첨부",
+      "drop_hint": "이미지와 파일을 메시지에 붙입니다",
       "aria_codex": "Codex에게 보낼 메시지"
     },
     "mode": {

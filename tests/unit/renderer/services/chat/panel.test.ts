@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
   applyLines,
   type ChatLine,
@@ -11,6 +12,7 @@ import {
   answerExtras,
   changedFilesOf,
   contextOf,
+  distinctResults,
   jobsOf,
   outsideLinksOf,
   resultsOf,
@@ -295,8 +297,8 @@ describe("chat panel", () => {
       { path: "C:/p/a.ts", added: 2, removed: 2, created: false, toolUseIds: ["e", "e2"] },
     ]);
     expect(resultsOf(model.items, model.tools)).toEqual([
-      { kind: "file", target: "C:\\p\\a.ts", created: false },
-      { kind: "file", target: "D:\\out\\log.txt", created: false },
+      { kind: "file", target: "C:\\p\\a.ts", created: false, guessed: false },
+      { kind: "file", target: "D:\\out\\log.txt", created: false, guessed: false },
     ]);
   });
 
@@ -320,11 +322,47 @@ describe("chat panel", () => {
       ]),
     ]);
     expect(resultsOf(model.items, model.tools)).toEqual([
-      { kind: "file", target: "/p/report.md", created: true },
-      { kind: "url", target: "http://localhost:3000", created: false },
-      { kind: "url", target: "https://example.com/docs", created: false },
-      { kind: "file", target: "src/app.ts", created: false },
+      { kind: "file", target: "/p/report.md", created: true, guessed: false },
+      { kind: "url", target: "http://localhost:3000", created: false, guessed: false },
+      { kind: "url", target: "https://example.com/docs", created: false, guessed: false },
+      { kind: "file", target: "src/app.ts", created: false, guessed: true },
     ]);
+  });
+
+  test("a relative path only backticks name is a guess; a lone /word is a command", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        {
+          type: "text",
+          text: "Bumped `package.json` and `build/notes.json` for `v0.17.0`; `system.stats` is new, see `/config` and `/etc/hosts`.",
+        },
+      ]),
+      assistant("m2", [{ type: "text", text: "Also [the manifest](package.json)." }]),
+    ]);
+    expect(resultsOf(model.items, model.tools)).toEqual([
+      // Linked in a later reply: no longer a guess.
+      { kind: "file", target: "package.json", created: false, guessed: false },
+      { kind: "file", target: "build/notes.json", created: false, guessed: true },
+      { kind: "file", target: "v0.17.0", created: false, guessed: true },
+      { kind: "file", target: "system.stats", created: false, guessed: true },
+      { kind: "file", target: "/etc/hosts", created: false, guessed: false },
+    ]);
+  });
+
+  test("a relative path parted by backslashes is a guess too, a Windows path once resolved", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "text", text: "See `src\\greet.ts`, `.\\lib\\util.ts` and `nope\\`." },
+      ]),
+    ]);
+    const results = resultsOf(model.items, model.tools);
+    expect(results).toEqual([
+      { kind: "file", target: "src\\greet.ts", created: false, guessed: true },
+      { kind: "file", target: ".\\lib\\util.ts", created: false, guessed: true },
+    ]);
+    expect(resultFiles(results, "C:\\w")).toEqual(["C:/w/src/greet.ts", "C:/w/lib/util.ts"]);
   });
 
   test("a finished turn's answer ends with its files and its tools' images", () => {
@@ -370,14 +408,17 @@ describe("chat panel", () => {
       [...answerExtras(model.items, model.tools, "/p", "/p", done)].map(([item, extras]) => [
         item.kind === "assistant" ? item.messageId : item.kind,
         extras.files,
+        extras.guessed,
         extras.images.length,
       ]);
     expect(answers(true)).toEqual([
-      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1],
-      ["m4", ["/p/b.md"], 0],
+      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], ["/p/docs/a.pdf"], 1],
+      ["m4", ["/p/b.md"], [], 0],
     ]);
     // The running turn's answer is not the last yet.
-    expect(answers(false)).toEqual([["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], 1]]);
+    expect(answers(false)).toEqual([
+      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], ["/p/docs/a.pdf"], 1],
+    ]);
   });
 
   test("what a session links outside the workspace, with its HTML files' folders", () => {
@@ -455,6 +496,28 @@ describe("chat panel", () => {
     ).toEqual([
       { kind: "session", percent: 15, resetsAt: "2026-11-05T19:20:00Z", active: false },
       { kind: "weekly_scoped", scope: "Fable", percent: 0, active: false },
+    ]);
+  });
+});
+
+describe("distinctResults", () => {
+  test("lists a file once however its path was written, made new if it ever was", () => {
+    const results = distinctResults(
+      [
+        { kind: "file", target: "long.txt", created: false, guessed: true },
+        { kind: "url", target: "https://example.com", created: false, guessed: false },
+        { kind: "file", target: "/p/long.txt", created: false, guessed: false },
+        { kind: "file", target: "./src/a.ts", created: false, guessed: false },
+        { kind: "file", target: "/p/src/a.ts", created: true, guessed: false },
+        { kind: "url", target: "https://example.com/x", created: false, guessed: false },
+      ],
+      "/p",
+    );
+    expect(results).toEqual([
+      { kind: "file", target: "long.txt", created: false, guessed: true },
+      { kind: "url", target: "https://example.com", created: false, guessed: false },
+      { kind: "file", target: "./src/a.ts", created: true, guessed: false },
+      { kind: "url", target: "https://example.com/x", created: false, guessed: false },
     ]);
   });
 });

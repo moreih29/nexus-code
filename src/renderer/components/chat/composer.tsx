@@ -35,6 +35,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
@@ -45,6 +46,7 @@ import {
   isFolder,
   matchCommands,
 } from "../../services/chat/composer-input";
+import { watchFileDrop } from "../../services/chat/file-drop";
 import {
   currentModelInfo,
   type ImageBlock,
@@ -452,13 +454,23 @@ export function Composer({
     void addFiles(pasted);
   };
 
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    if (e.dataTransfer.files.length === 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    void addFiles([...e.dataTransfer.files]);
-    areaRef.current?.focus();
-  };
+  // Files dropped anywhere on the chat are attached here; while they are
+  // dragged over it, the chat says so.
+  const [dropArea, setDropArea] = useState<HTMLElement | null>(null);
+  const [dropping, setDropping] = useState(false);
+  useEffect(() => {
+    setDropArea(rootRef.current?.closest<HTMLElement>("[data-chat-drop]") ?? rootRef.current);
+  }, []);
+  useEffect(() => {
+    if (!dropArea) return;
+    return watchFileDrop(dropArea, {
+      over: setDropping,
+      drop: (dropped) => {
+        void addFiles(dropped);
+        areaRef.current?.focus();
+      },
+    });
+  }, [dropArea, addFiles]);
 
   // A rewound or forked message comes back here, after what is already typed.
   const draft = state.draft;
@@ -530,6 +542,7 @@ export function Composer({
       className="shrink-0 border-t border-border px-4 pt-2 pb-3"
       data-testid="chat-composer"
     >
+      {dropping && dropArea && createPortal(<DropCue />, dropArea)}
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {above}
         {(waiting.length > 0 || state.queue.length > 0) && (
@@ -559,13 +572,11 @@ export function Composer({
             )}
           </ul>
         )}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: files dropped on the box are attached */}
         <div
-          className="relative rounded-(--radius-raised) border border-border bg-background focus-within:border-ring"
-          onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("Files")) e.preventDefault();
-          }}
-          onDrop={onDrop}
+          className={cn(
+            "relative rounded-(--radius-raised) border border-border bg-background focus-within:border-ring",
+            dropping && "border-ring",
+          )}
         >
           {menuOpen && completion && (
             <CompletionMenu
@@ -886,6 +897,28 @@ function base64Of(file: File): Promise<string> {
 }
 
 /** A message above the box that waits, with its pencil and × where it can be taken back. */
+/** Over the chat while files are dragged onto it: let go, and they are attached. */
+function DropCue() {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-30 flex bg-background/70 p-2"
+      data-testid="chat-drop-cue"
+      aria-hidden
+    >
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 rounded-(--radius-raised) border-2 border-primary/60 border-dashed bg-primary/10">
+        <span className="flex size-10 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <Paperclip className="size-5" />
+        </span>
+        <span className="font-medium text-app-body text-foreground">
+          {t("chat.composer.drop_title")}
+        </span>
+        <span className="text-app-ui-sm text-muted-foreground">{t("chat.composer.drop_hint")}</span>
+      </div>
+    </div>
+  );
+}
+
 function QueueRow({
   label,
   item,

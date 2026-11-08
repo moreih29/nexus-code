@@ -305,18 +305,38 @@ export interface ResultEntry {
   target: string;
   /** A file the session wrote new. */
   created: boolean;
+  /**
+   * A relative path only an inline code span names. Any dotted word in
+   * backticks looks like one (`v0.17.0`, `os.cpus`), so it is shown only
+   * once the file is found (./file-presence).
+   */
+  guessed: boolean;
 }
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
 const LINK_RE = /\]\(([^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
-/** A path a reply names: absolute, or relative with a folder or an extension. */
+const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
+
+/** Whether a path a reply names is absolute: as such it is a path, not a word. */
+function isAbsoluteGuess(text: string): boolean {
+  return text.startsWith("/") || text.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(text);
+}
+
+/**
+ * A path a reply names: absolute, or relative with a folder or an extension.
+ * A lone `/word` is a command (`/config`, `/model`), not a file.
+ */
 function looksLikePath(text: string): boolean {
   if (/\s/.test(text) || text.length > 300) return false;
-  if (text.startsWith("/") || text.startsWith("~/")) return text.length > 1;
+  if (text.startsWith("/") || text.startsWith("~/")) {
+    if (/^\/[^/]+$/.test(text) && !EXTENSION_RE.test(text)) return false;
+    return text.length > 1;
+  }
   if (/^[A-Za-z]:[\\/]/.test(text)) return text.length > 3;
-  return /^[\w.-]+(\/[\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
+  // Either slash parts a relative path, as a Windows agent writes it (src\a.ts).
+  return /^[\w.-]+([\\/][\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
 }
 
 /**
@@ -325,16 +345,28 @@ function looksLikePath(text: string): boolean {
  */
 export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): ResultEntry[] {
   const results: ResultEntry[] = [];
-  const seen = new Set<string>();
-  const add = (kind: ResultEntry["kind"], target: string, created = false) => {
-    if (seen.has(target)) return;
-    seen.add(target);
-    results.push({ kind, target, created });
+  const byTarget = new Map<string, ResultEntry>();
+  const add = (
+    kind: ResultEntry["kind"],
+    target: string,
+    { created = false, guessed = false }: { created?: boolean; guessed?: boolean } = {},
+  ) => {
+    const known = byTarget.get(target);
+    if (known) {
+      // Linked as well as named in backticks: no guess.
+      if (!guessed) known.guessed = false;
+      return;
+    }
+    const entry: ResultEntry = { kind, target, created, guessed };
+    byTarget.set(target, entry);
+    results.push(entry);
   };
   for (const tool of Object.values(tools)) {
     if (tool.name !== "Write" || tool.status !== "done") continue;
     const path = str(rec(tool.input)?.file_path);
-    if (path && rec(tool.result?.structured)?.type === "create") add("file", path, true);
+    if (path && rec(tool.result?.structured)?.type === "create") {
+      add("file", path, { created: true });
+    }
   }
   for (const item of items) {
     if (item.kind !== "assistant") continue;
@@ -347,22 +379,47 @@ export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): R
       }
       for (const match of block.text.matchAll(URL_RE)) add("url", match[0]);
       for (const match of block.text.matchAll(CODE_RE)) {
-        if (looksLikePath(match[1])) add("file", match[1]);
+        const text = match[1];
+        if (looksLikePath(text)) add("file", text, { guessed: !isAbsoluteGuess(text) });
       }
     }
   }
   return results;
 }
 
+/**
+ * `results` with each file once, however its path was written (`long.txt`,
+ * `/p/long.txt`): under the first name it had, made new if it ever was.
+ */
+export function distinctResults(results: readonly ResultEntry[], cwd: string): ResultEntry[] {
+  const out: ResultEntry[] = [];
+  const byPath = new Map<string, number>();
+  for (const result of results) {
+    const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+    const at = path ? byPath.get(path) : undefined;
+    if (at !== undefined) {
+      if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
+      continue;
+    }
+    if (path) byPath.set(path, out.length);
+    out.push(result);
+  }
+  return out;
+}
+
 /** What an answer ends with: the files its turn made and named, and the images its tools gave. */
 export interface AnswerExtras {
   /** Absolute paths: written new first, then linked. */
   files: string[];
+  /** Those of `files` only a code span named: each shows once it is found. */
+  guessed: string[];
   images: ImageBlock[];
 }
 
 /** Most file cards under one answer. */
 export const MAX_ANSWER_FILES = 8;
+/** Most files an answer's cards are picked from: some guessed ones may be no files. */
+const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
 /** Most images under one answer. */
 export const MAX_ANSWER_IMAGES = 4;
 
@@ -384,7 +441,7 @@ export function answerExtras(
   const close = () => {
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
     if (!answer) return;
-    const named: string[] = [];
+    const named: { target: string; guessed: boolean }[] = [];
     const given: { image: ImageBlock; from?: string }[] = [];
     for (const item of turn) {
       if (item.kind !== "assistant") continue;
@@ -395,24 +452,31 @@ export function answerExtras(
         const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
         for (const image of tool.result?.images ?? []) given.push({ image, from });
         if (tool.name === "Write" && tool.status === "done" && path) {
-          if (rec(tool.result?.structured)?.type === "create") named.push(path);
+          if (rec(tool.result?.structured)?.type === "create") {
+            named.push({ target: path, guessed: false });
+          }
         }
       }
     }
     for (const result of resultsOf(turn, {})) {
-      if (result.kind === "file") named.push(result.target);
+      if (result.kind === "file") named.push({ target: result.target, guessed: result.guessed });
     }
     const files: string[] = [];
-    for (const target of named) {
+    const sure = new Set<string>();
+    for (const { target, guessed } of named) {
       const path = resolveFilePath(target, cwd);
-      if (path && !files.includes(path)) files.push(path);
+      if (!path) continue;
+      if (!guessed) sure.add(path);
+      if (!files.includes(path)) files.push(path);
     }
     const images = given
       .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
       .map(({ image }) => image);
     if (files.length > 0 || images.length > 0) {
+      const candidates = files.slice(0, MAX_ANSWER_CANDIDATES);
       out.set(answer, {
-        files: files.slice(0, MAX_ANSWER_FILES),
+        files: candidates,
+        guessed: candidates.filter((path) => !sure.has(path)),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }

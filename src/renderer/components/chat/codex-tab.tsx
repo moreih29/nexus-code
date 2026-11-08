@@ -18,13 +18,13 @@ import {
 } from "../../services/chat/codex-controller";
 import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
+import { foundResultFiles } from "../../services/chat/file-presence";
 import {
   type FileLink,
   isLocalAddress,
   isUnder,
   type LineAt,
   resolveFileLink,
-  resultFiles,
 } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
@@ -173,17 +173,19 @@ export function CodexTabView({
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
     const show = (path: string, line?: LineAt) => {
       const current = latest.current.state.model as CodexModel;
-      const files = resultFiles(resultsOf(current.items, current.tools), cwd);
-      const at = files.indexOf(path);
-      if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-      const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
-      // A file the session changed shows as a diff, when the agent kept its original.
-      const changes = originalsFor(current.originals, list.files);
-      setLook(
-        line?.line
-          ? { ...list, changes, at: { path, line: line.line, column: line.column } }
-          : { ...list, changes },
-      );
+      const results = resultsOf(current.items, current.tools);
+      void foundResultFiles(workspaceId, latest.current.rootPath, results, cwd).then((files) => {
+        const at = files.indexOf(path);
+        if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
+        const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
+        // A file the session changed shows as a diff, when the agent kept its original.
+        const changes = originalsFor(current.originals, list.files);
+        setLook(
+          line?.line
+            ? { ...list, changes, at: { path, line: line.line, column: line.column } }
+            : { ...list, changes },
+        );
+      });
     };
     /** The file a link names, and where in it, once it is known which file that is. */
     const follow = (target: string, then: (link: FileLink) => void) => {
@@ -234,6 +236,7 @@ export function CodexTabView({
       ref={rootRef}
       className="relative flex h-full flex-col bg-background"
       data-testid="codex-tab"
+      data-chat-drop
     >
       <PhaseBanner controller={controller} state={state} />
       {model.signedOut && model.process === "running" && (

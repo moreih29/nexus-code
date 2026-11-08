@@ -1,9 +1,12 @@
 // Under a turn's last answer: the images its tools gave, and a card for
 // each file it wrote new or named. A card opens the file in quick look;
-// an image file in the workspace shows itself on its card.
+// an image file in the workspace shows itself on its card. A file only a
+// code span named gets its card once the workspace has it.
 
+import { useMemo } from "react";
+import { useFoundFiles } from "../../services/chat/file-presence";
 import { baseName, fileKind } from "../../services/chat/links";
-import type { AnswerExtras } from "../../services/chat/panel";
+import { type AnswerExtras, MAX_ANSWER_FILES } from "../../services/chat/panel";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { FileKindIcon } from "./file-kind-icon";
@@ -12,11 +15,21 @@ export function AnswerExtrasView({
   extras,
   workspaceId,
   cwd,
+  rootPath,
 }: {
   extras: AnswerExtras;
   workspaceId: string;
   cwd: string;
+  rootPath: string;
 }) {
+  const found = useFoundFiles(workspaceId, rootPath, extras.guessed);
+  const files = useMemo(() => {
+    const guessed = new Set(extras.guessed);
+    return extras.files
+      .filter((path) => !guessed.has(path) || found.has(path))
+      .slice(0, MAX_ANSWER_FILES);
+  }, [extras, found]);
+  if (extras.images.length === 0 && files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2" data-testid="chat-answer-extras">
       {extras.images.length > 0 && (
@@ -32,9 +45,9 @@ export function AnswerExtrasView({
           ))}
         </div>
       )}
-      {extras.files.length > 0 && (
+      {files.length > 0 && (
         <div className="flex flex-wrap items-start gap-1.5">
-          {extras.files.map((path) => (
+          {files.map((path) => (
             <FileCard key={path} path={path} workspaceId={workspaceId} cwd={cwd} />
           ))}
         </div>

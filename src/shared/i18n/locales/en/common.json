@@ -999,6 +999,8 @@
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "drop_title": "Drop to attach",
+      "drop_hint": "Images and files go with your message",
       "aria_codex": "Message to Codex"
     },
     "mode": {
