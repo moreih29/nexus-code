@@ -1,6 +1,7 @@
 /**
- * File presence — a path a reply only guessed at is a file once the
- * workspace has it; each lookup is shared and kept a while.
+ * File presence — a path a session names is a file once it is found, in
+ * the workspace or granted outside it; each lookup is shared and kept a
+ * while.
  */
 import { describe, expect, it } from "bun:test";
 import {
@@ -102,25 +103,45 @@ describe("createFilePresence", () => {
     });
     expect(await presence.isThere("ws", "/p", "/p/a.ts")).toBe(false);
   });
+
+  it("looks a file outside the workspace up by its path once a tab granted it", async () => {
+    const asked: string[] = [];
+    const granted = new Set(["/tmp/shot.png", "/dev/shm"]);
+    const presence = createFilePresence(
+      async (_workspaceId, path) => {
+        asked.push(path);
+        return path === "/tmp/shot.png";
+      },
+      Date.now,
+      (_workspaceId, path) => granted.has(path),
+    );
+    expect(await presence.isThere("ws", "/p", "/tmp/shot.png")).toBe(true);
+    // A folder is no file.
+    expect(await presence.isThere("ws", "/p", "/dev/shm")).toBe(false);
+    // Nor is one not granted, which main would not read.
+    expect(await presence.isThere("ws", "/p", "/etc/hosts")).toBe(false);
+    expect(await presence.isThere("ws", "C:\\w", "D:/out/log.txt")).toBe(false);
+    expect(asked).toEqual(["/tmp/shot.png", "/dev/shm"]);
+  });
 });
 
 describe("resultFilesThere", () => {
-  it("keeps the files named for sure, and a guessed one only once it is there", async () => {
+  it("keeps each file named only once it is there", async () => {
     const asked: string[] = [];
     const files = await resultFilesThere(
       [
-        { kind: "file", target: "src/a.ts", created: false, guessed: true },
-        { kind: "url", target: "https://example.com", created: false, guessed: false },
-        { kind: "file", target: "v0.17.0", created: false, guessed: true },
-        { kind: "file", target: "/p/b.md", created: false, guessed: false },
+        { kind: "file", target: "src/a.ts", created: false },
+        { kind: "url", target: "https://example.com", created: false },
+        { kind: "file", target: "/dev/shm", created: false },
+        { kind: "file", target: "/p/b.md", created: true },
       ],
       "/p",
       async (path) => {
         asked.push(path);
-        return path === "/p/src/a.ts";
+        return path === "/p/src/a.ts" || path === "/p/b.md";
       },
     );
     expect(files).toEqual(["/p/src/a.ts", "/p/b.md"]);
-    expect(asked).toEqual(["/p/src/a.ts", "/p/v0.17.0"]);
+    expect(asked).toEqual(["/p/src/a.ts", "/dev/shm", "/p/b.md"]);
   });
 });

@@ -173,7 +173,7 @@ export function CodexTabView({
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
     const show = (path: string, line?: LineAt) => {
       const current = latest.current.state.model as CodexModel;
-      const results = resultsOf(current.items, current.tools);
+      const results = resultsOf(current.items, current.tools, cwd);
       void foundResultFiles(workspaceId, latest.current.rootPath, results, cwd).then((files) => {
         const at = files.indexOf(path);
         if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
