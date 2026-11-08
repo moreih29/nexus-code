@@ -46,9 +46,21 @@ const GENERIC_FAMILIES = new Set([
   "ui-rounded",
 ]);
 
-/** `family` as CSS takes it: one name quoted, a list or a kind of font as it is. */
+/**
+ * The system's font, as each platform names its own: macOS's, then
+ * Windows', then the generic one. On Windows system-ui alone is the
+ * locale's message font, Malgun Gothic on a Korean one even for Latin
+ * letters; after Segoe UI it only draws what Segoe UI has not, as Hangul.
+ */
+const SYSTEM_UI = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui';
+
+/**
+ * `family` as CSS takes it: one name quoted, a list or a kind of font as
+ * it is, and the system's as SYSTEM_UI.
+ */
 function cssFamily(family: string): string {
   const name = family.trim();
+  if (name === "system-ui") return SYSTEM_UI;
   return /[,'"]/.test(name) || GENERIC_FAMILIES.has(name) ? name : `"${name}"`;
 }
 

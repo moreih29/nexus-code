@@ -32,11 +32,18 @@ describe("chatFontVars", () => {
     expect(chatFontVars(undefined, "Noto Sans KR")["--chat-font-family"]).toBe(
       `"Noto Sans KR", ${fontFamily.sans}`,
     );
-    expect(chatFontVars(undefined, "system-ui")["--chat-font-family"]).toBe(
-      `system-ui, ${fontFamily.sans}`,
+    expect(chatFontVars(undefined, "ui-rounded")["--chat-font-family"]).toBe(
+      `ui-rounded, ${fontFamily.sans}`,
     );
     expect(chatFontVars(undefined, "'Inter', Arial")["--chat-font-family"]).toBe(
       `'Inter', Arial, ${fontFamily.sans}`,
+    );
+  });
+
+  it("takes the system's font as each platform names it, Windows' Segoe UI ahead of its locale's", () => {
+    // Korean Windows gives system-ui as Malgun Gothic, Latin letters too.
+    expect(chatFontVars(undefined, "system-ui")["--chat-font-family"]).toBe(
+      `-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, ${fontFamily.sans}`,
     );
   });
 });
