@@ -348,7 +348,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           const { history, model } = state;
           const items = history ? [...history.items, ...model.items] : model.items;
           const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-          void foundResultFiles(workspaceId, rootPath, resultsOf(items, tools), cwd).then(
+          void foundResultFiles(workspaceId, rootPath, resultsOf(items, tools, cwd), cwd).then(
             (files) => {
               const at = files.indexOf(path);
               if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));

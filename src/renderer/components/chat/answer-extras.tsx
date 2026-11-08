@@ -1,7 +1,7 @@
 // Under a turn's last answer: the images its tools gave, and a card for
 // each file it wrote new or named. A card opens the file in quick look;
-// an image file in the workspace shows itself on its card. A file only a
-// code span named gets its card once the workspace has it.
+// an image file in the workspace shows itself on its card. A file gets its
+// card once it is found to be one.
 
 import { useMemo } from "react";
 import { useFoundFiles } from "../../services/chat/file-presence";
@@ -22,13 +22,11 @@ export function AnswerExtrasView({
   cwd: string;
   rootPath: string;
 }) {
-  const found = useFoundFiles(workspaceId, rootPath, extras.guessed);
-  const files = useMemo(() => {
-    const guessed = new Set(extras.guessed);
-    return extras.files
-      .filter((path) => !guessed.has(path) || found.has(path))
-      .slice(0, MAX_ANSWER_FILES);
-  }, [extras, found]);
+  const found = useFoundFiles(workspaceId, rootPath, extras.files);
+  const files = useMemo(
+    () => extras.files.filter((path) => found.has(path)).slice(0, MAX_ANSWER_FILES),
+    [extras, found],
+  );
   if (extras.images.length === 0 && files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2" data-testid="chat-answer-extras">
