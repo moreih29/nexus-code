@@ -54,8 +54,11 @@ export const StatusEntrySchema = z.object({
 
 export type StatusEntry = z.infer<typeof StatusEntrySchema>;
 
-/** How much of a prompt a StatusEntry keeps; prompts can carry whole pasted files. */
-export const PROMPT_MAX_CHARS = 2_000;
+/**
+ * How much of a prompt a StatusEntry keeps: whatever the user wrote, which
+ * the agent view shows whole once opened, but not a whole pasted file.
+ */
+export const PROMPT_MAX_CHARS = 100_000;
 
 // ---------------------------------------------------------------------------
 // HookRequest — agent→main NDJSON hook 요청 (IPC contract에는 등록하지 않음)

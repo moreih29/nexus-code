@@ -196,7 +196,7 @@ const PASTED = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content i
 
 /**
  * Claude Code UserPromptSubmit hook payload에서 prompt를 추출한다.
- * 붙여넣은 파일 전체가 들어올 수 있어 PROMPT_MAX_CHARS로 자른다.
+ * 붙여넣은 파일 전체가 들어올 수 있어 PROMPT_MAX_CHARS로 자른다(사용자가 쓴 글은 다 남는다).
  * What the user wrote only: pasted text without Claude Code's marks around
  * it, and nothing for a turn Claude Code started itself, which keeps the
  * user's last prompt.
