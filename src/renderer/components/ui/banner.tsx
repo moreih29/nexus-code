@@ -9,10 +9,11 @@
  * same muted chrome and say which they are by the icon, drawn in the theme's
  * hue for it; only "error" tints the whole box.
  */
-import { CheckCircle2, CircleAlert, Info } from "lucide-react";
+import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 import { cn } from "@/utils/cn";
 import { Button } from "./button";
 import { DetailsDisclosure } from "./details-disclosure";
+import { IconButton } from "./icon-button";
 
 export type BannerVariant = "info" | "warning" | "error" | "success";
 export type BannerDisplay = "inline" | "bar";
@@ -30,6 +31,8 @@ export interface BannerProps {
   message: string;
   details?: string;
   actions?: BannerAction[];
+  /** Inline only: an X at the end of the message that closes the banner. */
+  dismiss?: { label: string; onDismiss: () => void };
   role?: "status" | "alert";
   "aria-live"?: "polite" | "assertive" | "off";
   className?: string;
@@ -72,6 +75,7 @@ function InlineBanner({
   message,
   details,
   actions = [],
+  dismiss,
   role,
   "aria-live": ariaLive,
   className,
@@ -100,6 +104,16 @@ function InlineBanner({
             <DetailsDisclosure details={details} className="text-muted-foreground" />
           ) : null}
         </div>
+        {dismiss ? (
+          <IconButton
+            label={dismiss.label}
+            size="xs"
+            className="-my-0.5 shrink-0"
+            onClick={dismiss.onDismiss}
+          >
+            <X className="size-3.5" aria-hidden="true" />
+          </IconButton>
+        ) : null}
       </div>
       {actions.length > 0 ? (
         <div className="flex items-center justify-end gap-1">

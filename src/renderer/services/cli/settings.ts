@@ -268,6 +268,23 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     },
   },
   {
+    key: "notifications.rateLimitWarning",
+    summary: "Whether Claude tabs warn when the usage limit is near",
+    type: "boolean",
+    get: () => {
+      const value = useNotificationsStore.getState().rateLimitWarnings;
+      return { value, changed: !value };
+    },
+    set: (value) => {
+      useNotificationsStore.getState().setRateLimitWarnings(value as boolean);
+      save({ rateLimitWarnings: value as boolean });
+    },
+    reset: () => {
+      useNotificationsStore.getState().setRateLimitWarnings(true);
+      save({ rateLimitWarnings: true });
+    },
+  },
+  {
     key: "updates.autoCheck",
     summary: "Whether the app looks for updates by itself",
     type: "boolean",

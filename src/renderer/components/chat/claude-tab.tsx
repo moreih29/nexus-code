@@ -48,6 +48,7 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
+import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
@@ -63,6 +64,7 @@ import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
+import { useNotificationsStore } from "../../state/stores/notifications";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -762,11 +764,14 @@ function TwinBanner({
 function RateLimitBanner({ state }: { state: ChatTabState }) {
   const { t } = useTranslation();
   const limit = state.model.rateLimit;
-  if (!limit || limit.status === "allowed") return null;
+  const warnings = useNotificationsStore((s) => s.rateLimitWarnings);
+  const dismissed = useNotificationsStore((s) => s.dismissedRateLimits);
+  const notice = rateLimitNotice(limit, { warnings, dismissed });
+  if (!limit || !notice) return null;
   const resets = limit.resetsAt
     ? new Date(limit.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : null;
-  const rejected = limit.status === "rejected";
+  const rejected = notice === "rejected";
   const message = rejected
     ? resets
       ? t("chat.rate_limit.rejected_until", { time: resets })
@@ -774,9 +779,16 @@ function RateLimitBanner({ state }: { state: ChatTabState }) {
     : resets
       ? t("chat.rate_limit.warning_until", { time: resets })
       : t("chat.rate_limit.warning");
+  // A warning closes until its limit resets; a limit reached stays up.
+  const dismiss = rejected
+    ? undefined
+    : {
+        label: t("chat.rate_limit.dismiss"),
+        onDismiss: () => useNotificationsStore.getState().dismissRateLimit(rateLimitKey(limit)),
+      };
   return (
-    <div className="shrink-0">
-      <Banner variant={rejected ? "error" : "warning"} message={message} />
+    <div className="shrink-0" data-testid="chat-rate-limit">
+      <Banner variant={rejected ? "error" : "warning"} message={message} dismiss={dismiss} />
     </div>
   );
 }
