@@ -314,6 +314,8 @@ export interface ResultEntry {
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
 const LINK_RE = /\]\(([^)\s]+)\)/g;
+/** An image a reply shows in its text, by markdown's ![alt](path). */
+const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
@@ -344,33 +346,50 @@ const FILE_TOOLS = new Set([
   "NotebookEdit",
 ]);
 
+/** The tool that puts files in front of the user, as Claude Code offers it with Remote Control on. */
+export const SEND_FILES_TOOL = "SendUserFile";
+
+/** The files a SendUserFile call put in front of the user, as it named them. */
+export function sentFilesOf(tool: ToolCall): string[] {
+  if (tool.name !== SEND_FILES_TOOL) return [];
+  const files = rec(tool.input)?.files;
+  return Array.isArray(files)
+    ? files.filter((file): file is string => typeof file === "string" && file !== "")
+    : [];
+}
+
 /** A path as a set of paths holds it: a Windows one whatever its case. */
 function pathKey(path: string): string {
   return /^[A-Za-z]:\//.test(path) ? path.toLowerCase() : path;
 }
 
 /**
- * The files the session's file tools took (read, wrote, edited), by
- * absolute path as `pathKey` has it.
+ * The files the session's file tools took (read, wrote, edited, sent the
+ * user), by absolute path as `pathKey` has it.
  */
 export function touchedFiles(tools: Record<string, ToolCall>, cwd: string): Set<string> {
   const touched = new Set<string>();
+  const take = (named: string) => {
+    const path = resolveFilePath(named, cwd);
+    if (path) touched.add(pathKey(path));
+  };
   for (const tool of Object.values(tools)) {
+    for (const file of sentFilesOf(tool)) take(file);
     if (!FILE_TOOLS.has(tool.name)) continue;
     const input = rec(tool.input);
     const named = str(input?.file_path) ?? str(input?.notebook_path);
-    const path = named ? resolveFilePath(named, cwd) : null;
-    if (path) touched.add(pathKey(path));
+    if (named) take(named);
   }
   return touched;
 }
 
 /**
- * What the session made and pointed at: the files it wrote new, then the
- * paths and URLs in its replies, each once, in the order they came. A
- * reply points at a file by linking it; a path it only writes in backticks
- * is mentioned, not shown, unless it is a file the session's tools took
- * (`touched`): a command it ran, or a server's file, is not one to open.
+ * What the session made and pointed at: the files it wrote new or sent the
+ * user, then the paths and URLs in its replies, each once, in the order
+ * they came. A reply points at a file by linking it; a path it only writes
+ * in backticks is mentioned, not shown, unless it is a file the session's
+ * tools took (`touched`): a command it ran, or a server's file, is not one
+ * to open.
  */
 export function resultsOf(
   items: ChatItem[],
@@ -391,7 +410,9 @@ export function resultsOf(
     return path !== null && touched.has(pathKey(path));
   };
   for (const tool of Object.values(tools)) {
-    if (tool.name !== "Write" || tool.status !== "done") continue;
+    if (tool.status !== "done") continue;
+    for (const file of sentFilesOf(tool)) add("file", file);
+    if (tool.name !== "Write") continue;
     const path = str(rec(tool.input)?.file_path);
     if (path && rec(tool.result?.structured)?.type === "create") add("file", path, true);
   }
@@ -476,11 +497,22 @@ export function answerExtras(
     if (!answer) return;
     const named: string[] = [];
     const given: (GivenImage & { from?: string })[] = [];
+    // What the turn shows where it is, as a file it sent or an image in its
+    // text, gets no card of its own.
+    const shown = new Set<string>();
+    const showHere = (target: string) => {
+      const path = resolveFilePath(target, cwd);
+      if (path) shown.add(path);
+    };
     for (const item of turn) {
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
+        if (block.type === "text") {
+          for (const match of block.text.matchAll(IMAGE_RE)) showHere(match[1]);
+        }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
         if (!tool) continue;
+        for (const file of sentFilesOf(tool)) showHere(file);
         const path = str(rec(tool.input)?.file_path);
         const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
         const file = from && fileKind(from) === "image" ? from : undefined;
@@ -496,7 +528,7 @@ export function answerExtras(
     const files: string[] = [];
     for (const target of named) {
       const path = resolveFilePath(target, cwd);
-      if (path && !files.includes(path)) files.push(path);
+      if (path && !shown.has(path) && !files.includes(path)) files.push(path);
     }
     const images = given
       .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
@@ -547,8 +579,10 @@ export function outsideLinksOf(
   for (const tool of Object.values(tools)) {
     const input = rec(tool.input);
     const path = str(input?.file_path) ?? str(input?.notebook_path);
-    const abs = path ? resolveFilePath(path, cwd) : null;
-    if (abs) named.add(abs);
+    for (const file of path ? [path, ...sentFilesOf(tool)] : sentFilesOf(tool)) {
+      const abs = resolveFilePath(file, cwd);
+      if (abs) named.add(abs);
+    }
   }
   for (const file of resultFiles(resultsOf(items, {}, cwd, touchedFiles(tools, cwd)), cwd)) {
     named.add(file);
