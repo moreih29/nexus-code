@@ -13,6 +13,7 @@ import { useManagerStore } from "@/state/stores/manager";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
+import { focusHolder, restoreFocus } from "../keep-focus";
 import { readSessionEvents } from "../sessions/session-events";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
@@ -98,15 +99,20 @@ export function markCliUiReady(): void {
 /**
  * Installs the cli:uiRequest listener. Requests wait until markCliUiReady,
  * since before it the stores are empty. Returns the unlisten function.
+ *
+ * A request leaves the keyboard where it was: one that splits the group of
+ * the terminal it came from would otherwise leave that terminal without
+ * focus (see ../keep-focus).
  */
 export function startCliUiListener(): () => void {
   return ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       await ready;
       const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
+      const held = focusHolder();
       try {
         if (!handler) throw new UiRequestError(`unknown request ${op}`);
-        const value = await handler(args as never);
+        const value = await handler(args as never).finally(() => restoreFocus(held));
         await ipcCallResult("cli", "uiRespond", { requestId, ok: true, value });
       } catch (error) {
         await ipcCallResult("cli", "uiRespond", {
