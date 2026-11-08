@@ -36,6 +36,7 @@ import {
 import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
+import { SystemStatsFooter } from "../workbench/system-stats";
 import { setAgentDrag } from "./drag";
 
 type Filter = "all" | "running" | "attention";
@@ -117,7 +118,10 @@ export function AgentSidebar() {
                     : "border-border text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
                 )}
               >
-                {value !== "all" && <StateGlyph state={FILTER_STATE[value]} />}
+                {value !== "all" && (
+                  // A count of none has nothing running to spin for.
+                  <StateGlyph state={FILTER_STATE[value]} still={counts[value] === 0} />
+                )}
                 <span>{t(`agentView.list.filter.${value}`)}</span>
                 <span className="tabular-nums">{counts[value]}</span>
               </button>
@@ -148,6 +152,7 @@ export function AgentSidebar() {
             ))
           )}
         </div>
+        <SystemStatsFooter />
       </div>
       <SidebarResizeHandle />
     </aside>

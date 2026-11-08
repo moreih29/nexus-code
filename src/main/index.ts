@@ -58,6 +58,8 @@ import { PortWatcher } from "./features/pty/ports";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
 import { registerSystemChannel } from "./features/shell/ipc";
+import { systemStatsHandler } from "./features/system-stats";
+import { LocalStats } from "./features/system-stats/local";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
 import { registerTaskChannel } from "./features/tasks/ipc";
@@ -362,7 +364,19 @@ registerSshBrowseHandlers(
 );
 registerSshAuthPromptIpcChannels(sshAuthPromptHub);
 registerWslChannel(sshBrowseRegistry, forwardBroadcast);
-registerSystemChannel({ openNewWindow: () => createMainWindow(stateService.getState()) });
+registerSystemChannel({
+  openNewWindow: () => createMainWindow(stateService.getState()),
+  stats: systemStatsHandler({
+    local: new LocalStats(),
+    isLocal: (workspaceId) => workspaceManager.isLocal(workspaceId),
+    exists: (workspaceId) => workspaceManager.getName(workspaceId) !== null,
+    // Looking never connects a workspace, as the ports' look does not.
+    remote: async (workspaceId) => {
+      const channel = await workspaceManager.peekAgentChannel(workspaceId);
+      return channel ? channel.call("system.stats", {}) : null;
+    },
+  }),
+});
 registerWindowChannel();
 registerClipboardChannel();
 

@@ -25,16 +25,19 @@ import {
   X,
 } from "lucide-react";
 import {
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { appCommandsBeside } from "../../services/chat/app-commands";
+import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
+import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import {
   applyCompletion,
   completionAt,
@@ -43,12 +46,17 @@ import {
   matchCommands,
 } from "../../services/chat/composer-input";
 import {
+  currentModelInfo,
   type ImageBlock,
   isWaiting,
-  type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
-import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
+import {
+  type ChatTabState,
+  type QueuedMessage,
+  type RevealPart,
+  takeReveal,
+} from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
 import { isMac } from "../../utils/platform";
@@ -67,6 +75,7 @@ import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
+import { maxTextHeight } from "./composer-height";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -100,18 +109,6 @@ export interface ComposerController {
   setEffort(level: string): Promise<unknown>;
 }
 
-/** Permission modes as a chip lists them. */
-export interface ModeSet {
-  /** In the order the chip lists them, which keys 1 to n pick. */
-  modes: readonly string[];
-  /** The one that lets everything run: listed apart, picked after a warning. */
-  dangerous: string;
-  /** Where the labels are: `${prefix}.${mode}`, its `_hint`, and the warning's `bypass_confirm*`. */
-  prefix: string;
-  /** The mode shown before the program tells one. */
-  fallback: string;
-}
-
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
@@ -121,6 +118,8 @@ interface ComposerProps {
   placeholder?: string;
   /** Above the queue: what an app command shows. */
   above?: React.ReactNode;
+  /** Under the box: the context and the plan's usage. */
+  below?: React.ReactNode;
   /** Runs the message when it is one of the tab's own commands; false sends it. */
   onCommand?: (text: string) => boolean;
   /** The `/` menu lists the Claude tab's own commands too. */
@@ -148,12 +147,13 @@ const SUGGEST_RETRY_MS = 500;
 
 let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-const MAX_ROWS_PX = 240;
-
-/** Grows the text box with its text, up to MAX_ROWS_PX. */
-function fitHeight(area: HTMLTextAreaElement): void {
+/**
+ * Grows the text box with its text, from the two rows it starts at up to
+ * its cap in the column the composer sits in (composer-height).
+ */
+function fitHeight(area: HTMLTextAreaElement, column: HTMLElement | null | undefined): void {
   area.style.height = "auto";
-  area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
+  area.style.height = `${Math.min(area.scrollHeight, maxTextHeight(column?.clientHeight ?? 0))}px`;
 }
 
 export function Composer({
@@ -162,6 +162,7 @@ export function Composer({
   local,
   placeholder,
   above,
+  below,
   onCommand,
   appCommands = true,
 }: ComposerProps) {
@@ -173,6 +174,7 @@ export function Composer({
   const [files, setFiles] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
   const running = model.running;
@@ -186,6 +188,19 @@ export function Composer({
   const canWithdraw = !!controller.withdraw && controller.supports("cancel_async_message");
   const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());
+
+  // The row under the box leaves out what it must to stay on one line.
+  const footerRef = useRef<HTMLDivElement>(null);
+  // A chip whose menu is open, or asked for by a bare /model or /effort,
+  // stays in the row however narrow it is.
+  const [menuOf, setMenuOf] = useState<RevealPart | null>(null);
+  const kept = (part: RevealPart) => state.reveal?.part === part || menuOf === part;
+  const onMenu = (part: RevealPart) => (open: boolean) =>
+    setMenuOf((now) => (open ? part : now === part ? null : now));
+  const fit = useFitStep(
+    footerRef,
+    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
+  );
 
   // The caret, for the token it completes; a pick moves it after the render.
   const [caret, setCaret] = useState(0);
@@ -215,7 +230,7 @@ export function Composer({
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
-    return matchCommands([...cli, ...own], completion.query);
+    return matchCommands([...listedCommands(cli), ...own], completion.query);
   }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
@@ -286,21 +301,27 @@ export function Composer({
   };
 
   useLayoutEffect(() => {
-    if (areaRef.current) fitHeight(areaRef.current);
+    if (areaRef.current) fitHeight(areaRef.current, rootRef.current?.parentElement);
   });
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
-  // shows, so a new width fits it again.
+  // shows, so a new width fits it again. The cap follows the column's
+  // height, so a panel resized taller or shorter fits it again too.
   useEffect(() => {
     const area = areaRef.current;
+    const column = rootRef.current?.parentElement;
     if (!area) return;
     let width = area.clientWidth;
+    let height = column?.clientHeight ?? 0;
     const observer = new ResizeObserver(() => {
-      if (area.clientWidth === width) return;
+      const nextHeight = column?.clientHeight ?? 0;
+      if (area.clientWidth === width && nextHeight === height) return;
       width = area.clientWidth;
-      fitHeight(area);
+      height = nextHeight;
+      fitHeight(area, column);
     });
     observer.observe(area);
+    if (column) observer.observe(column);
     return () => observer.disconnect();
   }, []);
 
@@ -504,7 +525,11 @@ export function Composer({
   };
 
   return (
-    <div className="shrink-0 border-t border-border px-4 pt-2 pb-3" data-testid="chat-composer">
+    <div
+      ref={rootRef}
+      className="shrink-0 border-t border-border px-4 pt-2 pb-3"
+      data-testid="chat-composer"
+    >
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {above}
         {(waiting.length > 0 || state.queue.length > 0) && (
@@ -614,15 +639,24 @@ export function Composer({
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             readOnly={sending}
-            rows={1}
+            rows={2}
             placeholder={placeholder}
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            <ModeChip controller={controller} state={state} />
-            <ModelChip controller={controller} state={state} />
-            <EffortChip controller={controller} state={state} />
+          <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
+            <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            {(fit < FIT.NO_MODEL || kept("model")) && (
+              <ModelChip
+                controller={controller}
+                state={state}
+                short={fit >= FIT.SHORT_MODEL}
+                onMenu={onMenu("model")}
+              />
+            )}
+            {(fit < FIT.NO_EFFORT || kept("effort")) && (
+              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+            )}
             <div className="flex-1" />
             <AddMenu
               onAttach={() => fileRef.current?.click()}
@@ -665,10 +699,12 @@ export function Composer({
                 program={program}
                 onClick={() => void submit("send")}
                 disabled={!canSend}
+                keycap={fit < FIT.NO_KEYCAP}
               />
             )}
           </div>
         </div>
+        {below}
       </div>
     </div>
   );
@@ -676,6 +712,84 @@ export function Composer({
 
 function showError(err: Error): void {
   showToast({ kind: "error", message: err.message });
+}
+
+/**
+ * What the row under the box leaves out, step by step, when it is too
+ * narrow for all of it: the model's name loses its note, the send button
+ * its key, then the effort goes, then the model, and last the mode's name
+ * is cut. The mode, the + menu and send always stay.
+ */
+const FIT = {
+  SHORT_MODEL: 1,
+  NO_KEYCAP: 2,
+  NO_EFFORT: 3,
+  NO_MODEL: 4,
+  TRUNCATE_MODE: 5,
+} as const;
+
+/**
+ * The step of FIT that lets `row` hold its content on one line: each
+ * render it overflows at takes the next step, before it paints. A new
+ * width, or a change of what `content` names, starts over from all of it.
+ */
+function useFitStep(row: RefObject<HTMLElement | null>, content: string): number {
+  const [step, setStep] = useState(0);
+  const [, recheck] = useReducer((n: number) => n + 1, 0);
+  const shownFor = useRef(content);
+  useLayoutEffect(() => {
+    if (shownFor.current !== content) {
+      shownFor.current = content;
+      if (step !== 0) {
+        setStep(0);
+        return;
+      }
+    }
+    const el = row.current;
+    if (el && step < FIT.TRUNCATE_MODE && el.scrollWidth > el.clientWidth) setStep(step + 1);
+  });
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      setStep(0);
+      recheck();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [row]);
+  return step;
+}
+
+/**
+ * A chip's menu, open as the user opens it or as a bare command (/model,
+ * /effort) asks; one that cannot open says why instead. `onMenu` hears it
+ * open and close in the same update, so the row keeps the chip it opens.
+ */
+function useRevealedMenu(
+  controller: ComposerController,
+  state: ChatTabState,
+  part: RevealPart,
+  unavailable: string | null,
+  onMenu: (open: boolean) => void,
+): [boolean, (open: boolean) => void] {
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onMenu(next);
+  };
+  const reveal = state.reveal?.part === part ? state.reveal.seq : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
+  useEffect(() => {
+    if (reveal === undefined) return;
+    takeReveal(controller.key, reveal);
+    if (unavailable) showToast({ kind: "info", message: unavailable });
+    else setOpen(true);
+  }, [reveal]);
+  return [open, setOpen];
 }
 
 function formatSize(bytes: number): string {
@@ -815,6 +929,7 @@ function SendButton({
   program,
   onClick,
   disabled,
+  keycap,
 }: {
   running: boolean;
   /** During a turn, the message waits for the current call (Claude's ↩). */
@@ -822,6 +937,8 @@ function SendButton({
   program: ChatAgent;
   onClick: () => void;
   disabled: boolean;
+  /** Shows the ↩ key it answers to; left out in a narrow row. */
+  keycap: boolean;
 }) {
   const { t } = useTranslation();
   const queues = running && waits;
@@ -837,25 +954,24 @@ function SendButton({
       disabled={disabled}
       title={composerHint(t, running, program)}
       aria-label={label}
-      className="flex items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 pr-1.5 pl-2 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40",
+        keycap ? "pr-1.5 pl-2" : "px-2",
+      )}
       data-testid="chat-send"
     >
       {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
-      <Keycap>↵</Keycap>
+      {keycap && <Keycap>↵</Keycap>}
     </button>
   );
 }
 
+// One line each: in a narrow panel the row leaves chips out instead (useFitStep).
 const CHIP_CLASS =
-  "flex items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
+  "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
 /** Claude Code's permission modes; keys 1 to 5 pick them. */
-const CLAUDE_MODES: ModeSet = {
-  modes: ["auto", "default", "acceptEdits", "plan", "bypassPermissions"],
-  dangerous: "bypassPermissions",
-  prefix: "chat.mode",
-  fallback: "default",
-};
+const CLAUDE_MODES = CHAT_MODES.claude;
 
 /**
  * A mode's hue on its chip and in its menu, Claude Code's and Codex's
@@ -870,7 +986,7 @@ const MODE_TINT: Record<string, string> = {
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
-function ModeChip({ controller, state }: ChipProps) {
+function ModeChip({ controller, state, truncate }: ChipProps & { truncate: boolean }) {
   const { t } = useTranslation();
   const set = controller.modes ?? CLAUDE_MODES;
   const bypass = set.dangerous;
@@ -878,6 +994,7 @@ function ModeChip({ controller, state }: ChipProps) {
   const safe = all.filter((m) => m !== bypass);
   const label = (key: string) => t(`${set.prefix}.${key}`);
   const mode = state.model.permissionMode ?? set.fallback;
+  const name = t(`${set.prefix}.${mode}`, { defaultValue: mode });
   const ready = state.model.process === "running";
   const blocked = state.model.bypassBlocked !== undefined;
   const [open, setOpen] = useState(false);
@@ -919,12 +1036,13 @@ function ModeChip({ controller, state }: ChipProps) {
             CHIP_CLASS,
             MODE_TINT[mode],
             mode === bypass && "text-destructive hover:text-destructive",
+            truncate && "min-w-0 shrink",
           )}
           disabled={!ready}
-          title={t("chat.mode.aria")}
+          title={`${t("chat.mode.aria")} · ${name}`}
           aria-label={t("chat.mode.aria")}
         >
-          {t(`${set.prefix}.${mode}`, { defaultValue: mode })}
+          <span className="min-w-0 truncate">{name}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
@@ -981,37 +1099,40 @@ export function composerHint(t: TFunction, running: boolean, program: ChatAgent)
   });
 }
 
-/** The model info the session runs, as the CLI names it either way (alias or id). */
-export function currentModelInfo(
-  models: ModelInfo[],
-  current: string | undefined,
-): ModelInfo | undefined {
-  // Before its first turn the session names no model: it runs the default.
-  if (!current) return models.find((m) => m.value === "default");
-  return (
-    models.find((m) => m.value === current) ??
-    models.find((m) => m.resolvedModel === current) ??
-    models.find((m) => current.startsWith(m.value))
-  );
+/** A model's name without its note: "Default (recommended)" is "Default". */
+export function shortModelName(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
-function ModelChip({ controller, state }: ChipProps) {
+function ModelChip({
+  controller,
+  state,
+  short,
+  onMenu,
+}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model);
   const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
   const ready = state.model.process === "running" && models.length > 0;
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "model",
+    ready ? null : t("chat.reveal.not_ready"),
+    onMenu,
+  );
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"
           className={CHIP_CLASS}
           disabled={!ready}
-          title={t("chat.model.aria")}
+          title={`${t("chat.model.aria")} · ${label}`}
           aria-label={t("chat.model.aria")}
         >
-          {label}
+          {short ? shortModelName(label) : label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
@@ -1034,14 +1155,32 @@ function ModelChip({ controller, state }: ChipProps) {
   );
 }
 
-function EffortChip({ controller, state }: ChipProps) {
+function EffortChip({
+  controller,
+  state,
+  onMenu,
+}: ChipProps & { onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
+  const supported = controller.supports("apply_flag_settings");
+  const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "effort",
+    levels.length === 0
+      ? t("chat.effort.none")
+      : !supported
+        ? note
+        : state.model.process !== "running"
+          ? t("chat.reveal.not_ready")
+          : null,
+    onMenu,
+  );
   if (levels.length === 0) return null;
   const effort = state.model.effort;
-  if (!controller.supports("apply_flag_settings")) {
-    const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  if (!supported) {
     return (
       <button
         type="button"
@@ -1054,7 +1193,7 @@ function EffortChip({ controller, state }: ChipProps) {
     );
   }
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"

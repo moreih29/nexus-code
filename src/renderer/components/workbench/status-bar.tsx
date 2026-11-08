@@ -5,7 +5,8 @@
 //
 // Segment layout — unified across local and SSH workspaces:
 //   LEFT:  git branch · changes · error count · warning count
-//   RIGHT: git in-flight operation indicator · the ports the terminals'
+//   RIGHT: git in-flight operation indicator · how busy the workspace's
+//          host is (system-stats.tsx) · the ports the terminals'
 //          programs listen on (ports-segment.tsx) · the active editor's
 //          encoding (encoding-segment.tsx) and language server
 //          (lsp-status-segment.tsx)
@@ -50,7 +51,7 @@ import {
   type LucideIcon,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo, GitStatus } from "../../../shared/git/types";
@@ -64,20 +65,26 @@ import { type DiagnosticKind, DiagnosticList } from "./diagnostic-popover";
 import { EncodingSegment } from "./encoding-segment";
 import { LspStatusSegment } from "./lsp-status-segment";
 import { PortsSegment } from "./ports-segment";
+import { SystemStatsSegment, useWiderThan } from "./system-stats";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 
+/** The bar's width from which it shows how busy the host is. */
+const STATS_MIN_WIDTH = 576;
+
 interface StatusBarProps {
   workspaceId: string;
+  /** Whether its workspace is the one shown: only then is its host asked how busy it is. */
+  active?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // StatusBar root
 // ---------------------------------------------------------------------------
 
-export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
+export function StatusBar({ workspaceId, active = false }: StatusBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const loadInitial = useGitStore((s) => s.loadInitial);
 
@@ -102,9 +109,14 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
   // gracefully renders nothing in that case.
   const status = isRepo ? (gitSession?.status ?? null) : null;
   const inFlightOp = gitSession?.inFlightOp ?? null;
+  // A narrow bar leaves the host's numbers out, before they push the
+  // branch and the diagnostics out of sight.
+  const barRef = useRef<HTMLDivElement>(null);
+  const roomForStats = useWiderThan(barRef, STATS_MIN_WIDTH);
 
   return (
     <div
+      ref={barRef}
       // No overflow-hidden — diagnostic popovers anchor at `bottom-full` and
       // extend upward into the editor area. The WorkspacePanel root keeps
       // overflow-hidden to bound visual leaks within the panel, so removing
@@ -144,6 +156,7 @@ export function StatusBar({ workspaceId }: StatusBarProps): React.JSX.Element {
       {/* RIGHT segments */}
       <div className="flex items-center shrink-0">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
+        {roomForStats && <SystemStatsSegment workspaceId={workspaceId} active={active} />}
         <PortsSegment workspaceId={workspaceId} />
         <EncodingSegment workspaceId={workspaceId} />
         <LspStatusSegment workspaceId={workspaceId} />

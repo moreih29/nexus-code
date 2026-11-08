@@ -473,11 +473,66 @@ describe("tabs, browsers and workspaces", () => {
     );
   });
 
+  test("tab close --others closes the rest of the tab's group, the pinned ones aside", async () => {
+    const app = fakeApp();
+    const result = await nexus(["tab", "close", "index.ts", "--others"], app);
+    expect(result.stdout).toBe("Closed 1 tab in app.\n");
+    expect(lastCall(app, "tab.close")).toMatchObject({ tabId: BROWSER_TAB });
+
+    const pinned = fakeApp();
+    pinned.tabs[APP] = (pinned.tabs[APP] ?? []).map((t) =>
+      t.id === BROWSER_TAB ? { ...t, pinned: true } : t,
+    );
+    expect((await nexus(["tab", "close", "index.ts", "--others"], pinned)).stdout).toBe(
+      "No tabs to close.\n",
+    );
+    expect((await nexus(["tab", "close", "--others"], pinned)).stderr).toContain("missing <tab>");
+  });
+
+  test("tab close --saved closes the editors with nothing unsaved", async () => {
+    const app = fakeApp();
+    app.tabs[APP] = (app.tabs[APP] ?? []).map((t) =>
+      t.id === EDITOR_TAB ? { ...t, unsaved: true } : t,
+    );
+    expect((await nexus(["tab", "close", "--saved"], app)).stdout).toBe("No tabs to close.\n");
+    const clean = fakeApp();
+    expect((await nexus(["tab", "close", "--saved"], clean)).stdout).toBe("Closed 1 tab in app.\n");
+    expect(lastCall(clean, "tab.close")).toMatchObject({ tabId: EDITOR_TAB });
+  });
+
+  test("tab close --all leaves this terminal, and tells which others it left", async () => {
+    const app = fakeApp();
+    app.closeRefused.set(CLAUDE_TAB, "claude is running there; add --force to close it anyway");
+    const result = await nexus(["tab", "close", "--all"], app);
+    expect(result.stdout).toBe(
+      "Closed 2 tabs in app.\n" +
+        "Left zsh (aaaaaaaa) open: it is this terminal.\n" +
+        "Left ✳ Claude Code (aaaaaaaa) open: claude is running there; add --force to close it anyway.\n",
+    );
+    expect(result.exitCode).toBe(1);
+    expect(app.tabs[APP]?.map((t) => t.id)).toEqual([SHELL_TAB, CLAUDE_TAB]);
+    expect((await nexus(["tab", "close", "--all", "--saved"], app)).exitCode).toBe(2);
+  });
+
+  test("tab close --all of the caller's own group alone says only that it left this terminal", async () => {
+    const app = fakeApp();
+    const result = await nexus(["tab", "close", ".", "--all"], app);
+    expect(result.stdout).toBe(
+      "Closed 1 tab in app.\nLeft zsh (aaaaaaaa) open: it is this terminal.\n",
+    );
+    expect(result.exitCode).toBe(0);
+  });
+
   test("tab show may show another workspace's tab", async () => {
     const app = fakeApp();
     const result = await nexus(["tab", "show", "codex", "--workspace", "api"], app);
     expect(result.exitCode).toBe(0);
-    expect(lastCall(app, "tab.show")).toEqual({ workspaceId: API, tabId: CODEX_TAB });
+    // The caller goes along: the agent view shows a session beside it.
+    expect(lastCall(app, "tab.show")).toEqual({
+      workspaceId: API,
+      tabId: CODEX_TAB,
+      caller: { workspaceId: APP, tabId: SHELL_TAB },
+    });
   });
 
   test("browser open opens beside this terminal", async () => {

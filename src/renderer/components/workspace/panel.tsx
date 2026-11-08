@@ -203,7 +203,7 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
           workspaceRootPath={workspace.rootPath}
         />
         <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
-        <StatusBar workspaceId={workspace.id} />
+        <StatusBar workspaceId={workspace.id} active={isActive} />
       </ErrorBoundary>
     </div>
   );

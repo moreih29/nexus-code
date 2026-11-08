@@ -48,6 +48,7 @@ beforeEach(() => {
   }
   useEditorFontStore.getState().hydrate({});
   useNotificationsStore.getState().setOsEnabled(true);
+  useNotificationsStore.getState().setRateLimitWarnings(true);
   useAgentCliStore.getState().hydrate({});
   writes.length = 0;
 });
@@ -101,6 +102,9 @@ describe("settings.set", () => {
     await set("notifications.desktop", "off");
     expect(useNotificationsStore.getState().osEnabled).toBe(false);
     expect(writes).toContainEqual({ osNotificationsEnabled: false });
+    await set("notifications.rateLimitWarning", "off");
+    expect(useNotificationsStore.getState().rateLimitWarnings).toBe(false);
+    expect(writes).toContainEqual({ rateLimitWarnings: false });
     await set("agentCli.agentContext", "off");
     expect(useAgentCliStore.getState().agentContext).toBe(false);
     expect(writes).toContainEqual({ cliAgentContext: false });

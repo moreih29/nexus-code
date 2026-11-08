@@ -9,6 +9,7 @@
 // takes them: they hold for the thread from that turn on.
 
 import { createLogger } from "../../../shared/log/renderer";
+import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import {
   applyCodexLines,
@@ -115,12 +116,7 @@ function nextId(): string {
 export class CodexController {
   readonly key: string;
   /** The presets the composer's mode chip offers. */
-  readonly modes = {
-    modes: ["readOnly", "auto", "fullAccess"],
-    dangerous: "fullAccess",
-    prefix: "chat.codex.mode",
-    fallback: "auto",
-  } as const;
+  readonly modes = CHAT_MODES.codex;
   private target: CodexTabTarget;
   private hooks: CodexTabHooks;
   private readonly pending = new Map<string, Pending>();
@@ -193,7 +189,11 @@ export class CodexController {
         phase: replay.running ? "ready" : "ended",
         truncated: replay.truncated,
       }));
-      if (replay.running) this.ready = Promise.resolve(this.model.threadId !== undefined);
+      if (replay.running) {
+        this.ready = Promise.resolve(this.model.threadId !== undefined);
+        // The limits may have moved while no window watched, or never been read.
+        this.readRateLimits();
+      }
       return;
     }
     await this.start({});
@@ -230,6 +230,7 @@ export class CodexController {
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (result.attached) {
       this.ready = Promise.resolve(this.model.threadId !== undefined);
+      this.readRateLimits();
       return true;
     }
     this.ready = this.handshake();
@@ -250,6 +251,7 @@ export class CodexController {
     }
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
+    this.readRateLimits();
     const { cwd } = this.target;
     const settings = threadSettings(this.target);
     const threadId = this.model.threadId ?? this.target.threadId;
@@ -306,6 +308,15 @@ export class CodexController {
   async refreshAccount(): Promise<void> {
     if (!(await this.ensureRunning())) return;
     await this.request("account/read", {}).catch(() => {});
+    this.readRateLimits();
+  }
+
+  /**
+   * Asks for the plan's usage limits; a ChatGPT sign-in has them, and the
+   * program reports them again as they change. Without one it errs, quietly.
+   */
+  private readRateLimits(): void {
+    void this.request("account/rateLimits/read", {}).catch(() => {});
   }
 
   /** Waits for a replay's lines, which come as events and may trail its answer. */

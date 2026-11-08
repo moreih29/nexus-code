@@ -253,7 +253,7 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
-  useNotificationsStore.getState().hydrate(state.osNotificationsEnabled);
+  useNotificationsStore.getState().hydrate(state);
   useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
   useSessionsViewStore.getState().hydrate(state);

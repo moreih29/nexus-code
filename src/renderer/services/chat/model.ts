@@ -150,6 +150,20 @@ export interface ModelInfo {
   supportedEffortLevels?: string[];
 }
 
+/** The model info the session runs, as the CLI names it either way (alias or id). */
+export function currentModelInfo(
+  models: readonly ModelInfo[],
+  current: string | undefined,
+): ModelInfo | undefined {
+  // Before its first turn the session names no model: it runs the default.
+  if (!current) return models.find((m) => m.value === "default");
+  return (
+    models.find((m) => m.value === current) ??
+    models.find((m) => m.resolvedModel === current) ??
+    models.find((m) => current.startsWith(m.value))
+  );
+}
+
 export interface CommandInfo {
   name: string;
   description?: string;
@@ -162,6 +176,8 @@ export interface InitializeInfo {
   models: ModelInfo[];
   /** The account may turn on Remote Control. */
   remoteControl: boolean;
+  /** The output styles /config takes, the user's own among them. */
+  outputStyles?: string[];
 }
 
 export interface ResultInfo {
@@ -946,6 +962,8 @@ const QUIET_REQUESTS = new Set([
   "get_usage",
   "mcp_status",
   "file_suggestions",
+  // /config and /sandbox show its error themselves.
+  "get_settings",
 ]);
 
 function applyControlResponse(
@@ -983,6 +1001,9 @@ function applyControlResponse(
           ? (body.models.filter((x) => rec(x) && str(rec(x)?.value)) as ModelInfo[])
           : [],
         remoteControl: body.remote_control_available === true,
+        outputStyles: Array.isArray(body.available_output_styles)
+          ? body.available_output_styles.filter((s): s is string => typeof s === "string")
+          : undefined,
       };
       m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
       m.version = str(body.claude_code_version) ?? m.version;

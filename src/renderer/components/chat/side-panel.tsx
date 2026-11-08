@@ -19,7 +19,7 @@ import {
   RefreshCw,
   Square,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
@@ -37,7 +37,7 @@ import {
   todosOf,
   usageLimitsOf,
 } from "../../services/chat/panel";
-import type { ChatTabState } from "../../services/chat/store";
+import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
@@ -79,13 +79,6 @@ export function SidePanel({
 }: SidePanelProps) {
   const { t } = useTranslation();
   const { model, history } = state;
-  const ready = state.phase === "ready" && model.process === "running";
-
-  // The context after each turn, and when the program comes up.
-  useEffect(() => {
-    if (ready && !model.running) controller.refreshPanel(["context"]);
-  }, [controller, ready, model.running]);
-
   const tools = useMemo(
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],
@@ -238,12 +231,36 @@ function shortPath(path: string, cwd: string): string {
   return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
 }
 
+/** How long a section a bare command opened keeps itself at the top as it fills. */
+const REVEAL_FOLLOW_MS = 1500;
+
+/**
+ * Scrolls the panel so a section starts at its top, moving only the panel:
+ * scrollIntoView would move every box around it that can scroll.
+ */
+function scrollToTop(el: HTMLElement): void {
+  for (let box = el.parentElement; box; box = box.parentElement) {
+    const { overflowY } = getComputedStyle(box);
+    if (overflowY === "auto" || overflowY === "scroll") {
+      box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
+      return;
+    }
+  }
+}
+
+/** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
+function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
+  return state.reveal?.part === part ? state.reveal.seq : undefined;
+}
+
 function Section({
   title,
   count,
   folded = false,
   onOpen,
   openAgain,
+  reveal,
+  onRevealed,
   children,
 }: {
   title: string;
@@ -254,15 +271,43 @@ function Section({
   onOpen?: () => void;
   /** Called again, while open, when this changes: as the program comes up. */
   openAgain?: unknown;
+  /** Set when a bare command asked for this section: it opens and comes into view. */
+  reveal?: number;
+  onRevealed?: (seq: number) => void;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(!folded);
+  const ref = useRef<HTMLElement>(null);
+  // The ask to scroll to, once the section has opened: before, the panel
+  // may be too short to bring it to the top.
+  const [scrollFor, setScrollFor] = useState<number | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: asked for each time it opens, not when the callback changes
   useEffect(() => {
     if (open) onOpen?.();
   }, [open, openAgain]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
+  useEffect(() => {
+    if (reveal === undefined) return;
+    setOpen(true);
+    setScrollFor(reveal);
+    onRevealed?.(reveal);
+  }, [reveal]);
+  useEffect(() => {
+    const el = ref.current;
+    if (scrollFor === null || !el) return;
+    scrollToTop(el);
+    // What it shows may come a moment later (the MCP servers, the usage),
+    // and only then can the panel scroll far enough: it follows for a while.
+    const observer = new ResizeObserver(() => scrollToTop(el));
+    observer.observe(el);
+    const timer = setTimeout(() => observer.disconnect(), REVEAL_FOLLOW_MS);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [scrollFor]);
   return (
-    <section className="border-b border-border px-3 py-2">
+    <section ref={ref} className="border-b border-border px-3 py-2">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -479,6 +524,8 @@ function ContextSection({
     <Section
       title={t("chat.panel.context.title")}
       count={percent !== null ? `${percent}%` : undefined}
+      reveal={revealSeq(state, "context")}
+      onRevealed={(seq) => takeReveal(controller.key, seq)}
     >
       {!supported ? (
         <div className="text-app-micro text-muted-foreground">
@@ -739,6 +786,8 @@ function UsageSection({ controller, state }: { controller: ChatController; state
       title={t("chat.panel.usage.title")}
       folded
       onOpen={() => controller.refreshPanel(["usage"])}
+      reveal={revealSeq(state, "usage")}
+      onRevealed={(seq) => takeReveal(controller.key, seq)}
     >
       {cost !== undefined && cost > 0 && (
         <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
@@ -810,6 +859,8 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
       folded
       onOpen={() => controller.refreshPanel(["mcp"])}
       openAgain={ready}
+      reveal={revealSeq(state, "mcp")}
+      onRevealed={(seq) => takeReveal(controller.key, seq)}
     >
       {!servers || servers.length === 0 ? (
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>

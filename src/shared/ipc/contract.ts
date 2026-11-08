@@ -100,6 +100,7 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
+import { SystemStatsSchema } from "../system/stats";
 import { AppStateSchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
@@ -925,6 +926,18 @@ export const ipcContract = {
         }),
       ),
       /**
+       * The settings Claude Code's /config keeps in its global config file
+       * (~/.claude.json) on the workspace's host, by their keys there:
+       * get_settings tells only what settings.json has.
+       */
+      claudeConfig: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.object({
+          found: z.boolean(),
+          values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+        }),
+      ),
+      /**
        * Serves a page on this machine for an MCP server's sign-in to send the
        * browser back to; its address is the redirect Claude Code is given.
        */
@@ -1525,6 +1538,12 @@ export const ipcContract = {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
+      /**
+       * How busy the workspace's host is (an SSH or WSL one's, from its
+       * agent), or this machine when none is named or it is local. Null
+       * while the host cannot tell: not connected, or an older agent.
+       */
+      stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
     },
     listen: {},
   },

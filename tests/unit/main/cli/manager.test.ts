@@ -199,3 +199,76 @@ describe("chat answer", () => {
     expect(result.stderr).toContain(error);
   });
 });
+
+describe("manager show, hide and new", () => {
+  test("open and close its dock, saying when the manager is off", async () => {
+    const app = fakeApp();
+    const shell = { workspaceId: APP, tabId: SHELL_TAB };
+    expect((await nexus(app, ["manager", "show"], shell)).stdout).toBe(
+      "Opened the agent manager's dock.\n",
+    );
+    expect(app.uiCalls.at(-1)).toEqual({ op: "manager.dock", args: { open: true } });
+    await nexus(app, ["manager", "hide"], shell);
+    expect(app.uiCalls.at(-1)?.args).toEqual({ open: false });
+    app.settings.managerEnabled = false;
+    expect((await nexus(app, ["manager", "show"], shell)).stdout).toBe(
+      "Opened the agent manager's dock. The agent manager is off (Settings › Agent manager).\n",
+    );
+  });
+
+  test("new starts it over for another session, never for the manager itself", async () => {
+    const app = fakeApp();
+    const shell = { workspaceId: APP, tabId: SHELL_TAB };
+    expect((await nexus(app, ["manager", "new"], shell)).stdout).toBe(
+      "Started the agent manager over, in a new conversation.\n",
+    );
+    const own = await nexus(app, ["manager", "new"]);
+    expect(own.exitCode).toBe(1);
+    expect(own.stderr).toContain("that is this conversation");
+  });
+});
+
+describe("chat set --mode by the manager", () => {
+  function withChoices(): FakeApp {
+    const app = withChat();
+    app.chatChoices.set(CHAT_TAB, {
+      agent: "claude",
+      model: null,
+      effort: null,
+      mode: "plan",
+      models: [],
+      efforts: [],
+    });
+    return app;
+  }
+  const argv = ["chat", "set", "release", "--mode", "acceptEdits", "--workspace", "app"];
+
+  test("is refused while the user answers permission requests", async () => {
+    const app = withChoices();
+    const result = await nexus(app, argv);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('ask them to set "Release" to acceptEdits');
+    expect(app.chatChoices.get(CHAT_TAB)?.mode).toBe("plan");
+  });
+
+  test("asks the user, or sets it at once, as the setting says", async () => {
+    const asking = withChoices();
+    asking.settings.managerPermissions = "ask";
+    asking.answers.push("once");
+    expect((await nexus(asking, argv)).exitCode).toBe(0);
+    expect(asking.asked.map((r) => r.change.kind)).toEqual(["chatMode"]);
+
+    const answering = withChoices();
+    answering.settings.managerPermissions = "answer";
+    expect((await nexus(answering, argv)).exitCode).toBe(0);
+    expect(answering.asked).toEqual([]);
+    expect(answering.chatChoices.get(CHAT_TAB)?.mode).toBe("acceptEdits");
+  });
+
+  test("sets a mode that lets less run without asking", async () => {
+    const app = withChoices();
+    app.chatChoices.set(CHAT_TAB, { ...(app.chatChoices.get(CHAT_TAB) as never), mode: "auto" });
+    expect((await nexus(app, argv)).exitCode).toBe(0);
+    expect(app.asked).toEqual([]);
+  });
+});

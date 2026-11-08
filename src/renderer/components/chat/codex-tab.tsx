@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
+import { revealOf } from "../../services/chat/app-commands";
 import {
   type CodexController,
   type CodexTabHooks,
@@ -31,7 +32,8 @@ import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../service
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
+import { codexUsageLine } from "../../services/chat/usage-line";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -52,6 +54,7 @@ import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { StatusLine } from "./status-line";
+import { UsageLineView } from "./usage-line";
 
 interface CodexTabViewProps {
   workspaceId: string;
@@ -106,6 +109,11 @@ export function CodexTabView({
   );
   const state = useChatTab(workspaceId, tabId);
   const model = state.model as CodexModel;
+  const { tokens, rateLimits } = model;
+  const usageLine = useMemo(
+    () => codexUsageLine({ tokens, rateLimits }, Date.now()),
+    [tokens, rateLimits],
+  );
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -263,7 +271,7 @@ export function CodexTabView({
           model={state.model}
           empty={
             state.phase === "ready" || state.phase === "ended" ? (
-              <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+              <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                 <CodexIcon className="size-8" />
                 <div className="text-app-body">{t("chat.codex.empty")}</div>
                 <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
@@ -296,6 +304,14 @@ export function CodexTabView({
         local={isLocal}
         appCommands={false}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+        below={<UsageLineView line={usageLine} />}
+        onCommand={(text) => {
+          // A bare /model or /effort opens its menu, as Codex's own does;
+          // anything else goes to the model as typed.
+          const part = revealOf(text, ["model", "effort"]);
+          if (part) revealPart(controller.key, part);
+          return part !== null;
+        }}
       />
       {look && (
         <QuickLook

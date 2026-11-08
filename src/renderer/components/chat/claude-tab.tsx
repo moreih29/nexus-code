@@ -7,7 +7,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
-import { parseAppCommand } from "../../services/chat/app-commands";
+import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { configCommandOf } from "../../services/chat/claude-config";
 import {
   type ChatController,
   type ChatTabHooks,
@@ -48,21 +49,26 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
+import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
   type ComposerDraft,
   chatKey,
+  type RevealPart,
+  revealPart,
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
+import { claudeUsageLine } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
+import { useNotificationsStore } from "../../state/stores/notifications";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -76,6 +82,7 @@ import { AgentStrip } from "./agent-strip";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
+import { ConfigDialog } from "./config-dialog";
 import { type MessageActions, MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
@@ -85,6 +92,7 @@ import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
+import { UsageLineView } from "./usage-line";
 
 interface ClaudeTabViewProps {
   workspaceId: string;
@@ -107,6 +115,9 @@ const SUMMARY_BELOW_PX = 520;
 const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 
 type PanelPlace = "beside" | "drawer" | "summary";
+
+/** The parts a bare command asks for that are in the side panel. */
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -154,6 +165,18 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
+  const { contextUsage, usage } = state.model;
+  const usageLine = useMemo(
+    () => claudeUsageLine({ contextUsage, usage }, Date.now()),
+    [contextUsage, usage],
+  );
+
+  // The line under the composer: the context after each turn, and when the
+  // tab is shown or its program comes up; the plan's usage with it.
+  const lineReady = state.phase === "ready" && state.model.process === "running";
+  useEffect(() => {
+    if (isVisible && lineReady && !state.model.running) controller.refreshUsageLine();
+  }, [controller, isVisible, lineReady, state.model.running]);
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -230,6 +253,33 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
+  // The drawer covers the composer, so it takes the keyboard while open:
+  // Escape closes it from there. Closed, the keyboard goes back to where it
+  // was (the composer a bare /context was typed in), unless the user has
+  // put it somewhere else meanwhile.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawerOpen || !drawer) return;
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!drawer.contains(document.activeElement)) drawer.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      const dropped = now === null || now === document.body || drawer.contains(now);
+      if (dropped && back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [drawerOpen]);
+  // A bare /context, /usage or /mcp opens the panel; its section opens itself.
+  const reveal = state.reveal;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
+  useEffect(() => {
+    if (!reveal || !PANEL_PARTS.has(reveal.part)) return;
+    if (place !== "beside") setDrawerOpen(true);
+    else if (!besideOpen) {
+      writePanelPref(true);
+      setBesideOpen(true);
+    }
+  }, [reveal?.seq]);
 
   // The pane shows main or one agent's transcript, or a `claude -p` run the
   // session started; input always goes to main.
@@ -339,8 +389,21 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     };
   }, [workspaceId, tabId]);
 
+  // Claude Code's settings (/config), and the one a command opened them at.
+  const [config, setConfig] = useState<{ focus?: string } | null>(null);
+
   /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
+    const opened = configCommandOf(text);
+    if (opened) {
+      setConfig(opened);
+      return true;
+    }
+    const part = revealOf(text);
+    if (part) {
+      revealPart(controller.key, part);
+      return true;
+    }
     const command = parseAppCommand(text, state.model.init?.commands ?? []);
     if (!command) return false;
     const { history, model } = state;
@@ -422,7 +485,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               items={shown ? agentTranscript(state.model, shown) : undefined}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
-                  <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+                  <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                     <ClaudeIcon className="size-8" />
                     <div className="text-app-body">{t("chat.empty.title")}</div>
                     <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
@@ -497,6 +560,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               )
             }
             onCommand={runCommand}
+            below={<UsageLineView line={usageLine} />}
           />
         </div>
         {place === "beside" && besideOpen && panel}
@@ -514,9 +578,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             />
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
             <div
+              ref={drawerRef}
+              tabIndex={-1}
               className={cn(
                 // Below the strip, whose toggle closes it again.
-                "absolute right-0 bottom-0 z-20 border-l border-border bg-background",
+                "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
                 place === "summary" ? "top-7 w-full" : "top-8 w-80",
               )}
               onKeyDown={(event) => {
@@ -533,6 +599,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
         item={rewinding}
         cwd={props.cwd}
         onClose={() => setRewinding(null)}
+      />
+      <ConfigDialog
+        controller={controller}
+        state={state}
+        open={config !== null}
+        focus={config?.focus}
+        onClose={() => setConfig(null)}
       />
       {look && (
         <QuickLook
@@ -762,11 +835,14 @@ function TwinBanner({
 function RateLimitBanner({ state }: { state: ChatTabState }) {
   const { t } = useTranslation();
   const limit = state.model.rateLimit;
-  if (!limit || limit.status === "allowed") return null;
+  const warnings = useNotificationsStore((s) => s.rateLimitWarnings);
+  const dismissed = useNotificationsStore((s) => s.dismissedRateLimits);
+  const notice = rateLimitNotice(limit, { warnings, dismissed });
+  if (!limit || !notice) return null;
   const resets = limit.resetsAt
     ? new Date(limit.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     : null;
-  const rejected = limit.status === "rejected";
+  const rejected = notice === "rejected";
   const message = rejected
     ? resets
       ? t("chat.rate_limit.rejected_until", { time: resets })
@@ -774,9 +850,16 @@ function RateLimitBanner({ state }: { state: ChatTabState }) {
     : resets
       ? t("chat.rate_limit.warning_until", { time: resets })
       : t("chat.rate_limit.warning");
+  // A warning closes until its limit resets; a limit reached stays up.
+  const dismiss = rejected
+    ? undefined
+    : {
+        label: t("chat.rate_limit.dismiss"),
+        onDismiss: () => useNotificationsStore.getState().dismissRateLimit(rateLimitKey(limit)),
+      };
   return (
-    <div className="shrink-0">
-      <Banner variant={rejected ? "error" : "warning"} message={message} />
+    <div className="shrink-0" data-testid="chat-rate-limit">
+      <Banner variant={rejected ? "error" : "warning"} message={message} dismiss={dismiss} />
     </div>
   );
 }

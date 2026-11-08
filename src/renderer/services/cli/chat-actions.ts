@@ -1,13 +1,14 @@
 /**
  * The nexus CLI's requests for Claude and Codex tabs: open one with a
  * message, tell where one stands, read its conversation or one tool call of
- * it, send it a message, answer its permission request.
+ * it, send it a message, answer its permission request, stop its turn, set
+ * its model, effort and permission mode.
  * A tab not shown since the app started is opened first, as showing it
  * would: its program's log is read, and the program started when it is
  * gone.
  */
 
-import type { CliUiOp } from "../../../shared/cli/ui";
+import type { CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import {
   type AgentTabController,
   agentTabController,
@@ -16,6 +17,7 @@ import {
   startAgentTab,
 } from "../chat/agent-tab";
 import { chatKey, useChatStore } from "../chat/store";
+import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import { chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
@@ -39,14 +41,144 @@ function infoOf(workspaceId: string, tabId: string, { agent }: AgentTabControlle
   return chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId));
 }
 
+/** How long a tab's program may take to start and list its models. */
+const READY_TIMEOUT_MS = 30_000;
+
+/**
+ * Waits for the tab's program to run and list its models, as its composer
+ * waits to offer them, and for a Codex tab's thread to tell its model;
+ * fails when the program is not running and is not starting.
+ */
+function whenReady(
+  workspaceId: string,
+  tabId: string,
+  agent: AgentTabController["agent"],
+): Promise<void> {
+  const key = chatKey(workspaceId, tabId);
+  const check = (): boolean | Error => {
+    const chat = useChatStore.getState().tabs[key];
+    if (!chat) return new UiRequestError("that tab is gone");
+    const { phase, model } = chat;
+    if (phase === "held") return new UiRequestError("its workspace's connection dropped");
+    // Claude tells its model with its first turn; until then it runs the default.
+    const told = agent === "claude" || model.model !== undefined;
+    if (model.process === "running" && model.init && told) return true;
+    if (phase === "failed" || phase === "not-found") {
+      return new UiRequestError(`its program did not start${chat.error ? `: ${chat.error}` : ""}`);
+    }
+    if (model.process === "exited" || phase === "ended") {
+      return new UiRequestError(
+        "its program is not running; a message (chat send) starts it again",
+      );
+    }
+    return false;
+  };
+  const now = check();
+  if (now === true) return Promise.resolve();
+  if (now instanceof Error) return Promise.reject(now);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      stop();
+      reject(new UiRequestError("its program took too long to start"));
+    }, READY_TIMEOUT_MS);
+    const stop = useChatStore.subscribe(() => {
+      const next = check();
+      if (next === false) return;
+      clearTimeout(timer);
+      stop();
+      if (next === true) resolve();
+      else reject(next);
+    });
+  });
+}
+
+/** How long a tab's conversation may take to show settings its program took. */
+const SHOWN_TIMEOUT_MS = 5_000;
+
+/**
+ * Waits until the tab's conversation shows what `plan` set: a program
+ * answers a request before its answer is read into the conversation.
+ * Gives up quietly after a while; what it shows then is told.
+ */
+function whenShown(
+  workspaceId: string,
+  tabId: string,
+  agent: AgentTabController["agent"],
+  plan: ChatSettingsPlan,
+): Promise<void> {
+  const key = chatKey(workspaceId, tabId);
+  const shown = (): boolean => {
+    const chat = useChatStore.getState().tabs[key];
+    if (!chat) return true;
+    const now = chatChoicesOf(agent, chat.model);
+    return (
+      (plan.model === undefined || now.model === plan.model) &&
+      (plan.effort === undefined || now.effort === plan.effort) &&
+      (plan.mode === undefined || now.mode === plan.mode)
+    );
+  };
+  if (shown()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      stop();
+      resolve();
+    };
+    const timer = setTimeout(done, SHOWN_TIMEOUT_MS);
+    const stop = useChatStore.subscribe(() => {
+      if (shown()) done();
+    });
+  });
+}
+
+/** Sets what `wanted` asks of a running tab; throws on what it cannot take. */
+async function applySettings(
+  workspaceId: string,
+  tabId: string,
+  { agent, controller }: AgentTabController,
+  wanted: CliChatSettings,
+): Promise<void> {
+  await whenReady(workspaceId, tabId, agent);
+  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+  if (!chat) throw new UiRequestError("that tab is gone");
+  let plan: ChatSettingsPlan;
+  try {
+    plan = planChatSettings(agent, chat.model, wanted, controller.supports("apply_flag_settings"));
+  } catch (err) {
+    throw new UiRequestError((err as Error).message);
+  }
+  // The model first: the effort is the new model's.
+  if (plan.model !== undefined) await controller.setModel(plan.model);
+  if (plan.effort !== undefined) await controller.setEffort(plan.effort);
+  if (plan.mode !== undefined) await controller.setPermissionMode(plan.mode);
+  await whenShown(workspaceId, tabId, agent, plan);
+}
+
+const hasSettings = (settings: CliChatSettings | undefined): settings is CliChatSettings =>
+  settings !== undefined &&
+  (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
+
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement }) => {
+  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings }) => {
     const tab =
       agent === "claude"
         ? ({ type: "claude", props: { cwd } } as const)
         : ({ type: "codex", props: { cwd } } as const);
     const tabId = openTab(workspaceId, tab, placement);
-    startAgentTab(workspaceId, tabId, prompt);
+    if (!hasSettings(settings)) {
+      startAgentTab(workspaceId, tabId, prompt);
+      return { tabId };
+    }
+    // Set before the first message: its turn runs with them.
+    const target = agentTabController(workspaceId, tabId);
+    if (!target) throw new UiRequestError("the new tab is gone");
+    try {
+      await target.controller.open();
+      await applySettings(workspaceId, tabId, target, settings);
+      if (prompt.trim() !== "") await sendToAgentTab(workspaceId, tabId, target, prompt.trim());
+    } catch (err) {
+      return { tabId, error: (err as Error).message };
+    }
     return { tabId };
   },
 
@@ -84,6 +216,24 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     }
     await sendToAgentTab(workspaceId, tabId, target, text);
     return {};
+  },
+
+  "chat.interrupt": async ({ workspaceId, tabId }) => {
+    const target = await openedTab(workspaceId, tabId);
+    const { state } = infoOf(workspaceId, tabId, target);
+    if (state !== "working" && state !== "asking")
+      throw new UiRequestError("it has no turn to stop");
+    await target.controller.interrupt();
+    return {};
+  },
+
+  "chat.settings": async ({ workspaceId, tabId, settings }) => {
+    const target = await openedTab(workspaceId, tabId);
+    if (hasSettings(settings)) await applySettings(workspaceId, tabId, target, settings);
+    else await whenReady(workspaceId, tabId, target.agent);
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    return chatChoicesOf(target.agent, chat.model);
   },
 
   "chat.answer": async ({ workspaceId, tabId, decision, message, expect }) => {

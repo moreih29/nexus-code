@@ -255,6 +255,10 @@
     "managerReports": {
       "label": "에이전트 매니저 보고",
       "description": "매니저의 완료·대기 보고도 알림으로 받습니다"
+    },
+    "rateLimitWarnings": {
+      "label": "사용량 한도 경고",
+      "description": "Claude 탭에서 사용량 한도에 가까워지면 입력창 위에 경고를 띄웁니다. 한도에 도달한 경우는 항상 표시합니다."
     }
   },
   "agentCli": {
@@ -304,10 +308,14 @@
         "worktreeRemoveBranch": "작업과 그 워크트리 폴더, 브랜치 삭제를",
         "workspaceRemove": "워크스페이스와 그 작업들의 앱 목록 제거(폴더는 남음)를",
         "permissionAllow": "{{detail}} 허용을",
-        "permissionDeny": "{{detail}} 거부를"
+        "permissionDeny": "{{detail}} 거부를",
+        "chatInterrupt": "탭 \"{{detail}}\"의 진행 중인 턴 중지를",
+        "chatSettings": "탭 \"{{detail}}\"의 모델·강도·권한 모드 변경을",
+        "chatMode": "탭 {{detail}}의 권한 모드 변경을"
       },
       "permission_title": "다른 세션의 권한 요청에 답할까요?",
-      "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다."
+      "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다.",
+      "mode_title": "에이전트가 세션의 권한 모드를 느슨하게 바꾸도록 허용할까요?"
     },
     "heading": "nexus CLI"
   },

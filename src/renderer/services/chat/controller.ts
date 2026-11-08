@@ -48,6 +48,11 @@ const TITLE_FROM_CHARS = 2_000;
 
 /** Longest a replay's lines, sent as events, may trail its answer. */
 const REPLAY_CATCH_UP_MS = 3_000;
+/** Longest one of Claude Code's own commands (/config) is waited on before the next is sent. */
+const COMMAND_DONE_MS = 10_000;
+
+/** Least time between two asks for the plan's usage the line under the composer makes. */
+const USAGE_REFRESH_MS = 60_000;
 
 interface ReplayResult {
   found: boolean;
@@ -91,6 +96,11 @@ export interface ChatTabHooks {
   onFirstMessage?: (text: string) => void;
   /** The title Claude made for the conversation, to take the first message's place. */
   onTitle?: (title: string) => void;
+  /**
+   * The session's name, as the user gave it: by /rename, by renaming the
+   * tab, or one it had when it was taken up again. The tab is called by it.
+   */
+  onRename?: (title: string) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -154,6 +164,10 @@ export class ChatController {
   private opening: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
+  /** When the line under the composer last asked for the plan's usage. */
+  private usageAskedAt = Number.NEGATIVE_INFINITY;
+  /** The name the program last said its session has. */
+  private sessionName: string | undefined;
   private sessionId: string | undefined;
 
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
@@ -408,6 +422,8 @@ export class ChatController {
   async renameSession(title: string): Promise<boolean> {
     const sessionId = this.state.model.sessionId ?? this.sessionId;
     if (!sessionId || !title.trim()) return false;
+    // The tab took the name from the session: it has it already.
+    if (title.trim() === this.sessionName) return true;
     if (!(await this.ensureRunning()) || !this.supports("rename_session")) return false;
     await this.request("rename_session", {
       title: title.trim(),
@@ -600,6 +616,22 @@ export class ChatController {
     }
   }
 
+  /**
+   * Asks again for what the line under the composer shows: the context each
+   * time, the plan's usage (a request to Anthropic's servers) at most once a
+   * minute.
+   */
+  refreshUsageLine(now: number = Date.now()): void {
+    const { phase, model } = this.state;
+    if (phase !== "ready" || model.process !== "running") return;
+    const parts: PanelPart[] = ["context"];
+    if (now - this.usageAskedAt >= USAGE_REFRESH_MS) {
+      this.usageAskedAt = now;
+      parts.push("usage");
+    }
+    this.refreshPanel(parts);
+  }
+
   async mcpReconnect(serverName: string): Promise<void> {
     try {
       await this.request("mcp_reconnect", { serverName });
@@ -759,6 +791,60 @@ export class ChatController {
   async ask(subtype: string): Promise<Record<string, unknown>> {
     await this.settled();
     return this.request(subtype, {});
+  }
+
+  /**
+   * What the settings dialog (/config) shows: the settings Claude Code has
+   * now (get_settings), and those of its global config file on the host,
+   * which settings.json may lack; none of the file's when it is not read.
+   */
+  async readConfig(): Promise<{
+    effective: Record<string, unknown>;
+    global: Record<string, unknown>;
+  }> {
+    const [settings, global] = await Promise.all([
+      this.ask("get_settings"),
+      ipcCallResult("chat", "claudeConfig", { workspaceId: this.target.workspaceId })
+        .then((result) => unwrapIpcResult(result).values)
+        .catch((err: Error) => {
+          log.warn(`Claude Code's global config not read: ${err.message}`);
+          return {};
+        }),
+    ]);
+    const effective = settings.effective;
+    return {
+      effective:
+        typeof effective === "object" && effective !== null
+          ? (effective as Record<string, unknown>)
+          : {},
+      global,
+    };
+  }
+
+  /**
+   * Sends Claude Code's own commands as messages (/config key=value),
+   * which it runs without the model: unlike a message, they do not name
+   * the conversation. Each goes once the one before is done, so that it
+   * is not taken for a message waiting on a turn.
+   */
+  async sendCommands(texts: readonly string[]): Promise<void> {
+    for (const [index, text] of texts.entries()) {
+      if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+      const message = userMessageOf(text, []);
+      await this.write(message);
+      if (index < texts.length - 1) await this.commandDone(message.uuid as string);
+    }
+  }
+
+  /** Waits for a command sent to be done: its turn ended, or a while. */
+  private async commandDone(uuid: string): Promise<void> {
+    const deadline = Date.now() + COMMAND_DONE_MS;
+    while (!this.disposed && Date.now() < deadline) {
+      this.flushNow();
+      const { running, items } = this.state.model;
+      if (!running && items.some((item) => item.kind === "user" && item.sentUuid === uuid)) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   /** Shows a card above the composer, in place of the one before; its id, to fill it in. */
@@ -933,6 +1019,15 @@ export class ChatController {
       this.pending.delete(id);
       if (response?.subtype === "error") entry.reject(new Error(String(response.error ?? "error")));
       else entry.resolve((response?.response as Record<string, unknown>) ?? {});
+    } else if (message.type === "system" && message.subtype === "session_title_changed") {
+      // Said when the name changes, and as the program starts on a session
+      // that has one; the CLI has trimmed it and made it unique.
+      const title = typeof message.title === "string" ? message.title.trim() : "";
+      if (title && title !== this.sessionName) {
+        this.sessionName = title;
+        this.titled = true;
+        this.hooks.onRename?.(title);
+      }
     } else if (message.type === "control_request") {
       const request = message.request as Record<string, unknown> | undefined;
       // Requests the app has no answer for are refused, so the CLI does not wait.

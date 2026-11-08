@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
-import { composerHint } from "../../../../../src/renderer/components/chat/composer";
+import { composerHint, shortModelName } from "../../../../../src/renderer/components/chat/composer";
 import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";
 
 const t = ((key: string, options: Record<string, string>) =>
@@ -43,5 +43,14 @@ describe("composer hints", () => {
     expect(composerHint(t, false, "codex")).toBe(
       `chat.composer.hint ${JSON.stringify({ ...keys, context: "codex" })}`,
     );
+  });
+});
+
+describe("shortModelName", () => {
+  test("drops a model's note, and keeps a name that is all note", () => {
+    expect(shortModelName("Default (recommended)")).toBe("Default");
+    expect(shortModelName("Opus 5.5 (1M context)")).toBe("Opus 5.5");
+    expect(shortModelName("GPT-6.1-Sol")).toBe("GPT-6.1-Sol");
+    expect(shortModelName("(custom)")).toBe("(custom)");
   });
 });

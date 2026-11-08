@@ -23,6 +23,8 @@ export function NotificationsPanel() {
   const { t } = useTranslation("settings");
   const osEnabled = useNotificationsStore((s) => s.osEnabled);
   const setOsEnabled = useNotificationsStore((s) => s.setOsEnabled);
+  const rateLimitWarnings = useNotificationsStore((s) => s.rateLimitWarnings);
+  const setRateLimitWarnings = useNotificationsStore((s) => s.setRateLimitWarnings);
   const managerReports = useManagerStore((s) => s.reports);
   const setManager = useManagerStore((s) => s.setSettings);
 
@@ -54,6 +56,16 @@ export function NotificationsPanel() {
           checked={managerReports}
           onChange={(next) => setManager({ reports: next })}
           disabled={!osEnabled}
+        />
+        {/* In the app, not on the desktop: independent of the switch above. */}
+        <SettingsSwitch
+          label={t("notifications.rateLimitWarnings.label")}
+          description={t("notifications.rateLimitWarnings.description")}
+          checked={rateLimitWarnings}
+          onChange={(next) => {
+            setRateLimitWarnings(next);
+            void ipcCallResult("appState", "set", { rateLimitWarnings: next });
+          }}
         />
       </SettingsGroup>
     </SettingsPage>

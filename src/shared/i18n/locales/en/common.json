@@ -950,7 +950,8 @@
       "warning": "Close to the usage limit",
       "warning_until": "Close to the usage limit · resets at {{time}}",
       "rejected": "Usage limit reached",
-      "rejected_until": "Usage limit reached · resets at {{time}}"
+      "rejected_until": "Usage limit reached · resets at {{time}}",
+      "dismiss": "Close until the limit resets"
     },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",
@@ -1026,7 +1027,8 @@
     "effort": {
       "aria": "Effort",
       "label": "Effort",
-      "unset": "effort"
+      "unset": "effort",
+      "none": "This model has no effort levels to choose"
     },
     "rewind": {
       "action": "Rewind to before this message",
@@ -1193,7 +1195,8 @@
       "title": "Earlier sessions",
       "open": "Open in a tab",
       "more": "Show {{count}} more",
-      "resume_failed": "Could not go on with the session: {{message}}"
+      "resume_failed": "Could not go on with the session: {{message}}",
+      "show": "Earlier sessions · {{count}}"
     },
     "commands": {
       "close": "Close",
@@ -1339,6 +1342,142 @@
         "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
         "bypass_confirm": "Give full access"
       }
+    },
+    "usage": {
+      "context": "Context",
+      "context_tip": "Context: {{used}} of {{max}} tokens ({{percent}}%)",
+      "kind": {
+        "session": "Session",
+        "weekly": "This week",
+        "weekly_all": "This week, all models",
+        "weekly_scoped": "This week, {{scope}}",
+        "hours": "{{count}}h",
+        "days": "{{count}}d"
+      },
+      "resets_time": "resets {{time}}",
+      "resets_date": "resets {{weekday}} {{month}}/{{day}} {{time}}",
+      "meter_tip": "{{label}}: {{percent}}% used",
+      "short": {
+        "session": "Session",
+        "weekly": "Week"
+      }
+    },
+    "reveal": {
+      "not_ready": "Try again once the program is ready"
+    },
+    "config": {
+      "title": "Claude settings",
+      "description": "Claude Code's own settings, shared with claude in a terminal on this host.",
+      "loading": "Reading the settings…",
+      "read_failed": "The settings could not be read: {{error}}",
+      "failed": "The settings were not sent: {{error}}",
+      "running": "Can be applied once Claude's turn ends.",
+      "via_command": "Applied with /config in the conversation.",
+      "apply_count": "Apply {{count}}",
+      "default": "Default",
+      "on": "On",
+      "off": "Off",
+      "show": "Show",
+      "hide": "Hide",
+      "group": {
+        "conversation": "Conversation",
+        "work": "Work",
+        "other": "Terminal and other",
+        "other_hint": "Mostly for claude in a terminal."
+      },
+      "placeholder": {
+        "language": "Default (English)"
+      },
+      "key": {
+        "autoCompact": "Auto-compact",
+        "idleCompaction": "Idle compaction",
+        "thinking": "Thinking mode",
+        "outputStyle": "Output style",
+        "language": "Language",
+        "checkpoints": "Rewind code (checkpoints)",
+        "switchModelsOnFlag": "Switch models when a message is flagged",
+        "permissionMode": "Default permission mode",
+        "useAutoModeDuringPlan": "Use auto mode during plan",
+        "gitignore": "Respect .gitignore in file picker",
+        "worktreeBaseRef": "Worktree base ref",
+        "workflows": "Dynamic workflows",
+        "workflowKeywordTriggerEnabled": "Ultracode keyword trigger",
+        "workflowSizeGuideline": "Dynamic workflow size",
+        "theme": "Theme",
+        "editor": "Editor mode",
+        "timeFormat": "Time format",
+        "notifChannel": "Notifications",
+        "verbose": "Verbose output",
+        "autoScroll": "Auto-scroll",
+        "turnDuration": "Show turn duration",
+        "progressBar": "Terminal progress bar",
+        "tips": "Show tips",
+        "reduceMotion": "Reduce motion",
+        "recap": "Session recap",
+        "prStatus": "Show PR status footer",
+        "copyFullResponse": "Skip the /copy picker",
+        "copyOnSelect": "Copy on select",
+        "externalEditorContext": "Show last response in external editor",
+        "autoConnectIde": "Auto-connect to IDE (external terminal)",
+        "defaultToAgentsView": "Open agents view by default",
+        "leftArrowOpensAgents": "Left arrow opens agents view"
+      },
+      "desc": {
+        "autoCompact": "Summarizes the conversation when the context fills up.",
+        "thinking": "Claude thinks before it answers.",
+        "outputStyle": "How Claude answers; saved for this folder.",
+        "language": "The language Claude answers in.",
+        "checkpoints": "Keeps what files were, for a rewind to bring back.",
+        "permissionMode": "The mode a new conversation starts in.",
+        "gitignore": "Files .gitignore names are left out of @ suggestions.",
+        "worktreeBaseRef": "Where a new worktree's branch starts."
+      },
+      "option": {
+        "outputStyle": {
+          "default": "Default"
+        },
+        "permissionMode": {
+          "dontAsk": "Don't ask"
+        },
+        "worktreeBaseRef": {
+          "fresh": "Latest default branch",
+          "head": "Current HEAD"
+        },
+        "workflowSizeGuideline": {
+          "unrestricted": "Unrestricted",
+          "small": "Small",
+          "medium": "Medium",
+          "large": "Large"
+        },
+        "theme": {
+          "auto": "Auto",
+          "dark": "Dark",
+          "light": "Light",
+          "light-daltonized": "Light (colorblind)",
+          "dark-daltonized": "Dark (colorblind)",
+          "light-ansi": "Light (ANSI colors)",
+          "dark-ansi": "Dark (ANSI colors)"
+        },
+        "editor": {
+          "normal": "Normal",
+          "vim": "Vim"
+        },
+        "timeFormat": {
+          "auto": "Auto",
+          "12-hour": "12-hour",
+          "24-hour": "24-hour",
+          "24-hour-utc": "24-hour (UTC)"
+        },
+        "notifChannel": {
+          "auto": "Auto",
+          "iterm2": "iTerm2",
+          "terminal_bell": "Terminal bell",
+          "iterm2_with_bell": "iTerm2 and bell",
+          "kitty": "Kitty",
+          "ghostty": "Ghostty",
+          "notifications_disabled": "Off"
+        }
+      }
     }
   },
   "agentView": {
@@ -1428,5 +1567,10 @@
     "tasks_other": "{{count}} tasks",
     "tasks_waiting_one": "{{count}} waiting",
     "tasks_waiting_other": "{{count}} waiting"
+  },
+  "systemStats": {
+    "this_computer": "This computer",
+    "cpu_title": "CPU: {{percent}}% in use",
+    "memory_title": "Memory: {{used}} of {{total}} in use ({{percent}}%)"
   }
 }

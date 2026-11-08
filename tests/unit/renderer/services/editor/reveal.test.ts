@@ -18,26 +18,55 @@
  *      mounted editor when no tab is named.
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, describe, expect, it, mock } from "bun:test";
 import { revealRange } from "../../../../../src/renderer/services/editor/tabs";
 import {
   registerRevealTarget,
   requestEditorReveal,
 } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
+import { SETTLE_FRAMES } from "../../../../../src/renderer/services/editor/tabs/reveal";
 import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/testing";
 import { type EditorTab, useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
+
+// revealRange keeps centering for a few frames; frames here are drawn by hand.
+const frames: FrameRequestCallback[] = [];
+const originalRaf = globalThis.requestAnimationFrame;
+globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
+  frames.push(callback)) as typeof requestAnimationFrame;
+afterAll(() => {
+  globalThis.requestAnimationFrame = originalRaf;
+});
+
+function nextFrame(): void {
+  for (const frame of frames.splice(0)) frame(0);
+}
 
 interface StubEditor {
   focus: ReturnType<typeof mock>;
   setSelection: ReturnType<typeof mock>;
   revealRangeInCenter: ReturnType<typeof mock>;
+  getLayoutInfo: () => { height: number };
+  onDidLayoutChange: (listener: (layout: { height: number }) => void) => { dispose(): void };
+  /** Lays the editor out at `height`, telling its layout listeners. */
+  layOut(height: number): void;
 }
 
-function makeStubEditor(): StubEditor {
+function makeStubEditor(height = 600): StubEditor {
+  let current = height;
+  const listeners = new Set<(layout: { height: number }) => void>();
   return {
     focus: mock(() => {}),
     setSelection: mock((_range: unknown) => {}),
     revealRangeInCenter: mock((_range: unknown) => {}),
+    getLayoutInfo: () => ({ height: current }),
+    onDidLayoutChange: (listener) => {
+      listeners.add(listener);
+      return { dispose: () => listeners.delete(listener) };
+    },
+    layOut(next) {
+      current = next;
+      for (const listener of [...listeners]) listener({ height: next });
+    },
   };
 }
 
@@ -74,6 +103,74 @@ describe("revealRange", () => {
     const revealOrder = editor.revealRangeInCenter.mock.invocationCallOrder[0]!;
     expect(focusOrder).toBeLessThan(selectionOrder);
     expect(selectionOrder).toBeLessThan(revealOrder);
+  });
+
+  it("leaves focus where it is when asked to", () => {
+    const editor = makeStubEditor();
+
+    revealRange(editor as never, RANGE_A, true);
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenCalledWith(RANGE_A);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledWith(RANGE_A);
+  });
+
+  it("centers again as an editor mounted in a new group settles into its height", () => {
+    frames.length = 0;
+    // Laid out at a sliver first, at its height a frame later.
+    const editor = makeStubEditor(5);
+    revealRange(editor as never, RANGE_A, true);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(1);
+
+    nextFrame();
+    editor.layOut(665);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
+    editor.layOut(665);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
+
+    for (let frame = 0; frame < SETTLE_FRAMES; frame++) nextFrame();
+    editor.layOut(400);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops centering an earlier range once a newer one is revealed", () => {
+    frames.length = 0;
+    const editor = makeStubEditor(5);
+    revealRange(editor as never, RANGE_A, true);
+    revealRange(editor as never, RANGE_B, true);
+
+    editor.layOut(665);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(3);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
+  });
+});
+
+describe("requestEditorReveal — preserveFocus (the nexus CLI's opens)", () => {
+  it("reveals in a registered editor without focusing it", () => {
+    __resetPendingEditorRevealsForTests();
+    const editor = makeStubEditor();
+    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
+    registerRevealTarget(input, editor as never);
+
+    requestEditorReveal({ ...input, range: RANGE_A, preserveFocus: true });
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
+  });
+
+  it("keeps it for a reveal queued until the editor mounts", () => {
+    __resetPendingEditorRevealsForTests();
+    const editor = makeStubEditor();
+    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
+
+    requestEditorReveal({ ...input, range: RANGE_B, preserveFocus: true });
+    registerRevealTarget(input, editor as never);
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_B);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
   });
 });
 
