@@ -335,7 +335,8 @@ function looksLikePath(text: string): boolean {
     return text.length > 1;
   }
   if (/^[A-Za-z]:[\\/]/.test(text)) return text.length > 3;
-  return /^[\w.-]+(\/[\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
+  // Either slash parts a relative path, as a Windows agent writes it (src\a.ts).
+  return /^[\w.-]+([\\/][\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
 }
 
 /**
