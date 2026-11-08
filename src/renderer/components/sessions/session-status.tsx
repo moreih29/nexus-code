@@ -99,8 +99,18 @@ export function durationLabel(since: number | undefined, now: number): string | 
   return i18next.t("common:sessions.duration.days", { count: Math.floor(hours / 24) });
 }
 
-export function StateGlyph({ state, className }: { state: string; className?: string }) {
-  const { Icon, colorClass, spin } = lookOf(state);
+export function StateGlyph({
+  state,
+  still,
+  className,
+}: {
+  state: string;
+  /** Holds the glyph still where it names the state rather than shows one in progress. */
+  still?: boolean;
+  className?: string;
+}) {
+  const { Icon, colorClass, spin: spins } = lookOf(state);
+  const spin = spins && !still;
   return (
     <Icon
       aria-hidden
