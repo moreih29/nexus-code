@@ -79,6 +79,31 @@ export type CliLayoutNode =
 /** Which side of a group a split puts the new group on. */
 export type CliSplitSide = "left" | "right" | "up" | "down";
 
+/** What the window shows: the agent view, or the workspaces. */
+export type CliView = "agents" | "workspaces";
+
+/** A session the agent view holds: a Claude or Codex tab, or a terminal. */
+export interface CliViewAgent {
+  /** "<workspace id>:<tab id>", as the agent view's panels list it. */
+  readonly key: string;
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly title: string;
+  readonly type: string;
+}
+
+/**
+ * The agent view: whether the window shows it, and its panels, split as a
+ * workspace's editor area is; a panel's tabIds are the keys of the
+ * sessions it holds.
+ */
+export interface CliAgentView {
+  readonly view: CliView;
+  readonly root: CliLayoutNode;
+  readonly activePanelId: string;
+  readonly agents: readonly CliViewAgent[];
+}
+
 /** The columns left of the editor area: the workspace list, and the files panel. */
 export type CliPanel = "sidebar" | "files";
 
@@ -326,9 +351,13 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; text: string; mode: CliInputMode; enter: boolean };
     result: Record<string, never>;
   };
-  /** Shows a tab, and its workspace if another one is shown. */
+  /**
+   * Shows a tab, and its workspace if another one is shown. While the agent
+   * view is shown, a session shows there instead, beside `caller` when a
+   * panel shows it.
+   */
   "tab.show": {
-    args: { workspaceId: string; tabId: string };
+    args: { workspaceId: string; tabId: string; caller?: { workspaceId: string; tabId: string } };
     result: Record<string, never>;
   };
   /**
@@ -412,6 +441,54 @@ export interface CliUiOps {
   "problems.list": {
     args: { workspaceId: string };
     result: { problems: CliProblem[] };
+  };
+  /** The window's view, and the agent view's panels and the sessions they hold. */
+  "agentView.get": {
+    args: Record<string, never>;
+    result: CliAgentView;
+  };
+  /** Shows the agent view or the workspaces, as the title bar's toggle does. */
+  "agentView.show": {
+    args: { view: CliView };
+    result: Record<string, never>;
+  };
+  /**
+   * Puts a session in the agent view: with `side`, into a new panel on that
+   * side of `panelId`; with `panelId`, into that panel (at `index` of its
+   * tabs); else in front of the panel holding it, or of the active one.
+   * With `show`, the window shows the agent view and that panel becomes
+   * the active one; otherwise the active panel stays.
+   */
+  "agentView.place": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      panelId?: string;
+      side?: CliSplitSide;
+      index?: number;
+      show: boolean;
+    };
+    result: { panelId: string };
+  };
+  /** Takes a session out of the agent view; its tab goes on in its workspace. */
+  "agentView.remove": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
+  /** Closes a panel, taking its sessions out of the view; the only one is emptied. */
+  "agentView.close": {
+    args: { panelId: string };
+    result: { removed: number };
+  };
+  /** Sets the share of the first part of the agent view's splits, by split id. */
+  "agentView.ratios": {
+    args: { ratios: { splitId: string; ratio: number }[] };
+    result: Record<string, never>;
+  };
+  /** Makes a panel the active one, the keyboard in it while the view is shown. */
+  "agentView.focus": {
+    args: { panelId: string };
+    result: Record<string, never>;
   };
   /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {

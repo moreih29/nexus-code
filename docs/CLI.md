@@ -18,7 +18,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 
 | 명령 | 하는 일 |
 |---|---|
-| `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 탭 |
+| `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 화면(에이전트 뷰 · 워크스페이스)과 탭 |
 | `nexus workspace list` · `worktree list` | 워크스페이스와 워크트리 목록 |
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code, Codex, ... 와 앱의 Claude · Codex 탭)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
@@ -44,6 +44,8 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus notify "테스트 통과"` | 데스크톱 알림 |
 
 새로 여는 탭은 명령을 실행한 터미널 위를 덮지 않고 옆 그룹에 열립니다. 그룹이 하나뿐이면 오른쪽으로 나눕니다. 키보드 포커스는 터미널에 그대로 둡니다.
+
+에이전트 뷰가 떠 있을 때는 세션(Claude · Codex 탭, 터미널)을 에이전트 뷰 안에 보여줍니다. 명령을 실행한 세션이 패널에 보이면 그 패널을 덮지 않고 다른 패널에, 패널이 하나뿐이면 오른쪽으로 나눠 엽니다. 그 밖의 탭(파일, diff, 커밋, 브라우저)은 워크스페이스 화면으로 바꿔서 보여주고, 명령을 실행한 세션도 그 워크스페이스에서 앞에 두어 키보드를 이어 씁니다.
 
 ## SSH 워크스페이스의 포트
 
@@ -287,6 +289,28 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 - 이 터미널이 든 그룹은 닫지 않습니다. 저장 안 된 편집기가 있는 그룹도 닫지 않고, 프로그램이 도는 터미널은 `--force` 가 있어야 닫습니다.
 - `problems` 는 에디터에 열린 파일만 봅니다(상태 표시줄의 오류 수와 같은 기준). 전체 검사는 프로젝트의 명령으로 하세요.
 
+## 에이전트 뷰
+
+창은 에이전트 뷰와 워크스페이스 화면 중 하나를 보여줍니다. 에이전트 뷰의 패널에는 어느 워크스페이스의 세션(Claude · Codex 탭, 터미널)이든 넣을 수 있습니다.
+
+```bash
+nexus view                           # 지금 보이는 화면 (agents · workspaces)
+nexus view agents                    # 에이전트 뷰로 (view workspaces 로 워크스페이스 화면)
+nexus view layout                    # 패널 분할 구조와 번호, 패널마다 든 세션과 그 워크스페이스
+nexus view open codex                # 세션을 에이전트 뷰에 보여주기 (--panel 2 로 그 패널에)
+nexus view split codex right         # 세션을 그 패널 오른쪽 새 패널로 (--of 로 나눌 패널 지정)
+nexus view move codex 1 --at 1       # 세션을 패널 1 의 첫 자리로
+nexus view remove codex              # 세션을 에이전트 뷰에서 빼기 (탭은 워크스페이스에 그대로)
+nexus view close 2                   # 패널 닫기 (든 세션은 빠지고 탭은 그대로)
+nexus view resize 1 30%              # 패널 1 이 30% 차지 (--width · --height)
+nexus view even                      # 패널 크기 균등하게
+nexus view focus 2                   # 패널 2 를 활성 패널로 (에이전트 뷰가 보이면 키보드도)
+```
+
+- 패널은 `view layout` 의 번호, id, `.`(이 세션이 든 패널, 없으면 활성 패널), 또는 그 안의 세션 이름으로 고릅니다.
+- 세션은 탭처럼 이름 · id 로 고릅니다. 에이전트 뷰에 든 세션을 먼저 찾고, 없으면 이 워크스페이스(또는 `--workspace`)의 탭에서 찾습니다.
+- `view open` 과 `view agents` 만 에이전트 뷰를 띄웁니다. 나머지는 보이는 화면과 활성 패널을 그대로 둡니다.
+
 ## 다른 워크스페이스 바꾸기
 
 다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸거나, 작업을 만들고 지우거나, 워크스페이스를 제거하는 일은 **설정 → 에이전트** 의 "다른 워크스페이스 변경" 을 따릅니다.
@@ -295,7 +319,7 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 - **허용**: 묻지 않고 허용합니다.
 - **허용 안 함**: 항상 거절합니다.
 
-자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`)과 워크스페이스 추가(`workspace add`)도 묻지 않습니다.
+자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`) · 에이전트 뷰(`view`)와 워크스페이스 추가(`workspace add`)도 묻지 않습니다.
 
 ## 설정 바꾸기
 

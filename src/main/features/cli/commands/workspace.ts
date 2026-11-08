@@ -1,5 +1,5 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
-import type { CliTaskStart } from "../../../../shared/cli/ui";
+import type { CliTaskStart, CliView } from "../../../../shared/cli/ui";
 import { isManager } from "../../../../shared/manager/manager";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
@@ -18,6 +18,7 @@ import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
+import { groupsOf } from "./layout";
 
 /** A workspace as --json shows it. */
 export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
@@ -62,34 +63,69 @@ export function orderedWorkspaces(workspaces: readonly WorkspaceMeta[]): Workspa
   return ordered;
 }
 
+/**
+ * The view the window shows, and in the agent view how many panels it
+ * has; null when the window does not answer.
+ */
+async function viewSeen(ctx: CliContext): Promise<{ view: CliView; panels: number } | null> {
+  try {
+    const { view, root } = await ctx.services.ui("agentView.get", {});
+    return { view, panels: groupsOf(root).length };
+  } catch {
+    return null;
+  }
+}
+
 const status: CliCommand = {
   path: ["status"],
   summary: "Show where this terminal is and what the user is looking at",
+  details:
+    "In the agent view, the user sees the session in front of its active panel; nexus view\n" +
+    "layout shows the rest.",
   async run(ctx) {
     const shown = ctx.services.shownTab();
     const shownWorkspace = shown
       ? ctx.services.listWorkspaces().find((w) => w.id === shown.workspaceId)
       : undefined;
+    const seen = await viewSeen(ctx);
     const sees = `user sees: ${shownWorkspace ? `${shownWorkspace.name} (${shortId(shownWorkspace.id)}), tab ${shortId(shown?.tabId ?? "")}` : "nothing"}`;
+    const viewLine = seen
+      ? [
+          `view:      ${
+            seen.view === "agents"
+              ? `the agent view, ${seen.panels} panel${seen.panels === 1 ? "" : "s"}`
+              : "the workspaces"
+          }`,
+        ]
+      : [];
+    const viewJson = seen ? { view: seen.view } : {};
     if (isManager(ctx.caller)) {
       const text = [
         `NexusCode ${ctx.services.appVersion}`,
         "you are:   the agent manager, in no workspace",
+        ...viewLine,
         sees,
       ].join("\n");
-      return output(text, { version: ctx.services.appVersion, manager: true, shown });
+      return output(text, {
+        version: ctx.services.appVersion,
+        manager: true,
+        ...viewJson,
+        shown,
+      });
     }
     const workspace = resolveWorkspace(ctx, undefined);
     const text = [
       `NexusCode ${ctx.services.appVersion}`,
       `workspace: ${workspace.name} (${shortId(workspace.id)}) ${describeLocation(workspace)}`,
       `terminal:  ${shortId(ctx.caller.tabId)}`,
+      ...viewLine,
       sees,
     ].join("\n");
     return output(text, {
       version: ctx.services.appVersion,
       workspace: workspaceJson(ctx, workspace),
       tabId: ctx.caller.tabId,
+      ...viewJson,
       shown,
     });
   },

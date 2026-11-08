@@ -477,7 +477,12 @@ describe("tabs, browsers and workspaces", () => {
     const app = fakeApp();
     const result = await nexus(["tab", "show", "codex", "--workspace", "api"], app);
     expect(result.exitCode).toBe(0);
-    expect(lastCall(app, "tab.show")).toEqual({ workspaceId: API, tabId: CODEX_TAB });
+    // The caller goes along: the agent view shows a session beside it.
+    expect(lastCall(app, "tab.show")).toEqual({
+      workspaceId: API,
+      tabId: CODEX_TAB,
+      caller: { workspaceId: APP, tabId: SHELL_TAB },
+    });
   });
 
   test("browser open opens beside this terminal", async () => {

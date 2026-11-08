@@ -156,7 +156,7 @@ const layoutShow: CliCommand = {
   },
 };
 
-const SIDES: Record<string, CliSplitSide> = {
+export const SIDES: Record<string, CliSplitSide> = {
   left: "left",
   right: "right",
   up: "up",
@@ -214,7 +214,7 @@ const layoutSplit: CliCommand = {
 };
 
 /** Reads "30%" or "30" as 0.3. */
-function share(text: string): number {
+export function share(text: string): number {
   const match = /^(\d+(?:\.\d+)?)%?$/.exec(text.trim());
   const value = match ? Number(match[1]) : Number.NaN;
   if (!(value >= 5 && value <= 95)) {
