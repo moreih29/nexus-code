@@ -1364,6 +1364,120 @@
     },
     "reveal": {
       "not_ready": "프로그램이 준비되면 다시 시도하세요"
+    },
+    "config": {
+      "title": "Claude 설정",
+      "description": "Claude Code 자체 설정입니다. 이 호스트의 터미널 claude와 같은 설정을 씁니다.",
+      "loading": "설정을 읽는 중…",
+      "read_failed": "설정을 읽지 못했습니다: {{error}}",
+      "failed": "설정을 보내지 못했습니다: {{error}}",
+      "running": "Claude의 응답이 끝나면 적용할 수 있습니다.",
+      "via_command": "대화에 /config 명령을 보내 적용합니다.",
+      "apply_count": "{{count}}개 적용",
+      "default": "기본값",
+      "on": "켬",
+      "off": "끔",
+      "show": "펼치기",
+      "hide": "접기",
+      "group": {
+        "conversation": "대화",
+        "work": "작업",
+        "other": "터미널과 기타",
+        "other_hint": "주로 터미널의 claude에 쓰이는 설정입니다."
+      },
+      "placeholder": {
+        "language": "기본 (English)"
+      },
+      "key": {
+        "autoCompact": "자동 압축",
+        "idleCompaction": "유휴 압축",
+        "thinking": "생각 모드",
+        "outputStyle": "출력 스타일",
+        "language": "응답 언어",
+        "checkpoints": "코드 되돌리기 (체크포인트)",
+        "switchModelsOnFlag": "메시지가 차단되면 모델 전환",
+        "permissionMode": "기본 권한 모드",
+        "useAutoModeDuringPlan": "계획 중 자동 모드 사용",
+        "gitignore": "파일 목록에서 .gitignore 따르기",
+        "worktreeBaseRef": "워크트리 시작점",
+        "workflows": "동적 워크플로",
+        "workflowKeywordTriggerEnabled": "ultracode 키워드로 시작",
+        "workflowSizeGuideline": "동적 워크플로 규모",
+        "theme": "테마",
+        "editor": "편집 모드",
+        "timeFormat": "시간 형식",
+        "notifChannel": "알림",
+        "verbose": "자세한 출력",
+        "autoScroll": "자동 스크롤",
+        "turnDuration": "응답 시간 표시",
+        "progressBar": "터미널 진행 표시",
+        "tips": "팁 표시",
+        "reduceMotion": "움직임 줄이기",
+        "recap": "세션 요약",
+        "prStatus": "PR 상태 표시줄",
+        "copyFullResponse": "/copy 선택 건너뛰기",
+        "copyOnSelect": "선택하면 복사",
+        "externalEditorContext": "외부 편집기에 마지막 응답 표시",
+        "autoConnectIde": "IDE 자동 연결 (외부 터미널)",
+        "defaultToAgentsView": "기본으로 에이전트 보기 열기",
+        "leftArrowOpensAgents": "← 키로 에이전트 보기 열기"
+      },
+      "desc": {
+        "autoCompact": "컨텍스트가 차면 대화를 요약하고 이어 갑니다.",
+        "thinking": "Claude가 답하기 전에 생각합니다.",
+        "outputStyle": "Claude가 답하는 방식입니다. 이 폴더에 저장됩니다.",
+        "language": "Claude가 답할 언어입니다.",
+        "checkpoints": "되돌리기로 파일을 되살릴 수 있게 이전 내용을 남깁니다.",
+        "permissionMode": "새 대화가 시작할 때의 권한 모드입니다.",
+        "gitignore": ".gitignore에 있는 파일을 @ 제안에서 뺍니다.",
+        "worktreeBaseRef": "새 워크트리 브랜치가 시작하는 곳입니다."
+      },
+      "option": {
+        "outputStyle": {
+          "default": "기본"
+        },
+        "permissionMode": {
+          "dontAsk": "묻지 않음"
+        },
+        "worktreeBaseRef": {
+          "fresh": "최신 기본 브랜치",
+          "head": "현재 HEAD"
+        },
+        "workflowSizeGuideline": {
+          "unrestricted": "제한 없음",
+          "small": "작게",
+          "medium": "보통",
+          "large": "크게"
+        },
+        "theme": {
+          "auto": "자동",
+          "dark": "다크",
+          "light": "라이트",
+          "light-daltonized": "라이트 (색각 보정)",
+          "dark-daltonized": "다크 (색각 보정)",
+          "light-ansi": "라이트 (ANSI 색)",
+          "dark-ansi": "다크 (ANSI 색)"
+        },
+        "editor": {
+          "normal": "일반",
+          "vim": "Vim"
+        },
+        "timeFormat": {
+          "auto": "자동",
+          "12-hour": "12시간",
+          "24-hour": "24시간",
+          "24-hour-utc": "24시간 (UTC)"
+        },
+        "notifChannel": {
+          "auto": "자동",
+          "iterm2": "iTerm2",
+          "terminal_bell": "터미널 벨",
+          "iterm2_with_bell": "iTerm2와 벨",
+          "kitty": "Kitty",
+          "ghostty": "Ghostty",
+          "notifications_disabled": "끄기"
+        }
+      }
     }
   },
   "agentView": {

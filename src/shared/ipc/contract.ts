@@ -925,6 +925,18 @@ export const ipcContract = {
         }),
       ),
       /**
+       * The settings Claude Code's /config keeps in its global config file
+       * (~/.claude.json) on the workspace's host, by their keys there:
+       * get_settings tells only what settings.json has.
+       */
+      claudeConfig: call(
+        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.object({
+          found: z.boolean(),
+          values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+        }),
+      ),
+      /**
        * Serves a page on this machine for an MCP server's sign-in to send the
        * browser back to; its address is the redirect Claude Code is given.
        */
