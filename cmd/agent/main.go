@@ -28,6 +28,7 @@ import (
 	agentpty "github.com/nexus-code/nexus-code/internal/pty"
 	agentsearch "github.com/nexus-code/nexus-code/internal/search"
 	"github.com/nexus-code/nexus-code/internal/stdioserver"
+	"github.com/nexus-code/nexus-code/internal/sysstat"
 )
 
 func main() {
@@ -130,6 +131,7 @@ func main() {
 	agentpty.Register(d, pty)
 	agentchat.Register(d, chat)
 	agentsearch.Register(d, search)
+	sysstat.Register(d, sysstat.New())
 	if hooksrv != nil {
 		hookserver.Register(d, hooksrv)
 	}

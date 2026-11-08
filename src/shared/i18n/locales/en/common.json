@@ -1567,5 +1567,10 @@
     "tasks_other": "{{count}} tasks",
     "tasks_waiting_one": "{{count}} waiting",
     "tasks_waiting_other": "{{count}} waiting"
+  },
+  "systemStats": {
+    "this_computer": "This computer",
+    "cpu_title": "CPU: {{percent}}% in use",
+    "memory_title": "Memory: {{used}} of {{total}} in use ({{percent}}%)"
   }
 }
