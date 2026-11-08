@@ -50,7 +50,12 @@ import {
   type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
-import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
+import {
+  type ChatTabState,
+  type QueuedMessage,
+  type RevealPart,
+  takeReveal,
+} from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
 import { cn } from "../../utils/cn";
 import { isMac } from "../../utils/platform";
@@ -197,9 +202,15 @@ export function Composer({
 
   // The row under the box leaves out what it must to stay on one line.
   const footerRef = useRef<HTMLDivElement>(null);
+  // A chip whose menu is open, or asked for by a bare /model or /effort,
+  // stays in the row however narrow it is.
+  const [menuOf, setMenuOf] = useState<RevealPart | null>(null);
+  const kept = (part: RevealPart) => state.reveal?.part === part || menuOf === part;
+  const onMenu = (part: RevealPart) => (open: boolean) =>
+    setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}`,
+    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -646,10 +657,17 @@ export function Composer({
           />
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
             <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
-            {fit < FIT.NO_MODEL && (
-              <ModelChip controller={controller} state={state} short={fit >= FIT.SHORT_MODEL} />
+            {(fit < FIT.NO_MODEL || kept("model")) && (
+              <ModelChip
+                controller={controller}
+                state={state}
+                short={fit >= FIT.SHORT_MODEL}
+                onMenu={onMenu("model")}
+              />
             )}
-            {fit < FIT.NO_EFFORT && <EffortChip controller={controller} state={state} />}
+            {(fit < FIT.NO_EFFORT || kept("effort")) && (
+              <EffortChip controller={controller} state={state} onMenu={onMenu("effort")} />
+            )}
             <div className="flex-1" />
             <AddMenu
               onAttach={() => fileRef.current?.click()}
@@ -755,6 +773,34 @@ function useFitStep(row: RefObject<HTMLElement | null>, content: string): number
     return () => observer.disconnect();
   }, [row]);
   return step;
+}
+
+/**
+ * A chip's menu, open as the user opens it or as a bare command (/model,
+ * /effort) asks; one that cannot open says why instead. `onMenu` hears it
+ * open and close in the same update, so the row keeps the chip it opens.
+ */
+function useRevealedMenu(
+  controller: ComposerController,
+  state: ChatTabState,
+  part: RevealPart,
+  unavailable: string | null,
+  onMenu: (open: boolean) => void,
+): [boolean, (open: boolean) => void] {
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onMenu(next);
+  };
+  const reveal = state.reveal?.part === part ? state.reveal.seq : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
+  useEffect(() => {
+    if (reveal === undefined) return;
+    takeReveal(controller.key, reveal);
+    if (unavailable) showToast({ kind: "info", message: unavailable });
+    else setOpen(true);
+  }, [reveal]);
+  return [open, setOpen];
 }
 
 function formatSize(bytes: number): string {
@@ -1088,14 +1134,26 @@ export function shortModelName(name: string): string {
   return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
 }
 
-function ModelChip({ controller, state, short }: ChipProps & { short: boolean }) {
+function ModelChip({
+  controller,
+  state,
+  short,
+  onMenu,
+}: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model);
   const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
   const ready = state.model.process === "running" && models.length > 0;
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "model",
+    ready ? null : t("chat.reveal.not_ready"),
+    onMenu,
+  );
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"
@@ -1127,14 +1185,32 @@ function ModelChip({ controller, state, short }: ChipProps & { short: boolean })
   );
 }
 
-function EffortChip({ controller, state }: ChipProps) {
+function EffortChip({
+  controller,
+  state,
+  onMenu,
+}: ChipProps & { onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
+  const supported = controller.supports("apply_flag_settings");
+  const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  const [open, setOpen] = useRevealedMenu(
+    controller,
+    state,
+    "effort",
+    levels.length === 0
+      ? t("chat.effort.none")
+      : !supported
+        ? note
+        : state.model.process !== "running"
+          ? t("chat.reveal.not_ready")
+          : null,
+    onMenu,
+  );
   if (levels.length === 0) return null;
   const effort = state.model.effort;
-  if (!controller.supports("apply_flag_settings")) {
-    const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
+  if (!supported) {
     return (
       <button
         type="button"
@@ -1147,7 +1223,7 @@ function EffortChip({ controller, state }: ChipProps) {
     );
   }
   return (
-    <DropdownMenuRoot>
+    <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
         <button
           type="button"

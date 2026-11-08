@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
-import { parseAppCommand } from "../../services/chat/app-commands";
+import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import {
   type ChatController,
   type ChatTabHooks,
@@ -55,6 +55,8 @@ import {
   type ChatTabState,
   type ComposerDraft,
   chatKey,
+  type RevealPart,
+  revealPart,
   useChatStore,
   useChatTab,
 } from "../../services/chat/store";
@@ -111,6 +113,9 @@ const SUMMARY_BELOW_PX = 520;
 const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 
 type PanelPlace = "beside" | "drawer" | "summary";
+
+/** The parts a bare command asks for that are in the side panel. */
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -246,6 +251,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
+  // A bare /context, /usage or /mcp opens the panel; its section opens itself.
+  const reveal = state.reveal;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
+  useEffect(() => {
+    if (!reveal || !PANEL_PARTS.has(reveal.part)) return;
+    if (place !== "beside") setDrawerOpen(true);
+    else if (!besideOpen) {
+      writePanelPref(true);
+      setBesideOpen(true);
+    }
+  }, [reveal?.seq]);
 
   // The pane shows main or one agent's transcript, or a `claude -p` run the
   // session started; input always goes to main.
@@ -357,6 +373,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
 
   /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
+    const part = revealOf(text);
+    if (part) {
+      revealPart(controller.key, part);
+      return true;
+    }
     const command = parseAppCommand(text, state.model.init?.commands ?? []);
     if (!command) return false;
     const { history, model } = state;

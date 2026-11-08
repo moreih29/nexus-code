@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
+import { revealOf } from "../../services/chat/app-commands";
 import {
   type CodexController,
   type CodexTabHooks,
@@ -31,7 +32,7 @@ import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../service
 import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
-import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { codexUsageLine } from "../../services/chat/usage-line";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
@@ -304,6 +305,13 @@ export function CodexTabView({
         appCommands={false}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
         below={<UsageLineView line={usageLine} />}
+        onCommand={(text) => {
+          // A bare /model or /effort opens its menu, as Codex's own does;
+          // anything else goes to the model as typed.
+          const part = revealOf(text, ["model", "effort"]);
+          if (part) revealPart(controller.key, part);
+          return part !== null;
+        }}
       />
       {look && (
         <QuickLook
