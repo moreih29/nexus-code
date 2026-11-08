@@ -3,7 +3,7 @@
 // files it changed, and what its replies point at.
 
 import type { AgentRun } from "../../../shared/claude/activity";
-import { isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
+import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
 import type {
   AssistantItem,
   ChatItem,
@@ -434,11 +434,18 @@ export function distinctResults(results: readonly ResultEntry[], cwd: string): R
   return out;
 }
 
+/** An image a tool gave. */
+export interface GivenImage {
+  image: ImageBlock;
+  /** The image file it is, by its absolute path, when the tool read it from one. */
+  file?: string;
+}
+
 /** What an answer ends with: the files its turn made and named, and the images its tools gave. */
 export interface AnswerExtras {
   /** Absolute paths, written new first, then linked: each shows once it is found. */
   files: string[];
-  images: ImageBlock[];
+  images: GivenImage[];
 }
 
 /** Most file cards under one answer. */
@@ -468,7 +475,7 @@ export function answerExtras(
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
     if (!answer) return;
     const named: string[] = [];
-    const given: { image: ImageBlock; from?: string }[] = [];
+    const given: (GivenImage & { from?: string })[] = [];
     for (const item of turn) {
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
@@ -476,7 +483,8 @@ export function answerExtras(
         if (!tool) continue;
         const path = str(rec(tool.input)?.file_path);
         const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
-        for (const image of tool.result?.images ?? []) given.push({ image, from });
+        const file = from && fileKind(from) === "image" ? from : undefined;
+        for (const image of tool.result?.images ?? []) given.push({ image, from, file });
         if (tool.name === "Write" && tool.status === "done" && path) {
           if (rec(tool.result?.structured)?.type === "create") named.push(path);
         }
@@ -492,7 +500,7 @@ export function answerExtras(
     }
     const images = given
       .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
-      .map(({ image }) => image);
+      .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
       out.set(answer, {
         files: files.slice(0, MAX_ANSWER_CANDIDATES),

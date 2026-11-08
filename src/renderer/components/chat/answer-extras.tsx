@@ -8,6 +8,7 @@ import { useFoundFiles } from "../../services/chat/file-presence";
 import { baseName, fileKind } from "../../services/chat/links";
 import { type AnswerExtras, MAX_ANSWER_FILES } from "../../services/chat/panel";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { ChatImage } from "./chat-image";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { FileKindIcon } from "./file-kind-icon";
 
@@ -27,17 +28,19 @@ export function AnswerExtrasView({
     () => extras.files.filter((path) => found.has(path)).slice(0, MAX_ANSWER_FILES),
     [extras, found],
   );
+  const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2" data-testid="chat-answer-extras">
       {extras.images.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {extras.images.map((image, i) => (
-            <img
+          {extras.images.map(({ file }, i) => (
+            <ChatImage
               // biome-ignore lint/suspicious/noArrayIndexKey: a turn's images keep their order
               key={i}
-              src={`data:${image.mediaType};base64,${image.data}`}
-              alt=""
+              images={images}
+              index={i}
+              file={file}
               className="max-h-48 max-w-full rounded-(--radius-control) border border-border object-contain"
             />
           ))}

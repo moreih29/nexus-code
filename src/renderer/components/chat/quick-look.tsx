@@ -3,7 +3,8 @@
 // sidebar and the title bar stay in sight, with what other agents ask.
 // ‹ › and ← → step through them, ↗ opens the file as a tab, esc closes, as
 // does clicking beside it or going elsewhere. A file the session changed
-// shows as a diff, and can be reverted.
+// shows as a diff, and can be reverted. Images with no file, as a tool or
+// the user gave them, show the same way from their data.
 
 import Editor from "@monaco-editor/react";
 import {
@@ -11,6 +12,7 @@ import {
   ChevronRight,
   FolderOpen,
   GitCompareArrows,
+  Image as ImageIcon,
   SquareArrowOutUpRight,
   Undo2,
   X,
@@ -23,7 +25,9 @@ import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
+import { imageSrc } from "../../services/chat/image-look";
 import { baseName, isUnder, type LineAt } from "../../services/chat/links";
+import type { ImageBlock } from "../../services/chat/model";
 import { useSharedModel } from "../../services/editor";
 import { isDocxFile } from "../../services/editor/preview/docx";
 import { isFontFile } from "../../services/editor/preview/font";
@@ -43,7 +47,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
 import { revealInOSLabel } from "../../utils/reveal-label";
-import { ImagePreview } from "../editor/preview/image-preview";
+import { ImagePreview, ZoomableImage } from "../editor/preview/image-preview";
 import { PreviewFindScope } from "../editor/preview/preview-find";
 import { ViewModeToggle } from "../editor/preview/view-mode-toggle";
 import { EmptyState } from "../ui/empty-state";
@@ -71,6 +75,11 @@ export interface QuickLookList {
   changes?: Readonly<Record<string, string | null>>;
   /** The line a link named in one of the files, which opens there, in its source. */
   at?: { path: string; line: number; column?: number };
+  /**
+   * Images with no file, by the key `files` holds each by
+   * (services/chat/image-look): shown from their data.
+   */
+  images?: Readonly<Record<string, ImageBlock>>;
 }
 
 /** Overlays that open from quick look, as the revert confirmation, and keep it open. */
@@ -113,6 +122,8 @@ export function QuickLook({
   const before = list.changes?.[path];
   const changed = before !== undefined;
   const line = list.at?.path === path ? list.at : undefined;
+  const image = list.images?.[path];
+  const name = image ? t("chat.look.image", { number: index + 1 }) : baseName(path);
   const root = useWorkspacesStore((s) => {
     const location = s.workspaces.find((w) => w.id === workspaceId)?.location;
     if (!location) return "";
@@ -181,7 +192,7 @@ export function QuickLook({
       ref={rootRef}
       role="dialog"
       aria-modal="true"
-      aria-label={t("chat.look.aria", { name: baseName(path) })}
+      aria-label={t("chat.look.aria", { name })}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
@@ -200,9 +211,13 @@ export function QuickLook({
             {index + 1} / {count}
           </span>
         )}
-        <FileKindIcon path={path} className="ml-1 size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-app-ui-sm" title={path}>
-          {baseName(path)}
+        {image ? (
+          <ImageIcon className="ml-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <FileKindIcon path={path} className="ml-1 size-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-app-ui-sm" title={image ? name : path}>
+          {name}
         </span>
         {changed && (
           <IconButton
@@ -228,7 +243,7 @@ export function QuickLook({
             </IconButton>
           </span>
         )}
-        {!showDiff && textual && support !== "none" && (
+        {!image && !showDiff && textual && support !== "none" && (
           <ViewModeToggle
             mode={mode}
             onChange={setMode}
@@ -236,7 +251,7 @@ export function QuickLook({
             disabledReason={support === "mdx-disabled" ? t("editor.mdx_disabled") : undefined}
           />
         )}
-        {local && (
+        {local && !image && (
           <IconButton
             label={revealInOSLabel()}
             onClick={() => void ipcCallResult("system", "revealInOS", { absPath: path })}
@@ -244,19 +259,25 @@ export function QuickLook({
             <FolderOpen className="size-3.5" />
           </IconButton>
         )}
-        <IconButton
-          label={t("chat.look.open_tab")}
-          onClick={() => onOpenTab(path, line)}
-          data-testid="chat-quick-look-open"
-        >
-          <SquareArrowOutUpRight className="size-3.5" />
-        </IconButton>
+        {!image && (
+          <IconButton
+            label={t("chat.look.open_tab")}
+            onClick={() => onOpenTab(path, line)}
+            data-testid="chat-quick-look-open"
+          >
+            <SquareArrowOutUpRight className="size-3.5" />
+          </IconButton>
+        )}
         <IconButton label={t("chat.look.close")} onClick={onClose}>
           <X className="size-4" />
         </IconButton>
       </div>
       <div className="relative min-h-0 flex-1">
-        {showDiff ? (
+        {image ? (
+          <div key={path} className="flex h-full">
+            <ZoomableImage src={imageSrc(image)} alt={name} />
+          </div>
+        ) : showDiff ? (
           <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
         ) : (
           <LookBody

@@ -49,6 +49,7 @@ import { cn } from "../../utils/cn";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
 import { useAgentContext } from "./chat-agent";
+import { ChatImage } from "./chat-image";
 import { ChatMarkdown } from "./chat-markdown";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { ToolRow } from "./tool-row";
@@ -286,12 +287,12 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
       )}
       {item.images.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5">
-          {item.images.map((image, i) => (
-            <img
+          {item.images.map((_, i) => (
+            <ChatImage
               // biome-ignore lint/suspicious/noArrayIndexKey: a message's images keep their order
               key={i}
-              src={`data:${image.mediaType};base64,${image.data}`}
-              alt=""
+              images={item.images}
+              index={i}
               className="max-h-32 max-w-48 rounded-(--radius-control) border border-border object-cover"
             />
           ))}

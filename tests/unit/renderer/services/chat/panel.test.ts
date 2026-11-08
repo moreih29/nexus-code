@@ -447,6 +447,11 @@ describe("chat panel", () => {
     ]);
     // The running turn's answer is not the last yet.
     expect(answers(false)).toEqual([["m3", ["/p/out/chart.md"], 1]]);
+    // The image a Read gave opens as the file it read.
+    const [first] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(first.images).toEqual([
+      { image: { mediaType: "image/png", data: "AAAA" }, file: "/p/shot.png" },
+    ]);
   });
 
   test("what a session links outside the workspace, with its HTML files' folders", () => {

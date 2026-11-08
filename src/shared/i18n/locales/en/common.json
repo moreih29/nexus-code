@@ -1163,6 +1163,7 @@
     },
     "look": {
       "aria": "Quick look: {{name}}",
+      "image": "Image {{number}}",
       "previous": "Previous result (←)",
       "next": "Next result (→)",
       "open_tab": "Open as a tab",

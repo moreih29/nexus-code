@@ -17,6 +17,7 @@ import {
   pruneAttachmentsOnce,
 } from "../../services/chat/controller";
 import { foundResultFiles } from "../../services/chat/file-presence";
+import { imageLook } from "../../services/chat/image-look";
 import {
   type FileLink,
   isLocalAddress,
@@ -359,6 +360,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             },
           );
         });
+      },
+      openImages(images, index) {
+        if (images.length > 0) setLook(imageLook(images, index));
       },
       openChange(path) {
         const { history, model } = latest.current.state;
