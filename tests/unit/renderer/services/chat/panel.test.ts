@@ -11,6 +11,7 @@ import {
   answerExtras,
   changedFilesOf,
   contextOf,
+  distinctResults,
   jobsOf,
   outsideLinksOf,
   resultsOf,
@@ -479,6 +480,28 @@ describe("chat panel", () => {
     ).toEqual([
       { kind: "session", percent: 15, resetsAt: "2026-11-05T19:20:00Z", active: false },
       { kind: "weekly_scoped", scope: "Fable", percent: 0, active: false },
+    ]);
+  });
+});
+
+describe("distinctResults", () => {
+  test("lists a file once however its path was written, made new if it ever was", () => {
+    const results = distinctResults(
+      [
+        { kind: "file", target: "long.txt", created: false, guessed: true },
+        { kind: "url", target: "https://example.com", created: false, guessed: false },
+        { kind: "file", target: "/p/long.txt", created: false, guessed: false },
+        { kind: "file", target: "./src/a.ts", created: false, guessed: false },
+        { kind: "file", target: "/p/src/a.ts", created: true, guessed: false },
+        { kind: "url", target: "https://example.com/x", created: false, guessed: false },
+      ],
+      "/p",
+    );
+    expect(results).toEqual([
+      { kind: "file", target: "long.txt", created: false, guessed: true },
+      { kind: "url", target: "https://example.com", created: false, guessed: false },
+      { kind: "file", target: "./src/a.ts", created: true, guessed: false },
+      { kind: "url", target: "https://example.com/x", created: false, guessed: false },
     ]);
   });
 });
