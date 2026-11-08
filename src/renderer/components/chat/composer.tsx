@@ -67,6 +67,7 @@ import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
+import { maxTextHeight } from "./composer-height";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -148,12 +149,13 @@ const SUGGEST_RETRY_MS = 500;
 
 let nextAttachmentId = 1;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-const MAX_ROWS_PX = 240;
-
-/** Grows the text box with its text, up to MAX_ROWS_PX. */
-function fitHeight(area: HTMLTextAreaElement): void {
+/**
+ * Grows the text box with its text, from the two rows it starts at up to
+ * its cap in the column the composer sits in (composer-height).
+ */
+function fitHeight(area: HTMLTextAreaElement, column: HTMLElement | null | undefined): void {
   area.style.height = "auto";
-  area.style.height = `${Math.min(area.scrollHeight, MAX_ROWS_PX)}px`;
+  area.style.height = `${Math.min(area.scrollHeight, maxTextHeight(column?.clientHeight ?? 0))}px`;
 }
 
 export function Composer({
@@ -173,6 +175,7 @@ export function Composer({
   const [files, setFiles] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { model, phase } = state;
   const running = model.running;
@@ -286,21 +289,27 @@ export function Composer({
   };
 
   useLayoutEffect(() => {
-    if (areaRef.current) fitHeight(areaRef.current);
+    if (areaRef.current) fitHeight(areaRef.current, rootRef.current?.parentElement);
   });
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
-  // shows, so a new width fits it again.
+  // shows, so a new width fits it again. The cap follows the column's
+  // height, so a panel resized taller or shorter fits it again too.
   useEffect(() => {
     const area = areaRef.current;
+    const column = rootRef.current?.parentElement;
     if (!area) return;
     let width = area.clientWidth;
+    let height = column?.clientHeight ?? 0;
     const observer = new ResizeObserver(() => {
-      if (area.clientWidth === width) return;
+      const nextHeight = column?.clientHeight ?? 0;
+      if (area.clientWidth === width && nextHeight === height) return;
       width = area.clientWidth;
-      fitHeight(area);
+      height = nextHeight;
+      fitHeight(area, column);
     });
     observer.observe(area);
+    if (column) observer.observe(column);
     return () => observer.disconnect();
   }, []);
 
@@ -504,7 +513,11 @@ export function Composer({
   };
 
   return (
-    <div className="shrink-0 border-t border-border px-4 pt-2 pb-3" data-testid="chat-composer">
+    <div
+      ref={rootRef}
+      className="shrink-0 border-t border-border px-4 pt-2 pb-3"
+      data-testid="chat-composer"
+    >
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         {above}
         {(waiting.length > 0 || state.queue.length > 0) && (
@@ -614,7 +627,7 @@ export function Composer({
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             readOnly={sending}
-            rows={1}
+            rows={2}
             placeholder={placeholder}
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
