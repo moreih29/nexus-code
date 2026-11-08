@@ -36,6 +36,7 @@ import {
 import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
+import { SystemStatsFooter } from "../workbench/system-stats";
 import { setAgentDrag } from "./drag";
 
 type Filter = "all" | "running" | "attention";
@@ -151,6 +152,7 @@ export function AgentSidebar() {
             ))
           )}
         </div>
+        <SystemStatsFooter />
       </div>
       <SidebarResizeHandle />
     </aside>

@@ -100,6 +100,7 @@ import {
   SshAuthRespondArgsSchema,
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
+import { SystemStatsSchema } from "../system/stats";
 import { AppStateSchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
@@ -1537,6 +1538,12 @@ export const ipcContract = {
       openPathExternal: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       revealInOS: call(SystemAbsPathArgsSchema, SystemPathResultSchema),
       openNewWindow: call(z.void(), z.object({ ok: z.literal(true) })),
+      /**
+       * How busy the workspace's host is (an SSH or WSL one's, from its
+       * agent), or this machine when none is named or it is local. Null
+       * while the host cannot tell: not connected, or an older agent.
+       */
+      stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
     },
     listen: {},
   },

@@ -2,12 +2,15 @@
  * system channel — registers workspace-agnostic shell/window handlers.
  */
 
+import type { SystemStats } from "../../../shared/system/stats";
 import { register } from "../../infra/ipc-router";
 import { openNewWindowHandler } from "../window/ipc";
 import { openPathExternalHandler, revealInOSHandler } from "./open-path";
 
 export interface RegisterSystemChannelOptions {
   readonly openNewWindow?: () => unknown;
+  /** system.stats; null for every ask when not given. */
+  readonly stats?: (args: unknown) => Promise<SystemStats | null>;
 }
 
 /**
@@ -20,6 +23,7 @@ export function registerSystemChannel(options: RegisterSystemChannelOptions = {}
       openPathExternal: openPathExternalHandler(),
       revealInOS: revealInOSHandler(),
       openNewWindow: openNewWindowHandler(options.openNewWindow ?? (() => {})),
+      stats: options.stats ?? (async () => null),
     },
     listen: {},
   });
