@@ -15,6 +15,12 @@ describe("lookupPath", () => {
     expect(lookupPath("/p/system.stats", "/p/")).toBe("system.stats");
   });
 
+  it("is the path under a Windows root, however it ends", () => {
+    expect(lookupPath("C:/w/src/a.ts", "C:\\w")).toBe("src/a.ts");
+    expect(lookupPath("C:/src/a.ts", "C:\\")).toBe("src/a.ts");
+    expect(lookupPath("c:/W/a.ts", "C:\\w\\")).toBe("a.ts");
+  });
+
   it("is null outside the root, and for the root itself", () => {
     expect(lookupPath("/q/v0.17.0", "/p")).toBeNull();
     expect(lookupPath("/p", "/p")).toBeNull();

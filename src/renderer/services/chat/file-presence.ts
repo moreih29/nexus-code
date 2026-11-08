@@ -29,7 +29,8 @@ const lookUpInWorkspace: FileLookup = async (workspaceId, relPath) => {
  */
 export function lookupPath(path: string, root: string): string | null {
   if (!root || !isUnder(path, root)) return null;
-  const base = root.replace(/\/+$/, "");
+  // A Windows root may end in a backslash (C:\), and the path use slashes.
+  const base = root.replace(/[\\/]+$/, "");
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
