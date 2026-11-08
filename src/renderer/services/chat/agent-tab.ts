@@ -24,6 +24,8 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
     onTarget: (target) => tabs().setClaudeTarget(workspaceId, tabId, target),
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    // The user's own name for it, whole, as the tab's rename menu keeps one.
+    onRename: (title) => tabs().renameTab(workspaceId, tabId, title),
   };
 }
 
