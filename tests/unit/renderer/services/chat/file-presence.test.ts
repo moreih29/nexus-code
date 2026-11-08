@@ -69,6 +69,20 @@ describe("createFilePresence", () => {
     expect(asked).toEqual(["a.ts", "a.ts"]);
   });
 
+  it("looks a file not found up again, as the agent may make it", async () => {
+    const files: string[] = [];
+    const asked: string[] = [];
+    const presence = createFilePresence(async (_workspaceId, relPath) => {
+      asked.push(relPath);
+      return files.includes(relPath);
+    });
+    expect(await presence.isThere("ws", "/p", "/p/x.sh")).toBe(false);
+    expect(presence.known("ws", "/p/x.sh")).toBeUndefined();
+    files.push("x.sh");
+    expect(await presence.isThere("ws", "/p", "/p/x.sh")).toBe(true);
+    expect(asked).toEqual(["x.sh", "x.sh"]);
+  });
+
   it("keeps workspaces apart", async () => {
     const { presence, asked } = setup(["a.ts"]);
     await presence.isThere("one", "/p", "/p/a.ts");

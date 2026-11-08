@@ -103,7 +103,13 @@ export function SidePanel({
     return paths;
   }, [named, cwd]);
   const guessedPaths = useMemo(() => [...new Set(guessed.values())], [guessed]);
-  const found = useFoundFiles(workspaceId, rootPath, guessedPaths);
+  // A file named before the agent made it is found once a tool of its is done.
+  const toolsDone = useMemo(
+    () =>
+      Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
+    [tools],
+  );
+  const found = useFoundFiles(workspaceId, rootPath, guessedPaths, toolsDone);
   const results = useMemo(
     () =>
       named.filter((result) => {
