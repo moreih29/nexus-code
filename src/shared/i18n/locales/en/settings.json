@@ -255,6 +255,10 @@
     "managerReports": {
       "label": "Agent manager reports",
       "description": "Also get the manager's done and waiting reports as notifications"
+    },
+    "rateLimitWarnings": {
+      "label": "Usage limit warnings",
+      "description": "Warn above a Claude tab's message box when the usage limit is near. A limit reached always shows."
     }
   },
   "agentCli": {

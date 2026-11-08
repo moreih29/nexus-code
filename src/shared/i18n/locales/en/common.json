@@ -950,7 +950,8 @@
       "warning": "Close to the usage limit",
       "warning_until": "Close to the usage limit · resets at {{time}}",
       "rejected": "Usage limit reached",
-      "rejected_until": "Usage limit reached · resets at {{time}}"
+      "rejected_until": "Usage limit reached · resets at {{time}}",
+      "dismiss": "Close until the limit resets"
     },
     "twin": {
       "message": "This session is open in a terminal tab too. Going on in both forks the conversation.",

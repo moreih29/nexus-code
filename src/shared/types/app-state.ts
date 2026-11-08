@@ -190,6 +190,10 @@ export const AppStateSchema = z.object({
   // glyphs, attention badges) is unaffected — only OS-level notifications.
   osNotificationsEnabled: z.boolean().default(true),
 
+  // Whether a Claude tab warns, above its composer, that the account's usage
+  // limit is near. Off hides the warning only: a limit reached still shows.
+  rateLimitWarnings: z.boolean().default(true),
+
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.
   cliEnabled: z.boolean().default(true),
