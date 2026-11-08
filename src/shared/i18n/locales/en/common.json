@@ -1193,7 +1193,8 @@
       "title": "Earlier sessions",
       "open": "Open in a tab",
       "more": "Show {{count}} more",
-      "resume_failed": "Could not go on with the session: {{message}}"
+      "resume_failed": "Could not go on with the session: {{message}}",
+      "show": "Earlier sessions · {{count}}"
     },
     "commands": {
       "close": "Close",
