@@ -36,7 +36,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { appCommandsBeside } from "../../services/chat/app-commands";
+import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import {
   applyCompletion,
   completionAt,
@@ -224,7 +224,7 @@ export function Composer({
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
-    return matchCommands([...cli, ...own], completion.query);
+    return matchCommands([...listedCommands(cli), ...own], completion.query);
   }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;

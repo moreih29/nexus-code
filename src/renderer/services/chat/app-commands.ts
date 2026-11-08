@@ -51,6 +51,18 @@ function namesOf(command: { name: string; aliases?: string[] }): string[] {
   return [command.name, ...(command.aliases ?? [])].map((n) => n.toLowerCase());
 }
 
+/**
+ * The CLI's commands the `/` menu leaves out: /insights shows nothing in a
+ * headless run, and the app makes no screen for it. Typed out, it still goes
+ * to the CLI.
+ */
+const UNLISTED = new Set(["insights"]);
+
+/** The CLI's commands as the composer's list shows them. */
+export function listedCommands(cli: readonly CommandInfo[]): CommandInfo[] {
+  return cli.filter((c) => !UNLISTED.has(c.name.toLowerCase()));
+}
+
 /** The app's commands that the CLI does not have, described for the composer's list. */
 export function appCommandsBeside(
   cli: readonly CommandInfo[],
