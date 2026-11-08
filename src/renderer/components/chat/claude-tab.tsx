@@ -16,13 +16,13 @@ import {
   type PermissionAnswer,
   pruneAttachmentsOnce,
 } from "../../services/chat/controller";
+import { foundResultFiles } from "../../services/chat/file-presence";
 import {
   type FileLink,
   isLocalAddress,
   isUnder,
   type LineAt,
   resolveFileLink,
-  resultFiles,
 } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
@@ -344,15 +344,19 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     return {
       openFile(target) {
         follow(target, ({ path, ...line }) => {
-          const { history, model } = latest.current.state;
+          const { state, rootPath } = latest.current;
+          const { history, model } = state;
           const items = history ? [...history.items, ...model.items] : model.items;
           const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-          const files = resultFiles(resultsOf(items, tools), cwd);
-          const at = files.indexOf(path);
-          if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-          const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
-          setLook(
-            line.line ? { ...list, at: { path, line: line.line, column: line.column } } : list,
+          void foundResultFiles(workspaceId, rootPath, resultsOf(items, tools), cwd).then(
+            (files) => {
+              const at = files.indexOf(path);
+              if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
+              const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
+              setLook(
+                line.line ? { ...list, at: { path, line: line.line, column: line.column } } : list,
+              );
+            },
           );
         });
       },

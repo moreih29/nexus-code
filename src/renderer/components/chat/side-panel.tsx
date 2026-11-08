@@ -24,6 +24,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
 import type { ChatController } from "../../services/chat/controller";
+import { useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
 import {
   type AgentRow,
@@ -91,7 +92,27 @@ export function SidePanel({
   const jobs = useMemo(() => jobsOf(model), [model]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
-  const results = useMemo(() => resultsOf(items, tools), [items, tools]);
+  // A file only a code span named is listed once the workspace has it.
+  const named = useMemo(() => resultsOf(items, tools), [items, tools]);
+  const guessed = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const result of named) {
+      const path = result.guessed ? resolveFilePath(result.target, cwd) : null;
+      if (path) paths.set(result.target, path);
+    }
+    return paths;
+  }, [named, cwd]);
+  const guessedPaths = useMemo(() => [...new Set(guessed.values())], [guessed]);
+  const found = useFoundFiles(workspaceId, rootPath, guessedPaths);
+  const results = useMemo(
+    () =>
+      named.filter((result) => {
+        if (!result.guessed) return true;
+        const path = guessed.get(result.target);
+        return path !== undefined && found.has(path);
+      }),
+    [named, guessed, found],
+  );
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useTicker(anyRunning);
