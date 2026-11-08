@@ -27,6 +27,7 @@ import {
   type PermissionRequest,
   type UserItem,
 } from "./model";
+import { effortToApply } from "./settings-defaults";
 import {
   type ChatTabState,
   type CommandCard,
@@ -315,6 +316,7 @@ export class ChatController {
             return this.request("apply_flag_settings", { settings: this.flags });
           }
         })
+        .then(() => this.followSettings())
         .then(
           () => {},
           (err: Error) => {
@@ -323,6 +325,19 @@ export class ChatController {
         );
     }
     return true;
+  }
+
+  /**
+   * Has a started program run as the user's settings say: `claude -p`
+   * leaves their effort out, which it is given here. The answer also tells
+   * the tab the model the settings set, before the first turn names it.
+   */
+  private async followSettings(): Promise<void> {
+    if (!this.supports("get_settings")) return;
+    const effort = effortToApply(await this.request("get_settings", {}).catch(() => null));
+    if (effort && this.supports("apply_flag_settings")) {
+      await this.request("apply_flag_settings", { settings: { effortLevel: effort } });
+    }
   }
 
   /** Starts the program again, going on with the session. */
@@ -594,6 +609,8 @@ export class ChatController {
   }
 
   setEffort(level: string): Promise<unknown> {
+    // Holds for the tab: a program started again for it takes it too.
+    this.flags = { ...this.flags, effortLevel: level };
     return this.request("apply_flag_settings", { settings: { effortLevel: level } });
   }
 

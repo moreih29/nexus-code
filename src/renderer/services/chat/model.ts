@@ -8,6 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { terminalText } from "../editor/preview/notebook";
+import { appliedEffort, settingsModel } from "./settings-defaults";
 
 export type LineDir = "out" | "in" | "sys";
 
@@ -157,10 +158,17 @@ export function currentModelInfo(
 ): ModelInfo | undefined {
   // Before its first turn the session names no model: it runs the default.
   if (!current) return models.find((m) => m.value === "default");
+  // "claude-opus-5-5[1m]" is Opus 5.5 with its long context.
+  const base = current.replace(/\[[^\]]*\]$/, "");
   return (
     models.find((m) => m.value === current) ??
     models.find((m) => m.resolvedModel === current) ??
-    models.find((m) => current.startsWith(m.value))
+    models.find((m) => m.value === base || m.resolvedModel === base) ??
+    // A dated id is its model's; the longest name it starts with, so
+    // "claude-opus-5-5…" is not taken for "claude-opus-5".
+    models
+      .filter((m) => current.startsWith(m.value))
+      .sort((a, b) => b.value.length - a.value.length)[0]
   );
 }
 
@@ -1021,6 +1029,11 @@ function applyControlResponse(
       if (effort) m.effort = effort;
       return;
     }
+    case "get_settings":
+      // Before its first turn the session names no model, nor ever its effort.
+      m.model ??= settingsModel(body);
+      m.effort ??= appliedEffort(body);
+      return;
     case "get_context_usage":
       m.contextUsage = body;
       return;
