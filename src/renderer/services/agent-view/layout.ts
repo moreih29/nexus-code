@@ -225,6 +225,28 @@ export function placeKey(
   return moveKey(layout, key, leafId, index);
 }
 
+/**
+ * Shows `key` beside the panel `besideLeafId`, not over what it shows: in
+ * front of the panel holding it when that is another, else in another
+ * panel (the active one when it is another), else in a new panel split off
+ * to its right. The panel it lands in becomes the active one. One that
+ * panel shows already stays.
+ */
+export function showBeside(
+  layout: AgentLayout,
+  key: string,
+  besideLeafId: string,
+  id: IdFactory = newId,
+): AgentLayout {
+  const holder = leafHolding(layout.root, key);
+  if (holder && holder.id !== besideLeafId) return selectKey(layout, holder.id, key);
+  if (holder?.activeTabId === key) return layout;
+  const others = Grid.allLeaves(layout.root).filter((leaf) => leaf.id !== besideLeafId);
+  const target = others.find((leaf) => leaf.id === layout.activeLeafId) ?? others[0];
+  if (target) return moveKey(layout, key, target.id);
+  return splitLeaf(layout, besideLeafId, "right", key, id);
+}
+
 export function setRatio(layout: AgentLayout, splitId: string, ratio: number): AgentLayout {
   const root = Grid.setRatio(layout.root, splitId, ratio);
   return root === layout.root ? layout : { ...layout, root };

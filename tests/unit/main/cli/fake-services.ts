@@ -31,6 +31,7 @@ import type { AgentRun } from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
+  CliAgentView,
   CliChatEntry,
   CliChatInfo,
   CliChatTool,
@@ -205,6 +206,11 @@ export interface FakeApp {
   };
   /** The app's settings, as settings.list gives them. */
   appSettings: CliSettingInfo[];
+  /**
+   * The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's
+   * codex), p1 active. A test may replace it; its agents follow the tabs.
+   */
+  agentView: Omit<CliAgentView, "agents">;
   /**
    * The Claude and Codex tabs' conversations, by tab id: where each stands
    * and its messages; a test may change them, as on a tick.
@@ -452,6 +458,28 @@ export function fakeApp(now = Date.now()): FakeApp {
     return made;
   };
   const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
+  const agentView: FakeApp["agentView"] = {
+    view: "agents",
+    activePanelId: "p1",
+    root: {
+      kind: "split",
+      id: "s9",
+      direction: "columns",
+      ratio: 0.5,
+      first: group("p1", [`${APP}:${CLAUDE_TAB}`]),
+      second: group("p2", [`${API}:${CODEX_TAB}`]),
+    },
+  };
+  const viewPanels = (node: CliLayoutNode): Extract<CliLayoutNode, { kind: "group" }>[] =>
+    node.kind === "group" ? [node] : [...viewPanels(node.first), ...viewPanels(node.second)];
+  const viewAgents = () =>
+    viewPanels(agentView.root)
+      .flatMap((panel) => panel.tabIds)
+      .flatMap((key) => {
+        const [workspaceId = "", tabId = ""] = key.split(":");
+        const found = tabs[workspaceId]?.find((t) => t.id === tabId);
+        return found ? [{ key, workspaceId, tabId, title: found.title, type: found.type }] : [];
+      });
   const chats: FakeApp["chats"] = new Map();
   const chatSent: FakeApp["chatSent"] = [];
   const events: FakeApp["events"] = [];
@@ -599,6 +627,23 @@ export function fakeApp(now = Date.now()): FakeApp {
       appSettings[index] = next;
       return { setting: next } as CliUiOps[K]["result"];
     }
+    if (op === "agentView.get") {
+      return { ...agentView, agents: viewAgents() } as CliUiOps[K]["result"];
+    }
+    if (op === "agentView.show") {
+      agentView.view = (args as CliUiOps["agentView.show"]["args"]).view;
+      return {} as CliUiOps[K]["result"];
+    }
+    if (op === "agentView.place") {
+      const { panelId, side } = args as CliUiOps["agentView.place"]["args"];
+      const landed = side ? "p9" : (panelId ?? agentView.activePanelId);
+      return { panelId: landed } as CliUiOps[K]["result"];
+    }
+    if (op === "agentView.close") {
+      const { panelId } = args as CliUiOps["agentView.close"]["args"];
+      const panel = viewPanels(agentView.root).find((p) => p.id === panelId);
+      return { removed: panel?.tabIds.length ?? 0 } as CliUiOps[K]["result"];
+    }
     if (op === "browser.navigate") {
       const { url } = args as CliUiOps["browser.navigate"]["args"];
       return (url === undefined ? {} : { url }) as CliUiOps[K]["result"];
@@ -703,6 +748,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     ports,
     forwarding,
     appSettings,
+    agentView,
     chats,
     chatSent,
     events,

@@ -24,6 +24,7 @@ import {
   sanitizeLayout,
   selectKey,
   setActiveLeaf,
+  showBeside,
   splitLeaf,
 } from "../../../../../src/renderer/services/agent-view/layout";
 
@@ -261,5 +262,39 @@ describe("sanitizeLayout", () => {
       { id: "p2", tabIds: [C], activeTabId: C },
     ]);
     expect(layout.activeLeafId).toBe("p1");
+  });
+});
+
+describe("showBeside", () => {
+  it("splits the only panel to the right, beside the agent it shows", () => {
+    const next = showBeside(onePanel(A), B, "p1", named("p2"));
+    expect(leaves(next)).toEqual([
+      { id: "p1", tabIds: [A], activeTabId: A },
+      { id: "p2", tabIds: [B], activeTabId: B },
+    ]);
+    expect(next.activeLeafId).toBe("p2");
+  });
+
+  it("goes into another panel, the active one first", () => {
+    const two = splitLeaf(onePanel(A, B), "p1", "right", B, named("p2"));
+    const next = showBeside(setActiveLeaf(two, "p2"), C, "p1");
+    expect(leafHolding(next.root, C)?.id).toBe("p2");
+    expect(leafShowing(next.root, C)).toBe("p2");
+    expect(leafShowing(next.root, A)).toBe("p1");
+  });
+
+  it("brings one held elsewhere to the front, and moves one held behind the agent", () => {
+    const two = splitLeaf(onePanel(A, B, C), "p1", "right", C, named("p2"));
+    // p1 holds A and B, B in front; p2 holds C.
+    const front = showBeside(two, C, "p1");
+    expect(leafHolding(front.root, C)?.id).toBe("p2");
+    const behind = showBeside(selectKey(two, "p1", B), A, "p1");
+    expect(leafHolding(behind.root, A)?.id).toBe("p2");
+    expect(leafShowing(behind.root, B)).toBe("p1");
+  });
+
+  it("leaves the agent the panel shows where it is", () => {
+    const layout = onePanel(A, B);
+    expect(showBeside(layout, B, "p1")).toBe(layout);
   });
 });

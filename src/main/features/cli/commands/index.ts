@@ -14,6 +14,7 @@ import { panelCommands } from "./panel";
 import { portCommands } from "./port";
 import { settingsCommands } from "./settings";
 import { terminalCommands } from "./terminal";
+import { viewCommands } from "./view";
 import { workspaceCommands } from "./workspace";
 
 export const CLI_COMMANDS: readonly CliCommand[] = [
@@ -23,6 +24,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...eventCommands,
   ...tabArrangeCommands,
   ...layoutCommands,
+  ...viewCommands,
   ...panelCommands,
   ...settingsCommands,
   ...editorCommands,

@@ -19,6 +19,7 @@ import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } 
 import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { settingsHandlers } from "./settings";
+import { viewHandlers } from "./view-actions";
 
 function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean): CliTabInfo {
   const base = {
@@ -78,6 +79,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...chatHandlers,
   ...layoutHandlers,
   ...settingsHandlers,
+  ...viewHandlers,
 };
 
 let markReady: () => void = () => {};

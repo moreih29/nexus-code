@@ -13,6 +13,7 @@ import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
 import { holdsUnsavedChanges } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
+import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
@@ -24,6 +25,7 @@ import type { CliUiOp } from "../../../shared/cli/ui";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
+import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
@@ -119,6 +121,7 @@ export const actionHandlers: {
     | "manager.dispatched"
     | LayoutOp
     | `chat.${string}`
+    | `agentView.${string}`
   >]: CliUiHandler<K>;
 } = {
   "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
@@ -224,13 +227,22 @@ export const actionHandlers: {
     return {};
   },
 
-  "tab.show": async ({ workspaceId, tabId }) => {
+  "tab.show": async ({ workspaceId, tabId, caller }) => {
     const groupId = groupOf(workspaceId, tabId);
     if (!groupId) throw new UiRequestError("that tab is gone");
+    // A session shows in the agent view while it is up; anything else
+    // leaves it for its workspace.
+    if (isAgentViewShown() && holdsInAgentView(tabRecord(workspaceId, tabId).type)) {
+      showBesideCaller(workspaceId, tabId, caller ?? null);
+      return {};
+    }
+    // The tab first: switching to the workspace then lands on it.
+    useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
     if (useActiveStore.getState().activeWorkspaceId !== workspaceId) {
       activateWorkspace(workspaceId);
+    } else {
+      useAgentViewStore.getState().setMode("workspace");
     }
-    useLayoutStore.getState().setActiveTabInGroup({ workspaceId, groupId, tabId });
     return {};
   },
 
@@ -332,8 +344,12 @@ export const actionHandlers: {
     const how = start ?? taskStartOf(resolvedTaskAgent());
     const started = await startTask(parentId, name, prompt, how, createdBy);
     if (!("task" in started)) throw new UiRequestError(started.message);
-    // A terminal starts once its panel is mounted, shown or not.
-    if (show) activateWorkspace(started.task.id);
+    // A terminal starts once its panel is mounted, shown or not. Shown while
+    // the agent view is up, its agent shows there, beside the one asking.
+    const tab = useTabsStore.getState().byWorkspace[started.task.id]?.[started.tabId];
+    if (show && isAgentViewShown() && tab && holdsInAgentView(tab.type)) {
+      showBesideCaller(started.task.id, started.tabId, createdBy);
+    } else if (show) activateWorkspace(started.task.id);
     else useMountedWorkspacesStore.getState().mount(started.task.id);
     return { workspaceId: started.task.id, tabId: started.tabId, start: started.start };
   },

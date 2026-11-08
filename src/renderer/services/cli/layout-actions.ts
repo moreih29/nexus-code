@@ -33,7 +33,8 @@ function layoutOf(workspaceId: string) {
   return layout;
 }
 
-function toCli(node: LayoutNode): CliLayoutNode {
+/** A split tree as the CLI tells it: a workspace's groups, or the agent view's panels. */
+export function toCli(node: LayoutNode): CliLayoutNode {
   if (node.kind === "leaf") {
     return { kind: "group", id: node.id, tabIds: [...node.tabIds], shownTabId: node.activeTabId };
   }

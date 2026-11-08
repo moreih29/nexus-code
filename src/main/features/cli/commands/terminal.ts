@@ -295,7 +295,11 @@ const tabShow: CliCommand = {
     const [selector] = exactArgs(positionals, "tab") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveAnyTab(ctx, workspace, selector);
-    await ctx.services.ui("tab.show", { workspaceId: workspace.id, tabId: tab.id });
+    await ctx.services.ui("tab.show", {
+      workspaceId: workspace.id,
+      tabId: tab.id,
+      caller: ctx.caller,
+    });
     return output(`Showing ${tab.title} (${shortId(tab.id)}) in ${workspace.name}.`, {
       tabId: tab.id,
       workspaceId: workspace.id,
