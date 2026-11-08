@@ -79,13 +79,6 @@ export function SidePanel({
 }: SidePanelProps) {
   const { t } = useTranslation();
   const { model, history } = state;
-  const ready = state.phase === "ready" && model.process === "running";
-
-  // The context after each turn, and when the program comes up.
-  useEffect(() => {
-    if (ready && !model.running) controller.refreshPanel(["context"]);
-  }, [controller, ready, model.running]);
-
   const tools = useMemo(
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],

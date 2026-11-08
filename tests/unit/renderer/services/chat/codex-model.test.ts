@@ -711,6 +711,69 @@ describe("codex model", () => {
     expect(signedIn.account).toEqual({ type: "chatgpt" });
   });
 
+  test("keeps the plan's usage limits as they are read and as they change", () => {
+    const window = (usedPercent: number, windowDurationMins: number, resetsAt: number) => ({
+      usedPercent,
+      windowDurationMins,
+      resetsAt,
+    });
+    const m = run([
+      ...started(),
+      inn({ id: "app-r", method: "account/rateLimits/read", params: {} }),
+      out({
+        id: "app-r",
+        result: {
+          rateLimits: {
+            limitId: "codex",
+            primary: window(20, 300, 1_700_000_000),
+            secondary: window(8, 10080, 1_700_500_000),
+            credits: null,
+          },
+        },
+      }),
+    ]);
+    expect(m.rateLimits).toEqual({
+      limitId: "codex",
+      primary: { usedPercent: 20, windowMins: 300, resetsAt: 1_700_000_000 },
+      secondary: { usedPercent: 8, windowMins: 10080, resetsAt: 1_700_500_000 },
+    });
+    // A rolling update may carry one window; the other still holds.
+    const rolled = run(
+      [
+        note("account/rateLimits/updated", {
+          rateLimits: {
+            limitId: "codex",
+            primary: window(35, 300, 1_700_000_000),
+            secondary: null,
+          },
+        }),
+      ],
+      m,
+    );
+    expect(rolled.rateLimits?.primary?.usedPercent).toBe(35);
+    expect(rolled.rateLimits?.secondary?.usedPercent).toBe(8);
+    // Another bucket's update is not the tab's.
+    const other = run(
+      [
+        note("account/rateLimits/updated", {
+          rateLimits: { limitId: "codex_other", primary: window(90, 300, 1_700_000_000) },
+        }),
+      ],
+      rolled,
+    );
+    expect(other.rateLimits).toBe(rolled.rateLimits);
+  });
+
+  test("an API-key sign-in has no limits to read, and says nothing of it", () => {
+    const m = run([
+      ...started(),
+      inn({ id: "app-r", method: "account/rateLimits/read", params: {} }),
+      out({ id: "app-r", error: { code: -32600, message: "chatgpt authentication required" } }),
+    ]);
+    expect(m.rateLimits).toBeUndefined();
+    expect(m.items).toEqual([]);
+  });
+
   test("a turn that could not start ends the wait and says why", () => {
     const begin = started();
     const [request] = sendTurn("go");

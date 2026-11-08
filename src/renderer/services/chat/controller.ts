@@ -49,6 +49,9 @@ const TITLE_FROM_CHARS = 2_000;
 /** Longest a replay's lines, sent as events, may trail its answer. */
 const REPLAY_CATCH_UP_MS = 3_000;
 
+/** Least time between two asks for the plan's usage the line under the composer makes. */
+const USAGE_REFRESH_MS = 60_000;
+
 interface ReplayResult {
   found: boolean;
   running: boolean;
@@ -154,6 +157,8 @@ export class ChatController {
   private opening: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
+  /** When the line under the composer last asked for the plan's usage. */
+  private usageAskedAt = Number.NEGATIVE_INFINITY;
   private sessionId: string | undefined;
 
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
@@ -598,6 +603,22 @@ export class ChatController {
       const subtype = PANEL_REQUESTS[part];
       if (this.supports(subtype)) this.request(subtype, {}).catch(() => {});
     }
+  }
+
+  /**
+   * Asks again for what the line under the composer shows: the context each
+   * time, the plan's usage (a request to Anthropic's servers) at most once a
+   * minute.
+   */
+  refreshUsageLine(now: number = Date.now()): void {
+    const { phase, model } = this.state;
+    if (phase !== "ready" || model.process !== "running") return;
+    const parts: PanelPart[] = ["context"];
+    if (now - this.usageAskedAt >= USAGE_REFRESH_MS) {
+      this.usageAskedAt = now;
+      parts.push("usage");
+    }
+    this.refreshPanel(parts);
   }
 
   async mcpReconnect(serverName: string): Promise<void> {

@@ -1341,6 +1341,25 @@
         "bypass_confirm_body": "Codex가 샌드박스 밖에서 묻지 않고 어떤 파일이든 수정하고, 어떤 명령이든 실행하고, 네트워크에 접속합니다. 문제가 생겨도 괜찮은 격리된 환경에서만 사용하세요.",
         "bypass_confirm": "전체 권한 주기"
       }
+    },
+    "usage": {
+      "context": "컨텍스트",
+      "context_tip": "컨텍스트 {{used}} / {{max}} 토큰 사용 ({{percent}}%)",
+      "kind": {
+        "session": "현재 세션",
+        "weekly": "이번 주",
+        "weekly_all": "이번 주 전체 모델",
+        "weekly_scoped": "이번 주 {{scope}}",
+        "hours": "{{count}}시간",
+        "days": "{{count}}일"
+      },
+      "resets_time": "{{time}} 초기화",
+      "resets_date": "{{month}}/{{day}}({{weekday}}) {{time}} 초기화",
+      "meter_tip": "{{label}} {{percent}}% 사용",
+      "short": {
+        "session": "세션",
+        "weekly": "주간"
+      }
     }
   },
   "agentView": {

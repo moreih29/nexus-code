@@ -40,6 +40,23 @@ export type CodexMode = "readOnly" | "auto" | "fullAccess";
 export const CODEX_MODES: readonly CodexMode[] = ["readOnly", "auto", "fullAccess"];
 
 /** A request of the server's the app has yet to answer: an approval, a question. */
+/** One of the plan's usage windows, as Codex reports it. */
+export interface CodexLimitWindow {
+  usedPercent: number;
+  /** How long the window is, in minutes: 300 for the 5-hour one, 10080 for the week. */
+  windowMins?: number;
+  /** When it starts over, in seconds since the epoch. */
+  resetsAt?: number;
+}
+
+/** The plan's usage limits: a short window and a long one, when the plan has them. */
+export interface CodexRateLimits {
+  /** The bucket the windows are of, such as "codex", to keep other buckets' updates out. */
+  limitId?: string;
+  primary?: CodexLimitWindow;
+  secondary?: CodexLimitWindow;
+}
+
 export interface CodexServerRequest {
   method: string;
   params: Rec;
@@ -56,6 +73,8 @@ export interface CodexModel extends ChatModel {
   signedOut?: boolean;
   /** The thread's context: the tokens of its last request, and the model's window. */
   tokens?: { used: number; window?: number };
+  /** The plan's usage limits; only a ChatGPT sign-in has them. */
+  rateLimits?: CodexRateLimits;
   threadName?: string;
   /** Where the text an item streams goes: its message's key and the block's index. */
   blocks: Record<string, { key: string; index: number }>;
@@ -79,7 +98,12 @@ export function idKey(id: unknown): string | null {
 }
 
 /** Requests the app makes on its own, whose errors are not the conversation's. */
-const QUIET_REQUESTS = new Set(["model/list", "account/read", "fuzzyFileSearch"]);
+const QUIET_REQUESTS = new Set([
+  "model/list",
+  "account/read",
+  "account/rateLimits/read",
+  "fuzzyFileSearch",
+]);
 
 /** Most of a running command's output a row keeps; the start goes first. */
 const MAX_LIVE_OUTPUT = 100_000;
@@ -258,6 +282,9 @@ function applyResponse(
     case "account/read":
       m.account = accountOf(result.account);
       m.signedOut = m.account === null && result.requiresOpenaiAuth === true;
+      return;
+    case "account/rateLimits/read":
+      m.rateLimits = rateLimitsOf(result.rateLimits);
       return;
   }
 }
@@ -453,6 +480,9 @@ function applyNotification(
       return;
     case "model/rerouted":
       m.model = str(params.toModel) ?? m.model;
+      return;
+    case "account/rateLimits/updated":
+      m.rateLimits = mergeRateLimits(m.rateLimits, params.rateLimits);
       return;
     case "account/updated": {
       const mode = str(params.authMode);
@@ -1164,6 +1194,55 @@ function modelsOf(data: unknown): ModelInfo[] {
       },
     ];
   });
+}
+
+function limitWindowOf(raw: unknown): CodexLimitWindow | undefined {
+  const window = rec(raw);
+  const usedPercent = num(window?.usedPercent);
+  if (usedPercent === undefined) return undefined;
+  return {
+    usedPercent,
+    ...(num(window?.windowDurationMins) !== undefined
+      ? { windowMins: num(window?.windowDurationMins) }
+      : {}),
+    ...(num(window?.resetsAt) !== undefined ? { resetsAt: num(window?.resetsAt) } : {}),
+  };
+}
+
+/** A RateLimitSnapshot's windows; undefined when it has none. */
+function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
+  const snapshot = rec(raw);
+  const primary = limitWindowOf(snapshot?.primary);
+  const secondary = limitWindowOf(snapshot?.secondary);
+  if (!primary && !secondary) return undefined;
+  const limitId = str(snapshot?.limitId);
+  return {
+    ...(limitId ? { limitId } : {}),
+    ...(primary ? { primary } : {}),
+    ...(secondary ? { secondary } : {}),
+  };
+}
+
+/**
+ * A rolling update laid over what the tab knew: it may carry one window
+ * only, and one it leaves out still holds. Another bucket's update (a
+ * different limitId) is not the tab's.
+ */
+function mergeRateLimits(
+  prev: CodexRateLimits | undefined,
+  raw: unknown,
+): CodexRateLimits | undefined {
+  const next = rateLimitsOf(raw);
+  if (!next) return prev;
+  if (prev?.limitId && next.limitId && prev.limitId !== next.limitId) return prev;
+  const primary = next.primary ?? prev?.primary;
+  const secondary = next.secondary ?? prev?.secondary;
+  const limitId = prev?.limitId ?? next.limitId;
+  return {
+    ...(limitId ? { limitId } : {}),
+    ...(primary ? { primary } : {}),
+    ...(secondary ? { secondary } : {}),
+  };
 }
 
 /** An account as the tab keeps it: its kind, never who it is. */
