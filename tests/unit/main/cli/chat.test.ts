@@ -384,3 +384,151 @@ describe("session list", () => {
     expect(sessions.find((s) => s.id === CHAT_TAB)).not.toHaveProperty("branch");
   });
 });
+
+/** What the Claude tab "Fix the login" runs with: Sonnet, in the default mode. */
+function withChoices(info: Partial<CliChatInfo> = {}): FakeApp {
+  const app = withChat(info);
+  app.chatChoices.set(CHAT_TAB, {
+    agent: "claude",
+    model: "sonnet",
+    effort: null,
+    mode: "default",
+    models: [
+      { value: "default", name: "Default (recommended)" },
+      { value: "sonnet", name: "Sonnet" },
+    ],
+    efforts: ["low", "high"],
+  });
+  return app;
+}
+
+describe("chat interrupt", () => {
+  test("stops another tab's turn, asking first in another workspace", async () => {
+    const app = withChat({ state: "working" });
+    const result = await nexus(app, ["chat", "interrupt", "eeee"]);
+    expect(result.stdout).toBe("Stopped the turn of Fix the login (eeeeeeee).\n");
+    expect(uiArgs(app, "chat.interrupt")).toEqual({ workspaceId: APP, tabId: CHAT_TAB });
+
+    const api = withChat({ state: "working" });
+    api.tabs[API]?.push(api.tabs[APP]?.pop() as CliTabInfo);
+    const refused = await nexus(api, ["chat", "interrupt", "eeee", "--workspace", "api"]);
+    expect(refused.stderr).toBe("nexus: the user did not allow it\n");
+    expect(api.asked[0]?.change).toEqual({ kind: "chatInterrupt", detail: "Fix the login" });
+    expect(uiArgs(api, "chat.interrupt")).toBeUndefined();
+  });
+});
+
+describe("chat set", () => {
+  test("with no flag, prints what the tab runs with and what it takes", async () => {
+    const result = await nexus(withChoices(), ["chat", "set", "eeee"]);
+    expect(result.stdout).toBe(
+      "Claude in Fix the login:\n" +
+        "  model   sonnet\n" +
+        "  effort  (the model's default)\n" +
+        "  mode    default\n" +
+        "models:\n" +
+        "  default  Default (recommended)\n" +
+        "  sonnet\n" +
+        "efforts of its model: low, high\n" +
+        "modes: auto, default, acceptEdits, plan\n",
+    );
+  });
+
+  test("sets the model and effort, and a mode that lets less run, without asking", async () => {
+    const app = withChoices();
+    const result = await nexus(app, [
+      "chat",
+      "set",
+      "eeee",
+      "--model",
+      "default",
+      "--effort",
+      "high",
+      "--mode",
+      "PLAN",
+    ]);
+    expect(result.stdout).toBe(
+      "Fix the login (eeeeeeee) now runs with model default, effort high, mode plan.\n",
+    );
+    expect(app.asked).toEqual([]);
+    expect(app.uiCalls.filter((c) => c.op === "chat.settings").at(-1)?.args).toEqual({
+      workspaceId: APP,
+      tabId: CHAT_TAB,
+      settings: { model: "default", effort: "high", mode: "plan" },
+    });
+  });
+
+  test("asks the user each time for a mode that lets more run", async () => {
+    const app = withChoices();
+    app.answers.push("once");
+    const result = await nexus(app, ["chat", "set", "eeee", "--mode", "acceptEdits"]);
+    expect(result.exitCode).toBe(0);
+    expect(app.asked.map((r) => r.change)).toEqual([
+      { kind: "chatMode", detail: '"Fix the login" (default → acceptEdits)' },
+    ]);
+    const denied = withChoices();
+    expect((await nexus(denied, ["chat", "set", "eeee", "--mode", "auto"])).stderr).toBe(
+      "nexus: the user did not allow it\n",
+    );
+    expect(denied.chatChoices.get(CHAT_TAB)?.mode).toBe("default");
+  });
+
+  test("leaves the mode that lets everything run to the user, and knows each agent's modes", async () => {
+    const app = withChoices();
+    const bypass = await nexus(app, ["chat", "set", "eeee", "--mode", "bypassPermissions"]);
+    expect(bypass.exitCode).toBe(1);
+    expect(bypass.stderr).toContain("only the user picks it");
+    const codex = await nexus(app, ["chat", "set", "eeee", "--mode", "readOnly"]);
+    expect(codex.exitCode).toBe(2);
+    expect(codex.stderr).toContain('Claude has no mode "readOnly"');
+    expect(app.uiCalls.some((c) => c.op === "chat.settings")).toBe(false);
+  });
+
+  test("changes no setting of its own tab", async () => {
+    const app = withChoices();
+    const own = { workspaceId: APP, tabId: CHAT_TAB };
+    const result = await nexus(app, ["chat", "set", "eeee", "--model", "default"], own);
+    expect(result.stderr).toContain("that is this tab");
+  });
+});
+
+describe("chat new with settings", () => {
+  test("sets them before the prompt, asking for a mode that lets more run", async () => {
+    const app = fakeApp();
+    app.answers.push("once");
+    const result = await nexus(app, [
+      "chat",
+      "new",
+      "--prompt",
+      "go",
+      "--model",
+      "haiku",
+      "--mode",
+      "acceptEdits",
+      "--json",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      tabId: NEW_TAB,
+      settings: { model: "haiku", mode: "acceptEdits" },
+    });
+    expect(app.asked[0]?.change).toEqual({
+      kind: "chatMode",
+      detail: '"Claude" (default → acceptEdits)',
+    });
+    expect(uiArgs(app, "chat.open")).toMatchObject({
+      prompt: "go",
+      settings: { model: "haiku", mode: "acceptEdits" },
+    });
+  });
+
+  test("says when the tab could not take them, and that the prompt was not sent", async () => {
+    const app = fakeApp();
+    app.chatOpenError.message = 'it offers no model "gpt"; it offers default, sonnet';
+    const result = await nexus(app, ["chat", "new", "--prompt", "go", "--model", "gpt"]);
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe(
+      'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
+    );
+    expect(app.dispatched).toEqual([]);
+  });
+});

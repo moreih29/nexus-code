@@ -9,6 +9,7 @@ import { chatCommands } from "./chat";
 import { editorCommands } from "./editor";
 import { eventCommands } from "./events";
 import { layoutCommands, tabArrangeCommands } from "./layout";
+import { managerCommands } from "./manager";
 import { notifyCommands } from "./notify";
 import { panelCommands } from "./panel";
 import { portCommands } from "./port";
@@ -27,6 +28,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...viewCommands,
   ...panelCommands,
   ...settingsCommands,
+  ...managerCommands,
   ...editorCommands,
   ...browserCommands,
   ...browserControlCommands,

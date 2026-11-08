@@ -9,6 +9,7 @@
 // takes them: they hold for the thread from that turn on.
 
 import { createLogger } from "../../../shared/log/renderer";
+import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import {
   applyCodexLines,
@@ -115,12 +116,7 @@ function nextId(): string {
 export class CodexController {
   readonly key: string;
   /** The presets the composer's mode chip offers. */
-  readonly modes = {
-    modes: ["readOnly", "auto", "fullAccess"],
-    dangerous: "fullAccess",
-    prefix: "chat.codex.mode",
-    fallback: "auto",
-  } as const;
+  readonly modes = CHAT_MODES.codex;
   private target: CodexTabTarget;
   private hooks: CodexTabHooks;
   private readonly pending = new Map<string, Pending>();

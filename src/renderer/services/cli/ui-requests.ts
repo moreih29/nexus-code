@@ -16,6 +16,7 @@ import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { readSessionEvents } from "../sessions/session-events";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
+import { appHandlers } from "./app-actions";
 import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
 import { settingsHandlers } from "./settings";
@@ -29,6 +30,7 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
     groupId,
     shown,
     ...(hasUnsavedChanges(workspaceId, tab) ? { unsaved: true } : {}),
+    ...(tab.isPinned ? { pinned: true } : {}),
   };
   switch (tab.type) {
     case "terminal":
@@ -76,6 +78,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   ...actionHandlers,
+  ...appHandlers,
   ...chatHandlers,
   ...layoutHandlers,
   ...settingsHandlers,

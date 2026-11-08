@@ -3,8 +3,15 @@
  * drives them. A tab's conversation is the renderer's; these ask it, read it
  * whole or a piece at a time, and wait on one or several tabs.
  */
-import type { CliChatEntry, CliChatInfo, CliTabInfo } from "../../../../shared/cli/ui";
+import type {
+  CliChatChoices,
+  CliChatEntry,
+  CliChatInfo,
+  CliChatSettings,
+  CliTabInfo,
+} from "../../../../shared/cli/ui";
 import { isManager } from "../../../../shared/manager/manager";
+import { CHAT_MODES, chatModeNamed, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
@@ -216,24 +223,133 @@ function waitOutput(text: string, json: Record<string, unknown>, result: WaitRes
   );
 }
 
+/** The model, effort and mode flags of chat new and chat set. */
+const SETTING_FLAGS = {
+  model: {
+    type: "string",
+    value: "MODEL",
+    description: "The model, by a name its model menu lists (chat set <tab> lists them)",
+  },
+  effort: { type: "string", value: "LEVEL", description: "The effort, one the model takes" },
+  mode: {
+    type: "string",
+    value: "MODE",
+    description:
+      "The permission mode: Claude's default, acceptEdits, plan or auto; Codex's readOnly or auto",
+  },
+} as const;
+
+/** What --model, --effort and --mode ask, the mode checked against the agent's. */
+function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSettings {
+  const given = (name: string): string | undefined => {
+    const value = flags[name] as string | undefined;
+    if (value === undefined) return undefined;
+    const text = value.trim();
+    if (text === "") throw new CliUsageError(`--${name} takes a value`);
+    return text;
+  };
+  const model = given("model");
+  const effort = given("effort");
+  const name = given("mode");
+  let mode: string | undefined;
+  if (name !== undefined) {
+    const set = CHAT_MODES[agent];
+    mode = chatModeNamed(agent, name);
+    if (!mode) {
+      throw new CliUsageError(
+        `${AGENT_NAMES[agent]} has no mode "${name}"; it has ${set.modes.filter((m) => m !== set.dangerous).join(", ")}`,
+      );
+    }
+    if (mode === set.dangerous) {
+      throw new CliError(
+        `${mode} lets every tool run without asking; only the user picks it, in the tab's mode menu`,
+      );
+    }
+  }
+  return {
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    ...(mode !== undefined ? { mode } : {}),
+  };
+}
+
+/**
+ * Resolves when the user lets a tab go from mode `from` to `to`, a mode that
+ * lets more run without asking: asked each time, as an answer to a
+ * permission request is; the agent manager as Settings › Agent manager lets
+ * it answer those.
+ */
+async function mayLoosen(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  agent: ChatAgent,
+  tab: { readonly what: string; readonly name: string },
+  from: string,
+  to: string,
+): Promise<void> {
+  if (!loosens(agent, from, to)) return;
+  const policy = isManager(ctx.caller) ? ctx.services.managerPermissions() : "ask";
+  if (policy === "user") {
+    throw new CliError(
+      `the user picks a mode that lets more run unasked (Settings › Agent manager); ask them to set ${tab.what} to ${to}`,
+    );
+  }
+  if (policy === "answer") return;
+  await ctx.services.askUser({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change: { kind: "chatMode", detail: `${tab.name} (${from} → ${to})` },
+  });
+}
+
+/** What a tab runs with, and what it takes, as chat set prints it. */
+function choicesText(tab: CliTabInfo, choices: CliChatChoices): string {
+  const lines = [
+    `${AGENT_NAMES[choices.agent]} in ${tab.title}:`,
+    `  model   ${choices.model ?? "(its default)"}`,
+    `  effort  ${choices.effort ?? "(the model's default)"}`,
+    `  mode    ${choices.mode}`,
+  ];
+  if (choices.models.length > 0) {
+    const width = Math.max(...choices.models.map((m) => m.value.length));
+    // A model's name, when it says more than its value.
+    const named = (m: { value: string; name: string }) =>
+      m.name.toLowerCase() === m.value.toLowerCase()
+        ? m.value
+        : `${m.value.padEnd(width)}  ${m.name}`;
+    lines.push("models:", ...choices.models.map((m) => `  ${named(m)}`));
+  }
+  lines.push(
+    `efforts of its model: ${choices.efforts.length > 0 ? choices.efforts.join(", ") : "none"}`,
+  );
+  const set = CHAT_MODES[choices.agent];
+  lines.push(`modes: ${set.modes.filter((m) => m !== set.dangerous).join(", ")}`);
+  return lines.join("\n");
+}
+
 const chatNew: CliCommand = {
   path: ["chat", "new"],
   summary: "Open a Claude or Codex tab, sending it a prompt if given",
   details:
     "The tab opens behind this terminal unless --show, in this directory unless --cwd. With\n" +
     "--prompt its program starts at once, shown or not, and is sent the prompt as its composer\n" +
-    "sends it. Its id is printed for chat wait/read/send.",
+    "sends it. Its id is printed for chat wait/read/send. --model, --effort and --mode are\n" +
+    "set before the prompt, as its composer's menus set them; a mode that lets more run\n" +
+    "without asking than the default is the user's to allow, each time.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
     prompt: { type: "string", value: "TEXT", description: "The first message" },
     cwd: { type: "string", value: "DIR", description: "Run it in DIR (default: this directory)" },
     show: { type: "boolean", description: "Show it, beside this terminal" },
+    ...SETTING_FLAGS,
     workspace: WORKSPACE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
     const agent = chatAgentFlag(flags.agent, "claude");
     const prompt = ((flags.prompt as string | undefined) ?? "").trim();
+    const settings = settingsFlags(agent, flags);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const dir = flags.cwd as string | undefined;
     const cwd =
@@ -243,22 +359,126 @@ const chatNew: CliCommand = {
           ? ctx.invocation.cwd
           : workspace.rootPath;
     await mayChange(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
-    const { tabId } = await ctx.services.ui("chat.open", {
-      workspaceId: workspace.id,
-      agent,
-      cwd,
-      prompt,
-      placement: placementFor(ctx, workspace, flags.show !== true),
-    });
-    if (prompt !== "") await noteDispatch(ctx, { workspaceId: workspace.id, tabId }, prompt);
+    if (settings.mode !== undefined) {
+      // A new tab's title is its agent's name until its first message.
+      const tab = { what: `a new ${AGENT_NAMES[agent]} tab`, name: `"${AGENT_NAMES[agent]}"` };
+      await mayLoosen(ctx, workspace, agent, tab, CHAT_MODES[agent].fallback, settings.mode);
+    }
+    const setting = Object.keys(settings).length > 0;
+    const { tabId, error } = await ctx.services.ui(
+      "chat.open",
+      {
+        workspaceId: workspace.id,
+        agent,
+        cwd,
+        prompt,
+        placement: placementFor(ctx, workspace, flags.show !== true),
+        ...(setting ? { settings } : {}),
+      },
+      // Its program starts and lists its models before the settings go.
+      setting ? SEND_TIMEOUT_MS : undefined,
+    );
     const reach =
       workspace.id === ctx.caller.workspaceId ? "" : ` --workspace ${shortId(workspace.id)}`;
+    if (error !== undefined) {
+      const sent = prompt === "" ? "" : " The prompt was not sent.";
+      return output(
+        `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}, but could not set it: ${error}.${sent}`,
+        { tabId, workspaceId: workspace.id, agent, cwd, error },
+        { exitCode: 1 },
+      );
+    }
+    if (prompt !== "") await noteDispatch(ctx, { workspaceId: workspace.id, tabId }, prompt);
     const text =
       prompt === ""
         ? `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}.`
         : `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd} and sent it the prompt. To wait for it:\n` +
           `  nexus chat wait ${shortId(tabId)}${reach}`;
-    return output(text, { tabId, workspaceId: workspace.id, agent, cwd });
+    return output(text, {
+      tabId,
+      workspaceId: workspace.id,
+      agent,
+      cwd,
+      ...(setting ? { settings } : {}),
+    });
+  },
+};
+
+const chatInterrupt: CliCommand = {
+  path: ["chat", "interrupt"],
+  summary: "Stop the turn a Claude or Codex tab is working on",
+  args: "<tab>",
+  details:
+    "As its stop button does: the agent stops what it runs, and the tab waits for a message.\n" +
+    "Messages queued in it stay queued.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    if (tab.id === ctx.caller.tabId) {
+      throw new CliError("that is this tab; nexus stops only other tabs");
+    }
+    await mayChange(ctx, workspace, { kind: "chatInterrupt", detail: tab.title });
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    await ctx.services.ui("chat.interrupt", target);
+    return output(`Stopped the turn of ${tab.title} (${shortId(tab.id)}).`, target);
+  },
+};
+
+const chatSet: CliCommand = {
+  path: ["chat", "set"],
+  summary: "Set a Claude or Codex tab's model, effort or permission mode, or list them",
+  args: "<tab>",
+  details:
+    "As its composer's menus set them, for its next turn on. With no flag, prints what it runs\n" +
+    "with and what it takes: the models its program lists, its model's efforts, the modes.\n" +
+    "Its program must run: a tab whose program ended starts it again with a message. A mode\n" +
+    "that lets more run without asking is the user's to allow, each time; the one that lets\n" +
+    "everything run, only the user picks.",
+  flags: { ...SETTING_FLAGS, workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveChat(ctx, workspace, selector);
+    const agent: ChatAgent = tab.type === "codex" ? "codex" : "claude";
+    const settings = settingsFlags(agent, flags);
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    if (Object.keys(settings).length === 0) {
+      const choices = await ctx.services.ui(
+        "chat.settings",
+        { ...target, settings: {} },
+        SEND_TIMEOUT_MS,
+      );
+      return output(choicesText(tab, choices), { ...target, ...choices });
+    }
+    if (tab.id === ctx.caller.tabId) {
+      throw new CliError("that is this tab; its settings are the user's to change");
+    }
+    await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
+    if (settings.mode !== undefined) {
+      const now = await ctx.services.ui(
+        "chat.settings",
+        { ...target, settings: {} },
+        SEND_TIMEOUT_MS,
+      );
+      const named = { what: `"${tab.title}"`, name: `"${tab.title}"` };
+      await mayLoosen(ctx, workspace, agent, named, now.mode, settings.mode);
+    }
+    const choices = await ctx.services.ui(
+      "chat.settings",
+      { ...target, settings },
+      SEND_TIMEOUT_MS,
+    );
+    const set = [
+      `model ${choices.model ?? "(its default)"}`,
+      `effort ${choices.effort ?? "(the model's default)"}`,
+      `mode ${choices.mode}`,
+    ].join(", ");
+    return output(`${tab.title} (${shortId(tab.id)}) now runs with ${set}.`, {
+      ...target,
+      ...choices,
+    });
   },
 };
 
@@ -545,5 +765,7 @@ export const chatCommands: CliCommand[] = [
   chatTool,
   chatSend,
   chatAnswer,
+  chatInterrupt,
+  chatSet,
   chatWait,
 ];

@@ -41,6 +41,8 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus browser open localhost:3000` | 브라우저 탭 열기 (`/login` 처럼 경로만 주면 이 워크스페이스의 개발 서버 포트로) |
 | `nexus port forward 5173` · `port unforward 5173` | SSH 워크스페이스 호스트의 포트를 이 컴퓨터로 포워딩 · 중지 |
 | `nexus tab show <탭>` · `workspace switch <이름>` | 그 탭 · 워크스페이스를 사용자에게 보여주기 |
+| `nexus settings open keybindings` | 설정 창을 그 페이지로 열어 보여주기 (페이지 이름이나 설정 키. 없으면 마지막 페이지) |
+| `nexus manager show` · `manager hide` | 에이전트 매니저 도크 열기 · 닫기 |
 | `nexus notify "테스트 통과"` | 데스크톱 알림 |
 
 새로 여는 탭은 명령을 실행한 터미널 위를 덮지 않고 옆 그룹에 열립니다. 그룹이 하나뿐이면 오른쪽으로 나눕니다. 키보드 포커스는 터미널에 그대로 둡니다.
@@ -89,6 +91,10 @@ nexus chat read 3fa2 --since 41                          # #41 다음부터 전�
 nexus chat tool 3fa2 42                                  # #42 도구 호출의 입력과 출력 전체
 nexus chat wait 3fa2 9c1e                                # 여러 탭 중 먼저 끝나는 것까지
 nexus chat answer 3fa2 deny --message "아직 배포하지 마"  # 기다리는 도구 허용 요청에 답하기
+nexus chat interrupt 3fa2                                # 진행 중인 턴 멈추기 (멈춤 버튼과 같음)
+nexus chat set 3fa2                                      # 지금 모델 · 추론 강도 · 권한 모드와 고를 수 있는 값
+nexus chat set 3fa2 --model sonnet --effort high --mode plan
+nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
 ```
 
 - 상태는 `working`(일하는 중, 보낸 메시지를 아직 받지 않은 때 포함), `asking`(사용자의 도구 허용 · 질문 답변을 기다림), `idle`, `error` 입니다.
@@ -98,6 +104,10 @@ nexus chat answer 3fa2 deny --message "아직 배포하지 마"  # 기다리는 
 - `chat tool <탭> <번호|id>` 는 도구 호출 하나의 입력(JSON)과 출력을 자르지 않고 보여줍니다.
 - `chat wait` 에 탭을 여러 개 주면 먼저 끝나는 탭에서 끝나고, 어느 탭인지 알려줍니다.
 - `chat answer <탭> allow|deny` 는 탭이 기다리는 도구 허용 요청에 답합니다. `--message` 는 거절할 때 에이전트에게 전할 이유입니다. 질문 답변과 계획 승인은 사용자만 합니다. 다른 에이전트가 답하려 하면 매번 사용자에게 먼저 묻고, 에이전트 매니저는 아래 설정대로 합니다.
+- `chat interrupt` 는 탭의 멈춤 버튼과 같습니다. 대기열의 메시지는 그대로 남습니다.
+- `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다.
+- `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
+- 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 묻지 않고 더 많이 실행하게 바꾸는 모드(예: `plan` → `acceptEdits`)는 매번 사용자에게 확인 창으로 묻고, 에이전트 매니저는 "권한 요청 응답" 설정대로 합니다. 모두 허용하는 모드(`bypassPermissions`, `fullAccess`)는 사용자만 탭에서 고릅니다. 자기 탭의 설정은 바꾸지 않습니다.
 - 앱을 켠 뒤 한 번도 보지 않은 탭은 읽거나 기다리거나 보낼 때 열립니다. 탭을 보여줄 때처럼 프로그램의 기록을 읽고, 프로그램이 없으면 켭니다.
 - 다른 워크스페이스의 탭은 `--workspace` 로 고릅니다.
 
@@ -128,8 +138,9 @@ nexus events --workspace api --limit 20
   - **전부**: 모든 세션이 끝나거나 멈출 때. 많을수록 사용량이 늘어납니다.
 - "권한 요청 응답" 은 매니저가 다른 세션의 도구 허용 요청(`chat answer`)에 답해도 되는지 정합니다. **넘기기**(기본)는 사용자만 답하고, **매번 묻기** 는 매니저가 답하기 전에 확인 창을 띄우고, **대신 답하기** 는 묻지 않고 답하게 합니다. 터미널에서 도는 에이전트의 요청은 이 설정과 상관없이 `terminal send` 로만 답할 수 있습니다.
 - 앱이 뒤에 있을 때 매니저의 답은 데스크톱 알림으로도 옵니다. **설정 → 알림** 의 "에이전트 매니저 보고" 로 끕니다.
+- `nexus manager show` · `manager hide` 로 도크를 열고 닫고, `manager new` 로 도크의 **새 대화** 처럼 새로 시작합니다(매니저 자신은 못 함).
 - 도크의 **새 대화** 는 지금 대화를 두고 새로 시작합니다. 매니저의 작업 폴더는 `~/.nexus-code/manager` 이고, 앱을 다시 켜면 이전 대화를 이어갑니다.
-- 매니저 설정은 사용자만 설정 창에서 바꿀 수 있습니다(`nexus settings` 에 없음).
+- 매니저 설정은 사용자만 설정 창에서 바꿀 수 있습니다(`nexus settings` 에 없음). `nexus settings open manager` 로 그 페이지를 열어 보여줄 수는 있습니다.
 
 ## 세션의 에이전트 따라가기
 
@@ -275,6 +286,10 @@ nexus layout close 3                 # 그룹과 그 안의 탭 닫기
 nexus tab move index.ts 1 --at 1     # 탭을 그룹 1 의 첫 자리로
 nexus tab rename <탭> "dev server"   # 탭 이름 바꾸기 (--reset 으로 원래대로)
 nexus tab pin <탭>                   # 탭 고정 (tab unpin 으로 해제)
+nexus tab close <탭>                 # 탭 닫기
+nexus tab close index.ts --others    # 그 탭 그룹의 다른 탭 닫기 (고정한 탭은 남김)
+nexus tab close --saved              # 저장 안 한 변경이 없는 편집기 닫기 (탭을 주면 그 그룹만)
+nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭이 없으면 모든 그룹)
 nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
 nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
 nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git)
@@ -286,6 +301,7 @@ nexus problems                       # 열린 파일의 언어 서버 오류 · 
 
 - 그룹은 `layout show` 의 번호, id, `.`(이 터미널의 그룹), 또는 그 안의 탭 이름으로 고릅니다. 번호는 그룹이 생기고 없어지면 바뀌니, 바꾼 뒤에는 `layout show` 로 다시 확인하세요.
 - 분할 · 이동을 해도 사용자가 보던 그룹과 키보드 포커스는 그대로 둡니다.
+- `tab close` 의 `--others` · `--saved` · `--all` 은 탭 표시줄 메뉴의 "다른 탭 닫기" · "저장된 탭 닫기" · "모두 닫기" 와 같습니다. 이 터미널은 닫지 않고, 저장 안 한 탭과 프로그램이 도는 터미널(`--force` 없이)은 남긴 채 이유를 알려줍니다. 이 터미널 말고 남긴 탭이 있으면 종료 코드 1 입니다.
 - 이 터미널이 든 그룹은 닫지 않습니다. 저장 안 된 편집기가 있는 그룹도 닫지 않고, 프로그램이 도는 터미널은 `--force` 가 있어야 닫습니다.
 - `problems` 는 에디터에 열린 파일만 봅니다(상태 표시줄의 오류 수와 같은 기준). 전체 검사는 프로젝트의 명령으로 하세요.
 
@@ -313,13 +329,13 @@ nexus view focus 2                   # 패널 2 를 활성 패널로 (에이전�
 
 ## 다른 워크스페이스 바꾸기
 
-다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸거나, 작업을 만들고 지우거나, 워크스페이스를 제거하는 일은 **설정 → 에이전트** 의 "다른 워크스페이스 변경" 을 따릅니다.
+다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, Claude · Codex 탭에 보내거나 멈추거나 설정을 바꾸거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸거나, 작업을 만들고 지우거나, 워크스페이스를 제거하는 일은 **설정 → 에이전트** 의 "다른 워크스페이스 변경" 을 따릅니다.
 
 - **매번 묻기**(기본): 앱에 확인 창이 뜹니다. **이번만 허용** · **재시작 전까지 허용**(그 워크스페이스 쌍에 대해) · **허용 안 함** 중에서 고릅니다. 90초 안에 답하지 않으면 거절됩니다.
 - **허용**: 묻지 않고 허용합니다.
 - **허용 안 함**: 항상 거절합니다.
 
-자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`) · 에이전트 뷰(`view`)와 워크스페이스 추가(`workspace add`)도 묻지 않습니다.
+자기 워크스페이스는 묻지 않습니다. 읽기와 보여주기(`tab show`, `workspace switch`, `reveal`)도 묻지 않고, 앱 전체의 패널(`panel`) · 에이전트 뷰(`view`), 매니저 도크(`manager`), 설정 창 열기(`settings open`)와 워크스페이스 추가(`workspace add`)도 묻지 않습니다.
 
 ## 설정 바꾸기
 
@@ -329,6 +345,7 @@ nexus settings get editor.fontSize
 nexus settings set terminal.cursorStyle bar
 nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
 nexus settings reset editor.fontSize        # 기본값으로
+nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
 
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
@@ -336,6 +353,7 @@ nexus settings reset editor.fontSize        # 기본값으로
 - 켜고 끄는 값은 `on` / `off`, 숫자는 범위 안, 고르는 값은 목록 중 하나입니다.
 - 앱 전체 설정이라 묻지 않습니다. 단, "다른 워크스페이스 변경" 과 "nexus 명령 허용" 은 사용자만 설정 창에서 바꿀 수 있습니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `agent` · `manager` · `browser-permissions` · `keybindings` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한 · 매니저처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

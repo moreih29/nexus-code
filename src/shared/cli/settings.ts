@@ -86,3 +86,51 @@ export function parseSettingValue(
     }
   }
 }
+
+/** The pages of the Settings dialog, by the ids it navigates by, in its order. */
+export const SETTINGS_PAGES = [
+  "appearance",
+  "editor",
+  "language-servers",
+  "terminal",
+  "notifications",
+  "agent",
+  "manager",
+  "browser-permissions",
+  "keybindings",
+  "about",
+] as const;
+export type SettingsPage = (typeof SETTINGS_PAGES)[number];
+
+/** Where a setting's key leads: the first prefix it starts with. */
+const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
+  ["appearance.", "appearance"],
+  ["editor.", "editor"],
+  ["terminal.taskagent", "agent"],
+  ["terminal.", "terminal"],
+  ["sessions.", "agent"],
+  ["notifications.", "notifications"],
+  ["updates.", "about"],
+  ["agentcli.", "agent"],
+];
+
+/** Other names a page goes by. */
+const PAGE_NAMES: Readonly<Record<string, SettingsPage>> = {
+  lsp: "language-servers",
+  browser: "browser-permissions",
+  keys: "keybindings",
+  shortcuts: "keybindings",
+  updates: "about",
+};
+
+/**
+ * The page a word names: a page's id or another name of it, or a setting's
+ * key (as nexus settings list shows them), leading to its page; undefined
+ * for none.
+ */
+export function settingsPageNamed(word: string): SettingsPage | undefined {
+  const name = word.trim().toLowerCase();
+  const page = SETTINGS_PAGES.find((id) => id === name) ?? PAGE_NAMES[name];
+  if (page) return page;
+  return KEY_PAGES.find(([prefix]) => name.startsWith(prefix))?.[1];
+}

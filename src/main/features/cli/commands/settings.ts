@@ -1,11 +1,17 @@
 /**
- * nexus settings list/get/set/reset: the app's settings, as the Settings
- * dialog shows and changes them. They are the app's, not a workspace's, so
- * changing one needs no leave; what nexus itself may do is left to the user.
+ * nexus settings list/get/set/reset/open: the app's settings, as the
+ * Settings dialog shows and changes them. They are the app's, not a
+ * workspace's, so changing one needs no leave; what nexus itself may do is
+ * left to the user.
  */
-import { describeShape, formatSettingValue } from "../../../../shared/cli/settings";
+import {
+  describeShape,
+  formatSettingValue,
+  SETTINGS_PAGES,
+  settingsPageNamed,
+} from "../../../../shared/cli/settings";
 import type { CliSettingInfo } from "../../../../shared/cli/ui";
-import { exactArgs } from "../args";
+import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, CliError } from "../context";
 import { table } from "../format";
 import { type CliCommand, output } from "../registry";
@@ -87,9 +93,34 @@ const settingsReset: CliCommand = {
   },
 };
 
+const settingsOpen: CliCommand = {
+  path: ["settings", "open"],
+  summary: "Open the Settings dialog for the user, at a page",
+  args: "[page|key]",
+  details:
+    `Pages: ${SETTINGS_PAGES.join(", ")}. A setting's key (nexus settings list) opens\n` +
+    "the page that has it. With neither, the dialog opens where it was left. For what only\n" +
+    "the user sets: language servers, keybindings, browser permissions, the agent manager.",
+  async run(ctx, { positionals }) {
+    if (positionals.length > 1) {
+      throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
+    }
+    const [word] = positionals;
+    const page = word === undefined ? undefined : settingsPageNamed(word);
+    if (word !== undefined && !page) {
+      throw new CliUsageError(
+        `no page "${word}"; the pages are ${SETTINGS_PAGES.join(", ")}, or a setting's key`,
+      );
+    }
+    await ctx.services.ui("settings.open", page ? { page } : {});
+    return output(page ? `Opened Settings at ${page}.` : "Opened Settings.", page ? { page } : {});
+  },
+};
+
 export const settingsCommands: CliCommand[] = [
   settingsList,
   settingsGet,
   settingsSet,
   settingsReset,
+  settingsOpen,
 ];

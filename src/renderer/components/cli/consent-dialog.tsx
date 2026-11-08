@@ -59,9 +59,11 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  // An answer to a permission request is asked about each time.
-  const permission =
-    prompt?.change.kind === "permissionAllow" || prompt?.change.kind === "permissionDeny";
+  // An answer to a permission request, and a mode that lets more run
+  // unasked, are asked about each time.
+  const kind = prompt?.change.kind;
+  const permission = kind === "permissionAllow" || kind === "permissionDeny";
+  const eachTime = permission || kind === "chatMode";
   const description = !prompt
     ? ""
     : prompt.fromManager
@@ -82,7 +84,13 @@ export function CliConsentDialogRoot(): React.JSX.Element {
       size="sm"
     >
       <DialogHeader
-        title={t(permission ? "agentCli.consent.permission_title" : "agentCli.consent.title")}
+        title={t(
+          permission
+            ? "agentCli.consent.permission_title"
+            : kind === "chatMode"
+              ? "agentCli.consent.mode_title"
+              : "agentCli.consent.title",
+        )}
         description={description}
       />
       {prompt?.change.body && (
@@ -105,7 +113,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
         >
           {t("agentCli.consent.deny")}
         </Button>
-        {!permission && (
+        {!eachTime && (
           <Button variant="outline" size="sm" onClick={() => active && settle(active, "session")}>
             {t("agentCli.consent.session")}
           </Button>

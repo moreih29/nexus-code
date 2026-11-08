@@ -307,17 +307,113 @@ const tabShow: CliCommand = {
   },
 };
 
+type BulkClose = "others" | "saved" | "all";
+
+/** Which of --others, --saved and --all a tab close asks for; none for one tab. */
+function bulkCloseFlag(flags: ParsedArgs["flags"]): BulkClose | null {
+  const given = (["others", "saved", "all"] as const).filter((name) => flags[name] === true);
+  if (given.length > 1) throw new CliUsageError("give one of --others, --saved and --all");
+  return given[0] ?? null;
+}
+
+/**
+ * The tabs a bulk close closes, as the tab bar's menu closes them: the
+ * other tabs of `of`'s group but the pinned ones; the editors with nothing
+ * unsaved; or every tab. Without `of`, of every group.
+ */
+function bulkTargets(
+  tabs: readonly CliTabInfo[],
+  bulk: BulkClose,
+  of: CliTabInfo | undefined,
+): CliTabInfo[] {
+  const scoped = of ? tabs.filter((t) => t.groupId === of.groupId) : tabs;
+  switch (bulk) {
+    case "others":
+      return scoped.filter((t) => t.id !== of?.id && t.pinned !== true);
+    case "saved":
+      return scoped.filter((t) => t.type === "editor" && t.unsaved !== true);
+    case "all":
+      return [...scoped];
+  }
+}
+
+/** Closes tabs one by one, saying which were left open and why. */
+async function closeTabs(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  targets: readonly CliTabInfo[],
+  force: boolean,
+): Promise<CliOutput> {
+  const closed: CliTabInfo[] = [];
+  const left: { tab: CliTabInfo; reason: string }[] = [];
+  for (const tab of targets) {
+    if (tab.id === ctx.caller.tabId) {
+      left.push({ tab, reason: "it is this terminal" });
+      continue;
+    }
+    try {
+      await ctx.services.ui("tab.close", { workspaceId: workspace.id, tabId: tab.id, force });
+      closed.push(tab);
+    } catch (error) {
+      left.push({ tab, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const lines = [
+    `Closed ${closed.length} tab${closed.length === 1 ? "" : "s"} in ${workspace.name}.`,
+    ...left.map(({ tab, reason }) => `Left ${tab.title} (${shortId(tab.id)}) open: ${reason}.`),
+  ];
+  return output(
+    lines.join("\n"),
+    {
+      workspaceId: workspace.id,
+      closed: closed.map((t) => t.id),
+      left: left.map(({ tab, reason }) => ({ tabId: tab.id, reason })),
+    },
+    left.some(({ tab }) => tab.id !== ctx.caller.tabId) ? { exitCode: 1 } : {},
+  );
+}
+
 const tabClose: CliCommand = {
   path: ["tab", "close"],
-  summary: "Close a tab",
-  args: "<tab>",
+  summary: "Close a tab, or many as the tab bar's menu does",
+  args: "[tab]",
   details:
-    "A tab with unsaved changes is left open. So is a terminal running a program, unless --force.",
+    "A tab with unsaved changes is left open. So is a terminal running a program, unless --force.\n" +
+    "--others closes the other tabs of TAB's group but the pinned ones; --saved, the editors\n" +
+    "with nothing unsaved; --all, every tab. --saved and --all without TAB close those of\n" +
+    "every group. This terminal is never closed; nexus exits 1 when it left another open.",
   flags: {
     workspace: WORKSPACE_FLAG,
     force: { type: "boolean", description: "Close a terminal even while a program runs in it" },
+    others: { type: "boolean", description: "The other tabs of TAB's group, pinned ones aside" },
+    saved: { type: "boolean", description: "The editors with nothing unsaved" },
+    all: { type: "boolean", description: "Every tab, pinned ones too" },
   },
   async run(ctx, { positionals, flags }) {
+    const bulk = bulkCloseFlag(flags);
+    const force = flags.force === true;
+    if (bulk !== null) {
+      if (positionals.length > 1) {
+        throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
+      }
+      const [selector] = positionals;
+      if (bulk === "others" && selector === undefined) {
+        throw new CliUsageError("missing <tab>: --others closes the other tabs of its group");
+      }
+      const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+      const tabs = await workspaceTabs(ctx, workspace.id);
+      const of =
+        selector === undefined
+          ? undefined
+          : resolveTab(ctx, tabs, selector, `tab in ${workspace.name}`);
+      const targets = bulkTargets(tabs, bulk, of);
+      if (targets.length === 0) return output("No tabs to close.", { closed: [], left: [] });
+      await mayChange(ctx, workspace, {
+        kind: "tabClose",
+        detail: targets.map((t) => t.title).join('", "'),
+      });
+      return closeTabs(ctx, workspace, targets, force);
+    }
     const [selector] = exactArgs(positionals, "tab") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveAnyTab(ctx, workspace, selector);
@@ -325,11 +421,7 @@ const tabClose: CliCommand = {
       throw new CliError("that is this terminal; close it in the app or exit its shell");
     }
     await mayChange(ctx, workspace, { kind: "tabClose", detail: tab.title });
-    await ctx.services.ui("tab.close", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      force: flags.force === true,
-    });
+    await ctx.services.ui("tab.close", { workspaceId: workspace.id, tabId: tab.id, force });
     return output(`Closed ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,
       workspaceId: workspace.id,

@@ -36,6 +36,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import {
   applyCompletion,
@@ -45,9 +46,9 @@ import {
   matchCommands,
 } from "../../services/chat/composer-input";
 import {
+  currentModelInfo,
   type ImageBlock,
   isWaiting,
-  type ModelInfo,
   type UserItem,
 } from "../../services/chat/model";
 import type { ChatTabState, QueuedMessage } from "../../services/chat/store";
@@ -101,18 +102,6 @@ export interface ComposerController {
   setPermissionMode(mode: string): Promise<unknown>;
   setModel(model: string): Promise<unknown>;
   setEffort(level: string): Promise<unknown>;
-}
-
-/** Permission modes as a chip lists them. */
-export interface ModeSet {
-  /** In the order the chip lists them, which keys 1 to n pick. */
-  modes: readonly string[];
-  /** The one that lets everything run: listed apart, picked after a warning. */
-  dangerous: string;
-  /** Where the labels are: `${prefix}.${mode}`, its `_hint`, and the warning's `bypass_confirm*`. */
-  prefix: string;
-  /** The mode shown before the program tells one. */
-  fallback: string;
 }
 
 interface ComposerProps {
@@ -936,12 +925,7 @@ const CHIP_CLASS =
   "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
 /** Claude Code's permission modes; keys 1 to 5 pick them. */
-const CLAUDE_MODES: ModeSet = {
-  modes: ["auto", "default", "acceptEdits", "plan", "bypassPermissions"],
-  dangerous: "bypassPermissions",
-  prefix: "chat.mode",
-  fallback: "default",
-};
+const CLAUDE_MODES = CHAT_MODES.claude;
 
 /**
  * A mode's hue on its chip and in its menu, Claude Code's and Codex's
@@ -1067,20 +1051,6 @@ export function composerHint(t: TFunction, running: boolean, program: ChatAgent)
     ...composerKeys(),
     ...(program === "claude" ? {} : { context: program }),
   });
-}
-
-/** The model info the session runs, as the CLI names it either way (alias or id). */
-export function currentModelInfo(
-  models: ModelInfo[],
-  current: string | undefined,
-): ModelInfo | undefined {
-  // Before its first turn the session names no model: it runs the default.
-  if (!current) return models.find((m) => m.value === "default");
-  return (
-    models.find((m) => m.value === current) ??
-    models.find((m) => m.resolvedModel === current) ??
-    models.find((m) => current.startsWith(m.value))
-  );
 }
 
 /** A model's name without its note: "Default (recommended)" is "Default". */

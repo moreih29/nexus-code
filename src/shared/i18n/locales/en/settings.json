@@ -308,10 +308,14 @@
         "worktreeRemoveBranch": "delete the task, its worktree folder and its branch",
         "workspaceRemove": "remove the workspace and its tasks from the app, leaving their folders",
         "permissionAllow": "allow {{detail}}",
-        "permissionDeny": "deny {{detail}}"
+        "permissionDeny": "deny {{detail}}",
+        "chatInterrupt": "stop the turn of the tab \"{{detail}}\"",
+        "chatSettings": "change the model, effort or mode of the tab \"{{detail}}\"",
+        "chatMode": "change the permission mode of the tab {{detail}}"
       },
       "permission_title": "Answer another session's permission request?",
-      "manager_description": "The agent manager asks to {{action}} in {{to}}."
+      "manager_description": "The agent manager asks to {{action}} in {{to}}.",
+      "mode_title": "Let an agent loosen a session's permission mode?"
     },
     "heading": "nexus CLI"
   },

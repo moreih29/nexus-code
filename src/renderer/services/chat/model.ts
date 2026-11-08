@@ -150,6 +150,20 @@ export interface ModelInfo {
   supportedEffortLevels?: string[];
 }
 
+/** The model info the session runs, as the CLI names it either way (alias or id). */
+export function currentModelInfo(
+  models: readonly ModelInfo[],
+  current: string | undefined,
+): ModelInfo | undefined {
+  // Before its first turn the session names no model: it runs the default.
+  if (!current) return models.find((m) => m.value === "default");
+  return (
+    models.find((m) => m.value === current) ??
+    models.find((m) => m.resolvedModel === current) ??
+    models.find((m) => current.startsWith(m.value))
+  );
+}
+
 export interface CommandInfo {
   name: string;
   description?: string;
