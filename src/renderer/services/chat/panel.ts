@@ -386,6 +386,26 @@ export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): R
   return results;
 }
 
+/**
+ * `results` with each file once, however its path was written (`long.txt`,
+ * `/p/long.txt`): under the first name it had, made new if it ever was.
+ */
+export function distinctResults(results: readonly ResultEntry[], cwd: string): ResultEntry[] {
+  const out: ResultEntry[] = [];
+  const byPath = new Map<string, number>();
+  for (const result of results) {
+    const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+    const at = path ? byPath.get(path) : undefined;
+    if (at !== undefined) {
+      if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
+      continue;
+    }
+    if (path) byPath.set(path, out.length);
+    out.push(result);
+  }
+  return out;
+}
+
 /** What an answer ends with: the files its turn made and named, and the images its tools gave. */
 export interface AnswerExtras {
   /** Absolute paths: written new first, then linked. */

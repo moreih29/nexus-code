@@ -32,6 +32,7 @@ import {
   type ChangedFile,
   changedFilesOf,
   contextOf,
+  distinctResults,
   jobsOf,
   type ResultEntry,
   resultsOf,
@@ -112,12 +113,15 @@ export function SidePanel({
   const found = useFoundFiles(workspaceId, rootPath, guessedPaths, toolsDone);
   const results = useMemo(
     () =>
-      named.filter((result) => {
-        if (!result.guessed) return true;
-        const path = guessed.get(result.target);
-        return path !== undefined && found.has(path);
-      }),
-    [named, guessed, found],
+      distinctResults(
+        named.filter((result) => {
+          if (!result.guessed) return true;
+          const path = guessed.get(result.target);
+          return path !== undefined && found.has(path);
+        }),
+        cwd,
+      ),
+    [named, guessed, found, cwd],
   );
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
