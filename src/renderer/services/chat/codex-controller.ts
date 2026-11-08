@@ -20,6 +20,7 @@ import {
 } from "./codex-model";
 import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
+import { LiveLines } from "./live-lines";
 import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
 import {
   type ChatTabState,
@@ -121,6 +122,8 @@ export class CodexController {
   private hooks: CodexTabHooks;
   private readonly pending = new Map<string, Pending>();
   private buffered: ChatLine[] = [];
+  /** New lines held while the log is sent again. */
+  private readonly live = new LiveLines();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private opening: Promise<void> | null = null;
   /** A started program's handshake and thread, which a message waits for. */
@@ -166,7 +169,6 @@ export class CodexController {
   }
 
   private async doOpen(): Promise<void> {
-    const { workspaceId, tabId } = this.target;
     this.flushNow();
     this.update((prev) => ({
       ...prev,
@@ -176,12 +178,11 @@ export class CodexController {
     }));
     let replay: ReplayResult;
     try {
-      replay = unwrapIpcResult(await ipcCallResult("chat", "replay", { workspaceId, tabId }));
+      replay = await this.replay();
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return;
     }
-    await this.catchUp(replay);
     if (replay.found) {
       this.titled = this.titled || this.model.items.some((item) => item.kind === "user");
       this.update((prev) => ({
@@ -319,6 +320,32 @@ export class CodexController {
     void this.request("account/rateLimits/read", {}).catch(() => {});
   }
 
+  /**
+   * Has the agent send the tab's log again (after `afterSeq`) and waits for
+   * its lines; new lines that come meanwhile are taken after them.
+   */
+  private async replay(afterSeq?: number): Promise<ReplayResult> {
+    const { workspaceId, tabId } = this.target;
+    this.live.hold();
+    try {
+      const replay = unwrapIpcResult(
+        await ipcCallResult("chat", "replay", {
+          workspaceId,
+          tabId,
+          ...(afterSeq !== undefined ? { afterSeq } : {}),
+        }),
+      );
+      await this.catchUp(replay);
+      return replay;
+    } finally {
+      const held = this.live.release();
+      if (held.length > 0 && !this.disposed) {
+        this.buffered.push(...held);
+        this.flushNow();
+      }
+    }
+  }
+
   /** Waits for a replay's lines, which come as events and may trail its answer. */
   private async catchUp(replay: ReplayResult): Promise<void> {
     this.flushNow();
@@ -332,21 +359,13 @@ export class CodexController {
 
   /** The agent is back: replay what the tab missed, or find its program gone. */
   async resync(): Promise<void> {
-    const { workspaceId, tabId } = this.target;
     this.flushNow();
     let replay: ReplayResult;
     try {
-      replay = unwrapIpcResult(
-        await ipcCallResult("chat", "replay", {
-          workspaceId,
-          tabId,
-          afterSeq: this.model.lastSeq,
-        }),
-      );
+      replay = await this.replay(this.model.lastSeq);
     } catch {
       return;
     }
-    await this.catchUp(replay);
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       return;
@@ -549,6 +568,7 @@ export class CodexController {
   receive(line: ChatLine): void {
     if (this.disposed) return;
     if (!line.replay) this.inspectLive(line);
+    if (this.live.holds(line)) return;
     this.buffered.push(line);
     if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }

@@ -24,6 +24,15 @@ export const CLAUDE_TAB_ARGS: readonly string[] = [
   "--allow-dangerously-skip-permissions",
 ];
 
+/**
+ * What every Claude tab's claude is told on top of its own system prompt.
+ * A reply's paths look alike whether it mentions one or means the user to
+ * open it, so the tab shows a file as a card only when the reply links it
+ * (or a tool of the session's took it).
+ */
+export const CLAUDE_TAB_PROMPT =
+  "You are running in a chat tab of NexusCode, which shows a file your reply links as a card the user opens. Whenever you point the user at a file on the machine you run on (one you made, changed, read or found), write it as a markdown link to its path, as [greet.ts](src/greet.ts) or [report.md](/abs/path/report.md), not in backticks. A file elsewhere, as on a server you reach over ssh, stays in backticks: the user cannot open it.";
+
 export interface ResumeOptions {
   readonly resume?: string;
   readonly fork?: boolean;
@@ -33,27 +42,29 @@ export interface ResumeOptions {
 }
 
 /**
- * What the agent manager's claude runs with besides a tab's arguments: what
- * it is told it is, and the nexus commands it may run without asking, for
- * its session alone (the user's settings are left as they are).
+ * The nexus commands the agent manager's claude may run without asking,
+ * for its session alone (the user's settings are left as they are).
  */
-export const MANAGER_ARGS: readonly string[] = [
-  "--append-system-prompt",
-  MANAGER_PROMPT,
-  "--allowedTools",
-  "Bash(nexus:*)",
-];
+export const MANAGER_ARGS: readonly string[] = ["--allowedTools", "Bash(nexus:*)"];
 
 /**
  * The program's arguments for a tab, going on with a session when asked;
- * the agent manager's (`manager`) with its own on top.
+ * the agent manager's (`manager`) with its own on top, and told what it is
+ * after what every tab is told, in the one --append-system-prompt claude
+ * takes.
  */
 export function claudeTabArgs(
   options: ResumeOptions,
   hooksSettings?: string,
   manager = false,
 ): string[] {
-  const args = [...CLAUDE_TAB_ARGS, ...(manager ? MANAGER_ARGS : [])];
+  const prompt = manager ? `${CLAUDE_TAB_PROMPT}\n\n${MANAGER_PROMPT}` : CLAUDE_TAB_PROMPT;
+  const args = [
+    ...CLAUDE_TAB_ARGS,
+    "--append-system-prompt",
+    prompt,
+    ...(manager ? MANAGER_ARGS : []),
+  ];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
   if (options.resume !== undefined) {
     args.push("--resume", options.resume);

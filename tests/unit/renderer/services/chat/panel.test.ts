@@ -16,6 +16,7 @@ import {
   jobsOf,
   outsideLinksOf,
   resultsOf,
+  sentFilesOf,
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
@@ -291,14 +292,21 @@ describe("chat panel", () => {
       ]),
       result("e", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-a", "+b"] }] }),
       result("e2", "ok", { structuredPatch: [{ oldStart: 1, lines: ["-b", "+c"] }] }),
-      assistant("m2", [{ type: "text", text: "See [a.ts](C:\\p\\a.ts) and `D:\\out\\log.txt`." }]),
+      assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "C:\\P\\SRC\\B.ts" } },
+        {
+          type: "text",
+          text: "See [a.ts](C:\\p\\a.ts), `src\\b.ts` and `D:\\out\\log.txt`.",
+        },
+      ]),
     ]);
     expect(changedFilesOf(model.tools)).toEqual([
       { path: "C:/p/a.ts", added: 2, removed: 2, created: false, toolUseIds: ["e", "e2"] },
     ]);
-    expect(resultsOf(model.items, model.tools)).toEqual([
-      { kind: "file", target: "C:\\p\\a.ts", created: false, guessed: false },
-      { kind: "file", target: "D:\\out\\log.txt", created: false, guessed: false },
+    // A Windows path is the file the tools took whatever its case.
+    expect(resultsOf(model.items, model.tools, "C:\\p")).toEqual([
+      { kind: "file", target: "C:\\p\\a.ts", created: false },
+      { kind: "file", target: "src\\b.ts", created: false },
     ]);
   });
 
@@ -315,24 +323,31 @@ describe("chat panel", () => {
       ]),
       result("w", "ok", { type: "create", filePath: "/p/report.md" }),
       assistant("m2", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/src/app.ts" } },
         {
           type: "text",
           text: "See [the report](/p/report.md), `src/app.ts`, `npm run build`, and https://example.com/docs. Also [site](http://localhost:3000).",
         },
       ]),
     ]);
-    expect(resultsOf(model.items, model.tools)).toEqual([
-      { kind: "file", target: "/p/report.md", created: true, guessed: false },
-      { kind: "url", target: "http://localhost:3000", created: false, guessed: false },
-      { kind: "url", target: "https://example.com/docs", created: false, guessed: false },
-      { kind: "file", target: "src/app.ts", created: false, guessed: true },
+    expect(resultsOf(model.items, model.tools, "/p")).toEqual([
+      { kind: "file", target: "/p/report.md", created: true },
+      { kind: "url", target: "http://localhost:3000", created: false },
+      { kind: "url", target: "https://example.com/docs", created: false },
+      { kind: "file", target: "src/app.ts", created: false },
     ]);
   });
 
-  test("a relative path only backticks name is a guess; a lone /word is a command", () => {
+  test("a path only backticks name is a file the session's tools took; a lone /word is a command", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
       assistant("m1", [
+        {
+          type: "tool_use",
+          id: "e",
+          name: "Edit",
+          input: { file_path: "/p/build/notes.json" },
+        },
         {
           type: "text",
           text: "Bumped `package.json` and `build/notes.json` for `v0.17.0`; `system.stats` is new, see `/config` and `/etc/hosts`.",
@@ -340,27 +355,43 @@ describe("chat panel", () => {
       ]),
       assistant("m2", [{ type: "text", text: "Also [the manifest](package.json)." }]),
     ]);
-    expect(resultsOf(model.items, model.tools)).toEqual([
-      // Linked in a later reply: no longer a guess.
-      { kind: "file", target: "package.json", created: false, guessed: false },
-      { kind: "file", target: "build/notes.json", created: false, guessed: true },
-      { kind: "file", target: "v0.17.0", created: false, guessed: true },
-      { kind: "file", target: "system.stats", created: false, guessed: true },
-      { kind: "file", target: "/etc/hosts", created: false, guessed: false },
+    expect(resultsOf(model.items, model.tools, "/p")).toEqual([
+      { kind: "file", target: "build/notes.json", created: false },
+      // Linked in a later reply.
+      { kind: "file", target: "package.json", created: false },
     ]);
   });
 
-  test("a relative path parted by backslashes is a guess too, a Windows path once resolved", () => {
+  test("a path a reply only mentions, of a server or a run, is no result", () => {
     seq = 0;
     const model = applyLines(emptyModel(), [
       assistant("m1", [
+        { type: "tool_use", id: "r", name: "Read", input: { file_path: "/p/notes.md" } },
+        { type: "tool_use", id: "b", name: "Bash", input: { command: "ssh server2 ls" } },
+        {
+          type: "text",
+          text: "The `/dev/shm` cache is gone. The code is on server2 in `experiments/e306/` (`p1_cap2000.py`, `README.md`); see `notes.md`.",
+        },
+      ]),
+    ]);
+    expect(resultsOf(model.items, model.tools, "/p")).toEqual([
+      { kind: "file", target: "notes.md", created: false },
+    ]);
+  });
+
+  test("a relative path parted by backslashes is a Windows path once resolved", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "tool_use", id: "r1", name: "Read", input: { file_path: "C:\\w\\src\\greet.ts" } },
+        { type: "tool_use", id: "r2", name: "Read", input: { file_path: "C:\\w\\lib\\util.ts" } },
         { type: "text", text: "See `src\\greet.ts`, `.\\lib\\util.ts` and `nope\\`." },
       ]),
     ]);
-    const results = resultsOf(model.items, model.tools);
+    const results = resultsOf(model.items, model.tools, "C:\\w");
     expect(results).toEqual([
-      { kind: "file", target: "src\\greet.ts", created: false, guessed: true },
-      { kind: "file", target: ".\\lib\\util.ts", created: false, guessed: true },
+      { kind: "file", target: "src\\greet.ts", created: false },
+      { kind: "file", target: ".\\lib\\util.ts", created: false },
     ]);
     expect(resultFiles(results, "C:\\w")).toEqual(["C:/w/src/greet.ts", "C:/w/lib/util.ts"]);
   });
@@ -408,17 +439,73 @@ describe("chat panel", () => {
       [...answerExtras(model.items, model.tools, "/p", "/p", done)].map(([item, extras]) => [
         item.kind === "assistant" ? item.messageId : item.kind,
         extras.files,
-        extras.guessed,
         extras.images.length,
       ]);
+    // `docs/a.pdf` only mentioned is no card.
     expect(answers(true)).toEqual([
-      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], ["/p/docs/a.pdf"], 1],
-      ["m4", ["/p/b.md"], [], 0],
+      ["m3", ["/p/out/chart.md"], 1],
+      ["m4", ["/p/b.md"], 0],
     ]);
     // The running turn's answer is not the last yet.
-    expect(answers(false)).toEqual([
-      ["m3", ["/p/out/chart.md", "/p/docs/a.pdf"], ["/p/docs/a.pdf"], 1],
+    expect(answers(false)).toEqual([["m3", ["/p/out/chart.md"], 1]]);
+    // The image a Read gave opens as the file it read.
+    const [first] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(first.images).toEqual([
+      { image: { mediaType: "image/png", data: "AAAA" }, file: "/p/shot.png" },
     ]);
+  });
+
+  test("files sent the user, and images a reply shows, are results with no card of their own", () => {
+    seq = 0;
+    const ask: ChatLine = {
+      seq: ++seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: "send me the chart" } },
+    };
+    // As claude 2.1.319 sends them with Remote Control on.
+    const send = {
+      files: ["out/chart.png", "/tmp/report.pdf"],
+      caption: "The chart",
+      status: "normal",
+      display: "render",
+    };
+    const model = applyLines(emptyModel(), [
+      ask,
+      assistant("m1", [{ type: "tool_use", id: "s", name: "SendUserFile", input: send }]),
+      result("s", "2 files delivered to user.", undefined),
+      assistant("m2", [
+        { type: "tool_use", id: "f", name: "SendUserFile", input: { files: ["/p/lost.png"] } },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "f", content: "failed", is_error: true }],
+        },
+      }),
+      assistant("m3", [
+        { type: "text", text: "Sent. ![plot](out/plot.png) is the other; see [notes](notes.md)." },
+      ]),
+    ]);
+    expect(sentFilesOf(model.tools.s)).toEqual(["out/chart.png", "/tmp/report.pdf"]);
+    expect(sentFilesOf(model.tools.f)).toEqual(["/p/lost.png"]);
+    expect(sentFilesOf({ ...model.tools.s, input: { files: ["a.png", 3, "", null] } })).toEqual([
+      "a.png",
+    ]);
+    expect(sentFilesOf({ ...model.tools.s, name: "Read" })).toEqual([]);
+    // A send that failed put nothing in front of the user.
+    expect(resultsOf(model.items, model.tools, "/p")).toEqual([
+      { kind: "file", target: "out/chart.png", created: false },
+      { kind: "file", target: "/tmp/report.pdf", created: false },
+      { kind: "file", target: "out/plot.png", created: false },
+      { kind: "file", target: "notes.md", created: false },
+    ]);
+    // What shows where the turn put it gets no card at its end.
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(extras.files).toEqual(["/p/notes.md"]);
+    // A file sent from outside the workspace is one its previews read.
+    expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual(["/tmp/report.pdf"]);
   });
 
   test("what a session links outside the workspace, with its HTML files' folders", () => {

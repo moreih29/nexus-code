@@ -7,10 +7,14 @@
 
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { resetParts, type UsageLine, type UsageMeter } from "../../services/chat/usage-line";
+import {
+  formatTokens,
+  resetParts,
+  type UsageLine,
+  type UsageMeter,
+} from "../../services/chat/usage-line";
 import { ContextRing } from "../ui/context-ring";
 import { tooltipProps } from "../ui/tooltip";
-import { formatTokens } from "./side-panel";
 
 const WARN_AT = 80;
 

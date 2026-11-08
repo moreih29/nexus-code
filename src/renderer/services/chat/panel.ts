@@ -3,7 +3,7 @@
 // files it changed, and what its replies point at.
 
 import type { AgentRun } from "../../../shared/claude/activity";
-import { isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
+import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
 import type {
   AssistantItem,
   ChatItem,
@@ -299,30 +299,26 @@ function patchCounts(patch: unknown): { added: number; removed: number } {
   return { added, removed };
 }
 
+/**
+ * What a session made or pointed at. A file is shown only once it is found
+ * to be one (./file-presence): a reply may name a path that is gone, a
+ * folder, or a file on another machine.
+ */
 export interface ResultEntry {
   kind: "file" | "url";
   /** An absolute path, a path as the reply wrote it, or a URL. */
   target: string;
   /** A file the session wrote new. */
   created: boolean;
-  /**
-   * A relative path only an inline code span names. Any dotted word in
-   * backticks looks like one (`v0.17.0`, `os.cpus`), so it is shown only
-   * once the file is found (./file-presence).
-   */
-  guessed: boolean;
 }
 
 const URL_RE = /\bhttps?:\/\/[^\s<>()[\]"'`]+[^\s<>()[\]"'`.,;:!?]/g;
 const LINK_RE = /\]\(([^)\s]+)\)/g;
+/** An image a reply shows in its text, by markdown's ![alt](path). */
+const IMAGE_RE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
 const CODE_RE = /`([^`\n]+)`/g;
 
 const EXTENSION_RE = /\.[A-Za-z0-9]{1,8}$/;
-
-/** Whether a path a reply names is absolute: as such it is a path, not a word. */
-function isAbsoluteGuess(text: string): boolean {
-  return text.startsWith("/") || text.startsWith("~/") || /^[A-Za-z]:[\\/]/.test(text);
-}
 
 /**
  * A path a reply names: absolute, or relative with a folder or an extension.
@@ -339,34 +335,86 @@ function looksLikePath(text: string): boolean {
   return /^[\w.-]+([\\/][\w.-]+)*\.[A-Za-z0-9]{1,8}$/.test(text);
 }
 
+/** The tools that take one file by its path, to read or to change it. */
+const FILE_TOOLS = new Set([
+  "Read",
+  "NotebookRead",
+  "ViewImage",
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+]);
+
+/** The tool that puts files in front of the user, as Claude Code offers it with Remote Control on. */
+export const SEND_FILES_TOOL = "SendUserFile";
+
+/** The files a SendUserFile call put in front of the user, as it named them. */
+export function sentFilesOf(tool: ToolCall): string[] {
+  if (tool.name !== SEND_FILES_TOOL) return [];
+  const files = rec(tool.input)?.files;
+  return Array.isArray(files)
+    ? files.filter((file): file is string => typeof file === "string" && file !== "")
+    : [];
+}
+
+/** A path as a set of paths holds it: a Windows one whatever its case. */
+function pathKey(path: string): string {
+  return /^[A-Za-z]:\//.test(path) ? path.toLowerCase() : path;
+}
+
 /**
- * What the session made and pointed at: the files it wrote new, then the
- * paths and URLs in its replies, each once, in the order they came.
+ * The files the session's file tools took (read, wrote, edited, sent the
+ * user), by absolute path as `pathKey` has it.
  */
-export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): ResultEntry[] {
+export function touchedFiles(tools: Record<string, ToolCall>, cwd: string): Set<string> {
+  const touched = new Set<string>();
+  const take = (named: string) => {
+    const path = resolveFilePath(named, cwd);
+    if (path) touched.add(pathKey(path));
+  };
+  for (const tool of Object.values(tools)) {
+    for (const file of sentFilesOf(tool)) take(file);
+    if (!FILE_TOOLS.has(tool.name)) continue;
+    const input = rec(tool.input);
+    const named = str(input?.file_path) ?? str(input?.notebook_path);
+    if (named) take(named);
+  }
+  return touched;
+}
+
+/**
+ * What the session made and pointed at: the files it wrote new or sent the
+ * user, then the paths and URLs in its replies, each once, in the order
+ * they came. A reply points at a file by linking it; a path it only writes
+ * in backticks is mentioned, not shown, unless it is a file the session's
+ * tools took (`touched`): a command it ran, or a server's file, is not one
+ * to open.
+ */
+export function resultsOf(
+  items: ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  touched: ReadonlySet<string> = touchedFiles(tools, cwd),
+): ResultEntry[] {
   const results: ResultEntry[] = [];
   const byTarget = new Map<string, ResultEntry>();
-  const add = (
-    kind: ResultEntry["kind"],
-    target: string,
-    { created = false, guessed = false }: { created?: boolean; guessed?: boolean } = {},
-  ) => {
-    const known = byTarget.get(target);
-    if (known) {
-      // Linked as well as named in backticks: no guess.
-      if (!guessed) known.guessed = false;
-      return;
-    }
-    const entry: ResultEntry = { kind, target, created, guessed };
+  const add = (kind: ResultEntry["kind"], target: string, created = false) => {
+    if (byTarget.has(target)) return;
+    const entry: ResultEntry = { kind, target, created };
     byTarget.set(target, entry);
     results.push(entry);
   };
+  const tookIt = (text: string) => {
+    const path = resolveFilePath(text, cwd);
+    return path !== null && touched.has(pathKey(path));
+  };
   for (const tool of Object.values(tools)) {
-    if (tool.name !== "Write" || tool.status !== "done") continue;
+    if (tool.status !== "done") continue;
+    for (const file of sentFilesOf(tool)) add("file", file);
+    if (tool.name !== "Write") continue;
     const path = str(rec(tool.input)?.file_path);
-    if (path && rec(tool.result?.structured)?.type === "create") {
-      add("file", path, { created: true });
-    }
+    if (path && rec(tool.result?.structured)?.type === "create") add("file", path, true);
   }
   for (const item of items) {
     if (item.kind !== "assistant") continue;
@@ -380,7 +428,7 @@ export function resultsOf(items: ChatItem[], tools: Record<string, ToolCall>): R
       for (const match of block.text.matchAll(URL_RE)) add("url", match[0]);
       for (const match of block.text.matchAll(CODE_RE)) {
         const text = match[1];
-        if (looksLikePath(text)) add("file", text, { guessed: !isAbsoluteGuess(text) });
+        if (looksLikePath(text) && tookIt(text)) add("file", text);
       }
     }
   }
@@ -407,18 +455,23 @@ export function distinctResults(results: readonly ResultEntry[], cwd: string): R
   return out;
 }
 
+/** An image a tool gave. */
+export interface GivenImage {
+  image: ImageBlock;
+  /** The image file it is, by its absolute path, when the tool read it from one. */
+  file?: string;
+}
+
 /** What an answer ends with: the files its turn made and named, and the images its tools gave. */
 export interface AnswerExtras {
-  /** Absolute paths: written new first, then linked. */
+  /** Absolute paths, written new first, then linked: each shows once it is found. */
   files: string[];
-  /** Those of `files` only a code span named: each shows once it is found. */
-  guessed: string[];
-  images: ImageBlock[];
+  images: GivenImage[];
 }
 
 /** Most file cards under one answer. */
 export const MAX_ANSWER_FILES = 8;
-/** Most files an answer's cards are picked from: some guessed ones may be no files. */
+/** Most files an answer's cards are picked from: some named may be no files. */
 const MAX_ANSWER_CANDIDATES = 2 * MAX_ANSWER_FILES;
 /** Most images under one answer. */
 export const MAX_ANSWER_IMAGES = 4;
@@ -437,46 +490,52 @@ export function answerExtras(
   lastDone: boolean,
 ): Map<ChatItem, AnswerExtras> {
   const out = new Map<ChatItem, AnswerExtras>();
+  const touched = touchedFiles(tools, cwd);
   let turn: ChatItem[] = [];
   const close = () => {
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
     if (!answer) return;
-    const named: { target: string; guessed: boolean }[] = [];
-    const given: { image: ImageBlock; from?: string }[] = [];
+    const named: string[] = [];
+    const given: (GivenImage & { from?: string })[] = [];
+    // What the turn shows where it is, as a file it sent or an image in its
+    // text, gets no card of its own.
+    const shown = new Set<string>();
+    const showHere = (target: string) => {
+      const path = resolveFilePath(target, cwd);
+      if (path) shown.add(path);
+    };
     for (const item of turn) {
       if (item.kind !== "assistant") continue;
       for (const block of item.blocks) {
+        if (block.type === "text") {
+          for (const match of block.text.matchAll(IMAGE_RE)) showHere(match[1]);
+        }
         const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
         if (!tool) continue;
+        for (const file of sentFilesOf(tool)) showHere(file);
         const path = str(rec(tool.input)?.file_path);
         const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
-        for (const image of tool.result?.images ?? []) given.push({ image, from });
+        const file = from && fileKind(from) === "image" ? from : undefined;
+        for (const image of tool.result?.images ?? []) given.push({ image, from, file });
         if (tool.name === "Write" && tool.status === "done" && path) {
-          if (rec(tool.result?.structured)?.type === "create") {
-            named.push({ target: path, guessed: false });
-          }
+          if (rec(tool.result?.structured)?.type === "create") named.push(path);
         }
       }
     }
-    for (const result of resultsOf(turn, {})) {
-      if (result.kind === "file") named.push({ target: result.target, guessed: result.guessed });
+    for (const result of resultsOf(turn, {}, cwd, touched)) {
+      if (result.kind === "file") named.push(result.target);
     }
     const files: string[] = [];
-    const sure = new Set<string>();
-    for (const { target, guessed } of named) {
+    for (const target of named) {
       const path = resolveFilePath(target, cwd);
-      if (!path) continue;
-      if (!guessed) sure.add(path);
-      if (!files.includes(path)) files.push(path);
+      if (path && !shown.has(path) && !files.includes(path)) files.push(path);
     }
     const images = given
       .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
-      .map(({ image }) => image);
+      .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
-      const candidates = files.slice(0, MAX_ANSWER_CANDIDATES);
       out.set(answer, {
-        files: candidates,
-        guessed: candidates.filter((path) => !sure.has(path)),
+        files: files.slice(0, MAX_ANSWER_CANDIDATES),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }
@@ -520,10 +579,14 @@ export function outsideLinksOf(
   for (const tool of Object.values(tools)) {
     const input = rec(tool.input);
     const path = str(input?.file_path) ?? str(input?.notebook_path);
-    const abs = path ? resolveFilePath(path, cwd) : null;
-    if (abs) named.add(abs);
+    for (const file of path ? [path, ...sentFilesOf(tool)] : sentFilesOf(tool)) {
+      const abs = resolveFilePath(file, cwd);
+      if (abs) named.add(abs);
+    }
   }
-  for (const file of resultFiles(resultsOf(items, {}), cwd)) named.add(file);
+  for (const file of resultFiles(resultsOf(items, {}, cwd, touchedFiles(tools, cwd)), cwd)) {
+    named.add(file);
+  }
   const files = [...named].filter((file) => !isUnder(file, root));
   const dirs = new Set<string>();
   for (const file of files) {

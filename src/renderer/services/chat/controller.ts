@@ -18,6 +18,7 @@ import {
   sessionTitleOf,
   uuidBefore,
 } from "./history";
+import { LiveLines } from "./live-lines";
 import {
   applyLines,
   type ChatLine,
@@ -27,6 +28,7 @@ import {
   type PermissionRequest,
   type UserItem,
 } from "./model";
+import { effortToApply } from "./settings-defaults";
 import {
   type ChatTabState,
   type CommandCard,
@@ -160,6 +162,8 @@ export class ChatController {
   private initializing: Promise<void> = Promise.resolve();
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** New lines held while the log is sent again. */
+  private readonly live = new LiveLines();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
   private disposed = false;
@@ -200,17 +204,15 @@ export class ChatController {
   }
 
   private async doOpen(): Promise<void> {
-    const { workspaceId, tabId } = this.target;
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
     try {
-      replay = unwrapIpcResult(await ipcCallResult("chat", "replay", { workspaceId, tabId }));
+      replay = await this.replay();
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return;
     }
-    await this.catchUp(replay);
     if (replay.found) {
       this.titled = this.titled || this.state.model.items.some((item) => item.kind === "user");
       this.update((prev) => ({
@@ -315,6 +317,7 @@ export class ChatController {
             return this.request("apply_flag_settings", { settings: this.flags });
           }
         })
+        .then(() => this.followSettings())
         .then(
           () => {},
           (err: Error) => {
@@ -323,6 +326,19 @@ export class ChatController {
         );
     }
     return true;
+  }
+
+  /**
+   * Has a started program run as the user's settings say: `claude -p`
+   * leaves their effort out, which it is given here. The answer also tells
+   * the tab the model the settings set, before the first turn names it.
+   */
+  private async followSettings(): Promise<void> {
+    if (!this.supports("get_settings")) return;
+    const effort = effortToApply(await this.request("get_settings", {}).catch(() => null));
+    if (effort && this.supports("apply_flag_settings")) {
+      await this.request("apply_flag_settings", { settings: { effortLevel: effort } });
+    }
   }
 
   /** Starts the program again, going on with the session. */
@@ -436,17 +452,40 @@ export class ChatController {
 
   /** Builds the model again from the agent's log, which a rewind started over. */
   private async rebuild(): Promise<void> {
-    const { workspaceId, tabId } = this.target;
     this.flushNow();
     this.update((prev) => ({ ...prev, model: emptyModel() }));
     try {
-      await this.catchUp(
-        unwrapIpcResult(await ipcCallResult("chat", "replay", { workspaceId, tabId })),
-      );
+      await this.replay();
     } catch (err) {
       log.warn(`replay after a rewind failed: ${(err as Error).message}`);
     }
     this.flushNow();
+  }
+
+  /**
+   * Has the agent send the tab's log again (after `afterSeq`) and waits for
+   * its lines; new lines that come meanwhile are taken after them.
+   */
+  private async replay(afterSeq?: number): Promise<ReplayResult> {
+    const { workspaceId, tabId } = this.target;
+    this.live.hold();
+    try {
+      const replay = unwrapIpcResult(
+        await ipcCallResult("chat", "replay", {
+          workspaceId,
+          tabId,
+          ...(afterSeq !== undefined ? { afterSeq } : {}),
+        }),
+      );
+      await this.catchUp(replay);
+      return replay;
+    } finally {
+      const held = this.live.release();
+      if (held.length > 0 && !this.disposed) {
+        this.buffered.push(...held);
+        this.flushNow();
+      }
+    }
   }
 
   /** Waits for a replay's lines, which come as events and may trail its answer. */
@@ -462,21 +501,13 @@ export class ChatController {
 
   /** The agent is back: replay what the tab missed, or find its program gone. */
   async resync(): Promise<void> {
-    const { workspaceId, tabId } = this.target;
     this.flushNow();
     let replay: ReplayResult;
     try {
-      replay = unwrapIpcResult(
-        await ipcCallResult("chat", "replay", {
-          workspaceId,
-          tabId,
-          afterSeq: this.state.model.lastSeq,
-        }),
-      );
+      replay = await this.replay(this.state.model.lastSeq);
     } catch {
       return;
     }
-    await this.catchUp(replay);
     if (replay.found) {
       this.update((prev) => ({ ...prev, phase: replay.running ? "ready" : "ended" }));
       return;
@@ -594,6 +625,8 @@ export class ChatController {
   }
 
   setEffort(level: string): Promise<unknown> {
+    // Holds for the tab: a program started again for it takes it too.
+    this.flags = { ...this.flags, effortLevel: level };
     return this.request("apply_flag_settings", { settings: { effortLevel: level } });
   }
 
@@ -1002,6 +1035,7 @@ export class ChatController {
   receive(line: ChatLine): void {
     if (this.disposed) return;
     if (!line.replay) this.inspectLive(line);
+    if (this.live.holds(line)) return;
     this.buffered.push(line);
     if (this.flushTimer === null) this.flushTimer = setTimeout(() => this.flushNow(), 16);
   }

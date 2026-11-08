@@ -56,11 +56,15 @@ import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
 import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
+import { FoldToggle, useFold } from "./fold";
 import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark } from "./status-view";
 import { TerminalScreen } from "./terminal-screen";
+
+/** How many lines of a long prompt show before it is opened. */
+const PROMPT_LINES = 4;
 
 /** How many lines of a long answer show before it is opened. */
 const ANSWER_LINES = 8;
@@ -321,44 +325,40 @@ function MetaChips({
   );
 }
 
-/** The user's last request, on the right as in the tab. */
+/** The user's last request, on the right as in the tab, folded to a few lines until opened. */
 function UserBubble({ text }: { text: string }) {
+  const fold = useFold<HTMLParagraphElement>(text, PROMPT_LINES);
   return (
-    <div className="max-w-[85%] self-end rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2">
-      <p className="line-clamp-4 text-app-body whitespace-pre-wrap break-words text-foreground select-text">
-        {text}
-      </p>
+    <div className="flex max-w-[85%] flex-col items-end gap-1 self-end">
+      <div className="max-w-full rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2">
+        <p
+          ref={fold.ref}
+          style={fold.style}
+          className="text-app-body whitespace-pre-wrap break-words text-foreground select-text"
+        >
+          {text}
+        </p>
+      </div>
+      {fold.foldable && <FoldToggle open={fold.open} onToggle={fold.toggle} />}
     </div>
   );
 }
 
 /** The conversation's last answer, folded to a few lines until opened. */
 function AgentBubble({ session, text }: { session: AgentSession; text: string }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const long = text.length > 480 || text.split("\n").length > ANSWER_LINES;
+  const fold = useFold<HTMLParagraphElement>(text, ANSWER_LINES);
   return (
     <div className="flex min-w-0 items-start gap-2">
       <AgentMark session={session} className="mt-1" />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
         <p
-          className={cn(
-            "min-w-0 whitespace-pre-wrap break-words text-app-body text-muted-foreground select-text",
-            long && !open && "line-clamp-8",
-          )}
+          ref={fold.ref}
+          style={fold.style}
+          className="min-w-0 whitespace-pre-wrap break-words text-app-body text-muted-foreground select-text"
         >
           {text}
         </p>
-        {long && (
-          <button
-            type="button"
-            onClick={() => setOpen(!open)}
-            aria-expanded={open}
-            className="rounded-(--radius-control) text-app-micro text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-          >
-            {open ? t("sessions.detail.answer_less") : t("sessions.detail.answer_more")}
-          </button>
-        )}
+        {fold.foldable && <FoldToggle open={fold.open} onToggle={fold.toggle} />}
       </div>
     </div>
   );

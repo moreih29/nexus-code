@@ -4,9 +4,11 @@
 import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { imageFileOf } from "../../services/chat/image-look";
 import { slashWindowsPath } from "../../services/chat/links";
-import type { ImageBlock, ToolCall } from "../../services/chat/model";
+import type { ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
+import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
 
 interface ToolRowProps {
@@ -42,7 +44,6 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
   const name = tool?.displayName || tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
-  const images = tool?.result?.images ?? [];
   const unsandboxed = tool ? isUnsandboxed(tool.input) : false;
   const children =
     tool && AGENT_TOOLS.has(tool.name)
@@ -82,25 +83,14 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
               {t("chat.tool.subagent_calls", { count: children.length })}
             </span>
           )}
-          {images.length > 0 && (
-            <span className="flex shrink-0 items-center gap-0.5">
-              {images.slice(0, 3).map((image, i) => (
-                <img
-                  // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
-                  key={i}
-                  src={imageSrc(image)}
-                  alt=""
-                  className="h-5 max-w-8 rounded-sm border border-border object-cover"
-                />
-              ))}
-            </span>
-          )}
           {open ? (
             <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           )}
         </button>
+        {/* Beside the line, not in it: a thumbnail opens its image, not the call. */}
+        <ToolThumbs calls={[tool]} />
         {backgroundable && (
           <button
             type="button"
@@ -224,14 +214,15 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
         </div>
       )}
       {body}
-      {(tool.result?.images.length ?? 0) > 0 && (
+      {tool.result && tool.result.images.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-border p-2">
-          {tool.result?.images.map((image, i) => (
-            <img
+          {tool.result.images.map((_, i, images) => (
+            <ChatImage
               // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
               key={i}
-              src={imageSrc(image)}
-              alt=""
+              images={images}
+              index={i}
+              file={imageFileOf(tool.input)}
               className="max-h-64 max-w-full rounded-sm object-contain"
             />
           ))}
@@ -239,10 +230,6 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
       )}
     </div>
   );
-}
-
-function imageSrc(image: ImageBlock): string {
-  return `data:${image.mediaType};base64,${image.data}`;
 }
 
 interface Hunk {

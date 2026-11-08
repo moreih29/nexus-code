@@ -1,9 +1,10 @@
 // src/renderer/components/settings/font-family-row.tsx — Font family setting.
 //
-// The editor and the terminal pick their font the same way: a Select of the
-// bundled faces, the system's, and "Other…", which adds a field for any
-// installed font's name. Below the name, whether that font is on this system:
-// when it is not, the browser silently falls back, and the line says so.
+// The editor, the terminal and the chat tabs pick their font the same way: a
+// Select of the presets (the bundled faces), the default, and "Other…", which
+// adds a field for any installed font's name. Below the name, whether that
+// font is on this system: when it is not, the browser silently falls back,
+// and the line says so.
 //
 // Each keeps its own font in its own store; `scope` names its strings.
 
@@ -21,37 +22,47 @@ import { SettingsRow } from "./section";
 const FAMILY_SYSTEM_VALUE = "__system__";
 const FAMILY_CUSTOM_VALUE = "__custom__";
 
-const PRESET_FONT_FAMILIES = [
+export interface FontPreset {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** The bundled monospace faces, the code's presets. */
+const MONO_PRESETS: readonly FontPreset[] = [
   { value: "JetBrains Mono Nerd Font", label: "JetBrains Mono" },
   { value: "D2CodingLigature Nerd Font", label: "D2Coding" },
   { value: "Sarasa Term K", label: "Sarasa Term K" },
 ];
 
-function isPreset(family: string): boolean {
-  return PRESET_FONT_FAMILIES.some((f) => f.value === family);
-}
-
 interface FontFamilyRowProps {
-  scope: "editor" | "terminal";
-  /** The family chosen; undefined for the system's. */
+  scope: "editor" | "terminal" | "chat";
+  /** The family chosen; undefined for the default. */
   family: string | undefined;
   setFamily: (family: string | undefined) => void;
+  /** The fonts offered by name; the bundled monospace faces unless given. */
+  presets?: readonly FontPreset[];
 }
 
-export function FontFamilyRow({ scope, family, setFamily }: FontFamilyRowProps) {
+export function FontFamilyRow({
+  scope,
+  family,
+  setFamily,
+  presets = MONO_PRESETS,
+}: FontFamilyRowProps) {
   const { t } = useTranslation("settings");
   const customId = useId();
 
   const options = useMemo(
     () => [
-      ...PRESET_FONT_FAMILIES,
+      ...presets,
       { value: FAMILY_SYSTEM_VALUE, label: t(`${scope}.fontFamilySystem`) },
       { value: FAMILY_CUSTOM_VALUE, label: t(`${scope}.fontFamilyOther`) },
     ],
-    [t, scope],
+    [t, scope, presets],
   );
 
-  const isCustom = family !== undefined && family !== "" && !isPreset(family);
+  const isCustom =
+    family !== undefined && family !== "" && !presets.some((f) => f.value === family);
   const [selected, setSelected] = useState<string>(
     isCustom ? FAMILY_CUSTOM_VALUE : family && family !== "" ? family : FAMILY_SYSTEM_VALUE,
   );

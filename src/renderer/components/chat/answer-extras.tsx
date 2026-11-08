@@ -1,13 +1,14 @@
 // Under a turn's last answer: the images its tools gave, and a card for
 // each file it wrote new or named. A card opens the file in quick look;
-// an image file in the workspace shows itself on its card. A file only a
-// code span named gets its card once the workspace has it.
+// an image file in the workspace shows itself on its card. A file gets its
+// card once it is found to be one.
 
 import { useMemo } from "react";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { baseName, fileKind } from "../../services/chat/links";
 import { type AnswerExtras, MAX_ANSWER_FILES } from "../../services/chat/panel";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { ChatImage } from "./chat-image";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { FileKindIcon } from "./file-kind-icon";
 
@@ -22,24 +23,24 @@ export function AnswerExtrasView({
   cwd: string;
   rootPath: string;
 }) {
-  const found = useFoundFiles(workspaceId, rootPath, extras.guessed);
-  const files = useMemo(() => {
-    const guessed = new Set(extras.guessed);
-    return extras.files
-      .filter((path) => !guessed.has(path) || found.has(path))
-      .slice(0, MAX_ANSWER_FILES);
-  }, [extras, found]);
+  const found = useFoundFiles(workspaceId, rootPath, extras.files);
+  const files = useMemo(
+    () => extras.files.filter((path) => found.has(path)).slice(0, MAX_ANSWER_FILES),
+    [extras, found],
+  );
+  const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2" data-testid="chat-answer-extras">
       {extras.images.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {extras.images.map((image, i) => (
-            <img
+          {extras.images.map(({ file }, i) => (
+            <ChatImage
               // biome-ignore lint/suspicious/noArrayIndexKey: a turn's images keep their order
               key={i}
-              src={`data:${image.mediaType};base64,${image.data}`}
-              alt=""
+              images={images}
+              index={i}
+              file={file}
               className="max-h-48 max-w-full rounded-(--radius-control) border border-border object-contain"
             />
           ))}
@@ -56,7 +57,16 @@ export function AnswerExtrasView({
   );
 }
 
-function FileCard({ path, workspaceId, cwd }: { path: string; workspaceId: string; cwd: string }) {
+/** A file as a card: its name and folder, an image file its picture too; opens in quick look. */
+export function FileCard({
+  path,
+  workspaceId,
+  cwd,
+}: {
+  path: string;
+  workspaceId: string;
+  cwd: string;
+}) {
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
   const image = fileKind(path) === "image" && file.kind === "inside";

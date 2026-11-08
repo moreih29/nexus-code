@@ -840,6 +840,31 @@
   color: inherit;
 }
 
+/* A chat tab's text in the size and font Settings › Agent set: the tab's
+   root carries them (chatFontVars), a reply's size and each of the app's
+   text sizes scaled as it is. Code keeps its own font, sized in em. */
+.chat-font {
+  font-family: var(--chat-font-family);
+}
+.chat-font .md-preview.chat-md {
+  font-size: var(--chat-text-reply);
+}
+.chat-font .text-app-body {
+  font-size: var(--chat-text-app-body);
+}
+.chat-font .text-app-body-emphasis {
+  font-size: var(--chat-text-app-body-emphasis);
+}
+.chat-font .text-app-ui-sm {
+  font-size: var(--chat-text-app-ui-sm);
+}
+.chat-font .text-app-micro {
+  font-size: var(--chat-text-app-micro);
+}
+.chat-font .text-app-label {
+  font-size: var(--chat-text-app-label);
+}
+
 /* Chat tabs' tints, mixed from the theme: a sent message, and a patch's
    added and removed lines (their +/- marks say it too). */
 :root {

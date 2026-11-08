@@ -36,6 +36,7 @@ import { useAgentCliStore } from "./state/stores/agent-cli";
 import { useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
+import { useChatFontStore } from "./state/stores/chat-font";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
@@ -214,6 +215,9 @@ export async function bootstrapAppState(): Promise<void> {
     ligatures: state.editorFontLigatures,
     lineHeight: state.editorFontLineHeight,
   });
+
+  // The chat tabs' text size and font.
+  useChatFontStore.getState().hydrate(state);
 
   // Hydrate terminal user settings from appState (authoritative store).
   useTerminalStore.getState().hydrate({

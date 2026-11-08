@@ -40,6 +40,7 @@ import {
   usageLimitsOf,
 } from "../../services/chat/panel";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
+import { formatTokens } from "../../services/chat/usage-line";
 import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
@@ -93,35 +94,35 @@ export function SidePanel({
   const jobs = useMemo(() => jobsOf(model), [model]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
-  // A file only a code span named is listed once the workspace has it.
-  const named = useMemo(() => resultsOf(items, tools), [items, tools]);
-  const guessed = useMemo(() => {
+  // A file is listed once it is found to be one.
+  const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
+  const filePaths = useMemo(() => {
     const paths = new Map<string, string>();
     for (const result of named) {
-      const path = result.guessed ? resolveFilePath(result.target, cwd) : null;
+      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
       if (path) paths.set(result.target, path);
     }
     return paths;
   }, [named, cwd]);
-  const guessedPaths = useMemo(() => [...new Set(guessed.values())], [guessed]);
+  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
   // A file named before the agent made it is found once a tool of its is done.
   const toolsDone = useMemo(
     () =>
       Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
     [tools],
   );
-  const found = useFoundFiles(workspaceId, rootPath, guessedPaths, toolsDone);
+  const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
   const results = useMemo(
     () =>
       distinctResults(
         named.filter((result) => {
-          if (!result.guessed) return true;
-          const path = guessed.get(result.target);
+          if (result.kind !== "file") return true;
+          const path = filePaths.get(result.target);
           return path !== undefined && found.has(path);
         }),
         cwd,
       ),
-    [named, guessed, found, cwd],
+    [named, filePaths, found, cwd],
   );
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
@@ -967,13 +968,6 @@ function Elapsed({ from, to, now }: { from?: number; to?: number; now: number })
       {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
     </span>
   );
-}
-
-/** Tokens as "942", "24.5k" or "1.2M". */
-export function formatTokens(count: number): string {
-  if (count < 1000) return String(count);
-  if (count < 1_000_000) return `${(count / 1000).toFixed(1).replace(/\.0$/, "")}k`;
-  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
 function useTicker(ticking: boolean): number {

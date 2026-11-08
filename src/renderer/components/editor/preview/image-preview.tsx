@@ -149,6 +149,21 @@ interface ZoomAnchor {
  *   - Format the OS/Chromium can't decode (rare for the supported set).
  */
 function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCanvasProps) {
+  // Bumped whenever the file changes on disk; appended to the URL so the
+  // <img> re-requests it (see LIVE RELOAD above).
+  const version = useFileVersion(workspaceId, relPath);
+  return <ZoomableImage src={versionedUrl(url, version)} alt={alt} onNaturalSize={onNaturalSize} />;
+}
+
+export interface ZoomableImageProps {
+  /** The image's URL: a file's, or a data URL, as of an image a tool gave. */
+  src: string;
+  alt: string;
+  onNaturalSize?: (size: { w: number; h: number }) => void;
+}
+
+/** An image fitted to its box and zoomed with cmd+wheel (see ZOOM above). */
+export function ZoomableImage({ src, alt, onNaturalSize }: ZoomableImageProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   // The container unmounts while a load error is shown and a new one mounts
@@ -177,11 +192,6 @@ function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCan
   useEffect(() => {
     userScaleRef.current = userScale;
   }, [userScale]);
-
-  // Bumped whenever the file changes on disk; appended to the URL so the
-  // <img> re-requests it (see LIVE RELOAD above).
-  const version = useFileVersion(workspaceId, relPath);
-  const src = versionedUrl(url, version);
 
   // A previous load failure (file missing mid-write, deleted then recreated)
   // must not stick once a new version is requested — the error branch below

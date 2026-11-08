@@ -103,6 +103,19 @@ export const AppStateSchema = z.object({
   // Terminal font ligatures toggle — editor와 독립; 부재=토큰 fallback (false).
   terminalFontLigatures: z.boolean().optional(),
 
+  // The chat tabs' (Claude, Codex) text size in px: their replies' size, which
+  // the rest of a tab's text scales with. Absent = 14.
+  chatFontSize: z.number().int().min(10).max(24).optional(),
+
+  // The chat tabs' font, as CSS names it; absent = the app's. Sanitized as
+  // the editor's, with a hyphen allowed for names such as system-ui.
+  chatFontFamily: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[A-Za-z0-9\s,'"-]+$/)
+    .optional(),
+
   // The shell new local terminals open with; absent = the system default
   // (Windows PowerShell on Windows, $SHELL elsewhere).
   terminalShell: ShellChoiceSchema.optional(),

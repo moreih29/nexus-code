@@ -6,7 +6,13 @@
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { agentCounts, workspaceColor } from "@/services/agent-view/agents";
+import {
+  AGENT_FILTERS,
+  type AgentFilter,
+  agentCounts,
+  passesFilter,
+  workspaceColor,
+} from "@/services/agent-view/agents";
 import { leafHolding, leafShowing } from "@/services/agent-view/layout";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
@@ -39,26 +45,20 @@ import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
 import { setAgentDrag } from "./drag";
 
-type Filter = "all" | "running" | "attention";
-
-const FILTERS: readonly Filter[] = ["all", "running", "attention"];
-
 /** The state whose glyph stands for a filter. */
-const FILTER_STATE: Record<Exclude<Filter, "all">, string> = {
+const FILTER_STATE: Record<Exclude<AgentFilter, "all">, string> = {
   running: "running",
   attention: "permissionPending",
+  done: "completed",
+  idle: "idle",
 };
-
-function passes(session: AgentSession, filter: Filter): boolean {
-  return filter === "all" || session.phase === filter;
-}
 
 export function AgentSidebar() {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
   const counts = agentCounts(agents);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<AgentFilter>("all");
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   const ids = useMemo(
     () => agents.families.flatMap((family) => family.worktrees.map((w) => w.workspace.id)),
@@ -73,7 +73,7 @@ export function AgentSidebar() {
       worktrees: family.worktrees
         .map((worktree) => ({
           worktree,
-          sessions: worktree.sessions.filter((session) => passes(session, filter)),
+          sessions: worktree.sessions.filter((session) => passesFilter(session, filter)),
         }))
         // A task shows with agents to list; the workspace itself always does
         // while nothing is filtered, for its + to start one.
@@ -105,7 +105,7 @@ export function AgentSidebar() {
             </span>
           </div>
           <fieldset aria-label={t("agentView.list.filter_aria")} className="flex flex-wrap gap-1">
-            {FILTERS.map((value) => (
+            {AGENT_FILTERS.map((value) => (
               <button
                 key={value}
                 type="button"

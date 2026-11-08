@@ -6,6 +6,7 @@
 import { createContext, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { isLocalAddress, type LineAt } from "../../services/chat/links";
+import type { ImageBlock } from "../../services/chat/model";
 import { copyText } from "../../utils/clipboard";
 import {
   ContextMenuContent,
@@ -18,6 +19,8 @@ import {
 export interface ChatLinks {
   /** Shows a file the conversation names, as written, in quick look. */
   openFile: (target: string) => void;
+  /** Shows images with no file, as a tool or the user gave them, in quick look, at `index`. */
+  openImages: (images: readonly ImageBlock[], index: number) => void;
   /** Shows a file the session changed in quick look, as a diff. */
   openChange: (path: string) => void;
   /**

@@ -1163,6 +1163,7 @@
     },
     "look": {
       "aria": "빠른 보기: {{name}}",
+      "image": "이미지 {{number}}",
       "previous": "이전 결과물 (←)",
       "next": "다음 결과물 (→)",
       "open_tab": "탭으로 열기",
@@ -1494,7 +1495,9 @@
       "filter": {
         "all": "전체",
         "running": "실행 중",
-        "attention": "대기"
+        "attention": "응답 필요",
+        "done": "새 결과",
+        "idle": "대기"
       },
       "none_filtered": "해당하는 에이전트가 없습니다",
       "no_agents": "에이전트 없음",
