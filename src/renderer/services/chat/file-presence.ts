@@ -9,7 +9,10 @@ import { ipcCallResult } from "@/ipc/client";
 import { isUnder, resolveFilePath, resultFiles } from "./links";
 import type { ResultEntry } from "./panel";
 
-/** How long an answer is trusted before the file is looked up again. */
+/**
+ * How long a file found is trusted before it is looked up again. One not
+ * found is looked up each time, as the agent may make it the next moment.
+ */
 const FRESH_MS = 30_000;
 
 /** Looks a file up by its path relative to the workspace root: whether it is a file. */
@@ -26,22 +29,23 @@ const lookUpInWorkspace: FileLookup = async (workspaceId, relPath) => {
  */
 export function lookupPath(path: string, root: string): string | null {
   if (!root || !isUnder(path, root)) return null;
-  const base = root.replace(/\/+$/, "");
+  // A Windows root may end in a backslash (C:\), and the path use slashes.
+  const base = root.replace(/[\\/]+$/, "");
   return path.length > base.length ? path.slice(base.length + 1) : null;
 }
 
-/** Answers what files are there, each lookup shared and kept a while. */
+/** Answers what files are there, each lookup shared and a file found kept a while. */
 export function createFilePresence(
   lookUp: FileLookup = lookUpInWorkspace,
   now: () => number = Date.now,
 ) {
-  const known = new Map<string, { there: boolean; at: number }>();
+  const found = new Map<string, number>();
   const asking = new Map<string, Promise<boolean>>();
   return {
-    /** What is known of `path` and still fresh; undefined when it has to be looked up. */
-    known(workspaceId: string, path: string): boolean | undefined {
-      const entry = known.get(`${workspaceId}\u0000${path}`);
-      return entry && now() - entry.at < FRESH_MS ? entry.there : undefined;
+    /** True when `path` was found a moment ago; undefined when it has to be looked up. */
+    known(workspaceId: string, path: string): true | undefined {
+      const at = found.get(`${workspaceId}\u0000${path}`);
+      return at !== undefined && now() - at < FRESH_MS ? true : undefined;
     },
     /** Whether `path`, in the workspace at `root`, is a file. */
     async isThere(workspaceId: string, root: string, path: string): Promise<boolean> {
@@ -55,7 +59,8 @@ export function createFilePresence(
         pending = lookUp(workspaceId, relPath)
           .catch(() => false)
           .then((there) => {
-            known.set(key, { there, at: now() });
+            if (there) found.set(key, now());
+            else found.delete(key);
             asking.delete(key);
             return there;
           });
@@ -100,17 +105,22 @@ export function foundResultFiles(
   return resultFilesThere(results, cwd, (path) => presence.isThere(workspaceId, root, path));
 }
 
-/** Which of `paths`, in the workspace at `root`, are files there. */
+/**
+ * Which of `paths`, in the workspace at `root`, are files there; looked up
+ * again whenever `recheck` changes, as when a tool of the agent's is done.
+ */
 export function useFoundFiles(
   workspaceId: string,
   root: string,
   paths: readonly string[],
+  recheck: unknown = null,
 ): ReadonlySet<string> {
   const key = paths.join("\n");
   const [found, setFound] = useState<ReadonlySet<string>>(
     () => new Set(paths.filter((path) => presence.known(workspaceId, path) === true)),
   );
   // `key` stands for `paths`, which is a new array each render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` only says when to look again
   useEffect(() => {
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
@@ -126,6 +136,6 @@ export function useFoundFiles(
     return () => {
       live = false;
     };
-  }, [workspaceId, root, key]);
+  }, [workspaceId, root, key, recheck]);
   return found;
 }

@@ -15,6 +15,12 @@ describe("lookupPath", () => {
     expect(lookupPath("/p/system.stats", "/p/")).toBe("system.stats");
   });
 
+  it("is the path under a Windows root, however it ends", () => {
+    expect(lookupPath("C:/w/src/a.ts", "C:\\w")).toBe("src/a.ts");
+    expect(lookupPath("C:/src/a.ts", "C:\\")).toBe("src/a.ts");
+    expect(lookupPath("c:/W/a.ts", "C:\\w\\")).toBe("a.ts");
+  });
+
   it("is null outside the root, and for the root itself", () => {
     expect(lookupPath("/q/v0.17.0", "/p")).toBeNull();
     expect(lookupPath("/p", "/p")).toBeNull();
@@ -67,6 +73,20 @@ describe("createFilePresence", () => {
     expect(presence.known("ws", "/p/a.ts")).toBeUndefined();
     await presence.isThere("ws", "/p", "/p/a.ts");
     expect(asked).toEqual(["a.ts", "a.ts"]);
+  });
+
+  it("looks a file not found up again, as the agent may make it", async () => {
+    const files: string[] = [];
+    const asked: string[] = [];
+    const presence = createFilePresence(async (_workspaceId, relPath) => {
+      asked.push(relPath);
+      return files.includes(relPath);
+    });
+    expect(await presence.isThere("ws", "/p", "/p/x.sh")).toBe(false);
+    expect(presence.known("ws", "/p/x.sh")).toBeUndefined();
+    files.push("x.sh");
+    expect(await presence.isThere("ws", "/p", "/p/x.sh")).toBe(true);
+    expect(asked).toEqual(["x.sh", "x.sh"]);
   });
 
   it("keeps workspaces apart", async () => {
