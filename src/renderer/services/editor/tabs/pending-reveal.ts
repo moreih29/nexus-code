@@ -40,6 +40,8 @@ export interface PendingEditorReveal extends EditorInput {
   range: MonacoRange;
   /** Tab whose editor should reveal the range; omitted for "any editor of this file". */
   tabId?: string;
+  /** Leaves keyboard focus where it is instead of moving it into the editor. */
+  preserveFocus?: boolean;
 }
 
 interface RevealTarget {
@@ -85,7 +87,7 @@ export function registerRevealTarget(
   const pending = pendingByKey.get(key);
   if (pending && (pending.tabId === undefined || pending.tabId === tabId)) {
     pendingByKey.delete(key);
-    revealInSource(input.workspaceId, tabId, editor, pending.range);
+    revealInSource(input.workspaceId, tabId, editor, pending.range, pending.preserveFocus);
   }
 
   return () => {
@@ -101,7 +103,13 @@ export function requestEditorReveal(input: PendingEditorReveal): void {
   const key = keyFor(input);
   const target = findTarget(key, input.tabId);
   if (target) {
-    revealInSource(input.workspaceId, target.tabId, target.editor, input.range);
+    revealInSource(
+      input.workspaceId,
+      target.tabId,
+      target.editor,
+      input.range,
+      input.preserveFocus,
+    );
     return;
   }
   // Target editor not live yet — queue the range. The next matching
@@ -121,6 +129,7 @@ function revealInSource(
   tabId: string | undefined,
   editor: Monaco.editor.IStandaloneCodeEditor,
   range: MonacoRange,
+  preserveFocus = false,
 ): void {
   const tab =
     tabId === undefined ? undefined : useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
@@ -129,14 +138,14 @@ function revealInSource(
     tab?.type !== "editor" ||
     (tab.viewMode ?? defaultViewMode(tab.props.filePath, defaults)) === "raw"
   ) {
-    revealRange(editor, range);
+    revealRange(editor, range, preserveFocus);
     return;
   }
   useTabsStore.getState().setViewMode(workspaceId, tab.id, "raw");
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
       editor.layout();
-      revealRange(editor, range);
+      revealRange(editor, range, preserveFocus);
     }),
   );
 }

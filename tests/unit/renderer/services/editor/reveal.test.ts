@@ -75,6 +75,44 @@ describe("revealRange", () => {
     expect(focusOrder).toBeLessThan(selectionOrder);
     expect(selectionOrder).toBeLessThan(revealOrder);
   });
+
+  it("leaves focus where it is when asked to", () => {
+    const editor = makeStubEditor();
+
+    revealRange(editor as never, RANGE_A, true);
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenCalledWith(RANGE_A);
+    expect(editor.revealRangeInCenter).toHaveBeenCalledWith(RANGE_A);
+  });
+});
+
+describe("requestEditorReveal — preserveFocus (the nexus CLI's opens)", () => {
+  it("reveals in a registered editor without focusing it", () => {
+    __resetPendingEditorRevealsForTests();
+    const editor = makeStubEditor();
+    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
+    registerRevealTarget(input, editor as never);
+
+    requestEditorReveal({ ...input, range: RANGE_A, preserveFocus: true });
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
+  });
+
+  it("keeps it for a reveal queued until the editor mounts", () => {
+    __resetPendingEditorRevealsForTests();
+    const editor = makeStubEditor();
+    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
+
+    requestEditorReveal({ ...input, range: RANGE_B, preserveFocus: true });
+    registerRevealTarget(input, editor as never);
+
+    expect(editor.focus).not.toHaveBeenCalled();
+    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_B);
+    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
+  });
 });
 
 describe("requestEditorReveal — direct routing to registered editor", () => {
