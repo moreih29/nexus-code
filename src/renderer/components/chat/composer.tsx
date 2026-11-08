@@ -25,11 +25,13 @@ import {
   X,
 } from "lucide-react";
 import {
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -186,6 +188,13 @@ export function Composer({
   const canWithdraw = !!controller.withdraw && controller.supports("cancel_async_message");
   const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());
+
+  // The row under the box leaves out what it must to stay on one line.
+  const footerRef = useRef<HTMLDivElement>(null);
+  const fit = useFitStep(
+    footerRef,
+    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}`,
+  );
 
   // The caret, for the token it completes; a pick moves it after the render.
   const [caret, setCaret] = useState(0);
@@ -619,10 +628,12 @@ export function Composer({
             aria-label={t("chat.composer.aria", agent)}
             className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center gap-1 px-1.5 pb-1.5">
-            <ModeChip controller={controller} state={state} />
-            <ModelChip controller={controller} state={state} />
-            <EffortChip controller={controller} state={state} />
+          <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
+            <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
+            {fit < FIT.NO_MODEL && (
+              <ModelChip controller={controller} state={state} short={fit >= FIT.SHORT_MODEL} />
+            )}
+            {fit < FIT.NO_EFFORT && <EffortChip controller={controller} state={state} />}
             <div className="flex-1" />
             <AddMenu
               onAttach={() => fileRef.current?.click()}
@@ -665,6 +676,7 @@ export function Composer({
                 program={program}
                 onClick={() => void submit("send")}
                 disabled={!canSend}
+                keycap={fit < FIT.NO_KEYCAP}
               />
             )}
           </div>
@@ -676,6 +688,56 @@ export function Composer({
 
 function showError(err: Error): void {
   showToast({ kind: "error", message: err.message });
+}
+
+/**
+ * What the row under the box leaves out, step by step, when it is too
+ * narrow for all of it: the model's name loses its note, the send button
+ * its key, then the effort goes, then the model, and last the mode's name
+ * is cut. The mode, the + menu and send always stay.
+ */
+const FIT = {
+  SHORT_MODEL: 1,
+  NO_KEYCAP: 2,
+  NO_EFFORT: 3,
+  NO_MODEL: 4,
+  TRUNCATE_MODE: 5,
+} as const;
+
+/**
+ * The step of FIT that lets `row` hold its content on one line: each
+ * render it overflows at takes the next step, before it paints. A new
+ * width, or a change of what `content` names, starts over from all of it.
+ */
+function useFitStep(row: RefObject<HTMLElement | null>, content: string): number {
+  const [step, setStep] = useState(0);
+  const [, recheck] = useReducer((n: number) => n + 1, 0);
+  const shownFor = useRef(content);
+  useLayoutEffect(() => {
+    if (shownFor.current !== content) {
+      shownFor.current = content;
+      if (step !== 0) {
+        setStep(0);
+        return;
+      }
+    }
+    const el = row.current;
+    if (el && step < FIT.TRUNCATE_MODE && el.scrollWidth > el.clientWidth) setStep(step + 1);
+  });
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      setStep(0);
+      recheck();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [row]);
+  return step;
 }
 
 function formatSize(bytes: number): string {
@@ -815,6 +877,7 @@ function SendButton({
   program,
   onClick,
   disabled,
+  keycap,
 }: {
   running: boolean;
   /** During a turn, the message waits for the current call (Claude's ↩). */
@@ -822,6 +885,8 @@ function SendButton({
   program: ChatAgent;
   onClick: () => void;
   disabled: boolean;
+  /** Shows the ↩ key it answers to; left out in a narrow row. */
+  keycap: boolean;
 }) {
   const { t } = useTranslation();
   const queues = running && waits;
@@ -837,17 +902,19 @@ function SendButton({
       disabled={disabled}
       title={composerHint(t, running, program)}
       aria-label={label}
-      className="flex items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 pr-1.5 pl-2 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40",
+        keycap ? "pr-1.5 pl-2" : "px-2",
+      )}
       data-testid="chat-send"
     >
       {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
-      <Keycap>↵</Keycap>
+      {keycap && <Keycap>↵</Keycap>}
     </button>
   );
 }
 
-// One line each: in a narrow panel the chips keep their words whole and
-// the model's name, the longest, gives way first (ModelChip truncates it).
+// One line each: in a narrow panel the row leaves chips out instead (useFitStep).
 const CHIP_CLASS =
   "flex shrink-0 items-center gap-1 whitespace-nowrap rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
@@ -872,7 +939,7 @@ const MODE_TINT: Record<string, string> = {
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
-function ModeChip({ controller, state }: ChipProps) {
+function ModeChip({ controller, state, truncate }: ChipProps & { truncate: boolean }) {
   const { t } = useTranslation();
   const set = controller.modes ?? CLAUDE_MODES;
   const bypass = set.dangerous;
@@ -880,6 +947,7 @@ function ModeChip({ controller, state }: ChipProps) {
   const safe = all.filter((m) => m !== bypass);
   const label = (key: string) => t(`${set.prefix}.${key}`);
   const mode = state.model.permissionMode ?? set.fallback;
+  const name = t(`${set.prefix}.${mode}`, { defaultValue: mode });
   const ready = state.model.process === "running";
   const blocked = state.model.bypassBlocked !== undefined;
   const [open, setOpen] = useState(false);
@@ -921,12 +989,13 @@ function ModeChip({ controller, state }: ChipProps) {
             CHIP_CLASS,
             MODE_TINT[mode],
             mode === bypass && "text-destructive hover:text-destructive",
+            truncate && "min-w-0 shrink",
           )}
           disabled={!ready}
-          title={t("chat.mode.aria")}
+          title={`${t("chat.mode.aria")} · ${name}`}
           aria-label={t("chat.mode.aria")}
         >
-          {t(`${set.prefix}.${mode}`, { defaultValue: mode })}
+          <span className="min-w-0 truncate">{name}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
@@ -997,7 +1066,12 @@ export function currentModelInfo(
   );
 }
 
-function ModelChip({ controller, state }: ChipProps) {
+/** A model's name without its note: "Default (recommended)" is "Default". */
+export function shortModelName(name: string): string {
+  return name.replace(/\s*\([^)]*\)\s*$/, "") || name;
+}
+
+function ModelChip({ controller, state, short }: ChipProps & { short: boolean }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
   const current = currentModelInfo(models, state.model.model);
@@ -1008,12 +1082,12 @@ function ModelChip({ controller, state }: ChipProps) {
       <DropdownMenuTrigger>
         <button
           type="button"
-          className={cn(CHIP_CLASS, "min-w-0 shrink")}
+          className={CHIP_CLASS}
           disabled={!ready}
           title={`${t("chat.model.aria")} · ${label}`}
           aria-label={t("chat.model.aria")}
         >
-          <span className="truncate">{label}</span>
+          {short ? shortModelName(label) : label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top">
