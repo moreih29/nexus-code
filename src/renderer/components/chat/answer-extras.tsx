@@ -57,7 +57,16 @@ export function AnswerExtrasView({
   );
 }
 
-function FileCard({ path, workspaceId, cwd }: { path: string; workspaceId: string; cwd: string }) {
+/** A file as a card: its name and folder, an image file its picture too; opens in quick look. */
+export function FileCard({
+  path,
+  workspaceId,
+  cwd,
+}: {
+  path: string;
+  workspaceId: string;
+  cwd: string;
+}) {
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
   const image = fileKind(path) === "image" && file.kind === "inside";

@@ -2,10 +2,13 @@
 // and read five files reads as that, and opens to show each call. Pure.
 
 import type { AssistantBlock, AssistantItem, ChatItem, ToolCall } from "./model";
-import { AGENT_TOOLS } from "./panel";
+import { AGENT_TOOLS, SEND_FILES_TOOL } from "./panel";
 
-/** Calls that keep a line of their own: a subagent's, and those that ask the user. */
-const LONE_TOOLS = new Set([...AGENT_TOOLS, "AskUserQuestion", "ExitPlanMode"]);
+/**
+ * Calls that keep a line of their own: a subagent's, those that ask the
+ * user, and one that puts files in front of the user.
+ */
+const LONE_TOOLS = new Set([...AGENT_TOOLS, "AskUserQuestion", "ExitPlanMode", SEND_FILES_TOOL]);
 
 /** Fewest calls in a row that fold into one line. */
 export const MIN_RUN = 2;

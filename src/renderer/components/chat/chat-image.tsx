@@ -4,8 +4,8 @@
 // Outside a Claude or Codex tab it is a plain image.
 
 import { useTranslation } from "react-i18next";
-import { imageSrc } from "../../services/chat/image-look";
-import type { ImageBlock } from "../../services/chat/model";
+import { imageFileOf, imageSrc } from "../../services/chat/image-look";
+import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { useChatLinks } from "./chat-links";
 
 export function ChatImage({
@@ -39,5 +39,38 @@ export function ChatImage({
     >
       {img}
     </button>
+  );
+}
+
+/** Most thumbnails beside a line of calls. */
+const MAX_THUMBS = 3;
+
+/**
+ * The images tool calls gave, as small thumbnails beside their line, each
+ * opening in quick look as ChatImage does: a Read of an image file shows
+ * it there, as the line says only what was read.
+ */
+export function ToolThumbs({ calls }: { calls: readonly (ToolCall | undefined)[] }) {
+  const thumbs = calls
+    .flatMap((tool) => {
+      const images = tool?.result?.images ?? [];
+      const file = tool ? imageFileOf(tool.input) : undefined;
+      return images.map((_, index) => ({ images, index, file }));
+    })
+    .slice(0, MAX_THUMBS);
+  if (thumbs.length === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-0.5" data-testid="chat-tool-thumbs">
+      {thumbs.map(({ images, index, file }, i) => (
+        <ChatImage
+          // biome-ignore lint/suspicious/noArrayIndexKey: the calls' images keep their order
+          key={i}
+          images={images}
+          index={index}
+          file={file}
+          className="h-5 max-w-8 rounded-sm border border-border object-cover"
+        />
+      ))}
+    </span>
   );
 }

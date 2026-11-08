@@ -11,11 +11,12 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { resolveFilePath } from "../../services/chat/links";
+import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { copyText } from "../../utils/clipboard";
 import { LinkMenu, useChatLinks } from "./chat-links";
+import { FileImage } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
 
 interface ChatMarkdownProps {
@@ -86,12 +87,19 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         );
       },
       pre: CodeBlock,
-      // Images in a reply are not loaded from where it names them.
-      img({ alt }) {
-        return <span className="text-muted-foreground">[{alt || "image"}]</span>;
+      // An image file the reply shows (![alt](path)) shows itself, as the
+      // previews load it; a web image is not loaded from where it names it.
+      img({ src, alt }) {
+        const label = <span className="text-muted-foreground">[{alt || "image"}]</span>;
+        const path =
+          typeof src === "string" && linkKind(src, cwd) === "file"
+            ? resolveFilePath(src, cwd)
+            : null;
+        if (!path || fileKind(path) !== "image") return label;
+        return <FileImage path={path} workspaceId={workspaceId} alt={alt ?? ""} fallback={label} />;
       },
     }),
-    [onLink, cwd],
+    [onLink, cwd, workspaceId],
   );
 
   return (

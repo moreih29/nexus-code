@@ -16,6 +16,7 @@ import {
   jobsOf,
   outsideLinksOf,
   resultsOf,
+  sentFilesOf,
   todosOf,
   usageLimitsOf,
 } from "../../../../../src/renderer/services/chat/panel";
@@ -452,6 +453,59 @@ describe("chat panel", () => {
     expect(first.images).toEqual([
       { image: { mediaType: "image/png", data: "AAAA" }, file: "/p/shot.png" },
     ]);
+  });
+
+  test("files sent the user, and images a reply shows, are results with no card of their own", () => {
+    seq = 0;
+    const ask: ChatLine = {
+      seq: ++seq,
+      dir: "in",
+      message: { type: "user", message: { role: "user", content: "send me the chart" } },
+    };
+    // As claude 2.1.319 sends them with Remote Control on.
+    const send = {
+      files: ["out/chart.png", "/tmp/report.pdf"],
+      caption: "The chart",
+      status: "normal",
+      display: "render",
+    };
+    const model = applyLines(emptyModel(), [
+      ask,
+      assistant("m1", [{ type: "tool_use", id: "s", name: "SendUserFile", input: send }]),
+      result("s", "2 files delivered to user.", undefined),
+      assistant("m2", [
+        { type: "tool_use", id: "f", name: "SendUserFile", input: { files: ["/p/lost.png"] } },
+      ]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "f", content: "failed", is_error: true }],
+        },
+      }),
+      assistant("m3", [
+        { type: "text", text: "Sent. ![plot](out/plot.png) is the other; see [notes](notes.md)." },
+      ]),
+    ]);
+    expect(sentFilesOf(model.tools.s)).toEqual(["out/chart.png", "/tmp/report.pdf"]);
+    expect(sentFilesOf(model.tools.f)).toEqual(["/p/lost.png"]);
+    expect(sentFilesOf({ ...model.tools.s, input: { files: ["a.png", 3, "", null] } })).toEqual([
+      "a.png",
+    ]);
+    expect(sentFilesOf({ ...model.tools.s, name: "Read" })).toEqual([]);
+    // A send that failed put nothing in front of the user.
+    expect(resultsOf(model.items, model.tools, "/p")).toEqual([
+      { kind: "file", target: "out/chart.png", created: false },
+      { kind: "file", target: "/tmp/report.pdf", created: false },
+      { kind: "file", target: "out/plot.png", created: false },
+      { kind: "file", target: "notes.md", created: false },
+    ]);
+    // What shows where the turn put it gets no card at its end.
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(extras.files).toEqual(["/p/notes.md"]);
+    // A file sent from outside the workspace is one its previews read.
+    expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual(["/tmp/report.pdf"]);
   });
 
   test("what a session links outside the workspace, with its HTML files' folders", () => {

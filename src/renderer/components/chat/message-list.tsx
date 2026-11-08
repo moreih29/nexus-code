@@ -39,7 +39,7 @@ import {
   type ToolCall,
   type UserItem,
 } from "../../services/chat/model";
-import { type AnswerExtras, answerExtras } from "../../services/chat/panel";
+import { type AnswerExtras, answerExtras, SEND_FILES_TOOL } from "../../services/chat/panel";
 import { isOwnScroll, nearBottom } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
@@ -49,9 +49,10 @@ import { cn } from "../../utils/cn";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
 import { useAgentContext } from "./chat-agent";
-import { ChatImage } from "./chat-image";
+import { ChatImage, ToolThumbs } from "./chat-image";
 import { ChatMarkdown } from "./chat-markdown";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
+import { SentFiles } from "./sent-files";
 import { ToolRow } from "./tool-row";
 
 interface MessageListProps {
@@ -451,42 +452,45 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
     : blocks.filter((block) => block.type === "tool" && isLive(ctx.tools[block.toolUseId]));
   return (
     <div className="my-1 text-app-ui-sm" data-testid="chat-tool-run">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
-      >
-        {running ? (
-          <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--state-loading-indicator)]" />
-        ) : (
-          // A run some calls of which failed is not all green.
-          <Check
-            className={cn(
-              "size-3.5 shrink-0",
-              tally.failed > 0 ? "text-muted-foreground" : "text-[var(--state-success-fg)]",
-            )}
-          />
-        )}
-        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={label}>
-          {label}
-        </span>
-        {tally.failed > 0 && (
-          <span className="shrink-0 text-[var(--state-error-fg)]">
-            {t("chat.tool.run.failed", { count: tally.failed })}
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 text-left hover:bg-[var(--state-hover-bg)]"
+        >
+          {running ? (
+            <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--state-loading-indicator)]" />
+          ) : (
+            // A run some calls of which failed is not all green.
+            <Check
+              className={cn(
+                "size-3.5 shrink-0",
+                tally.failed > 0 ? "text-muted-foreground" : "text-[var(--state-success-fg)]",
+              )}
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate text-muted-foreground" title={label}>
+            {label}
           </span>
-        )}
-        {tally.denied > 0 && (
-          <span className="shrink-0 text-muted-foreground">
-            {t("chat.tool.run.denied", { count: tally.denied })}
-          </span>
-        )}
-        {open ? (
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
-      </button>
+          {tally.failed > 0 && (
+            <span className="shrink-0 text-[var(--state-error-fg)]">
+              {t("chat.tool.run.failed", { count: tally.failed })}
+            </span>
+          )}
+          {tally.denied > 0 && (
+            <span className="shrink-0 text-muted-foreground">
+              {t("chat.tool.run.denied", { count: tally.denied })}
+            </span>
+          )}
+          {open ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+        <ToolThumbs calls={calls} />
+      </div>
       {rows.length > 0 && (
         <div className="ml-4 border-l border-border pl-2">
           {rows.map((block, i) =>
@@ -513,6 +517,11 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
 /** A call as a row: one that asked the user shows what they said. */
 function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
   const tool = ctx.tools[toolUseId];
+  // The files it sent the user show as they would there; running or
+  // failed, it is a row as any call.
+  if (tool?.name === SEND_FILES_TOOL && tool.status === "done") {
+    return <SentFiles tool={tool} workspaceId={ctx.workspaceId} cwd={ctx.cwd} />;
+  }
   if (showsAsPrompt(tool)) {
     return tool.name === "AskUserQuestion" ? (
       <AnsweredQuestions tool={tool} />

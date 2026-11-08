@@ -4,11 +4,11 @@
 import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { imageFileOf, imageSrc } from "../../services/chat/image-look";
+import { imageFileOf } from "../../services/chat/image-look";
 import { slashWindowsPath } from "../../services/chat/links";
 import type { ToolCall } from "../../services/chat/model";
 import { cn } from "../../utils/cn";
-import { ChatImage } from "./chat-image";
+import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
 
 interface ToolRowProps {
@@ -44,7 +44,6 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
   const name = tool?.displayName || tool?.name || "tool";
   const summary = tool ? toolSummary(tool, cwd) : "";
   const status = tool?.status ?? "running";
-  const images = tool?.result?.images ?? [];
   const unsandboxed = tool ? isUnsandboxed(tool.input) : false;
   const children =
     tool && AGENT_TOOLS.has(tool.name)
@@ -84,25 +83,14 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
               {t("chat.tool.subagent_calls", { count: children.length })}
             </span>
           )}
-          {images.length > 0 && (
-            <span className="flex shrink-0 items-center gap-0.5">
-              {images.slice(0, 3).map((image, i) => (
-                <img
-                  // biome-ignore lint/suspicious/noArrayIndexKey: a result's images keep their order
-                  key={i}
-                  src={imageSrc(image)}
-                  alt=""
-                  className="h-5 max-w-8 rounded-sm border border-border object-cover"
-                />
-              ))}
-            </span>
-          )}
           {open ? (
             <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
           ) : (
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           )}
         </button>
+        {/* Beside the line, not in it: a thumbnail opens its image, not the call. */}
+        <ToolThumbs calls={[tool]} />
         {backgroundable && (
           <button
             type="button"
