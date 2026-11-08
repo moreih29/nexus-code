@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { configCommandOf } from "../../services/chat/claude-config";
 import {
   type ChatController,
   type ChatTabHooks,
@@ -81,6 +82,7 @@ import { AgentStrip } from "./agent-strip";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
+import { ConfigDialog } from "./config-dialog";
 import { type MessageActions, MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
@@ -371,8 +373,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     };
   }, [workspaceId, tabId]);
 
+  // Claude Code's settings (/config), and the one a command opened them at.
+  const [config, setConfig] = useState<{ focus?: string } | null>(null);
+
   /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
+    const opened = configCommandOf(text);
+    if (opened) {
+      setConfig(opened);
+      return true;
+    }
     const part = revealOf(text);
     if (part) {
       revealPart(controller.key, part);
@@ -571,6 +581,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
         item={rewinding}
         cwd={props.cwd}
         onClose={() => setRewinding(null)}
+      />
+      <ConfigDialog
+        controller={controller}
+        state={state}
+        open={config !== null}
+        focus={config?.focus}
+        onClose={() => setConfig(null)}
       />
       {look && (
         <QuickLook

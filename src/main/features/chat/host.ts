@@ -247,6 +247,11 @@ export class ChatHost {
     return channel.call("chat.transcript", { sessionId });
   }
 
+  async claudeConfig(workspaceId: string): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.claudeConfig", {});
+  }
+
   /** Runs one of the `claude` commands a tab may (`claude agents`, `claude plugin`…) in the folder. */
   async cli(
     workspaceId: string,

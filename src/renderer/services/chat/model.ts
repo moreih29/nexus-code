@@ -162,6 +162,8 @@ export interface InitializeInfo {
   models: ModelInfo[];
   /** The account may turn on Remote Control. */
   remoteControl: boolean;
+  /** The output styles /config takes, the user's own among them. */
+  outputStyles?: string[];
 }
 
 export interface ResultInfo {
@@ -946,6 +948,8 @@ const QUIET_REQUESTS = new Set([
   "get_usage",
   "mcp_status",
   "file_suggestions",
+  // /config and /sandbox show its error themselves.
+  "get_settings",
 ]);
 
 function applyControlResponse(
@@ -983,6 +987,9 @@ function applyControlResponse(
           ? (body.models.filter((x) => rec(x) && str(rec(x)?.value)) as ModelInfo[])
           : [],
         remoteControl: body.remote_control_available === true,
+        outputStyles: Array.isArray(body.available_output_styles)
+          ? body.available_output_styles.filter((s): s is string => typeof s === "string")
+          : undefined,
       };
       m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
       m.version = str(body.claude_code_version) ?? m.version;

@@ -190,6 +190,21 @@ type TranscriptResult struct {
 	Truncated bool              `json:"truncated,omitempty"`
 }
 
+// ClaudeConfigParams is the wire shape for chat.claudeConfig.
+type ClaudeConfigParams struct {
+	// ConfigDir is the program's config directory, as CLAUDE_CONFIG_DIR;
+	// empty means CLAUDE_CONFIG_DIR, else the home.
+	ConfigDir string `json:"configDir,omitempty"`
+}
+
+// ClaudeConfigResult is returned by chat.claudeConfig: the settings of
+// Claude Code's global config file that its /config shows, by their keys
+// there. Found is false when there is no such file.
+type ClaudeConfigResult struct {
+	Found  bool                       `json:"found"`
+	Values map[string]json.RawMessage `json:"values"`
+}
+
 // SessionsParams is the wire shape for chat.sessions.
 type SessionsParams struct {
 	// Cwd is the folder whose sessions are listed.
