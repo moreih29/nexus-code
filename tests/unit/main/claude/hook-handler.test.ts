@@ -253,6 +253,20 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe(`${"x".repeat(PROMPT_MAX_CHARS)}…`);
   });
 
+  test("user-prompt-submit keeps a long prompt the user wrote whole", async () => {
+    const { broker, emit } = makeHarness();
+    const prompt = Array.from(
+      { length: 80 },
+      (_, i) => `${i}: ${"말을 길게 이어서 한다 ".repeat(6)}`,
+    )
+      .join("\n")
+      .trim();
+    expect(prompt.length).toBeGreaterThan(5_000);
+    emit(makeHookPayload("user-prompt-submit", { prompt }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(prompt);
+  });
+
   test("user-prompt-submit keeps pasted text without Claude Code's marks", async () => {
     const { broker, emit } = makeHarness();
     const prompt =

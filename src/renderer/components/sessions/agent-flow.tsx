@@ -12,6 +12,7 @@ import type { AgentRun, ToolRun } from "../../../shared/claude/activity";
 import { agentFlow, runMessages } from "../../services/sessions/agents";
 import { toolTint } from "../chat/tool-row";
 import { elapsedLabel } from "./agent-status";
+import { FoldToggle, useFold } from "./fold";
 
 /** How many of the latest steps show before the earlier ones are opened. */
 const STEPS_SHOWN = 20;
@@ -111,31 +112,19 @@ function plainText(text: string): ReactNode {
 
 /** What it was asked, on the right as a request in its tab, folded when long. */
 function PromptBubble({ text }: { text: string }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const long = text.length > 400 || text.split("\n").length > PROMPT_LINES;
+  const fold = useFold<HTMLParagraphElement>(text, PROMPT_LINES);
   return (
     <div className="flex max-w-[85%] flex-col items-end gap-1 self-end">
       <div className="max-w-full rounded-(--radius-raised) bg-[var(--chat-user-bg)] px-3 py-2">
         <p
-          className={cn(
-            "whitespace-pre-wrap break-words text-app-body text-foreground select-text",
-            long && !open && "line-clamp-6",
-          )}
+          ref={fold.ref}
+          style={fold.style}
+          className="whitespace-pre-wrap break-words text-app-body text-foreground select-text"
         >
           {text}
         </p>
       </div>
-      {long && (
-        <button
-          type="button"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-          className="rounded-(--radius-control) text-app-micro text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          {open ? t("sessions.detail.answer_less") : t("sessions.detail.answer_more")}
-        </button>
-      )}
+      {fold.foldable && <FoldToggle open={fold.open} onToggle={fold.toggle} />}
     </div>
   );
 }
