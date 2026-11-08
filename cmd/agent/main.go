@@ -23,6 +23,7 @@ import (
 	agentgit "github.com/nexus-code/nexus-code/internal/git"
 	"github.com/nexus-code/nexus-code/internal/hookclient"
 	"github.com/nexus-code/nexus-code/internal/hookserver"
+	"github.com/nexus-code/nexus-code/internal/inheritfd"
 	agentlsp "github.com/nexus-code/nexus-code/internal/lsp"
 	"github.com/nexus-code/nexus-code/internal/proto"
 	agentpty "github.com/nexus-code/nexus-code/internal/pty"
@@ -32,6 +33,10 @@ import (
 )
 
 func main() {
+	// What the agent was started with stays with it: on Linux it brings
+	// along Chromium's descriptors, which would reach every terminal.
+	inheritfd.CloseOnExec()
+
 	// hook 서브커맨드 분기 — PTY/FS/Git/LSP 서비스 init 전에 처리해 빠른 시작을 보장한다.
 	// Claude Code는 hook 이벤트 발생 시 `agent hook <subcommand>` 형태로 호출한다.
 	if len(os.Args) >= 2 && os.Args[1] == "hook" {
