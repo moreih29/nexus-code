@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
   applyLines,
   type ChatLine,
@@ -347,6 +348,21 @@ describe("chat panel", () => {
       { kind: "file", target: "system.stats", created: false, guessed: true },
       { kind: "file", target: "/etc/hosts", created: false, guessed: false },
     ]);
+  });
+
+  test("a relative path parted by backslashes is a guess too, a Windows path once resolved", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      assistant("m1", [
+        { type: "text", text: "See `src\\greet.ts`, `.\\lib\\util.ts` and `nope\\`." },
+      ]),
+    ]);
+    const results = resultsOf(model.items, model.tools);
+    expect(results).toEqual([
+      { kind: "file", target: "src\\greet.ts", created: false, guessed: true },
+      { kind: "file", target: ".\\lib\\util.ts", created: false, guessed: true },
+    ]);
+    expect(resultFiles(results, "C:\\w")).toEqual(["C:/w/src/greet.ts", "C:/w/lib/util.ts"]);
   });
 
   test("a finished turn's answer ends with its files and its tools' images", () => {
