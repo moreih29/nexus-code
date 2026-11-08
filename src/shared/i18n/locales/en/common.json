@@ -1339,6 +1339,25 @@
         "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
         "bypass_confirm": "Give full access"
       }
+    },
+    "usage": {
+      "context": "Context",
+      "context_tip": "Context: {{used}} of {{max}} tokens ({{percent}}%)",
+      "kind": {
+        "session": "Session",
+        "weekly": "This week",
+        "weekly_all": "This week, all models",
+        "weekly_scoped": "This week, {{scope}}",
+        "hours": "{{count}}h",
+        "days": "{{count}}d"
+      },
+      "resets_time": "resets {{time}}",
+      "resets_date": "resets {{weekday}} {{month}}/{{day}} {{time}}",
+      "meter_tip": "{{label}}: {{percent}}% used",
+      "short": {
+        "session": "Session",
+        "weekly": "Week"
+      }
     }
   },
   "agentView": {

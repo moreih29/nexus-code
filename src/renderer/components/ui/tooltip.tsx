@@ -190,7 +190,7 @@ export function TooltipRoot() {
       ref={tipRef}
       role="tooltip"
       style={{ visibility: "hidden", left: 0, top: 0 }}
-      className="pointer-events-none fixed z-(--layer-tooltip) max-w-80 rounded-(--radius-control) border border-border bg-muted px-2 py-1 text-app-micro text-foreground"
+      className="pointer-events-none fixed z-(--layer-tooltip) max-w-80 rounded-(--radius-control) border border-border bg-muted px-2 py-1 text-app-micro whitespace-pre-line text-foreground"
     >
       {shown.label}
       {shown.shortcut && <span className="ml-2 text-muted-foreground">{shown.shortcut}</span>}

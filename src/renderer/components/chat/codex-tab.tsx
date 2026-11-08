@@ -32,6 +32,7 @@ import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, useChatTab } from "../../services/chat/store";
+import { codexUsageLine } from "../../services/chat/usage-line";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -52,6 +53,7 @@ import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { StatusLine } from "./status-line";
+import { UsageLineView } from "./usage-line";
 
 interface CodexTabViewProps {
   workspaceId: string;
@@ -106,6 +108,11 @@ export function CodexTabView({
   );
   const state = useChatTab(workspaceId, tabId);
   const model = state.model as CodexModel;
+  const { tokens, rateLimits } = model;
+  const usageLine = useMemo(
+    () => codexUsageLine({ tokens, rateLimits }, Date.now()),
+    [tokens, rateLimits],
+  );
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -296,6 +303,7 @@ export function CodexTabView({
         local={isLocal}
         appCommands={false}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+        below={<UsageLineView line={usageLine} />}
       />
       {look && (
         <QuickLook

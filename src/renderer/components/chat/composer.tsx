@@ -121,6 +121,8 @@ interface ComposerProps {
   placeholder?: string;
   /** Above the queue: what an app command shows. */
   above?: React.ReactNode;
+  /** Under the box: the context and the plan's usage. */
+  below?: React.ReactNode;
   /** Runs the message when it is one of the tab's own commands; false sends it. */
   onCommand?: (text: string) => boolean;
   /** The `/` menu lists the Claude tab's own commands too. */
@@ -162,6 +164,7 @@ export function Composer({
   local,
   placeholder,
   above,
+  below,
   onCommand,
   appCommands = true,
 }: ComposerProps) {
@@ -669,6 +672,7 @@ export function Composer({
             )}
           </div>
         </div>
+        {below}
       </div>
     </div>
   );

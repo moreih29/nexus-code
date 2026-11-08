@@ -58,6 +58,7 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
+import { claudeUsageLine } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
@@ -85,6 +86,7 @@ import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
+import { UsageLineView } from "./usage-line";
 
 interface ClaudeTabViewProps {
   workspaceId: string;
@@ -154,6 +156,18 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
+  const { contextUsage, usage } = state.model;
+  const usageLine = useMemo(
+    () => claudeUsageLine({ contextUsage, usage }, Date.now()),
+    [contextUsage, usage],
+  );
+
+  // The line under the composer: the context after each turn, and when the
+  // tab is shown or its program comes up; the plan's usage with it.
+  const lineReady = state.phase === "ready" && state.model.process === "running";
+  useEffect(() => {
+    if (isVisible && lineReady && !state.model.running) controller.refreshUsageLine();
+  }, [controller, isVisible, lineReady, state.model.running]);
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -497,6 +511,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               )
             }
             onCommand={runCommand}
+            below={<UsageLineView line={usageLine} />}
           />
         </div>
         {place === "beside" && besideOpen && panel}
