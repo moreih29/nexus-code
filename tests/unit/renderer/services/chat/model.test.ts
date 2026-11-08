@@ -435,6 +435,28 @@ describe("messages written during a turn", () => {
         : [],
     );
 
+  test("a command's output the CLI echoes, as setting the model, is no message of the user's", () => {
+    let model = applyLines(emptyModel(), [sent(1, "go", "u-1"), toolUse(2)]);
+    model = applyLine(
+      model,
+      echo(
+        3,
+        "<local-command-stdout>Set model to `haiku (claude-haiku-5-5)`</local-command-stdout>",
+        "c-1",
+      ),
+    );
+    // Nor does it take the message the user wrote.
+    expect(users(model)).toEqual(["go:sent"]);
+    model = applyLine(model, echo(4, "go", "u-1"));
+    expect(users(model)).toEqual(["go:taken"]);
+    // /compact's, which its own notice tells.
+    model = applyLine(
+      model,
+      echo(5, "<local-command-stdout>Compacted </local-command-stdout>", "c-2"),
+    );
+    expect(users(model)).toEqual(["go:taken"]);
+  });
+
   test("the one that starts a turn does not wait, and is taken in place", () => {
     let model = applyLines(emptyModel(), [sent(1, "go", "u-1"), toolUse(2)]);
     expect(users(model)).toEqual(["go:sent"]);
