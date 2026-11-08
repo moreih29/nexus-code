@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatModel } from "../../services/chat/model";
 import { agentsOf } from "../../services/chat/panel";
+import { formatTokens } from "../../services/chat/usage-line";
 
 export function StatusLine({ model }: { model: ChatModel }) {
   const { t } = useTranslation();
@@ -32,7 +33,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
       </span>
       <span className="text-foreground">{activity}</span>
       {elapsed !== null && <span>{formatElapsed(elapsed)}</span>}
-      {tokens > 0 && <span>{t("chat.status.tokens", { count: tokens })}</span>}
+      {tokens > 0 && <span>{t("chat.status.tokens", { count: formatTokens(tokens) })}</span>}
       {agents > 0 && <span>{t("chat.status.agents", { count: agents })}</span>}
     </div>
   );

@@ -8,6 +8,7 @@ import {
   type AgentsInput,
   agentCounts,
   buildAgents,
+  passesFilter,
   sameAgents,
   workspaceColor,
 } from "../../../../../src/renderer/services/agent-view/agents";
@@ -45,6 +46,19 @@ function claudeTab(id: string): Tab {
     isPinned: false,
     props: { cwd: "/" },
   } as Tab;
+}
+
+/** A terminal whose Claude ended with it. */
+function deadTerminal(id: string): Tab {
+  return {
+    id,
+    type: "terminal",
+    title: `terminal ${id}`,
+    defaultTitle: "Terminal",
+    isPreview: false,
+    isPinned: false,
+    props: { cwd: "/", dead: true },
+  } as unknown as Tab;
 }
 
 function status(value: StatusEntry["status"]): StatusEntry {
@@ -109,8 +123,42 @@ describe("buildAgents", () => {
 });
 
 describe("agentCounts", () => {
-  it("counts every agent, those running, and those waiting on the user", () => {
-    expect(agentCounts(buildAgents(input()))).toEqual({ all: 3, running: 1, attention: 1 });
+  it("counts every agent, and those in each group of the agents tab", () => {
+    expect(agentCounts(buildAgents(input()))).toEqual({
+      all: 3,
+      running: 1,
+      attention: 1,
+      done: 1,
+      idle: 0,
+    });
+  });
+
+  it("counts an agent done with, or not yet started, as idle; one ended in none", () => {
+    const base = input();
+    const agents = buildAgents({
+      ...base,
+      tabsByWorkspace: {
+        ...base.tabsByWorkspace,
+        [DOCS]: { d1: claudeTab("d1"), d2: claudeTab("d2"), d3: deadTerminal("d3") },
+      },
+      claudeByWorkspace: {
+        ...base.claudeByWorkspace,
+        [DOCS]: { d1: status("idle"), d3: status("running") },
+      },
+    });
+    expect(agentCounts(agents)).toEqual({
+      all: 6,
+      running: 1,
+      attention: 1,
+      done: 1,
+      idle: 2,
+    });
+    const ended = agents.byKey.get(`${DOCS}:d3`)?.session;
+    expect(ended?.state).toBe("exited");
+    for (const filter of ["running", "attention", "done", "idle"] as const) {
+      expect(ended && passesFilter(ended, filter)).toBe(false);
+    }
+    expect(ended && passesFilter(ended, "all")).toBe(true);
   });
 });
 

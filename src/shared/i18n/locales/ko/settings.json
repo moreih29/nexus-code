@@ -498,6 +498,23 @@
   "agent": {
     "newTask": "새 작업"
   },
+  "chat": {
+    "font": "채팅 글꼴",
+    "fontSize": "글자 크기",
+    "fontSizeHint": "Claude·Codex 탭 답변의 크기입니다. 나머지 글자도 같은 비율로 바뀝니다",
+    "fontFamily": "글꼴 종류",
+    "fontFamilyPlaceholder": "글꼴 종류 선택",
+    "customFamilyPlaceholder": "예: Noto Sans KR",
+    "fontFamilySystem": "앱 기본 (Pretendard)",
+    "fontFamilyOther": "기타...",
+    "systemUi": "시스템",
+    "fontDetected": "이 시스템에서 감지되었습니다.",
+    "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
+    "ariaFontSize": "채팅 글자 크기",
+    "ariaFontFamily": "채팅 글꼴 종류",
+    "previewReply": "답변은 이 크기와 글꼴로 보입니다. `코드`는 고정폭 글꼴 그대로입니다.",
+    "previewTool": "Read src/greet.ts"
+  },
   "manager": {
     "enabled": {
       "label": "에이전트 매니저",

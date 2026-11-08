@@ -498,6 +498,23 @@
   "agent": {
     "newTask": "New tasks"
   },
+  "chat": {
+    "font": "Chat font",
+    "fontSize": "Text size",
+    "fontSizeHint": "The size of replies in Claude and Codex tabs; the rest of their text scales with it",
+    "fontFamily": "Font family",
+    "fontFamilyPlaceholder": "Select font family",
+    "customFamilyPlaceholder": "e.g. Inter",
+    "fontFamilySystem": "App default (Pretendard)",
+    "fontFamilyOther": "Other...",
+    "systemUi": "System",
+    "fontDetected": "Detected on this system.",
+    "fontNotFound": "Not on this system; the fallback font shows",
+    "ariaFontSize": "Chat text size",
+    "ariaFontFamily": "Chat font family",
+    "previewReply": "Replies show in this size and font. `Code` keeps its monospace font.",
+    "previewTool": "Read src/greet.ts"
+  },
   "manager": {
     "enabled": {
       "label": "Agent manager",

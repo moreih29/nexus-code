@@ -14,6 +14,7 @@ import {
   sameFamily,
   sessionsOf,
 } from "../sessions/model";
+import { groupOf } from "../sessions/rows";
 
 export interface AgentsInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
@@ -60,15 +61,32 @@ export function sameAgents(a: Agents, b: Agents): boolean {
   );
 }
 
-/** How many agents run, and how many wait on the user. */
-export function agentCounts(agents: Agents): { all: number; running: number; attention: number } {
-  let running = 0;
-  let attention = 0;
+/** The filters of the list, in its order: every agent, then each group the agents tab has. */
+export const AGENT_FILTERS = ["all", "running", "attention", "done", "idle"] as const;
+export type AgentFilter = (typeof AGENT_FILTERS)[number];
+
+/**
+ * Whether `filter` lists `session`: in the group the agents tab puts it in,
+ * where one that ended is in none of these.
+ */
+export function passesFilter(session: AgentSession, filter: AgentFilter): boolean {
+  return filter === "all" || groupOf(session) === filter;
+}
+
+/** How many agents each filter lists. */
+export function agentCounts(agents: Agents): Record<AgentFilter, number> {
+  const counts: Record<AgentFilter, number> = {
+    all: agents.byKey.size,
+    running: 0,
+    attention: 0,
+    done: 0,
+    idle: 0,
+  };
   for (const { session } of agents.byKey.values()) {
-    if (session.phase === "running") running++;
-    else if (session.phase === "attention") attention++;
+    const group = groupOf(session);
+    if (group !== "ended") counts[group]++;
   }
-  return { all: agents.byKey.size, running, attention };
+  return counts;
 }
 
 /** The palette's colors, one per workspace and its tasks, so its panels read as its own. */

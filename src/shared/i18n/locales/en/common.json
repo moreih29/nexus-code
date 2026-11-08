@@ -1495,7 +1495,9 @@
       "filter": {
         "all": "All",
         "running": "Running",
-        "attention": "Waiting"
+        "attention": "Needs you",
+        "done": "New result",
+        "idle": "Idle"
       },
       "none_filtered": "No matching agents",
       "no_agents": "No agents",

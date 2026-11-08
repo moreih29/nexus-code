@@ -5,6 +5,7 @@
 
 import { ipcCallResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
+import { useChatFontStore } from "@/state/stores/chat-font";
 import { useEditorFontStore } from "@/state/stores/editor-font";
 import { ICON_THEMES, useIconThemeStore } from "@/state/stores/icon-theme";
 import {
@@ -31,6 +32,7 @@ import {
 } from "../../../shared/sessions/task-agent";
 import { DEFAULT_SESSIONS_VIEW, SESSIONS_VIEWS } from "../../../shared/sessions/view";
 import { type AppState, ThemePreferenceSchema } from "../../../shared/types/app-state";
+import { CHAT_FONT_SIZE, CHAT_FONT_SIZE_MAX, CHAT_FONT_SIZE_MIN } from "../chat/chat-font";
 import { type CliUiHandler, UiRequestError } from "./handler";
 
 export interface CliSetting extends CliSettingShape {
@@ -236,6 +238,36 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     },
     set: (value) => useTerminalStore.getState().setTaskAgent(value as TaskAgent),
     reset: () => useTerminalStore.getState().setTaskAgent(undefined),
+  },
+  {
+    key: "chat.fontSize",
+    summary:
+      "The size of replies in Claude and Codex tabs, in pixels; their other text scales with it",
+    type: "integer",
+    min: CHAT_FONT_SIZE_MIN,
+    max: CHAT_FONT_SIZE_MAX,
+    get: () => {
+      const size = useChatFontStore.getState().size;
+      return { value: size ?? CHAT_FONT_SIZE, changed: size !== undefined };
+    },
+    set: (value) => useChatFontStore.getState().setSize(value as number),
+    reset: () => useChatFontStore.getState().setSize(undefined),
+  },
+  {
+    key: "chat.fontFamily",
+    summary: 'The font of Claude and Codex tabs, as CSS names it; "" for the app\'s',
+    type: "text",
+    maxLength: FONT_FAMILY.maxLength,
+    pattern: {
+      test: /^[A-Za-z0-9\s,'"-]*$/,
+      says: "a font family is letters, digits, spaces, hyphens, commas and quotes",
+    },
+    get: () => {
+      const value = useChatFontStore.getState().family;
+      return { value: value ?? "", changed: value !== undefined };
+    },
+    set: (value) => useChatFontStore.getState().setFamily(family(value)),
+    reset: () => useChatFontStore.getState().setFamily(undefined),
   },
   {
     key: "sessions.defaultView",

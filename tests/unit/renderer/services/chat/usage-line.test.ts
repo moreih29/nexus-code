@@ -9,8 +9,23 @@ import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
   claudeUsageLine,
   codexUsageLine,
+  formatTokens,
   resetParts,
 } from "../../../../../src/renderer/services/chat/usage-line";
+
+describe("formatTokens", () => {
+  it("counts in k and M past a thousand, with one decimal kept when it says something", () => {
+    expect([942, 1000, 1500, 1049, 24_512, 999_960, 1_200_000].map(formatTokens)).toEqual([
+      "942",
+      "1k",
+      "1.5k",
+      "1k",
+      "24.5k",
+      "1M",
+      "1.2M",
+    ]);
+  });
+});
 
 const NOW = Date.parse("2026-11-08T10:00:00Z");
 const HOUR = 60 * 60 * 1000;

@@ -109,6 +109,7 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["terminal.taskagent", "agent"],
   ["terminal.", "terminal"],
   ["sessions.", "agent"],
+  ["chat.", "agent"],
   ["notifications.", "notifications"],
   ["updates.", "about"],
   ["agentcli.", "agent"],
