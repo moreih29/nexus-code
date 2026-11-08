@@ -12,6 +12,7 @@ import {
   exportFileName,
   exportRelPath,
   hooksMarkdown,
+  listedCommands,
   memoryFilesOf,
   nthAnswer,
   parseAppCommand,
@@ -74,6 +75,13 @@ describe("app commands", () => {
     expect(names).not.toContain("help");
     expect(names).not.toContain("copy");
     expect(own.find((c) => c.name === "btw")?.description).toBe("about btw");
+  });
+
+  test("the CLI's /insights is left out of the list, and nothing else", () => {
+    const cli = [{ name: "compact" }, { name: "insights" }, { name: "Insights" }, { name: "init" }];
+    expect(listedCommands(cli).map((c) => c.name)).toEqual(["compact", "init"]);
+    // Typed out, it is the CLI's to run.
+    expect(parseAppCommand("/insights", cli)).toBeNull();
   });
 
   test("a message that calls one, with what follows it", () => {
