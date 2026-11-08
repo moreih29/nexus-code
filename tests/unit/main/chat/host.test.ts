@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ChatHost, type ChatWorkspaceManager } from "../../../../src/main/features/chat/host";
 import {
   CLAUDE_TAB_ARGS,
+  CLAUDE_TAB_PROMPT,
   claudeCommandArgs,
   claudeTabArgs,
   claudeTabEnv,
@@ -15,6 +16,7 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
+import { MANAGER_PROMPT } from "../../../../src/shared/manager/prompt";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -90,7 +92,11 @@ function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
 
 describe("chat launch", () => {
   test("resume and fork add their flags after the stream-json ones", () => {
-    expect(claudeTabArgs({})).toEqual([...CLAUDE_TAB_ARGS]);
+    expect(claudeTabArgs({})).toEqual([
+      ...CLAUDE_TAB_ARGS,
+      "--append-system-prompt",
+      CLAUDE_TAB_PROMPT,
+    ]);
     expect(claudeTabArgs({ resume: "s1" }).slice(-2)).toEqual(["--resume", "s1"]);
     expect(claudeTabArgs({ resume: "s1", fork: true, resumeAt: "u9" }).slice(-5)).toEqual([
       "--resume",
@@ -102,6 +108,19 @@ describe("chat launch", () => {
     // resumeAt means nothing without fork.
     expect(claudeTabArgs({ resume: "s1", resumeAt: "u9" })).not.toContain("--resume-session-at");
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
+  });
+
+  test("every tab is told to link a file to show it; the manager what it is, in the same flag", () => {
+    const tab = claudeTabArgs({});
+    expect(tab.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
+    expect(tab[tab.indexOf("--append-system-prompt") + 1]).toContain("[report.md](");
+    const manager = claudeTabArgs({ resume: "s1" }, undefined, true);
+    expect(manager.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
+    expect(manager[manager.indexOf("--append-system-prompt") + 1]).toBe(
+      `${CLAUDE_TAB_PROMPT}\n\n${MANAGER_PROMPT}`,
+    );
+    expect(manager).toContain("--allowedTools");
+    expect(manager.slice(-2)).toEqual(["--resume", "s1"]);
   });
 
   test("the env marks the tab for the wrapper and turns on file checkpoints", () => {
