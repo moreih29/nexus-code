@@ -19,6 +19,7 @@ import {
 import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import { foundResultFiles } from "../../services/chat/file-presence";
+import { imageLook } from "../../services/chat/image-look";
 import {
   type FileLink,
   isLocalAddress,
@@ -203,6 +204,9 @@ export function CodexTabView({
         follow(target, ({ path, ...line }) => show(path, line));
       },
       openChange: (path) => show(path),
+      openImages(images, index) {
+        if (images.length > 0) setLook(imageLook(images, index));
+      },
       openFileTab,
       openUrl(url, other = false) {
         const local = isLocalAddress(url);
