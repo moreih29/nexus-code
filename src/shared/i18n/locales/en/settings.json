@@ -217,8 +217,8 @@
       "hint": "New terminals only · SSH workspaces use the remote login shell"
     },
     "taskAgent": {
-      "label": "Task agent",
-      "hint": "The tab a new task opens with"
+      "label": "Default agent",
+      "hint": "What the agents tab's [+] and a new task open"
     },
     "sessionsView": {
       "label": "Default agents tab view",

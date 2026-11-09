@@ -11,6 +11,11 @@ import { ChevronDown, GitBranch, GitBranchPlus, List, Plus, Search } from "lucid
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import {
+  type ChatAgent,
+  chatAgentOf,
+  DEFAULT_TASK_AGENT,
+} from "../../../shared/sessions/task-agent";
 import type { SessionsView } from "../../../shared/sessions/view";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { newTask } from "../../services/sessions/actions";
@@ -22,15 +27,15 @@ import {
   useWorktreeChanges,
 } from "../../services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
+import { resolveWorkspaceProfile, useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { selectSessionsView, useSessionsViewStore } from "../../state/stores/sessions-view";
+import { useTerminalStore } from "../../state/stores/terminal";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
+import { hasProfileChoice, ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { resolveSelection, type SessionsSelection } from "./selection";
 import { SessionDetail } from "./session-detail";
 import { StatusView } from "./status-view";
@@ -211,23 +216,47 @@ function ViewSwitch({ view, rootId }: { view: SessionsView; rootId: string }) {
   );
 }
 
-/** A new conversation in the workspace: Claude at once, or Codex from the menu. */
+/**
+ * A new conversation in the workspace. [+] opens one with the default agent
+ * (Settings' "Default agent"; Claude when that is a terminal) and the profile
+ * the workspace gives it, and tells both. The menu is the tab bar's: either
+ * agent, or one with another profile.
+ */
 function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
-  const open = (agent: "claude" | "codex") =>
-    agent === "claude"
-      ? openClaudeTab(workspace.id, { cwd: workspace.rootPath })
-      : openCodexTab(workspace.id, { cwd: workspace.rootPath });
+  const agent = chatAgentOf(useTerminalStore((s) => s.taskAgent ?? DEFAULT_TASK_AGENT));
+  const config = useAgentProfilesStore((s) => s.config);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  // Its profile is told only when there is another to choose, as the tab bar's is.
+  const profile = useMemo(
+    () =>
+      hasProfileChoice(config, agent)
+        ? resolveWorkspaceProfile(agent, workspace, workspaces, config).profile
+        : null,
+    [config, agent, workspace, workspaces],
+  );
+  const open = (chat: ChatAgent, profileId?: string) => {
+    const props = { cwd: workspace.rootPath, ...(profileId ? { profileId } : {}) };
+    if (chat === "claude") openClaudeTab(workspace.id, props);
+    else openCodexTab(workspace.id, props);
+  };
+  const Icon = agent === "claude" ? ClaudeIcon : CodexIcon;
+  const label = t(agent === "claude" ? "tabBar.new_claude" : "tabBar.new_codex");
+  const title = profile ? `${label} · ${profileName(profile, t)}` : label;
   return (
     <div className="flex">
       <Button
         size="icon-sm"
-        className="rounded-r-none"
-        title={t("sessions.list.new_claude")}
-        aria-label={t("sessions.list.new_claude")}
-        onClick={() => open("claude")}
+        className="w-auto gap-1 rounded-r-none px-2"
+        title={title}
+        aria-label={title}
+        onClick={() => open(agent)}
+        data-testid="sessions-new-chat"
+        data-agent={agent}
       >
         <Plus aria-hidden className="size-3.5" />
+        <Icon aria-hidden className="size-3.5" />
+        {profile && <ProfileDot color={profile.color} />}
       </Button>
       <DropdownMenuRoot>
         <DropdownMenuTrigger>
@@ -241,14 +270,16 @@ function NewChat({ workspace }: { workspace: WorkspaceMeta }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onSelect={() => open("claude")}>
-            <ClaudeIcon aria-hidden className="size-3.5" />
-            Claude
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => open("codex")}>
-            <CodexIcon aria-hidden className="size-3.5" />
-            Codex
-          </DropdownMenuItem>
+          <NewChatMenuItems
+            workspaceId={workspace.id}
+            agent="claude"
+            onOpen={(profileId) => open("claude", profileId)}
+          />
+          <NewChatMenuItems
+            workspaceId={workspace.id}
+            agent="codex"
+            onOpen={(profileId) => open("codex", profileId)}
+          />
         </DropdownMenuContent>
       </DropdownMenuRoot>
     </div>
