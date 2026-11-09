@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
+import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { isOutsideGranted, useOutsideGrantsStore } from "../../state/stores/outside-grants";
 import { isUnder } from "./links";
 
@@ -26,7 +27,7 @@ export type FileLookup = (workspaceId: string, relPath: string) => Promise<boole
 export type OutsideGrantCheck = (workspaceId: string, path: string) => boolean;
 
 const lookUpInWorkspace: FileLookup = async (workspaceId, relPath) => {
-  if (relPath.startsWith("/")) {
+  if (isAbsoluteOutsidePath(relPath)) {
     // Main reads a granted file outside the root but stats none: no bytes
     // of it say it is there, and a folder fails.
     const read = await ipcCallResult("fs", "readRange", {
@@ -67,7 +68,7 @@ function pathToLookUp(
 ): string | null {
   const relPath = lookupPath(path, root);
   if (relPath !== null) return relPath;
-  if (!root || !path.startsWith("/") || isUnder(path, root)) return null;
+  if (!root || !isAbsoluteOutsidePath(path) || isUnder(path, root)) return null;
   return granted(workspaceId, path) ? path : null;
 }
 

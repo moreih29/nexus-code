@@ -1,4 +1,4 @@
-import { OUTSIDE_HOST_SUFFIX } from "../../../../shared/fs/outside-url";
+import { isDrivePath, OUTSIDE_HOST_SUFFIX } from "../../../../shared/fs/outside-url";
 
 /**
  * Builds a `nexus-workspace://` URL for a file inside a workspace.
@@ -45,11 +45,12 @@ export function buildWorkspaceDirUrl(workspaceId: string, relDir: string): strin
 
 /**
  * Returns the URL of a file outside the workspace that a Claude tab linked:
- * `nexus-workspace://<workspaceId>.outside/<absPath>`. Main serves it only
- * while a tab grants it.
+ * `nexus-workspace://<workspaceId>.outside/<absPath>`, a Windows path from
+ * its drive (`…/C%3A/Users/…`). Main serves it only while a tab grants it.
  */
 export function buildOutsideUrl(workspaceId: string, absPath: string): string {
-  const encodedSegments = absPath.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+  const path = isDrivePath(absPath) ? absPath.replace(/\\/g, "/") : absPath;
+  const encodedSegments = path.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
   return `nexus-workspace://${encodeURIComponent(workspaceId)}${OUTSIDE_HOST_SUFFIX}/${encodedSegments}`;
 }
 

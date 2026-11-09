@@ -8,6 +8,7 @@
  * expected-failure paths — most notably restoring a persisted expanded-tree
  * after the user has deleted folders on disk between sessions.
  */
+import { isAbsoluteOutsidePath } from "../../../../shared/fs/outside-url";
 import type {
   DirEntry,
   FileReadBinaryResult,
@@ -82,7 +83,7 @@ export function readBinaryHandler(
   return async (args: unknown): Promise<FileReadBinaryResult> => {
     const { workspaceId, relPath } = validateArgs(c.readBinary.args, args);
     const fs = await manager.getFs(workspaceId);
-    if (relPath.startsWith("/")) {
+    if (isAbsoluteOutsidePath(relPath)) {
       const path = await grantedOutsidePath(fs, workspaceId, relPath);
       if (!path) return { kind: "missing", reason: "not-found" };
       return fs.readAbsoluteBinary(path);
@@ -97,7 +98,7 @@ export function readRangeHandler(
   return async (args: unknown): Promise<FileReadBinaryResult> => {
     const { workspaceId, relPath, offset, length } = validateArgs(c.readRange.args, args);
     const fs = await manager.getFs(workspaceId);
-    if (relPath.startsWith("/")) {
+    if (isAbsoluteOutsidePath(relPath)) {
       const path = await grantedOutsidePath(fs, workspaceId, relPath);
       if (!path) return { kind: "missing", reason: "not-found" };
       return fs.readAbsoluteRange(path, offset, length);

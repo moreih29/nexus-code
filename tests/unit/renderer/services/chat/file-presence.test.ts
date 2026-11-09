@@ -122,4 +122,21 @@ describe("createFilePresence", () => {
     expect(await presence.isThere("ws", "C:\\w", "D:/out/log.txt")).toBe(false);
     expect(asked).toEqual(["/tmp/shot.png", "/dev/shm"]);
   });
+
+  it("looks a Windows file outside the workspace up by its path from the drive", async () => {
+    const output = String.raw`C:\Temp\claude\tasks\b1.output`;
+    const granted = new Set(["D:/out/shot.png", output]);
+    const asked: string[] = [];
+    const presence = createFilePresence(
+      async (_workspaceId, path) => {
+        asked.push(path);
+        return true;
+      },
+      Date.now,
+      (_workspaceId, path) => granted.has(path),
+    );
+    expect(await presence.isThere("ws", "C:\\w", "D:/out/shot.png")).toBe(true);
+    expect(await presence.isThere("ws", "C:\\w", output)).toBe(true);
+    expect(asked).toEqual(["D:/out/shot.png", output]);
+  });
 });

@@ -192,7 +192,12 @@ export function buildNexusWorkspaceHandler(
     }
 
     if (outsideOf !== null) {
-      const absPath = `/${segments.join("/")}`;
+      // A Windows file's URL path starts at its drive (/C:/…), a POSIX file's at the root.
+      const fromDrive =
+        meta.location.kind === "local" &&
+        process.platform === "win32" &&
+        /^[A-Za-z]:$/.test(segments[0] ?? "");
+      const absPath = fromDrive ? segments.join("/") : `/${segments.join("/")}`;
       if (meta.location.kind !== "local") {
         if (!isOutsideGranted(workspaceId, absPath)) {
           logger.warn(`Outside path not granted: ${req.url}`);

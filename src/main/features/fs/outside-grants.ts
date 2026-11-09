@@ -7,6 +7,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { isDrivePath } from "../../../shared/fs/outside-url";
 
 interface Grant {
   readonly files: ReadonlySet<string>;
@@ -15,15 +16,33 @@ interface Grant {
 
 const grants = new Map<string, Map<string, Grant>>();
 
-/** A clean absolute path on the workspace's host, or null for anything else. */
+/**
+ * A clean absolute path on the workspace's host, or null for anything else:
+ * a POSIX path, or a Windows drive's (`C:\…`, `C:/…`) written with `/`.
+ * Neither is its root, and `..` does not climb out of a drive.
+ */
 function absolute(p: string): string | null {
-  if (!p.startsWith("/") || p.includes("\0")) return null;
-  const clean = path.posix.normalize(p);
-  return clean.length > 1 ? clean.replace(/\/+$/, "") : null;
+  if (p.includes("\0")) return null;
+  const drive = isDrivePath(p);
+  if (!drive && !p.startsWith("/")) return null;
+  const clean = path.posix.normalize(drive ? p.replace(/\\/g, "/") : p).replace(/\/+$/, "");
+  if (drive) return /^[A-Za-z]:\//.test(clean) ? clean : null;
+  return clean || null;
+}
+
+/**
+ * A path as grants are compared: a Windows path with `/` and in one case,
+ * as its file system tells no case apart; a POSIX path as it is.
+ */
+function comparable(p: string): string {
+  return isDrivePath(p) ? p.replace(/\\/g, "/").toLowerCase() : p;
 }
 
 function cleanAll(paths: readonly string[]): string[] {
-  return paths.map(absolute).filter((p): p is string => p !== null);
+  return paths
+    .map(absolute)
+    .filter((p): p is string => p !== null)
+    .map(comparable);
 }
 
 /** Replaces what `owner` (a Claude tab) granted in a workspace. */
@@ -41,6 +60,7 @@ export function setOutsideGrant(
   else grants.set(workspaceId, byOwner);
 }
 
+/** Whether `target` is under `dir`, both as grants compare them. */
 function isUnderDir(target: string, dir: string): boolean {
   return target.startsWith(`${dir}/`);
 }
@@ -49,9 +69,10 @@ function isUnderDir(target: string, dir: string): boolean {
 export function isOutsideGranted(workspaceId: string, absPath: string): boolean {
   const target = absolute(absPath);
   if (!target) return false;
+  const key = comparable(target);
   for (const grant of grants.get(workspaceId)?.values() ?? []) {
-    if (grant.files.has(target)) return true;
-    if (grant.dirs.some((dir) => isUnderDir(target, dir))) return true;
+    if (grant.files.has(key)) return true;
+    if (grant.dirs.some((dir) => isUnderDir(key, dir))) return true;
   }
   return false;
 }
@@ -68,6 +89,7 @@ export async function resolveOutsideGrant(
 ): Promise<string | null> {
   const target = absolute(absPath);
   if (!target) return null;
+  const key = comparable(target);
   let real: string;
   try {
     real = await fs.promises.realpath(target);
@@ -75,11 +97,11 @@ export async function resolveOutsideGrant(
     return null;
   }
   for (const grant of grants.get(workspaceId)?.values() ?? []) {
-    if (grant.files.has(target)) return real;
+    if (grant.files.has(key)) return real;
     for (const dir of grant.dirs) {
-      if (!isUnderDir(target, dir)) continue;
+      if (!isUnderDir(key, dir)) continue;
       try {
-        if (isUnderDir(real, await fs.promises.realpath(dir))) return real;
+        if (isUnderDir(comparable(real), comparable(await fs.promises.realpath(dir)))) return real;
       } catch {
         // The folder is gone.
       }

@@ -6,6 +6,7 @@
 import { AppWindow, Check, ExternalLink, Eye, Link } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { ipcCallResult } from "../../ipc/client";
 import {
   type ArtifactPage,
@@ -50,7 +51,7 @@ export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPat
     setTitle(null);
     if (!wanted) return;
     const relPath =
-      lookupPath(page.file, rootPath) ?? (page.file.startsWith("/") ? page.file : null);
+      lookupPath(page.file, rootPath) ?? (isAbsoluteOutsidePath(page.file) ? page.file : null);
     if (relPath === null) return;
     let gone = false;
     let tries = 0;

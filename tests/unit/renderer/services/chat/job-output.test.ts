@@ -39,6 +39,13 @@ describe("outputReadPath", () => {
     expect(outputReadPath("/tmp/claude/tasks/b1.output", "/w")).toBe("/tmp/claude/tasks/b1.output");
     expect(outputReadPath("tasks/b1.output", "/w")).toBeNull();
   });
+
+  it("reads a Windows file outside the workspace by its path from the drive", () => {
+    const output = String.raw`C:\Users\u\AppData\Local\Temp\claude\s\tasks\b1.output`;
+    expect(outputReadPath(output, String.raw`C:\w`)).toBe(output);
+    expect(outputReadPath("C:/w/logs/b1.output", String.raw`C:\w`)).toBe("logs/b1.output");
+    expect(outputReadPath(String.raw`tasks\b1.output`, String.raw`C:\w`)).toBeNull();
+  });
 });
 
 /** A file of `text` the workspace reads, with the reads it was asked for. */
