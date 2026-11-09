@@ -40,27 +40,47 @@ export function checkFontAvailable(family: string): boolean {
   if (typeof document === "undefined") return false;
   if (!family.trim()) return false;
 
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
+  const ctx = document.createElement("canvas").getContext("2d");
   if (!ctx) return false;
 
-  // Baseline widths: generic fallback alone.
-  ctx.font = `${PROBE_SIZE} monospace`;
-  const baselineMono = ctx.measureText(PROBE_STRING).width;
-  ctx.font = `${PROBE_SIZE} sans-serif`;
-  const baselineSans = ctx.measureText(PROBE_STRING).width;
+  // Baseline widths: generic fallback alone. Test widths: target font first,
+  // generic fallback after. If the target font is installed and applied, at
+  // least one measurement differs from its baseline. If both match, the
+  // browser fell back to the generic both times → target font is not
+  // available.
+  const [baselineMono, baselineSans] = widthsOf(ctx, "");
+  const [testMono, testSans] = widthsOf(ctx, `"${family}"`);
+  return Math.abs(testMono - baselineMono) > EPSILON || Math.abs(testSans - baselineSans) > EPSILON;
+}
 
-  // Test widths: target font first, generic fallback after.
-  ctx.font = `${PROBE_SIZE} "${family}", monospace`;
-  const testMono = ctx.measureText(PROBE_STRING).width;
-  ctx.font = `${PROBE_SIZE} "${family}", sans-serif`;
-  const testSans = ctx.measureText(PROBE_STRING).width;
+/** The probe's widths in a font, with monospace and then sans-serif behind it. */
+export type ProbeWidths = readonly [mono: number, sans: number];
 
-  // If the target font is installed and applied, at least one measurement
-  // differs from its baseline. If both match, the browser fell back to the
-  // generic both times → target font is not available.
-  return (
-    Math.abs(testMono - baselineMono) > EPSILON ||
-    Math.abs(testSans - baselineSans) > EPSILON
-  );
+function widthsOf(ctx: CanvasRenderingContext2D, family: string): ProbeWidths {
+  const behind = family ? `${family}, ` : "";
+  ctx.font = `${PROBE_SIZE} ${behind}monospace`;
+  const mono = ctx.measureText(PROBE_STRING).width;
+  ctx.font = `${PROBE_SIZE} ${behind}sans-serif`;
+  return [mono, ctx.measureText(PROBE_STRING).width];
+}
+
+/** Whether two fonts draw the probe alike, with either fallback behind them. */
+export function drawnAlike(a: ProbeWidths, b: ProbeWidths): boolean {
+  return Math.abs(a[0] - b[0]) <= EPSILON && Math.abs(a[1] - b[1]) <= EPSILON;
+}
+
+/**
+ * Whether the browser draws Times for `family`. Chrome on macOS does for a
+ * name the system half knows, such as Apple SD Gothic Neo's Korean name
+ * ("Apple SD 산돌고딕 Neo"): {@link checkFontAvailable} then finds a font
+ * drawn, though not the one named. Times is not told apart from a font
+ * drawn alike (Times New Roman, on macOS), so ask this only of a name the
+ * installed fonts' list does not have.
+ */
+export function drawnAsTimes(family: string): boolean {
+  if (typeof document === "undefined") return false;
+  if (family.trim().toLowerCase() === "times") return false;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return false;
+  return drawnAlike(widthsOf(ctx, `"${family}"`), widthsOf(ctx, "Times"));
 }
