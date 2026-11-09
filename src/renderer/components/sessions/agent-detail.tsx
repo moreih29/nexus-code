@@ -12,6 +12,7 @@ import { showTerminal } from "../../services/sessions/actions";
 import type { AgentSession, WorktreeEntry } from "../../services/sessions/model";
 import { useNow } from "../../services/sessions/use-family";
 import { askToShowAgent } from "../../state/stores/agent-reveal";
+import { ChatMarkdown } from "../chat/chat-markdown";
 import { RunStopButton } from "../chat/print-run-pane";
 import { Button } from "../ui/button";
 import { AgentFlow, toolCount } from "./agent-flow";
@@ -133,7 +134,18 @@ export function AgentDetail({
           </p>
         )
       )}
-      <AgentFlow agent={agent} now={now} />
+      <AgentFlow
+        agent={agent}
+        now={now}
+        renderText={(text) => (
+          <ChatMarkdown
+            text={text}
+            workspaceId={worktree.workspace.id}
+            cwd={worktree.workspace.rootPath}
+            rootPath={worktree.workspace.rootPath}
+          />
+        )}
+      />
     </div>
   );
 }

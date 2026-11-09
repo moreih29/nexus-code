@@ -1,7 +1,9 @@
 // Agents tab — the detail panel of a conversation: its title and state with
-// a button to its tab and one to stop it; what it runs on; what it was last
-// asked and answered; what it waits on, answered here; the calls it ran
-// last, its subagents and its to-dos; and a box to send it more.
+// a button to its tab and one to stop it; what it runs on; the conversation
+// itself, as its Claude or Codex tab shows it, once the tab has loaded it;
+// what it waits on, answered here; and a box to send it more. A terminal's
+// agent, and a tab not loaded yet, tell only what they were last asked and
+// answered, with the calls they ran last, their subagents and their to-dos.
 //
 // A Claude or Codex tab's permission request is answered here as its tab
 // would. A terminal's, through Claude Code's hook when it holds the request;
@@ -47,10 +49,14 @@ import {
   type StepStatus,
 } from "../../services/sessions/detail";
 import type { AgentSession } from "../../services/sessions/model";
+import { oneLineMarkdown } from "../../services/sessions/preview";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { ChatAgentContext } from "../chat/chat-agent";
-import { composerHint, composerKeys } from "../chat/composer";
+import { ChatMarkdown } from "../chat/chat-markdown";
+import { type ComposerController, composerHint, composerKeys, ModeChip } from "../chat/composer";
+import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
@@ -62,6 +68,7 @@ import type { SessionsSelection } from "./selection";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark } from "./status-view";
 import { TerminalScreen } from "./terminal-screen";
+import { TranscriptLinks } from "./transcript-links";
 
 /** How many lines of a long prompt show before it is opened. */
 const PROMPT_LINES = 4;
@@ -110,6 +117,52 @@ export function ConversationDetail({
   const waiting = session.phase === "attention";
   const requests = terminal ? (activity?.asks ?? []).length : chat.model.permissions.length;
   const held = requests > 0 || session.state === "permissionPending";
+  const rootPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === session.workspaceId)?.rootPath ?? "",
+  );
+  const footer = (
+    <>
+      {!held && session.state !== "exited" && (terminal || loaded) && (
+        // Keyed by the session, so a draft never carries over to another one.
+        <FollowUp key={session.key} session={session} chat={chat} />
+      )}
+      {waiting && requests === 0 && session.state === "permissionPending" && (
+        <p className="border-t border-border px-4 py-3 text-app-ui-sm text-(--state-warning-fg)">
+          {terminal
+            ? t("sessions.detail.permission_hint")
+            : t("sessions.detail.permission_hint_claude")}
+        </p>
+      )}
+    </>
+  );
+  if (!terminal && loaded) {
+    const controller =
+      session.kind === "codex"
+        ? existingCodexController(session.workspaceId, session.tabId)
+        : existingChatController(session.workspaceId, session.tabId);
+    return (
+      <div className="@container flex h-full min-h-0 flex-col">
+        <div className="flex shrink-0 flex-col gap-2 border-b border-border px-4 pt-4 pb-3">
+          <DetailTop session={session} running={chat.model.running} onBack={onBack} />
+          <MetaChips
+            session={session}
+            facts={facts}
+            branch={branch}
+            todos={facts.todos}
+            modes={controller && { controller, chat }}
+          />
+        </div>
+        <Transcript session={session} chat={chat} visible={visible} />
+        {requests > 0 && (
+          // Docked over the box, so a request is seen wherever the conversation is scrolled.
+          <div className="app-scrollbar max-h-[50%] shrink-0 overflow-y-auto border-t border-border px-4 py-2">
+            <ChatTabRequests session={session} chat={chat} />
+          </div>
+        )}
+        {footer}
+      </div>
+    );
+  }
   return (
     <div className="@container flex h-full min-h-0 flex-col">
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
@@ -119,9 +172,9 @@ export function ConversationDetail({
           {!waiting && prompt && <UserBubble text={prompt} />}
           {session.phase !== "running" && answer && (
             // Keyed by the session, so each one opens folded.
-            <AgentBubble key={session.key} session={session} text={answer} />
+            <AgentBubble key={session.key} session={session} text={answer} rootPath={rootPath} />
           )}
-          {!terminal && !loaded && !prompt && !answer && (
+          {!terminal && (
             <p className="text-app-ui-sm text-muted-foreground">
               {t("sessions.detail.not_loaded")}
             </p>
@@ -143,18 +196,59 @@ export function ConversationDetail({
           )}
         </div>
       </div>
-      {!held && session.state !== "exited" && (terminal || loaded) && (
-        // Keyed by the session, so a draft never carries over to another one.
-        <FollowUp key={session.key} session={session} chat={chat} />
-      )}
-      {waiting && requests === 0 && session.state === "permissionPending" && (
-        <p className="border-t border-border px-4 py-3 text-app-ui-sm text-(--state-warning-fg)">
-          {terminal
-            ? t("sessions.detail.permission_hint")
-            : t("sessions.detail.permission_hint_claude")}
-        </p>
-      )}
+      {footer}
     </div>
+  );
+}
+
+/**
+ * A Claude or Codex tab's conversation, as the tab shows it, in the tab's
+ * font: what it showed before, what its program said and the reply coming
+ * in, with its calls in a row folded. Its files and images open over the
+ * panel. A message is not rewound or forked from here, only in the tab.
+ */
+function Transcript({
+  session,
+  chat,
+  visible,
+}: {
+  session: AgentSession;
+  chat: ChatTabState;
+  visible: boolean;
+}) {
+  const { t } = useTranslation();
+  const { workspaceId, tabId } = session;
+  const rootPath = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
+  );
+  const cwd = useTabsStore((s) => {
+    const tab = s.byWorkspace[workspaceId]?.[tabId];
+    return tab?.type === "claude" || tab?.type === "codex" ? tab.props.cwd : "";
+  });
+  const fontStyle = useChatFontStyle();
+  return (
+    // The words name the tab's program, as in the tab.
+    <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
+      <TranscriptLinks session={session} chat={chat} cwd={cwd || rootPath} visible={visible}>
+        <div className="flex min-h-0 flex-1 flex-col" style={fontStyle}>
+          <MessageList
+            // Keyed by the session, so each one opens at its latest message.
+            key={session.key}
+            workspaceId={workspaceId}
+            tabId={tabId}
+            cwd={cwd || rootPath}
+            rootPath={rootPath}
+            history={chat.history}
+            model={chat.model}
+            empty={
+              <p className="my-auto text-center text-app-ui-sm text-muted-foreground">
+                {t("sessions.detail.no_messages")}
+              </p>
+            }
+          />
+        </div>
+      </TranscriptLinks>
+    </ChatAgentContext.Provider>
   );
 }
 
@@ -238,15 +332,28 @@ function DetailTop({
 
 const CHIP = "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 py-0.5";
 
+/** How a to-do reads in the chip's tooltip, by how far it is. */
+const TODO_MARK: Record<DetailTodo["status"], string> = {
+  completed: "✓",
+  in_progress: "●",
+  pending: "○",
+};
+
 /** What it runs on | how far it went | where. */
 function MetaChips({
   session,
   facts,
   branch,
+  todos,
+  modes,
 }: {
   session: AgentSession;
   facts: DetailFacts;
   branch: string | undefined;
+  /** The to-dos, as a count, where they are not listed. */
+  todos?: readonly DetailTodo[];
+  /** A chat tab's program, whose permission mode the chip picks; else the chip only tells it. */
+  modes?: { controller: ComposerController; chat: ChatTabState };
 }) {
   const { t } = useTranslation();
   const modePrefix = session.kind === "codex" ? "chat.codex.mode" : "chat.mode";
@@ -261,15 +368,39 @@ function MetaChips({
         {facts.effort}
       </span>
     ),
-    facts.mode && (
-      <span key="mode" className={CHIP} title={t("chat.mode.label")}>
-        <Pencil aria-hidden className="size-3" />
-        {t(`${modePrefix}.${facts.mode}`, { defaultValue: facts.mode })}
-      </span>
+    modes ? (
+      <ModeChip
+        key="mode"
+        controller={modes.controller}
+        state={modes.chat}
+        side="bottom"
+        truncate
+      />
+    ) : (
+      facts.mode && (
+        <span key="mode" className={CHIP} title={t("chat.mode.label")}>
+          <Pencil aria-hidden className="size-3" />
+          {t(`${modePrefix}.${facts.mode}`, { defaultValue: facts.mode })}
+        </span>
+      )
     ),
   ].filter(Boolean);
   const files = facts.files;
+  const todosDone = todos?.filter((todo) => todo.status === "completed").length ?? 0;
   const went = [
+    todos && todos.length > 0 && (
+      <span
+        key="todos"
+        className="flex shrink-0 items-center gap-1"
+        title={[
+          t("sessions.detail.todos"),
+          ...todos.map((todo) => `${TODO_MARK[todo.status]} ${todo.text}`),
+        ].join("\n")}
+      >
+        <ListChecks aria-hidden className="size-3.5" />
+        {todosDone}/{todos.length}
+      </span>
+    ),
     facts.context !== undefined && (
       <span
         key="context"
@@ -344,20 +475,40 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-/** The conversation's last answer, folded to a few lines until opened. */
-function AgentBubble({ session, text }: { session: AgentSession; text: string }) {
-  const fold = useFold<HTMLParagraphElement>(text, ANSWER_LINES);
+/**
+ * The conversation's last answer in Markdown, folded to a few lines' height
+ * until opened: its paragraphs and code blocks clamp no line count.
+ */
+function AgentBubble({
+  session,
+  text,
+  rootPath,
+}: {
+  session: AgentSession;
+  text: string;
+  /** Its workspace's root, against which its links resolve. */
+  rootPath: string;
+}) {
+  const fold = useFold<HTMLDivElement>(text, ANSWER_LINES);
   return (
     <div className="flex min-w-0 items-start gap-2">
       <AgentMark session={session} className="mt-1" />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
-        <p
+        <div
           ref={fold.ref}
-          style={fold.style}
-          className="min-w-0 whitespace-pre-wrap break-words text-app-body text-muted-foreground select-text"
+          style={
+            fold.open ? undefined : { maxHeight: `${ANSWER_LINES * 1.6}em`, overflow: "hidden" }
+          }
+          className="min-w-0 self-stretch break-words text-app-body select-text"
         >
-          {text}
-        </p>
+          <ChatMarkdown
+            // A terminal's agent tells it with its line breaks gone.
+            text={text.includes("\n") ? text : oneLineMarkdown(text)}
+            workspaceId={session.workspaceId}
+            cwd={rootPath}
+            rootPath={rootPath}
+          />
+        </div>
         {fold.foldable && <FoldToggle open={fold.open} onToggle={fold.toggle} />}
       </div>
     </div>

@@ -37,6 +37,9 @@ export function useFold<T extends HTMLElement>(text: string, lines: number): Fol
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    // Held to a height, it keeps its size as what is in it grows (an image
+    // that loads): that is watched too.
+    if (el.firstElementChild) observer.observe(el.firstElementChild);
     return () => observer.disconnect();
   }, [text, open]);
   return {
