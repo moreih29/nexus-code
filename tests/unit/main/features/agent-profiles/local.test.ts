@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   inspectLocalFolder,
+  localProfileEnv,
   loginCommand,
   prepareLocalProfile,
 } from "../../../../../src/main/features/agent-profiles/local";
@@ -149,5 +150,34 @@ describe("the sign-in command shown", () => {
       `$env:CLAUDE_CONFIG_DIR="${path.join(os.homedir(), ".claude-work")}"; claude auth login`,
     );
     expect(loginCommand({ ...profile, dir: "" }, true)).toBe("claude auth login");
+  });
+});
+
+describe("the environment a profile's program runs with", () => {
+  const profile: AgentProfile = {
+    id: "claude-work",
+    agent: "claude",
+    name: "Work",
+    color: "violet",
+    dir: "",
+    env: { Path: "C:/fake;C:/Windows", claude_config_dir: "C:/elsewhere" },
+  };
+  const base = { PATH: "C:/Windows", CLAUDECODE: "1", HOME: "C:/Users/me" };
+
+  test("takes the profile's variables over ones named in another case on Windows", () => {
+    const env = localProfileEnv({ ...profile, dir: "~/.claude-work" }, base, true);
+    expect(env.Path).toBe("C:/fake;C:/Windows");
+    expect("PATH" in env).toBe(false);
+    // The profile's folder wins over a variable of its own for it.
+    expect(env.CLAUDE_CONFIG_DIR).toBe(path.join(os.homedir(), ".claude-work"));
+    expect("claude_config_dir" in env).toBe(false);
+    expect("CLAUDECODE" in env).toBe(false);
+    expect(env.HOME).toBe("C:/Users/me");
+  });
+
+  test("keeps names that differ in case apart elsewhere", () => {
+    const env = localProfileEnv(profile, base, false);
+    expect(env.PATH).toBe("C:/Windows");
+    expect(env.Path).toBe("C:/fake;C:/Windows");
   });
 });

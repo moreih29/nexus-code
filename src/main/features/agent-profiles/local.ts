@@ -51,12 +51,32 @@ export function localProfileDir(profile: AgentProfile): string {
 }
 
 /** The environment the agent's program runs with here, for the profile. */
-export function localProfileEnv(profile: AgentProfile): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
+export function localProfileEnv(
+  profile: AgentProfile,
+  base: NodeJS.ProcessEnv = process.env,
+  onWindows = windows,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
   for (const key of INHERITED_ONLY) delete env[key];
-  Object.assign(env, profile.env ?? {});
-  if (profile.dir.trim() !== "") env[PROFILE_DIR_ENV[profile.agent]] = localProfileDir(profile);
+  for (const [key, value] of Object.entries(profile.env ?? {})) setVar(env, key, value, onWindows);
+  if (profile.dir.trim() !== "")
+    setVar(env, PROFILE_DIR_ENV[profile.agent], localProfileDir(profile), onWindows);
   return env;
+}
+
+/**
+ * Sets a variable. A Windows variable is one whatever the case of its name,
+ * so there it takes the place of one named in another case ("Path" of
+ * "PATH"): left beside it, the program would get either.
+ */
+function setVar(env: NodeJS.ProcessEnv, key: string, value: string, onWindows: boolean): void {
+  if (onWindows) {
+    const lower = key.toLowerCase();
+    for (const other of Object.keys(env)) {
+      if (other !== key && other.toLowerCase() === lower) delete env[other];
+    }
+  }
+  env[key] = value;
 }
 
 /**
