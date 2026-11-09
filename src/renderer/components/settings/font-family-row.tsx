@@ -2,17 +2,18 @@
 //
 // The editor, the terminal and the chat tabs pick their font the same way: a
 // Select of the presets (the bundled faces), the default, and "Other…", which
-// adds a field for any installed font's name. Below the name, whether that
-// font is on this system: when it is not, the browser silently falls back,
-// and the line says so.
+// adds a field that finds an installed font as its name is typed
+// (FontCombobox). A font picked so is installed; one that is not (removed
+// since, or set by name where the fonts cannot be listed) gets a line saying
+// so, as the browser silently falls back.
 //
 // Each keeps its own font in its own store; `scope` names its strings.
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { cn } from "@/utils/cn";
 import { checkFontAvailable } from "../../services/editor/runtime/font-availability";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { FontCombobox } from "./font-combobox";
 import { SettingsRow } from "./section";
 
 // Sentinel for "use the platform fallback (no override)". Stored as the
@@ -66,37 +67,36 @@ export function FontFamilyRow({
   const [selected, setSelected] = useState<string>(
     isCustom ? FAMILY_CUSTOM_VALUE : family && family !== "" ? family : FAMILY_SYSTEM_VALUE,
   );
-  const [custom, setCustom] = useState<string>(isCustom ? (family ?? "") : "");
+  // Picking "Other…" puts the keyboard in its field, not back on the Select.
+  const toCustom = useRef(false);
 
-  // Whether the typed font is installed. `null` = nothing to check; `false` =
-  // the browser fell back (not installed, or a typo). Said in strong words so
-  // the silent fallback is not taken for the font.
-  const [available, setAvailable] = useState<boolean | null>(null);
-  useEffect(() => {
-    const trimmed = custom.trim();
-    setAvailable(selected === FAMILY_CUSTOM_VALUE && trimmed ? checkFontAvailable(trimmed) : null);
-  }, [selected, custom]);
+  // Whether the font picked by name is installed: false when the browser
+  // falls back, said in strong words so the fallback is not taken for the
+  // font. Checked as it is picked, not per key.
+  const available = useMemo(
+    () => (selected === FAMILY_CUSTOM_VALUE && isCustom ? checkFontAvailable(family ?? "") : null),
+    [selected, isCustom, family],
+  );
 
   const select = (value: string) => {
     setSelected(value);
-    if (value === FAMILY_CUSTOM_VALUE) return;
+    if (value === FAMILY_CUSTOM_VALUE) {
+      toCustom.current = true;
+      return;
+    }
     setFamily(value === FAMILY_SYSTEM_VALUE ? undefined : value);
-    setCustom("");
   };
 
   const reset = () => {
     setFamily(undefined);
     setSelected(FAMILY_SYSTEM_VALUE);
-    setCustom("");
   };
 
   return (
     <SettingsRow
       label={t(`${scope}.fontFamily`)}
       description={
-        available === true ? (
-          t(`${scope}.fontDetected`)
-        ) : available === false ? (
+        available === false ? (
           <span className="text-[var(--state-warning-fg)]">{t(`${scope}.fontNotFound`)}</span>
         ) : undefined
       }
@@ -109,7 +109,14 @@ export function FontFamilyRow({
           <SelectTrigger ariaLabel={t(`${scope}.ariaFontFamily`)}>
             <SelectValue placeholder={t(`${scope}.fontFamilyPlaceholder`)} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent
+            onCloseAutoFocus={(event) => {
+              if (!toCustom.current) return;
+              toCustom.current = false;
+              event.preventDefault();
+              document.getElementById(customId)?.focus();
+            }}
+          >
             {options.map((f) => (
               <SelectItem key={f.value} value={f.value}>
                 {f.label}
@@ -118,20 +125,11 @@ export function FontFamilyRow({
           </SelectContent>
         </Select>
         {selected === FAMILY_CUSTOM_VALUE && (
-          <input
+          <FontCombobox
             id={customId}
-            type="text"
-            value={custom}
-            onChange={(e) => {
-              setCustom(e.target.value);
-              setFamily(e.target.value.trim() === "" ? undefined : e.target.value.trim());
-            }}
+            value={isCustom ? (family ?? "") : ""}
+            onPick={setFamily}
             placeholder={t(`${scope}.customFamilyPlaceholder`)}
-            className={cn(
-              "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
-              "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-              "focus-visible:ring-1 focus-visible:ring-ring",
-            )}
           />
         )}
       </div>
