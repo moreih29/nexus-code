@@ -1110,7 +1110,15 @@
         "open_run": "Show the run"
       },
       "jobs": {
-        "title": "Tasks"
+        "title": "Tasks",
+        "live": "Live",
+        "exit_code": "Exit code {{code}}",
+        "reading": "Reading the output…",
+        "no_output": "No output yet",
+        "unreadable": "Can't read the output",
+        "earlier": "… earlier lines left out",
+        "show_call": "Show in conversation",
+        "output_file": "Output file"
       },
       "todos": {
         "title": "To-dos"

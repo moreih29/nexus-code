@@ -1110,7 +1110,15 @@
         "open_run": "실행 보기"
       },
       "jobs": {
-        "title": "작업"
+        "title": "작업",
+        "live": "실시간",
+        "exit_code": "종료 코드 {{code}}",
+        "reading": "출력을 읽는 중…",
+        "no_output": "아직 출력이 없습니다",
+        "unreadable": "출력을 읽을 수 없습니다",
+        "earlier": "… 앞부분 생략",
+        "show_call": "대화에서 보기",
+        "output_file": "출력 파일"
       },
       "todos": {
         "title": "할 일"
