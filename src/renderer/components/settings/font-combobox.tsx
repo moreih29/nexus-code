@@ -9,13 +9,15 @@
 //
 // A font is found by its other names too (맑은 고딕 for Malgun Gothic), shown
 // beside it, and taken by the name listed. A whole name the list has not,
-// that the browser still draws a font for, is taken as typed.
+// that the browser still draws a font for, is taken as typed; not when the
+// font it draws is Times, which Chrome on macOS puts in place of a name the
+// system half knows.
 
 import { Popover as RadixPopover } from "radix-ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import { checkFontAvailable } from "../../services/editor/runtime/font-availability";
+import { checkFontAvailable, drawnAsTimes } from "../../services/editor/runtime/font-availability";
 import {
   type FontAliases,
   familyNamed,
@@ -132,7 +134,7 @@ export function FontCombobox({
     }
     const found = families ? familyNamed(families, name, aliases) : undefined;
     if (found) pick(found);
-    else if (checkFontAvailable(name)) pick(name);
+    else if (checkFontAvailable(name) && !drawnAsTimes(name)) pick(name);
     else {
       setText(value);
       setTyped(false);
