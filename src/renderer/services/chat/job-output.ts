@@ -6,6 +6,7 @@
  * grants it, which it does for its jobs' output files.
  */
 
+import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { ipcCallResult } from "../../ipc/client";
 import { terminalText } from "../editor/preview/notebook";
 import { bytesFromBase64 } from "../editor/preview/read-binary";
@@ -73,7 +74,7 @@ const readRange: RangeRead = async (workspaceId, relPath, offset, length) => {
 export function outputReadPath(path: string, root: string): string | null {
   const rel = lookupPath(path, root);
   if (rel !== null) return rel;
-  return path.startsWith("/") ? path : null;
+  return isAbsoluteOutsidePath(path) ? path : null;
 }
 
 /** The end of the output file at `path`; null while it cannot be read. */
