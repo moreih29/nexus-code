@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	nexusfs "github.com/nexus-code/nexus-code/internal/fs"
 )
 
 // ProfileDirParams is the wire shape for chat.profileDir.
@@ -109,7 +111,13 @@ func expandProfileDir(dir, home string) string {
 		if home == "" {
 			return ""
 		}
-		dir = filepath.Join(home, dir[2:])
+		rest := dir[2:]
+		if dir[1] == '\\' && runtime.GOOS != "windows" {
+			// A folder picked on Windows ("~\.claude\work"), on a host
+			// whose separator is "/".
+			rest = strings.ReplaceAll(rest, `\`, "/")
+		}
+		dir = filepath.Join(home, rest)
 	}
 	return filepath.Clean(dir)
 }
@@ -165,20 +173,19 @@ const (
 // linkShared links the default folder's entry into the profile's folder,
 // unless the folder has one of its own: a file the user put there wins.
 func linkShared(link, target string) linkOutcome {
-	if info, err := os.Lstat(link); err == nil {
-		if info.Mode()&fs.ModeSymlink != 0 {
-			if got, err := os.Readlink(link); err == nil && sameDir(got, target) {
-				return linkMade
-			}
+	if _, err := os.Lstat(link); err == nil {
+		if linksTo(link, target) {
+			return linkMade
 		}
 		return linkSkipped
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return linkFailed
 	}
-	if _, err := os.Stat(target); err != nil {
+	info, err := os.Stat(target)
+	if err != nil {
 		return linkSkipped
 	}
-	if err := os.Symlink(target, link); err != nil {
+	if err := makeLink(link, target, info.IsDir()); err != nil {
 		return linkFailed
 	}
 	return linkMade
@@ -186,11 +193,43 @@ func linkShared(link, target string) linkOutcome {
 
 // unlinkShared removes a link to the default folder's entry: no longer shared.
 func unlinkShared(link, target string) {
-	info, err := os.Lstat(link)
-	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
-		return
-	}
-	if got, err := os.Readlink(link); err == nil && sameDir(got, target) {
+	if _, err := os.Lstat(link); err == nil && linksTo(link, target) {
 		_ = os.Remove(link)
 	}
+}
+
+// makeLink links link to target. Windows lets only an administrator, or a PC
+// in Developer Mode, make a symbolic link: there a folder gets a junction,
+// which needs no rights, and a file a hard link when its symbolic link fails.
+func makeLink(link, target string, dir bool) error {
+	if runtime.GOOS != "windows" {
+		return os.Symlink(target, link)
+	}
+	if dir {
+		return nexusfs.Junction(link, target)
+	}
+	if err := os.Symlink(target, link); err == nil {
+		return nil
+	}
+	return os.Link(target, link)
+}
+
+// linksTo reports whether link leads to target: a symbolic link or junction
+// to it, or on Windows a hard link of the same file.
+func linksTo(link, target string) bool {
+	if got, err := os.Readlink(link); err == nil {
+		if !filepath.IsAbs(got) {
+			got = filepath.Join(filepath.Dir(link), got)
+		}
+		return sameDir(got, target)
+	}
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	own, err := os.Lstat(link)
+	if err != nil || !own.Mode().IsRegular() {
+		return false
+	}
+	shared, err := os.Stat(target)
+	return err == nil && os.SameFile(own, shared)
 }

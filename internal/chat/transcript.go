@@ -66,11 +66,9 @@ func configDir(given string) string {
 		}
 		return filepath.Join(home, ".claude")
 	}
-	if given == "~" {
-		return home
-	}
-	if strings.HasPrefix(given, "~/") && home != "" {
-		return filepath.Join(home, given[2:])
+	// A profile's folder, "~\…" too as one picked on Windows reads.
+	if dir := expandProfileDir(given, home); dir != "" {
+		return dir
 	}
 	return given
 }

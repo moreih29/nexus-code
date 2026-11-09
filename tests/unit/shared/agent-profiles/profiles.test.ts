@@ -8,6 +8,7 @@ import {
   folderDepth,
   isDefaultDir,
   type ProfileWorkspace,
+  portableProfileDir,
   profileOf,
   profilesOf,
   resolveProfile,
@@ -229,6 +230,12 @@ describe("folders", () => {
     expect(isDefaultDir("claude", "/Users/me/.claude/", { home: "/Users/me" })).toBe(true);
     expect(isDefaultDir("claude", "~/.claude-personal")).toBe(false);
     expect(isDefaultDir("codex", "~/.claude")).toBe(false);
+  });
+
+  test("a folder in the home is kept as ~/…, which every host reads", () => {
+    expect(portableProfileDir("~\\.claude-work\\main")).toBe("~/.claude-work/main");
+    expect(portableProfileDir(" ~/.codex-work ")).toBe("~/.codex-work");
+    expect(portableProfileDir("D:\\agents\\claude")).toBe("D:\\agents\\claude");
   });
 });
 
