@@ -342,6 +342,11 @@ const chatNew: CliCommand = {
     prompt: { type: "string", value: "TEXT", description: "The first message" },
     cwd: { type: "string", value: "DIR", description: "Run it in DIR (default: this directory)" },
     show: { type: "boolean", description: "Show it, beside this terminal" },
+    profile: {
+      type: "string",
+      value: "NAME",
+      description: "Run it with that agent profile (default: the workspace's)",
+    },
     ...SETTING_FLAGS,
     workspace: WORKSPACE_FLAG,
   },
@@ -374,6 +379,9 @@ const chatNew: CliCommand = {
         prompt,
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
+        ...(typeof flags.profile === "string" && flags.profile.trim() !== ""
+          ? { profile: flags.profile.trim() }
+          : {}),
       },
       // Its program starts and lists its models before the settings go.
       setting ? SEND_TIMEOUT_MS : undefined,

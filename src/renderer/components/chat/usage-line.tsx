@@ -5,6 +5,7 @@
 // the session's, then the words shorten, and at the narrowest the bars go;
 // the percentages stay. Hovering a part tells it whole.
 
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -53,9 +54,25 @@ function Bar({ percent }: { percent: number }) {
   );
 }
 
-export function UsageLineView({ line }: { line: UsageLine | null }) {
+export function UsageLineView({
+  line,
+  trailing,
+}: {
+  line: UsageLine | null;
+  /** What ends the line on its right: the tab's profile. */
+  trailing?: ReactNode;
+}) {
   const { t, i18n } = useTranslation();
-  if (!line) return null;
+  if (!line) {
+    if (!trailing) return null;
+    return (
+      <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
+        <div className="flex items-center justify-end text-app-micro text-muted-foreground">
+          {trailing}
+        </div>
+      </div>
+    );
+  }
   const now = Date.now();
 
   const label = (meter: UsageMeter, long = false): string => {
@@ -158,6 +175,7 @@ export function UsageLineView({ line }: { line: UsageLine | null }) {
             </span>
           );
         })}
+        {trailing && <span className="ml-auto flex shrink-0 items-center">{trailing}</span>}
       </div>
     </div>
   );

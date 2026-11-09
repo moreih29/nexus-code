@@ -8,7 +8,11 @@
  * gone.
  */
 
+import { isDefaultProfileId, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { chatPropsWithProfile } from "../../state/operations/tabs";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import {
   type AgentTabController,
   agentTabController,
@@ -154,16 +158,35 @@ async function applySettings(
   await whenShown(workspaceId, tabId, agent, plan);
 }
 
+/** The agent's profile a --profile flag names, by name (any case) or id. */
+function profileNamed(agent: ChatAgent, name: string): string {
+  const profiles = profilesOf(useAgentProfilesStore.getState().config, agent);
+  const wanted = name.trim().toLowerCase();
+  const found = profiles.find(
+    (p) =>
+      p.id.toLowerCase() === wanted ||
+      p.name.trim().toLowerCase() === wanted ||
+      (isDefaultProfileId(p.id) && p.name.trim() === "" && wanted === "default"),
+  );
+  if (found) return found.id;
+  const names = profiles.map((p) => p.name.trim() || "default").join(", ");
+  throw new UiRequestError(`${agent} has no profile "${name}"; it has ${names}`);
+}
+
 const hasSettings = (settings: CliChatSettings | undefined): settings is CliChatSettings =>
   settings !== undefined &&
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings }) => {
+  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings, profile }) => {
+    const props = chatPropsWithProfile(workspaceId, agent, {
+      cwd,
+      ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
+    });
     const tab =
       agent === "claude"
-        ? ({ type: "claude", props: { cwd } } as const)
-        : ({ type: "codex", props: { cwd } } as const);
+        ? ({ type: "claude", props } as const)
+        : ({ type: "codex", props } as const);
     const tabId = openTab(workspaceId, tab, placement);
     if (!hasSettings(settings)) {
       startAgentTab(workspaceId, tabId, prompt);

@@ -553,6 +553,8 @@ export interface CliUiOps {
       prompt: string;
       placement: CliPlacement;
       settings?: CliChatSettings;
+      /** The agent profile to run with, by name or id; absent = the workspace's. */
+      profile?: string;
     };
     result: { tabId: string; error?: string };
   };

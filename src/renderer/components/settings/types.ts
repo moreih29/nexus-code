@@ -5,8 +5,13 @@ export interface SettingsNavItem {
   id: string;
   /** Display label shown in the nav sidebar. */
   label: string;
-  /** Optional group header label — items with the same group appear together. */
-  group?: string;
+  /**
+   * The page this one belongs under, by its id: listed indented beneath it,
+   * and named before it in the panel's title. The parent must come first.
+   */
+  parent?: string;
+  /** Kept apart at the foot of the list: a page that is not a setting (About). */
+  footer?: boolean;
   /**
    * Tokens used by the search box to match this item beyond `label`.
    * E.g. an "Appearance" item might add ["theme", "opacity"] so typing "opa"
@@ -20,3 +25,16 @@ export interface SettingsNavItem {
    */
   dirty?: boolean;
 }
+
+/** What finds the Claude, Codex and Profiles by workspace pages in the search box. */
+export const PROFILE_KEYWORDS: string[] = [
+  "profile",
+  "account",
+  "login",
+  "sign in",
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "프로필",
+  "계정",
+  "로그인",
+];

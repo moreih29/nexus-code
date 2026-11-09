@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { resultFiles } from "../../../../../src/renderer/services/chat/links";
 import {
   applyLines,
+  type ChatItem,
   type ChatLine,
   type ChatModel,
   emptyModel,
+  type ImageBlock,
+  type ToolCall,
 } from "../../../../../src/renderer/services/chat/model";
 import {
   agentsOf,
@@ -13,6 +16,7 @@ import {
   changedFilesOf,
   contextOf,
   distinctResults,
+  imagesOf,
   jobsOf,
   outsideLinksOf,
   resultsOf,
@@ -606,5 +610,100 @@ describe("distinctResults", () => {
       { kind: "file", target: "./src/a.ts", created: true, guessed: false },
       { kind: "url", target: "https://example.com/x", created: false, guessed: false },
     ]);
+  });
+});
+
+describe("imagesOf", () => {
+  const A: ImageBlock = { mediaType: "image/png", data: "AAAA" };
+  const B: ImageBlock = { mediaType: "image/png", data: "BBBB" };
+  const C: ImageBlock = { mediaType: "image/png", data: "CCCC" };
+  const D: ImageBlock = { mediaType: "image/png", data: "DDDD" };
+  const call = (
+    id: string,
+    name: string,
+    input: unknown,
+    result: Partial<ToolCall["result"]> = {},
+  ): ToolCall => ({
+    id,
+    name,
+    input,
+    status: "done",
+    parentToolUseId: null,
+    result: { text: "", isError: false, images: [], ...result },
+  });
+  const tools: Record<string, ToolCall> = {
+    read: call("read", "Read", { file_path: "/p/a.png" }, { images: [B] }),
+    shot: call("shot", "mcp__browser__screenshot", {}, { images: [C] }),
+    send: call("send", "SendUserFile", { files: ["/p/d.png", "/p/report.pdf"] }),
+    write: call("write", "Write", { file_path: "/p/e.svg" }, { structured: { type: "create" } }),
+    agent: call("agent", "Agent", { prompt: "look" }),
+    sub: call("sub", "Read", { file_path: "/p/f.png" }, { images: [D] }),
+    again: call("again", "Read", { file_path: "/p/a.png" }, { images: [B] }),
+  };
+  const assistant = (key: string, blocks: Extract<ChatItem, { kind: "assistant" }>["blocks"]) =>
+    ({ kind: "assistant", key, messageId: key, blocks }) as ChatItem;
+  const items: ChatItem[] = [
+    { kind: "user", key: "u1", text: "this", images: [A], state: "taken" },
+    assistant("a1", [
+      { type: "tool", toolUseId: "read" },
+      { type: "tool", toolUseId: "shot" },
+      {
+        type: "text",
+        text: "See ![b](b.png), [c](/p/c.png) and [notes](notes.md); `/p/a.png` is it.",
+      },
+      { type: "tool", toolUseId: "send" },
+      { type: "tool", toolUseId: "write" },
+      { type: "tool", toolUseId: "agent" },
+      { type: "tool", toolUseId: "again" },
+    ]),
+  ];
+  const agentItems = { agent: [assistant("s1", [{ type: "tool", toolUseId: "sub" }])] };
+
+  test("is every image the conversation shows, each once, in the order it came", () => {
+    expect(imagesOf(items, tools, "/p", agentItems)).toEqual([
+      { image: A },
+      { file: "/p/a.png", image: B },
+      { image: C },
+      { file: "/p/b.png" },
+      { file: "/p/c.png" },
+      { file: "/p/d.png" },
+      { file: "/p/e.svg" },
+      { file: "/p/f.png", image: D },
+    ]);
+  });
+
+  test("leaves an agent's images out without its items", () => {
+    expect(imagesOf(items, tools, "/p").map((shown) => shown.file ?? "data")).not.toContain(
+      "/p/f.png",
+    );
+  });
+
+  test("takes the image file a Codex ViewImage looked at, which gives no data", () => {
+    const viewed = { view: call("view", "ViewImage", { file_path: "/p/v.png" }) };
+    const edited = { edit: call("edit", "Edit", { file_path: "/p/logo.svg" }) };
+    const look = (calls: Record<string, ToolCall>) =>
+      imagesOf(
+        [
+          assistant(
+            "a1",
+            Object.keys(calls).map((toolUseId) => ({ type: "tool", toolUseId })),
+          ),
+        ],
+        calls,
+        "/p",
+      );
+    expect(look(viewed)).toEqual([{ file: "/p/v.png" }]);
+    // An edit of an image file shows no image.
+    expect(look(edited)).toEqual([]);
+  });
+
+  test("keeps the data a later Read gave a file first named in a reply", () => {
+    const named: ChatItem[] = [
+      assistant("a1", [
+        { type: "text", text: "[a](/p/a.png)" },
+        { type: "tool", toolUseId: "read" },
+      ]),
+    ];
+    expect(imagesOf(named, tools, "/p")).toEqual([{ file: "/p/a.png", image: B }]);
   });
 });

@@ -8,11 +8,13 @@
  */
 
 import i18next from "i18next";
+import { isDefaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
 import type { CliSessionEvent } from "../../../shared/cli/ui";
 import { createLogger } from "../../../shared/log/renderer";
 import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useManagerStore } from "../../state/stores/manager";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
@@ -71,10 +73,14 @@ async function start(agent: ChatAgent): Promise<void> {
   const { workspaceId, tabId, cwd } = target;
   const store = useManagerStore.getState();
   const session = store.session?.agent === agent ? store.session.id : undefined;
+  // The manager runs with each agent's default profile, as Settings sets it.
+  const { config } = useAgentProfilesStore.getState();
+  const profile = profileOf(config, agent, config.defaults[agent]);
+  const profileId = isDefaultProfileId(profile.id) ? {} : { profileId: profile.id };
   const controller =
     agent === "claude"
       ? chatController(
-          { workspaceId, tabId, cwd, ...(session ? { sessionId: session } : {}) },
+          { workspaceId, tabId, cwd, ...profileId, ...(session ? { sessionId: session } : {}) },
           managerClaudeHooks,
         )
       : codexController(
@@ -82,6 +88,7 @@ async function start(agent: ChatAgent): Promise<void> {
             workspaceId,
             tabId,
             cwd,
+            ...profileId,
             ...(session ? { threadId: session } : {}),
             developerInstructions: MANAGER_PROMPT,
             // Its rules let nexus out of Codex's sandbox (main writes them).

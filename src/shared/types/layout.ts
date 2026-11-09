@@ -40,6 +40,8 @@ export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   sessionId: z.string().max(128).optional(),
   fork: z.object({ sessionId: z.string().max(128), at: z.string().max(128).optional() }).optional(),
+  /** The agent profile it runs with; absent = the default one. */
+  profileId: z.string().max(64).optional(),
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -50,6 +52,8 @@ export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 export const CodexTabPropsSchema = z.object({
   cwd: z.string(),
   threadId: z.string().max(128).optional(),
+  /** The agent profile it runs with; absent = the default one. */
+  profileId: z.string().max(64).optional(),
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 

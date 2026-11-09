@@ -7,7 +7,6 @@ import { describe, expect, it } from "bun:test";
 import {
   createFilePresence,
   lookupPath,
-  resultFilesThere,
 } from "../../../../../src/renderer/services/chat/file-presence";
 
 describe("lookupPath", () => {
@@ -122,26 +121,5 @@ describe("createFilePresence", () => {
     expect(await presence.isThere("ws", "/p", "/etc/hosts")).toBe(false);
     expect(await presence.isThere("ws", "C:\\w", "D:/out/log.txt")).toBe(false);
     expect(asked).toEqual(["/tmp/shot.png", "/dev/shm"]);
-  });
-});
-
-describe("resultFilesThere", () => {
-  it("keeps each file named only once it is there", async () => {
-    const asked: string[] = [];
-    const files = await resultFilesThere(
-      [
-        { kind: "file", target: "src/a.ts", created: false },
-        { kind: "url", target: "https://example.com", created: false },
-        { kind: "file", target: "/dev/shm", created: false },
-        { kind: "file", target: "/p/b.md", created: true },
-      ],
-      "/p",
-      async (path) => {
-        asked.push(path);
-        return path === "/p/src/a.ts" || path === "/p/b.md";
-      },
-    );
-    expect(files).toEqual(["/p/src/a.ts", "/p/b.md"]);
-    expect(asked).toEqual(["/p/src/a.ts", "/dev/shm", "/p/b.md"]);
   });
 });

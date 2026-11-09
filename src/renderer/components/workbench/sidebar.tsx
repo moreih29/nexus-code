@@ -12,10 +12,12 @@ import {
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
+import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
 import {
   ContextMenuContent,
   ContextMenuItems,
   ContextMenuRoot,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import {
@@ -417,7 +419,12 @@ function WorkspaceRow({
               label: ws.pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top"),
               onSelect: () => onTogglePin(ws),
             },
-            { kind: "separator" },
+          ]}
+        />
+        <WorkspaceProfileMenu workspace={ws} />
+        <ContextMenuSeparator />
+        <ContextMenuItems
+          items={[
             {
               kind: "item",
               label: t("sidebar.dismiss_notification"),

@@ -92,6 +92,7 @@ func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("chat.claudeConfig", service.ClaudeConfig)
 	d.Register("chat.attach", service.Attach)
 	d.Register("chat.pruneAttachments", service.PruneAttachments)
+	d.Register("chat.profileDir", service.ProfileDir)
 }
 
 // SetEventSink wires the service to the stdio host.

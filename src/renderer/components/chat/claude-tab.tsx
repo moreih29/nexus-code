@@ -16,10 +16,11 @@ import {
   type PermissionAnswer,
   pruneAttachmentsOnce,
 } from "../../services/chat/controller";
-import { foundResultFiles } from "../../services/chat/file-presence";
-import { imageLook } from "../../services/chat/image-look";
+import { filesThere } from "../../services/chat/file-presence";
+import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import {
   type FileLink,
+  fileKind,
   isLocalAddress,
   isUnder,
   type LineAt,
@@ -39,9 +40,9 @@ import {
   agentTranscript,
   changedFilesOf,
   contextOf,
+  imagesOf,
   jobsOf,
   outsideLinksOf,
-  resultsOf,
   todosOf,
 } from "../../services/chat/panel";
 import {
@@ -76,6 +77,7 @@ import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
+import { ProfileUsageChip } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
@@ -161,6 +163,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           cwd: props.cwd,
           sessionId: props.sessionId,
           fork: props.fork,
+          ...(props.profileId ? { profileId: props.profileId } : {}),
         },
         hooks ?? claudeTabHooks(workspaceId, tabId),
       ),
@@ -206,9 +209,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   }, [customTitle, controller]);
 
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const resumeSession = (sessionId: string) => {
+  const resumeSession = (sessionId: string, profileId?: string) => {
     setResumeError(null);
-    void controller.resumeSession(sessionId).catch((err: Error) => setResumeError(err.message));
+    void controller
+      .resumeSession(sessionId, profileId)
+      .catch((err: Error) => setResumeError(err.message));
   };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
@@ -332,8 +337,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  const latest = useRef({ state, place, rootPath });
-  latest.current = { state, place, rootPath };
+  const latest = useRef({ state, place, rootPath, outside });
+  latest.current = { state, place, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
   const links = useMemo<ChatLinks>(() => {
     const cwd = props.cwd;
@@ -344,36 +349,55 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       const link = resolveFileLink(target, cwd);
       if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
     };
+    /** Lets the previews read a file outside the workspace the tab grants none of yet. */
+    const grant = (path: string) => {
+      const { rootPath, outside } = latest.current;
+      if (isUnder(path, rootPath) || outside.files.includes(path)) return;
+      setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
+    };
+    /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
+    const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
+      const { state, rootPath } = latest.current;
+      const { history, model } = state;
+      const items = history ? [...history.items, ...model.items] : model.items;
+      const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+      const shown = imagesOf(items, tools, cwd, model.agentItems);
+      void lookAtImage(shown, target, (files) => filesThere(workspaceId, rootPath, files)).then(
+        (look) => {
+          const list = look ?? alone?.();
+          if (list) setLook(list);
+        },
+      );
+    };
     return {
       openFile(target) {
         follow(target, ({ path, ...line }) => {
-          const { state, rootPath } = latest.current;
-          const { history, model } = state;
-          const items = history ? [...history.items, ...model.items] : model.items;
-          const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-          void foundResultFiles(workspaceId, rootPath, resultsOf(items, tools, cwd), cwd).then(
-            (files) => {
-              const at = files.indexOf(path);
-              if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-              const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
-              setLook(
-                line.line ? { ...list, at: { path, line: line.line, column: line.column } } : list,
-              );
-            },
-          );
+          grant(path);
+          // An image steps through the conversation's images; any other file shows alone.
+          if (fileKind(path) === "image") {
+            lookAt({ file: path });
+            return;
+          }
+          setLook({
+            files: [path],
+            index: 0,
+            ...(line.line ? { at: { path, line: line.line, column: line.column } } : {}),
+          });
         });
       },
       openImages(images, index) {
-        if (images.length > 0) setLook(imageLook(images, index));
+        const image = images[index];
+        if (image) lookAt({ image }, () => imageLook(images, index));
       },
       openChange(path) {
         const { history, model } = latest.current.state;
         const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-        const changed = changedFilesOf(tools);
-        const changes: Record<string, string | null> = {};
-        for (const file of changed) if (file.before !== undefined) changes[file.path] = file.before;
-        const files = changed.map((file) => file.path);
-        setLook({ files, index: Math.max(0, files.indexOf(path)), changes });
+        const before = changedFilesOf(tools).find((file) => file.path === path)?.before;
+        setLook({
+          files: [path],
+          index: 0,
+          ...(before !== undefined ? { changes: { [path]: before } } : {}),
+        });
       },
       openFileTab(target, at?: LineAt) {
         follow(target, ({ path, ...line }) => {
@@ -435,7 +459,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   const forkSession = () => {
     if (hooks) return;
     const point = controller.forkPoint("", { before: false });
-    if (point) openClaudeTab(workspaceId, { cwd: props.cwd, fork: { sessionId: point.sessionId } });
+    if (point) {
+      openClaudeTab(workspaceId, {
+        cwd: props.cwd,
+        fork: { sessionId: point.sessionId },
+        profileId: controller.profileId,
+      });
+    }
   };
   const panel = (
     <SidePanel
@@ -572,7 +602,21 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               )
             }
             onCommand={runCommand}
-            below={<UsageLineView line={usageLine} />}
+            below={
+              <UsageLineView
+                line={usageLine}
+                trailing={
+                  hooks ? undefined : (
+                    <ProfileUsageChip
+                      agent="claude"
+                      workspaceId={workspaceId}
+                      cwd={props.cwd}
+                      profileId={props.profileId}
+                    />
+                  )
+                }
+              />
+            }
           />
         </div>
         {place === "beside" && besideOpen && panel}
@@ -658,7 +702,11 @@ function forkFrom(
   const user = item.kind === "user";
   const fork = controller.forkPoint(item.uuid, { before: user });
   if (!fork && !user) return;
-  const tab = openClaudeTab(workspaceId, { cwd, ...(fork ? { fork } : {}) });
+  const tab = openClaudeTab(workspaceId, {
+    cwd,
+    ...(fork ? { fork } : {}),
+    profileId: controller.profileId,
+  });
   if (user) {
     const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };
     useChatStore.getState().update(chatKey(workspaceId, tab.id), (prev) => ({ ...prev, draft }));

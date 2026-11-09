@@ -8,6 +8,7 @@
  * Handled centrally by `state/operations/browser-suspend-auto.ts` — see
  * that module for the rationale.
  */
+import { Check, ChevronRight } from "lucide-react";
 import { ContextMenu as RadixContextMenu } from "radix-ui";
 
 const CONTENT_CLASS =
@@ -151,3 +152,91 @@ function collapseSeparators(items: MenuItemSpec[]): MenuItemSpec[] {
   while (out.length > 0 && out[out.length - 1].kind === "separator") out.pop();
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Submenus and choices, for a menu built by hand beside ContextMenuItems
+// ---------------------------------------------------------------------------
+
+export function ContextMenuSub({ children }: { children: React.ReactNode }) {
+  return <RadixContextMenu.Sub>{children}</RadixContextMenu.Sub>;
+}
+
+export function ContextMenuSubTrigger({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixContextMenu.SubTrigger
+      className={`${ITEM_CLASS} data-[state=open]:bg-[var(--state-hover-bg)]`}
+    >
+      {children}
+      <ChevronRight className="ml-4 size-3.5 text-muted-foreground" aria-hidden="true" />
+    </RadixContextMenu.SubTrigger>
+  );
+}
+
+export function ContextMenuSubContent({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixContextMenu.Portal>
+      <RadixContextMenu.SubContent className={CONTENT_CLASS} sideOffset={4}>
+        {children}
+      </RadixContextMenu.SubContent>
+    </RadixContextMenu.Portal>
+  );
+}
+
+/** A section's name inside a menu. */
+export function ContextMenuLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <RadixContextMenu.Label className="px-2 pt-1.5 pb-0.5 text-app-label uppercase text-muted-foreground">
+      {children}
+    </RadixContextMenu.Label>
+  );
+}
+
+/** One choice of a set: a check marks the one in effect, a note may follow it. */
+export function ContextMenuChoice({
+  checked,
+  onSelect,
+  children,
+  note,
+  noteClassName,
+}: {
+  checked: boolean;
+  onSelect: () => void;
+  children: React.ReactNode;
+  note?: React.ReactNode;
+  noteClassName?: string;
+}) {
+  return (
+    <RadixContextMenu.Item className={ITEM_CLASS} onSelect={onSelect}>
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="flex size-3.5 shrink-0 items-center justify-center">
+          {checked && <Check className="size-3" aria-hidden="true" />}
+        </span>
+        {children}
+      </span>
+      {note ? (
+        <span className={noteClassName ?? "ml-4 max-w-[16rem] truncate text-muted-foreground"}>
+          {note}
+        </span>
+      ) : null}
+    </RadixContextMenu.Item>
+  );
+}
+
+/** A plain item, for a menu built by hand. */
+export function ContextMenuAction({
+  onSelect,
+  children,
+  disabled,
+}: {
+  onSelect: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
+  return (
+    <RadixContextMenu.Item className={ITEM_CLASS} disabled={disabled} onSelect={onSelect}>
+      {children}
+    </RadixContextMenu.Item>
+  );
+}
+
+export { ContextMenuSeparator };

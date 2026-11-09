@@ -5,6 +5,7 @@
  * ever shown.
  */
 
+import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
@@ -26,6 +27,12 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
     // The user's own name for it, whole, as the tab's rename menu keeps one.
     onRename: (title) => tabs().renameTab(workspaceId, tabId, title),
+    onProfile: (profileId) =>
+      tabs().setChatProfile(
+        workspaceId,
+        tabId,
+        isDefaultProfileId(profileId) ? undefined : profileId,
+      ),
   };
 }
 
@@ -51,21 +58,21 @@ export type AgentTabController =
 export function agentTabController(workspaceId: string, tabId: string): AgentTabController | null {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (tab?.type === "claude") {
-    const { cwd, sessionId, fork } = tab.props;
+    const { cwd, sessionId, fork, profileId } = tab.props;
     return {
       agent: "claude",
       controller: chatController(
-        { workspaceId, tabId, cwd, sessionId, fork },
+        { workspaceId, tabId, cwd, sessionId, fork, ...(profileId ? { profileId } : {}) },
         claudeTabHooks(workspaceId, tabId),
       ),
     };
   }
   if (tab?.type === "codex") {
-    const { cwd, threadId } = tab.props;
+    const { cwd, threadId, profileId } = tab.props;
     return {
       agent: "codex",
       controller: codexController(
-        { workspaceId, tabId, cwd, threadId },
+        { workspaceId, tabId, cwd, threadId, ...(profileId ? { profileId } : {}) },
         codexTabHooks(workspaceId, tabId),
       ),
     };
@@ -145,9 +152,11 @@ export function openAgentTab(
   agent: ChatAgent,
   cwd: string,
   message: string,
+  profileId?: string,
 ): string {
+  const props = { cwd, ...(profileId ? { profileId } : {}) };
   const { id: tabId } =
-    agent === "claude" ? openClaudeTab(workspaceId, { cwd }) : openCodexTab(workspaceId, { cwd });
+    agent === "claude" ? openClaudeTab(workspaceId, props) : openCodexTab(workspaceId, props);
   startAgentTab(workspaceId, tabId, message);
   return tabId;
 }

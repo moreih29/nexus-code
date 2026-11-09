@@ -46,6 +46,8 @@ export interface AppStateChannelOptions {
    * broadcasts `appState.terminalShellsChanged` to all renderer windows.
    */
   onTerminalShellsChanged?: () => void;
+  /** Invoked after a `set` call that includes `agentProfiles`. */
+  onAgentProfilesChanged?: () => void;
   /**
    * Invoked after a `set` call that includes `themePreference`, with the
    * new theme. The main/index.ts wiring repaints the window controls.
@@ -92,6 +94,8 @@ export function registerAppStateChannel(
         if ("terminalShell" in patch || "terminalShells" in patch) {
           opts.onTerminalShellsChanged?.();
         }
+
+        if ("agentProfiles" in patch) opts.onAgentProfilesChanged?.();
 
         if (patch.themePreference !== undefined) {
           opts.onThemeChanged?.(patch.themePreference);

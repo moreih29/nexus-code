@@ -18,10 +18,11 @@ import {
 } from "../../services/chat/codex-controller";
 import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
-import { foundResultFiles } from "../../services/chat/file-presence";
-import { imageLook } from "../../services/chat/image-look";
+import { filesThere } from "../../services/chat/file-presence";
+import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
 import {
   type FileLink,
+  fileKind,
   isLocalAddress,
   isUnder,
   type LineAt,
@@ -30,7 +31,7 @@ import {
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
-import { outsideLinksOf, resultsOf } from "../../services/chat/panel";
+import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
@@ -45,6 +46,7 @@ import { useChatFontStyle } from "../../state/stores/chat-font";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { ProfileUsageChip } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { CodexIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
@@ -102,6 +104,7 @@ export function CodexTabView({
           tabId,
           cwd: props.cwd,
           threadId: props.threadId,
+          ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
         },
@@ -168,26 +171,38 @@ export function CodexTabView({
     () => () => grantOutside(workspaceId, tabId, { files: [], dirs: [] }),
     [workspaceId, tabId],
   );
-  const latest = useRef({ state, rootPath });
-  latest.current = { state, rootPath };
+  const latest = useRef({ state, rootPath, outside });
+  latest.current = { state, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
   const links = useMemo<ChatLinks>(() => {
     const cwd = props.cwd;
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
-    const show = (path: string, line?: LineAt) => {
+    /** Lets the previews read a file outside the workspace the tab grants none of yet. */
+    const grant = (path: string) => {
+      const { rootPath, outside } = latest.current;
+      if (isUnder(path, rootPath) || outside.files.includes(path)) return;
+      setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
+    };
+    /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
+    const lookAt = (target: ShownImage, alone?: () => QuickLookList) => {
       const current = latest.current.state.model as CodexModel;
-      const results = resultsOf(current.items, current.tools, cwd);
-      void foundResultFiles(workspaceId, latest.current.rootPath, results, cwd).then((files) => {
-        const at = files.indexOf(path);
-        if (at < 0) setLooked((paths) => (paths.includes(path) ? paths : [...paths, path]));
-        const list = at >= 0 ? { files, index: at } : { files: [path, ...files], index: 0 };
-        // A file the session changed shows as a diff, when the agent kept its original.
-        const changes = originalsFor(current.originals, list.files);
-        setLook(
-          line?.line
-            ? { ...list, changes, at: { path, line: line.line, column: line.column } }
-            : { ...list, changes },
-        );
+      const shown = imagesOf(current.items, current.tools, cwd, current.agentItems);
+      void lookAtImage(shown, target, (files) =>
+        filesThere(workspaceId, latest.current.rootPath, files),
+      ).then((look) => {
+        const list = look ?? alone?.();
+        if (list) setLook(list);
+      });
+    };
+    /** Shows a file alone, as a diff when the session changed it and the agent kept its original. */
+    const showAlone = (path: string, line?: LineAt) => {
+      grant(path);
+      const current = latest.current.state.model as CodexModel;
+      setLook({
+        files: [path],
+        index: 0,
+        changes: originalsFor(current.originals, [path]),
+        ...(line?.line ? { at: { path, line: line.line, column: line.column } } : {}),
       });
     };
     /** The file a link names, and where in it, once it is known which file that is. */
@@ -203,11 +218,17 @@ export function CodexTabView({
     };
     return {
       openFile(target) {
-        follow(target, ({ path, ...line }) => show(path, line));
+        follow(target, ({ path, ...line }) => {
+          // An image steps through the conversation's images; any other file shows alone.
+          if (fileKind(path) !== "image") return showAlone(path, line);
+          grant(path);
+          lookAt({ file: path });
+        });
       },
-      openChange: (path) => show(path),
+      openChange: (path) => showAlone(path),
       openImages(images, index) {
-        if (images.length > 0) setLook(imageLook(images, index));
+        const image = images[index];
+        if (image) lookAt({ image }, () => imageLook(images, index));
       },
       openFileTab,
       openUrl(url, other = false) {
@@ -314,7 +335,21 @@ export function CodexTabView({
         local={isLocal}
         appCommands={false}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
-        below={<UsageLineView line={usageLine} />}
+        below={
+          <UsageLineView
+            line={usageLine}
+            trailing={
+              hooks ? undefined : (
+                <ProfileUsageChip
+                  agent="codex"
+                  workspaceId={workspaceId}
+                  cwd={props.cwd}
+                  profileId={props.profileId}
+                />
+              )
+            }
+          />
+        }
         onCommand={(text) => {
           // A bare /model or /effort opens its menu, as Codex's own does;
           // anything else goes to the model as typed.

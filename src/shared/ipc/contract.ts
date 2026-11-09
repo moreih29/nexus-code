@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AgentProfilesSchema } from "../agent-profiles/profiles";
+import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
   ACTIVITY_TEXT_MAX_CHARS,
   PermissionAnswerSchema,
@@ -841,6 +843,8 @@ export const ipcContract = {
           resumeAt: z.string().max(128).optional(),
           /** Drop the tab's log first: the program goes on with another conversation (a rewind). */
           resetLog: z.boolean().optional(),
+          /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
+          profileId: z.string().max(64).optional(),
         }),
         z.discriminatedUnion("ok", [
           z.object({
@@ -863,6 +867,8 @@ export const ipcContract = {
           cwd: z.string(),
           /** Drop the tab's log first: the tab starts over. */
           resetLog: z.boolean().optional(),
+          /** The agent profile it runs with (see shared/agent-profiles); absent = the default. */
+          profileId: z.string().max(64).optional(),
         }),
         z.discriminatedUnion("ok", [
           z.object({
@@ -918,7 +924,11 @@ export const ipcContract = {
       ),
       /** A session's transcript, to show a conversation resumed after the agent restarted. */
       transcript: call(
-        z.object({ workspaceId: WorkspaceIdPrimitive, sessionId: z.string().max(128) }),
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+        }),
         z.object({
           found: z.boolean(),
           lines: z.array(z.unknown()),
@@ -931,7 +941,7 @@ export const ipcContract = {
        * get_settings tells only what settings.json has.
        */
       claudeConfig: call(
-        z.object({ workspaceId: WorkspaceIdPrimitive }),
+        z.object({ workspaceId: WorkspaceIdPrimitive, profileId: z.string().max(64).optional() }),
         z.object({
           found: z.boolean(),
           values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
@@ -958,6 +968,7 @@ export const ipcContract = {
         z.object({
           workspaceId: WorkspaceIdPrimitive,
           cwd: z.string().max(4096),
+          profileId: z.string().max(64).optional(),
           command: z.discriminatedUnion("kind", [
             z.object({ kind: z.literal("agents") }),
             z.object({
@@ -994,7 +1005,11 @@ export const ipcContract = {
       ),
       /** The sessions Claude Code keeps of a folder, newest first, for a tab to go on with one. */
       sessions: call(
-        z.object({ workspaceId: WorkspaceIdPrimitive, cwd: z.string().max(4096) }),
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          cwd: z.string().max(4096),
+          profileId: z.string().max(64).optional(),
+        }),
         z.array(ClaudeSessionSchema),
       ),
     },
@@ -1183,6 +1198,8 @@ export const ipcContract = {
           customShells: z.array(CustomShellSchema),
         }),
       ),
+      /** Broadcast when the agent profiles or their rules change via `appState.set`. */
+      agentProfilesChanged: listen(z.object({ config: AgentProfilesSchema })),
     },
   },
 
@@ -2184,6 +2201,43 @@ export const ipcContract = {
     listen: {
       /** The user clicked a manager's notification: show the manager. */
       reveal: listen(z.object({})),
+    },
+  },
+
+  // Settings › Claude and Codex: the profiles' folders and sign-ins on this
+  // machine. A chat tab's profile is set up on its workspace's host instead,
+  // as it starts (chat.start's profileId).
+  agentProfiles: {
+    call: {
+      /** This machine's home folder, which a profile's "~/" folder is in. */
+      home: call(z.void(), z.object({ home: z.string() })),
+      /** Who the profile is signed in as on this machine. */
+      status: call(z.object({ profileId: z.string().max(64) }), AgentProfileStatusSchema),
+      /** Makes the profile's folder and its links to the default folder's files. */
+      prepare: call(
+        z.object({ profileId: z.string().max(64) }),
+        z.object({ dir: z.string(), linked: z.array(z.string()), failed: z.array(z.string()) }),
+      ),
+      /** Whether a folder is there on this machine, and what of it links to the default folder. */
+      inspect: call(
+        z.object({ agent: z.enum(["claude", "codex"]), dir: z.string().max(4096) }),
+        z.object({ exists: z.boolean(), linked: z.array(z.string()) }),
+      ),
+      /** Starts the profile's sign-in (`claude auth login`, `codex login`); its output comes as events. */
+      loginStart: call(
+        z.object({ profileId: z.string().max(64) }),
+        z.object({ id: z.string(), command: z.string() }),
+      ),
+      /** Types a line into the sign-in (the code the browser shows). */
+      loginInput: call(z.object({ id: z.string().max(64), text: z.string().max(4096) }), z.void()),
+      /** Stops a sign-in. */
+      loginCancel: call(z.object({ id: z.string().max(64) }), z.void()),
+      /** Opens a sign-in's https address in the system browser. */
+      openUrl: call(z.object({ url: z.string().url().max(8192) }), z.void()),
+    },
+    listen: {
+      loginOutput: listen(z.object({ id: z.string(), text: z.string() })),
+      loginExit: listen(z.object({ id: z.string(), code: z.number().int().nullable() })),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

@@ -99,13 +99,21 @@ export function GroupView({
     onActivateGroup(leaf.id);
   }
 
-  function handleNewClaudeTab() {
-    openClaudeTab(workspaceId, { cwd: workspaceRootPath }, { groupId: leaf.id });
+  function handleNewClaudeTab(profileId?: string) {
+    openClaudeTab(
+      workspaceId,
+      { cwd: workspaceRootPath, ...(profileId ? { profileId } : {}) },
+      { groupId: leaf.id },
+    );
     onActivateGroup(leaf.id);
   }
 
-  function handleNewCodexTab() {
-    openCodexTab(workspaceId, { cwd: workspaceRootPath }, { groupId: leaf.id });
+  function handleNewCodexTab(profileId?: string) {
+    openCodexTab(
+      workspaceId,
+      { cwd: workspaceRootPath, ...(profileId ? { profileId } : {}) },
+      { groupId: leaf.id },
+    );
     onActivateGroup(leaf.id);
   }
 
