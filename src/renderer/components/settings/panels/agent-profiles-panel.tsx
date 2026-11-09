@@ -18,7 +18,11 @@ import {
 import type { AgentProfileStatus } from "../../../../shared/agent-profiles/status";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import { statusSummary, useProfileStatusStore } from "../../../services/agent-profiles/status";
-import { tildePath, useAgentProfilesStore } from "../../../state/stores/agent-profiles";
+import {
+  defaultFolderLabel,
+  tildePath,
+  useAgentProfilesStore,
+} from "../../../state/stores/agent-profiles";
 import { ProfileDot, profileName } from "../../agent-profiles/profile-badge";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
@@ -165,11 +169,8 @@ function ProfileRow({
   const isDefault = isDefaultProfileId(profile.id);
   const entry = statuses[profile.id];
   const shared = profile.shared?.length ?? 0;
-  const folder = isDefault
-    ? agent === "claude"
-      ? "~/.claude"
-      : "~/.codex"
-    : tildePath(profile.dir);
+  const defaultFolder = useAgentProfilesStore((s) => defaultFolderLabel(agent, s));
+  const folder = isDefault ? defaultFolder : tildePath(profile.dir);
 
   return (
     <div
@@ -187,7 +188,9 @@ function ProfileRow({
             </span>
           )}
         </span>
-        <span className="truncate font-mono text-app-micro text-muted-foreground">{folder}</span>
+        <span className="truncate font-mono text-app-micro text-muted-foreground" title={folder}>
+          {folder}
+        </span>
       </div>
       <ProfileStatusText
         agent={agent}
