@@ -39,8 +39,9 @@ interface GroupTabBarProps {
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
   onShowSessions: () => void;
-  onNewClaudeTab: () => void;
-  onNewCodexTab: () => void;
+  /** Opens a new Claude tab, with that profile rather than the workspace's. */
+  onNewClaudeTab: (profileId?: string) => void;
+  onNewCodexTab: (profileId?: string) => void;
   onActivateGroup: (groupId: string) => void;
 }
 

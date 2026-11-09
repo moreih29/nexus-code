@@ -245,7 +245,11 @@ export async function runAppCommand(
         showToast({ kind: "warning", message: t("chat.commands.fork_none") });
         return;
       }
-      const tab = openClaudeTab(ctx.workspaceId, { cwd: ctx.cwd, fork: { sessionId } });
+      const tab = openClaudeTab(ctx.workspaceId, {
+        cwd: ctx.cwd,
+        fork: { sessionId },
+        profileId: ctx.controller.profileId,
+      });
       if (command.args) {
         const draft = { text: command.args, images: [], nonce: Date.now() };
         useChatStore
@@ -397,6 +401,7 @@ async function showTasks(
       await ipcCallResult("chat", "cli", {
         workspaceId: ctx.workspaceId,
         cwd: ctx.cwd,
+        profileId: ctx.controller.profileId,
         command: { kind: "agents" },
       }),
     );
@@ -425,6 +430,7 @@ async function showTasks(
                     void ipcCallResult("chat", "cli", {
                       workspaceId: ctx.workspaceId,
                       cwd: ctx.cwd,
+                      profileId: ctx.controller.profileId,
                       command: { kind: "stop", id: session.id },
                     }).then(again, failed),
                 },
@@ -482,6 +488,7 @@ async function showPlugins(ctx: AppCommandContext, title: string, cardId?: strin
       await ipcCallResult("chat", "cli", {
         workspaceId: ctx.workspaceId,
         cwd: ctx.cwd,
+        profileId: ctx.controller.profileId,
         command: { kind: "plugins" },
       }),
     );
@@ -559,6 +566,7 @@ async function changePlugin(
       await ipcCallResult("chat", "cli", {
         workspaceId: ctx.workspaceId,
         cwd: ctx.cwd,
+        profileId: ctx.controller.profileId,
         command: {
           kind: "plugin",
           action,

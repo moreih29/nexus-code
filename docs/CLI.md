@@ -95,6 +95,7 @@ nexus chat interrupt 3fa2                                # 진행 중인 턴 멈
 nexus chat set 3fa2                                      # 지금 모델 · 추론 강도 · 권한 모드와 고를 수 있는 값
 nexus chat set 3fa2 --model sonnet --effort high --mode plan
 nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설명해줘"
+nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전트 프로필(계정)로 연다
 ```
 
 - 상태는 `working`(일하는 중, 보낸 메시지를 아직 받지 않은 때 포함), `asking`(사용자의 도구 허용 · 질문 답변을 기다림), `idle`, `error` 입니다.
@@ -106,6 +107,7 @@ nexus chat new --agent codex --effort low --mode readOnly --prompt "구조 설�
 - `chat answer <탭> allow|deny` 는 탭이 기다리는 도구 허용 요청에 답합니다. `--message` 는 거절할 때 에이전트에게 전할 이유입니다. 질문 답변과 계획 승인은 사용자만 합니다. 다른 에이전트가 답하려 하면 매번 사용자에게 먼저 묻고, 에이전트 매니저는 아래 설정대로 합니다.
 - `chat interrupt` 는 탭의 멈춤 버튼과 같습니다. 대기열의 메시지는 그대로 남습니다.
 - `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다.
+- `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 묻지 않고 더 많이 실행하게 바꾸는 모드(예: `plan` → `acceptEdits`)는 매번 사용자에게 확인 창으로 묻고, 에이전트 매니저는 "권한 요청 응답" 설정대로 합니다. 모두 허용하는 모드(`bypassPermissions`, `fullAccess`)는 사용자만 탭에서 고릅니다. 자기 탭의 설정은 바꾸지 않습니다.
 - 앱을 켠 뒤 한 번도 보지 않은 탭은 읽거나 기다리거나 보낼 때 열립니다. 탭을 보여줄 때처럼 프로그램의 기록을 읽고, 프로그램이 없으면 켭니다.

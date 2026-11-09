@@ -1,10 +1,11 @@
 // Quick look: a file the conversation names, shown in the app's previews
-// over the panels, with the session's other results a step away. The
-// sidebar and the title bar stay in sight, with what other agents ask.
-// ‹ › and ← → step through them, ↗ opens the file as a tab, esc closes, as
-// does clicking beside it or going elsewhere. A file the session changed
-// shows as a diff, and can be reverted. Images with no file, as a tool or
-// the user gave them, show the same way from their data.
+// over the panels; an image, with the conversation's other images a step
+// away. The sidebar and the title bar stay in sight, with what other agents
+// ask. The sides of an image, and ← →, step through the images; ↗ opens the
+// file as a tab; esc closes, as does clicking around it or going elsewhere.
+// A file the session changed shows as a diff, and can be reverted. Images
+// with no file, as a tool or the user gave them, show the same way from
+// their data.
 
 import Editor from "@monaco-editor/react";
 import {
@@ -65,7 +66,7 @@ import { FileKindIcon } from "./file-kind-icon";
 import { LookDiff } from "./look-diff";
 
 export interface QuickLookList {
-  /** Absolute paths: the session's results, or the one file opened. */
+  /** Absolute paths, or keys of `images`: the conversation's images, or the one file opened. */
   files: string[];
   index: number;
   /**
@@ -118,7 +119,9 @@ export function QuickLook({
   const { files, index } = list;
   const path = files[index] ?? "";
   const count = files.length;
-  const step = (by: number) => count > 1 && onIndex((index + by + count) % count);
+  // Only the conversation's images come as a list to step through.
+  const stepping = count > 1;
+  const step = (by: number) => stepping && onIndex((index + by + count) % count);
   const before = list.changes?.[path];
   const changed = before !== undefined;
   const line = list.at?.path === path ? list.at : undefined;
@@ -196,29 +199,24 @@ export function QuickLook({
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      className="absolute inset-4 flex flex-col overflow-hidden rounded-(--radius-island) border border-[var(--surface-floating-border)] bg-background outline-none"
+      className="absolute inset-4 flex flex-col overflow-hidden rounded-(--radius-island) border border-[var(--surface-floating-border)] bg-background outline-none @xl:inset-8 @3xl:inset-12"
       data-testid="chat-quick-look"
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
-        <IconButton label={t("chat.look.previous")} onClick={() => step(-1)} disabled={count < 2}>
-          <ChevronLeft className="size-4" />
-        </IconButton>
-        <IconButton label={t("chat.look.next")} onClick={() => step(1)} disabled={count < 2}>
-          <ChevronRight className="size-4" />
-        </IconButton>
-        {count > 1 && (
-          <span className="shrink-0 px-1 text-app-micro tabular-nums text-muted-foreground">
-            {index + 1} / {count}
-          </span>
-        )}
         {image ? (
           <ImageIcon className="ml-1 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
         ) : (
           <FileKindIcon path={path} className="ml-1 size-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate text-app-ui-sm" title={image ? name : path}>
+        <span className="min-w-0 truncate text-app-ui-sm" title={image ? name : path}>
           {name}
         </span>
+        {stepping && (
+          <span className="shrink-0 px-1 text-app-micro tabular-nums text-muted-foreground">
+            {index + 1} / {count}
+          </span>
+        )}
+        <span className="flex-1" />
         {changed && (
           <IconButton
             label={t("chat.look.changes")}
@@ -272,7 +270,13 @@ export function QuickLook({
           <X className="size-4" />
         </IconButton>
       </div>
-      <div className="relative min-h-0 flex-1">
+      {/* The images' strips to step by, on the backdrop the image shows on. */}
+      <div
+        className={cn(
+          "relative min-h-0 flex-1",
+          stepping && "bg-[var(--surface-backdrop-bg)] px-12",
+        )}
+      >
         {image ? (
           <div key={path} className="flex h-full">
             <ZoomableImage src={imageSrc(image)} alt={name} />
@@ -288,11 +292,17 @@ export function QuickLook({
             line={line?.line}
           />
         )}
+        {stepping && (
+          <>
+            <StepButton side="left" label={t("chat.look.previous")} onStep={() => step(-1)} />
+            <StepButton side="right" label={t("chat.look.next")} onStep={() => step(1)} />
+          </>
+        )}
       </div>
     </div>
   );
   const layer = (
-    <div className="absolute inset-0 z-(--layer-in-panel)">
+    <div className="@container absolute inset-0 z-(--layer-in-panel)">
       <div
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"
@@ -307,6 +317,38 @@ export function QuickLook({
     </div>
   );
   return area ? createPortal(layer, area) : layer;
+}
+
+/**
+ * A side of the body that steps to the image before or after: the whole
+ * strip takes the click, with a round button in its middle.
+ */
+function StepButton({
+  side,
+  label,
+  onStep,
+}: {
+  side: "left" | "right";
+  label: string;
+  onStep: () => void;
+}) {
+  const Icon = side === "left" ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onStep}
+      className={cn(
+        "group/step absolute inset-y-0 flex w-12 items-center justify-center outline-none",
+        side === "left" ? "left-0" : "right-0",
+      )}
+      data-testid={`chat-quick-look-${side === "left" ? "previous" : "next"}`}
+    >
+      <span className="flex size-9 items-center justify-center rounded-full border border-[var(--surface-floating-border)] bg-popover text-muted-foreground group-hover/step:border-muted-foreground group-hover/step:text-foreground group-focus-visible/step:ring-1 group-focus-visible/step:ring-ring">
+        <Icon className="size-5" />
+      </span>
+    </button>
+  );
 }
 
 /** Whether a file is shown as text: everything the binary viewers do not take. */

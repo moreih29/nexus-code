@@ -1,5 +1,6 @@
 import path from "node:path";
 import { app, type BrowserWindow, powerMonitor, session } from "electron";
+import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -11,6 +12,7 @@ import { ListeningPortsResultSchema } from "../shared/pty/ports";
 import type { WorkspaceConnectionEventStatus } from "../shared/types/workspace";
 import { GIT_STATUS_COALESCE_DEBOUNCE_MS } from "../shared/util/timing-constants";
 import { installErrorSafetyNet } from "./error-safety-net";
+import { findProfile, registerAgentProfilesChannel } from "./features/agent-profiles";
 import { registerAppStateChannel } from "./features/app-state";
 import {
   getBrowserRegistry,
@@ -167,6 +169,7 @@ const stateService = new StateService(path.join(userData, "state.json"));
 let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
+let agentProfiles: { dispose(): void } | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -341,6 +344,13 @@ registerAppStateChannel(stateService, {
     broadcast("appState", "terminalShellsChanged", {
       ...(terminalShell !== undefined ? { shell: terminalShell } : {}),
       customShells: terminalShells ?? [],
+    });
+  },
+
+  /** The agent profiles changed in one window: every window takes them. */
+  onAgentProfilesChanged() {
+    broadcast("appState", "agentProfilesChanged", {
+      config: stateService.getState().agentProfiles ?? EMPTY_AGENT_PROFILES,
     });
   },
 
@@ -553,6 +563,9 @@ app.whenReady().then(async () => {
     resolve: (workspaceId, url) => forwards.localUrl(workspaceId, url),
   });
 
+  // Settings' view of the Claude and Codex profiles on this machine.
+  agentProfiles = registerAgentProfilesChannel(stateService);
+
   // The agent manager's workspace and its reports.
   registerManagerChannel({
     workspaceManager,
@@ -617,6 +630,7 @@ app.whenReady().then(async () => {
   // Claude tabs: their programs run through the same agents as terminals.
   chatHost = registerChatChannel({
     workspaceManager,
+    profile: (id) => findProfile(stateService, id),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),
     onProgramExit: (workspaceId, tabId) => claudeSetup.noteProgramExit(workspaceId, tabId),
@@ -733,6 +747,7 @@ app.on("will-quit", () => {
   portForwards?.dispose();
   agentPtyHost?.dispose();
   chatHost?.dispose();
+  agentProfiles?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();

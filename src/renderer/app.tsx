@@ -11,6 +11,7 @@ import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AgentPanel } from "./components/settings/panels/agent-panel";
+import { AgentProfilesPanel } from "./components/settings/panels/agent-profiles-panel";
 import { AppearancePanel } from "./components/settings/panels/appearance-panel";
 import { BrowserPermissionsPanel } from "./components/settings/panels/browser-permissions-panel";
 import { EditorPanel } from "./components/settings/panels/editor-panel";
@@ -19,9 +20,10 @@ import { ManagerDock } from "./components/manager/manager-dock";
 import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
 import { ManagerPanel } from "./components/settings/panels/manager-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
+import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
-import type { SettingsNavItem } from "./components/settings/types";
+import { PROFILE_KEYWORDS, type SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
 import { ReleaseNotesView } from "./components/workbench/release-notes";
 import { Sidebar } from "./components/workbench/sidebar";
@@ -166,21 +168,19 @@ export function App() {
       {
         id: "appearance",
         label: t("nav.appearance"),
-        group: t("nav.group.settings"),
         keywords: ["theme", "opacity", "language", "dim", "inactive", "panel", "언어", "흐림"],
         dirty: appearanceDirty,
       },
       {
         id: "editor",
         label: t("nav.editor"),
-        group: t("nav.group.settings"),
         keywords: ["font", "size", "family", "ligatures", "line height"],
         dirty: editorDirty,
       },
       {
         id: "language-servers",
         label: t("nav.languageServers"),
-        group: t("nav.group.settings"),
+        parent: "editor",
         keywords: [
           "lsp",
           "language server",
@@ -200,44 +200,70 @@ export function App() {
       {
         id: "terminal",
         label: t("nav.terminal"),
-        group: t("nav.group.settings"),
         keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
         dirty: terminalDirty,
       },
       {
         id: "notifications",
         label: t("nav.notifications"),
-        group: t("nav.group.settings"),
         keywords: ["alert", "desktop", "os", "notification", "claude"],
-      },
-      {
-        id: "agent",
-        label: t("nav.agent"),
-        group: t("nav.group.settings"),
-        keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "에이전트", "작업"],
-      },
-      {
-        id: "manager",
-        label: t("nav.manager"),
-        group: t("nav.group.settings"),
-        keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
       },
       {
         id: "browser-permissions",
         label: t("nav.browserPermissions"),
-        group: t("nav.group.settings"),
         keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
       },
       {
         id: "keybindings",
         label: t("nav.keybindings"),
-        group: t("nav.group.settings"),
         keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
+      },
+      {
+        id: "agent",
+        label: t("nav.agent"),
+        keywords: [
+          "nexus",
+          "cli",
+          "agent",
+          "claude",
+          "codex",
+          "task",
+          "chat",
+          "font",
+          "에이전트",
+          "작업",
+          "채팅",
+          "글꼴",
+        ],
+      },
+      {
+        id: "claude",
+        label: t("nav.claude"),
+        parent: "agent",
+        keywords: PROFILE_KEYWORDS,
+      },
+      {
+        id: "codex",
+        label: t("nav.codex"),
+        parent: "agent",
+        keywords: PROFILE_KEYWORDS,
+      },
+      {
+        id: "profile-rules",
+        label: t("nav.profileRules"),
+        parent: "agent",
+        keywords: [...PROFILE_KEYWORDS, "workspace", "ssh", "rule", "워크스페이스", "규칙"],
+      },
+      {
+        id: "manager",
+        label: t("nav.manager"),
+        parent: "agent",
+        keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
       },
       {
         id: "about",
         label: t("nav.about"),
-        group: t("nav.group.settings"),
+        footer: true,
         keywords: ["version", "update", "info"],
       },
     ];
@@ -448,13 +474,16 @@ export function App() {
           nav={settingsNav}
           defaultActiveId={settingsInitialActiveId}
         >
-          {(activeId) => {
+          {(activeId, go) => {
             if (activeId === "appearance") return <AppearancePanel />;
             if (activeId === "editor") return <EditorPanel />;
             if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
             if (activeId === "agent") return <AgentPanel />;
+            if (activeId === "claude") return <AgentProfilesPanel agent="claude" onNavigate={go} />;
+            if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;
+            if (activeId === "profile-rules") return <ProfileRulesPanel />;
             if (activeId === "manager") return <ManagerPanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;

@@ -12,6 +12,9 @@ import { cacheUriFor } from "@/services/editor/model/cache";
 import { isDirty } from "@/services/editor/model/dirty-tracker";
 import { isDiffWorkingFileDirty } from "@/services/editor/tabs/diff-working-file";
 import { requestTabFocus } from "@/services/tab-focus";
+import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { resolveWorkspaceProfile } from "../stores/agent-profiles";
 import { useLayoutStore } from "../stores/layout";
 import { allLeaves, findLeaf } from "../stores/layout/helpers";
 import {
@@ -27,6 +30,7 @@ import {
   useTabsStore,
   useUntitledCounterStore,
 } from "../stores/tabs";
+import { useWorkspacesStore } from "../stores/workspaces";
 
 export interface TabLocation {
   groupId: string;
@@ -445,7 +449,11 @@ export function openClaudeTab(
   props: ClaudeTabProps,
   opts?: { groupId?: string | "active" },
 ): Tab {
-  return openTabRecord(workspaceId, { type: "claude", props }, opts);
+  return openTabRecord(
+    workspaceId,
+    { type: "claude", props: chatPropsWithProfile(workspaceId, "claude", props) },
+    opts,
+  );
 }
 
 /** Open a Codex tab in a group (the active one by default): a new conversation in `cwd`. */
@@ -454,7 +462,30 @@ export function openCodexTab(
   props: CodexTabProps,
   opts?: { groupId?: string | "active" },
 ): Tab {
-  return openTabRecord(workspaceId, { type: "codex", props }, opts);
+  return openTabRecord(
+    workspaceId,
+    { type: "codex", props: chatPropsWithProfile(workspaceId, "codex", props) },
+    opts,
+  );
+}
+
+/**
+ * A new chat tab's props with the profile it keeps for good: the one given,
+ * else the one the workspace's rules pick. The default profile is left out.
+ */
+export function chatPropsWithProfile<P extends { profileId?: string }>(
+  workspaceId: string,
+  agent: ChatAgent,
+  props: P,
+): P {
+  const { profileId, ...rest } = props;
+  let id = profileId;
+  if (id === undefined) {
+    const { workspaces } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (workspace) id = resolveWorkspaceProfile(agent, workspace, workspaces).profile.id;
+  }
+  return (id === undefined || isDefaultProfileId(id) ? rest : { ...rest, profileId: id }) as P;
 }
 
 /**

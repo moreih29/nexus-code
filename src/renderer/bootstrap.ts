@@ -33,6 +33,7 @@ import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
 import { useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
 import { useBrowserPermissionsStore } from "./state/stores/browser-permissions";
@@ -235,6 +236,13 @@ export async function bootstrapAppState(): Promise<void> {
   // here next doesn't write back this window's stale copy over it.
   ipcListen("appState", "terminalShellsChanged", (shells) => {
     useTerminalStore.getState().hydrateShells(shells);
+  });
+
+  // The Claude and Codex profiles, and their rules; another window's edits too.
+  useAgentProfilesStore.getState().hydrate(state.agentProfiles);
+  void loadProfilesHome();
+  ipcListen("appState", "agentProfilesChanged", ({ config }) => {
+    useAgentProfilesStore.getState().hydrate(config);
   });
 
   // Hydrate window opacity from appState (authoritative store).

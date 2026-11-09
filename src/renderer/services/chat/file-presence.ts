@@ -8,8 +8,7 @@
 import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import { isOutsideGranted, useOutsideGrantsStore } from "../../state/stores/outside-grants";
-import { isUnder, resolveFilePath, resultFiles } from "./links";
-import type { ResultEntry } from "./panel";
+import { isUnder } from "./links";
 
 /**
  * How long a file found is trusted before it is looked up again. One not
@@ -110,38 +109,18 @@ export function createFilePresence(
   };
 }
 
-/**
- * The files `results` name, in order, as `resultFiles` has them: each one
- * only once `isThere` finds it.
- */
-export async function resultFilesThere(
-  results: readonly ResultEntry[],
-  cwd: string,
-  isThere: (path: string) => Promise<boolean>,
-): Promise<string[]> {
-  const kept = await Promise.all(
-    results.map(async (result) => {
-      if (result.kind !== "file") return true;
-      const path = resolveFilePath(result.target, cwd);
-      return path !== null && (await isThere(path));
-    }),
-  );
-  return resultFiles(
-    results.filter((_, i) => kept[i]),
-    cwd,
-  );
-}
-
 const presence = createFilePresence();
 
-/** The files a chat's results name that are there, for quick look to go through. */
-export function foundResultFiles(
+/** Which of `paths`, in the workspace at `root` or granted outside it, are files. */
+export async function filesThere(
   workspaceId: string,
   root: string,
-  results: readonly ResultEntry[],
-  cwd: string,
-): Promise<string[]> {
-  return resultFilesThere(results, cwd, (path) => presence.isThere(workspaceId, root, path));
+  paths: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const answers = await Promise.all(
+    paths.map(async (path) => ((await presence.isThere(workspaceId, root, path)) ? path : null)),
+  );
+  return new Set(answers.filter((path): path is string => path !== null));
 }
 
 /**
@@ -168,11 +147,8 @@ export function useFoundFiles(
   useEffect(() => {
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
-    void Promise.all(
-      wanted.map(async (path) => ((await presence.isThere(workspaceId, root, path)) ? path : null)),
-    ).then((answers) => {
+    void filesThere(workspaceId, root, wanted).then((next) => {
       if (!live) return;
-      const next = new Set(answers.filter((path): path is string => path !== null));
       setFound((was) =>
         was.size === next.size && [...next].every((path) => was.has(path)) ? was : next,
       );

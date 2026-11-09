@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { THEME_SOURCES } from "../design-tokens";
 import { KeybindingOverridesSchema } from "../keybindings/overrides";
 import { LSP_MAX_ACTIVE_WORKSPACES_LIMIT, LspLanguageSettingsSchema } from "../lsp/settings";
@@ -122,6 +123,11 @@ export const AppStateSchema = z.object({
 
   // Shells the user added in Settings › Terminal, besides the detected ones.
   terminalShells: z.array(CustomShellSchema).max(64).optional(),
+
+  // Claude and Codex profiles (config folders, each with its own sign-in),
+  // and the rules that pick a workspace's. Absent = each agent's default
+  // folder everywhere.
+  agentProfiles: AgentProfilesSchema.optional(),
 
   // What a new task opens with (a TaskAgent): a Claude or Codex tab given the
   // task's first prompt, or a plain terminal; absent = "claude". Kept as a

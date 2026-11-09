@@ -171,7 +171,10 @@
     "unpin_workspace_aria": "Unpin workspace {{name}}",
     "dismiss_notification": "Dismiss notification",
     "task_count_one": "{{count}} task",
-    "task_count_other": "{{count}} tasks"
+    "task_count_other": "{{count}} tasks",
+    "agent_profiles": "Agent profiles",
+    "follow_rules": "Follow rules",
+    "profile_rules_settings": "Profiles by workspace…"
   },
   "forward": {
     "not_connected": "Port {{port}} cannot be opened: {{host}} is not connected.",
@@ -407,7 +410,12 @@
     "terminal_ended_aria": ", terminal ended",
     "new_codex": "New Codex conversation",
     "hidden_tabs_one": "1 more tab",
-    "hidden_tabs_other": "{{count}} more tabs"
+    "hidden_tabs_other": "{{count}} more tabs",
+    "new_claude_with": "New Claude conversation with",
+    "new_codex_with": "New Codex conversation with",
+    "manage_profiles": "Manage profiles…",
+    "profile_here": "This workspace",
+    "profile_signed_out": "Not signed in"
   },
   "groupPlaceholder": {
     "no_tab": "No tab open",
@@ -1164,8 +1172,8 @@
     "look": {
       "aria": "Quick look: {{name}}",
       "image": "Image {{number}}",
-      "previous": "Previous result (←)",
-      "next": "Next result (→)",
+      "previous": "Previous image (←)",
+      "next": "Next image (→)",
       "open_tab": "Open as a tab",
       "close": "Close (esc)",
       "changes": "Changes since before the session",
@@ -1199,7 +1207,8 @@
       "open": "Open in a tab",
       "more": "Show {{count}} more",
       "resume_failed": "Could not go on with the session: {{message}}",
-      "show": "Earlier sessions · {{count}}"
+      "show": "Earlier sessions · {{count}}",
+      "all_profiles": "All"
     },
     "commands": {
       "close": "Close",
@@ -1480,6 +1489,21 @@
           "ghostty": "Ghostty",
           "notifications_disabled": "Off"
         }
+      }
+    },
+    "profile": {
+      "title": "Profile",
+      "account": "Account",
+      "folder": "Config folder",
+      "rule": "Rule",
+      "locked": "The profile cannot change mid-conversation",
+      "newWith": "New conversation with another profile",
+      "source": {
+        "workspace": "This workspace",
+        "folder": "Folder {{path}}",
+        "ssh": "SSH host {{host}}",
+        "default": "Default",
+        "chosen": "Chosen"
       }
     }
   },

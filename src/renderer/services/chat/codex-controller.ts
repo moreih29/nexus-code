@@ -95,6 +95,8 @@ export interface CodexTabTarget {
    * agent manager's).
    */
   trusted?: boolean;
+  /** The agent profile its program runs with; absent = the default. */
+  profileId?: string;
 }
 
 export interface CodexTabHooks {
@@ -128,6 +130,8 @@ export class CodexController {
   private opening: Promise<void> | null = null;
   /** A started program's handshake and thread, which a message waits for. */
   private ready: Promise<boolean> = Promise.resolve(false);
+  /** The handshake of the program this controller started, until it settles. */
+  private handshaking: Promise<boolean> | null = null;
   private disposed = false;
   private titled = false;
   /** What the user picked for the next turn. */
@@ -201,11 +205,17 @@ export class CodexController {
   }
 
   private async start(options: { resetLog?: boolean }): Promise<boolean> {
-    const { workspaceId, tabId, cwd } = this.target;
+    const { workspaceId, tabId, cwd, profileId } = this.target;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
     try {
-      result = await startCodex({ workspaceId, tabId, cwd, ...options });
+      result = await startCodex({
+        workspaceId,
+        tabId,
+        cwd,
+        ...options,
+        ...(profileId ? { profileId } : {}),
+      });
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return false;
@@ -230,11 +240,17 @@ export class CodexController {
     }
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (result.attached) {
-      this.ready = Promise.resolve(this.model.threadId !== undefined);
+      // A program this controller started a moment ago, whose start line has
+      // not come yet: its handshake still decides.
+      this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
       this.readRateLimits();
       return true;
     }
-    this.ready = this.handshake();
+    const handshake = this.handshake().finally(() => {
+      if (this.handshaking === handshake) this.handshaking = null;
+    });
+    this.handshaking = handshake;
+    this.ready = handshake;
     return true;
   }
 
@@ -387,6 +403,10 @@ export class CodexController {
   async send(text: string, images: ImageBlock[] = []): Promise<void> {
     if (!(await this.ensureRunning())) return;
     if (!(await this.ready)) throw new Error("Codex has no thread to send to");
+    // The thread's answer settles `ready` as it comes, a frame before its
+    // line reaches the model: a message sent at once (a new task's, the
+    // CLI's) would find no thread yet.
+    this.flushNow();
     const threadId = this.model.threadId;
     if (!threadId) throw new Error("Codex has no thread to send to");
     const input = [
@@ -558,6 +578,9 @@ export class CodexController {
   /** Starts the program again when it is not running, for a message to go to. */
   private async ensureRunning(): Promise<boolean> {
     if (this.opening) await this.opening;
+    // The program's start line may wait for the next frame: a message sent as
+    // the tab opens (a new task's, the CLI's) would start it again.
+    this.flushNow();
     const { phase } = this.state;
     if (phase === "ready" && this.model.process === "running") return true;
     if (phase === "held" || phase === "not-found") return false;
@@ -749,7 +772,13 @@ function phaseAfter(phase: ChatTabState["phase"], model: CodexModel): ChatTabSta
   return phase;
 }
 
-function startCodex(args: { workspaceId: string; tabId: string; cwd: string; resetLog?: boolean }) {
+function startCodex(args: {
+  workspaceId: string;
+  tabId: string;
+  cwd: string;
+  resetLog?: boolean;
+  profileId?: string;
+}) {
   return ipcCallResult("chat", "codexStart", args).then(unwrapIpcResult);
 }
 

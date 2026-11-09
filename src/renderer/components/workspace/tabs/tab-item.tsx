@@ -39,6 +39,7 @@ import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { codexStatusLabel, estimatedLabel } from "../../sessions/session-status";
@@ -586,6 +587,9 @@ export function TabItem({
               <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
             )}
           </span>
+        )}
+        {(tab.type === "claude" || tab.type === "codex") && !isEditing && (
+          <TabProfileMark agent={tab.type} profileId={tab.props.profileId} />
         )}
         {/* Dirty indicator — inline after label so it never overlaps the close button.
             Always visible when dirty (including on hover), per design.md §7 redundant encoding. */}

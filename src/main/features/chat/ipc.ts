@@ -18,17 +18,24 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
   register("chat", {
     call: {
       start: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, resume, fork, resumeAt, resetLog } = validateArgs(
-          c.start.args,
-          args,
-        );
+        const { workspaceId, tabId, cwd, resume, fork, resumeAt, resetLog, profileId } =
+          validateArgs(c.start.args, args);
         return ipcOk(
-          await host.start(workspaceId, tabId, cwd, { resume, fork, resumeAt, resetLog }),
+          await host.start(
+            workspaceId,
+            tabId,
+            cwd,
+            { resume, fork, resumeAt, resetLog },
+            profileId,
+          ),
         );
       },
       codexStart: async (args: unknown) => {
-        const { workspaceId, tabId, cwd, resetLog } = validateArgs(c.codexStart.args, args);
-        return ipcOk(await host.startCodex(workspaceId, tabId, cwd, { resetLog }));
+        const { workspaceId, tabId, cwd, resetLog, profileId } = validateArgs(
+          c.codexStart.args,
+          args,
+        );
+        return ipcOk(await host.startCodex(workspaceId, tabId, cwd, { resetLog, profileId }));
       },
       send: async (args: unknown) => {
         const parsed = validateArgs(c.send.args, args);
@@ -66,8 +73,8 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk(undefined);
       },
       transcript: async (args: unknown) => {
-        const { workspaceId, sessionId } = validateArgs(c.transcript.args, args);
-        const result = (await host.transcript(workspaceId, sessionId)) as {
+        const { workspaceId, sessionId, profileId } = validateArgs(c.transcript.args, args);
+        const result = (await host.transcript(workspaceId, sessionId, profileId)) as {
           found?: boolean;
           lines?: unknown[];
           truncated?: boolean;
@@ -79,8 +86,8 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         });
       },
       claudeConfig: async (args: unknown) => {
-        const { workspaceId } = validateArgs(c.claudeConfig.args, args);
-        const result = (await host.claudeConfig(workspaceId)) as {
+        const { workspaceId, profileId } = validateArgs(c.claudeConfig.args, args);
+        const result = (await host.claudeConfig(workspaceId, profileId)) as {
           found?: boolean;
           values?: unknown;
         };
@@ -99,12 +106,14 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         return ipcOk(undefined);
       },
       cli: async (args: unknown) => {
-        const { workspaceId, cwd, command } = validateArgs(c.cli.args, args);
-        return ipcOk(await host.cli(workspaceId, cwd, command));
+        const { workspaceId, cwd, command, profileId } = validateArgs(c.cli.args, args);
+        return ipcOk(await host.cli(workspaceId, cwd, command, profileId));
       },
       sessions: async (args: unknown) => {
-        const { workspaceId, cwd } = validateArgs(c.sessions.args, args);
-        const result = (await host.sessions(workspaceId, cwd)) as { sessions?: unknown };
+        const { workspaceId, cwd, profileId } = validateArgs(c.sessions.args, args);
+        const result = (await host.sessions(workspaceId, cwd, profileId)) as {
+          sessions?: unknown;
+        };
         return ipcOk(validateArgs(c.sessions.result, result.sessions ?? []));
       },
     },
