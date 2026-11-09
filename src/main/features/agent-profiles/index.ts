@@ -15,6 +15,7 @@ import type { StateService } from "../../infra/storage/state-service";
 import {
   inspectLocalFolder,
   LocalLogins,
+  localDefaultDir,
   localProfileStatus,
   prepareLocalProfile,
 } from "./local";
@@ -44,7 +45,11 @@ export function registerAgentProfilesChannel(state: StateService): { dispose(): 
 
   register("agentProfiles", {
     call: {
-      home: async () => ipcOk({ home: os.homedir() }),
+      home: async () =>
+        ipcOk({
+          home: os.homedir(),
+          defaultDirs: { claude: localDefaultDir("claude"), codex: localDefaultDir("codex") },
+        }),
       status: async (args: unknown) => {
         const { profileId } = validateArgs(c.status.args, args);
         return ipcOk(await localProfileStatus(profile(profileId)));

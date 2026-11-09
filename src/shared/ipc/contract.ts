@@ -2209,8 +2209,18 @@ export const ipcContract = {
   // as it starts (chat.start's profileId).
   agentProfiles: {
     call: {
-      /** This machine's home folder, which a profile's "~/" folder is in. */
-      home: call(z.void(), z.object({ home: z.string() })),
+      /**
+       * This machine's home folder, which a profile's "~/" folder is in, and
+       * each agent's default folder here: ~/.claude and ~/.codex, unless
+       * CLAUDE_CONFIG_DIR or CODEX_HOME says another.
+       */
+      home: call(
+        z.void(),
+        z.object({
+          home: z.string(),
+          defaultDirs: z.object({ claude: z.string(), codex: z.string() }),
+        }),
+      ),
       /** Who the profile is signed in as on this machine. */
       status: call(z.object({ profileId: z.string().max(64) }), AgentProfileStatusSchema),
       /** Makes the profile's folder and its links to the default folder's files. */

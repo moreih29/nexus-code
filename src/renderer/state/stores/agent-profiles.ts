@@ -7,10 +7,12 @@ import { create } from "zustand";
 import {
   type AgentProfile,
   type AgentProfiles,
+  DEFAULT_PROFILE_DIR,
   EMPTY_AGENT_PROFILES,
   type MatchOptions,
   type ProfileTarget,
   type ProfileWorkspace,
+  portableProfileDir,
   type ResolvedProfile,
   resolveProfile,
   ruleOfTarget,
@@ -30,8 +32,10 @@ interface AgentProfilesState {
   config: AgentProfiles;
   /** This machine's home folder, once main has told it; "" until then. */
   home: string;
+  /** Each agent's default folder on this machine, once main has told it; "" until then. */
+  defaultDirs: Record<ChatAgent, string>;
   hydrate(config: AgentProfiles | undefined): void;
-  setHome(home: string): void;
+  setHome(home: string, defaultDirs: Record<ChatAgent, string>): void;
   /** Saves a whole new config, as every edit below does; settles once main has it. */
   save(config: AgentProfiles): Promise<void>;
   saveProfile(profile: AgentProfile): Promise<void>;
@@ -54,11 +58,12 @@ function newId(): string {
 export const useAgentProfilesStore = create<AgentProfilesState>((set, get) => ({
   config: EMPTY_AGENT_PROFILES,
   home: "",
+  defaultDirs: { claude: "", codex: "" },
   hydrate(config) {
     set({ config: config ?? EMPTY_AGENT_PROFILES });
   },
-  setHome(home) {
-    set({ home });
+  setHome(home, defaultDirs) {
+    set({ home, defaultDirs });
   },
   async save(config) {
     set({ config });
@@ -137,8 +142,22 @@ export function tildePath(path: string, home = useAgentProfilesStore.getState().
   return path;
 }
 
-/** Reads this machine's home folder, for "~/" paths. */
+/**
+ * The folder the agent's default profile uses on this machine, as shown:
+ * ~/.claude or ~/.codex, or the folder CLAUDE_CONFIG_DIR or CODEX_HOME names.
+ */
+export function defaultFolderLabel(
+  agent: ChatAgent,
+  state: Pick<AgentProfilesState, "home" | "defaultDirs"> = useAgentProfilesStore.getState(),
+): string {
+  const dir = state.defaultDirs[agent];
+  return dir ? portableProfileDir(tildePath(dir, state.home)) : DEFAULT_PROFILE_DIR[agent];
+}
+
+/** Reads this machine's home folder, for "~/" paths, and the agents' default folders. */
 export async function loadProfilesHome(): Promise<void> {
   const result = await ipcCallResult("agentProfiles", "home", undefined);
-  if (result.ok) useAgentProfilesStore.getState().setHome(result.value.home);
+  if (result.ok) {
+    useAgentProfilesStore.getState().setHome(result.value.home, result.value.defaultDirs);
+  }
 }

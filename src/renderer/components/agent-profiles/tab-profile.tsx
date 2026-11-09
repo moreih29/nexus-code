@@ -5,11 +5,17 @@
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { isDefaultProfileId, profileOf, profilesOf } from "../../../shared/agent-profiles/profiles";
+import {
+  DEFAULT_PROFILE_DIR,
+  isDefaultProfileId,
+  profileOf,
+  profilesOf,
+} from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { statusSummary, useProfileStatusStore } from "../../services/agent-profiles/status";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
+  defaultFolderLabel,
   resolveWorkspaceProfile,
   tildePath,
   useAgentProfilesStore,
@@ -48,6 +54,7 @@ export function ProfileUsageChip({
 }) {
   const { t } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
+  const localDefault = useAgentProfilesStore((s) => defaultFolderLabel(agent, s));
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const statuses = useProfileStatusStore((s) => s.byId);
   const refresh = useProfileStatusStore((s) => s.refresh);
@@ -71,10 +78,11 @@ export function ProfileUsageChip({
       : status?.state === "signed-out"
         ? t("tabBar.profile_signed_out")
         : undefined;
+  // An SSH host's default folder is its own, which only its agent knows.
   const folder = isDefaultProfileId(profile.id)
-    ? agent === "claude"
-      ? "~/.claude"
-      : "~/.codex"
+    ? local
+      ? localDefault
+      : DEFAULT_PROFILE_DIR[agent]
     : tildePath(profile.dir);
   const rule =
     resolved && resolved.profile.id === profile.id
@@ -125,7 +133,9 @@ export function ProfileUsageChip({
             </>
           )}
           <dt className="text-muted-foreground">{t("chat.profile.folder")}</dt>
-          <dd className="truncate font-mono">{folder}</dd>
+          <dd className="truncate font-mono" title={folder}>
+            {folder}
+          </dd>
           <dt className="text-muted-foreground">{t("chat.profile.rule")}</dt>
           <dd className="truncate">{rule}</dd>
         </dl>
