@@ -3,7 +3,8 @@
 // ring, turning to the warning colour from 80%. The narrower the tab, the
 // less it says: first the token counts go, then the week's reset time, then
 // the session's, then the words shorten, and at the narrowest the bars go;
-// the percentages stay. Hovering a part tells it whole.
+// the percentages stay. Hovering a part tells it whole. The agents tab's
+// detail shows the plan's part of it as a chip (UsageChip).
 
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -35,11 +36,11 @@ function Percent({ percent }: { percent: number }) {
   );
 }
 
-function Bar({ percent }: { percent: number }) {
+function Bar({ percent, always = false }: { percent: number; always?: boolean }) {
   return (
     <span
       className={cn(
-        DETAIL.bar,
+        !always && DETAIL.bar,
         "relative h-1 w-6 shrink-0 overflow-hidden rounded-full bg-current/25",
       )}
     >
@@ -54,25 +55,9 @@ function Bar({ percent }: { percent: number }) {
   );
 }
 
-export function UsageLineView({
-  line,
-  trailing,
-}: {
-  line: UsageLine | null;
-  /** What ends the line on its right: the tab's profile. */
-  trailing?: ReactNode;
-}) {
+/** The words for a line's meters: their names, short and long, when they start over, and what hovering tells. */
+function useUsageWords(line: UsageLine) {
   const { t, i18n } = useTranslation();
-  if (!line) {
-    if (!trailing) return null;
-    return (
-      <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
-        <div className="flex items-center justify-end text-app-micro text-muted-foreground">
-          {trailing}
-        </div>
-      </div>
-    );
-  }
   const now = Date.now();
 
   const label = (meter: UsageMeter, long = false): string => {
@@ -120,7 +105,38 @@ export function UsageLineView({
     });
     return when ? `${head} · ${when}` : head;
   };
+  /** What hovering a meter tells: the week's for every model with each model's own. */
+  const told = (meter: UsageMeter): string =>
+    meter.kind === "weekly" && line.more.length > 0
+      ? [tip(meter), ...line.more.map(tip)].join("\n")
+      : tip(meter);
+  return { label, short, reset, told };
+}
 
+export function UsageLineView({
+  line,
+  trailing,
+}: {
+  line: UsageLine | null;
+  /** What ends the line on its right: the tab's profile. */
+  trailing?: ReactNode;
+}) {
+  if (!line) {
+    if (!trailing) return null;
+    return (
+      <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
+        <div className="flex items-center justify-end text-app-micro text-muted-foreground">
+          {trailing}
+        </div>
+      </div>
+    );
+  }
+  return <Line line={line} trailing={trailing} />;
+}
+
+function Line({ line, trailing }: { line: UsageLine; trailing?: ReactNode }) {
+  const { t } = useTranslation();
+  const { label, short, reset, told } = useUsageWords(line);
   const { context } = line;
   return (
     <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
@@ -147,16 +163,12 @@ export function UsageLineView({
         )}
         {line.meters.map((meter) => {
           const when = reset(meter);
-          const told =
-            meter.kind === "weekly" && line.more.length > 0
-              ? [tip(meter), ...line.more.map(tip)].join("\n")
-              : tip(meter);
           return (
             <span
               key={`${meter.kind}-${meter.windowMins ?? ""}`}
               className="flex shrink-0 items-center gap-1"
               data-usage={meter.kind}
-              {...tooltipProps(told)}
+              {...tooltipProps(told(meter))}
             >
               <Bar percent={meter.percent} />
               <span className="hidden @xs:inline">{label(meter)}</span>
@@ -178,5 +190,45 @@ export function UsageLineView({
         {trailing && <span className="ml-auto flex shrink-0 items-center">{trailing}</span>}
       </div>
     </div>
+  );
+}
+
+/**
+ * The plan's usage as a chip, in the agents tab's detail: each meter's bar,
+ * short name and percent, after the dot of the account it is (`dot`);
+ * hovering tells the account (`head`), each meter whole and when it starts
+ * over.
+ */
+export function UsageChip({
+  line,
+  head,
+  dot,
+}: {
+  line: UsageLine;
+  head?: string;
+  dot?: ReactNode;
+}) {
+  const { short, told } = useUsageWords(line);
+  if (line.meters.length === 0) return null;
+  const tip = [...(head ? [head] : []), ...line.meters.map(told)].join("\n");
+  return (
+    <span
+      className="flex shrink-0 items-center gap-2 tabular-nums"
+      data-testid="usage-chip"
+      {...tooltipProps(tip)}
+    >
+      {dot}
+      {line.meters.map((meter) => (
+        <span
+          key={`${meter.kind}-${meter.windowMins ?? ""}`}
+          className="flex shrink-0 items-center gap-1"
+          data-usage={meter.kind}
+        >
+          <Bar percent={meter.percent} always />
+          {short(meter)}
+          <Percent percent={meter.percent} />
+        </span>
+      ))}
+    </span>
   );
 }

@@ -16,16 +16,20 @@ import {
   FileText,
   GitFork,
   Globe,
+  MessageSquare,
   RefreshCw,
   Square,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
+import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
+import type { TaskInfo, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
   agentsOf,
@@ -33,6 +37,8 @@ import {
   changedFilesOf,
   contextOf,
   distinctResults,
+  jobCommand,
+  jobOutputFile,
   jobsOf,
   type ResultEntry,
   resultsOf,
@@ -45,11 +51,14 @@ import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import { formatBytes } from "../../utils/format-bytes";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { StatusDot } from "./agent-strip";
+import { ArtifactRow } from "./artifact-card";
 import { LinkMenu, useChatLinks } from "./chat-links";
+import { Highlighted } from "./code-highlight";
 import { FileKindIcon } from "./file-kind-icon";
 
 interface SidePanelProps {
@@ -63,6 +72,8 @@ interface SidePanelProps {
   /** Stops a running run, by its agent id. */
   onStopRun: (agentId: string) => void;
   onShowAgent: (toolUseId: string) => void;
+  /** Brings a call into view in the conversation, by its id. */
+  onShowCall?: (toolUseId: string) => void;
   /** Opens a new Claude tab from the whole session. */
   onForkSession: () => void;
   className?: string;
@@ -77,6 +88,7 @@ export function SidePanel({
   runs,
   onStopRun,
   onShowAgent,
+  onShowCall,
   onForkSession,
   className,
 }: SidePanelProps) {
@@ -124,6 +136,13 @@ export function SidePanel({
       ),
     [named, filePaths, found, cwd],
   );
+  // The pages it published to claude.ai, newest first, as what it made; a
+  // reply's link to one is that page.
+  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
+  const made = useMemo(() => {
+    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
+    return results.filter((result) => !(result.kind === "url" && pages.has(result.target)));
+  }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useTicker(anyRunning);
@@ -176,20 +195,18 @@ export function SidePanel({
       {jobs.length > 0 && (
         <Section title={t("chat.panel.jobs.title")} count={jobs.length}>
           {jobs.map((job) => (
-            <Row key={job.taskId} title={job.summary || job.description}>
-              <StatusDot status={job.status} />
-              <span className="min-w-0 flex-1 truncate">{job.description || job.taskId}</span>
-              <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
-              {job.status === "running" && (
-                <IconButton
-                  label={stopNote ?? t("chat.panel.stop")}
-                  disabled={stopNote !== undefined}
-                  onClick={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
-                >
-                  <Square className="size-3" />
-                </IconButton>
-              )}
-            </Row>
+            <JobEntry
+              key={job.taskId}
+              job={job}
+              tools={tools}
+              now={now}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+              onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
+              stopNote={stopNote}
+              onShowCall={onShowCall}
+              onOpenFile={(path) => links?.openFile(path)}
+            />
           ))}
         </Section>
       )}
@@ -219,9 +236,17 @@ export function SidePanel({
           ))}
         </Section>
       )}
-      {results.length > 0 && (
-        <Section title={t("chat.panel.results.title")} count={results.length}>
-          {results.map((result) => (
+      {made.length + artifacts.length > 0 && (
+        <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
+          {artifacts.map((page) => (
+            <ArtifactRow
+              key={page.url ?? page.file}
+              page={page}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+            />
+          ))}
+          {made.map((result) => (
             <ResultRow
               key={result.target}
               result={result}
@@ -621,6 +646,271 @@ function Meter({ percent }: { percent: number }) {
         style={{ width: `${percent}%` }}
       />
     </div>
+  );
+}
+
+/** How often an open job's output is read again while it runs. */
+const OUTPUT_POLL_MS = 1000;
+/** How many times an output that cannot be read yet is tried: the tab grants it a moment after it names it. */
+const OUTPUT_TRIES = 5;
+
+/**
+ * The end of a job's output file, read again each second while `live`.
+ * Undefined until first read; null when it cannot be read.
+ */
+function useJobOutput(
+  workspaceId: string,
+  rootPath: string,
+  path: string | undefined,
+  live: boolean,
+): JobOutput | null | undefined {
+  const [output, setOutput] = useState<JobOutput | null | undefined>(undefined);
+  useEffect(() => {
+    if (!path) {
+      setOutput(null);
+      return;
+    }
+    let gone = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
+    const read = async () => {
+      const got = await readJobOutput(workspaceId, rootPath, path);
+      if (gone) return;
+      tries = got ? 0 : tries + 1;
+      if (got || tries >= OUTPUT_TRIES) setOutput((prev) => (sameOutput(prev, got) ? prev : got));
+      // A job at rest is read once it reads.
+      if (live || (!got && tries < OUTPUT_TRIES)) timer = setTimeout(read, OUTPUT_POLL_MS);
+    };
+    void read();
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [workspaceId, rootPath, path, live]);
+  return output;
+}
+
+function sameOutput(a: JobOutput | null | undefined, b: JobOutput | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.sizeBytes === b.sizeBytes &&
+    a.cut === b.cut &&
+    a.lines.length === b.lines.length &&
+    a.lines.every((line, i) => line === b.lines[i])
+  );
+}
+
+/** The exit code a job's end tells, as "… completed (exit code 0)" does. */
+function exitCodeOf(summary: string | undefined): number | undefined {
+  const code = summary?.match(/exit code (-?\d+)/i)?.[1];
+  return code === undefined ? undefined : Number(code);
+}
+
+/**
+ * A background job: its state and how long it ran; opened, the command it
+ * runs, the end of its output (as it comes, while it runs) and how it
+ * ended, with the call that started it and its output file a click away.
+ */
+function JobEntry({
+  job,
+  tools,
+  now,
+  workspaceId,
+  rootPath,
+  onStop,
+  stopNote,
+  onShowCall,
+  onOpenFile,
+}: {
+  job: TaskInfo;
+  tools: Record<string, ToolCall>;
+  now: number;
+  workspaceId: string;
+  rootPath: string;
+  onStop: () => void;
+  /** Why stopping is not possible, as on a version without it. */
+  stopNote?: string;
+  onShowCall?: (toolUseId: string) => void;
+  onOpenFile: (path: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const running = job.status === "running";
+  return (
+    <div className="flex flex-col" data-testid="chat-job">
+      <Row>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          title={job.summary || job.description}
+        >
+          <StatusDot status={job.status} />
+          <span className="min-w-0 flex-1 truncate">{job.description || job.taskId}</span>
+          <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+        {running && (
+          <IconButton
+            label={stopNote ?? t("chat.panel.stop")}
+            disabled={stopNote !== undefined}
+            onClick={onStop}
+          >
+            <Square className="size-3" />
+          </IconButton>
+        )}
+      </Row>
+      {open && (
+        <JobDetail
+          job={job}
+          tools={tools}
+          workspaceId={workspaceId}
+          rootPath={rootPath}
+          onShowCall={onShowCall}
+          onOpenFile={onOpenFile}
+        />
+      )}
+    </div>
+  );
+}
+
+function JobDetail({
+  job,
+  tools,
+  workspaceId,
+  rootPath,
+  onShowCall,
+  onOpenFile,
+}: {
+  job: TaskInfo;
+  tools: Record<string, ToolCall>;
+  workspaceId: string;
+  rootPath: string;
+  onShowCall?: (toolUseId: string) => void;
+  onOpenFile: (path: string) => void;
+}) {
+  const { t } = useTranslation();
+  const running = job.status === "running";
+  const command = jobCommand(job, tools);
+  const outputFile = jobOutputFile(job, tools);
+  const output = useJobOutput(workspaceId, rootPath, outputFile, running);
+  const exitCode = exitCodeOf(job.summary);
+  // The output follows its end, unless scrolled up from it.
+  const outRef = useRef<HTMLPreElement>(null);
+  const atEnd = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: to its end each time the output changes
+  useLayoutEffect(() => {
+    const el = outRef.current;
+    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+  }, [output]);
+  const toolUseId = job.toolUseId;
+  return (
+    <div
+      className="mt-0.5 mb-1 ml-4 flex flex-col gap-1.5 border-l border-border pl-2 text-app-micro"
+      data-testid="chat-job-detail"
+    >
+      <div className="overflow-hidden rounded-(--radius-control) border border-border">
+        {command && (
+          <div
+            className="code-hl line-clamp-3 border-b border-border bg-[var(--state-hover-bg)] px-2 py-1 font-mono whitespace-pre-wrap break-all"
+            title={command}
+          >
+            <span className="text-[var(--state-success-fg)] select-none">$ </span>
+            <Highlighted code={command} language="bash" />
+          </div>
+        )}
+        {output && output.lines.length > 0 ? (
+          <pre
+            ref={outRef}
+            onScroll={(event) => {
+              const el = event.currentTarget;
+              atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+            }}
+            className="app-scrollbar m-0 max-h-48 overflow-auto px-2 py-1.5 font-mono leading-4 whitespace-pre"
+            data-testid="chat-job-output"
+          >
+            {output.cut && (
+              <span className="text-muted-foreground select-none">
+                {t("chat.panel.jobs.earlier")}
+                {"\n"}
+              </span>
+            )}
+            {output.lines.join("\n")}
+          </pre>
+        ) : (
+          <div className="px-2 py-1.5 text-muted-foreground">
+            {output === undefined
+              ? t("chat.panel.jobs.reading")
+              : output === null
+                ? t("chat.panel.jobs.unreadable")
+                : t("chat.panel.jobs.no_output")}
+          </div>
+        )}
+      </div>
+      <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
+        {running ? (
+          <span className="flex items-center gap-1 text-[var(--state-success-fg)]">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
+            {t("chat.panel.jobs.live")}
+          </span>
+        ) : exitCode !== undefined ? (
+          <span className={cn(exitCode !== 0 && "text-[var(--state-error-fg)]")}>
+            {t("chat.panel.jobs.exit_code", { code: exitCode })}
+          </span>
+        ) : (
+          job.summary && (
+            <span className="min-w-0 truncate" title={job.summary}>
+              {job.summary}
+            </span>
+          )
+        )}
+        {output && output.sizeBytes > 0 && (
+          <span className="ml-auto shrink-0 tabular-nums">{formatBytes(output.sizeBytes)}</span>
+        )}
+      </div>
+      {((toolUseId && onShowCall) || outputFile) && (
+        <div className="flex flex-wrap gap-1">
+          {toolUseId && onShowCall && (
+            <JobButton onClick={() => onShowCall(toolUseId)}>
+              <MessageSquare className="size-3" />
+              {t("chat.panel.jobs.show_call")}
+            </JobButton>
+          )}
+          {outputFile && (
+            <JobButton onClick={() => onOpenFile(outputFile)} title={outputFile}>
+              <FileText className="size-3" />
+              {t("chat.panel.jobs.output_file")}
+            </JobButton>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function JobButton({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className="flex items-center gap-1 rounded-(--radius-control) border border-border px-1.5 py-0.5 text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+    >
+      {children}
+    </button>
   );
 }
 

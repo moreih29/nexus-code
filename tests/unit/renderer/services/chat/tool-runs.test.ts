@@ -26,6 +26,7 @@ const TOOLS: Record<string, ToolCall> = {
   ag: call("ag", "Agent", { prompt: "go" }),
   q: call("q", "AskUserQuestion"),
   s: call("s", "SendUserFile", { files: ["/p/chart.png"] }),
+  art: call("art", "Artifact", { file_path: "/p/report.html" }),
 };
 
 describe("foldToolRuns", () => {
@@ -76,6 +77,11 @@ describe("foldToolRuns", () => {
   test("a call that sent the user files keeps its line, where they show", () => {
     const a1 = assistant("a1", tool("b1"), tool("s"), tool("b2"));
     expect(foldToolRuns([a1], TOOLS).get(a1)).toEqual([tool("b1"), tool("s"), tool("b2")]);
+  });
+
+  test("a call that published a page keeps its line, where its card shows", () => {
+    const a1 = assistant("a1", tool("b1"), tool("art"), tool("b2"));
+    expect(foldToolRuns([a1], TOOLS).get(a1)).toEqual([tool("b1"), tool("art"), tool("b2")]);
   });
 });
 

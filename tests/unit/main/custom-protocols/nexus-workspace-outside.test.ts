@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
+import { buildOutsideUrl } from "../../../../src/renderer/services/editor/preview/workspace-url";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 mock.module("electron", () => ({
@@ -40,8 +41,9 @@ function manager(meta: Partial<WorkspaceMeta>, fsProvider?: Partial<FsProvider>)
   } as unknown as WorkspaceManager;
 }
 
+/** The URL the previews ask for `absPath` by: a POSIX path from the root, a Windows one from its drive. */
 function outsideUrl(absPath: string): string {
-  return `nexus-workspace://ws.outside${absPath.split("/").map(encodeURIComponent).join("/")}`;
+  return buildOutsideUrl("ws", absPath);
 }
 
 describe("nexus-workspace:// outside files", () => {
@@ -52,20 +54,16 @@ describe("nexus-workspace:// outside files", () => {
     } as Partial<WorkspaceMeta>),
   );
 
-  // Outside files are posix paths; a Windows workspace grants none.
-  test.skipIf(process.platform === "win32")(
-    "a local file is served only while a tab grants it",
-    async () => {
-      const ask = () => local(new Request(outsideUrl(out), { headers: { Range: "bytes=2-4" } }));
-      expect((await ask()).status).toBe(404);
-      setOutsideGrant("ws", "tab", [out], []);
-      const resp = await ask();
-      expect(resp.status).toBe(206);
-      expect(await resp.text()).toBe("234");
-      setOutsideGrant("ws", "tab", [], []);
-      expect((await ask()).status).toBe(404);
-    },
-  );
+  test("a local file is served only while a tab grants it", async () => {
+    const ask = () => local(new Request(outsideUrl(out), { headers: { Range: "bytes=2-4" } }));
+    expect((await ask()).status).toBe(404);
+    setOutsideGrant("ws", "tab", [out], []);
+    const resp = await ask();
+    expect(resp.status).toBe(206);
+    expect(await resp.text()).toBe("234");
+    setOutsideGrant("ws", "tab", [], []);
+    expect((await ask()).status).toBe(404);
+  });
 
   test("another workspace's grant does not serve it", async () => {
     setOutsideGrant("ws-2", "tab", [out], []);

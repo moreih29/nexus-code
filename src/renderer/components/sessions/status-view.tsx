@@ -50,6 +50,7 @@ import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
 import { AgentRows } from "./agent-rows";
 import { isSessionSelected, type SessionsSelection } from "./selection";
+import { SessionProfileMark } from "./session-profile";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
 
 /** The groups that start folded. */
@@ -258,6 +259,7 @@ function SessionRow({
           >
             {session.title}
           </span>
+          <SessionProfileMark session={session} />
           {duration && (
             <span
               className={cn(

@@ -46,7 +46,7 @@ export function AgentPanel() {
   return (
     <SettingsPage>
       <SettingsGroup title={t("agent.newTask")}>
-        {/* What a new task opens with; New Task can pick another per task. */}
+        {/* What the agents tab's [+] and a new task open; New Task can pick another per task. */}
         <SettingsRow
           label={t("terminal.taskAgent.label")}
           description={t("terminal.taskAgent.hint")}

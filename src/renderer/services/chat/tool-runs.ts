@@ -1,14 +1,22 @@
 // Tool calls in a row, folded into one line: a turn that ran ten commands
 // and read five files reads as that, and opens to show each call. Pure.
 
+import { ARTIFACT_TOOL } from "./artifact";
 import type { AssistantBlock, AssistantItem, ChatItem, ToolCall } from "./model";
 import { AGENT_TOOLS, SEND_FILES_TOOL } from "./panel";
 
 /**
  * Calls that keep a line of their own: a subagent's, those that ask the
- * user, and one that puts files in front of the user.
+ * user, one that puts files in front of the user, and one that publishes a
+ * page, which shows as a card.
  */
-const LONE_TOOLS = new Set([...AGENT_TOOLS, "AskUserQuestion", "ExitPlanMode", SEND_FILES_TOOL]);
+const LONE_TOOLS = new Set([
+  ...AGENT_TOOLS,
+  "AskUserQuestion",
+  "ExitPlanMode",
+  SEND_FILES_TOOL,
+  ARTIFACT_TOOL,
+]);
 
 /** Fewest calls in a row that fold into one line. */
 export const MIN_RUN = 2;

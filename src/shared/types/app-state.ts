@@ -230,15 +230,27 @@ export const AppStateSchema = z.object({
   // agent sessions through nexus.
   managerEnabled: z.boolean().default(false),
   managerAgent: z.enum(["claude", "codex"]).default("claude"),
+  // The profile each agent runs it with; absent = the agent's default profile.
+  managerProfiles: z
+    .object({
+      claude: z.string().min(1).max(64).optional(),
+      codex: z.string().min(1).max(64).optional(),
+    })
+    .optional(),
   // Which session changes the app tells it (shared/manager MANAGER_NOTIFY).
   managerNotify: z.enum(["tasks", "attention", "all"]).default("attention"),
   // What it may do with another session's permission request.
   managerPermissions: z.enum(["user", "ask", "answer"]).default("user"),
   // Its reports as desktop notifications too, while the user is not looking.
   managerReports: z.boolean().default(true),
-  // The session (Claude) or thread (Codex) it goes on with when the app starts.
+  // The session (Claude) or thread (Codex) it goes on with when the app
+  // starts, and the profile whose folder has it.
   managerSession: z
-    .object({ agent: z.enum(["claude", "codex"]), id: z.string().max(128) })
+    .object({
+      agent: z.enum(["claude", "codex"]),
+      id: z.string().max(128),
+      profileId: z.string().min(1).max(64).optional(),
+    })
     .optional(),
 
   // Global browser permission toggles keyed by BrowserPermissionKind string.

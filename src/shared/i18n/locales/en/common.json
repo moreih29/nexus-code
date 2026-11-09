@@ -570,7 +570,6 @@
       "show_codex_tab": "Go to the Codex tab",
       "permission_hint_claude": "Its permission requests are answered in the Claude tab.",
       "back": "Back to the list",
-      "cost": "Cost",
       "answer_more": "Show more",
       "answer_less": "Show less",
       "steps": "Recent tool calls",
@@ -1062,6 +1061,16 @@
       "from_assistant": "Fork from here",
       "from_user": "Fork from before this message"
     },
+    "artifact": {
+      "preview": "Preview",
+      "open": "Open on claude.ai",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "published": "Published on claude.ai",
+      "republished": "Published again on claude.ai",
+      "local": "Its link was not given",
+      "tag": "Artifact"
+    },
     "time": {
       "now": "just now"
     },
@@ -1111,7 +1120,15 @@
         "open_run": "Show the run"
       },
       "jobs": {
-        "title": "Tasks"
+        "title": "Tasks",
+        "live": "Live",
+        "exit_code": "Exit code {{code}}",
+        "reading": "Reading the output…",
+        "no_output": "No output yet",
+        "unreadable": "Can't read the output",
+        "earlier": "… earlier lines left out",
+        "show_call": "Show in conversation",
+        "output_file": "Output file"
       },
       "todos": {
         "title": "To-dos"

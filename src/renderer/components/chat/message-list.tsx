@@ -27,6 +27,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
+import { artifactOf } from "../../services/chat/artifact";
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
   type AssistantBlock,
@@ -54,6 +55,7 @@ import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
+import { ArtifactCard } from "./artifact-card";
 import { useAgentContext } from "./chat-agent";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { ChatMarkdown } from "./chat-markdown";
@@ -74,6 +76,52 @@ interface MessageListProps {
   actions?: MessageActions;
   /** In place of the conversation: an agent's transcript. */
   items?: ChatItem[];
+  /** A call to bring into view and light up, as the side panel asks. */
+  reveal?: CallReveal | null;
+}
+
+/** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
+export interface CallReveal {
+  toolUseId: string;
+  seq: number;
+}
+
+/** The ask, with the calls the asked one runs under: a subagent's call shows as its Agent call. */
+interface ShownCall {
+  ids: ReadonlySet<string>;
+  seq: number;
+}
+
+/** The asked call and the calls it runs under, innermost first. */
+function callChain(toolUseId: string, tools: Record<string, ToolCall>): string[] {
+  const chain: string[] = [];
+  for (let id: string | null | undefined = toolUseId; id && !chain.includes(id); ) {
+    chain.push(id);
+    id = tools[id]?.parentToolUseId;
+  }
+  return chain;
+}
+
+/** How long the list waits for a folded run to open before it looks for the call. */
+const REVEAL_FRAMES = 2;
+
+/** Brings the row of the innermost call of `chain` into the middle of `view`, and lights it up. */
+function showCallRow(view: HTMLElement, content: HTMLElement, chain: readonly string[]): boolean {
+  for (const id of chain) {
+    const row = content.querySelector<HTMLElement>(`[data-tool-use-id="${CSS.escape(id)}"]`);
+    if (!row) continue;
+    const offset = row.getBoundingClientRect().top - view.getBoundingClientRect().top;
+    view.scrollTop += offset - Math.max(0, (view.clientHeight - row.offsetHeight) / 2);
+    row.classList.remove("chat-call-flash");
+    // A reflow between, so asking again starts the light over.
+    void row.offsetWidth;
+    row.classList.add("chat-call-flash");
+    row.addEventListener("animationend", () => row.classList.remove("chat-call-flash"), {
+      once: true,
+    });
+    return true;
+  }
+  return false;
 }
 
 /** What the user can do from a message. */
@@ -106,6 +154,7 @@ export function MessageList({
   empty,
   actions,
   items,
+  reveal,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -211,6 +260,35 @@ export function MessageList({
     () => imagesShownEarlier(shownItems, tools, cwd),
     [shownItems, tools, cwd],
   );
+  // The calls the side panel asked to see: a folded run that holds one opens.
+  const latestTools = useRef(tools);
+  latestTools.current = tools;
+  const shownCall = useMemo<ShownCall | undefined>(
+    () =>
+      reveal
+        ? { ids: new Set(callChain(reveal.toolUseId, latestTools.current)), seq: reveal.seq }
+        : undefined,
+    [reveal],
+  );
+  useEffect(() => {
+    if (!shownCall) return;
+    let frames = REVEAL_FRAMES;
+    let frame = 0;
+    const look = () => {
+      if (frames-- > 0) {
+        frame = requestAnimationFrame(look);
+        return;
+      }
+      const view = scrollRef.current;
+      const content = contentRef.current;
+      if (!view || !content) return;
+      // Leaves the bottom, as scrolling up does.
+      stuck.current = false;
+      showCallRow(view, content, [...shownCall.ids]);
+    };
+    frame = requestAnimationFrame(look);
+    return () => cancelAnimationFrame(frame);
+  }, [shownCall]);
   const ctx: ItemContext = {
     workspaceId,
     tabId,
@@ -221,6 +299,7 @@ export function MessageList({
     extras,
     shown,
     earlier,
+    shownCall,
   };
 
   return (
@@ -286,6 +365,8 @@ interface ItemContext {
   shown: Map<AssistantItem, ShownBlock[]>;
   /** The image files each part shows that its turn showed before, as chips. */
   earlier: ImagesShownEarlier;
+  /** The calls the side panel asked to see. */
+  shownCall?: ShownCall;
 }
 
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
@@ -477,6 +558,14 @@ const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
 function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  // Opens when the side panel asks to see a call of the run's.
+  const asked = ctx.shownCall;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once; a call joining the run later does not open it again
+  useEffect(() => {
+    if (asked && blocks.some((block) => block.type === "tool" && asked.ids.has(block.toolUseId))) {
+      setOpen(true);
+    }
+  }, [asked]);
   const calls = blocks.flatMap((block) =>
     block.type === "tool" ? [ctx.tools[block.toolUseId]] : [],
   );
@@ -555,6 +644,11 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
 /** A call as a row: one that asked the user shows what they said. */
 function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
   const tool = ctx.tools[toolUseId];
+  // A page it published to claude.ai shows as a card; running or failed, it is a row as any call.
+  const page = artifactOf(tool, ctx.cwd);
+  if (page) {
+    return <ArtifactCard page={page} workspaceId={ctx.workspaceId} rootPath={ctx.rootPath} />;
+  }
   // The files it sent the user show as they would there; running or
   // failed, it is a row as any call.
   if (tool?.name === SEND_FILES_TOOL && tool.status === "done") {

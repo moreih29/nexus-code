@@ -33,10 +33,13 @@ import { type FormEvent, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
+import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import type { SessionActivity } from "../../../shared/claude/activity";
 import { existingCodexController } from "../../services/chat/codex-controller";
+import type { CodexModel } from "../../services/chat/codex-model";
 import { existingChatController } from "../../services/chat/controller";
 import { type ChatTabState, chatKey, useChatStore, useChatTab } from "../../services/chat/store";
+import { claudeUsageLine, codexUsageLine, type UsageLine } from "../../services/chat/usage-line";
 import { interrupt, sendLine, showChanges, showTerminal } from "../../services/sessions/actions";
 import {
   chatDetailFacts,
@@ -53,11 +56,13 @@ import { oneLineMarkdown } from "../../services/sessions/preview";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ChatMarkdown } from "../chat/chat-markdown";
 import { type ComposerController, composerHint, composerKeys, ModeChip } from "../chat/composer";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
+import { UsageChip } from "../chat/usage-line";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
 import { Keycap } from "../ui/keycap";
@@ -65,6 +70,7 @@ import { showToast } from "../ui/toast";
 import { FoldToggle, useFold } from "./fold";
 import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
+import { useSessionProfile } from "./session-profile";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark } from "./status-view";
 import { TerminalScreen } from "./terminal-screen";
@@ -120,6 +126,15 @@ export function ConversationDetail({
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === session.workspaceId)?.rootPath ?? "",
   );
+  const profile = useSessionProfile(session);
+  // The plan's limits, as its tab last heard them: its account's, not this conversation's.
+  const usage = useMemo(() => {
+    if (terminal) return null;
+    const now = Date.now();
+    return session.kind === "codex"
+      ? codexUsageLine(chat.model as CodexModel, now)
+      : claudeUsageLine(chat.model, now);
+  }, [terminal, session.kind, chat.model]);
   const footer = (
     <>
       {!held && session.state !== "exited" && (terminal || loaded) && (
@@ -150,6 +165,8 @@ export function ConversationDetail({
             branch={branch}
             todos={facts.todos}
             modes={controller && { controller, chat }}
+            usage={usage}
+            profile={profile}
           />
         </div>
         <Transcript session={session} chat={chat} visible={visible} />
@@ -346,6 +363,8 @@ function MetaChips({
   branch,
   todos,
   modes,
+  usage,
+  profile,
 }: {
   session: AgentSession;
   facts: DetailFacts;
@@ -354,6 +373,10 @@ function MetaChips({
   todos?: readonly DetailTodo[];
   /** A chat tab's program, whose permission mode the chip picks; else the chip only tells it. */
   modes?: { controller: ComposerController; chat: ChatTabState };
+  /** How much of its plan's limits its account has spent, shown in place of the cost when told. */
+  usage?: UsageLine | null;
+  /** Its account's profile, where its agent has more than its default one. */
+  profile?: AgentProfile;
 }) {
   const { t } = useTranslation();
   const modePrefix = session.kind === "codex" ? "chat.codex.mode" : "chat.mode";
@@ -411,10 +434,22 @@ function MetaChips({
         {facts.context}%
       </span>
     ),
-    facts.costUsd !== undefined && facts.costUsd > 0 && (
-      <span key="cost" className="shrink-0" title={t("sessions.detail.cost")}>
-        {facts.costUsd < 0.01 ? "<$0.01" : `$${facts.costUsd.toFixed(2)}`}
-      </span>
+    // A plan's limits tell what is spent; the cost, an estimate at API
+    // prices, shows only where none are told (an account on an API key).
+    usage && usage.meters.length > 0 ? (
+      <UsageChip
+        key="usage"
+        line={usage}
+        head={profile ? profileName(profile, t) : undefined}
+        dot={profile ? <ProfileDot color={profile.color} className="size-1.5" /> : undefined}
+      />
+    ) : (
+      facts.costUsd !== undefined &&
+      facts.costUsd > 0 && (
+        <span key="cost" className="shrink-0" title={t("chat.panel.usage.cost_hint")}>
+          {facts.costUsd < 0.01 ? "<$0.01" : `$${facts.costUsd.toFixed(2)}`}
+        </span>
+      )
     ),
     files && (
       <button

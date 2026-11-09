@@ -229,7 +229,7 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
   {
     key: "terminal.taskAgent",
-    summary: "What a new task opens: a Claude or Codex tab given its prompt, or a terminal",
+    summary: "What the agents tab's [+] (Claude for a terminal) and a new task open",
     type: "choice",
     choices: TASK_AGENTS,
     get: () => {

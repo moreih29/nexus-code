@@ -314,6 +314,25 @@
 }
 
 /* ---------------------------------------------------------------------------
+   A call in a Claude tab's conversation the side panel asked to see: it
+   lights up and fades, so the eye finds it where the list scrolled to.
+   --------------------------------------------------------------------------- */
+
+@keyframes chat-call-flash {
+  from {
+    background-color: color-mix(in srgb, var(--state-selected-bg) 30%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.chat-call-flash {
+  border-radius: var(--radius-control);
+  animation: chat-call-flash 1.8s ease-out;
+}
+
+/* ---------------------------------------------------------------------------
    Floating-layer dialog entry/exit motion (design.md §7 — motion.scale).
    Applied by the shared <Dialog> shell + dialogContentClass() helper, so every
    modal animates in/out identically. Radix sets data-state on Overlay/Content

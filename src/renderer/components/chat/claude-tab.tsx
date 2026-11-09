@@ -41,6 +41,7 @@ import {
   changedFilesOf,
   contextOf,
   imagesOf,
+  jobOutputFiles,
   jobsOf,
   outsideLinksOf,
   todosOf,
@@ -87,7 +88,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
-import { type MessageActions, MessageList } from "./message-list";
+import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
@@ -305,6 +306,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     dropAgentAsk(tabId);
   };
   useAgentAsk(tabId, agents, showAgent);
+  // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
+  const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
+  const showCall = (toolUseId: string) => {
+    showAgent(null);
+    setCallAsk((prev) => ({ toolUseId, seq: (prev?.seq ?? 0) + 1 }));
+  };
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
     if (event.key !== "[" && event.key !== "]") return;
@@ -328,7 +335,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     const { history, model } = state;
     const items = history ? [...history.items, ...model.items] : model.items;
     const tools = history ? { ...history.tools, ...model.tools } : model.tools;
-    return outsideLinksOf(items, tools, props.cwd, rootPath, looked);
+    // The side panel shows the end of each job's output, from where the CLI writes it.
+    return outsideLinksOf(items, tools, props.cwd, rootPath, [
+      ...looked,
+      ...jobOutputFiles(model, tools),
+    ]);
   }, [state, props.cwd, rootPath, looked]);
   useEffect(() => {
     grantOutside(workspaceId, tabId, outside);
@@ -477,6 +488,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       runs={runRows}
       onStopRun={(agentId) => void stopPrintRun(workspaceId, tabId, agentId)}
       onShowAgent={showAgent}
+      onShowCall={showCall}
       onForkSession={forkSession}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
@@ -525,6 +537,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               model={state.model}
               actions={shown ? undefined : actions}
               items={shown ? agentTranscript(state.model, shown) : undefined}
+              reveal={shown ? null : callAsk}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">

@@ -171,6 +171,31 @@ export function jobsOf(model: ChatModel): TaskInfo[] {
   return Object.values(model.tasks).filter((task) => !AGENT_TASK_TYPES.has(task.type));
 }
 
+/** The command a job runs, as the Bash call that started it gave it. */
+export function jobCommand(job: TaskInfo, tools: Record<string, ToolCall>): string | undefined {
+  const tool = job.toolUseId ? tools[job.toolUseId] : undefined;
+  return str(rec(tool?.input)?.command);
+}
+
+/**
+ * Where the CLI writes a job's output: what its end said, or while it runs,
+ * what the result of the call that started it said.
+ */
+export function jobOutputFile(job: TaskInfo, tools: Record<string, ToolCall>): string | undefined {
+  if (job.outputFile) return job.outputFile;
+  const text = job.toolUseId ? tools[job.toolUseId]?.result?.text : undefined;
+  const path = text?.match(/Output is being written to: (\S+)/)?.[1]?.replace(/\.$/, "");
+  return path || undefined;
+}
+
+/** The output files of the session's jobs, which its tab lets the side panel read. */
+export function jobOutputFiles(model: ChatModel, tools: Record<string, ToolCall>): string[] {
+  return jobsOf(model).flatMap((job) => {
+    const path = jobOutputFile(job, tools);
+    return path ? [path] : [];
+  });
+}
+
 export interface TodoItem {
   id: string;
   content: string;
