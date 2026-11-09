@@ -46,7 +46,7 @@ import {
   imagesShownEarlier,
   SEND_FILES_TOOL,
 } from "../../services/chat/panel";
-import { isOwnScroll, nearBottom } from "../../services/chat/stick-to-bottom";
+import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
 import { sentIn, useManagerStore } from "../../state/stores/manager";
@@ -113,6 +113,8 @@ export function MessageList({
   const stuck = useRef(true);
   // Where the code last scrolled to; its scroll event is not the user's.
   const ownTop = useRef<number | null>(null);
+  // Where the view last was, whoever moved it.
+  const lastTop = useRef(0);
   // Whether what shows before the first message is up.
   const emptyShown = useRef(false);
   const [showJump, setShowJump] = useState(false);
@@ -122,11 +124,14 @@ export function MessageList({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     ownTop.current = el.scrollTop;
+    lastTop.current = el.scrollTop;
   }, []);
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    const down = scrolledDown(el, lastTop.current);
+    lastTop.current = el.scrollTop;
     if (emptyShown.current) {
       // Looking through the past sessions; a conversation that comes starts at its bottom.
       stuck.current = true;
@@ -139,21 +144,29 @@ export function MessageList({
       return;
     }
     ownTop.current = null;
+    if (stuck.current && down) {
+      // The browser giving back a scroll it cut short; only scrolling up leaves the bottom.
+      toBottom();
+      return;
+    }
     const atBottom = nearBottom(el);
     stuck.current = atBottom;
     setShowJump(!atBottom);
   }, [toBottom]);
 
   // Growth from any source (a new item, a streamed word, an opened row)
-  // keeps a stuck view at the bottom. What shows before the first message
-  // (the welcome, the past sessions) reads from the top.
+  // keeps a stuck view at the bottom, and so does the view getting shorter
+  // (a permission request docked under it). What shows before the first
+  // message (the welcome, the past sessions) reads from the top.
   useLayoutEffect(() => {
     const content = contentRef.current;
-    if (!content) return;
+    const view = scrollRef.current;
+    if (!content || !view) return;
     const observer = new ResizeObserver(() => {
       if (stuck.current && !emptyShown.current) toBottom();
     });
     observer.observe(content);
+    observer.observe(view);
     return () => observer.disconnect();
   }, [toBottom]);
 
