@@ -24,6 +24,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
@@ -55,6 +56,7 @@ import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { StatusDot } from "./agent-strip";
+import { ArtifactRow } from "./artifact-card";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { Highlighted } from "./code-highlight";
 import { FileKindIcon } from "./file-kind-icon";
@@ -134,6 +136,13 @@ export function SidePanel({
       ),
     [named, filePaths, found, cwd],
   );
+  // The pages it published to claude.ai, newest first, as what it made; a
+  // reply's link to one is that page.
+  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
+  const made = useMemo(() => {
+    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
+    return results.filter((result) => !(result.kind === "url" && pages.has(result.target)));
+  }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useTicker(anyRunning);
@@ -227,9 +236,17 @@ export function SidePanel({
           ))}
         </Section>
       )}
-      {results.length > 0 && (
-        <Section title={t("chat.panel.results.title")} count={results.length}>
-          {results.map((result) => (
+      {made.length + artifacts.length > 0 && (
+        <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
+          {artifacts.map((page) => (
+            <ArtifactRow
+              key={page.url ?? page.file}
+              page={page}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+            />
+          ))}
+          {made.map((result) => (
             <ResultRow
               key={result.target}
               result={result}

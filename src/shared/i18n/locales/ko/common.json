@@ -1061,6 +1061,16 @@
       "from_assistant": "여기서 포크",
       "from_user": "이 메시지 직전에서 포크"
     },
+    "artifact": {
+      "preview": "미리보기",
+      "open": "claude.ai에서 열기",
+      "copy": "링크 복사",
+      "copied": "복사됨",
+      "published": "claude.ai에 게시됨",
+      "republished": "claude.ai에 다시 게시됨",
+      "local": "게시한 링크를 알 수 없습니다",
+      "tag": "아티팩트"
+    },
     "time": {
       "now": "방금"
     },
