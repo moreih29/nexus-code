@@ -1,11 +1,12 @@
 /**
- * Agent manager panel: whether the manager runs with the app and as which
- * agent, which sessions' changes it is told of, and what it may do with
- * another session's permission request. Its reports as desktop
- * notifications are under Notifications.
+ * Agent manager panel: whether the manager runs with the app, as which
+ * agent and with which of its profiles, which sessions' changes it is told
+ * of, and what it may do with another session's permission request. Its
+ * reports as desktop notifications are under Notifications.
  */
 
 import { useTranslation } from "react-i18next";
+import { profileOf, profilesOf } from "../../../../shared/agent-profiles/profiles";
 import {
   MANAGER_NOTIFY,
   MANAGER_PERMISSIONS,
@@ -13,7 +14,10 @@ import {
   type ManagerPermissions,
 } from "../../../../shared/manager/manager";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import { useAgentProfilesStore } from "../../../state/stores/agent-profiles";
 import { useManagerStore } from "../../../state/stores/manager";
+import { hasProfileChoice, profileName } from "../../agent-profiles/profile-badge";
+import { ProfileSelect } from "../../agent-profiles/profile-select";
 import { taskAgentOptions } from "../../workspace/task-agent-options";
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
@@ -45,6 +49,7 @@ export function ManagerPanel() {
             label={t("manager.agent.label")}
           />
         </SettingsRow>
+        <ProfileRow agent={agent} />
       </SettingsGroup>
 
       <SettingsGroup title={t("manager.reports")}>
@@ -78,5 +83,38 @@ export function ManagerPanel() {
         </SettingsRow>
       </SettingsGroup>
     </SettingsPage>
+  );
+}
+
+/**
+ * The profile the manager runs with as `agent`: one of its profiles, or its
+ * default as Settings › Profiles by workspace sets it. Not shown while the
+ * agent has only its default profile.
+ */
+function ProfileRow({ agent }: { agent: ChatAgent }) {
+  const { t } = useTranslation("settings");
+  const config = useAgentProfilesStore((s) => s.config);
+  const profiles = useManagerStore((s) => s.profiles);
+  const setSettings = useManagerStore((s) => s.setSettings);
+  if (!hasProfileChoice(config, agent)) return null;
+  const all = profilesOf(config, agent);
+  const chosen = profiles[agent];
+  const fallback = profileOf(config, agent, config.defaults[agent]);
+  const choose = (id: string | null) => {
+    const { [agent]: _was, ...rest } = profiles;
+    setSettings({ profiles: id ? { ...rest, [agent]: id } : rest });
+  };
+  return (
+    <SettingsRow label={t("manager.profile.label")} description={t("manager.profile.description")}>
+      <ProfileSelect
+        agent={agent}
+        profiles={all}
+        value={chosen && all.some((p) => p.id === chosen) ? chosen : undefined}
+        inherit={t("manager.profile.inherit", { name: profileName(fallback, t) })}
+        onChange={choose}
+        label={t("manager.profile.label")}
+        className="w-48"
+      />
+    </SettingsRow>
   );
 }

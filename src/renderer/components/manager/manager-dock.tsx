@@ -5,6 +5,8 @@
 import { ChevronRight, LoaderCircle, MessageSquarePlus, Settings, X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { profileOf } from "../../../shared/agent-profiles/profiles";
+import { managerProfileOf } from "../../../shared/manager/manager";
 import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import {
   managerClaudeHooks,
@@ -14,6 +16,7 @@ import {
 import { useManagerTasks } from "../../services/manager/use-tasks";
 import type { AgentSession } from "../../services/sessions/model";
 import { goToSession } from "../../services/sessions/use-inbox";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import {
   DOCK_WIDTH_DEFAULT,
   DOCK_WIDTH_MAX,
@@ -23,6 +26,7 @@ import {
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
+import { hasProfileChoice, ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { ClaudeTabView } from "../chat/claude-tab";
 import { CodexTabView } from "../chat/codex-tab";
@@ -62,7 +66,14 @@ function Dock() {
   const enabled = useManagerStore((s) => s.enabled);
   const agent = useManagerStore((s) => s.agent);
   const live = useManagerStore((s) => s.live);
+  const chosen = useManagerStore((s) => s.profiles[agent]);
+  const config = useAgentProfilesStore((s) => s.config);
   const AgentIcon = agent === "codex" ? CodexIcon : ClaudeIcon;
+  // The profile it runs with; before it starts, the one it will.
+  const profile =
+    live?.agent === agent
+      ? profileOf(config, agent, live.profileId)
+      : managerProfileOf(config, agent, chosen);
 
   return (
     <aside
@@ -77,6 +88,15 @@ function Dock() {
           <span className="flex items-center gap-1 rounded-full border border-border px-1.5 text-app-micro leading-4 text-muted-foreground">
             <AgentIcon className="size-3" aria-hidden="true" />
             {t(`common:task.agents.${agent}`)}
+            {hasProfileChoice(config, agent) && (
+              <span
+                className="flex min-w-0 items-center gap-1 border-l border-border pl-1"
+                data-testid="manager-profile"
+              >
+                <ProfileDot color={profile.color} className="size-1.5" />
+                <span className="max-w-24 truncate">{profileName(profile, t)}</span>
+              </span>
+            )}
           </span>
         )}
         <div className="ml-auto" />

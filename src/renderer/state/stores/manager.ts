@@ -24,6 +24,8 @@ export interface ManagerTask {
 /** The manager's conversation as it runs now; a new one each time it starts. */
 export interface ManagerLive {
   readonly agent: ChatAgent;
+  /** The profile it runs with. */
+  readonly profileId: string;
   readonly workspaceId: string;
   readonly tabId: string;
   readonly cwd: string;
@@ -35,6 +37,8 @@ export interface ManagerLive {
 export interface ManagerSession {
   readonly agent: ChatAgent;
   readonly id: string;
+  /** The profile whose folder has it; absent on one saved before sessions kept it. */
+  readonly profileId?: string;
 }
 
 const TASKS_KEY = "nexus.manager.tasks";
@@ -52,6 +56,7 @@ type ManagerAppState = Pick<
   AppState,
   | "managerEnabled"
   | "managerAgent"
+  | "managerProfiles"
   | "managerNotify"
   | "managerPermissions"
   | "managerReports"
@@ -120,6 +125,7 @@ export const useManagerStore = create<ManagerState>((set, get) => ({
     set({
       enabled: state.managerEnabled ?? DEFAULT_MANAGER_SETTINGS.enabled,
       agent: state.managerAgent ?? DEFAULT_MANAGER_SETTINGS.agent,
+      profiles: state.managerProfiles ?? DEFAULT_MANAGER_SETTINGS.profiles,
       notify: state.managerNotify ?? DEFAULT_MANAGER_SETTINGS.notify,
       permissions: state.managerPermissions ?? DEFAULT_MANAGER_SETTINGS.permissions,
       reports: state.managerReports ?? DEFAULT_MANAGER_SETTINGS.reports,
@@ -132,6 +138,7 @@ export const useManagerStore = create<ManagerState>((set, get) => ({
     save({
       ...(patch.enabled !== undefined ? { managerEnabled: patch.enabled } : {}),
       ...(patch.agent !== undefined ? { managerAgent: patch.agent } : {}),
+      ...(patch.profiles !== undefined ? { managerProfiles: patch.profiles } : {}),
       ...(patch.notify !== undefined ? { managerNotify: patch.notify } : {}),
       ...(patch.permissions !== undefined ? { managerPermissions: patch.permissions } : {}),
       ...(patch.reports !== undefined ? { managerReports: patch.reports } : {}),
@@ -140,7 +147,13 @@ export const useManagerStore = create<ManagerState>((set, get) => ({
 
   setSession(session) {
     const now = get().session;
-    if (now?.agent === session?.agent && now?.id === session?.id) return;
+    if (
+      now?.agent === session?.agent &&
+      now?.id === session?.id &&
+      now?.profileId === session?.profileId
+    ) {
+      return;
+    }
     set({ session });
     // appState.set merges what it is given: an empty id drops the session.
     save({ managerSession: session ?? { agent: get().agent, id: "" } });

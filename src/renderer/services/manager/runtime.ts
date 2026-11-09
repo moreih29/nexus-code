@@ -8,9 +8,10 @@
  */
 
 import i18next from "i18next";
-import { isDefaultProfileId, profileOf } from "../../../shared/agent-profiles/profiles";
+import { isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import type { CliSessionEvent } from "../../../shared/cli/ui";
 import { createLogger } from "../../../shared/log/renderer";
+import { managerProfileOf, sessionFits } from "../../../shared/manager/manager";
 import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
@@ -41,8 +42,14 @@ interface Running {
   readonly controller: ChatController | CodexController;
 }
 
-/** The agent the manager is to run as; null while it is off. */
-let wanted: ChatAgent | null = null;
+/** The agent the manager runs as, and the profile it runs with. */
+interface Wanted {
+  readonly agent: ChatAgent;
+  readonly profileId: string;
+}
+
+/** What the manager is to run as; null while it is off. */
+let wanted: Wanted | null = null;
 let running: Running | null = null;
 /** Counts the starts; one overtaken by a later start or a stop does nothing more. */
 let starts = 0;
@@ -60,7 +67,16 @@ function free(state: ChatTabState | undefined): boolean {
   return !state.model.running && state.model.permissions.length === 0;
 }
 
-async function start(agent: ChatAgent): Promise<void> {
+/** What the manager is to run as by its settings and the profiles; null when it is off. */
+function wantedNow(): Wanted | null {
+  const { enabled, agent, profiles } = useManagerStore.getState();
+  if (!enabled) return null;
+  const { config } = useAgentProfilesStore.getState();
+  return { agent, profileId: managerProfileOf(config, agent, profiles[agent]).id };
+}
+
+async function start(want: Wanted): Promise<void> {
+  const { agent } = want;
   const mine = ++starts;
   let target: { workspaceId: string; tabId: string; cwd: string };
   try {
@@ -72,11 +88,13 @@ async function start(agent: ChatAgent): Promise<void> {
   if (mine !== starts) return;
   const { workspaceId, tabId, cwd } = target;
   const store = useManagerStore.getState();
-  const session = store.session?.agent === agent ? store.session.id : undefined;
-  // The manager runs with each agent's default profile, as Settings sets it.
-  const { config } = useAgentProfilesStore.getState();
-  const profile = profileOf(config, agent, config.defaults[agent]);
-  const profileId = isDefaultProfileId(profile.id) ? {} : { profileId: profile.id };
+  const kept = store.session;
+  const fits = kept !== undefined && sessionFits(kept, agent, want.profileId);
+  // One saved before sessions kept their profile is this profile's from now on.
+  if (fits && kept.profileId === undefined)
+    store.setSession({ ...kept, profileId: want.profileId });
+  const session = fits ? kept.id : undefined;
+  const profileId = isDefaultProfileId(want.profileId) ? {} : { profileId: want.profileId };
   const controller =
     agent === "claude"
       ? chatController(
@@ -97,7 +115,7 @@ async function start(agent: ChatAgent): Promise<void> {
           managerCodexHooks,
         );
   running = { agent, key: chatKey(workspaceId, tabId), controller };
-  store.setLive({ agent, workspaceId, tabId, cwd, run: mine });
+  store.setLive({ agent, profileId: want.profileId, workspaceId, tabId, cwd, run: mine });
   await controller.open();
   flushSoon();
 }
@@ -112,18 +130,22 @@ function stop(): void {
   if (was) void was.controller.close();
 }
 
+/** Keeps the session the manager goes on with, and the profile it runs with, whose folder has it. */
+function keepSession(agent: ChatAgent, id: string | undefined): void {
+  const store = useManagerStore.getState();
+  const profileId = store.live?.profileId;
+  store.setSession(id ? { agent, id, ...(profileId ? { profileId } : {}) } : undefined);
+}
+
 /** What the manager's Claude conversation keeps: the session it goes on with. */
 export const managerClaudeHooks: ChatTabHooks = {
-  onSession: (id) => useManagerStore.getState().setSession({ agent: "claude", id }),
-  onTarget: ({ sessionId }) =>
-    useManagerStore
-      .getState()
-      .setSession(sessionId ? { agent: "claude", id: sessionId } : undefined),
+  onSession: (id) => keepSession("claude", id),
+  onTarget: ({ sessionId }) => keepSession("claude", sessionId),
 };
 
 /** What the manager's Codex conversation keeps: the thread it goes on with. */
 export const managerCodexHooks: CodexTabHooks = {
-  onThread: (id) => useManagerStore.getState().setSession({ agent: "codex", id }),
+  onThread: (id) => keepSession("codex", id),
 };
 
 /** Starts the manager over: a new conversation, the old one left to resume. */
@@ -133,16 +155,19 @@ export function newManagerConversation(): void {
   if (wanted) void start(wanted);
 }
 
-/** Starts or stops the manager to match its settings. */
+/**
+ * Starts or stops the manager to match its settings and the profiles: a
+ * new agent or profile starts it over.
+ */
 function apply(): void {
-  const { enabled, agent } = useManagerStore.getState();
-  const want = enabled ? agent : null;
-  if (want === wanted) return;
+  const want = wantedNow();
+  if (want?.agent === wanted?.agent && want?.profileId === wanted?.profileId) return;
   wanted = want;
   stop();
   if (want) {
-    // Another agent's session is not this one's to go on with.
-    if (useManagerStore.getState().session?.agent !== want) {
+    // Another agent's session, or another profile's, is not this one's to go on with.
+    const { session } = useManagerStore.getState();
+    if (session && !sessionFits(session, want.agent, want.profileId)) {
       useManagerStore.getState().setSession(undefined);
     }
     void start(want);
@@ -219,7 +244,13 @@ function onAsk(state: ChatTabState): void {
 export function startManager(): () => void {
   apply();
   const stopSettings = useManagerStore.subscribe((now, was) => {
-    if (now.enabled !== was.enabled || now.agent !== was.agent) apply();
+    if (now.enabled !== was.enabled || now.agent !== was.agent || now.profiles !== was.profiles) {
+      apply();
+    }
+  });
+  // The default profile it follows may change, or the one chosen be removed.
+  const stopProfiles = useAgentProfilesStore.subscribe((now, was) => {
+    if (now.config !== was.config) apply();
   });
   const stopEvents = onSessionEvents(onEvents);
   // Its turns: one that ends may be told of; one that ends frees it for the reports waiting.
@@ -239,6 +270,7 @@ export function startManager(): () => void {
   });
   return () => {
     stopSettings();
+    stopProfiles();
     stopEvents();
     stopChat();
     stopReveal();

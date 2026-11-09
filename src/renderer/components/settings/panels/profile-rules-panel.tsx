@@ -12,7 +12,6 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
-  type AgentProfile,
   PROFILE_AGENTS,
   type ProfileRule,
   type ProfileTarget,
@@ -30,6 +29,7 @@ import {
 } from "../../../state/stores/agent-profiles";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { ProfileDot, profileName } from "../../agent-profiles/profile-badge";
+import { ProfileSelect } from "../../agent-profiles/profile-select";
 import { Button } from "../../ui/button";
 import {
   DropdownMenuContent,
@@ -39,10 +39,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
 
-const INHERIT = "__inherit__";
 const AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
 
 const iconButtonClass = cn(
@@ -54,56 +52,6 @@ const iconButtonClass = cn(
 function sshName(location: { kind: string; configAlias?: string; host?: string }): string | null {
   if (location.kind !== "ssh") return null;
   return location.configAlias || location.host || null;
-}
-
-/** A select of the agent's profiles, with "inherit" first when `inherit` names it. */
-function ProfileSelect({
-  agent,
-  profiles,
-  value,
-  inherit,
-  onChange,
-  className,
-}: {
-  agent: ChatAgent;
-  profiles: readonly AgentProfile[];
-  value: string | undefined;
-  inherit?: string;
-  onChange: (id: string | null) => void;
-  className?: string;
-}) {
-  const { t } = useTranslation("settings");
-  const selected = value !== undefined ? profiles.find((p) => p.id === value) : undefined;
-  return (
-    <Select
-      value={selected ? selected.id : INHERIT}
-      onValueChange={(v) => onChange(v === INHERIT ? null : v)}
-    >
-      <SelectTrigger ariaLabel={AGENT_NAMES[agent]} className={cn("h-7 w-40", className)}>
-        <SelectValue>
-          {selected ? (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <ProfileDot color={selected.color} />
-              <span className="truncate">{profileName(selected, t)}</span>
-            </span>
-          ) : (
-            <span className="truncate text-muted-foreground">{inherit}</span>
-          )}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {inherit !== undefined && <SelectItem value={INHERIT}>{inherit}</SelectItem>}
-        {profiles.map((p) => (
-          <SelectItem key={p.id} value={p.id}>
-            <span className="flex items-center gap-1.5">
-              <ProfileDot color={p.color} />
-              {profileName(p, t)}
-            </span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
 }
 
 export function ProfileRulesPanel() {

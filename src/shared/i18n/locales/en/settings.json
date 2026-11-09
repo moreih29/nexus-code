@@ -527,6 +527,11 @@
       "label": "Manager agent",
       "description": "Uses that agent's own account and model"
     },
+    "profile": {
+      "label": "Manager profile",
+      "description": "Changing it starts the manager over in a new conversation",
+      "inherit": "The agent's default ({{name}})"
+    },
     "reports": "Reports and permissions",
     "notify": {
       "label": "Tell the manager about",

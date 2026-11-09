@@ -527,6 +527,11 @@
       "label": "매니저 에이전트",
       "description": "그 에이전트의 계정과 모델을 그대로 씁니다"
     },
+    "profile": {
+      "label": "매니저 프로필",
+      "description": "바꾸면 매니저가 새 대화로 다시 시작합니다",
+      "inherit": "기본 프로필 따름 ({{name}})"
+    },
     "reports": "보고와 권한",
     "notify": {
       "label": "매니저에게 알릴 일",
