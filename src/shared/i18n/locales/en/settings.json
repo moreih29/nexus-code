@@ -175,7 +175,6 @@
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Editor font size",
     "ariaFontFamily": "Font family",
@@ -236,7 +235,6 @@
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Terminal font size",
     "ariaFontFamily": "Terminal font family",
@@ -495,6 +493,12 @@
     "maxWorkspaces": "Workspaces running at once",
     "maxWorkspacesDescription": "Beyond this, the least recently used stops first"
   },
+  "fontPicker": {
+    "list": "Installed fonts",
+    "loading": "Reading the fonts…",
+    "noMatch": "No font matches",
+    "more": "{{count}} more · type to narrow"
+  },
   "agent": {
     "newTask": "New tasks"
   },
@@ -508,7 +512,6 @@
     "fontFamilySystem": "App default (Pretendard)",
     "fontFamilyOther": "Other...",
     "systemUi": "System",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Chat text size",
     "ariaFontFamily": "Chat font family",

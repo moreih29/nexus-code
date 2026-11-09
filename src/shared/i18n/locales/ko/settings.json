@@ -175,7 +175,6 @@
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "편집기 글꼴 크기",
     "ariaFontFamily": "글꼴 종류",
@@ -236,7 +235,6 @@
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "터미널 글꼴 크기",
     "ariaFontFamily": "터미널 글꼴 종류",
@@ -495,6 +493,12 @@
     "maxWorkspaces": "동시에 켤 워크스페이스",
     "maxWorkspacesDescription": "넘으면 오래 안 쓴 것부터 멈춤"
   },
+  "fontPicker": {
+    "list": "설치된 글꼴",
+    "loading": "글꼴 목록을 읽는 중…",
+    "noMatch": "맞는 글꼴이 없습니다",
+    "more": "{{count}}개 더 · 입력해서 좁히세요"
+  },
   "agent": {
     "newTask": "새 작업"
   },
@@ -508,7 +512,6 @@
     "fontFamilySystem": "앱 기본 (Pretendard)",
     "fontFamilyOther": "기타...",
     "systemUi": "시스템",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "채팅 글자 크기",
     "ariaFontFamily": "채팅 글꼴 종류",
