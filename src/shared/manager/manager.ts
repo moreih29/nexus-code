@@ -5,6 +5,12 @@
  * the app keeps out of its lists, in one tab, both with fixed ids.
  */
 
+import {
+  type AgentProfile,
+  type AgentProfiles,
+  hasProfile,
+  profileOf,
+} from "../agent-profiles/profiles";
 import type { ChatAgent } from "../sessions/task-agent";
 
 /** The manager's own workspace: a folder of the app's, never listed. */
@@ -43,6 +49,8 @@ export type ManagerPermissions = (typeof MANAGER_PERMISSIONS)[number];
 export interface ManagerSettings {
   readonly enabled: boolean;
   readonly agent: ChatAgent;
+  /** The profile each agent runs the manager with; none = the agent's default profile. */
+  readonly profiles: Readonly<Partial<Record<ChatAgent, string>>>;
   readonly notify: ManagerNotify;
   readonly permissions: ManagerPermissions;
   /** Its reports as desktop notifications too, when the user is not looking. */
@@ -52,7 +60,37 @@ export interface ManagerSettings {
 export const DEFAULT_MANAGER_SETTINGS: ManagerSettings = {
   enabled: false,
   agent: "claude",
+  profiles: {},
   notify: "attention",
   permissions: "user",
   reports: true,
 };
+
+/**
+ * The profile the manager runs with as `agent`: the one chosen for it, or
+ * else (none chosen, or the one chosen since removed) the agent's default
+ * profile, as Settings › Profiles by workspace sets it.
+ */
+export function managerProfileOf(
+  config: AgentProfiles,
+  agent: ChatAgent,
+  chosen: string | undefined,
+): AgentProfile {
+  const id = chosen && hasProfile(config, agent, chosen) ? chosen : config.defaults[agent];
+  return profileOf(config, agent, id);
+}
+
+/**
+ * Whether the manager, running as `agent` with the profile `profileId`, may
+ * go on with `session`: a session lives in its agent's profile's folder,
+ * and another folder has not got it. One saved before sessions kept their
+ * profile is taken as the one it runs with, which was the default then.
+ */
+export function sessionFits(
+  session: { readonly agent: ChatAgent; readonly profileId?: string },
+  agent: ChatAgent,
+  profileId: string,
+): boolean {
+  if (session.agent !== agent) return false;
+  return session.profileId === undefined || session.profileId === profileId;
+}
