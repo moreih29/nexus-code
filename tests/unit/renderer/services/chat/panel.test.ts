@@ -18,6 +18,9 @@ import {
   distinctResults,
   imagesOf,
   imagesShownEarlier,
+  jobCommand,
+  jobOutputFile,
+  jobOutputFiles,
   jobsOf,
   outsideLinksOf,
   resultsOf,
@@ -193,6 +196,41 @@ describe("chat panel", () => {
     ]);
     expect(exited.tasks.b1).toMatchObject({ status: "stopped", endedAt: 9000 });
     expect(exited.tasks.a1.status).toBe("completed");
+  });
+
+  test("a job runs its Bash call's command, and writes where the call's result or its end says", () => {
+    const model = turn();
+    const job = model.tasks.b1;
+    expect(jobCommand(job, model.tools)).toBe("sleep 25; echo done");
+    // A result that does not say where tells no file.
+    expect(jobOutputFile(job, model.tools)).toBeUndefined();
+    expect(jobOutputFiles(model, model.tools)).toEqual([]);
+
+    const path = "/private/tmp/claude-501/-p/s1/tasks/b1.output";
+    const said = applyLines(model, [
+      result(
+        "bash1",
+        `Command running in background with ID: b1. Output is being written to: ${path}. You will be notified when it completes.`,
+        { backgroundTaskId: "b1" },
+      ),
+    ]);
+    expect(jobOutputFile(said.tasks.b1, said.tools)).toBe(path);
+    expect(jobOutputFiles(said, said.tools)).toEqual([path]);
+
+    const ended = applyLines(model, [
+      out({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "b1",
+        tool_use_id: "bash1",
+        status: "completed",
+        summary: 'Background command "Sleep 25 seconds" completed (exit code 0)',
+        output_file: path,
+      }),
+    ]);
+    expect(jobOutputFile(ended.tasks.b1, ended.tools)).toBe(path);
+    // An agent's task is no job, and its output is not read.
+    expect(jobOutputFiles(ended, ended.tools)).toEqual([path]);
   });
 
   test("an agent row joins its Agent call, its task and its own messages", () => {
