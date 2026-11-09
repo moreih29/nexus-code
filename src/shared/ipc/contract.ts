@@ -1561,6 +1561,13 @@ export const ipcContract = {
        * while the host cannot tell: not connected, or an older agent.
        */
       stats: call(z.object({ workspaceId: z.string().optional() }), SystemStatsSchema.nullable()),
+      /**
+       * The installed font families that go by more than one name, each as
+       * its names: 맑은 고딕 as well as Malgun Gothic. The settings' font
+       * fields find a font by any of them; Chromium lists the English one
+       * only. Empty where the system cannot say (macOS).
+       */
+      fontNames: call(z.void(), z.object({ groups: z.array(z.array(z.string())) })),
     },
     listen: {},
   },

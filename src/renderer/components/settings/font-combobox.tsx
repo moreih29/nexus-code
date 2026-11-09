@@ -6,33 +6,52 @@
 // is typed. Typing alone changes nothing, so the editor, the terminal and the
 // chat tabs are not laid out again on every key. Where the fonts cannot be
 // listed, the name typed is taken as it is, on Enter or on leaving.
+//
+// A font is found by its other names too (맑은 고딕 for Malgun Gothic), shown
+// beside it, and taken by the name listed. A whole name the list has not,
+// that the browser still draws a font for, is taken as typed.
 
 import { Popover as RadixPopover } from "radix-ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { checkFontAvailable } from "../../services/editor/runtime/font-availability";
 import {
+  type FontAliases,
   familyNamed,
+  fontAliases,
   localFontFamilies,
+  localFontNames,
   matchFamilies,
 } from "../../services/editor/runtime/local-fonts";
 
 /** Most fonts listed at once; typing narrows the rest. */
 const MAX_LISTED = 200;
 
-/** The installed families: undefined while read, null when they cannot be listed. */
-function useLocalFontFamilies(): readonly string[] | null | undefined {
+/**
+ * The installed families: undefined while read, null when they cannot be
+ * listed; and their other names, once the system has said them.
+ */
+function useLocalFonts(): {
+  families: readonly string[] | null | undefined;
+  aliases: FontAliases;
+} {
   const [families, setFamilies] = useState<readonly string[] | null | undefined>(undefined);
+  const [groups, setGroups] = useState<readonly (readonly string[])[]>([]);
   useEffect(() => {
     let live = true;
     void localFontFamilies().then((read) => {
       if (live) setFamilies(read);
     });
+    void localFontNames().then((read) => {
+      if (live) setGroups(read);
+    });
     return () => {
       live = false;
     };
   }, []);
-  return families;
+  const aliases = useMemo(() => fontAliases(families ?? [], groups), [families, groups]);
+  return { families, aliases };
 }
 
 export function FontCombobox({
@@ -51,7 +70,7 @@ export function FontCombobox({
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const families = useLocalFontFamilies();
+  const { families, aliases } = useLocalFonts();
   const [text, setText] = useState(value);
   // Whether the text is a query, typed since the list opened, or the font in effect.
   const [typed, setTyped] = useState(false);
@@ -66,10 +85,12 @@ export function FontCombobox({
   }
 
   const matches = useMemo(
-    () => (families ? matchFamilies(families, typed ? text : "") : []),
-    [families, typed, text],
+    () => (families ? matchFamilies(families, typed ? text : "", aliases) : []),
+    [families, typed, text, aliases],
   );
   const listed = matches.slice(0, MAX_LISTED);
+  // The font in effect as listed: one set by another of its names is marked too.
+  const current = families ? (familyNamed(families, value, aliases) ?? value) : value;
 
   // The font marked stays in sight as the arrows move it.
   useEffect(() => {
@@ -83,7 +104,7 @@ export function FontCombobox({
     setOpen(true);
     setTyped(false);
     // Opened on the font in effect, it is marked among them all.
-    setActive(families && value ? families.indexOf(value) : -1);
+    setActive(families && value ? families.indexOf(current) : -1);
   };
 
   const pick = (family: string) => {
@@ -93,7 +114,10 @@ export function FontCombobox({
     if (family !== value) onPick(family);
   };
 
-  /** Leaves the name typed: a font's whole name takes it; anything else goes back to the font in effect. */
+  /**
+   * Leaves the name typed: a font's whole name, or one the browser draws a
+   * font for, takes it; anything else goes back to the font in effect.
+   */
   const settle = () => {
     setOpen(false);
     const name = text.trim();
@@ -106,8 +130,9 @@ export function FontCombobox({
       pick(name);
       return;
     }
-    const found = families ? familyNamed(families, name) : undefined;
+    const found = families ? familyNamed(families, name, aliases) : undefined;
     if (found) pick(found);
+    else if (checkFontAvailable(name)) pick(name);
     else {
       setText(value);
       setTyped(false);
@@ -219,10 +244,15 @@ export function FontCombobox({
                   className={cn(
                     "flex w-full cursor-default items-center rounded-(--radius-control) px-2 py-1 text-left text-app-ui-sm",
                     index === active && "bg-[var(--state-active-bg)]",
-                    family === value && "text-[var(--state-selected-indicator)]",
+                    family === current && "text-[var(--state-selected-indicator)]",
                   )}
                 >
                   <span className="min-w-0 truncate">{family}</span>
+                  {aliases.has(family) && (
+                    <span className="ml-2 min-w-0 flex-1 truncate text-muted-foreground">
+                      {aliases.get(family)?.join(", ")}
+                    </span>
+                  )}
                 </button>
               ))
             )}
