@@ -1019,7 +1019,16 @@ const MODE_TINT: Record<string, string> = {
 /** Tabs whose user has seen bypass mode's warning in this window. */
 const bypassConfirmed = new Set<string>();
 
-function ModeChip({ controller, state, truncate }: ChipProps & { truncate: boolean }) {
+/**
+ * The permission mode, as a chip that picks another; the agents tab's
+ * detail panel has it too, its menu opening below.
+ */
+export function ModeChip({
+  controller,
+  state,
+  truncate = false,
+  side = "top",
+}: ChipProps & { truncate?: boolean; side?: "top" | "bottom" }) {
   const { t } = useTranslation();
   const set = controller.modes ?? CLAUDE_MODES;
   const bypass = set.dangerous;
@@ -1078,7 +1087,7 @@ function ModeChip({ controller, state, truncate }: ChipProps & { truncate: boole
           <span className="min-w-0 truncate">{name}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top">
+      <DropdownMenuContent side={side}>
         <DropdownMenuLabel>{t("chat.mode.label")}</DropdownMenuLabel>
         {safe.map((m, i) => (
           <DropdownMenuItem key={m} onSelect={() => void pick(m)}>

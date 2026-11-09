@@ -14,6 +14,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
 import type { InboxItem } from "../../services/sessions/inbox";
 import type { AgentSession } from "../../services/sessions/model";
+import { plainPreview } from "../../services/sessions/preview";
 import { useNow } from "../../services/sessions/use-family";
 import {
   goToNextWaiting,
@@ -146,7 +147,7 @@ function InboxRow({
 }) {
   const { session, workspace } = item;
   const duration = durationLabel(session.since, now);
-  const detail = session.message ?? session.prompt;
+  const detail = session.message ? plainPreview(session.message) : session.prompt;
   return (
     <DropdownMenuItem onSelect={() => onGo(session)}>
       <span className="grid min-w-0 flex-1 grid-cols-[12px_minmax(0,1fr)] items-center gap-x-1.5 gap-y-0.5 py-0.5">
