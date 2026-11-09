@@ -383,6 +383,16 @@ export function suggestedProfileDir(
   }
 }
 
+/**
+ * A profile folder as it is kept: one in the home as "~/…", which every
+ * host reads, whatever its separator. A folder picked on Windows comes as
+ * "~\.claude-work"; any other folder stays as given.
+ */
+export function portableProfileDir(dir: string): string {
+  const trimmed = dir.trim();
+  return trimmed.startsWith("~\\") ? trimmed.replace(/\\/g, "/") : trimmed;
+}
+
 /** Whether a profile folder is the agent's default folder, which only the default profile has. */
 export function isDefaultDir(agent: ChatAgent, dir: string, options: MatchOptions = {}): boolean {
   const trimmed = dir.trim();

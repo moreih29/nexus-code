@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -20,11 +19,9 @@ func profileDirCall(t *testing.T, params ProfileDirParams) (ProfileDirResult, er
 }
 
 func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlinks need rights on Windows")
-	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	saved := loginEnv
 	loginEnv = func() map[string]string { return nil }
@@ -55,8 +52,25 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 	if len(got.Linked) != 2 || got.Linked[0] != "CLAUDE.md" || got.Linked[1] != "skills" {
 		t.Fatalf("linked %v", got.Linked)
 	}
-	if target, err := os.Readlink(filepath.Join(want, "skills")); err != nil || target != filepath.Join(def, "skills") {
-		t.Fatalf("skills link %q %v", target, err)
+	// Windows: a junction and, short of the rights a symbolic link needs, a
+	// hard link.
+	for _, name := range []string{"CLAUDE.md", "skills"} {
+		if !linksTo(filepath.Join(want, name), filepath.Join(def, name)) {
+			t.Fatalf("%s is not linked to the default folder's", name)
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(want, "CLAUDE.md")); err != nil || string(b) != "hi" {
+		t.Fatalf("CLAUDE.md reads %q %v", b, err)
+	}
+	// Linked before: taken as linked again, not as the folder's own.
+	again, err := profileDirCall(t, ProfileDirParams{
+		Agent:     "claude",
+		Dir:       "~/.claude-personal",
+		Shared:    []string{"CLAUDE.md", "skills", "agents"},
+		Shareable: []string{"CLAUDE.md", "settings.json", "skills", "agents"},
+	})
+	if err != nil || len(again.Linked) != 2 || len(again.Failed) != 0 {
+		t.Fatalf("again linked %v failed %v: %v", again.Linked, again.Failed, err)
 	}
 
 	// No longer shared: the link goes; a file of the folder's own stays.
@@ -76,6 +90,41 @@ func TestProfileDirMakesTheFolderAndLinksWhatItShares(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(want, "settings.json")); err != nil {
 		t.Fatalf("own settings.json gone: %v", err)
+	}
+	// The default folder keeps what was unlinked.
+	if _, err := os.Stat(filepath.Join(def, "skills")); err != nil {
+		t.Fatalf("default skills gone: %v", err)
+	}
+
+	// Unshared too: the file's link goes, and the default's file stays.
+	if _, err := profileDirCall(t, ProfileDirParams{
+		Agent:     "claude",
+		Dir:       "~/.claude-personal",
+		Shareable: []string{"CLAUDE.md", "settings.json", "skills", "agents"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(want, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Fatalf("CLAUDE.md link still there: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(def, "CLAUDE.md")); err != nil || string(b) != "hi" {
+		t.Fatalf("default CLAUDE.md reads %q %v", b, err)
+	}
+}
+
+func TestProfileFoldersPickedOnWindowsReadOnEveryHost(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	want := filepath.Join(home, ".claude-work", "main")
+	for _, dir := range []string{`~\.claude-work\main`, "~/.claude-work/main"} {
+		if got := expandProfileDir(dir, home); got != want {
+			t.Errorf("expandProfileDir(%q) = %q, want %q", dir, got, want)
+		}
+		// The readers of sessions, transcripts and settings take it alike.
+		if got := configDir(dir); got != want {
+			t.Errorf("configDir(%q) = %q, want %q", dir, got, want)
+		}
 	}
 }
 

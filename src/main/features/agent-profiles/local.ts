@@ -4,6 +4,7 @@
 
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import type { Stats } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +18,7 @@ import {
   claudeStatusOf,
   codexStatusOf,
 } from "../../../shared/agent-profiles/status";
+import { findOnPath, nodeShellHost } from "../pty/shells";
 
 const STATUS_TIMEOUT_MS = 20_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
@@ -79,9 +81,7 @@ export async function prepareLocalProfile(
     const target = path.join(defaultDir, name);
     const link = path.join(dir, name);
     const current = await fs.lstat(link).catch(() => null);
-    const pointsHome = current?.isSymbolicLink()
-      ? samePath(await fs.readlink(link).catch(() => ""), target)
-      : false;
+    const pointsHome = current ? await linksTo(link, current, target) : false;
     if (!shared.has(name)) {
       if (pointsHome) await fs.rm(link, { force: true }).catch(() => {});
       continue;
@@ -93,14 +93,41 @@ export async function prepareLocalProfile(
     const source = await fs.stat(target).catch(() => null);
     if (!source) continue;
     try {
-      // A junction needs no rights on Windows, where a symlink may.
-      await fs.symlink(target, link, windows && source.isDirectory() ? "junction" : undefined);
+      await makeLink(target, link, source.isDirectory());
       linked.push(name);
     } catch {
       failed.push(name);
     }
   }
   return { dir, linked, failed };
+}
+
+/**
+ * Links `link` to `target`. Windows lets only an administrator, or a PC in
+ * Developer Mode, make a symbolic link: there a folder gets a junction, which
+ * needs no rights, and a file a hard link when its symbolic link fails.
+ */
+async function makeLink(target: string, link: string, dir: boolean): Promise<void> {
+  if (!windows) return fs.symlink(target, link);
+  if (dir) return fs.symlink(target, link, "junction");
+  await fs.symlink(target, link, "file").catch(() => fs.link(target, link));
+}
+
+/**
+ * Whether the entry at `link` leads to `target`: a symbolic link or junction
+ * to it, dangling or not, or on Windows a hard link of the same file.
+ */
+async function linksTo(link: string, current: Stats, target: string): Promise<boolean> {
+  if (current.isSymbolicLink()) {
+    const got = await fs.readlink(link).catch(() => "");
+    return got !== "" && samePath(path.resolve(path.dirname(link), got), target);
+  }
+  if (!windows || !current.isFile()) return false;
+  const [own, shared] = await Promise.all([
+    fs.stat(link, { bigint: true }),
+    fs.stat(target, { bigint: true }).catch(() => null),
+  ]);
+  return shared !== null && own.ino === shared.ino && own.dev === shared.dev;
 }
 
 /**
@@ -120,9 +147,7 @@ export async function inspectLocalFolder(
   for (const name of SHAREABLE[agent]) {
     const link = path.join(folder, name);
     const current = await fs.lstat(link).catch(() => null);
-    if (!current?.isSymbolicLink()) continue;
-    const target = await fs.readlink(link).catch(() => "");
-    if (samePath(path.resolve(folder, target), path.join(defaultDir, name))) linked.push(name);
+    if (current && (await linksTo(link, current, path.join(defaultDir, name)))) linked.push(name);
   }
   return { exists: true, linked };
 }
@@ -133,11 +158,21 @@ function samePath(a: string, b: string): boolean {
   return windows || process.platform === "darwin" ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
 
+/**
+ * Whether the program is not on the profile's PATH. On Windows it runs
+ * through the shell (an npm install leaves a .cmd), whose "not recognized"
+ * comes in the system's language and code page: the PATH is looked at instead.
+ */
+function notOnPath(program: string, env: NodeJS.ProcessEnv): boolean {
+  return windows && findOnPath({ ...nodeShellHost(), env }, program) === null;
+}
+
 function run(
   program: string,
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<{ code: number | null; stdout: string; missing: boolean }> {
+  if (notOnPath(program, env)) return Promise.resolve({ code: null, stdout: "", missing: true });
   return new Promise((resolve) => {
     execFile(
       program,
@@ -145,13 +180,24 @@ function run(
       { env, timeout: STATUS_TIMEOUT_MS, windowsHide: true, shell: windows, maxBuffer: 1 << 20 },
       (error, stdout) => {
         const code = error ? (typeof error.code === "number" ? error.code : null) : 0;
-        const missing =
-          (error as NodeJS.ErrnoException | null)?.code === "ENOENT" ||
-          (windows && code === 1 && /not recognized/i.test(String(error?.message)));
+        const missing = (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
         resolve({ code, stdout: String(stdout), missing });
       },
     );
   });
+}
+
+/**
+ * Ends a sign-in's program. On Windows the shell runs it, and ending the
+ * shell would leave `claude` or `codex` (and the port it waits on) behind:
+ * the whole tree ends there.
+ */
+function stop(child: ChildProcess): void {
+  if (windows && child.pid !== undefined && child.exitCode === null) {
+    execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true }, () => {});
+    return;
+  }
+  child.kill();
 }
 
 /** Who the profile is signed in as here. */
@@ -180,11 +226,16 @@ export async function localProfileStatus(profile: AgentProfile): Promise<AgentPr
   return result.code === 0 ? { state: "signed-in" } : { state: "signed-out" };
 }
 
-/** The command that signs a profile in, as the user would type it. */
-export function loginCommand(profile: AgentProfile): string {
+/**
+ * The command that signs a profile in, as the user would type it: in
+ * PowerShell on Windows, with the folder in full since it reads no "~".
+ */
+export function loginCommand(profile: AgentProfile, onWindows = windows): string {
   const program = profile.agent === "claude" ? "claude auth login" : "codex login";
   if (profile.dir.trim() === "") return program;
-  return `${PROFILE_DIR_ENV[profile.agent]}=${profile.dir} ${program}`;
+  const key = PROFILE_DIR_ENV[profile.agent];
+  if (onWindows) return `$env:${key}="${localProfileDir(profile)}"; ${program}`;
+  return `${key}=${profile.dir} ${program}`;
 }
 
 export interface LoginEvents {
@@ -200,16 +251,19 @@ export class LocalLogins {
 
   async start(profile: AgentProfile): Promise<{ id: string; command: string }> {
     await prepareLocalProfile(profile);
+    const env = localProfileEnv(profile);
+    if (notOnPath(profile.agent, env))
+      throw new Error(`${profile.agent} was not found on the PATH`);
     const id = randomUUID();
     const args = profile.agent === "claude" ? ["auth", "login"] : ["login"];
     const child = spawn(profile.agent, args, {
-      env: localProfileEnv(profile),
+      env,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
       shell: windows,
     });
     this.running.set(id, child);
-    const timer = setTimeout(() => child.kill(), LOGIN_TIMEOUT_MS);
+    const timer = setTimeout(() => stop(child), LOGIN_TIMEOUT_MS);
     const forward = (chunk: Buffer) => this.events.output(id, chunk.toString("utf8"));
     child.stdout?.on("data", forward);
     child.stderr?.on("data", forward);
@@ -234,11 +288,12 @@ export class LocalLogins {
   }
 
   cancel(id: string): void {
-    this.running.get(id)?.kill();
+    const child = this.running.get(id);
+    if (child) stop(child);
   }
 
   dispose(): void {
-    for (const child of this.running.values()) child.kill();
+    for (const child of this.running.values()) stop(child);
     this.running.clear();
   }
 }

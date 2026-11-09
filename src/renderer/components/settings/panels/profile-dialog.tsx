@@ -15,6 +15,7 @@ import {
   isDefaultDir,
   isDefaultProfileId,
   PROFILE_COLORS,
+  portableProfileDir,
   profilesOf,
   SHARABLE_LABELS,
   SHAREABLE,
@@ -30,6 +31,7 @@ import {
   tildePath,
   useAgentProfilesStore,
 } from "../../../state/stores/agent-profiles";
+import { isWindows } from "../../../utils/platform";
 import { profileColor, profileName } from "../../agent-profiles/profile-badge";
 import { Button } from "../../ui/button";
 import { Checkbox } from "../../ui/checkbox";
@@ -179,7 +181,7 @@ export function ProfileDialog({
     if (!result.ok || result.value.canceled) return;
     const picked = result.value.filePaths[0];
     if (picked) {
-      setDir(tildePath(picked));
+      setDir(portableProfileDir(tildePath(picked)));
       setDirTouched(true);
     }
   };
@@ -193,7 +195,7 @@ export function ProfileDialog({
       agent,
       name: name.trim(),
       color,
-      dir: isDefault ? "" : shownDir.trim(),
+      dir: isDefault ? "" : portableProfileDir(shownDir),
       ...(isDefault ? {} : { shared: SHAREABLE[agent].filter((n) => shared.includes(n)) }),
       ...(parsedEnv && Object.keys(parsedEnv).length > 0 ? { env: parsedEnv } : {}),
     };
@@ -546,7 +548,7 @@ export function LoginDialog({
               <pre className="app-scrollbar max-h-48 overflow-auto whitespace-pre-wrap rounded-(--radius-control) border border-border bg-muted/40 px-2 py-1.5 font-mono text-app-micro text-muted-foreground">
                 {login && (
                   <span className="text-foreground">
-                    $ {login.command}
+                    {isWindows() ? ">" : "$"} {login.command}
                     {"\n"}
                   </span>
                 )}
