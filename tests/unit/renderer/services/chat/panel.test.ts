@@ -17,6 +17,7 @@ import {
   contextOf,
   distinctResults,
   imagesOf,
+  imagesShownEarlier,
   jobsOf,
   outsideLinksOf,
   resultsOf,
@@ -705,5 +706,90 @@ describe("imagesOf", () => {
       ]),
     ];
     expect(imagesOf(named, tools, "/p")).toEqual([{ file: "/p/a.png", image: B }]);
+  });
+});
+
+describe("an image shown twice in a turn", () => {
+  const SHOT: ImageBlock = { mediaType: "image/png", data: "SHOT" };
+  const call = (id: string, name: string, input: unknown, images: ImageBlock[] = []): ToolCall => ({
+    id,
+    name,
+    input,
+    status: "done",
+    parentToolUseId: null,
+    result: { text: "", isError: false, images },
+  });
+  const tools: Record<string, ToolCall> = {
+    read: call("read", "Read", { file_path: "/p/shot.png" }, [SHOT]),
+    send: call("send", "SendUserFile", { files: ["/p/shot.png", "/p/notes.md"], caption: "here" }),
+    sending: { ...call("sending", "SendUserFile", { files: ["/p/shot.png"] }), status: "running" },
+  };
+  type Blocks = Extract<ChatItem, { kind: "assistant" }>["blocks"];
+  const user = (key: string): ChatItem => ({
+    kind: "user",
+    key,
+    text: "go",
+    images: [],
+    state: "taken",
+  });
+  const reply = (key: string, blocks: Blocks): ChatItem =>
+    ({ kind: "assistant", key, messageId: key, blocks }) as ChatItem;
+  const text = (t: string): Blocks[number] => ({ type: "text", text: t });
+  const tool = (id: string): Blocks[number] => ({ type: "tool", toolUseId: id });
+
+  test("is not shown again at the answer's end, sent or in the text", () => {
+    for (const shownBy of [tool("send"), text("![shot](shot.png)")]) {
+      const items = [user("u"), reply("a", [tool("read"), shownBy, text("done")])];
+      const [extras] = answerExtras(items, tools, "/p", "/p", true).values();
+      expect(extras?.images ?? []).toEqual([]);
+    }
+  });
+
+  test("is in full the first time, a chip after: sent, then in the text", () => {
+    const inText = text("Here: ![shot](shot.png)");
+    const items = [user("u"), reply("a", [tool("send"), inText])];
+    const { byPart, inLastTurn } = imagesShownEarlier(items, tools, "/p");
+    expect([...byPart.keys()]).toEqual([inText]);
+    expect([...(byPart.get(inText) ?? [])]).toEqual(["/p/shot.png"]);
+    expect([...inLastTurn]).toEqual(["/p/shot.png"]);
+  });
+
+  test("in the text, then sent", () => {
+    const items = [
+      user("u"),
+      reply("a", [text("![shot](/p/shot.png)")]),
+      reply("b", [tool("send")]),
+    ];
+    const { byPart } = imagesShownEarlier(items, tools, "/p");
+    expect([...byPart.keys()]).toEqual(["send"]);
+  });
+
+  test("a new turn shows it in full again", () => {
+    const items = [
+      user("u1"),
+      reply("a", [tool("send")]),
+      user("u2"),
+      reply("b", [text("![shot](shot.png)")]),
+    ];
+    const { byPart, inLastTurn } = imagesShownEarlier(items, tools, "/p");
+    expect(byPart.size).toBe(0);
+    expect([...inLastTurn]).toEqual(["/p/shot.png"]);
+  });
+
+  test("takes no web image, no other file, and no send not done", () => {
+    const items = [
+      user("u"),
+      reply("a", [
+        tool("sending"),
+        text("![logo](https://example.com/shot.png) [notes](notes.md)"),
+        tool("send"),
+        text("![shot](shot.png)"),
+      ]),
+    ];
+    const { byPart, inLastTurn } = imagesShownEarlier(items, tools, "/p");
+    expect([...byPart.keys()].map((key) => (typeof key === "string" ? key : key.type))).toEqual([
+      "text",
+    ]);
+    expect([...inLastTurn]).toEqual(["/p/shot.png"]);
   });
 });

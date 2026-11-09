@@ -6,6 +6,7 @@ import type { AgentRun } from "../../../shared/claude/activity";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
 import type {
+  AssistantBlock,
   AssistantItem,
   ChatItem,
   ChatModel,
@@ -553,6 +554,66 @@ function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): 
   return named.sort((a, b) => a.at - b.at).map(({ path }) => path);
 }
 
+/**
+ * The image files a part of a reply shows in full where it is: the files a
+ * done SendUserFile call sent, or what its text shows (![alt](path)).
+ */
+function placedImages(
+  block: AssistantBlock,
+  tools: Record<string, ToolCall>,
+  cwd: string,
+): string[] {
+  let named: string[] = [];
+  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map((match) => match[1]);
+  else if (block.type === "tool" && tools[block.toolUseId]?.status === "done") {
+    named = sentFilesOf(tools[block.toolUseId]);
+  }
+  return named.flatMap((target) => {
+    const path = resolveFilePath(target, cwd);
+    return path && fileKind(path) === "image" ? [path] : [];
+  });
+}
+
+/** The image files a conversation would show twice in one turn. */
+export interface ImagesShownEarlier {
+  /**
+   * By a text block, or a SendUserFile call's id: the image files it shows
+   * that an earlier part of its turn showed in full, which it shows as a
+   * chip instead. Only parts that have any are in it.
+   */
+  byPart: ReadonlyMap<AssistantBlock | string, ReadonlySet<string>>;
+  /** What the last turn shows in full so far: a message still streaming shows these as chips. */
+  inLastTurn: ReadonlySet<string>;
+}
+
+/**
+ * Where a turn shows an image file again: a SendUserFile call and its text
+ * both showing one, say. The first showing is in full; the rest are chips.
+ */
+export function imagesShownEarlier(
+  items: readonly ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+): ImagesShownEarlier {
+  const byPart = new Map<AssistantBlock | string, ReadonlySet<string>>();
+  let seen = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "user") {
+      seen = new Set();
+      continue;
+    }
+    if (item.kind !== "assistant") continue;
+    for (const block of item.blocks) {
+      const files = placedImages(block, tools, cwd);
+      if (files.length === 0) continue;
+      const again = new Set(files.filter((file) => seen.has(file)));
+      if (again.size > 0) byPart.set(block.type === "tool" ? block.toolUseId : block, again);
+      for (const file of files) seen.add(file);
+    }
+  }
+  return { byPart, inLastTurn: seen };
+}
+
 /** An image a tool gave. */
 export interface GivenImage {
   image: ImageBlock;
@@ -578,7 +639,8 @@ export const MAX_ANSWER_IMAGES = 4;
  * For each finished turn, what its last answer ends with, by that answer's
  * item. The last turn counts once `lastDone`: while it runs, its answer is
  * not the last yet. An image a tool read from a file the answer names, in
- * the workspace (`root`), is left to that file's card.
+ * the workspace (`root`), is left to that file's card; one the turn shows
+ * where it is (sent, or in its text), to that.
  */
 export function answerExtras(
   items: ChatItem[],
@@ -629,7 +691,9 @@ export function answerExtras(
       if (path && !shown.has(path) && !files.includes(path)) files.push(path);
     }
     const images = given
-      .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
+      .filter(
+        ({ from }) => !(from && (shown.has(from) || (files.includes(from) && isUnder(from, root)))),
+      )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
       out.set(answer, {

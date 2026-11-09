@@ -16,7 +16,7 @@ import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { copyText } from "../../utils/clipboard";
 import { LinkMenu, useChatLinks } from "./chat-links";
-import { FileImage } from "./file-image";
+import { FileImage, ImageChip } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
 
 interface ChatMarkdownProps {
@@ -26,6 +26,8 @@ interface ChatMarkdownProps {
   cwd: string;
   /** The workspace root, outside which file links are not opened. */
   rootPath: string;
+  /** Image files its turn showed in full before it: here each is a chip. */
+  shownEarlier?: ReadonlySet<string>;
 }
 
 export const ChatMarkdown = memo(function ChatMarkdown({
@@ -33,6 +35,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   workspaceId,
   cwd,
   rootPath,
+  shownEarlier,
 }: ChatMarkdownProps) {
   const links = useChatLinks();
   const onLink = useCallback(
@@ -88,7 +91,8 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       },
       pre: CodeBlock,
       // An image file the reply shows (![alt](path)) shows itself, as the
-      // previews load it; a web image is not loaded from where it names it.
+      // previews load it, or as a chip when its turn showed it already; a
+      // web image is not loaded from where it names it.
       img({ src, alt }) {
         const label = <span className="text-muted-foreground">[{alt || "image"}]</span>;
         const path =
@@ -96,10 +100,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
             ? resolveFilePath(src, cwd)
             : null;
         if (!path || fileKind(path) !== "image") return label;
+        if (shownEarlier?.has(path)) return <ImageChip path={path} />;
         return <FileImage path={path} workspaceId={workspaceId} alt={alt ?? ""} fallback={label} />;
       },
     }),
-    [onLink, cwd, workspaceId],
+    [onLink, cwd, workspaceId, shownEarlier],
   );
 
   return (

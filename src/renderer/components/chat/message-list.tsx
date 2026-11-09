@@ -39,7 +39,13 @@ import {
   type ToolCall,
   type UserItem,
 } from "../../services/chat/model";
-import { type AnswerExtras, answerExtras, SEND_FILES_TOOL } from "../../services/chat/panel";
+import {
+  type AnswerExtras,
+  answerExtras,
+  type ImagesShownEarlier,
+  imagesShownEarlier,
+  SEND_FILES_TOOL,
+} from "../../services/chat/panel";
 import { isOwnScroll, nearBottom } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
@@ -181,12 +187,28 @@ export function MessageList({
         : answerExtras([...(history?.items ?? []), ...model.items], tools, cwd, rootPath, turnDone),
     [items, history, model.items, tools, cwd, rootPath, turnDone],
   );
-  // Calls in a row fold into one line, which may take in later messages' calls.
-  const shown = useMemo(
-    () => foldToolRuns([...(items ? [] : (history?.items ?? [])), ...liveItems], tools),
-    [items, history, liveItems, tools],
+  const shownItems = useMemo(
+    () => [...(items ? [] : (history?.items ?? [])), ...liveItems],
+    [items, history, liveItems],
   );
-  const ctx: ItemContext = { workspaceId, tabId, cwd, rootPath, tools, actions, extras, shown };
+  // Calls in a row fold into one line, which may take in later messages' calls.
+  const shown = useMemo(() => foldToolRuns(shownItems, tools), [shownItems, tools]);
+  // An image a turn shows twice is in full only the first time.
+  const earlier = useMemo(
+    () => imagesShownEarlier(shownItems, tools, cwd),
+    [shownItems, tools, cwd],
+  );
+  const ctx: ItemContext = {
+    workspaceId,
+    tabId,
+    cwd,
+    rootPath,
+    tools,
+    actions,
+    extras,
+    shown,
+    earlier,
+  };
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -249,6 +271,8 @@ interface ItemContext {
   extras: Map<ChatItem, AnswerExtras>;
   /** What each assistant message shows, its calls in a row folded together. */
   shown: Map<AssistantItem, ShownBlock[]>;
+  /** The image files each part shows that its turn showed before, as chips. */
+  earlier: ImagesShownEarlier;
 }
 
 const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
@@ -384,6 +408,7 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
             workspaceId={ctx.workspaceId}
             cwd={ctx.cwd}
             rootPath={ctx.rootPath}
+            shownEarlier={ctx.earlier.byPart.get(block)}
           />
         ) : block.type === "thinking" ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
@@ -520,7 +545,14 @@ function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
   // The files it sent the user show as they would there; running or
   // failed, it is a row as any call.
   if (tool?.name === SEND_FILES_TOOL && tool.status === "done") {
-    return <SentFiles tool={tool} workspaceId={ctx.workspaceId} cwd={ctx.cwd} />;
+    return (
+      <SentFiles
+        tool={tool}
+        workspaceId={ctx.workspaceId}
+        cwd={ctx.cwd}
+        shownEarlier={ctx.earlier.byPart.get(toolUseId)}
+      />
+    );
   }
   if (showsAsPrompt(tool)) {
     return tool.name === "AskUserQuestion" ? (
@@ -584,6 +616,7 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
             workspaceId={ctx.workspaceId}
             cwd={ctx.cwd}
             rootPath={ctx.rootPath}
+            shownEarlier={ctx.earlier.inLastTurn}
           />
         ) : block.type === "thinking" ? (
           <Thinking key={index} text={block.text} live />
