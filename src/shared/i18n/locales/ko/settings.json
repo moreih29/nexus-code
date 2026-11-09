@@ -10,11 +10,11 @@
     "browserPermissions": "브라우저 권한",
     "keybindings": "단축키",
     "about": "정보",
-    "group": {
-      "settings": "설정"
-    },
     "agent": "에이전트",
-    "manager": "에이전트 매니저"
+    "manager": "매니저",
+    "claude": "Claude",
+    "codex": "Codex",
+    "profileRules": "워크스페이스별 프로필"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -175,7 +175,6 @@
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "편집기 글꼴 크기",
     "ariaFontFamily": "글꼴 종류",
@@ -236,7 +235,6 @@
     "customFamilyPlaceholder": "예: Fira Code",
     "fontFamilySystem": "시스템",
     "fontFamilyOther": "기타...",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "터미널 글꼴 크기",
     "ariaFontFamily": "터미널 글꼴 종류",
@@ -495,6 +493,12 @@
     "maxWorkspaces": "동시에 켤 워크스페이스",
     "maxWorkspacesDescription": "넘으면 오래 안 쓴 것부터 멈춤"
   },
+  "fontPicker": {
+    "list": "설치된 글꼴",
+    "loading": "글꼴 목록을 읽는 중…",
+    "noMatch": "맞는 글꼴이 없습니다",
+    "more": "{{count}}개 더 · 입력해서 좁히세요"
+  },
   "agent": {
     "newTask": "새 작업"
   },
@@ -508,7 +512,6 @@
     "fontFamilySystem": "앱 기본 (Pretendard)",
     "fontFamilyOther": "기타...",
     "systemUi": "시스템",
-    "fontDetected": "이 시스템에서 감지되었습니다.",
     "fontNotFound": "이 시스템에 없는 글꼴 — 대체 글꼴로 보입니다",
     "ariaFontSize": "채팅 글자 크기",
     "ariaFontFamily": "채팅 글꼴 종류",
@@ -539,5 +542,109 @@
       "answer": "대신 답하기",
       "description": "다른 세션이 도구 권한을 물을 때"
     }
+  },
+  "profiles": {
+    "heading": "프로필",
+    "description": {
+      "claude": "프로필마다 설정 폴더(CLAUDE_CONFIG_DIR)와 로그인이 따로입니다",
+      "codex": "프로필마다 설정 폴더(CODEX_HOME)와 로그인이 따로입니다"
+    },
+    "default_name": "기본",
+    "unnamed": "이름 없음",
+    "defaultFolder": "기본 폴더",
+    "shared_one": "설정 {{count}}개 공유",
+    "shared_other": "설정 {{count}}개 공유",
+    "add": "프로필 추가",
+    "edit": "{{name}} 편집",
+    "remove": "{{name}} 삭제",
+    "refresh": "다시 확인",
+    "login": "로그인",
+    "codexNote": "폴더는 앱이 만들고, codex 프로그램은 함께 씁니다",
+    "status": {
+      "checking": "확인 중…",
+      "signedOut": "로그인 필요",
+      "personalOrg": "개인 조직",
+      "sameAccount": "{{name}} 프로필과 같은 계정",
+      "sameOrg": "{{name}} 프로필과 같은 조직",
+      "unavailable": "{{program}}을(를) 찾을 수 없습니다",
+      "apiKey": "API 키",
+      "signedIn": "로그인됨"
+    },
+    "rulesLink": {
+      "label": "워크스페이스별 프로필",
+      "description": "폴더·SSH 호스트·워크스페이스마다 다른 프로필"
+    },
+    "removeConfirm": {
+      "title": "{{name}} 프로필을 삭제할까요?",
+      "description": "폴더({{dir}})와 그 안의 로그인·기록은 남습니다.",
+      "confirm": "삭제"
+    },
+    "dialog": {
+      "addTitle": "{{agent}} 프로필 추가",
+      "editTitle": "{{name}} 편집",
+      "name": "이름",
+      "namePlaceholder": "예: 개인",
+      "nameHint": "탭과 메뉴에 보이는 이름",
+      "color": "색",
+      "folder": "설정 폴더",
+      "folderHint": "없으면 앱이 만듭니다",
+      "folderExists": "이미 있는 폴더 · 지금의 링크를 따릅니다",
+      "folderTaken": "다른 프로필이 쓰는 폴더입니다",
+      "folderDefault": "기본 폴더는 기본 프로필만 씁니다",
+      "browse": "찾아보기…",
+      "browseTitle": "설정 폴더 선택",
+      "share": "기본 폴더와 공유",
+      "shareHint": "링크로 공유 · 로그인과 대화 기록은 따로",
+      "env": "환경 변수 (선택)",
+      "envPlaceholder": "KEY=value, 한 줄에 하나",
+      "create": "만들고 로그인",
+      "save": "저장"
+    },
+    "loginDialog": {
+      "title": "{{name}} 로그인",
+      "folder": "폴더 준비",
+      "linked_one": "설정 {{count}}개 링크",
+      "linked_other": "설정 {{count}}개 링크",
+      "linkFailed": "링크 실패: {{names}}",
+      "signIn": "로그인",
+      "waiting": "브라우저에서 로그인을 마치세요",
+      "codePlaceholder": "브라우저에 표시된 코드",
+      "send": "입력",
+      "done": "로그인했습니다 · {{who}}",
+      "already": "로그인되어 있습니다 · {{who}}",
+      "failed": "로그인하지 못했습니다",
+      "retry": "다시 로그인",
+      "close": "완료",
+      "cancel": "취소",
+      "sameOrg": "{{name}} 프로필과 같은 조직입니다. 다른 조직으로 다시 로그인하세요.",
+      "sameAccount": "{{name}} 프로필과 같은 계정입니다"
+    }
+  },
+  "profileRules": {
+    "defaults": "기본값",
+    "defaultsDescription": "규칙에 해당하지 않는 워크스페이스",
+    "rules": "규칙",
+    "rulesDescription": "워크스페이스 > 더 깊은 폴더 > SSH 호스트 > 기본값",
+    "add": "규칙 추가",
+    "addFolder": "폴더…",
+    "addSsh": "SSH 호스트…",
+    "addWorkspace": "워크스페이스…",
+    "target": "대상",
+    "inherit": "기본값 따름",
+    "applies": "적용",
+    "appliesCount_one": "{{count}}개",
+    "appliesCount_other": "{{count}}개",
+    "empty": "규칙이 없습니다",
+    "folderTarget": "하위 폴더 포함",
+    "sshTarget": "SSH 호스트",
+    "workspaceTarget": "워크스페이스",
+    "remove": "규칙 삭제",
+    "folderPick": "폴더 선택",
+    "hint": "새 대화부터 적용 · SSH 호스트에서는 그 호스트에 따로 로그인",
+    "pickSsh": "SSH 호스트 선택",
+    "pickWorkspace": "워크스페이스 선택",
+    "noneLeft": "추가할 대상이 없습니다",
+    "results": "적용 결과",
+    "resultsCount": "워크스페이스 {{count}}개"
   }
 }

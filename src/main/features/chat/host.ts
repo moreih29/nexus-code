@@ -1,6 +1,11 @@
 // Main-process side of the Claude tabs: starts each tab's program through
 // the workspace's agent and relays its chat.* events to the renderer.
 
+import {
+  type AgentProfile,
+  PROFILE_DIR_ENV,
+  SHAREABLE,
+} from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/main";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
@@ -43,6 +48,8 @@ export interface ChatHostOptions {
   onTurnStopped?: (workspaceId: string, tabId: string) => void;
   /** A tab's program exited. */
   onProgramExit?: (workspaceId: string, tabId: string) => void;
+  /** The agent profile of that id, as the app state has it; null when gone. */
+  profile?: (id: string) => AgentProfile | null;
 }
 
 export type StartResult =
@@ -85,6 +92,7 @@ export class ChatHost {
     tabId: string,
     cwd: string,
     resume: ResumeOptions,
+    profileId?: string,
   ): Promise<StartResult> {
     const channel = await this.channelFor(workspaceId);
     const { workspaceManager } = this.options;
@@ -146,6 +154,7 @@ export class ChatHost {
     });
 
     try {
+      Object.assign(env, await this.profileEnv(channel, "claude", profileId));
       const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
         workspaceId,
         tabId,
@@ -173,7 +182,7 @@ export class ChatHost {
     workspaceId: string,
     tabId: string,
     cwd: string,
-    options: { resetLog?: boolean },
+    options: { resetLog?: boolean; profileId?: string },
   ): Promise<StartResult> {
     const channel = await this.channelFor(workspaceId);
     const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
@@ -213,6 +222,7 @@ export class ChatHost {
       shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
     });
     try {
+      Object.assign(env, await this.profileEnv(channel, "codex", options.profileId));
       const result = await channel.call<{ pid: number; attached?: boolean }>("chat.start", {
         workspaceId,
         tabId,
@@ -242,14 +252,14 @@ export class ChatHost {
     return channel.call(`chat.${method}`, args);
   }
 
-  async transcript(workspaceId: string, sessionId: string): Promise<unknown> {
+  async transcript(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.transcript", { sessionId });
+    return channel.call("chat.transcript", { sessionId, ...this.configDir(profileId) });
   }
 
-  async claudeConfig(workspaceId: string): Promise<unknown> {
+  async claudeConfig(workspaceId: string, profileId?: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.claudeConfig", {});
+    return channel.call("chat.claudeConfig", this.configDir(profileId));
   }
 
   /** Runs one of the `claude` commands a tab may (`claude agents`, `claude plugin`…) in the folder. */
@@ -257,6 +267,7 @@ export class ChatHost {
     workspaceId: string,
     cwd: string,
     command: ClaudeCommand,
+    profileId?: string,
   ): Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }> {
     const channel = await this.channelFor(workspaceId);
     const found = await channel.call<{ path: string; envPath?: string }>("lsp.findBinary", {
@@ -268,14 +279,52 @@ export class ChatHost {
       cwd,
       program: found.path,
       args: claudeCommandArgs(command, cwd),
-      env: found.envPath ? { PATH: found.envPath } : {},
+      env: {
+        ...(found.envPath ? { PATH: found.envPath } : {}),
+        ...(await this.profileEnv(channel, "claude", profileId)),
+      },
       timeoutMs: COMMAND_TIMEOUT_MS,
     });
   }
 
-  async sessions(workspaceId: string, cwd: string): Promise<unknown> {
+  async sessions(workspaceId: string, cwd: string, profileId?: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
-    return channel.call("chat.sessions", { cwd });
+    return channel.call("chat.sessions", { cwd, ...this.configDir(profileId) });
+  }
+
+  /** The Claude profile's folder, as the agent's readers take it; none for the default. */
+  private configDir(profileId: string | undefined): { configDir?: string } {
+    const profile = profileId ? this.options.profile?.(profileId) : null;
+    if (!profile || profile.agent !== "claude" || profile.dir.trim() === "") return {};
+    return { configDir: profile.dir.trim() };
+  }
+
+  /**
+   * What the agent's program runs with for the profile: its folder, made on
+   * the workspace's host and named by its variable, and its own variables.
+   * None for the default profile, or one gone.
+   */
+  private async profileEnv(
+    channel: AgentChannel,
+    agent: AgentProfile["agent"],
+    profileId: string | undefined,
+  ): Promise<Record<string, string>> {
+    const profile = profileId ? this.options.profile?.(profileId) : null;
+    if (!profile || profile.agent !== agent) return {};
+    const env: Record<string, string> = { ...(profile.env ?? {}) };
+    if (profile.dir.trim() !== "") {
+      const result = await channel.call<{ dir: string; failed?: string[] }>("chat.profileDir", {
+        agent,
+        dir: profile.dir.trim(),
+        shared: profile.shared ?? [],
+        shareable: SHAREABLE[agent],
+      });
+      if (result.failed && result.failed.length > 0) {
+        log.warn(`profile ${profile.id}: could not link ${result.failed.join(", ")}`);
+      }
+      env[PROFILE_DIR_ENV[agent]] = result.dir;
+    }
+    return env;
   }
 
   /** Forgets a removed workspace. Its agent ends its programs as it shuts down. */

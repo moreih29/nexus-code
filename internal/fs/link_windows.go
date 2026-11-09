@@ -36,6 +36,12 @@ func symlinkFallback(src, dst, target string, err error) error {
 	return createJunction(dst, filepath.Clean(target))
 }
 
+// Junction makes link a junction to the directory at the absolute path
+// target: a link to a folder that, unlike a symbolic link, needs no rights.
+func Junction(link, target string) error {
+	return createJunction(link, target)
+}
+
 // createJunction makes link a junction to the directory at the absolute path
 // target.
 func createJunction(link, target string) error {

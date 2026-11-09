@@ -25,7 +25,7 @@ import { shellEntries, useInstalledShells } from "../../../services/terminal/ins
 import type { EditorTab, Tab } from "../../../state/stores/tabs";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
+import { NewChatMenuItems } from "../../agent-profiles/new-chat-menu";
 import { formatDiffRefPair } from "../../editor/format-diff-refs";
 import { useTabBarDropTarget } from "../dnd/use-tab-bar-drop-target";
 import { OverflowTabsMenu } from "./overflow-tabs-menu";
@@ -44,10 +44,10 @@ interface TabBarProps {
   onNewBrowserTab: () => void;
   /** Shows the workspace's sessions tab, opening it if there is none. */
   onShowSessions: () => void;
-  /** Opens a new Claude tab. */
-  onNewClaudeTab: () => void;
-  /** Opens a new Codex tab. */
-  onNewCodexTab: () => void;
+  /** Opens a new Claude tab, with that profile rather than the workspace's. */
+  onNewClaudeTab: (profileId?: string) => void;
+  /** Opens a new Codex tab, with that profile rather than the workspace's. */
+  onNewCodexTab: (profileId?: string) => void;
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
@@ -277,14 +277,8 @@ export function TabBar({
               <Globe aria-hidden className="size-3.5 mr-1.5 shrink-0" />
               <span className="flex-1">{t("tabBar.new_browser")}</span>
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onNewClaudeTab()}>
-              <ClaudeIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-              <span className="flex-1">{t("tabBar.new_claude")}</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => onNewCodexTab()}>
-              <CodexIcon aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-              <span className="flex-1">{t("tabBar.new_codex")}</span>
-            </DropdownMenuItem>
+            <NewChatMenuItems workspaceId={workspaceId} agent="claude" onOpen={onNewClaudeTab} />
+            <NewChatMenuItems workspaceId={workspaceId} agent="codex" onOpen={onNewCodexTab} />
             <DropdownMenuItem onSelect={() => onShowSessions()}>
               <Radar aria-hidden className="size-3.5 mr-1.5 shrink-0" />
               <span className="flex-1">{t("tabBar.sessions")}</span>

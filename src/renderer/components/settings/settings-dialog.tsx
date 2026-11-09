@@ -20,7 +20,7 @@
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { Search, X } from "lucide-react";
+import { ChevronRight, Search, X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,7 +28,7 @@ import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import { DialogCloseButton } from "../ui/dialog-close-button";
 import { useDialogFocusReturn } from "../ui/use-dialog-focus-return";
-import type { SettingsNavItem } from "./types";
+import { PROFILE_KEYWORDS, type SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
 // Default nav items — derived from i18n inside the component (resolvedNav).
@@ -48,8 +48,11 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   nav?: SettingsNavItem[];
   defaultActiveId?: string;
-  /** Render prop — receives the active nav id, returns the panel content. */
-  children: (activeId: string) => React.ReactNode;
+  /**
+   * Render prop — receives the active nav id, and a way for a panel to go
+   * to another (a link to a related page); returns the panel content.
+   */
+  children: (activeId: string, go: (id: string) => void) => React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,68 +78,56 @@ export function SettingsDialog({
     {
       id: "appearance",
       label: t("nav.appearance"),
-      group: t("nav.group.settings"),
       keywords: ["theme", "opacity", "language", "언어"],
     },
     {
       id: "editor",
       label: t("nav.editor"),
-      group: t("nav.group.settings"),
       keywords: ["font", "size", "family", "ligatures", "line height"],
     },
     {
       id: "language-servers",
       label: t("nav.languageServers"),
-      group: t("nav.group.settings"),
+      parent: "editor",
       keywords: ["lsp", "language server", "completion", "diagnostics"],
     },
     {
       id: "terminal",
       label: t("nav.terminal"),
-      group: t("nav.group.settings"),
       keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
     },
     {
       id: "notifications",
       label: t("nav.notifications"),
-      group: t("nav.group.settings"),
       keywords: ["alert", "desktop", "os", "notification", "claude"],
-    },
-    {
-      id: "agent",
-      label: t("nav.agent"),
-      group: t("nav.group.settings"),
-      keywords: [
-        "nexus",
-        "cli",
-        "agent",
-        "claude",
-        "codex",
-        "task",
-        "chat",
-        "font",
-        "에이전트",
-        "작업",
-        "채팅",
-        "글꼴",
-      ],
     },
     {
       id: "browser-permissions",
       label: t("nav.browserPermissions"),
-      group: t("nav.group.settings"),
       keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
     },
     {
       id: "keybindings",
       label: t("nav.keybindings"),
-      group: t("nav.group.settings"),
       keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
+    },
+    {
+      id: "agent",
+      label: t("nav.agent"),
+      keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "chat", "font"],
+    },
+    { id: "claude", label: t("nav.claude"), parent: "agent", keywords: PROFILE_KEYWORDS },
+    { id: "codex", label: t("nav.codex"), parent: "agent", keywords: PROFILE_KEYWORDS },
+    {
+      id: "profile-rules",
+      label: t("nav.profileRules"),
+      parent: "agent",
+      keywords: PROFILE_KEYWORDS,
     },
     {
       id: "about",
       label: t("nav.about"),
-      group: t("nav.group.settings"),
+      footer: true,
       keywords: ["version", "update", "info"],
     },
   ];
@@ -166,19 +157,35 @@ export function SettingsDialog({
   const filteredNav = useMemo<SettingsNavItem[]>(() => {
     const q = query.trim().toLowerCase();
     if (!q) return resolvedNav;
-    return resolvedNav.filter((item) => {
-      if (item.id === activeId) return true;
-      if (item.label.toLowerCase().includes(q)) return true;
-      return (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
-    });
+    const matches = (item: SettingsNavItem) =>
+      item.id === activeId ||
+      item.label.toLowerCase().includes(q) ||
+      (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
+    const shown = new Set(resolvedNav.filter(matches).map((item) => item.id));
+    // A page found under another keeps its parent above it, as in the tree.
+    for (const item of resolvedNav) {
+      if (item.parent && shown.has(item.id)) shown.add(item.parent);
+    }
+    return resolvedNav.filter((item) => shown.has(item.id));
   }, [resolvedNav, query, activeId]);
+
+  // The list's order: the settings, then the foot (About).
+  const [mainNav, footerNav] = useMemo(
+    () => [filteredNav.filter((item) => !item.footer), filteredNav.filter((item) => item.footer)],
+    [filteredNav],
+  );
+  const orderedNav = useMemo(() => [...mainNav, ...footerNav], [mainNav, footerNav]);
+  const activeItem = resolvedNav.find((item) => item.id === activeId);
+  const activeParent = activeItem?.parent
+    ? resolvedNav.find((item) => item.id === activeItem.parent)
+    : undefined;
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
       e.preventDefault();
 
-      const ids = filteredNav.map((item) => item.id);
+      const ids = orderedNav.map((item) => item.id);
       const currentIdx = ids.indexOf(activeId);
       if (currentIdx === -1) return;
 
@@ -193,11 +200,61 @@ export function SettingsDialog({
         tabRefs.current.get(nextId)?.focus();
       }
     },
-    [filteredNav, activeId],
+    [orderedNav, activeId],
   );
 
-  // Group nav items by their group label.
-  const groups = groupNavItems(filteredNav);
+  const renderTab = (item: SettingsNavItem) => {
+    const isActive = item.id === activeId;
+    return (
+      <button
+        key={item.id}
+        type="button"
+        role="tab"
+        id={`settings-tab-${item.id}`}
+        aria-selected={isActive}
+        aria-controls={isActive ? `${panelId}-${item.id}` : undefined}
+        tabIndex={isActive ? 0 : -1}
+        ref={(el) => {
+          if (el) tabRefs.current.set(item.id, el);
+          else tabRefs.current.delete(item.id);
+        }}
+        onClick={() => setActiveId(item.id)}
+        className={cn(
+          "relative flex w-full items-center justify-between gap-2 py-1.5 pr-4 text-left text-app-body font-sans",
+          // A page under another: indented, on a guide line from its parent.
+          item.parent
+            ? "pl-8 before:absolute before:inset-y-0 before:left-5 before:w-px before:bg-border"
+            : "pl-4",
+          // Where you are, drawn like every other navigation list
+          // (workbench/sidebar.tsx, file-tree row): a tint and a
+          // 2px indicator. A solid state.selected fill is for a
+          // control's value (design.md §8, "selected").
+          "border-l-2 transition-colors cursor-pointer select-none",
+          isActive
+            ? [
+                "border-l-[var(--state-selected-indicator)]",
+                "bg-[var(--sidebar-item-selected-bg)]",
+                "text-[var(--sidebar-item-selected-fg)]",
+              ]
+            : [
+                "border-l-transparent",
+                "text-muted-foreground",
+                "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
+              ],
+        )}
+      >
+        <span className="truncate">{item.label}</span>
+        {item.dirty && (
+          <span
+            role="img"
+            aria-label={t("dialog.modifiedAria")}
+            title={t("dialog.modifiedTitle")}
+            className="size-1.5 shrink-0 rounded-full bg-[var(--state-selected-indicator)]"
+          />
+        )}
+      </button>
+    );
+  };
 
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -275,65 +332,15 @@ export function SettingsDialog({
                 role="tablist"
                 aria-orientation="vertical"
                 onKeyDown={handleKeyDown}
-                className="flex flex-col"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto app-scrollbar"
               >
-                {groups.map(({ groupLabel, items }) => (
-                  <div key={groupLabel ?? "__ungrouped__"}>
-                    {groupLabel && (
-                      <span className="block px-4 pt-2 pb-1 text-app-label uppercase text-muted-foreground">
-                        {groupLabel}
-                      </span>
-                    )}
-                    {items.map((item) => {
-                      const isActive = item.id === activeId;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          role="tab"
-                          id={`settings-tab-${item.id}`}
-                          aria-selected={isActive}
-                          aria-controls={isActive ? `${panelId}-${item.id}` : undefined}
-                          tabIndex={isActive ? 0 : -1}
-                          ref={(el) => {
-                            if (el) tabRefs.current.set(item.id, el);
-                            else tabRefs.current.delete(item.id);
-                          }}
-                          onClick={() => setActiveId(item.id)}
-                          className={cn(
-                            "flex w-full items-center justify-between gap-2 px-4 py-1.5 text-left text-app-body font-sans",
-                            // Where you are, drawn like every other navigation list
-                            // (workbench/sidebar.tsx, file-tree row): a tint and a
-                            // 2px indicator. A solid state.selected fill is for a
-                            // control's value (design.md §8, "selected").
-                            "border-l-2 transition-colors cursor-pointer select-none",
-                            isActive
-                              ? [
-                                  "border-l-[var(--state-selected-indicator)]",
-                                  "bg-[var(--sidebar-item-selected-bg)]",
-                                  "text-[var(--sidebar-item-selected-fg)]",
-                                ]
-                              : [
-                                  "border-l-transparent",
-                                  "text-muted-foreground",
-                                  "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-                                ],
-                          )}
-                        >
-                          <span className="truncate">{item.label}</span>
-                          {item.dirty && (
-                            <span
-                              role="img"
-                              aria-label={t("dialog.modifiedAria")}
-                              title={t("dialog.modifiedTitle")}
-                              className="size-1.5 shrink-0 rounded-full bg-[var(--state-selected-indicator)]"
-                            />
-                          )}
-                        </button>
-                      );
-                    })}
+                {mainNav.map(renderTab)}
+                {footerNav.length > 0 && (
+                  <div className="mt-auto pt-2">
+                    <div className="mx-3 mb-1 border-t border-border" aria-hidden="true" />
+                    {footerNav.map(renderTab)}
                   </div>
-                ))}
+                )}
                 {filteredNav.length === 0 && (
                   <div className="px-4 py-3 text-app-ui-sm text-muted-foreground">
                     {t("dialog.search.empty")}
@@ -346,8 +353,23 @@ export function SettingsDialog({
             <div className="flex flex-1 flex-col min-w-0 min-h-0">
               {/* Panel header — the open panel's name and the close button */}
               <div className="flex items-center justify-between gap-4 pl-6 pr-4 py-3 border-b border-border">
-                <h2 className="truncate text-app-body-emphasis text-foreground">
-                  {resolvedNav.find((item) => item.id === activeId)?.label}
+                <h2 className="flex min-w-0 items-center gap-1.5 text-app-body-emphasis text-foreground">
+                  {activeParent && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setActiveId(activeParent.id)}
+                        className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                      >
+                        {activeParent.label}
+                      </button>
+                      <ChevronRight
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                    </>
+                  )}
+                  <span className="truncate">{activeItem?.label}</span>
                 </h2>
                 <DialogCloseButton label={t("dialog.close")} />
               </div>
@@ -359,7 +381,7 @@ export function SettingsDialog({
                 id={`${panelId}-${activeId}`}
                 aria-labelledby={`settings-tab-${activeId}`}
               >
-                <div className="px-6 py-4">{children(activeId)}</div>
+                <div className="px-6 py-4">{children(activeId, setActiveId)}</div>
               </div>
             </div>
           </div>
@@ -367,31 +389,4 @@ export function SettingsDialog({
       </RadixDialog.Portal>
     </RadixDialog.Root>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Helper — group nav items
-// ---------------------------------------------------------------------------
-
-interface NavGroup {
-  groupLabel: string | null;
-  items: SettingsNavItem[];
-}
-
-function groupNavItems(nav: SettingsNavItem[]): NavGroup[] {
-  const groups: NavGroup[] = [];
-  const seen = new Map<string | null, NavGroup>();
-
-  for (const item of nav) {
-    const key = item.group ?? null;
-    let group = seen.get(key);
-    if (!group) {
-      group = { groupLabel: key, items: [] };
-      groups.push(group);
-      seen.set(key, group);
-    }
-    group.items.push(item);
-  }
-
-  return groups;
 }

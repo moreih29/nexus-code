@@ -5,6 +5,7 @@
 import type { SystemStats } from "../../../shared/system/stats";
 import { register } from "../../infra/ipc-router";
 import { openNewWindowHandler } from "../window/ipc";
+import { fontNames } from "./font-names";
 import { openPathExternalHandler, revealInOSHandler } from "./open-path";
 
 export interface RegisterSystemChannelOptions {
@@ -24,6 +25,7 @@ export function registerSystemChannel(options: RegisterSystemChannelOptions = {}
       revealInOS: revealInOSHandler(),
       openNewWindow: openNewWindowHandler(options.openNewWindow ?? (() => {})),
       stats: options.stats ?? (async () => null),
+      fontNames: async () => ({ groups: await fontNames() }),
     },
     listen: {},
   });

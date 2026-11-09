@@ -33,6 +33,7 @@ import { type ChatTabState, chatKey, useChatStore } from "../../services/chat/st
 import { showChanges } from "../../services/sessions/actions";
 import type { ActivityByKey } from "../../services/sessions/agents";
 import { type AgentSession, allSessions, type SessionFamily } from "../../services/sessions/model";
+import { plainPreview } from "../../services/sessions/preview";
 import {
   chatRowFacts,
   hookRowFacts,
@@ -395,8 +396,11 @@ export function RowLine({ session, facts }: { session: AgentSession; facts: RowF
       <span className="min-w-0 truncate text-muted-foreground">{session.prompt}</span>
     ) : null;
   }
+  // The answer, in Markdown, as plain words.
   return session.message ? (
-    <span className="line-clamp-2 min-w-0 break-words text-foreground">{session.message}</span>
+    <span className="line-clamp-2 min-w-0 break-words text-foreground">
+      {plainPreview(session.message)}
+    </span>
   ) : null;
 }
 

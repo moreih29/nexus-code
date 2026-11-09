@@ -12,10 +12,12 @@ import {
   visibleWorkspaces,
 } from "../../state/stores/workspaces";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
+import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
 import {
   ContextMenuContent,
   ContextMenuItems,
   ContextMenuRoot,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "../ui/context-menu";
 import {
@@ -44,6 +46,7 @@ import {
 import { useGitStore } from "../../state/stores/git/index";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
 import type { EstimatedGlyph } from "../../services/sessions/model";
+import { plainPreview } from "../../services/sessions/preview";
 import { useEstimatedWorkspaceGlyph } from "../../services/sessions/use-estimated";
 import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
 
@@ -166,10 +169,9 @@ function WorkspaceRow({
   const codexStatus = useCodexWorkspaceStatus([ws.id, ...taskIds]);
   const shownGlyph = cardGlyph(glyphStatus, estimatedStatus, codexStatus);
 
-  // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message 첫 줄을
-  // 50자로 컷한다. 멀티라인 마크다운/코드블록이 와도 첫 줄만, 50자 초과 시
-  // 말줄임 기호를 붙인다. 여러 탭이 있을 경우 가장 마지막에 변경된 entry의
-  // message를 사용한다.
+  // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message를 마크다운
+  // 기호 없는 한 줄 평문으로 바꿔 50자로 컷하고, 50자 초과 시 말줄임 기호를
+  // 붙인다. 여러 탭이 있을 경우 가장 마지막에 변경된 entry의 message를 사용한다.
   const previewMessage = useMemo(() => {
     if (!wsTabs) return null;
     const entries = Object.values(wsTabs);
@@ -179,8 +181,8 @@ function WorkspaceRow({
     if (withMessage.length === 0) return null;
     const raw = withMessage[0].message;
     if (raw === undefined) return null;
-    const firstLine = raw.split("\n")[0].trim();
-    return firstLine.length > 50 ? `${firstLine.slice(0, 50)}…` : firstLine;
+    const line = plainPreview(raw);
+    return line.length > 50 ? `${line.slice(0, 50)}…` : line;
   }, [wsTabs]);
 
   // git 세션에서 현재 브랜치 이름을 가져온다.
@@ -417,7 +419,12 @@ function WorkspaceRow({
               label: ws.pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top"),
               onSelect: () => onTogglePin(ws),
             },
-            { kind: "separator" },
+          ]}
+        />
+        <WorkspaceProfileMenu workspace={ws} />
+        <ContextMenuSeparator />
+        <ContextMenuItems
+          items={[
             {
               kind: "item",
               label: t("sidebar.dismiss_notification"),

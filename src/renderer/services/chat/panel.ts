@@ -3,8 +3,10 @@
 // files it changed, and what its replies point at.
 
 import type { AgentRun } from "../../../shared/claude/activity";
+import { imageFileOf, type ShownImage } from "./image-look";
 import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
 import type {
+  AssistantBlock,
   AssistantItem,
   ChatItem,
   ChatModel,
@@ -455,6 +457,163 @@ export function distinctResults(results: readonly ResultEntry[], cwd: string): R
   return out;
 }
 
+/** Most agents within agents whose images are looked for. */
+const MAX_AGENT_DEPTH = 4;
+
+/** The tools that look at an image file. */
+const LOOK_TOOLS = new Set(["Read", "ViewImage"]);
+
+/**
+ * Every image a conversation shows, each once, in the order it came: the
+ * ones the user pasted, the ones its tools gave (as the file a Read of one
+ * took, its data kept for when the file is gone), and the image files it
+ * sent the user, wrote new, or showed or pointed at in a reply, as
+ * resultsOf takes them. An agent's images come where it was called
+ * (`agentItems`, by the call's id).
+ */
+export function imagesOf(
+  items: readonly ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+  agentItems: Readonly<Record<string, readonly ChatItem[]>> = {},
+): ShownImage[] {
+  const out: ShownImage[] = [];
+  const byFile = new Map<string, number>();
+  const seen = new Set<ImageBlock>();
+  const touched = touchedFiles(tools, cwd);
+  const addFile = (named: string, image?: ImageBlock) => {
+    const file = resolveFilePath(named, cwd);
+    if (!file || fileKind(file) !== "image") return;
+    if (image) seen.add(image);
+    const at = byFile.get(file);
+    if (at === undefined) {
+      byFile.set(file, out.length);
+      out.push(image ? { file, image } : { file });
+    } else if (image && !out[at].image) {
+      out[at] = { file, image };
+    }
+  };
+  const addData = (image: ImageBlock) => {
+    if (seen.has(image)) return;
+    seen.add(image);
+    out.push({ image });
+  };
+  const walk = (items: readonly ChatItem[], depth: number) => {
+    for (const item of items) {
+      if (item.kind === "user") {
+        for (const image of item.images) addData(image);
+        continue;
+      }
+      if (item.kind !== "assistant") continue;
+      for (const block of item.blocks) {
+        if (block.type === "text") {
+          for (const named of filesNamedIn(block.text, cwd, touched)) addFile(named);
+          continue;
+        }
+        const tool = block.type === "tool" ? tools[block.toolUseId] : undefined;
+        if (!tool) continue;
+        const read = imageFileOf(tool.input);
+        const given = tool.result?.images ?? [];
+        for (const image of given) {
+          if (read) addFile(read, image);
+          else addData(image);
+        }
+        // A Codex ViewImage gives no data back: the file is the image it looked at.
+        if (read && given.length === 0 && LOOK_TOOLS.has(tool.name)) addFile(read);
+        for (const file of sentFilesOf(tool)) addFile(file);
+        const written = str(rec(tool.input)?.file_path);
+        if (tool.name === "Write" && tool.status === "done" && written) {
+          if (rec(tool.result?.structured)?.type === "create") addFile(written);
+        }
+        const nested = agentItems[tool.id];
+        if (nested && depth < MAX_AGENT_DEPTH) walk(nested, depth + 1);
+      }
+    }
+  };
+  walk(items, 0);
+  return out;
+}
+
+/**
+ * The files a reply's text points at, in the order it names them, as
+ * resultsOf takes them: linked (or shown, ![alt](path)), or in backticks
+ * when the session's tools took them.
+ */
+function filesNamedIn(text: string, cwd: string, touched: ReadonlySet<string>): string[] {
+  const named: { at: number; path: string }[] = [];
+  for (const match of text.matchAll(LINK_RE)) {
+    const target = match[1];
+    if (!/^https?:\/\//.test(target) && looksLikePath(target)) {
+      named.push({ at: match.index, path: target });
+    }
+  }
+  for (const match of text.matchAll(CODE_RE)) {
+    const path = looksLikePath(match[1]) ? resolveFilePath(match[1], cwd) : null;
+    if (path && touched.has(pathKey(path))) named.push({ at: match.index, path: match[1] });
+  }
+  return named.sort((a, b) => a.at - b.at).map(({ path }) => path);
+}
+
+/**
+ * The image files a part of a reply shows in full where it is: the files a
+ * done SendUserFile call sent, or what its text shows (![alt](path)).
+ */
+function placedImages(
+  block: AssistantBlock,
+  tools: Record<string, ToolCall>,
+  cwd: string,
+): string[] {
+  let named: string[] = [];
+  if (block.type === "text") named = [...block.text.matchAll(IMAGE_RE)].map((match) => match[1]);
+  else if (block.type === "tool" && tools[block.toolUseId]?.status === "done") {
+    named = sentFilesOf(tools[block.toolUseId]);
+  }
+  return named.flatMap((target) => {
+    const path = resolveFilePath(target, cwd);
+    return path && fileKind(path) === "image" ? [path] : [];
+  });
+}
+
+/** The image files a conversation would show twice in one turn. */
+export interface ImagesShownEarlier {
+  /**
+   * By a text block, or a SendUserFile call's id: the image files it shows
+   * that an earlier part of its turn showed in full, which it shows as a
+   * chip instead. Only parts that have any are in it.
+   */
+  byPart: ReadonlyMap<AssistantBlock | string, ReadonlySet<string>>;
+  /** What the last turn shows in full so far: a message still streaming shows these as chips. */
+  inLastTurn: ReadonlySet<string>;
+}
+
+/**
+ * Where a turn shows an image file again: a SendUserFile call and its text
+ * both showing one, say. The first showing is in full; the rest are chips.
+ */
+export function imagesShownEarlier(
+  items: readonly ChatItem[],
+  tools: Record<string, ToolCall>,
+  cwd: string,
+): ImagesShownEarlier {
+  const byPart = new Map<AssistantBlock | string, ReadonlySet<string>>();
+  let seen = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "user") {
+      seen = new Set();
+      continue;
+    }
+    if (item.kind !== "assistant") continue;
+    for (const block of item.blocks) {
+      const files = placedImages(block, tools, cwd);
+      if (files.length === 0) continue;
+      const again = new Set(files.filter((file) => seen.has(file)));
+      if (again.size > 0) byPart.set(block.type === "tool" ? block.toolUseId : block, again);
+      for (const file of files) seen.add(file);
+    }
+  }
+  return { byPart, inLastTurn: seen };
+}
+
 /** An image a tool gave. */
 export interface GivenImage {
   image: ImageBlock;
@@ -480,7 +639,8 @@ export const MAX_ANSWER_IMAGES = 4;
  * For each finished turn, what its last answer ends with, by that answer's
  * item. The last turn counts once `lastDone`: while it runs, its answer is
  * not the last yet. An image a tool read from a file the answer names, in
- * the workspace (`root`), is left to that file's card.
+ * the workspace (`root`), is left to that file's card; one the turn shows
+ * where it is (sent, or in its text), to that.
  */
 export function answerExtras(
   items: ChatItem[],
@@ -531,7 +691,9 @@ export function answerExtras(
       if (path && !shown.has(path) && !files.includes(path)) files.push(path);
     }
     const images = given
-      .filter(({ from }) => !(from && files.includes(from) && isUnder(from, root)))
+      .filter(
+        ({ from }) => !(from && (shown.has(from) || (files.includes(from) && isUnder(from, root)))),
+      )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
       out.set(answer, {

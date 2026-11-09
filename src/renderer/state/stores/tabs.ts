@@ -44,12 +44,16 @@ export interface ClaudeTabProps {
    * has its own id: set on a tab opened as a fork, or rewound.
    */
   fork?: { sessionId: string; at?: string };
+  /** The agent profile its program runs with, kept for good; absent = the default. */
+  profileId?: string;
 }
 
 export interface CodexTabProps {
   cwd: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
+  /** The agent profile its program runs with, kept for good; absent = the default. */
+  profileId?: string;
 }
 
 interface TabBase {
@@ -262,6 +266,11 @@ interface TabsState {
   ) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
+  /**
+   * Set the agent profile a Claude or Codex tab runs with: an empty tab that
+   * takes up a session another profile keeps. No-op on other tab types.
+   */
+  setChatProfile: (workspaceId: string, tabId: string, profileId: string | undefined) => void;
 }
 
 /**
@@ -702,13 +711,38 @@ export const useTabsStore = create<TabsState>((set, get) => {
       });
     },
 
+    setChatProfile(workspaceId, tabId, profileId) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
+        if (tab.props.profileId === profileId) return state;
+        const { profileId: _old, ...rest } = tab.props;
+        const props = profileId ? { ...rest, profileId } : rest;
+        const next = { ...tab, props } as Tab;
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
     setClaudeSession(workspaceId, tabId, sessionId) {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
         const tab = wsRecord?.[tabId];
         if (!wsRecord || tab?.type !== "claude") return state;
         if (tab.props.sessionId === sessionId && !tab.props.fork) return state;
-        const next: ClaudeTab = { ...tab, props: { cwd: tab.props.cwd, sessionId } };
+        const next: ClaudeTab = {
+          ...tab,
+          props: {
+            cwd: tab.props.cwd,
+            sessionId,
+            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
+          },
+        };
         return {
           byWorkspace: {
             ...state.byWorkspace,
@@ -729,6 +763,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             cwd: tab.props.cwd,
             ...(sessionId ? { sessionId } : {}),
             ...(fork ? { fork } : {}),
+            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
           },
         };
         return {

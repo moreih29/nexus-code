@@ -6,6 +6,7 @@
 // it back (chat.line), so a live tab and one that replays the log after a
 // window reload build the same view.
 
+import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
@@ -87,6 +88,8 @@ export interface ChatTabTarget {
   sessionId?: string;
   /** The session the tab's program copies, until the copy has its own id. */
   fork?: ForkPoint;
+  /** The agent profile its program runs with; absent = the default. */
+  profileId?: string;
 }
 
 export interface ChatTabHooks {
@@ -103,6 +106,8 @@ export interface ChatTabHooks {
    * tab, or one it had when it was taken up again. The tab is called by it.
    */
   onRename?: (title: string) => void;
+  /** The tab runs with another profile now: it took up a session that one keeps. */
+  onProfile?: (profileId: string) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -173,6 +178,11 @@ export class ChatController {
   /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
+
+  /** The profile the tab's program runs with, for a tab made from it to keep. */
+  get profileId(): string {
+    return this.target.profileId ?? defaultProfileId("claude");
+  }
 
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
     this.target = target;
@@ -260,6 +270,7 @@ export class ChatController {
         await ipcCallResult("chat", "transcript", {
           workspaceId: this.target.workspaceId,
           sessionId,
+          ...profileArg(this.target.profileId),
         }),
       );
       if (!result.found) return;
@@ -285,7 +296,13 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
-      result = await startChat({ workspaceId, tabId, cwd, ...resume });
+      result = await startChat({
+        workspaceId,
+        tabId,
+        cwd,
+        ...resume,
+        ...profileArg(this.target.profileId),
+      });
     } catch (err) {
       this.update((prev) => ({ ...prev, phase: "failed", error: (err as Error).message }));
       return false;
@@ -410,7 +427,7 @@ export class ChatController {
    * Goes on with another session of the folder in this tab, which has no
    * conversation yet: its program starts over on that session.
    */
-  async resumeSession(sessionId: string): Promise<void> {
+  async resumeSession(sessionId: string, profileId?: string): Promise<void> {
     if (this.state.model.running) throw new Error("a turn is running");
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
@@ -419,6 +436,14 @@ export class ChatController {
     this.flushNow();
     this.sessionId = sessionId;
     this.target = { ...this.target, sessionId, fork: undefined };
+    // The session goes on in the profile that keeps it.
+    if (profileId && profileId !== this.profileId) {
+      this.target = {
+        ...this.target,
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      };
+      this.hooks.onProfile?.(profileId);
+    }
     this.hooks.onTarget?.({ sessionId });
     this.titled = false;
     this.update((prev) => ({
@@ -793,6 +818,7 @@ export class ChatController {
       await ipcCallResult("chat", "cli", {
         workspaceId,
         cwd,
+        ...profileArg(this.target.profileId),
         command: {
           kind: "background",
           ...(sessionId ? { sessionId } : {}),
@@ -837,7 +863,10 @@ export class ChatController {
   }> {
     const [settings, global] = await Promise.all([
       this.ask("get_settings"),
-      ipcCallResult("chat", "claudeConfig", { workspaceId: this.target.workspaceId })
+      ipcCallResult("chat", "claudeConfig", {
+        workspaceId: this.target.workspaceId,
+        ...profileArg(this.target.profileId),
+      })
         .then((result) => unwrapIpcResult(result).values)
         .catch((err: Error) => {
           log.warn(`Claude Code's global config not read: ${err.message}`);
@@ -1145,7 +1174,14 @@ function phaseAfter(phase: ChatTabState["phase"], model: ChatModel): ChatTabStat
   return phase;
 }
 
-function startChat(args: StartArgs & { workspaceId: string; tabId: string; cwd: string }) {
+/** The profile a call names, when the tab has one. */
+export function profileArg(profileId: string | undefined): { profileId?: string } {
+  return profileId ? { profileId } : {};
+}
+
+function startChat(
+  args: StartArgs & { workspaceId: string; tabId: string; cwd: string; profileId?: string },
+) {
   return ipcCallResult("chat", "start", args).then(unwrapIpcResult);
 }
 

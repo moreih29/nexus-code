@@ -171,7 +171,10 @@
     "unpin_workspace_aria": "워크스페이스 {{name}} 고정 해제",
     "dismiss_notification": "알림 닫기",
     "task_count_one": "작업 {{count}}개",
-    "task_count_other": "작업 {{count}}개"
+    "task_count_other": "작업 {{count}}개",
+    "agent_profiles": "에이전트 프로필",
+    "follow_rules": "규칙 따름",
+    "profile_rules_settings": "워크스페이스별 프로필 설정…"
   },
   "forward": {
     "not_connected": "{{host}}에 연결되어 있지 않아 포트 {{port}}를 열 수 없습니다.",
@@ -407,7 +410,12 @@
     "terminal_ended_aria": ", 터미널 종료됨",
     "new_codex": "새 Codex 대화",
     "hidden_tabs_one": "가려진 탭 {{count}}개",
-    "hidden_tabs_other": "가려진 탭 {{count}}개"
+    "hidden_tabs_other": "가려진 탭 {{count}}개",
+    "new_claude_with": "다른 프로필로 새 Claude 대화",
+    "new_codex_with": "다른 프로필로 새 Codex 대화",
+    "manage_profiles": "프로필 관리…",
+    "profile_here": "이 워크스페이스",
+    "profile_signed_out": "로그인 필요"
   },
   "groupPlaceholder": {
     "no_tab": "열린 탭 없음",
@@ -578,6 +586,7 @@
       "queued_one": "대기 중인 메시지 {{count}}개",
       "queued_other": "대기 중인 메시지 {{count}}개",
       "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다.",
+      "no_messages": "아직 주고받은 메시지가 없습니다.",
       "vs_base": "{{branch}} 대비",
       "ahead_behind": "{{branch}}보다 커밋 {{ahead}}개 앞서고 {{behind}}개 뒤처짐",
       "lines": "{{added}}줄 추가, {{deleted}}줄 삭제",
@@ -1164,8 +1173,8 @@
     "look": {
       "aria": "빠른 보기: {{name}}",
       "image": "이미지 {{number}}",
-      "previous": "이전 결과물 (←)",
-      "next": "다음 결과물 (→)",
+      "previous": "이전 이미지 (←)",
+      "next": "다음 이미지 (→)",
       "open_tab": "탭으로 열기",
       "close": "닫기 (esc)",
       "changes": "세션 전과 비교",
@@ -1199,7 +1208,8 @@
       "open": "탭에 열려 있음",
       "more": "{{count}}개 더 보기",
       "resume_failed": "세션을 이어가지 못했습니다: {{message}}",
-      "show": "이전 세션 이어가기 · {{count}}개"
+      "show": "이전 세션 이어가기 · {{count}}개",
+      "all_profiles": "전체"
     },
     "commands": {
       "close": "닫기",
@@ -1480,6 +1490,21 @@
           "ghostty": "Ghostty",
           "notifications_disabled": "끄기"
         }
+      }
+    },
+    "profile": {
+      "title": "프로필",
+      "account": "계정",
+      "folder": "설정 폴더",
+      "rule": "적용 규칙",
+      "locked": "대화 도중에는 프로필을 바꿀 수 없습니다",
+      "newWith": "다른 프로필로 새 대화",
+      "source": {
+        "workspace": "이 워크스페이스",
+        "folder": "폴더 {{path}}",
+        "ssh": "SSH 호스트 {{host}}",
+        "default": "기본값",
+        "chosen": "직접 선택"
       }
     }
   },

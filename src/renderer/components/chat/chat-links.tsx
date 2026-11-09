@@ -17,11 +17,17 @@ import {
 } from "../ui/context-menu";
 
 export interface ChatLinks {
-  /** Shows a file the conversation names, as written, in quick look. */
+  /**
+   * Shows a file the conversation names, as written, in quick look: an
+   * image among the conversation's images, any other file alone.
+   */
   openFile: (target: string) => void;
-  /** Shows images with no file, as a tool or the user gave them, in quick look, at `index`. */
+  /**
+   * Shows the image at `index` of `images`, with no file, as a tool or the
+   * user gave it, in quick look among the conversation's images.
+   */
   openImages: (images: readonly ImageBlock[], index: number) => void;
-  /** Shows a file the session changed in quick look, as a diff. */
+  /** Shows a file the session changed in quick look, alone, as a diff. */
   openChange: (path: string) => void;
   /**
    * Opens the file as a tab, beside the Claude tab when there is room, at

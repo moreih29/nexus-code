@@ -10,11 +10,11 @@
     "browserPermissions": "Browser Permissions",
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
-    "group": {
-      "settings": "Settings"
-    },
     "agent": "Agents",
-    "manager": "Agent manager"
+    "manager": "Manager",
+    "claude": "Claude",
+    "codex": "Codex",
+    "profileRules": "Profiles by workspace"
   },
   "dialog": {
     "close": "Close settings",
@@ -175,7 +175,6 @@
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Editor font size",
     "ariaFontFamily": "Font family",
@@ -236,7 +235,6 @@
     "customFamilyPlaceholder": "e.g. Fira Code",
     "fontFamilySystem": "System",
     "fontFamilyOther": "Other...",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Terminal font size",
     "ariaFontFamily": "Terminal font family",
@@ -495,6 +493,12 @@
     "maxWorkspaces": "Workspaces running at once",
     "maxWorkspacesDescription": "Beyond this, the least recently used stops first"
   },
+  "fontPicker": {
+    "list": "Installed fonts",
+    "loading": "Reading the fonts…",
+    "noMatch": "No font matches",
+    "more": "{{count}} more · type to narrow"
+  },
   "agent": {
     "newTask": "New tasks"
   },
@@ -508,7 +512,6 @@
     "fontFamilySystem": "App default (Pretendard)",
     "fontFamilyOther": "Other...",
     "systemUi": "System",
-    "fontDetected": "Detected on this system.",
     "fontNotFound": "Not on this system; the fallback font shows",
     "ariaFontSize": "Chat text size",
     "ariaFontFamily": "Chat font family",
@@ -539,5 +542,109 @@
       "answer": "Let it answer",
       "description": "When another session asks to use a tool"
     }
+  },
+  "profiles": {
+    "heading": "Profiles",
+    "description": {
+      "claude": "Each profile has its own config folder (CLAUDE_CONFIG_DIR) and sign-in",
+      "codex": "Each profile has its own config folder (CODEX_HOME) and sign-in"
+    },
+    "default_name": "Default",
+    "unnamed": "Unnamed",
+    "defaultFolder": "Default folder",
+    "shared_one": "Shares {{count}} setting",
+    "shared_other": "Shares {{count}} settings",
+    "add": "Add profile",
+    "edit": "Edit {{name}}",
+    "remove": "Delete {{name}}",
+    "refresh": "Check again",
+    "login": "Sign in",
+    "codexNote": "The app makes the folders; the codex program is shared",
+    "status": {
+      "checking": "Checking…",
+      "signedOut": "Not signed in",
+      "personalOrg": "Personal",
+      "sameAccount": "Same account as {{name}}",
+      "sameOrg": "Same organization as {{name}}",
+      "unavailable": "{{program}} not found",
+      "apiKey": "API key",
+      "signedIn": "Signed in"
+    },
+    "rulesLink": {
+      "label": "Profiles by workspace",
+      "description": "A different profile per folder, SSH host or workspace"
+    },
+    "removeConfirm": {
+      "title": "Delete the {{name}} profile?",
+      "description": "Its folder ({{dir}}), with its sign-in and history, stays.",
+      "confirm": "Delete"
+    },
+    "dialog": {
+      "addTitle": "Add {{agent}} profile",
+      "editTitle": "Edit {{name}}",
+      "name": "Name",
+      "namePlaceholder": "e.g. Personal",
+      "nameHint": "Shown on tabs and in menus",
+      "color": "Color",
+      "folder": "Config folder",
+      "folderHint": "The app makes it if missing",
+      "folderExists": "Existing folder · keeps its current links",
+      "folderTaken": "Another profile uses this folder",
+      "folderDefault": "Only the default profile uses the default folder",
+      "browse": "Browse…",
+      "browseTitle": "Choose a config folder",
+      "share": "Share with the default folder",
+      "shareHint": "Shared by links · sign-in and history stay apart",
+      "env": "Environment variables (optional)",
+      "envPlaceholder": "KEY=value, one per line",
+      "create": "Create and sign in",
+      "save": "Save"
+    },
+    "loginDialog": {
+      "title": "Sign in to {{name}}",
+      "folder": "Folder ready",
+      "linked_one": "Linked {{count}} setting",
+      "linked_other": "Linked {{count}} settings",
+      "linkFailed": "Could not link: {{names}}",
+      "signIn": "Sign in",
+      "waiting": "Finish signing in in the browser",
+      "codePlaceholder": "Code shown in the browser",
+      "send": "Enter",
+      "done": "Signed in as {{who}}",
+      "already": "Already signed in as {{who}}",
+      "failed": "Could not sign in",
+      "retry": "Sign in again",
+      "close": "Done",
+      "cancel": "Cancel",
+      "sameOrg": "Same organization as the {{name}} profile. Sign in again with another one.",
+      "sameAccount": "Same account as the {{name}} profile"
+    }
+  },
+  "profileRules": {
+    "defaults": "Defaults",
+    "defaultsDescription": "Workspaces no rule matches",
+    "rules": "Rules",
+    "rulesDescription": "Workspace > deeper folder > SSH host > default",
+    "add": "Add rule",
+    "addFolder": "Folder…",
+    "addSsh": "SSH host…",
+    "addWorkspace": "Workspace…",
+    "target": "Target",
+    "inherit": "Use default",
+    "applies": "Applies to",
+    "appliesCount_one": "{{count}}",
+    "appliesCount_other": "{{count}}",
+    "empty": "No rules",
+    "folderTarget": "With subfolders",
+    "sshTarget": "SSH host",
+    "workspaceTarget": "Workspace",
+    "remove": "Delete rule",
+    "folderPick": "Choose a folder",
+    "hint": "For new conversations · on an SSH host, sign in on that host",
+    "pickSsh": "Choose an SSH host",
+    "pickWorkspace": "Choose a workspace",
+    "noneLeft": "Nothing left to add",
+    "results": "Results",
+    "resultsCount": "{{count}} workspaces"
   }
 }

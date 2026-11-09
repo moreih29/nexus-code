@@ -1,7 +1,7 @@
-// An image in the chat, which a click shows in quick look, where it zooms:
-// as the file it is, when a tool read it from one, among the session's
-// results; from its data otherwise, with the images beside it a step away.
-// Outside a Claude or Codex tab it is a plain image.
+// An image in the chat, which a click shows in quick look, where it zooms,
+// among the conversation's other images: as the file it is, when a tool
+// read it from one; from its data otherwise. Outside a Claude or Codex tab
+// it is a plain image.
 
 import { useTranslation } from "react-i18next";
 import { imageFileOf, imageSrc } from "../../services/chat/image-look";
