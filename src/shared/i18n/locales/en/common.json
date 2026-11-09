@@ -1062,6 +1062,16 @@
       "from_assistant": "Fork from here",
       "from_user": "Fork from before this message"
     },
+    "artifact": {
+      "preview": "Preview",
+      "open": "Open on claude.ai",
+      "copy": "Copy link",
+      "copied": "Copied",
+      "published": "Published on claude.ai",
+      "republished": "Published again on claude.ai",
+      "local": "Its link was not given",
+      "tag": "Artifact"
+    },
     "time": {
       "now": "just now"
     },

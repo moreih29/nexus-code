@@ -27,6 +27,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
+import { artifactOf } from "../../services/chat/artifact";
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
   type AssistantBlock,
@@ -54,6 +55,7 @@ import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
+import { ArtifactCard } from "./artifact-card";
 import { useAgentContext } from "./chat-agent";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { ChatMarkdown } from "./chat-markdown";
@@ -555,6 +557,11 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
 /** A call as a row: one that asked the user shows what they said. */
 function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
   const tool = ctx.tools[toolUseId];
+  // A page it published to claude.ai shows as a card; running or failed, it is a row as any call.
+  const page = artifactOf(tool, ctx.cwd);
+  if (page) {
+    return <ArtifactCard page={page} workspaceId={ctx.workspaceId} rootPath={ctx.rootPath} />;
+  }
   // The files it sent the user show as they would there; running or
   // failed, it is a row as any call.
   if (tool?.name === SEND_FILES_TOOL && tool.status === "done") {
