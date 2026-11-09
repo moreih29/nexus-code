@@ -570,7 +570,6 @@
       "show_codex_tab": "Codex 탭으로 이동",
       "permission_hint_claude": "권한 요청은 Claude 탭에서 응답합니다.",
       "back": "목록으로",
-      "cost": "비용",
       "answer_more": "더 보기",
       "answer_less": "접기",
       "steps": "최근 도구 호출",

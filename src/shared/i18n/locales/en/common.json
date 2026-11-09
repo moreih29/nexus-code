@@ -570,7 +570,6 @@
       "show_codex_tab": "Go to the Codex tab",
       "permission_hint_claude": "Its permission requests are answered in the Claude tab.",
       "back": "Back to the list",
-      "cost": "Cost",
       "answer_more": "Show more",
       "answer_less": "Show less",
       "steps": "Recent tool calls",
