@@ -13,7 +13,7 @@
 //   - fontLigatures: token fallback = false
 //   - shell:         fallback = the system default shell (resolved in main)
 //   - customShells:  the shells the user added, besides the detected ones
-//   - taskAgent:     fallback = "claude"; what a new task opens with
+//   - taskAgent:     fallback = "claude"; what the agents tab's [+] and a new task open with
 //
 // fontFamily/fontLigatures are INDEPENDENT of the editor font store — the
 // terminal owns its own typeface preferences.
