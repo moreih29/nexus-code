@@ -898,3 +898,68 @@ describe("codex helpers", () => {
     expect(hunksOf("", "add")).toEqual([]);
   });
 });
+
+describe("codex commands' answers", () => {
+  test("a fork's thread comes with the turns it copied", () => {
+    const model = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-f", method: "thread/fork", params: { threadId: T, cwd: "/w" } }),
+      out({
+        id: "app-f",
+        result: {
+          thread: {
+            id: "thr_2",
+            name: null,
+            turns: [
+              {
+                id: "turn_1",
+                items: [
+                  { type: "userMessage", id: "u1", content: [{ type: "text", text: "hi" }] },
+                  { type: "agentMessage", id: "m1", text: "hello" },
+                ],
+              },
+            ],
+          },
+          model: "gpt-6",
+          cwd: "/w",
+        },
+      }),
+    ]);
+    expect(model.threadId).toBe("thr_2");
+    expect(model.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+  });
+
+  test("a review is told as it starts, and its findings once, as Codex's message", () => {
+    // As codex 0.167 sends them: the review's end, then the message with its findings.
+    const model = run([
+      ...started(),
+      note("item/started", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "exitedReviewMode", id: "rv2", review: "No issues found." },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "agentMessage", id: "m1", text: "No issues found." },
+      }),
+    ]);
+    expect(model.items.filter((i) => i.kind === "notice")).toEqual([
+      expect.objectContaining({ code: "review", detail: "current changes" }),
+    ]);
+    const texts = model.items.flatMap((i) =>
+      i.kind === "assistant" ? i.blocks.filter((b) => b.type === "text") : [],
+    );
+    expect(texts).toEqual([expect.objectContaining({ text: "No issues found." })]);
+  });
+});

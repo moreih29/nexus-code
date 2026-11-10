@@ -11,6 +11,7 @@ import { defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex-commands";
 import {
   type CodexController,
   type CodexTabHooks,
@@ -35,6 +36,7 @@ import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../service
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { codexUsageLine } from "../../services/chat/usage-line";
 import { registerTabFocusTarget } from "../../services/tab-focus";
@@ -55,6 +57,7 @@ import { AgentStrip } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CodexConfigDialog } from "./codex-config-dialog";
+import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -62,6 +65,7 @@ import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
+import { toolSummary } from "./tool-row";
 import { UsageLineView } from "./usage-line";
 
 interface CodexTabViewProps {
@@ -108,6 +112,7 @@ export function CodexTabView({
           tabId,
           cwd: props.cwd,
           threadId: props.threadId,
+          ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
@@ -164,6 +169,11 @@ export function CodexTabView({
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const profileId = props.profileId ?? defaultProfileId("codex");
+  // The `/` menu: Codex's commands the tab runs, described in the app's words.
+  const commands = useMemo(
+    () => codexCommandsListed((name) => t(`chat.codex.commands.describe.${name}`)),
+    [t],
+  );
   // Under the empty conversation a failure shows there; from /resume, as a toast.
   const resumeThread = (
     threadId: string,
@@ -369,10 +379,10 @@ export function CodexTabView({
         controller={controller}
         state={state}
         local={isLocal}
-        appCommands={false}
+        commands={commands}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
         above={
-          resumeQuery !== null && (
+          resumeQuery !== null ? (
             <CodexSessionList
               workspaceId={workspaceId}
               tabId={tabId}
@@ -382,6 +392,16 @@ export function CodexTabView({
               onClose={() => setResumeQuery(null)}
               onResume={(threadId, _profile, title) => resumeThread(threadId, title, resumeFailed)}
             />
+          ) : (
+            state.card && (
+              <CommandCardView
+                card={state.card}
+                workspaceId={workspaceId}
+                cwd={props.cwd}
+                rootPath={rootPath}
+                onClose={() => controller.closeCard()}
+              />
+            )
           )
         }
         below={
@@ -412,11 +432,32 @@ export function CodexTabView({
             } else setResumeQuery(text.trim().replace(/^\/\S+\s*/, ""));
             return true;
           }
-          // A bare /model or /effort opens its menu, as Codex's own does;
-          // anything else goes to the model as typed.
+          // A bare /model or /effort opens its menu, as Codex's own does.
           const part = revealOf(text, ["model", "effort"]);
-          if (part) revealPart(controller.key, part);
-          return part !== null;
+          if (part) {
+            revealPart(controller.key, part);
+            return true;
+          }
+          // The rest of Codex's commands the tab runs; anything else goes to
+          // the model as typed.
+          const command = parseCodexCommand(text);
+          if (!command || ["model", "effort", "config", "resume"].includes(command.name)) {
+            return false;
+          }
+          const { history, model } = state;
+          runCodexCommand(command, {
+            controller,
+            workspaceId,
+            tabId,
+            cwd: props.cwd,
+            rootPath,
+            ...(props.profileId ? { profileId: props.profileId } : {}),
+            items: history ? [...history.items, ...model.items] : model.items,
+            tools: history ? { ...history.tools, ...model.tools } : model.tools,
+            summarize: (tool) => toolSummary(tool, props.cwd),
+            openFileTab: links.openFileTab,
+          }).catch((err: Error) => showToast({ kind: "error", message: err.message }));
+          return true;
         }}
       />
       <CodexConfigDialog

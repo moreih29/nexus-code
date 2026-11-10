@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   answerOf,
   isSupportedCodex,
+  picksOf,
   suggestedPaths,
   threadSettings,
+  threadStartParams,
   threadsOf,
 } from "../../../../../src/renderer/services/chat/codex-controller";
+import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex-model";
 
 describe("codex answers", () => {
   test("an approval's decision from the card's answer", () => {
@@ -105,6 +108,36 @@ describe("codex thread settings", () => {
       developerInstructions: "Manage.",
       config: { projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } } },
     });
+  });
+
+  test("a new thread starts with the tab's picks, its effort as a config override", () => {
+    expect(threadStartParams(target, {})).toEqual({ cwd: target.cwd });
+    expect(
+      threadStartParams(
+        { ...target, trusted: true },
+        { model: "gpt-x", effort: "low", mode: "readOnly" },
+      ),
+    ).toEqual({
+      cwd: target.cwd,
+      config: {
+        projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } },
+        model_reasoning_effort: "low",
+      },
+      model: "gpt-x",
+      approvalPolicy: "on-request",
+      sandbox: "read-only",
+    });
+  });
+
+  test("/new's thread goes on with what the last one ran with", () => {
+    const model = {
+      ...emptyCodexModel(),
+      model: "gpt-x",
+      effort: "high",
+      permissionMode: "fullAccess",
+    };
+    expect(picksOf(model)).toEqual({ model: "gpt-x", effort: "high", mode: "fullAccess" });
+    expect(picksOf({ ...emptyCodexModel(), permissionMode: "default" })).toEqual({});
   });
 });
 

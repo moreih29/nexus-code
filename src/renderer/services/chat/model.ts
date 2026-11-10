@@ -74,7 +74,9 @@ export type NoticeCode =
   | "error"
   | "dropped"
   /** A thread the app could not go on with; it started a new one. */
-  | "not_resumed";
+  | "not_resumed"
+  /** Codex began reviewing (/review): what it looks at is the detail. */
+  | "review";
 
 export interface NoticeItem {
   kind: "notice";

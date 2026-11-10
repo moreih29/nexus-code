@@ -266,6 +266,7 @@ function applyResponse(
   switch (sent.subtype) {
     case "thread/start":
     case "thread/resume":
+    case "thread/fork":
       applyThread(draft, result, seq);
       return;
     case "turn/start":
@@ -607,6 +608,13 @@ function applyItem(
     }
     case "contextCompaction":
       if (phase === "completed") pushCompacted(draft, `n${tag}`, at);
+      return;
+    // A review (/review) is told as it starts; its findings come as Codex's
+    // message after it ends, which tells what the review's end item does.
+    case "enteredReviewMode":
+      if (!m.items.some((i) => i.key === `r${id}`)) {
+        draft.push({ kind: "notice", key: `r${id}`, code: "review", detail: str(item.review), at });
+      }
       return;
   }
   const tools = toolsOf(item, id, phase);

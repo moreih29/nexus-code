@@ -309,6 +309,19 @@ export async function bootstrapAppState(): Promise<void> {
             };
             continue;
           }
+          // A chat tab's title is its conversation's: the tab's own name
+          // stays under it, for a conversation started again (/new).
+          if (t.type === "claude" || t.type === "codex") {
+            const defaultTitle = defaultTabTitle(t);
+            tabsMap[t.id] = {
+              ...t,
+              isPreview,
+              isPinned,
+              defaultTitle,
+              ...(t.title !== defaultTitle ? { processTitle: t.title } : {}),
+            };
+            continue;
+          }
           tabsMap[t.id] = { ...t, isPreview, isPinned, defaultTitle: saved };
         }
         useTabsStore.setState((s) => ({

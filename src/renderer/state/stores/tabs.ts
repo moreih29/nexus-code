@@ -52,6 +52,8 @@ export interface CodexTabProps {
   cwd: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
+  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
+  fork?: { threadId: string; title?: string };
   /** The agent profile its program runs with, kept for good; absent = the default. */
   profileId?: string;
 }
@@ -700,8 +702,11 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
         const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "codex" || tab.props.threadId === threadId) return state;
-        const next: CodexTab = { ...tab, props: { ...tab.props, threadId } };
+        if (!wsRecord || tab?.type !== "codex") return state;
+        if (tab.props.threadId === threadId && !tab.props.fork) return state;
+        // A fork's copy has its own id now: the tab goes on with it.
+        const { fork: _copied, ...props } = tab.props;
+        const next: CodexTab = { ...tab, props: { ...props, threadId } };
         return {
           byWorkspace: {
             ...state.byWorkspace,

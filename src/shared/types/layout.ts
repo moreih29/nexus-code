@@ -59,6 +59,10 @@ export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 export const CodexTabPropsSchema = z.object({
   cwd: z.string(),
   threadId: z.string().max(128).optional(),
+  /** The thread it copies until the copy has its own id (/fork). */
+  fork: z
+    .object({ threadId: z.string().max(128), title: z.string().max(200).optional() })
+    .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
 });

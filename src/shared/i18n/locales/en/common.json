@@ -863,7 +863,8 @@
       "exited_codex": "Codex exited",
       "restarted_codex": "Codex started again",
       "not_resumed": "Couldn't go on with the earlier conversation; started a new one",
-      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one"
+      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one",
+      "review": "Code review"
     },
     "tool": {
       "denied": "Denied",
@@ -1393,6 +1394,76 @@
         "bypass_confirm_title": "Give Codex full access?",
         "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
         "bypass_confirm": "Give full access"
+      },
+      "commands": {
+        "describe": {
+          "model": "Choose the model (this tab only)",
+          "effort": "Choose the reasoning effort (this tab only)",
+          "config": "The default model and effort for new tabs",
+          "new": "Start a new conversation in this tab",
+          "resume": "Go on with an earlier conversation of this folder in this tab",
+          "fork": "Copy this conversation into a new tab",
+          "rename": "Rename this conversation",
+          "compact": "Summarize the conversation so it stays within the context limit",
+          "review": "Review the uncommitted changes (or as the words given ask)",
+          "init": "Create an AGENTS.md file with instructions for Codex",
+          "goal": "View, set, pause or clear the goal of a long-running task",
+          "status": "Show this conversation's model, folder and context used",
+          "diff": "Show the uncommitted changes",
+          "copy": "Copy Codex's last answer (or the Nth from the end)",
+          "export": "Save the conversation as a Markdown file in the folder",
+          "mcp": "Show the MCP servers and how they stand",
+          "skills": "Show the skills this folder can use",
+          "logout": "Sign out of Codex",
+          "help": "Show the Codex commands the tab runs",
+          "exit": "Close this tab"
+        },
+        "busy": "This can run once the turn ends.",
+        "rename_empty": "Type the new name: /rename <name>",
+        "help_intro": "The commands the Codex tab runs. Anything else that starts with `/` goes to Codex as typed.",
+        "goal_no_thread": "Send a message first: there is no conversation to give a goal yet.",
+        "goal_none": "This conversation has no goal. Set one with /goal <objective>.",
+        "goal_set": "The goal is set. Codex keeps working until it is met.",
+        "goal_cleared": "The goal is cleared.",
+        "goal_paused": "The goal is paused.",
+        "goal_resumed": "The goal goes on.",
+        "goal_tokens": "{{used}} tokens used",
+        "goal_status": {
+          "active": "Active",
+          "paused": "Paused",
+          "blocked": "Blocked",
+          "usageLimited": "Usage limit reached",
+          "budgetLimited": "Token budget spent",
+          "complete": "Complete"
+        },
+        "status": {
+          "model": "Model",
+          "effort": "Effort",
+          "folder": "Folder",
+          "thread": "Conversation",
+          "version": "Version",
+          "account": "Account",
+          "signed_out": "Not signed in",
+          "context": "Context"
+        },
+        "mcp_title_one": "{{count}} MCP server",
+        "mcp_title_other": "{{count}} MCP servers",
+        "mcp_none": "No MCP servers are set up.",
+        "mcp_tools_one": "{{count}} tool",
+        "mcp_tools_other": "{{count}} tools",
+        "mcp_status": {
+          "notStarted": "Not started",
+          "starting": "Starting",
+          "connected": "Connected",
+          "authenticationRequired": "Sign-in needed",
+          "failed": "Failed",
+          "cancelled": "Cancelled",
+          "disabled": "Off",
+          "notLoggedIn": "Sign-in needed"
+        },
+        "logout": "Sign out",
+        "logout_title": "Sign out of Codex?",
+        "logout_body": "This profile's Codex sign-in is removed. You will need to sign in again to use it."
       }
     },
     "usage": {

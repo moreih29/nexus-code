@@ -25,6 +25,7 @@ import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
 import type { ListedSession } from "./sessions";
 import {
   type ChatTabState,
+  type CommandCard,
   chatKey,
   emptyTabState,
   type QueuedMessage,
@@ -88,6 +89,8 @@ export interface CodexTabTarget {
   cwd: string;
   /** The thread the tab had, to go on with when its program is gone. */
   threadId?: string;
+  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
+  fork?: { threadId: string; title?: string };
   /** What the thread is told beside Codex's own instructions (the agent manager's). */
   developerInstructions?: string;
   /**
@@ -136,7 +139,7 @@ export class CodexController {
   private disposed = false;
   private titled = false;
   /** What the user picked for the next turn. */
-  private next: { model?: string; effort?: string; mode?: CodexMode } = {};
+  private next: CodexPicks = {};
   private readonly removeReceiver: () => void;
 
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
@@ -273,6 +276,18 @@ export class CodexController {
     const { cwd } = this.target;
     const settings = threadSettings(this.target);
     const threadId = this.model.threadId ?? this.target.threadId;
+    const fork = this.target.fork;
+    if (!threadId && fork) {
+      try {
+        await this.request("thread/fork", { threadId: fork.threadId, cwd, ...settings });
+        // The copy is called as the tab it came from was.
+        this.titled = true;
+        if (fork.title) this.hooks.onTitle?.(fork.title);
+        return true;
+      } catch (err) {
+        log.warn(`thread ${fork.threadId} not forked: ${(err as Error).message}`);
+      }
+    }
     if (threadId) {
       try {
         // The log shows what came before already; a new log asks for it.
@@ -288,18 +303,7 @@ export class CodexController {
       }
     }
     try {
-      const mode = this.next.mode;
-      await this.request("thread/start", {
-        cwd,
-        ...settings,
-        ...(this.next.model ? { model: this.next.model } : {}),
-        ...(mode
-          ? {
-              approvalPolicy: MODE_SETTINGS[mode].approvalPolicy,
-              sandbox: SANDBOX_MODES[mode],
-            }
-          : {}),
-      });
+      await this.request("thread/start", threadStartParams(this.target, this.next));
       return true;
     } catch (err) {
       log.warn(`thread/start failed: ${(err as Error).message}`);
@@ -357,6 +361,60 @@ export class CodexController {
       model: { ...emptyCodexModel(), lastSeq },
     }));
     await this.start({ resetLog: true });
+  }
+
+  /**
+   * Starts a new thread in this tab (/new): the program starts again
+   * without one, and the tab takes its default name until the first message.
+   */
+  async newThread(): Promise<void> {
+    if (this.model.running) throw new Error("a turn is running");
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    // The tab's model, effort and preset go on with the new thread, as the
+    // CLI's /new keeps its session's; a pick not sent yet still wins.
+    this.next = { ...picksOf(this.model), ...this.next };
+    this.target = { ...this.target, threadId: undefined, fork: undefined };
+    this.hooks.onTitle?.("");
+    this.titled = false;
+    const { lastSeq } = this.model;
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      model: { ...emptyCodexModel(), lastSeq },
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /** Asks the program for a command (/mcp, /goal, /compact…), once it is running. */
+  async ask(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    return this.request(method, params);
+  }
+
+  /** Shows what a command answered above the composer, until it is closed. */
+  showCard(card: Omit<CommandCard, "id">): string {
+    const id = nextId();
+    this.update((prev) => ({ ...prev, card: { ...card, id } }));
+    return id;
+  }
+
+  /** Fills in a card that is still shown. */
+  updateCard(id: string, patch: Partial<Omit<CommandCard, "id">>): void {
+    this.update((prev) =>
+      prev.card?.id === id ? { ...prev, card: { ...prev.card, ...patch } } : prev,
+    );
+  }
+
+  closeCard(): void {
+    this.update((prev) => (prev.card ? { ...prev, card: undefined } : prev));
   }
 
   /** The thread the tab goes on with, once it has one. */
@@ -709,10 +767,11 @@ export class CodexController {
     if (model === before) return;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
     if (model.threadId && model.threadId !== this.target.threadId) {
-      this.target = { ...this.target, threadId: model.threadId };
+      this.target = { ...this.target, threadId: model.threadId, fork: undefined };
       this.hooks.onThread?.(model.threadId);
     }
-    if (model.threadName && !this.titled) {
+    // The thread's name, when it gets one or another (/rename), is the tab's.
+    if (model.threadName && model.threadName !== before.threadName) {
       this.titled = true;
       this.hooks.onTitle?.(model.threadName);
     }
@@ -778,6 +837,52 @@ export function threadSettings({
   return {
     ...(developerInstructions ? { developerInstructions } : {}),
     ...(trusted ? { config: { projects: { [cwd]: { trust_level: "trusted" } } } } : {}),
+  };
+}
+
+/** The model, effort and preset a tab picked, for its next turn or thread. */
+export interface CodexPicks {
+  model?: string;
+  effort?: string;
+  mode?: CodexMode;
+}
+
+/** What a thread runs with, as picks: for a new thread to start as it did. */
+export function picksOf(model: CodexModel): CodexPicks {
+  const { permissionMode } = model;
+  return {
+    ...(model.model ? { model: model.model } : {}),
+    ...(model.effort ? { effort: model.effort } : {}),
+    ...(permissionMode && permissionMode in MODE_SETTINGS
+      ? { mode: permissionMode as CodexMode }
+      : {}),
+  };
+}
+
+/**
+ * thread/start's params: the tab's settings, then its picks; the effort
+ * as a config override, as thread/start takes it no other way.
+ */
+export function threadStartParams(
+  target: CodexTabTarget,
+  picks: CodexPicks,
+): Record<string, unknown> {
+  const settings = threadSettings(target);
+  const config = {
+    ...(settings.config as Record<string, unknown> | undefined),
+    ...(picks.effort ? { model_reasoning_effort: picks.effort } : {}),
+  };
+  return {
+    cwd: target.cwd,
+    ...settings,
+    ...(Object.keys(config).length > 0 ? { config } : {}),
+    ...(picks.model ? { model: picks.model } : {}),
+    ...(picks.mode
+      ? {
+          approvalPolicy: MODE_SETTINGS[picks.mode].approvalPolicy,
+          sandbox: SANDBOX_MODES[picks.mode],
+        }
+      : {}),
   };
 }
 
