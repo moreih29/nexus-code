@@ -408,14 +408,17 @@ export function CodexTabView({
           <UsageLineView
             line={usageLine}
             trailing={
-              hooks ? undefined : (
-                <ProfileUsageChip
-                  agent="codex"
-                  workspaceId={workspaceId}
-                  cwd={props.cwd}
-                  profileId={props.profileId}
-                />
-              )
+              hooks
+                ? undefined
+                : (compact) => (
+                    <ProfileUsageChip
+                      agent="codex"
+                      workspaceId={workspaceId}
+                      cwd={props.cwd}
+                      profileId={props.profileId}
+                      compact={compact}
+                    />
+                  )
             }
           />
         }

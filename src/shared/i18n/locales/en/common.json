@@ -1479,6 +1479,7 @@
       },
       "resets_time": "resets {{time}}",
       "resets_date": "resets {{weekday}} {{month}}/{{day}} {{time}}",
+      "resets_short_date": "{{weekday}} {{time}}",
       "meter_tip": "{{label}}: {{percent}}% used",
       "short": {
         "session": "Session",
