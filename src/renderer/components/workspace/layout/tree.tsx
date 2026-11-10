@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { LayoutLeaf, LayoutNode, LayoutSplit } from "@/state/stores/layout";
 import { LeafPane } from "./leaf-pane";
 import { SplitPane } from "./split-pane";
@@ -18,7 +19,9 @@ interface LayoutTreeProps {
 // LayoutTree
 // ---------------------------------------------------------------------------
 
-export function LayoutTree({
+// Memoized: the groups and their tab bars render for the layout and their
+// own stores, not each time the workspace's panel does.
+export const LayoutTree = memo(function LayoutTree({
   workspaceId,
   root,
   onActivateGroup,
@@ -33,7 +36,7 @@ export function LayoutTree({
       workspaceRootPath={workspaceRootPath}
     />
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Internal recursive renderer

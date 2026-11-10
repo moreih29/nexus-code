@@ -53,6 +53,12 @@ import { isReport, reportedSessions } from "../../services/manager/report";
 import { sentIn, useManagerStore } from "../../state/stores/manager";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
+import {
+  DATE_AND_TIME,
+  DATE_ONLY,
+  dateTimeFormat,
+  relativeTimeFormat,
+} from "../../utils/intl-format";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
@@ -289,18 +295,24 @@ export function MessageList({
     frame = requestAnimationFrame(look);
     return () => cancelAnimationFrame(frame);
   }, [shownCall]);
-  const ctx: ItemContext = {
-    workspaceId,
-    tabId,
-    cwd,
-    rootPath,
-    tools,
-    actions,
-    extras,
-    shown,
-    earlier,
-    shownCall,
-  };
+  // Kept while its parts hold, so each message, memoized, renders only when
+  // it or they change: not when the list renders for a streamed chunk, or
+  // its tab is shown or hidden.
+  const ctx = useMemo<ItemContext>(
+    () => ({
+      workspaceId,
+      tabId,
+      cwd,
+      rootPath,
+      tools,
+      actions,
+      extras,
+      shown,
+      earlier,
+      shownCall,
+    }),
+    [workspaceId, tabId, cwd, rootPath, tools, actions, extras, shown, earlier, shownCall],
+  );
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -861,7 +873,7 @@ function MessageTime({ at }: { at?: number }) {
   const { t, i18n } = useTranslation();
   const now = useSyncExternalStore(subscribeClock, clockNow);
   if (at === undefined) return null;
-  const exact = new Date(at).toLocaleString(i18n.language);
+  const exact = dateTimeFormat(i18n.language, DATE_AND_TIME).format(at);
   return (
     <time dateTime={new Date(at).toISOString()} title={exact} className="px-1 tabular-nums">
       {relativeTime(at, now, i18n.language, t("chat.time.now"))}
@@ -877,12 +889,14 @@ const DAY_MS = 24 * HOUR_MS;
 export function relativeTime(at: number, now: number, locale: string, justNow: string): string {
   const ago = now - at;
   if (ago < MINUTE_MS) return justNow;
-  const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const format = relativeTimeFormat(locale, RELATIVE);
   if (ago < HOUR_MS) return format.format(-Math.floor(ago / MINUTE_MS), "minute");
   if (ago < DAY_MS) return format.format(-Math.floor(ago / HOUR_MS), "hour");
   if (ago < 7 * DAY_MS) return format.format(-Math.floor(ago / DAY_MS), "day");
-  return new Date(at).toLocaleDateString(locale);
+  return dateTimeFormat(locale, DATE_ONLY).format(at);
 }
+
+const RELATIVE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
 // One clock for every message's time, ticking while any is shown.
 const clockListeners = new Set<() => void>();
