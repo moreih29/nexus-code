@@ -24,7 +24,7 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { SessionActivity } from "../../../shared/claude/activity";
+import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ipcCallResult } from "../../ipc/client";
 import { existingCodexController } from "../../services/chat/codex-controller";
@@ -32,6 +32,7 @@ import { existingChatController } from "../../services/chat/controller";
 import { type ChatTabState, chatKey, useChatStore } from "../../services/chat/store";
 import { showChanges } from "../../services/sessions/actions";
 import type { ActivityByKey } from "../../services/sessions/agents";
+import { markAnswered, useUnansweredAsks } from "../../services/sessions/answered-asks";
 import { type AgentSession, allSessions, type SessionFamily } from "../../services/sessions/model";
 import { plainPreview } from "../../services/sessions/preview";
 import {
@@ -509,6 +510,8 @@ function RowFooter({
   );
 }
 
+const NO_ASKS: readonly PermissionAsk[] = [];
+
 /**
  * Allow or deny a permission from the row: a chat tab's through its
  * program, a terminal's through Claude Code's hook. A question or a plan is
@@ -525,6 +528,8 @@ function RowAnswer({
 }) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
+  // A terminal's request answered here leaves at once, not with the next poll.
+  const asks = useUnansweredAsks(session, activity?.asks ?? NO_ASKS);
   let answer: ((allow: boolean) => Promise<void>) | null = null;
   if (session.kind !== "terminal") {
     const request = chat?.model.permissions[0];
@@ -542,7 +547,7 @@ function RowAnswer({
         controller.answerPermission(request, allow ? { kind: "allow" } : { kind: "deny" });
     }
   } else {
-    const ask = activity?.asks?.[0];
+    const ask = asks[0];
     if (ask) {
       answer = async (allow) => {
         const result = await ipcCallResult("claude", "answerPermission", {
@@ -553,6 +558,7 @@ function RowAnswer({
           ...(allow ? {} : { message: "" }),
         });
         if (!result.ok || !result.value) throw new Error(t("sessions.list.answer_failed"));
+        markAnswered(session, ask.id);
       };
     }
   }
