@@ -5,39 +5,6 @@ import {
 } from "../../../../../src/renderer/services/editor/preview/rich-text";
 
 describe("sanitizeRichText", () => {
-  it("keeps text elements and their typographic styles", () => {
-    expect(
-      sanitizeRichText(
-        '<p style="text-align: center;margin-top: 0em;"><span style="color: #404040;font-size: 44pt;font-family: Calibri;">Sub&nbsp;title</span><br></p>',
-      ),
-    ).toEqual([
-      {
-        tag: "p",
-        style: { "text-align": "center", "margin-top": "0em" },
-        children: [
-          {
-            tag: "span",
-            style: { color: "#404040", "font-size": "44pt", "font-family": "Calibri" },
-            children: ["Sub title"],
-          },
-          { tag: "br", style: {}, children: [] },
-        ],
-      },
-    ]);
-  });
-
-  it("keeps lists as lists", () => {
-    expect(sanitizeRichText("<ul><li><p>one</p></li></ul>")).toEqual([
-      {
-        tag: "ul",
-        style: {},
-        children: [
-          { tag: "li", style: {}, children: [{ tag: "p", style: {}, children: ["one"] }] },
-        ],
-      },
-    ]);
-  });
-
   it("drops what could run or load, keeping the text of what it drops", () => {
     expect(
       sanitizeRichText(

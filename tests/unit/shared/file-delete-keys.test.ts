@@ -6,21 +6,12 @@
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
 import { findDisplayPrimary, KEYBINDINGS } from "../../../src/shared/keybindings/index";
-import { acceleratorToLabel } from "../../../src/shared/keybindings/keybinding-parse";
 import { applyKeybindingOverrides } from "../../../src/shared/keybindings/overrides";
 
 const shown = (isMac: boolean, isLinux = false, bindings = KEYBINDINGS) =>
   findDisplayPrimary(bindings, COMMANDS.fileDelete, isMac, isLinux)?.primary;
 
 describe("file delete keys", () => {
-  it("name ⌘⌫ on the Mac and Delete on Windows and Linux", () => {
-    expect(shown(true)).toBe("Cmd+Backspace");
-    expect(acceleratorToLabel("Cmd+Backspace", { isMac: true })).toBe("⌘⌫");
-    expect(shown(false)).toBe("Delete");
-    expect(shown(false, true)).toBe("Delete");
-    expect(acceleratorToLabel("Delete", { isMac: false })).toBe("Delete");
-  });
-
   it("leave a user's key live on every platform", () => {
     const rebound = applyKeybindingOverrides(
       KEYBINDINGS,

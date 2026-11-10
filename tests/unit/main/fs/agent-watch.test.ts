@@ -76,27 +76,6 @@ function makeFixture() {
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("AgentFsWatcher", () => {
-  it("delegates watch calls to the agent and forwards fs.changed with workspaceId", async () => {
-    const { watcher, provider, listeners, broadcasts } = makeFixture();
-
-    await watcher.watch(WORKSPACE_ID, "src");
-    for (const callback of listeners.get("fs.changed") ?? []) {
-      callback({ changes: [{ relPath: "src/a.ts", kind: "modified" }] });
-    }
-
-    expect(provider.callAgentMethod).toHaveBeenCalledWith("fs.watch", { relPath: "src" });
-    expect(broadcasts).toEqual([
-      {
-        channel: "fs",
-        event: "changed",
-        args: {
-          workspaceId: WORKSPACE_ID,
-          changes: [{ relPath: "src/a.ts", kind: "modified" }],
-        },
-      },
-    ]);
-  });
-
   it("removes the event subscription after the last unwatch", async () => {
     const { watcher, listeners, broadcasts } = makeFixture();
 

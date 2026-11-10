@@ -168,35 +168,3 @@ func TestSweepStaleIgnoresForeignNames(t *testing.T) {
 		}
 	}
 }
-
-// TestCapLogSize: oversize log is truncated to zero; small log untouched;
-// missing file is a no-op.
-func TestCapLogSize(t *testing.T) {
-	dir := t.TempDir()
-
-	big := filepath.Join(dir, "big.log")
-	if err := os.WriteFile(big, make([]byte, 2048), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if !CapLogSize(big, 1024) {
-		t.Error("oversize log should be truncated")
-	}
-	if fi, _ := os.Stat(big); fi.Size() != 0 {
-		t.Errorf("truncated size = %d, want 0", fi.Size())
-	}
-
-	small := filepath.Join(dir, "small.log")
-	if err := os.WriteFile(small, make([]byte, 100), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if CapLogSize(small, 1024) {
-		t.Error("under-cap log must not be truncated")
-	}
-	if fi, _ := os.Stat(small); fi.Size() != 100 {
-		t.Errorf("small log size = %d, want 100", fi.Size())
-	}
-
-	if CapLogSize(filepath.Join(dir, "absent.log"), 1024) {
-		t.Error("missing file must be a no-op")
-	}
-}

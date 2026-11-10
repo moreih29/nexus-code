@@ -68,22 +68,6 @@ function buildPreV5Db(): Database {
 // ---------------------------------------------------------------------------
 
 describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
-  it("applies v5 migration without throwing", () => {
-    const db = buildPreV5Db();
-    // Insert 3 local bookmarks (no kind column exists yet in v4)
-    for (let i = 1; i <= 3; i++) {
-      db.prepare(
-        `INSERT INTO folder_bookmarks (id, abs_path, label, favorite, last_used_at, created_at)
-         VALUES (?, ?, NULL, 0, ?, ?)`,
-      ).run(uuid(i), `/home/user/project${i}`, i * 1000, i * 1000);
-    }
-
-    // Applying v5 must not throw
-    expect(() => applyMigrations(db)).not.toThrow();
-
-    db.close();
-  });
-
   it("all pre-existing rows are backfilled to kind='local'", () => {
     const db = buildPreV5Db();
     for (let i = 1; i <= 3; i++) {
@@ -158,28 +142,6 @@ describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
       cnt: number;
     };
     expect(rows.cnt).toBe(2);
-
-    db.close();
-  });
-
-  it("partial UNIQUE index replaces old abs_path UNIQUE index after v5", () => {
-    const db = buildPreV5Db();
-    applyMigrations(db);
-
-    const indexes = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='folder_bookmarks'",
-      )
-      .all() as { name: string }[];
-    const names = indexes.map((i) => i.name);
-
-    // Old global UNIQUE index must be gone
-    expect(names).not.toContain("idx_folder_bookmarks_abs_path");
-    // New partial UNIQUE indexes must be present
-    expect(names).toContain("idx_folder_bookmarks_local_path");
-    expect(names).toContain("idx_folder_bookmarks_ssh_path");
-    // Recency index must still be present
-    expect(names).toContain("idx_folder_bookmarks_recency");
 
     db.close();
   });

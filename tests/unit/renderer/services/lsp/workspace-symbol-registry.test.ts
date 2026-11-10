@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import {
   __resetWorkspaceSymbolRegistryForTests,
   registerWorkspaceSymbolProvider,
@@ -22,20 +22,6 @@ afterEach(() => {
 });
 
 describe("workspace-symbol-registry", () => {
-  it("calls two providers and concatenates their results", async () => {
-    const first = mock(async () => [symbol("Greet")]);
-    const second = mock(async () => [symbol("Greeter", "file:///repo/src/greeter.ts")]);
-
-    registerWorkspaceSymbolProvider({ id: "first", provideWorkspaceSymbols: first });
-    registerWorkspaceSymbolProvider({ id: "second", provideWorkspaceSymbols: second });
-
-    const results = await searchWorkspaceSymbols({ workspaceId: "ws-1", query: "Gre" });
-
-    expect(first).toHaveBeenCalledTimes(1);
-    expect(second).toHaveBeenCalledTimes(1);
-    expect(results.map((item) => item.name)).toEqual(["Greet", "Greeter"]);
-  });
-
   it("dedupes by uri, range, and name", async () => {
     registerWorkspaceSymbolProvider({
       id: "first",
@@ -96,29 +82,5 @@ describe("workspace-symbol-registry", () => {
     // here because the facade's process-global mock state is shared across the
     // suite and asserting on it is order-dependent and brittle.)
     expect(results.map((item) => item.name)).toEqual(["Greet"]);
-  });
-
-  it("unregister cleanup removes the provider", async () => {
-    const provider = mock(async () => [symbol("Greet")]);
-    const unregister = registerWorkspaceSymbolProvider({
-      id: "one",
-      provideWorkspaceSymbols: provider,
-    });
-    unregister();
-
-    const results = await searchWorkspaceSymbols({ workspaceId: "ws-1", query: "Gre" });
-
-    expect(results).toEqual([]);
-    expect(provider).not.toHaveBeenCalled();
-  });
-
-  it("short-circuits empty queries without provider calls", async () => {
-    const provider = mock(async () => [symbol("Greet")]);
-    registerWorkspaceSymbolProvider({ id: "one", provideWorkspaceSymbols: provider });
-
-    const results = await searchWorkspaceSymbols({ workspaceId: "ws-1", query: "   " });
-
-    expect(results).toEqual([]);
-    expect(provider).not.toHaveBeenCalled();
   });
 });

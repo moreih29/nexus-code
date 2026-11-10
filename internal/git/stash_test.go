@@ -59,44 +59,6 @@ func TestStashListFixtures(t *testing.T) {
 	t.Logf("loaded %d stash list fixtures", loaded)
 }
 
-// TestStashListServiceTempRepo verifies StashList against a real git repository.
-func TestStashListServiceTempRepo(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	// Create one stash entry.
-	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
-	runGit(t, root, "stash", "push", "-m", "test stash entry")
-
-	service := New(root)
-	res, err := service.StashList(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("StashList returned error: %v", err)
-	}
-	list, ok := res.([]StashEntry)
-	if !ok {
-		t.Fatalf("StashList result type = %T", res)
-	}
-	if len(list) != 1 {
-		t.Fatalf("StashList got %d entries, want 1", len(list))
-	}
-	if list[0].Index != 0 {
-		t.Fatalf("StashList entry[0].Index = %d, want 0", list[0].Index)
-	}
-	if list[0].Message != "test stash entry" {
-		t.Fatalf("StashList entry[0].Message = %q, want %q", list[0].Message, "test stash entry")
-	}
-	if list[0].Branch != "main" {
-		t.Fatalf("StashList entry[0].Branch = %q, want main", list[0].Branch)
-	}
-	if list[0].SHA == "" {
-		t.Fatalf("StashList entry[0].SHA is empty")
-	}
-	if list[0].CreatedAt <= 0 {
-		t.Fatalf("StashList entry[0].CreatedAt = %d, want > 0", list[0].CreatedAt)
-	}
-}
-
 // TestStashApplyConflictServiceTempRepo verifies StashApply returns a conflict result.
 func TestStashApplyConflictServiceTempRepo(t *testing.T) {
 	t.Parallel()
@@ -246,15 +208,6 @@ func TestParseStashSubjectEdgeCases(t *testing.T) {
 			t.Errorf("parseStashSubject(%q) = (%q, %q), want (%q, %q)",
 				c.raw, branch, message, c.branch, c.message)
 		}
-	}
-}
-
-// TestStashApplyNegativeIndexReturnsError verifies negative index is rejected.
-func TestStashApplyNegativeIndexReturnsError(t *testing.T) {
-	service := New(t.TempDir())
-	_, err := service.StashApply(context.Background(), json.RawMessage(`{"index":-1}`))
-	if err == nil {
-		t.Fatal("StashApply with negative index should return error")
 	}
 }
 

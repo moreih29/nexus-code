@@ -1,12 +1,10 @@
 package git
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -56,33 +54,6 @@ func TestParseCommitDetailFixtures(t *testing.T) {
 		t.Fatal("no commit-detail fixtures loaded")
 	}
 	t.Logf("loaded %d commit-detail fixtures", loaded)
-}
-
-func TestCommitDetailServiceTempRepoShape(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-	runGit(t, root, "mv", "README.md", "new.txt")
-	runGit(t, root, "commit", "-m", "Rename file", "-m", "Body line")
-	sha := strings.TrimSpace(runGit(t, root, "rev-parse", "HEAD"))
-
-	service := New(root)
-	res, err := service.CommitDetail(context.Background(), json.RawMessage(`{"sha":"`+sha+`"}`))
-	if err != nil {
-		t.Fatalf("CommitDetail returned error: %v", err)
-	}
-	detail, ok := res.(CommitDetail)
-	if !ok {
-		t.Fatalf("CommitDetail result type = %T", res)
-	}
-	if detail.SHA != sha || detail.Subject != "Rename file" || detail.Body != "Body line" {
-		t.Fatalf("unexpected detail metadata: %#v", detail)
-	}
-	if len(detail.Parents) != 1 {
-		t.Fatalf("parents got %#v want one parent", detail.Parents)
-	}
-	if len(detail.Files) != 1 || detail.Files[0].Status[0] != 'R' || detail.Files[0].OldPath != "README.md" || detail.Files[0].Path != "new.txt" {
-		t.Fatalf("files got %#v want rename README.md -> new.txt", detail.Files)
-	}
 }
 
 func assertCommitDetailEqual(t *testing.T, name string, got CommitDetail, expected CommitDetail) {

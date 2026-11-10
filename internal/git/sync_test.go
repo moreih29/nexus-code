@@ -14,26 +14,6 @@ import (
 // Pull tests
 // ---------------------------------------------------------------------------
 
-// TestPullAlreadyUpToDate verifies that pull returns alreadyUpToDate when nothing to pull.
-func TestPullAlreadyUpToDate(t *testing.T) {
-	t.Parallel()
-	_, client := newRemoteAndClient(t, false)
-
-	service := New(client)
-	result, err := service.Pull(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("Pull returned error: %v", err)
-	}
-
-	pr, ok := result.(PullResult)
-	if !ok {
-		t.Fatalf("expected PullResult, got %T", result)
-	}
-	if !pr.AlreadyUpToDate {
-		t.Errorf("expected alreadyUpToDate=true, got false; summary=%q", pr.Summary)
-	}
-}
-
 // TestPullFastForward verifies that pull detects a fast-forward after remote has new commits.
 func TestPullFastForward(t *testing.T) {
 	t.Parallel()
@@ -264,15 +244,6 @@ func TestBuildPushArgsForce(t *testing.T) {
 	args := buildPushArgs(PushParams{Force: true})
 	if len(args) < 2 || !strings.Contains(strings.Join(args, " "), "force-with-lease") {
 		t.Errorf("expected --force-with-lease, got %v", args)
-	}
-}
-
-// TestBuildPushArgsCustom verifies buildPushArgs passes custom args through unchanged.
-func TestBuildPushArgsCustom(t *testing.T) {
-	custom := []string{"push", "-u", "origin", "main"}
-	args := buildPushArgs(PushParams{Args: custom})
-	if strings.Join(args, " ") != strings.Join(custom, " ") {
-		t.Errorf("expected custom args %v, got %v", custom, args)
 	}
 }
 

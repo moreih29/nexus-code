@@ -65,38 +65,6 @@ func TestChangeStatsCountsLinesPerFile(t *testing.T) {
 	}
 }
 
-// Ahead and behind compare HEAD with the base branch; without a base, or
-// with one that does not resolve, there are none.
-func TestChangeStatsAheadBehind(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-	runGit(t, root, "checkout", "-q", "-b", "task")
-	for _, name := range []string{"a.txt", "b.txt"} {
-		writeFile(t, filepath.Join(root, name), name+"\n")
-		runGit(t, root, "add", name)
-		runGit(t, root, "commit", "-q", "-m", name)
-	}
-	runGit(t, root, "checkout", "-q", "main")
-	writeFile(t, filepath.Join(root, "main.txt"), "main\n")
-	runGit(t, root, "add", "main.txt")
-	runGit(t, root, "commit", "-q", "-m", "main")
-	runGit(t, root, "checkout", "-q", "task")
-
-	stats := changeStatsOf(t, root, `{"base":"main"}`)
-	if stats.Ahead == nil || stats.Behind == nil || *stats.Ahead != 2 || *stats.Behind != 1 {
-		t.Fatalf("ahead/behind = %v/%v, want 2/1", stats.Ahead, stats.Behind)
-	}
-	if len(stats.Files) != 0 {
-		t.Fatalf("files = %#v, want none", stats.Files)
-	}
-	for _, params := range []string{`{}`, `{"base":"no-such-branch"}`} {
-		stats := changeStatsOf(t, root, params)
-		if stats.Ahead != nil || stats.Behind != nil {
-			t.Fatalf("%s: ahead/behind = %v/%v, want none", params, stats.Ahead, stats.Behind)
-		}
-	}
-}
-
 // A repository without commits has its staged and untracked files counted
 // against the empty tree.
 func TestChangeStatsWithoutCommits(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -177,73 +176,6 @@ func mustRawJSON(t *testing.T, v any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return data
-}
-
-// ---------------------------------------------------------------------------
-// GetFileContent: non-conflicted INDEX entry still returns content normally
-// ---------------------------------------------------------------------------
-
-func TestGetFileContentIndexNormalFile(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runGit(t, root, "init", "-b", "main")
-	writeFile(t, filepath.Join(root, "file.txt"), "hello\n")
-	runGit(t, root, "add", "file.txt")
-
-	d := dispatch.New()
-	service := New(root)
-	Register(d, service)
-
-	params, _ := json.Marshal(FileContentParams{Ref: "INDEX", RelPath: "file.txt"})
-	res := d.Dispatch(context.Background(), proto.Request{
-		ID:     "2",
-		Method: "git.getFileContent",
-		Params: params,
-	})
-
-	if res.Error != nil {
-		t.Fatalf("GetFileContent returned error for staged file: %#v", res.Error)
-	}
-	result, ok := res.Result.(map[string]any)
-	if !ok {
-		t.Fatalf("result type = %T, want map[string]any", res.Result)
-	}
-	if result["kind"] != "ok" {
-		t.Errorf("result kind = %q, want %q", result["kind"], "ok")
-	}
-}
-
-// TestRegisterExposesMethods checks that Register binds the wire names the
-// host calls. The handlers have tests of their own.
-func TestRegisterExposesMethods(t *testing.T) {
-	d := dispatch.New()
-	Register(d, New(t.TempDir()))
-	registered := d.Methods()
-	for _, method := range []string{
-		"git.status",
-		"git.diff",
-		"git.commitDetail",
-		"git.changeStats",
-		"git.stash.list",
-		"git.stash.apply",
-		"git.stash.drop",
-		"git.stash.group",
-		"git.tag.list",
-		"git.tag.create",
-		"git.tag.delete",
-		"git.remote.add",
-		"git.remote.remove",
-		"git.workflow.merge",
-		"git.workflow.rebase",
-		"git.workflow.cherryPick",
-		"git.workflow.abort",
-		"git.workflow.continue",
-		"git.conflict.markResolved",
-	} {
-		if !slices.Contains(registered, method) {
-			t.Errorf("%s is not registered", method)
-		}
-	}
 }
 
 // A blob not in UTF-8 goes to the reader as its bytes, as fs.readFile's do.

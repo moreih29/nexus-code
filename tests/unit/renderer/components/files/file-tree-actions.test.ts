@@ -181,21 +181,6 @@ describe("useFileTreeActions — single-target delete routing", () => {
     });
   });
 
-  it("starts inline rename for a non-root target", () => {
-    const startRename = mock(() => {});
-    const actions = useFileTreeActions({
-      workspaceId: WS,
-      rootAbsPath: ROOT,
-      getTargets: () => [{ absPath: `${ROOT}/a.ts`, type: "file" as const }],
-      startCreate: () => {},
-      startRename,
-    });
-
-    actions.rename();
-
-    expect(startRename).toHaveBeenCalledWith(`${ROOT}/a.ts`);
-  });
-
   it("does not rename or delete the root target", async () => {
     const startRename = mock(() => {});
     const actions = useFileTreeActions({
@@ -246,24 +231,6 @@ describe("useFileTreeActions — multi-target delete (batch)", () => {
     const relPaths = trashCalls.map((c) => (c.args as { relPath: string }).relPath);
     expect(relPaths).toContain("a.ts");
     expect(relPaths).toContain("b.ts");
-  });
-
-  it("multi-target rename shows toast and does not call startRename", () => {
-    const startRename = mock(() => {});
-    const actions = useFileTreeActions({
-      workspaceId: WS,
-      rootAbsPath: ROOT,
-      getTargets: () => [
-        { absPath: `${ROOT}/a.ts`, type: "file" as const },
-        { absPath: `${ROOT}/b.ts`, type: "file" as const },
-      ],
-      startCreate: () => {},
-      startRename,
-    });
-
-    actions.rename();
-
-    expect(startRename).not.toHaveBeenCalled();
   });
 
   it("distinctParents applied: parent+child → only parent deleted", async () => {

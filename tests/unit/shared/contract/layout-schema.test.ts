@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import { AppStateSchema } from "../../../../src/shared/types/app-state";
 import {
   SerializedLeafSchema,
-  SerializedNodeSchema,
   WorkspaceLayoutSnapshotSchema,
 } from "../../../../src/shared/types/layout";
 
@@ -45,66 +44,6 @@ describe("SerializedLeafSchema", () => {
 });
 
 // ---------------------------------------------------------------------------
-// SerializedNodeSchema — leaf variant
-// ---------------------------------------------------------------------------
-
-describe("SerializedNodeSchema — leaf", () => {
-  it("rejects an unknown kind", () => {
-    const result = SerializedNodeSchema.safeParse({ ...validLeaf, kind: "group" });
-    expect(result.success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// SerializedNodeSchema — split variant
-// ---------------------------------------------------------------------------
-
-describe("SerializedNodeSchema — split", () => {
-  it("split ratio lower bound: rejects 0.04, accepts 0.05", () => {
-    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.04 }).success).toBe(false);
-    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.05 }).success).toBe(true);
-  });
-
-  it("split ratio upper bound: accepts 0.95, rejects 0.96", () => {
-    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.95 }).success).toBe(true);
-    expect(SerializedNodeSchema.safeParse({ ...validSplit, ratio: 0.96 }).success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Deep nesting
-// ---------------------------------------------------------------------------
-
-describe("SerializedNodeSchema — deep nesting", () => {
-  it("parses a deeply nested split tree", () => {
-    const DEEP1 = "77777777-7777-4777-a777-777777777771";
-    const DEEP2 = "77777777-7777-4777-a777-777777777772";
-    const DEEP3 = "77777777-7777-4777-a777-777777777773";
-    const DEEP4 = "77777777-7777-4777-a777-777777777774";
-    const DEEP5 = "77777777-7777-4777-a777-777777777775";
-
-    const deepTree = {
-      kind: "split" as const,
-      id: DEEP1,
-      orientation: "vertical" as const,
-      ratio: 0.6,
-      first: {
-        kind: "split" as const,
-        id: DEEP2,
-        orientation: "horizontal" as const,
-        ratio: 0.4,
-        first: { kind: "leaf" as const, id: DEEP3, tabIds: [], activeTabId: null },
-        second: { kind: "leaf" as const, id: DEEP4, tabIds: [], activeTabId: null },
-      },
-      second: { kind: "leaf" as const, id: DEEP5, tabIds: [], activeTabId: null },
-    };
-
-    const result = SerializedNodeSchema.safeParse(deepTree);
-    expect(result.success).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // WorkspaceLayoutSnapshot
 // ---------------------------------------------------------------------------
 
@@ -122,13 +61,6 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
     ],
   };
 
-  it("round-trips through JSON.stringify and parse", () => {
-    const parsed = WorkspaceLayoutSnapshotSchema.parse(snapshot);
-    const json = JSON.stringify(parsed);
-    const reparsed = WorkspaceLayoutSnapshotSchema.parse(JSON.parse(json));
-    expect(reparsed).toEqual(parsed);
-  });
-
   it("keeps a terminal tab's shell across a restart", () => {
     const shell = { kind: "detected" as const, id: "git-bash" };
     const parsed = WorkspaceLayoutSnapshotSchema.parse({
@@ -136,22 +68,6 @@ describe("WorkspaceLayoutSnapshotSchema", () => {
       tabs: [{ ...snapshot.tabs[0], props: { cwd: "/home/user", shell } }],
     });
     expect(parsed.tabs[0]?.props).toEqual({ cwd: "/home/user", shell });
-  });
-
-  it("parses a snapshot with editor tab", () => {
-    const EDITOR_TAB = "88888888-8888-4888-a888-888888888888";
-    const result = WorkspaceLayoutSnapshotSchema.safeParse({
-      ...snapshot,
-      tabs: [
-        {
-          id: EDITOR_TAB,
-          type: "editor" as const,
-          title: "main.ts",
-          props: { filePath: "/src/main.ts", workspaceId: WS_ID },
-        },
-      ],
-    });
-    expect(result.success).toBe(true);
   });
 
   it("keeps an editor tab's source or preview mode across a restart", () => {

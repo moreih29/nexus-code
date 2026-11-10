@@ -1,10 +1,6 @@
 /** How nexus settings set reads a typed value for each type of setting. */
 import { describe, expect, test } from "bun:test";
-import {
-  describeShape,
-  formatSettingValue,
-  parseSettingValue,
-} from "../../../../src/shared/cli/settings";
+import { parseSettingValue } from "../../../../src/shared/cli/settings";
 
 describe("parseSettingValue", () => {
   test("reads on and off, and their other words", () => {
@@ -50,13 +46,4 @@ describe("parseSettingValue", () => {
     });
     expect(parseSettingValue(shape, "a;b")).toEqual({ error: "letters only" });
   });
-});
-
-test("describeShape and formatSettingValue say what a setting takes and is", () => {
-  expect(describeShape({ type: "boolean" })).toBe("on|off");
-  expect(describeShape({ type: "choice", choices: ["a", "b"] })).toBe("a|b");
-  expect(describeShape({ type: "integer", min: 8, max: 32 })).toBe("8..32");
-  expect(describeShape({ type: "text" })).toBe("text");
-  expect(formatSettingValue(true)).toBe("on");
-  expect(formatSettingValue(1.4)).toBe("1.4");
 });

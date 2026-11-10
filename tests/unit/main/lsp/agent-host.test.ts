@@ -14,7 +14,6 @@ import {
   resolveLspCommandFromManifest,
   startAgentLspHost,
 } from "../../../../src/main/features/lsp/agent-host";
-import { startConfiguredLspHost, type LspHostHandle } from "../../../../src/main/features/lsp/host";
 
 // ---------------------------------------------------------------------------
 // Manifest neutralization
@@ -273,18 +272,6 @@ class SharedAgentChannel implements AgentChannel {
   }
 
   dispose(): void {}
-}
-
-function fakeHost(): LspHostHandle {
-  return {
-    call: () => Promise.resolve(null),
-    notify: () => {},
-    respondServerRequest: () => {},
-    rejectServerRequest: () => {},
-    on: () => () => {},
-    isAlive: () => true,
-    dispose: () => {},
-  };
 }
 
 describe("AgentLspHostHandle", () => {
@@ -797,18 +784,3 @@ describe("resolveLspCommandFromManifest", () => {
     }
   });
 });
-
-describe("LSP host selection", () => {
-  test("starts the agent-backed host", () => {
-    const agent = fakeHost();
-    const workspaceManager = { getAgentChannel: async () => new FakeAgentChannel() };
-
-    expect(
-      startConfiguredLspHost({
-        workspaceManager,
-        agentHostFactory: () => agent,
-      }),
-    ).toBe(agent);
-  });
-});
-

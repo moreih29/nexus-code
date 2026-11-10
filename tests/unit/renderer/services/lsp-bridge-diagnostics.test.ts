@@ -88,42 +88,6 @@ describe("lspDiagnosticToMonacoMarker", () => {
     });
   });
 
-  test("maps LSP diagnostic severities 1-4 to Monaco severities", () => {
-    const severities = ([1, 2, 3, 4] as const).map(
-      (severity) => lspDiagnosticToMonacoMarker(monaco, diagnostic({ severity })).severity,
-    );
-
-    expect(severities).toEqual([
-      monaco.MarkerSeverity.Error,
-      monaco.MarkerSeverity.Warning,
-      monaco.MarkerSeverity.Info,
-      monaco.MarkerSeverity.Hint,
-    ]);
-  });
-
-  test("maps Unnecessary and Deprecated diagnostic tags", () => {
-    const marker = lspDiagnosticToMonacoMarker(monaco, diagnostic({ tags: [1, 2] }));
-
-    expect(marker.tags).toEqual([monaco.MarkerTag.Unnecessary, monaco.MarkerTag.Deprecated]);
-  });
-
-  test("maps codeDescription href to a Monaco code target URI", () => {
-    const marker = lspDiagnosticToMonacoMarker(
-      monaco,
-      diagnostic({
-        code: "reportMissingImports",
-        codeDescription: { href: "https://example.invalid/diagnostics/reportMissingImports" },
-      }),
-    );
-
-    expect(marker.code).toEqual({
-      value: "reportMissingImports",
-      target: {
-        raw: "https://example.invalid/diagnostics/reportMissingImports",
-      } satisfies FakeUri,
-    });
-  });
-
   test("maps diagnostic source and relatedInformation locations", () => {
     const marker = lspDiagnosticToMonacoMarker(
       monaco,

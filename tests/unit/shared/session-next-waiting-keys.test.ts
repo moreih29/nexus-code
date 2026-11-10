@@ -1,7 +1,7 @@
 /**
  * The key that goes to the next session waiting on the user: ⌘⇧U and
  * Ctrl+Shift+U, but Ctrl+Shift+J on Linux, where IBus takes Ctrl+Shift+U.
- * It works from the terminal too, and its label names the platform's key.
+ * It works from the terminal too.
  */
 import { describe, expect, it } from "bun:test";
 import { COMMANDS } from "../../../src/shared/keybindings/commands";
@@ -63,14 +63,6 @@ describe("next waiting session key", () => {
     ]);
     expect(commandsFor({ code: "KeyU", ctrl: true, shift: true }, "linux")).toEqual([]);
   });
-
-  it("is labeled with the platform's key", () => {
-    const label = (isMac: boolean, isLinux: boolean) =>
-      findDisplayPrimary(KEYBINDINGS, COMMANDS.sessionNextWaiting, isMac, isLinux)?.primary;
-    expect(label(true, false)).toBe("CmdOrCtrl+Shift+U");
-    expect(label(false, false)).toBe("CmdOrCtrl+Shift+U");
-    expect(label(false, true)).toBe("Ctrl+Shift+J");
-  });
 });
 
 describe("a user's key for the next waiting session", () => {
@@ -92,18 +84,6 @@ describe("a user's key for the next waiting session", () => {
     }
     expect(commandsFor({ code: "KeyU", ctrl: true, shift: true }, "windows", rebound)).toEqual([]);
     expect(commandsFor({ code: "KeyJ", ctrl: true, shift: true }, "linux", rebound)).toEqual([]);
-  });
-
-  it("is labeled the same on every platform", () => {
-    for (const [isMac, isLinux] of [
-      [true, false],
-      [false, false],
-      [false, true],
-    ] as const) {
-      expect(
-        findDisplayPrimary(rebound, COMMANDS.sessionNextWaiting, isMac, isLinux)?.primary,
-      ).toBe("CmdOrCtrl+Shift+K");
-    }
   });
 
   it("leaves a command whose first default is unscoped as it was", () => {

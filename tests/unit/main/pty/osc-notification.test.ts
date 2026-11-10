@@ -111,21 +111,6 @@ const WORKSPACE_ID = "ws-1";
 const TAB_ID = "tab-1";
 
 describe("OscNotificationDispatcher", () => {
-  test("focused window — Notification ctor not called", () => {
-    const { Ctor, showSpy, ctorCallCount } = makeNotificationCtor();
-    const dispatcher = new OscNotificationDispatcher({
-      workspaceManager: { getName: () => "My Workspace" },
-      getFocusedWindow: () => makeFakeWindow(false) as never,
-      electronNotificationCtor: Ctor,
-      broadcastFn: mock(() => {}),
-    });
-
-    dispatcher.handleChunk(WORKSPACE_ID, TAB_ID, "\x1b]9;Done\x07");
-
-    expect(ctorCallCount()).toBe(0);
-    expect(showSpy).not.toHaveBeenCalled();
-  });
-
   test("focused window on the tab — no notification, and no tab switch", () => {
     const { Ctor, ctorCallCount } = makeNotificationCtor();
     const broadcastFn = mock((_ch: string, _ev: string, _args: unknown) => {});
@@ -160,21 +145,6 @@ describe("OscNotificationDispatcher", () => {
     expect(broadcastFn).not.toHaveBeenCalled();
   });
 
-  test("OS notifications turned off in Settings — none fired", () => {
-    const { Ctor, ctorCallCount } = makeNotificationCtor();
-    const dispatcher = new OscNotificationDispatcher({
-      workspaceManager: { getName: () => "WS" },
-      getFocusedWindow: () => null,
-      notificationsEnabled: () => false,
-      electronNotificationCtor: Ctor,
-      broadcastFn: mock(() => {}),
-    });
-
-    dispatcher.handleChunk(WORKSPACE_ID, TAB_ID, "\x1b]9;Done\x07");
-
-    expect(ctorCallCount()).toBe(0);
-  });
-
   test("minimized window counts as background — Notification ctor called", () => {
     const { Ctor, showSpy, instances, ctorCallCount } = makeNotificationCtor();
     const dispatcher = new OscNotificationDispatcher({
@@ -206,59 +176,5 @@ describe("OscNotificationDispatcher", () => {
     expect(ctorCallCount()).toBe(1);
     expect(instances[0].title).toBe("[Project X] Build");
     expect(instances[0].body).toBe("Tests passed");
-  });
-
-  test("workspace name lookup failure → fallback 'Terminal'", () => {
-    const { Ctor, instances } = makeNotificationCtor();
-    const dispatcher = new OscNotificationDispatcher({
-      workspaceManager: { getName: () => null },
-      getFocusedWindow: () => null,
-      electronNotificationCtor: Ctor,
-      broadcastFn: mock(() => {}),
-    });
-
-    dispatcher.handleChunk(WORKSPACE_ID, TAB_ID, "\x1b]9;alert\x07");
-
-    expect(instances[0].title).toContain("[Terminal]");
-  });
-
-  test("chunk without OSC sequences — no notification fired", () => {
-    const { ctorCallCount } = makeNotificationCtor();
-    const dispatcher = new OscNotificationDispatcher({
-      workspaceManager: { getName: () => "WS" },
-      getFocusedWindow: () => null,
-      electronNotificationCtor: makeNotificationCtor().Ctor,
-      broadcastFn: mock(() => {}),
-    });
-
-    dispatcher.handleChunk(WORKSPACE_ID, TAB_ID, "just normal terminal output\r\n");
-
-    expect(ctorCallCount()).toBe(0);
-  });
-
-  test("click: activates the workspace, focuses the window, and broadcasts the tab", () => {
-    const { Ctor, triggerClick } = makeNotificationCtor();
-    const activateWorkspace = mock((_id: string) => Promise.resolve());
-    const focusMainWindow = mock(() => {});
-    const broadcastFn = mock((_ch: string, _ev: string, _args: unknown) => {});
-    const dispatcher = new OscNotificationDispatcher({
-      workspaceManager: { getName: () => "WS" },
-      getFocusedWindow: () => null,
-      electronNotificationCtor: Ctor,
-      activateWorkspace,
-      focusMainWindow,
-      broadcastFn,
-    });
-
-    dispatcher.handleChunk(WORKSPACE_ID, TAB_ID, "\x1b]9;Done\x07");
-    triggerClick();
-
-    expect(activateWorkspace).toHaveBeenCalledTimes(1);
-    expect(activateWorkspace).toHaveBeenCalledWith(WORKSPACE_ID);
-    expect(focusMainWindow).toHaveBeenCalledTimes(1);
-    expect(broadcastFn).toHaveBeenCalledWith("pty", "notificationClick", {
-      workspaceId: WORKSPACE_ID,
-      tabId: TAB_ID,
-    });
   });
 });

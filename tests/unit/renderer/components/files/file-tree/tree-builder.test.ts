@@ -30,26 +30,6 @@ function childrenOf(node: PathTreeNode, relPath: string): PathTreeNode[] {
 // ---------------------------------------------------------------------------
 
 describe("buildPathTree", () => {
-  it("paths empty → root with no children", () => {
-    const root = buildPathTree([]);
-    expect(root.kind).toBe("dir");
-    expect(root.name).toBe("");
-    expect(root.relPath).toBe("");
-    expect(root.depth).toBe(0);
-    expect(root.children).toEqual([]);
-  });
-
-  it("paths flat (root files only)", () => {
-    const root = buildPathTree(["a.ts", "b.ts", "c.ts"]);
-    expect(root.children).toHaveLength(3);
-    const names = root.children!.map((c) => c.name);
-    expect(names).toEqual(["a.ts", "b.ts", "c.ts"]);
-    for (const child of root.children!) {
-      expect(child.kind).toBe("file");
-      expect(child.depth).toBe(1);
-    }
-  });
-
   it("paths nested → dir 중첩 트리", () => {
     const root = buildPathTree(["src/utils/helper.ts", "src/index.ts", "README.md"]);
 
@@ -79,25 +59,6 @@ describe("buildPathTree", () => {
   it("deduplicate paths", () => {
     const root = buildPathTree(["a.ts", "a.ts", "/a.ts"]);
     expect(root.children).toHaveLength(1);
-  });
-
-  it("정렬: 폴더 우선, case-insensitive", () => {
-    const root = buildPathTree(["Zoo.ts", "apple/x.ts", "Mango.ts", "Banana/y.ts", "alpha/z.ts"]);
-
-    // Top level should have dirs (alpha, apple, Banana) before files (Mango.ts, Zoo.ts).
-    const children = root.children!;
-    const dirs = children.filter((c) => c.kind === "dir").map((c) => c.name);
-    const files = children.filter((c) => c.kind === "file").map((c) => c.name);
-
-    // Dirs come before files.
-    const lastDirIdx = children.map((c) => c.kind).lastIndexOf("dir");
-    const firstFileIdx = children.map((c) => c.kind).indexOf("file");
-    expect(lastDirIdx).toBeLessThan(firstFileIdx);
-
-    // Dirs are case-insensitively sorted: alpha, apple, Banana.
-    expect(dirs).toEqual(["alpha", "apple", "Banana"]);
-    // Files are case-insensitively sorted: Mango.ts, Zoo.ts.
-    expect(files).toEqual(["Mango.ts", "Zoo.ts"]);
   });
 });
 

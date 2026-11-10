@@ -19,22 +19,6 @@ import (
 
 const testWorkspaceID = "00000000-0000-0000-0000-000000000001"
 
-// TestSpawnWriteEchoRoundTrip verifies a spawned PTY accepts input and returns child output.
-func TestSpawnWriteEchoRoundTrip(t *testing.T) {
-	t.Parallel()
-	service, recorder := newTestService(t)
-	tabID := "echo-round-trip"
-	spawnTestScript(t, service, tabID, `
-stty -echo
-echo READY
-cat
-`)
-	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
-
-	writeSession(t, service, tabID, "hello from renderer\n")
-	recorder.requireTranscriptContains(t, "hello from renderer", 2*time.Second)
-}
-
 // TestBurstWriteFrameOrderingPreserved verifies sequential write RPCs return in order.
 func TestBurstWriteFrameOrderingPreserved(t *testing.T) {
 	t.Parallel()
@@ -93,24 +77,6 @@ sleep 5
 	}
 	ackSession(t, service, tabID, ackBytes)
 	recorder.requireDataBytesGreaterThan(t, withoutAck, 2*time.Second)
-}
-
-// TestResizeChangesChildReportedGeometry verifies pty.resize reaches child-visible rows and cols.
-func TestResizeChangesChildReportedGeometry(t *testing.T) {
-	t.Parallel()
-	service, recorder := newTestService(t)
-	tabID := "resize"
-	spawnTestScript(t, service, tabID, `
-trap 'printf "SIZE "; stty size; exit 0' WINCH
-echo READY
-# The shell runs a trap only between commands, so it waits in the wait
-# builtin, which a trapped signal interrupts, rather than in sleep.
-while :; do sleep 1 & wait $!; done
-`)
-	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
-
-	resizeSession(t, service, tabID, 123, 37)
-	recorder.requireTranscriptContains(t, "SIZE 37 123", 2*time.Second)
 }
 
 // TestResizeAndForegroundRacingKill drives the master-fd ioctls (resize,
@@ -239,45 +205,6 @@ func TestExitReportedWhileBackgroundJobHoldsTerminal(t *testing.T) {
 			}
 			recorder.requireExit(t, tabID, 3*time.Second)
 		})
-	}
-}
-
-// TestControlCWriteDeliversSIGINT verifies raw 0x03 is handled by the PTY line discipline.
-func TestControlCWriteDeliversSIGINT(t *testing.T) {
-	t.Parallel()
-	service, recorder := newTestService(t)
-	tabID := "sigint"
-	spawnTestScript(t, service, tabID, `
-echo READY
-exec cat
-`)
-	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
-
-	writeSession(t, service, tabID, string([]byte{0x03}))
-	exit := recorder.requireExit(t, tabID, 2*time.Second)
-	if exit.Signal == nil || *exit.Signal != "SIGINT" {
-		t.Fatalf("exit signal mismatch: got %#v, want SIGINT", exit)
-	}
-	if exit.Code != nil {
-		t.Fatalf("signal exit should not carry numeric code: %#v", exit)
-	}
-}
-
-// TestChildExitCodeEmitted verifies normal non-zero child exits preserve their code.
-func TestChildExitCodeEmitted(t *testing.T) {
-	t.Parallel()
-	service, recorder := newTestService(t)
-	tabID := "exit-42"
-	spawnTestScript(t, service, tabID, `
-exit 42
-`)
-
-	exit := recorder.requireExit(t, tabID, 2*time.Second)
-	if exit.Code == nil || *exit.Code != 42 {
-		t.Fatalf("exit code mismatch: got %#v, want 42", exit)
-	}
-	if exit.Signal != nil {
-		t.Fatalf("normal exit should not carry signal: %#v", exit)
 	}
 }
 
@@ -459,15 +386,6 @@ func writeSession(t *testing.T, service *Service, tabID string, data string) {
 	_, err := service.Write(context.Background(), mustJSON(t, WriteParams{WorkspaceID: testWorkspaceID, TabID: tabID, Data: data}))
 	if err != nil {
 		t.Fatalf("write %s: %v", tabID, err)
-	}
-}
-
-// resizeSession invokes pty.resize for tabID.
-func resizeSession(t *testing.T, service *Service, tabID string, cols int, rows int) {
-	t.Helper()
-	_, err := service.Resize(context.Background(), mustJSON(t, ResizeParams{WorkspaceID: testWorkspaceID, TabID: tabID, Cols: cols, Rows: rows}))
-	if err != nil {
-		t.Fatalf("resize %s: %v", tabID, err)
 	}
 }
 

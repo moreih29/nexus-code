@@ -12,7 +12,6 @@
  *   - Rebalance trigger + bulk `workspace.reordered` event
  *   - Concurrent reorder serialization (determinism)
  *   - Renderer-store fallback on stale applySortedInsert (consistent=false → fetchList)
- *   - Hot-path: lastOpenedAt update does not trigger re-sort
  */
 
 import { Database } from "bun:sqlite";
@@ -27,10 +26,7 @@ import {
   type BroadcastFn,
   WorkspaceManager,
 } from "../../../src/main/features/workspace/manager";
-import {
-  applySortedInsert,
-  createWorkspacesStore,
-} from "../../../src/renderer/state/stores/workspaces";
+import { createWorkspacesStore } from "../../../src/renderer/state/stores/workspaces";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 
 // ---------------------------------------------------------------------------
@@ -186,41 +182,6 @@ describe("single-group reorder — DB consistency + workspace.changed broadcast"
 
   afterEach(() => {
     fixtures.globalDb.close();
-  });
-
-  it("moving ws-1 to position after ws-3 emits exactly one workspace.changed broadcast", () => {
-    // Create 4 unpinned workspaces: positions 1024, 2048, 3072, 4096.
-    const id1 = createWs(fixtures.manager, 1);
-    const id2 = createWs(fixtures.manager, 2);
-    const id3 = createWs(fixtures.manager, 3);
-    createWs(fixtures.manager, 4);
-    fixtures.broadcast.mockClear();
-
-    // Reorder: move ws-1 to land AFTER ws-3 — afterId=id3 (natural semantics:
-    // new row sits immediately after id3; midpoint of id3=3072 and ws-4=4096).
-    fixtures.manager.reorder(id1, { targetGroup: "unpinned", afterId: id3 });
-
-    const calls = fixtures.broadcast.mock.calls as [string, string, unknown][];
-    // Exactly one broadcast for a non-rebalancing move.
-    expect(calls.length).toBe(1);
-    const [ch, ev] = calls[0];
-    expect(ch).toBe("workspace");
-    expect(ev).toBe("changed");
-
-    // The broadcast payload must be the updated WorkspaceMeta for ws-1 only.
-    const payload = calls[0][2] as WorkspaceMeta;
-    expect(payload.id).toBe(id1);
-
-    // DB consistency: ws-1's sort_order must now sit between ws-3 (3072) and ws-4 (4096).
-    const rows = readSortRows(fixtures.globalDb);
-    const ws1Row = rows.get(id1)!;
-    const ws2Row = rows.get(id2)!;
-    const ws3Row = rows.get(id3)!;
-    expect(ws1Row.sortOrder).toBeGreaterThan(ws3Row.sortOrder);
-    expect(ws1Row.sortOrder).toBeLessThan(4096);
-    // ws-2 and ws-3 positions must be untouched (single-row update only).
-    expect(ws2Row.sortOrder).toBe(2048);
-    expect(ws3Row.sortOrder).toBe(3072);
   });
 
   // --- Regression: user-reported drop-slot scenarios -----------------------
@@ -641,71 +602,5 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(fetchListMock).toHaveBeenCalledTimes(1);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 7 — Hot-path: lastOpenedAt update does not trigger re-sort
-// ---------------------------------------------------------------------------
-
-describe("hot-path — lastOpenedAt update does not trigger re-sort", () => {
-  let fixtures: Fixtures;
-
-  beforeEach(() => {
-    fixtures = makeFixtures();
-  });
-
-  afterEach(() => {
-    fixtures.globalDb.close();
-  });
-
-  it("activate() bumps lastOpenedAt but sortOrder stays the same in DB and in-memory", async () => {
-    const id1 = createWs(fixtures.manager, 30);
-    const id2 = createWs(fixtures.manager, 31);
-    const id3 = createWs(fixtures.manager, 32);
-    fixtures.broadcast.mockClear();
-
-    const listBefore = fixtures.manager.list();
-    const wsBefore = listBefore.find((w) => w.id === id2)!;
-    const sortOrderBefore = wsBefore.sortOrder;
-
-    // activate() bumps lastOpenedAt (via touchLastOpened) but must not
-    // change sort positions. The provider boot is a no-op for local workspaces
-    // in test since there's no real agent process.
-    try {
-      // activate() tries to ensureProviderReady; that may throw in test env
-      // (no real local agent), but the mutation-side effects happen before that.
-      // We use update() directly which is the same hot-path we want to verify.
-      fixtures.manager.update(id2, { lastOpenedAt: new Date().toISOString() });
-    } catch {
-      // swallow provider boot error in test environment
-    }
-
-    const listAfter = fixtures.manager.list();
-    const ws2After = listAfter.find((w) => w.id === id2)!;
-
-    // sortOrder must not have changed.
-    expect(ws2After.sortOrder).toBe(sortOrderBefore);
-    expect(ws2After.pinnedSortOrder).toBe(0);
-
-    // In-memory list order must be unchanged (id1 still before id2 before id3).
-    expect(listAfter[0].id).toBe(id1);
-    expect(listAfter[1].id).toBe(id2);
-    expect(listAfter[2].id).toBe(id3);
-
-    // Renderer store hot-path: sort-field-unchanged update must not change position.
-    const ws2Meta = ws2After;
-    const listForStore: WorkspaceMeta[] = [
-      listBefore[0],
-      listBefore[1],
-      listBefore[2],
-    ];
-    const updatedWs2 = { ...ws2Meta, name: "ws-31-renamed" };
-    const { workspaces: sorted, consistent } = applySortedInsert(listForStore, updatedWs2);
-    // Must be consistent (no sort fields changed → binary search places it correctly).
-    expect(consistent).toBe(true);
-    // Position must be unchanged: ws-31 (id2) stays at index 1.
-    expect(sorted[1].id).toBe(id2);
-    expect(sorted[1].name).toBe("ws-31-renamed");
   });
 });

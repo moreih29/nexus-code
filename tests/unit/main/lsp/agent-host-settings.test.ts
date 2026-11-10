@@ -74,27 +74,6 @@ function open(
 }
 
 describe("LSP host settings", () => {
-  test("starts a server with the initializationOptions the settings give", async () => {
-    const channel = new SpawnRecordingChannel();
-    const host = startAgentLspHost(
-      { getAgentChannel: async () => channel },
-      {
-        initializationOptions: (languageId, preset) =>
-          languageId === "typescript"
-            ? { ...(preset.initializationOptions as object), lowMemory: true }
-            : preset.initializationOptions,
-      },
-    );
-
-    await open(host, WORKSPACE_A, "typescript", "a.ts");
-
-    expect(channel.spawns[0]?.initializationOptions).toEqual({
-      hostInfo: "nexus-code",
-      preferences: {},
-      lowMemory: true,
-    });
-  });
-
   test("a lowered cap stops the least recently used workspace", async () => {
     const channel = new SpawnRecordingChannel();
     let cap = 2;

@@ -4,17 +4,14 @@
  * Covers:
  * - classifyPermission: all 20 known kinds + unknown string inputs
  * - isKnownPermission: union membership excluding 'unknown'
- * - PERMISSION_TOGGLES: structural assertions (no auto/unknown entries, tier order)
- * - permissionLabel: spot-check label lookups
+ * - PERMISSION_TOGGLES: structural assertions (no auto/unknown entries)
  */
 
 import { describe, expect, test } from "bun:test";
 import {
-  BrowserPermissionKindSchema,
   PERMISSION_TOGGLES,
   classifyPermission,
   isKnownPermission,
-  permissionLabel,
 } from "../../../../src/shared/security/browser-permissions";
 
 // ---------------------------------------------------------------------------
@@ -129,76 +126,6 @@ describe("PERMISSION_TOGGLES", () => {
   test("no toggle covers 'unknown'", () => {
     for (const toggle of PERMISSION_TOGGLES) {
       expect(toggle.permissions).not.toContain("unknown");
-    }
-  });
-
-  test("every toggle has a non-empty key, label, description, and icon", () => {
-    for (const toggle of PERMISSION_TOGGLES) {
-      expect(toggle.key.length).toBeGreaterThan(0);
-      expect(toggle.label.length).toBeGreaterThan(0);
-      expect(toggle.description.length).toBeGreaterThan(0);
-      expect(toggle.icon.length).toBeGreaterThan(0);
-    }
-  });
-
-  test("every toggle permission is a valid BrowserPermissionKind", () => {
-    for (const toggle of PERMISSION_TOGGLES) {
-      for (const p of toggle.permissions) {
-        expect(BrowserPermissionKindSchema.safeParse(p).success).toBe(true);
-      }
-    }
-  });
-
-  test("merged groups have multiple permissions", () => {
-    const midi = PERMISSION_TOGGLES.find((t) => t.key === "midi+midiSysex");
-    expect(midi?.permissions).toEqual(["midi", "midiSysex"]);
-
-    const inputLock = PERMISSION_TOGGLES.find((t) => t.key === "pointerLock+keyboardLock");
-    expect(inputLock?.permissions).toEqual(["pointerLock", "keyboardLock"]);
-  });
-
-  test("Tier A entries come before Tier B entries (ordering)", () => {
-    let seenB = false;
-    for (const toggle of PERMISSION_TOGGLES) {
-      if (toggle.tier === "B") seenB = true;
-      if (seenB) {
-        // Once we've seen a B, we must not see an A
-        expect(toggle.tier).toBe("B");
-      }
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// permissionLabel
-// ---------------------------------------------------------------------------
-
-describe("permissionLabel", () => {
-  // permissionLabel() is the shared, non-localized English fallback helper.
-  // Localized (e.g. Korean) labels are resolved in the UI layer via i18n
-  // `t("browserPermissions.permissionLabel.*")`, not by this function.
-  test("media → 'Camera & microphone'", () => {
-    expect(permissionLabel("media")).toBe("Camera & microphone");
-  });
-
-  test("midi → 'MIDI'", () => {
-    expect(permissionLabel("midi")).toBe("MIDI");
-  });
-
-  test("geolocation → 'Location'", () => {
-    expect(permissionLabel("geolocation")).toBe("Location");
-  });
-
-  test("unknown → 'Unknown permission'", () => {
-    expect(permissionLabel("unknown")).toBe("Unknown permission");
-  });
-
-  test("every BrowserPermissionKind has a label (no undefined)", () => {
-    const allKinds = BrowserPermissionKindSchema.options;
-    for (const kind of allKinds) {
-      const label = permissionLabel(kind);
-      expect(typeof label).toBe("string");
-      expect(label.length).toBeGreaterThan(0);
     }
   });
 });

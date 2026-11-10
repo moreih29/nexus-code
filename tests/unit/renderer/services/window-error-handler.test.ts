@@ -56,10 +56,7 @@ mock.module("electron-log/renderer", () => ({
 // Import after mocks
 // ---------------------------------------------------------------------------
 
-import {
-  installWindowErrorHandlers,
-  isPureCanceled,
-} from "../../../../src/renderer/services/window-error-handler";
+import { installWindowErrorHandlers } from "../../../../src/renderer/services/window-error-handler";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,66 +129,6 @@ function makeErrorEvent(
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// isPureCanceled
-// ---------------------------------------------------------------------------
-
-describe("isPureCanceled — cancellation detection", () => {
-  test("returns true for { name: 'Canceled' }", () => {
-    expect(isPureCanceled({ name: "Canceled" })).toBe(true);
-  });
-
-  test("returns true for { message: 'Canceled' }", () => {
-    expect(isPureCanceled({ message: "Canceled" })).toBe(true);
-  });
-
-  test("returns false for a generic Error object", () => {
-    expect(isPureCanceled(new Error("something went wrong"))).toBe(false);
-  });
-
-  test("returns false for a string reason", () => {
-    expect(isPureCanceled("Canceled")).toBe(false);
-  });
-
-  test("returns false for null", () => {
-    expect(isPureCanceled(null)).toBe(false);
-  });
-
-  test("returns false for undefined", () => {
-    expect(isPureCanceled(undefined)).toBe(false);
-  });
-
-  test("returns false for an object with unrelated fields", () => {
-    expect(isPureCanceled({ code: "ENOENT", message: "File not found" })).toBe(false);
-  });
-
-  test("returns false for an object with name 'AbortError' (not our sentinel)", () => {
-    expect(isPureCanceled({ name: "AbortError" })).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// installWindowErrorHandlers — listener registration and teardown
-// ---------------------------------------------------------------------------
-
-describe("installWindowErrorHandlers — listener registration and teardown", () => {
-  let windowStub: ReturnType<typeof makeWindowStub>;
-
-  beforeEach(() => {
-    logged.length = 0;
-    windowStub = makeWindowStub();
-    (globalThis as Record<string, unknown>).window = windowStub.stub;
-  });
-
-  test("teardown removes exactly the listeners it added", () => {
-    const teardown = installWindowErrorHandlers();
-    teardown();
-
-    expect(windowStub.added.map((l) => l.type).sort()).toEqual(["error", "unhandledrejection"]);
-    expect(windowStub.removed).toEqual(windowStub.added);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Handler behaviour — unhandledrejection

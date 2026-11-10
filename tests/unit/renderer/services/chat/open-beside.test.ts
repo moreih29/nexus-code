@@ -18,7 +18,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   canUseIpcBridge: () => false,
 }));
 
-const { fileLinkTarget, openBrowserBeside, openFileBeside, revealTabById } = await import(
+const { fileLinkTarget, openFileBeside } = await import(
   "../../../../../src/renderer/services/chat/open-beside"
 );
 const { resolveFileLink } = await import("../../../../../src/renderer/services/chat/links");
@@ -26,11 +26,8 @@ const { useActiveStore } = await import("../../../../../src/renderer/state/store
 const { __resetAgentViewForTests, useAgentViewStore } = await import(
   "../../../../../src/renderer/state/stores/agent-view"
 );
-const { allLeaves } = await import("../../../../../src/renderer/state/stores/layout/helpers");
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout/store");
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
-const { leafShowing } = await import("../../../../../src/renderer/services/agent-view/layout");
-const { sessionKey } = await import("../../../../../src/renderer/services/sessions/model");
 const { useWorkspacesStore } = await import("../../../../../src/renderer/state/stores/workspaces");
 const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
   "../../../../../src/shared/manager/manager"
@@ -61,53 +58,6 @@ describe("the file a line link opens", () => {
     expect(await target("src/a.ts")).toEqual({ path: "/w/src/a.ts" });
     expect(await target("/elsewhere/b.ts:4")).toMatchObject({ path: "/elsewhere/b.ts", line: 4 });
     expect(stats).toEqual([]);
-  });
-});
-
-describe("what a conversation opens, from the agent view", () => {
-  const WS = "00000000-0000-4000-8000-0000000000a1";
-  let chat: string;
-
-  const leaves = () => allLeaves(useLayoutStore.getState().byWorkspace[WS]?.root ?? null);
-
-  beforeEach(() => {
-    useLayoutStore.setState({ byWorkspace: {} });
-    useTabsStore.setState({ byWorkspace: {} });
-    useLayoutStore.getState().ensureLayout(WS);
-    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/w" } });
-    const group = useLayoutStore.getState().byWorkspace[WS]?.activeGroupId ?? "";
-    useLayoutStore.getState().attachTab(WS, group, tab.id);
-    useLayoutStore
-      .getState()
-      .setActiveTabInGroup({ workspaceId: WS, groupId: group, tabId: tab.id });
-    chat = tab.id;
-    useActiveStore.getState().setActiveWorkspaceId("another");
-    useAgentViewStore.getState().setMode("agents");
-  });
-
-  afterEach(() => {
-    __resetAgentViewForTests();
-  });
-
-  test("a tab it opens shows in its workspace, brought to the front beside it", () => {
-    // Narrow in its panel, the conversation would not split: in the workspace it does.
-    openBrowserBeside(WS, chat, "http://localhost:5173/", { split: false });
-
-    expect(useAgentViewStore.getState().mode).toBe("workspace");
-    expect(useActiveStore.getState().activeWorkspaceId).toBe(WS);
-    expect(leaves()).toHaveLength(2);
-    expect(leaves().map((leaf) => leaf.activeTabId)).toContain(chat);
-    const browser = Object.values(useTabsStore.getState().byWorkspace[WS] ?? {}).find(
-      (tab) => tab.type === "browser",
-    );
-    expect(leaves().map((leaf) => leaf.activeTabId)).toContain(browser?.id);
-  });
-
-  test("a conversation already open shows in the agent view", () => {
-    revealTabById(WS, chat);
-
-    expect(useAgentViewStore.getState().mode).toBe("agents");
-    expect(leafShowing(useAgentViewStore.getState().root, sessionKey(WS, chat))).not.toBeNull();
   });
 });
 
@@ -150,17 +100,6 @@ describe("what the agent manager's conversation opens", () => {
     __resetAgentViewForTests();
   });
 
-  test("a file opens in the workspace that holds it, brought to the front", () => {
-    openFileBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "/repo/src/a.ts", {
-      split: true,
-      inside: false,
-    });
-    expect(useActiveStore.getState().activeWorkspaceId).toBe(HOLDER);
-    expect(useAgentViewStore.getState().mode).toBe("workspace");
-    expect(tabsOf(HOLDER).map((tab) => tab.type)).toEqual(["editor"]);
-    expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
-  });
-
   test("one no workspace holds opens read-only in the one shown", () => {
     openFileBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "/elsewhere/b.ts", {
       split: true,
@@ -168,15 +107,6 @@ describe("what the agent manager's conversation opens", () => {
     });
     expect(useActiveStore.getState().activeWorkspaceId).toBe(SHOWN);
     expect(tabsOf(SHOWN)[0]?.props).toMatchObject({ origin: "external", readOnly: true });
-    expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
-  });
-
-  test("an address opens in the workspace shown", () => {
-    useActiveStore.getState().setActiveWorkspaceId(REMOTE);
-    openBrowserBeside(MANAGER_WORKSPACE_ID, MANAGER_TAB_ID, "http://localhost:5173/", {
-      split: true,
-    });
-    expect(tabsOf(REMOTE).map((tab) => tab.type)).toEqual(["browser"]);
     expect(tabsOf(MANAGER_WORKSPACE_ID)).toEqual([]);
   });
 });

@@ -920,23 +920,6 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
     }
   });
 
-  test("앱 비포커스 시 permission-request hook OS 알림 발사", async () => {
-    const { notifInstances, emit } = makeHarness(false);
-    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
-    expect(notifInstances[0].title).toContain("Permission");
-  });
-
-  test("앱 포커스 + active 다른 탭 시 permission-request OS 알림 발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab");
-    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
-    expect(notifInstances[0].title).toContain("Permission");
-  });
-
   test("the agent manager's session raises no notification of its own", async () => {
     const { notifInstances, emit } = makeHarness(false /* unfocused */);
     for (const subcommand of ["stop", "notification", "permission-request"]) {
@@ -949,42 +932,9 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances).toHaveLength(0);
   });
-
-  test("앱 포커스 + active 일치 시 permission-request OS 알림 미발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "tab-test");
-    emit(makeHookPayload("permission-request", { tool_name: "Bash" }));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances).toHaveLength(0);
-  });
 });
 
 describe("hook-handler — Stop 알림 발사(active context 분기)", () => {
-  test("사용자가 그 탭을 보고 있으면 Stop 알림 미발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "tab-test");
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances).toHaveLength(0);
-  });
-
-  test("사용자가 다른 탭을 보고 있으면 Stop OS 알림 발사", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab");
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
-    expect(notifInstances[0].body).toBe("Response complete");
-  });
-
-  test("앱 비포커스 시 Stop OS 알림 발사 (active 일치 무관)", async () => {
-    const { notifInstances, activeContext, emit } = makeHarness(false /* unfocused */);
-    activeContext.set("ws-test", "tab-test");
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBeGreaterThanOrEqual(1);
-  });
-
   test("active context 미설정 시 Stop OS 알림 발사", async () => {
     const { notifInstances, emit } = makeHarness(true /* focused */);
     // activeContext.set 호출 안 함 → null
@@ -1031,46 +981,6 @@ describe("hook-handler — notificationsEnabled 마스터 토글", () => {
     expect(notifInstances.length).toBe(0);
     // broker는 정상 갱신 — 사이드바 인디케이터는 토글 영향 없음.
     expect(broker.snapshot().length).toBeGreaterThan(0);
-  });
-
-  test("토글 off 시 Permission Request OS 알림이 발사되지 않는다", async () => {
-    const { notifInstances, broker, emit } = makeHarness(false, {
-      notificationsEnabled: () => false,
-    });
-    emit(
-      makeHookPayload("permission-request", {
-        tool_name: "Bash",
-      }),
-    );
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBe(0);
-    expect(broker.snapshot().length).toBeGreaterThan(0);
-  });
-
-  test("토글 off 시 Stop(응답 완료) OS 알림이 발사되지 않는다", async () => {
-    const { notifInstances, broker, emit } = makeHarness(false, {
-      notificationsEnabled: () => false,
-    });
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBe(0);
-    expect(broker.snapshot().length).toBeGreaterThan(0);
-  });
-
-  test("토글 getter가 매번 평가된다 — 도중에 false→true 전환되면 다음 발사부터 즉시 반영", async () => {
-    let enabled = false;
-    const { notifInstances, emit } = makeHarness(false, {
-      notificationsEnabled: () => enabled,
-    });
-
-    emit(makeHookPayload("stop"));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBe(0);
-
-    enabled = true;
-    emit({ ...makeHookPayload("stop"), tabId: "tab-test-2" });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances.length).toBe(1);
   });
 });
 

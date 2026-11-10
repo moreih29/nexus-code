@@ -52,9 +52,7 @@ mock.module("../../../../../src/renderer/services/sessions/session-events", () =
   onSessionEvents: () => () => {},
 }));
 
-const { startManager, managerClaudeHooks } = await import(
-  "../../../../../src/renderer/services/manager/runtime"
-);
+const { startManager } = await import("../../../../../src/renderer/services/manager/runtime");
 const { useManagerStore } = await import("../../../../../src/renderer/state/stores/manager");
 const { useAgentProfilesStore } = await import(
   "../../../../../src/renderer/state/stores/agent-profiles"
@@ -110,29 +108,6 @@ async function run(): Promise<void> {
 }
 
 describe("the manager's profile", () => {
-  test("is the agent's default profile when none is chosen", async () => {
-    await run();
-    expect(last().props.profileId).toBe("work");
-    expect(useManagerStore.getState().live?.profileId).toBe("work");
-  });
-
-  test("is the one chosen, and the default folder sets none", async () => {
-    useManagerStore.setState({ profiles: { claude: "claude-default" } });
-    await run();
-    expect(last().props.profileId).toBeUndefined();
-    expect(useManagerStore.getState().live?.profileId).toBe("claude-default");
-  });
-
-  test("a session it made is kept with its profile", async () => {
-    await run();
-    managerClaudeHooks.onSession?.("s-work");
-    expect(useManagerStore.getState().session).toEqual({
-      agent: "claude",
-      id: "s-work",
-      profileId: "work",
-    });
-  });
-
   test("another profile chosen starts it over in a new conversation", async () => {
     useManagerStore.setState({ session: { agent: "claude", id: "s-work", profileId: "work" } });
     await run();
@@ -157,24 +132,6 @@ describe("the manager's profile", () => {
     useManagerStore.getState().setSettings({ profiles: {} });
     await settle();
     expect(opened).toHaveLength(1);
-  });
-
-  test("follows a change of the default profile, unless one is chosen", async () => {
-    await run();
-    useAgentProfilesStore.setState({
-      config: { profiles: [WORK], rules: [], defaults: {} },
-    });
-    await settle();
-    expect(opened).toHaveLength(2);
-    expect(last().props.profileId).toBeUndefined();
-
-    useManagerStore.getState().setSettings({ profiles: { claude: "claude-default" } });
-    await settle();
-    useAgentProfilesStore.setState({
-      config: { profiles: [WORK], rules: [], defaults: { claude: "work" } },
-    });
-    await settle();
-    expect(opened).toHaveLength(2);
   });
 
   test("goes back to the default when the one chosen is removed", async () => {

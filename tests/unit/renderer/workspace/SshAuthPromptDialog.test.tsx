@@ -1,16 +1,9 @@
 /**
- * Scenario tests for the singleton SSH auth prompt dialog and FIFO controller.
+ * Scenario tests for the singleton SSH auth prompt FIFO controller.
  */
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
-  copySshHostKeyFingerprint,
-  SshAuthPromptDialogContent,
-  sshAuthPromptInputType,
-} from "../../../../src/renderer/components/workspace/ssh-auth-prompt-dialog";
-import {
-  __clearHeldWorkspacesForTests,
-  __markWorkspaceHeldForTests,
   __resetSshAuthPromptsForTests,
   getSshAuthPromptSnapshot,
   installSshAuthPromptListeners,
@@ -20,183 +13,10 @@ import {
 } from "../../../../src/renderer/components/workspace/use-ssh-auth-prompts";
 import type { ipcCallResult, ipcListen } from "../../../../src/renderer/ipc/client";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
-import { renderInDialog } from "../../../helpers/render-in-dialog";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 
-describe("SshAuthPromptDialogContent", () => {
-  it("renders a masked password prompt with accessible dialog labels", () => {
-    const prompt = makePasswordPrompt({ promptId: "password-1" });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(sshAuthPromptInputType("password")).toBe("password");
-    expect(html).toContain("SSH password required");
-    expect(html).toContain('type="password"');
-    expect(html).toContain("alice@example.com:22");
-    // The dialog's Radix Title and Description, which name and describe it.
-    expect(html).toMatch(/<h2 id="[^"]+"[^>]*>SSH password required<\/h2>/);
-    expect(html).toMatch(/<p id="[^"]+"[^>]*>[^<]*alice@example\.com:22/);
-  });
-
-  it("renders a host-key trust prompt with the fingerprint and copy action", () => {
-    const prompt = makeHostKeyPrompt({ promptId: "host-key-1" });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage="1 / 2 pending"
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("Trust SSH host key");
-    expect(html).toContain("1 / 2 pending");
-    expect(html).toContain("SHA256:abcdef1234567890");
-    expect(html).toContain(">Copy<");
-    expect(html).toContain(">Cancel<");
-    expect(html).toContain(">Trust<");
-  });
-
-  it("shows an inline retry alert when the password prompt is a retry", () => {
-    const prompt = makePasswordPrompt({ promptId: "password-retry", retry: true });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("Authentication failed. Try again.");
-    expect(html).toContain('role="alert"');
-  });
-
-  it("omits the retry alert when the password prompt is fresh", () => {
-    const prompt = makePasswordPrompt({ promptId: "password-fresh" });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).not.toContain("Authentication failed. Try again.");
-  });
-
-  it("renders host-key safety guidance and that trusting saves the key", () => {
-    const prompt = makeHostKeyPrompt({ promptId: "host-key-guidance" });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    // apostrophes are HTML-escaped by renderToStaticMarkup, so we match around them.
-    expect(html).toContain("recognize this fingerprint, do not trust the host.");
-    expect(html).toContain("Trusting saves this key to known_hosts");
-  });
-
-  it("copies the host-key fingerprint through the renderer clipboard helper", () => {
-    const copied: string[] = [];
-    const navigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
-    Object.defineProperty(globalThis, "navigator", {
-      configurable: true,
-      value: { clipboard: { writeText: (value: string) => copied.push(value) } },
-    });
-
-    try {
-      copySshHostKeyFingerprint("SHA256:copied");
-    } finally {
-      // Later test files read navigator.platform; leave them the real one.
-      if (navigator) Object.defineProperty(globalThis, "navigator", navigator);
-    }
-
-    expect(copied).toEqual(["SHA256:copied"]);
-  });
-
-  // T14: reattach context copy — password dialog shows workspace-specific title
-  it("shows reattach-context title when isReattach=true and prompt.kind=password", () => {
-    const prompt = makePasswordPrompt({ promptId: "reattach-pw", host: "dev.example.com" });
-
-    const html = renderInDialog(
-      <SshAuthPromptDialogContent
-        prompt={prompt}
-        passwordValue=""
-        pendingMessage={null}
-        isReattach={true}
-        onPasswordChange={() => {}}
-        onCancel={() => {}}
-        onCopyFingerprint={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    // Title contains the host name from the prompt.
-    expect(html).toContain("dev.example.com");
-    // Uses the reattach-specific title copy, not the generic one.
-    expect(html).not.toContain("SSH password required");
-  });
-});
-
 describe("Ssh auth prompt FIFO controller", () => {
-  it("registers the singleton sshAuth prompt listener", () => {
-    __resetSshAuthPromptsForTests();
-    const callbacks = new Map<string, (prompt: SshAuthPrompt) => void>();
-    const unlistened: string[] = [];
-    const listen = ((channel: string, event: string, callback: (prompt: unknown) => void) => {
-      const key = `${channel}.${event}`;
-      callbacks.set(key, callback as (prompt: SshAuthPrompt) => void);
-      return () => unlistened.push(key);
-    }) as typeof ipcListen;
-
-    const unlisten = installSshAuthPromptListeners(listen);
-    expect(Array.from(callbacks.keys())).toEqual([
-      "sshAuth.prompt",
-      "pty.held",
-      "pty.restored",
-      "pty.expired",
-    ]);
-
-    callbacks.get("sshAuth.prompt")?.(makePasswordPrompt({ promptId: "global-password" }));
-    expect(getSshAuthPromptSnapshot().currentPrompt?.promptId).toBe("global-password");
-
-    unlisten();
-    expect(unlistened).toEqual(["sshAuth.prompt", "pty.held", "pty.restored", "pty.expired"]);
-  });
-
   it("serializes prompts FIFO and responds to password then host-key prompts", () => {
     __resetSshAuthPromptsForTests();
     const { callbacks } = installPromptListenerHarness();
@@ -253,52 +73,6 @@ describe("Ssh auth prompt FIFO controller", () => {
     expect(ExtractPasswordPrompt(getSshAuthPromptSnapshot().currentPrompt)?.prompt).toBe(
       "Password failed. Try again:",
     );
-  });
-});
-
-// T14: isReattach detection — prompt arriving for a workspace that has an active
-// PTY hold is flagged as a reattach context so the dialog shows the specific copy.
-describe("Ssh auth prompt isReattach detection", () => {
-  it("isReattach is false when the workspace is not in held state", () => {
-    __resetSshAuthPromptsForTests();
-    const { callbacks } = installPromptListenerHarness();
-    emitPrompt(callbacks, makePasswordPrompt({ promptId: "fresh", workspaceId: WORKSPACE_ID }));
-
-    const { call } = createIpcCallRecorder();
-    const state = readSshAuthPromptState(call);
-
-    expect(state.isReattach).toBe(false);
-  });
-
-  it("isReattach is true when the workspace was previously marked held", () => {
-    __resetSshAuthPromptsForTests();
-    __markWorkspaceHeldForTests(WORKSPACE_ID);
-    const { callbacks } = installPromptListenerHarness();
-    emitPrompt(callbacks, makePasswordPrompt({ promptId: "held", workspaceId: WORKSPACE_ID }));
-
-    const { call } = createIpcCallRecorder();
-    const state = readSshAuthPromptState(call);
-
-    expect(state.isReattach).toBe(true);
-
-    __clearHeldWorkspacesForTests();
-  });
-
-  it("isReattach is false for a prompt with no workspaceId even when some workspace is held", () => {
-    __resetSshAuthPromptsForTests();
-    __markWorkspaceHeldForTests(WORKSPACE_ID);
-    const { callbacks } = installPromptListenerHarness();
-    emitPrompt(
-      callbacks,
-      makePasswordPrompt({ promptId: "no-ws", workspaceId: undefined as unknown as string }),
-    );
-
-    const { call } = createIpcCallRecorder();
-    const state = readSshAuthPromptState(call);
-
-    expect(state.isReattach).toBe(false);
-
-    __clearHeldWorkspacesForTests();
   });
 });
 

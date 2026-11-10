@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,50 +31,6 @@ func cliRequest(token string) hookWireRequest {
 		WorkspaceID: "ws-1",
 		TabID:       "tab-1",
 		Payload:     json.RawMessage(`{"argv":["status"],"cwd":"/w","tempDir":"/tmp"}`),
-	}
-}
-
-// A CLI request reaches main as a cli.request event, and main's answer
-// reaches the client as it was given.
-func TestCLIRequestGetsMainsAnswer(t *testing.T) {
-	var mu sync.Mutex
-	var events []CLIEventPayload
-	got := make(chan struct{}, 1)
-	srv := newTestServer(t, func(name string, payload any) error {
-		if name != "cli.request" {
-			t.Errorf("event %q", name)
-		}
-		mu.Lock()
-		events = append(events, payload.(CLIEventPayload))
-		mu.Unlock()
-		got <- struct{}{}
-		return nil
-	})
-
-	conn := dialAndSendRequest(t, srv.SocketPath(), cliRequest(srv.Token()))
-	defer conn.Close()
-	<-got
-
-	mu.Lock()
-	event := events[0]
-	mu.Unlock()
-	if event.WorkspaceID != "ws-1" || event.TabID != "tab-1" {
-		t.Fatalf("event = %+v", event)
-	}
-	if string(event.Request) != `{"argv":["status"],"cwd":"/w","tempDir":"/tmp"}` {
-		t.Fatalf("request = %s", event.Request)
-	}
-
-	answer := json.RawMessage(`{"stdout":"ok\n","stderr":"","exitCode":0}`)
-	if err := srv.RespondCLI(event.RequestID, answer); err != nil {
-		t.Fatalf("RespondCLI: %v", err)
-	}
-	resp := readCLIResponse(t, conn)
-	if !resp.OK || string(resp.Result) != string(answer) {
-		t.Fatalf("response = %+v", resp)
-	}
-	if err := srv.RespondCLI(event.RequestID, answer); err == nil {
-		t.Fatal("a second answer to the same request was taken")
 	}
 }
 

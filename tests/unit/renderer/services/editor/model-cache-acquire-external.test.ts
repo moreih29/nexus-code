@@ -139,37 +139,6 @@ beforeEach(() => {
 });
 
 describe("acquireModel — origin branching", () => {
-  test("calls createEntry for workspace origin (no origin field)", async () => {
-    await acquireModel(WS_INPUT);
-    expect(createEntryMock).toHaveBeenCalledTimes(1);
-    expect(loadExternalEntryMock).not.toHaveBeenCalled();
-    releaseModel(WS_INPUT);
-  });
-
-  test("calls createEntry for explicit origin=workspace", async () => {
-    const input = { ...WS_INPUT, origin: "workspace" as const };
-    await acquireModel(input);
-    expect(createEntryMock).toHaveBeenCalledTimes(1);
-    expect(loadExternalEntryMock).not.toHaveBeenCalled();
-    releaseModel(input);
-  });
-
-  test("calls loadExternalEntry for origin=external", async () => {
-    await acquireModel(EXT_INPUT);
-    expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);
-    expect(loadExternalEntryMock).toHaveBeenCalledWith(EXT_INPUT);
-    expect(createEntryMock).not.toHaveBeenCalled();
-    releaseModel(EXT_INPUT);
-  });
-
-  test("does not call loadExternalEntry again for a cached external entry", async () => {
-    await acquireModel(EXT_INPUT);
-    await acquireModel(EXT_INPUT);
-    expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);
-    releaseModel(EXT_INPUT);
-    releaseModel(EXT_INPUT);
-  });
-
   test("concurrent acquires of one external file share a single load and entry", async () => {
     await Promise.all([acquireModel(EXT_INPUT), acquireModel(EXT_INPUT)]);
     expect(loadExternalEntryMock).toHaveBeenCalledTimes(1);

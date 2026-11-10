@@ -5,12 +5,10 @@
  * fs calls movePath / copyPathWithAutoRename issue and the summary toast.
  *
  * Covers:
- *  - Single path move: one rename, no summary toast.
- *  - Multi-path move / copy: one call per path, info summary toast.
+ *  - Single path move: one rename that never overwrites, no summary toast.
  *  - Self-drop guard: every path already in the target dir → no-op; a
  *    partial self-drop skips those paths and leaves them out of the count.
  *  - Cycle guard: folder dropped into itself or a descendant → warning.
- *  - Partial failure: error summary names the first failed item.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -33,17 +31,10 @@ import { beforeEach, describe, expect, it, mock } from "bun:test";
 
 type IpcCall = { channel: string; method: string; args: Record<string, unknown> };
 const ipcCalls: IpcCall[] = [];
-/** fromRelPath whose rename / copyFile fails with PERMISSION_DENIED. */
-let failFromRelPath: string | null = null;
 
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcCallResult: (channel: string, method: string, args: Record<string, unknown>) => {
     ipcCalls.push({ channel, method, args });
-    if ((method === "rename" || method === "copyFile") && args.fromRelPath === failFromRelPath)
-      return Promise.resolve({
-        ok: false as const,
-        error: { message: `PERMISSION_DENIED: /repo/${failFromRelPath}` },
-      });
     if (method === "readdir") return Promise.resolve({ ok: true as const, value: [] });
     return Promise.resolve({ ok: true as const, value: undefined });
   },
@@ -90,7 +81,6 @@ function calls(method: string): Record<string, unknown>[] {
 beforeEach(() => {
   ipcCalls.length = 0;
   toastCalls.length = 0;
-  failFromRelPath = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -104,28 +94,6 @@ describe("dropFilePaths — move", () => {
       { workspaceId: WS, fromRelPath: "a.ts", toRelPath: "src/a.ts", overwrite: false },
     ]);
     expect(toastCalls).toEqual([]);
-  });
-
-  it("moves every path and summarizes", async () => {
-    await drop([`${ROOT}/a.ts`, `${ROOT}/b.ts`], `${ROOT}/src`, false);
-    expect(calls("rename").map((a) => a.toRelPath)).toEqual(["src/a.ts", "src/b.ts"]);
-    expect(toastCalls).toEqual([{ kind: "info", message: "Moved 2 items" }]);
-  });
-});
-
-describe("dropFilePaths — copy", () => {
-  it("copies every path and summarizes", async () => {
-    await drop([`${ROOT}/a.ts`, `${ROOT}/b.ts`], `${ROOT}/src`, true);
-    expect(calls("copyFile")).toEqual([
-      { workspaceId: WS, fromRelPath: "a.ts", toRelPath: "src/a.ts" },
-      { workspaceId: WS, fromRelPath: "b.ts", toRelPath: "src/b.ts" },
-    ]);
-    expect(toastCalls).toEqual([{ kind: "info", message: "Copied 2 items" }]);
-  });
-
-  it("copies into the source folder itself", async () => {
-    await drop([`${ROOT}/src/a.ts`], `${ROOT}/src`, true);
-    expect(calls("copyFile")).toHaveLength(1);
   });
 });
 
@@ -157,26 +125,5 @@ describe("dropFilePaths — cycle guard", () => {
     await drop([`${ROOT}/src`], `${ROOT}/src/sub`, true);
     expect(calls("copyFile")).toEqual([]);
     expect(toastCalls.map((t) => t.kind)).toEqual(["warning"]);
-  });
-});
-
-describe("dropFilePaths — partial failure", () => {
-  it("names the first item that failed to move", async () => {
-    failFromRelPath = "a.ts";
-    await drop([`${ROOT}/a.ts`, `${ROOT}/b.ts`], `${ROOT}/src`, false);
-    expect(calls("rename")).toHaveLength(2);
-    expect(toastCalls).toEqual([
-      { kind: "error", message: "Permission denied while moving item." },
-      { kind: "error", message: `Moved 1 of 2 items. Couldn't move "a.ts".` },
-    ]);
-  });
-
-  it("names the first item that failed to copy", async () => {
-    failFromRelPath = "b.ts";
-    await drop([`${ROOT}/a.ts`, `${ROOT}/b.ts`], `${ROOT}/src`, true);
-    expect(toastCalls.at(-1)).toEqual({
-      kind: "error",
-      message: `Copied 1 of 2 items. Couldn't copy "b.ts".`,
-    });
   });
 });

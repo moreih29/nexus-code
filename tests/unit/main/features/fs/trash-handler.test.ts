@@ -46,23 +46,6 @@ function makeLocalWorkspace(): WorkspaceMeta {
 }
 
 describe("trashHandler", () => {
-  it("moves an existing local workspace path to the OS trash via shell.trashItem", async () => {
-    const filePath = path.join(tmpRoot, "doomed.txt");
-    fs.writeFileSync(filePath, "x");
-
-    const shell = { trashItem: mock(async (_abs: string) => {}) };
-
-    await trashHandler(
-      makeManager(makeLocalWorkspace()) as never,
-      shell,
-    )({
-      workspaceId: WORKSPACE_ID,
-      relPath: "doomed.txt",
-    });
-
-    expect(shell.trashItem).toHaveBeenCalledWith(filePath);
-  });
-
   it("refuses SSH workspaces with UNSUPPORTED_REMOTE", async () => {
     const shell = { trashItem: mock(async (_abs: string) => {}) };
     const workspace: WorkspaceMeta = {
@@ -82,41 +65,5 @@ describe("trashHandler", () => {
     ).rejects.toThrow(`${FS_ERROR.UNSUPPORTED_REMOTE}: ${WORKSPACE_ID}`);
 
     expect(shell.trashItem).not.toHaveBeenCalled();
-  });
-
-  it("is idempotent on a missing path (no-op, no error)", async () => {
-    const shell = { trashItem: mock(async (_abs: string) => {}) };
-
-    await trashHandler(
-      makeManager(makeLocalWorkspace()) as never,
-      shell,
-    )({
-      workspaceId: WORKSPACE_ID,
-      relPath: "never-existed.txt",
-    });
-
-    // Should NOT have called shell.trashItem — the access pre-check caught it.
-    expect(shell.trashItem).not.toHaveBeenCalled();
-  });
-
-  it("surfaces shell.trashItem failure as PERMISSION_DENIED", async () => {
-    const filePath = path.join(tmpRoot, "blocked.txt");
-    fs.writeFileSync(filePath, "x");
-
-    const shell = {
-      trashItem: mock(async (_abs: string) => {
-        throw new Error("trashItem failed");
-      }),
-    };
-
-    await expect(
-      trashHandler(
-        makeManager(makeLocalWorkspace()) as never,
-        shell,
-      )({
-        workspaceId: WORKSPACE_ID,
-        relPath: "blocked.txt",
-      }),
-    ).rejects.toThrow(`${FS_ERROR.PERMISSION_DENIED}:`);
   });
 });

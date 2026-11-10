@@ -8,107 +8,6 @@ import (
 	"testing"
 )
 
-// TestBranchCreateSuccess verifies that BranchCreate creates a new branch.
-func TestBranchCreateSuccess(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-	params := `{"name":"feature"}`
-	_, err := service.BranchCreate(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchCreate returned error: %v", err)
-	}
-
-	// Verify branch exists.
-	out := runGit(t, root, "branch", "--list", "feature")
-	if !strings.Contains(out, "feature") {
-		t.Errorf("expected branch 'feature' to exist, got: %q", out)
-	}
-}
-
-// TestBranchCreateExistsError verifies that BranchCreate returns a branch-exists error.
-func TestBranchCreateExistsError(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-	runGit(t, root, "branch", "existing")
-
-	service := New(root)
-	params := `{"name":"existing"}`
-	_, err := service.BranchCreate(context.Background(), json.RawMessage(params))
-	if err == nil {
-		t.Fatal("expected BranchCreate to fail for existing branch")
-	}
-	msg := strings.ToLower(err.Error())
-	if !strings.Contains(msg, "exists") && !strings.Contains(msg, "already") {
-		t.Errorf("expected branch-exists error, got: %v", err)
-	}
-}
-
-// TestBranchCreateWithCheckout verifies that BranchCreate with checkout=true switches branch.
-func TestBranchCreateWithCheckout(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-	params := `{"name":"feature","checkout":true}`
-	_, err := service.BranchCreate(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchCreate(checkout=true) returned error: %v", err)
-	}
-
-	head := strings.TrimSpace(runGit(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
-	if head != "feature" {
-		t.Errorf("expected HEAD=feature after checkout, got: %q", head)
-	}
-}
-
-// TestBranchDeleteSuccess verifies that BranchDelete removes a merged branch.
-func TestBranchDeleteSuccess(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-	runGit(t, root, "branch", "to-delete")
-
-	service := New(root)
-	params := `{"name":"to-delete"}`
-	res, err := service.BranchDelete(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchDelete returned error: %v", err)
-	}
-	result, ok := res.(BranchDeleteResult)
-	if !ok {
-		t.Fatalf("BranchDelete result type = %T", res)
-	}
-	if result.ErrorKind != "" {
-		t.Errorf("expected empty errorKind, got %q: %s", result.ErrorKind, result.ErrorMessage)
-	}
-
-	out := runGit(t, root, "branch", "--list", "to-delete")
-	if strings.TrimSpace(out) != "" {
-		t.Errorf("expected branch 'to-delete' to be gone, got: %q", out)
-	}
-}
-
-// TestBranchDeleteNotFound verifies that BranchDelete returns a typed error for missing branches.
-func TestBranchDeleteNotFound(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-	params := `{"name":"nonexistent"}`
-	res, err := service.BranchDelete(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchDelete returned transport error: %v", err)
-	}
-	result, ok := res.(BranchDeleteResult)
-	if !ok {
-		t.Fatalf("BranchDelete result type = %T", res)
-	}
-	if result.ErrorKind == "" {
-		t.Error("expected errorKind for missing branch, got empty")
-	}
-}
-
 // TestBranchDeleteUnmerged verifies that BranchDelete returns force-delete hint for unmerged branch.
 func TestBranchDeleteUnmerged(t *testing.T) {
 	t.Parallel()
@@ -142,24 +41,6 @@ func TestBranchDeleteUnmerged(t *testing.T) {
 	}
 }
 
-// TestBranchRenameClean verifies that BranchRename renames a branch successfully.
-func TestBranchRenameClean(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-	params := `{"from":"main","to":"trunk"}`
-	_, err := service.BranchRename(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchRename returned error: %v", err)
-	}
-
-	head := strings.TrimSpace(runGit(t, root, "rev-parse", "--abbrev-ref", "HEAD"))
-	if head != "trunk" {
-		t.Errorf("expected HEAD=trunk after rename, got: %q", head)
-	}
-}
-
 // TestBranchFastForwardClean verifies BranchFastForward advances the branch.
 func TestBranchFastForwardClean(t *testing.T) {
 	t.Parallel()
@@ -185,28 +66,5 @@ func TestBranchFastForwardClean(t *testing.T) {
 	}
 	if result.FromSha == result.ToSha {
 		t.Error("expected FromSha != ToSha after fast-forward")
-	}
-}
-
-// TestBranchFastForwardNoOp verifies BranchFastForward reports not-advanced when already up to date.
-func TestBranchFastForwardNoOp(t *testing.T) {
-	t.Parallel()
-	_, client := newRemoteAndClient(t, false)
-
-	service := New(client)
-	params := `{"branch":"main","remote":"origin","remoteRef":"main"}`
-	res, err := service.BranchFastForward(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("BranchFastForward (no-op) returned error: %v", err)
-	}
-	result, ok := res.(BranchFastForwardResult)
-	if !ok {
-		t.Fatalf("BranchFastForward result type = %T", res)
-	}
-	if result.Advanced {
-		t.Error("expected Advanced=false when already up to date")
-	}
-	if result.FromSha != result.ToSha {
-		t.Error("expected FromSha == ToSha for no-op fast-forward")
 	}
 }

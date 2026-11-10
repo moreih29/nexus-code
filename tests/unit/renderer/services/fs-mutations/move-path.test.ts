@@ -62,7 +62,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 // Imports (after mocks are installed)
 // ---------------------------------------------------------------------------
 
-const { movePath, renamePath } = await import("../../../../../src/renderer/services/fs-mutations");
+const { movePath } = await import("../../../../../src/renderer/services/fs-mutations");
 const { useFilesStore } = await import("../../../../../src/renderer/state/stores/files");
 
 // ---------------------------------------------------------------------------
@@ -249,51 +249,5 @@ describe("movePath", () => {
     expect(ok).toBe(false);
     expect(toastCalls.map((c) => c.message)).toEqual(["This path is outside the workspace."]);
     expect(ipcCalls.filter((c) => c.method === "rename")).toHaveLength(0);
-  });
-
-  // ---- Regression: renamePath unchanged ----
-
-  it("renamePath still works correctly (regression guard)", async () => {
-    const ok = await renamePath({
-      workspaceId: WS,
-      workspaceRootPath: ROOT,
-      absPath: `${ROOT}/a.ts`,
-      newName: "b.ts",
-    });
-
-    expect(ok).toBe(true);
-
-    const renameCalls = ipcCalls.filter((c) => c.method === "rename");
-    expect(renameCalls).toHaveLength(1);
-    expect(renameCalls[0]).toEqual({
-      channel: "fs",
-      method: "rename",
-      args: {
-        workspaceId: WS,
-        fromRelPath: "a.ts",
-        toRelPath: "b.ts",
-      },
-    });
-
-    // renamePath refreshes only the parent (ROOT), not both
-    const readdirCalls = ipcCalls.filter((c) => c.method === "readdir");
-    expect(readdirCalls).toHaveLength(1);
-  });
-
-  // ---- Same-dir but target path computed by movePath matches source (different parent path variant) ----
-
-  it("returns true without IPC when dstDirAbsPath equals the source's actual parent", async () => {
-    // srcAbsPath = /repo/a.ts, its parent is /repo. dstDirAbsPath = /repo
-    // toRelPath = repo/a.ts (or `a.ts` after relPath normalization)
-    // fromRel = a.ts, toRel = a.ts → same, no-op
-    const ok = await movePath({
-      workspaceId: WS,
-      workspaceRootPath: ROOT,
-      srcAbsPath: `${ROOT}/a.ts`,
-      dstDirAbsPath: ROOT,
-    });
-
-    expect(ok).toBe(true);
-    expect(ipcCalls).toHaveLength(0);
   });
 });

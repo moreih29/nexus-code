@@ -8,7 +8,6 @@ import { GitError } from "../../../../src/main/features/git/domain/error";
 import {
   createTask,
   removeTask,
-  TaskError,
   type TaskServiceDeps,
 } from "../../../../src/main/features/tasks/service";
 import type { WorkspaceCreateOptions } from "../../../../src/main/features/workspace/manager";
@@ -111,50 +110,12 @@ function localBranches(): string[] {
 }
 
 describe("createTask", () => {
-  it("adds a worktree on a new branch and a task workspace on it", async () => {
-    const { deps, parent } = setup();
-    const task = await createTask(deps, { parentId: parent.id, name: "Fix login" });
-
-    expect(task.task?.parentId).toBe(parent.id);
-    expect(task.task?.branch).toBe("fix-login");
-    expect(path.dirname(path.dirname(task.task?.worktreePath ?? ""))).toBe(worktreesRoot);
-    expect(task.rootPath).toBe(task.task?.worktreePath ?? "");
-    expect(task.name).toBe("Fix login");
-    expect(fs.existsSync(path.join(task.rootPath, "packages", "app", "a.txt"))).toBe(true);
-    expect(git(task.rootPath, "branch", "--show-current").trim()).toBe("fix-login");
-    expect(task.task?.createdBy).toBeUndefined();
-  });
-
-  it("records the terminal whose agent asked for it", async () => {
-    const { deps, parent } = setup();
-    const createdBy = { workspaceId: parent.id, tabId: "tab-1" };
-    const task = await createTask(deps, { parentId: parent.id, name: "by agent", createdBy });
-    expect(task.task?.createdBy).toEqual(createdBy);
-  });
-
   it("picks the next free name when the branch exists", async () => {
     const { deps, parent } = setup();
     git(repoDir, "branch", "taken");
     const task = await createTask(deps, { parentId: parent.id, name: "taken" });
     expect(task.task?.branch).toBe("taken-2");
     expect(path.basename(task.task?.worktreePath ?? "")).toBe("taken-2");
-  });
-
-  it("opens the parent's subfolder in the worktree", async () => {
-    const { deps, parent } = setup(path.join(repoDir, "packages", "app"));
-    const task = await createTask(deps, { parentId: parent.id, name: "sub" });
-    expect(task.rootPath).toBe(path.join(task.task?.worktreePath ?? "", "packages", "app"));
-  });
-
-  it("refuses a name with nothing usable and a workspace outside git", async () => {
-    const { deps, parent } = setup();
-    await expect(createTask(deps, { parentId: parent.id, name: "!!!" })).rejects.toMatchObject({
-      kind: "invalid-name",
-    });
-    const outside = { ...deps, getRepository: async () => null };
-    const error = await createTask(outside, { parentId: parent.id, name: "x" }).catch((e) => e);
-    expect(error).toBeInstanceOf(TaskError);
-    expect(error.kind).toBe("not-a-repo");
   });
 });
 

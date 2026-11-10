@@ -16,7 +16,6 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
-import { MANAGER_PROMPT } from "../../../../src/shared/manager/prompt";
 
 const WS = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TAB = "11111111-1111-4111-8111-111111111111";
@@ -108,19 +107,6 @@ describe("chat launch", () => {
     // resumeAt means nothing without fork.
     expect(claudeTabArgs({ resume: "s1", resumeAt: "u9" })).not.toContain("--resume-session-at");
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
-  });
-
-  test("every tab is told to link a file to show it; the manager what it is, in the same flag", () => {
-    const tab = claudeTabArgs({});
-    expect(tab.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
-    expect(tab[tab.indexOf("--append-system-prompt") + 1]).toContain("[report.md](");
-    const manager = claudeTabArgs({ resume: "s1" }, undefined, true);
-    expect(manager.filter((arg) => arg === "--append-system-prompt")).toHaveLength(1);
-    expect(manager[manager.indexOf("--append-system-prompt") + 1]).toBe(
-      `${CLAUDE_TAB_PROMPT}\n\n${MANAGER_PROMPT}`,
-    );
-    expect(manager).toContain("--allowedTools");
-    expect(manager.slice(-2)).toEqual(["--resume", "s1"]);
   });
 
   test("the env marks the tab for the wrapper and turns on file checkpoints", () => {

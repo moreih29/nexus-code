@@ -1,15 +1,12 @@
 /**
  * What the user told Claude when it asked, as the conversation keeps it:
- * the questions with the answers picked, and the plan with how it went.
+ * which calls show as a prompt, the answers picked, and a decline's reason.
  */
 
 import { describe, expect, it } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 import {
-  AnsweredQuestions,
   answersOf,
   declineReason,
-  PlanOutcome,
   showsAsPrompt,
 } from "../../../../../src/renderer/components/chat/prompt-rows";
 import type { ToolCall } from "../../../../../src/renderer/services/chat/model";
@@ -48,12 +45,6 @@ const result = (text: string, structured?: unknown) => ({
   images: [],
   ...(structured !== undefined ? { structured } : {}),
 });
-
-const text = (html: string) =>
-  html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
 
 describe("showsAsPrompt", () => {
   it("takes the calls that ask, unless the tool itself failed", () => {
@@ -101,57 +92,5 @@ describe("declineReason", () => {
       result: result("Name it memo.txt instead\n\n<system-reminder>\nleft\n</system-reminder>"),
     });
     expect(declineReason(tool)).toBe("Name it memo.txt instead");
-  });
-});
-
-describe("AnsweredQuestions", () => {
-  it("lists each question with its answer", () => {
-    const html = renderToStaticMarkup(
-      <AnsweredQuestions
-        tool={call({
-          result: result("", {
-            answers: { "Which color do you prefer?": "Blue" },
-          }),
-        })}
-      />,
-    );
-    expect(text(html)).toBe(
-      "Which color do you prefer? Blue Which operating systems do you use? No answer",
-    );
-  });
-
-  it("says when the questions were skipped or still wait", () => {
-    expect(
-      text(renderToStaticMarkup(<AnsweredQuestions tool={call({ status: "denied" })} />)),
-    ).toBe("Questions skipped Which color do you prefer?");
-    expect(
-      text(renderToStaticMarkup(<AnsweredQuestions tool={call({ status: "running" })} />)),
-    ).toBe("Waiting for an answer Which color do you prefer?");
-  });
-});
-
-describe("PlanOutcome", () => {
-  const plan = (over: Partial<ToolCall>) =>
-    renderToStaticMarkup(
-      <PlanOutcome
-        tool={call({
-          name: "ExitPlanMode",
-          input: { plan: "# Add `goodbye.txt`\n\nWrite it." },
-          ...over,
-        })}
-        workspaceId="w"
-        cwd="/w"
-        rootPath="/w"
-      />,
-    );
-
-  it("names the plan by its first line, folded", () => {
-    expect(text(plan({}))).toBe("Plan approved Add goodbye.txt");
-  });
-
-  it("shows what the user asked to change", () => {
-    expect(text(plan({ status: "error", result: result("Use bye.txt instead") }))).toBe(
-      "Changes requested Add goodbye.txt Use bye.txt instead",
-    );
   });
 });

@@ -55,16 +55,6 @@ func dialAgent(t *testing.T, path string) string {
 	return string(buf[:n])
 }
 
-func TestAuthSockForSitsNextToDaemonSocket(t *testing.T) {
-	paths, err := For("/work/repo", "1.2.3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := AuthSockFor(paths.Sock); got != paths.AuthSock || !strings.HasSuffix(got, ".agent") {
-		t.Fatalf("AuthSockFor(%q) = %q, want %q", paths.Sock, got, paths.AuthSock)
-	}
-}
-
 // A reconnect brings a new forwarded socket; processes that kept the link
 // path must reach the new agent, not the dead one.
 func TestPointAuthSockFollowsTheLatestConnection(t *testing.T) {

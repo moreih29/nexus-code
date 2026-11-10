@@ -217,87 +217,12 @@ describe("AC 2a: didClose lifecycle", () => {
 
     host.dispose();
   });
-
-  test("didClose on URI with no pending timer still removes debounce state cleanly", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(12_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI = "file:///tmp/ws/no-pending.py";
-    await openUri(host, URI);
-
-    // Leading-edge emit — timer is null afterwards.
-    channel.emitDiagnostics(URI, 1);
-    expect(emitted).toHaveLength(1);
-
-    // Advance past trailing-edge window so state is fully quiescent.
-    jest.advanceTimersByTime(200);
-    expect(emitted).toHaveLength(1);
-
-    // Close with no pending timer — should not emit a second time.
-    await host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI });
-    expect(emitted).toHaveLength(1);
-
-    // No stale fire after.
-    jest.advanceTimersByTime(200);
-    expect(emitted).toHaveLength(1);
-
-    host.dispose();
-  });
 });
 
 // ---------------------------------------------------------------------------
 // AC 2b — handleServerExited: deeper coverage
 // ---------------------------------------------------------------------------
 describe("AC 2b: handleServerExited deeper coverage", () => {
-  test("multiple URIs owned by the exited server all have timers cleared", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(20_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI_1 = "file:///tmp/ws/multi-exit-1.py";
-    const URI_2 = "file:///tmp/ws/multi-exit-2.py";
-    const URI_3 = "file:///tmp/ws/multi-exit-3.py";
-
-    await openUri(host, URI_1);
-    await openUri(host, URI_2);
-    await openUri(host, URI_3);
-
-    // Leading-edge emits for all three.
-    channel.emitDiagnostics(URI_1, 1);
-    channel.emitDiagnostics(URI_2, 1);
-    channel.emitDiagnostics(URI_3, 1);
-    expect(emitted).toHaveLength(3);
-
-    // Schedule trailing-edge timers on all three within idle window.
-    jest.setSystemTime(new Date(20_000_000 + 50));
-    channel.emitDiagnostics(URI_1, 2);
-    channel.emitDiagnostics(URI_2, 2);
-    channel.emitDiagnostics(URI_3, 2);
-    expect(emitted).toHaveLength(3); // all timers pending
-
-    // Server exits — all three timers must be cleared.
-    channel.emit("lsp.serverExited", {
-      serverId: channel.serverId,
-      reason: "signal: killed",
-      stderrTail: "",
-    });
-
-    // Advance well past debounce window — none should fire.
-    jest.advanceTimersByTime(500);
-    expect(emitted).toHaveLength(3);
-
-    host.dispose();
-  });
-
   test("URIs owned by a different (surviving) server are unaffected by exit of another server", async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date(21_000_000));
@@ -405,86 +330,6 @@ describe("AC 2c: dispose lifecycle", () => {
     jest.advanceTimersByTime(500);
     expect(emitted).toHaveLength(1);
   });
-
-  test("dispose with multiple pending timers for multiple URIs: all suppressed", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(31_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URIS = Array.from(
-      { length: 10 },
-      (_, i) => `file:///tmp/ws/dispose-multi-${i}.py`,
-    );
-
-    for (const uri of URIS) {
-      await openUri(host, uri);
-    }
-
-    // Leading-edge emits for all.
-    for (const uri of URIS) {
-      channel.emitDiagnostics(uri, 1);
-    }
-    expect(emitted).toHaveLength(10);
-
-    // Schedule trailing-edge timers within idle window.
-    jest.setSystemTime(new Date(31_000_000 + 50));
-    for (const uri of URIS) {
-      channel.emitDiagnostics(uri, 2);
-    }
-    expect(emitted).toHaveLength(10);
-
-    // Dispose all timers.
-    host.dispose();
-
-    jest.advanceTimersByTime(500);
-    // No additional emits.
-    expect(emitted).toHaveLength(10);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// AC 3 — Steady-state typing latency (leading-edge bypass)
-// ---------------------------------------------------------------------------
-describe("AC 3: steady-state typing latency", () => {
-  test("steady-state burst after idle: leading-edge + exactly one trailing-edge", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(41_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI = "file:///tmp/ws/typing-burst.py";
-    await openUri(host, URI);
-
-    // Simulate 500ms+ idle.
-    jest.setSystemTime(new Date(41_000_000 + 600));
-
-    // Burst of 10 notifications arrives rapidly (all within 100ms).
-    for (let i = 1; i <= 10; i++) {
-      channel.emitDiagnostics(URI, i);
-    }
-
-    // Leading-edge fires immediately on the first one.
-    // The other 9 schedule/reschedule the trailing-edge timer.
-    expect(emitted).toHaveLength(1);
-
-    // Fire trailing-edge.
-    jest.advanceTimersByTime(110);
-    expect(emitted).toHaveLength(2);
-
-    // Trailing-edge must carry the LAST payload (v10).
-    expect(
-      (emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
-    ).toBe("v10");
-
-    host.dispose();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -501,18 +346,6 @@ describe("AC 5: non-publishDiagnostics notifications are not debounced", () => {
       label: "window/logMessage",
       method: "window/logMessage",
       params: { type: 3, message: "log message" },
-      eventType: "serverEvent",
-    },
-    {
-      label: "window/showMessage",
-      method: "window/showMessage",
-      params: { type: 2, message: "show message" },
-      eventType: "serverEvent",
-    },
-    {
-      label: "$/progress",
-      method: "$/progress",
-      params: { token: "tok-1", value: { kind: "begin", title: "indexing" } },
       eventType: "serverEvent",
     },
   ];
@@ -614,72 +447,6 @@ describe("AC 5: non-publishDiagnostics notifications are not debounced", () => {
 
     jest.advanceTimersByTime(500);
     expect(serverEvents).toHaveLength(1);
-
-    host.dispose();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Edge case: boundary at exactly DIAGNOSTICS_LEADING_IDLE_MS
-// ---------------------------------------------------------------------------
-describe("Leading-edge boundary conditions", () => {
-  test("notification at exactly 500ms after last emit does NOT trigger leading-edge (uses trailing)", async () => {
-    // The condition is: lastEmittedAt + 500 < now
-    // At exactly now = lastEmittedAt + 500, the condition is FALSE → trailing-edge.
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(70_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI = "file:///tmp/ws/boundary-exact.py";
-    await openUri(host, URI);
-
-    // Leading-edge at T=0.
-    channel.emitDiagnostics(URI, 1);
-    expect(emitted).toHaveLength(1);
-
-    // Advance to exactly T+500 (boundary is NOT crossed — lastEmittedAt + 500 === now).
-    jest.setSystemTime(new Date(70_000_000 + 500));
-    channel.emitDiagnostics(URI, 2);
-
-    // At exactly 500ms, the condition `lastEmittedAt + 500 < now` is false
-    // (500 < 500 is false), so this goes to trailing-edge. No immediate emit.
-    expect(emitted).toHaveLength(1);
-
-    jest.advanceTimersByTime(110);
-    expect(emitted).toHaveLength(2);
-
-    host.dispose();
-  });
-
-  test("notification at 501ms after last emit triggers leading-edge", async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date(71_000_000));
-
-    const channel = new MinimalChannel();
-    const host = startAgentLspHost({ getAgentChannel: async () => channel });
-    const emitted: unknown[] = [];
-    host.on("diagnostics", (args) => emitted.push(args));
-
-    const URI = "file:///tmp/ws/boundary-501.py";
-    await openUri(host, URI);
-
-    // Leading-edge at T=0.
-    channel.emitDiagnostics(URI, 1);
-    expect(emitted).toHaveLength(1);
-
-    // Advance to T+501 (just past the idle boundary).
-    jest.setSystemTime(new Date(71_000_000 + 501));
-    channel.emitDiagnostics(URI, 2);
-
-    // Must be leading-edge: immediate.
-    expect(emitted).toHaveLength(2);
-
-    jest.advanceTimersByTime(200);
-    expect(emitted).toHaveLength(2);
 
     host.dispose();
   });

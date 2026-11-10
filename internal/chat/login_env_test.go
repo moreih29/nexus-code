@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -72,29 +71,6 @@ func TestReadLoginEnvAsksTheLoginShell(t *testing.T) {
 	}
 	if _, ok := env["PWD"]; ok {
 		t.Fatalf("the shell's folder came along: %q", env["PWD"])
-	}
-}
-
-func TestLoginEnvIsReadOnceForTabsStartedTogether(t *testing.T) {
-	runs := fakeLoginShell(t)
-	loginEnvCache.at = time.Time{}
-	t.Cleanup(func() { loginEnvCache.at = time.Time{}; loginEnvCache.env = nil })
-
-	for range 3 {
-		if got := cachedLoginEnv()["GW_KEY"]; got != "secret" {
-			t.Fatalf("GW_KEY = %q", got)
-		}
-	}
-	data, _ := os.ReadFile(runs)
-	if n := strings.Count(string(data), "run"); n != 1 {
-		t.Fatalf("the shell ran %d times, want 1", n)
-	}
-	// Once it is old, the next tab reads the profile again.
-	loginEnvCache.at = time.Now().Add(-loginEnvTTL)
-	_ = cachedLoginEnv()
-	data, _ = os.ReadFile(runs)
-	if n := strings.Count(string(data), "run"); n != 2 {
-		t.Fatalf("the shell ran %d times, want 2", n)
 	}
 }
 

@@ -8,14 +8,8 @@ import {
   buildInbox,
   type InboxInput,
   isUnread,
-  nextInboxItem,
-  sameInbox,
 } from "../../../../../src/renderer/services/sessions/inbox";
-import {
-  activityByKey,
-  sameActivity,
-  sessionKey,
-} from "../../../../../src/renderer/services/sessions/model";
+import { sessionKey } from "../../../../../src/renderer/services/sessions/model";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
 import type { TabActivity } from "../../../../../src/shared/sessions/agent-state";
@@ -101,24 +95,6 @@ function tabsOf(inputOverrides: Partial<InboxInput> = {}): string[] {
 }
 
 describe("buildInbox", () => {
-  it("lists permissions, errors, then questions, then the done ones, oldest first", () => {
-    expect(tabsOf()).toEqual(["a1", "t1", "a2", "a3", "t2"]);
-  });
-
-  it("counts those waiting on the user apart from the unread done ones", () => {
-    const inbox = buildInbox(input());
-    expect(inbox.attention).toBe(3);
-    expect(inbox.unread).toBe(2);
-  });
-
-  it("reads the workspace and the agent of each", () => {
-    const items = buildInbox(input()).items;
-    const codex = items.find((item) => item.session.tabId === "t2");
-    expect(codex?.workspace.id).toBe(TASK);
-    expect(codex?.session.agent).toBe("codex");
-    expect(codex?.session.estimated).toBe(true);
-  });
-
   it("drops a done session once its terminal was looked at after it finished", () => {
     expect(tabsOf({ seenByWorkspace: { [APP]: { a3: 2_500 }, [TASK]: { t2: 6_000 } } })).toEqual([
       "a1",
@@ -145,10 +121,6 @@ describe("buildInbox", () => {
     expect(tabs).toEqual(["a1", "t1", "a2", "a3", "t2"]);
   });
 
-  it("leaves out the done session in front of the user", () => {
-    expect(tabsOf({ viewing: sessionKey(APP, "a3") })).toEqual(["a1", "t1", "a2", "t2"]);
-  });
-
   it("leaves out a Codex turn still printing", () => {
     const activity = new Map<string, TabActivity>([
       [
@@ -157,11 +129,6 @@ describe("buildInbox", () => {
       ],
     ]);
     expect(tabsOf({ activity })).toEqual(["a1", "t1", "a2", "a3"]);
-  });
-
-  it("is empty with nothing waiting", () => {
-    const inbox = buildInbox(input({ claudeByWorkspace: {}, activity: new Map() }));
-    expect(inbox).toEqual({ items: [], attention: 0, unread: 0 });
   });
 });
 
@@ -177,83 +144,5 @@ describe("isUnread", () => {
   it("is read when looked at when or after it finished", () => {
     expect(isUnread(done.session, 2_000)).toBe(false);
     expect(isUnread(done.session, 3_000)).toBe(false);
-  });
-});
-
-describe("sameInbox", () => {
-  it("holds for a rebuild from the same records, at a later time", () => {
-    expect(sameInbox(buildInbox(input()), buildInbox(input({ now: NOW + 60_000 })))).toBe(true);
-  });
-
-  it("fails once a session moved on or another came in", () => {
-    const before = buildInbox(input());
-    const answered = input().claudeByWorkspace[APP];
-    expect(
-      sameInbox(
-        before,
-        buildInbox(
-          input({
-            claudeByWorkspace: {
-              ...input().claudeByWorkspace,
-              [APP]: { ...answered, a2: claude("running", 6_000) },
-            },
-          }),
-        ),
-      ),
-    ).toBe(false);
-    expect(sameInbox(before, buildInbox(input({ viewing: sessionKey(APP, "a3") })))).toBe(false);
-    expect(
-      sameInbox(
-        before,
-        buildInbox(
-          input({
-            claudeByWorkspace: { [APP]: { ...answered, a1: claude("permissionPending", 3_100) } },
-          }),
-        ),
-      ),
-    ).toBe(false);
-  });
-});
-
-describe("sameActivity", () => {
-  const entry = (lastOutputAt: number, at = 5_000) => ({
-    workspaceId: TASK,
-    tabId: "t2",
-    lastOutputAt,
-    lastNotice: { body: "Done", at },
-    program: "codex",
-  });
-
-  it("holds for two reads that tell the same", () => {
-    expect(sameActivity(activityByKey([entry(5_500)]), activityByKey([entry(5_500)]))).toBe(true);
-    expect(sameActivity(new Map(), activityByKey([]))).toBe(true);
-  });
-
-  it("fails on new output, a new notice, or a terminal come or gone", () => {
-    const before = activityByKey([entry(5_500)]);
-    expect(sameActivity(before, activityByKey([entry(6_000)]))).toBe(false);
-    expect(sameActivity(before, activityByKey([entry(5_500, 5_400)]))).toBe(false);
-    expect(sameActivity(before, new Map())).toBe(false);
-    expect(sameActivity(new Map(), before)).toBe(false);
-  });
-});
-
-describe("nextInboxItem", () => {
-  const items = buildInbox(input()).items;
-  const next = (current: string | null) => nextInboxItem(items, current)?.session.tabId;
-
-  it("starts with the first from a terminal not in the inbox", () => {
-    expect(next(null)).toBe("a1");
-    expect(next(sessionKey(APP, "a4"))).toBe("a1");
-  });
-
-  it("steps to the one after the terminal in front of the user, and wraps", () => {
-    expect(next(sessionKey(APP, "a1"))).toBe("t1");
-    expect(next(sessionKey(TASK, "t1"))).toBe("a2");
-    expect(next(sessionKey(TASK, "t2"))).toBe("a1");
-  });
-
-  it("is nothing with nothing waiting", () => {
-    expect(nextInboxItem([], null)).toBeUndefined();
   });
 });

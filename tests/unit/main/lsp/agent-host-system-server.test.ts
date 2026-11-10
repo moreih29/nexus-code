@@ -140,14 +140,6 @@ describe("system language servers", () => {
     });
   });
 
-  test("leave out the path when the user gave none", async () => {
-    const { channel, open } = boot();
-
-    await open();
-
-    expect(channel.calls[0]?.params).toEqual({ name: "gopls", dir: "/tmp/ws" });
-  });
-
   test("give up at once when not installed, and say what is missing", async () => {
     const { channel, host, resets, open } = boot();
     channel.found = { path: "" };

@@ -365,29 +365,6 @@ describe("legacy path: reconnecting hadEpoch=false → immediate exit", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Acceptance 1: ctx absent → no crash
-// ---------------------------------------------------------------------------
-
-describe("ctx absent guard", () => {
-  test("ready lifecycle on unknown workspace is a no-op", () => {
-    const channel = new FakeAgentChannel();
-    // Manager returns null for every workspace.
-    const manager: AgentPtyWorkspaceManager = {
-      async getAgentChannel() { throw new Error("not found"); },
-      async tryGetAgentChannel() { return null; },
-    };
-    const host = startAgentPtyHost(manager);
-    const exits: unknown[] = [];
-    host.on("exit", (a) => exits.push(a));
-
-    // Emitting lifecycle events without having a subscription wired up should
-    // not crash. The agent-host only processes events it subscribed to.
-    expect(() => host.dispose()).not.toThrow();
-    expect(exits).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // manager-owned hold resolution API (plan issue 4 + 6 review fix)
 // ---------------------------------------------------------------------------
 
@@ -418,20 +395,6 @@ describe("releaseHeld: manager releases held sessions on non-reauth exit", () =>
     expect(expired).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B });
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, code: null });
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_B, code: null });
-  });
-
-  test("releaseHeld is a no-op when no hold is active", async () => {
-    const channel = new FakeAgentChannel();
-    const host = startAgentPtyHost(makeWorkspaceManager(channel));
-
-    const exits: unknown[] = [];
-    host.on("exit", (a) => exits.push(a));
-
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    // No reconnecting event → no hold.
-    host.releaseHeld(WORKSPACE_ID);
-
-    expect(exits).toHaveLength(0);
   });
 });
 

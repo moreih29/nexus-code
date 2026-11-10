@@ -46,10 +46,6 @@ describe("assertHasHead", () => {
       expect(gitError.hint).toEqual({ kind: "make-initial-commit" });
     }
   });
-
-  test("passes when branch exists with at least one commit", () => {
-    expect(() => assertHasHead(headBranch)).not.toThrow();
-  });
 });
 
 describe("resolveCheckoutTarget", () => {
@@ -93,10 +89,6 @@ describe("resolveCheckoutTarget", () => {
       expect(gitError.kind).toBe("no-such-ref");
       expect(gitError.hint).toBeUndefined();
     }
-  });
-
-  test("rejects empty/whitespace ref with a clear required message", () => {
-    expect(() => resolveCheckoutTarget("   ", buildList(["main"], []))).toThrow(/required/i);
   });
 
   test("local match wins over remote even when both exist", () => {

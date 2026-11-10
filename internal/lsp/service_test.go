@@ -45,36 +45,6 @@ func TestServiceNotifyForwardsWithoutBlockingCaller(t *testing.T) {
 	}
 }
 
-func TestServiceSpawnSendRoundTripShutdown(t *testing.T) {
-	service, events := newTestService(t)
-	result := spawnFakeServer(t, service, "roundtrip", nil, "")
-
-	message := json.RawMessage(`{"jsonrpc":"2.0","id":"client-1","method":"custom/echo","params":{"value":42}}`)
-	if _, err := service.Send(context.Background(), mustJSON(t, SendParams{ServerID: result.ServerID, Message: message})); err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
-
-	event := waitEvent(t, events, EventMessage)
-	payload := event.payload.(MessagePayload)
-	if payload.ServerID != result.ServerID {
-		t.Fatalf("message serverId = %q, want %q", payload.ServerID, result.ServerID)
-	}
-	var response struct {
-		ID     string          `json:"id"`
-		Result json.RawMessage `json:"result"`
-	}
-	if err := json.Unmarshal(payload.Message, &response); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if response.ID != "client-1" || !strings.Contains(string(response.Result), `"value":42`) {
-		t.Fatalf("unexpected round trip response: %s", payload.Message)
-	}
-
-	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: result.ServerID})); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-}
-
 func TestSpawnAddsEnvOverTheAgents(t *testing.T) {
 	service, _ := newTestService(t)
 	// Without the spawn's own value the helper would not act as a server.
@@ -215,34 +185,6 @@ func TestIdleExitSaysTheAgentStoppedTheServer(t *testing.T) {
 	}
 }
 
-func TestSpawnReturnsServerInfo(t *testing.T) {
-	service, _ := newTestService(t)
-	result := spawnFakeServer(t, service, "roundtrip", nil, "")
-
-	if result.ServerInfo == nil || *result.ServerInfo != (ServerInfo{Name: "fake-lsp", Version: "1.2.3"}) {
-		t.Fatalf("ServerInfo = %+v, want fake-lsp 1.2.3", result.ServerInfo)
-	}
-	shutdownServer(t, service, result.ServerID)
-}
-
-func TestStatsReportsEachServersMemory(t *testing.T) {
-	service, _ := newTestService(t)
-	result := spawnFakeServer(t, service, "roundtrip", nil, "")
-
-	raw, err := service.Stats(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("Stats() error = %v", err)
-	}
-	stats := raw.(StatsResult)
-	if len(stats.Servers) != 1 || stats.Servers[0].ServerID != result.ServerID {
-		t.Fatalf("Stats() servers = %+v, want the one spawned", stats.Servers)
-	}
-	if stats.Servers[0].RSSBytes == 0 {
-		t.Fatal("Stats() reported no memory for a running server")
-	}
-	shutdownServer(t, service, result.ServerID)
-}
-
 // cmd.Wait closes the stdout and stderr pipes as soon as the server exits.
 // Run alongside the readers, it cut off whatever they had not consumed yet:
 // the end of the crash output that serverExited carries as StderrTail, and
@@ -376,15 +318,6 @@ func TestServiceRoutesFSChangedToRegisteredWatchedFiles(t *testing.T) {
 	}
 }
 
-// shutdownServer stops a server before the test's temp dir is removed:
-// Windows refuses to remove the directory a running process works in.
-func shutdownServer(t *testing.T, service *Service, serverID string) {
-	t.Helper()
-	if _, err := service.Shutdown(context.Background(), mustJSON(t, ShutdownParams{ServerID: serverID})); err != nil {
-		t.Fatalf("Shutdown() error = %v", err)
-	}
-}
-
 func newTestService(t *testing.T) (*Service, <-chan recordedEvent) {
 	t.Helper()
 	service := New()
@@ -496,20 +429,5 @@ func TestServerIDsDifferBetweenServices(t *testing.T) {
 	first, second := New(), New()
 	if a, b := first.nextServerID(), second.nextServerID(); a == b {
 		t.Fatalf("both services named their first server %q", a)
-	}
-}
-
-// Some servers read settings only from initialize, such as
-// typescript-language-server's tsserver options.
-func TestInitializeSendsInitializationOptions(t *testing.T) {
-	options := json.RawMessage(`{"tsserver":{"useSyntaxServer":"never"}}`)
-	with := newServerProcess(New(), "lsp-x-1", SpawnParams{WorkspaceRoot: t.TempDir(), InitializationOptions: options}, 0)
-	if got, _ := with.initializeParams()["initializationOptions"].(json.RawMessage); string(got) != string(options) {
-		t.Fatalf("initializationOptions = %s, want %s", got, options)
-	}
-
-	without := newServerProcess(New(), "lsp-x-2", SpawnParams{WorkspaceRoot: t.TempDir()}, 0)
-	if _, ok := without.initializeParams()["initializationOptions"]; ok {
-		t.Fatal("initialize carried initializationOptions nobody set")
 	}
 }

@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 // TestMain lets the test binary double as the askpass helper: interactive
@@ -83,11 +81,6 @@ func writeDir(t *testing.T, dir string) {
 // package directory.
 func fixtureDir(name string) string {
 	return filepath.Join("..", "..", "tests", "fixtures", "git", name)
-}
-
-func isProtocolError(err error) bool {
-	var coded proto.CodedError
-	return errors.As(err, &coded) && coded.Code == proto.CodeProtocolError
 }
 
 // templates holds the repositories below, each built once per test run on

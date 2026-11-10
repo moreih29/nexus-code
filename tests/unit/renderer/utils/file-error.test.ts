@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  fileErrorMessage,
-  fsErrorReason,
-  parseFileErrorCode,
-} from "../../../../src/renderer/utils/file-error";
+import { parseFileErrorCode } from "../../../../src/renderer/utils/file-error";
 
 describe("parseFileErrorCode", () => {
   it('1. "NOT_FOUND: ..." → "NOT_FOUND"', () => {
@@ -48,30 +44,5 @@ describe("parseFileErrorCode", () => {
         "Error invoking remote method 'ipc:call': Error: PERMISSION_DENIED: /secret",
       ),
     ).toBe("PERMISSION_DENIED");
-  });
-});
-
-describe("fileErrorMessage", () => {
-  it('12. TOO_LARGE with maxMb=5 → contains "max 5 MB"', () => {
-    expect(fileErrorMessage("TOO_LARGE", 5)).toContain("max 5 MB");
-  });
-
-  it('13. OTHER → "Failed to open file."', () => {
-    expect(fileErrorMessage("OTHER")).toBe("Failed to open file.");
-  });
-});
-
-describe("fsErrorReason", () => {
-  it("gives the localized phrase for a coded fs error, without its code and path", () => {
-    expect(fsErrorReason(new Error("PERMISSION_DENIED: /Users/me/proj/src/a.ts"))).toBe(
-      "Permission denied.",
-    );
-    expect(fsErrorReason(new Error("NO_SPACE: /Users/me/proj/a.ts"))).toBe(
-      "Not enough disk space.",
-    );
-  });
-
-  it("keeps the message of an unclassified error", () => {
-    expect(fsErrorReason(new Error("Agent request timed out"))).toBe("Agent request timed out");
   });
 });

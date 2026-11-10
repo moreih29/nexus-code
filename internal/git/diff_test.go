@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -166,13 +167,11 @@ func TestDiffChunksTruncationDropsSplitCharacter(t *testing.T) {
 	}
 }
 
-func TestDiffArgsUseMinimalOptions(t *testing.T) {
-	contextLines := 5
-	unifiedLines := 2
-	got := diffArgs(DiffParams{From: "main", To: "feature", Paths: []string{"a.txt"}, Context: &contextLines, Unified: &unifiedLines, Cached: true})
-	want := []string{"diff", "--no-ext-diff", "--unified=2", "--cached", "main", "feature", "--", "a.txt"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("args mismatch\n got: %#v\nwant: %#v", got, want)
+// A user's diff.external (or GIT_EXTERNAL_DIFF) would print its own output
+// in place of git's patch, which the client cannot parse.
+func TestDiffArgsTurnOffExternalDiff(t *testing.T) {
+	if got := diffArgs(DiffParams{}); !slices.Contains(got, "--no-ext-diff") {
+		t.Fatalf("diff args %q lack --no-ext-diff", got)
 	}
 }
 

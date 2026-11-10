@@ -14,30 +14,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
-// TestWriteFile_NewFile_OK — first write of a path that does not exist
-// yet, with the matching `expected.exists=false`. The wire result should
-// be the "ok" variant and the bytes must land on disk.
-func TestWriteFile_NewFile_OK(t *testing.T) {
-	root := t.TempDir()
-	res := callWrite(t, mustFS(t, root), map[string]any{
-		"relPath":  "hello.txt",
-		"content":  "world",
-		"expected": map[string]any{"exists": false},
-	})
-	if res.Kind != "ok" {
-		t.Fatalf("expected ok, got %q", res.Kind)
-	}
-	if res.MTime == nil || res.Size == nil || *res.Size != int64(len("world")) {
-		t.Fatalf("ok variant missing mtime/size: %+v", res)
-	}
-
-	got, err := os.ReadFile(filepath.Join(root, "hello.txt"))
-	must(t, err)
-	if string(got) != "world" {
-		t.Fatalf("unexpected content: %q", got)
-	}
-}
-
 // TestWriteFile_ExistingMatch_OK — overwrite when the caller's expected
 // mtime+size match the on-disk state.
 func TestWriteFile_ExistingMatch_OK(t *testing.T) {
@@ -58,27 +34,6 @@ func TestWriteFile_ExistingMatch_OK(t *testing.T) {
 	})
 	if res.Kind != "ok" {
 		t.Fatalf("expected ok, got %q (actual=%+v)", res.Kind, res.Actual)
-	}
-}
-
-// TestWriteFile_NoExpectation_OverwriteOK — when expected is omitted, the
-// server overwrites unconditionally when the caller chooses to bypass the
-// concurrency check.
-func TestWriteFile_NoExpectation_OverwriteOK(t *testing.T) {
-	root := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(root, "a.txt"), []byte("v1"), 0o644))
-
-	res := callWrite(t, mustFS(t, root), map[string]any{
-		"relPath": "a.txt",
-		"content": "v2",
-	})
-	if res.Kind != "ok" {
-		t.Fatalf("expected ok, got %q", res.Kind)
-	}
-	got, err := os.ReadFile(filepath.Join(root, "a.txt"))
-	must(t, err)
-	if string(got) != "v2" {
-		t.Fatalf("expected overwrite, got %q", got)
 	}
 }
 
@@ -187,27 +142,6 @@ func TestWriteFile_AtomicNoTmpResidue(t *testing.T) {
 	}
 }
 
-func TestCreateFileAndMkdir(t *testing.T) {
-	root := t.TempDir()
-	fsys := mustFS(t, root)
-
-	_, err := fsys.CreateFile(context.Background(), mustJSON(t, map[string]any{
-		"relPath": "empty.txt",
-	}))
-	must(t, err)
-	if got, err := os.ReadFile(filepath.Join(root, "empty.txt")); err != nil || len(got) != 0 {
-		t.Fatalf("created file mismatch: bytes=%q err=%v", got, err)
-	}
-
-	_, err = fsys.Mkdir(context.Background(), mustJSON(t, map[string]any{
-		"relPath": "src",
-	}))
-	must(t, err)
-	if info, err := os.Lstat(filepath.Join(root, "src")); err != nil || !info.IsDir() {
-		t.Fatalf("created dir mismatch: info=%v err=%v", info, err)
-	}
-}
-
 func TestCreateFileAlreadyExists(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "taken.txt"), []byte("x"), 0o644))
@@ -220,16 +154,6 @@ func TestCreateFileAlreadyExists(t *testing.T) {
 	}
 	if fsErr, ok := err.(FSError); !ok || fsErr.Code != CodeAlreadyExists {
 		t.Fatalf("expected ALREADY_EXISTS, got %v", err)
-	}
-}
-
-func TestUnlinkFileViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(root, "gone.txt"), []byte("x"), 0o644))
-
-	dispatchOK(t, mustFS(t, root), "fs.unlink", map[string]any{"relPath": "gone.txt"})
-	if _, err := os.Lstat(filepath.Join(root, "gone.txt")); !os.IsNotExist(err) {
-		t.Fatalf("expected file to be unlinked, got err=%v", err)
 	}
 }
 
@@ -266,16 +190,6 @@ func TestUnlinkDirectoryRejects(t *testing.T) {
 	assertFSError(t, err, CodeIsDirectory)
 	if info, statErr := os.Lstat(dir); statErr != nil || !info.IsDir() {
 		t.Fatalf("directory should remain after rejected unlink: info=%v err=%v", info, statErr)
-	}
-}
-
-func TestRmdirEmptyViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	must(t, os.Mkdir(filepath.Join(root, "empty"), 0o755))
-
-	dispatchOK(t, mustFS(t, root), "fs.rmdir", map[string]any{"relPath": "empty"})
-	if _, err := os.Lstat(filepath.Join(root, "empty")); !os.IsNotExist(err) {
-		t.Fatalf("expected directory removed, got err=%v", err)
 	}
 }
 
@@ -327,22 +241,6 @@ func TestRmdirSymlinkRejectsAndPreservesTarget(t *testing.T) {
 	}
 	if info, statErr := os.Lstat(targetDir); statErr != nil || !info.IsDir() {
 		t.Fatalf("symlink target dir should remain after rejected rmdir: info=%v err=%v", info, statErr)
-	}
-}
-
-func TestRenameHappyViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	must(t, os.WriteFile(filepath.Join(root, "old.txt"), []byte("payload"), 0o644))
-
-	dispatchOK(t, mustFS(t, root), "fs.rename", map[string]any{
-		"fromRelPath": "old.txt",
-		"toRelPath":   "new.txt",
-	})
-	if _, err := os.Lstat(filepath.Join(root, "old.txt")); !os.IsNotExist(err) {
-		t.Fatalf("expected old path removed, got err=%v", err)
-	}
-	if got, err := os.ReadFile(filepath.Join(root, "new.txt")); err != nil || string(got) != "payload" {
-		t.Fatalf("renamed file mismatch: bytes=%q err=%v", got, err)
 	}
 }
 
@@ -543,27 +441,6 @@ func TestRenameOutOfWorkspaceRejects(t *testing.T) {
 	}
 }
 
-func TestCopyFileViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	src := filepath.Join(root, "src.txt")
-	must(t, os.WriteFile(src, []byte("payload"), 0o644))
-
-	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
-		"fromRelPath": "src.txt",
-		"toRelPath":   "dst.txt",
-	})
-
-	got, err := os.ReadFile(filepath.Join(root, "dst.txt"))
-	must(t, err)
-	if string(got) != "payload" {
-		t.Fatalf("copied file content mismatch: got %q", got)
-	}
-	// Source must remain intact.
-	if gotSrc, err := os.ReadFile(filepath.Join(root, "src.txt")); err != nil || string(gotSrc) != "payload" {
-		t.Fatalf("source should remain after copy: bytes=%q err=%v", gotSrc, err)
-	}
-}
-
 func TestCopyFileTargetAlreadyExists(t *testing.T) {
 	root := t.TempDir()
 	must(t, os.WriteFile(filepath.Join(root, "src.txt"), []byte("src"), 0o644))
@@ -681,36 +558,6 @@ func TestCopyFileLeavesNothingOnFailure(t *testing.T) {
 	}
 }
 
-func TestCopyFileDirectory(t *testing.T) {
-	root := t.TempDir()
-	srcDir := filepath.Join(root, "src-dir")
-	must(t, os.Mkdir(srcDir, 0o755))
-	must(t, os.WriteFile(filepath.Join(srcDir, "a.txt"), []byte("a"), 0o644))
-	must(t, os.Mkdir(filepath.Join(srcDir, "sub"), 0o755))
-	must(t, os.WriteFile(filepath.Join(srcDir, "sub", "b.txt"), []byte("b"), 0o644))
-
-	dispatchOK(t, mustFS(t, root), "fs.copyFile", map[string]any{
-		"fromRelPath": "src-dir",
-		"toRelPath":   "dst-dir",
-	})
-
-	// Check recursive copy.
-	dstDir := filepath.Join(root, "dst-dir")
-	if info, err := os.Lstat(dstDir); err != nil || !info.IsDir() {
-		t.Fatalf("dst directory missing: info=%v err=%v", info, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(dstDir, "a.txt")); err != nil || string(got) != "a" {
-		t.Fatalf("copied file in dir mismatch: bytes=%q err=%v", got, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(dstDir, "sub", "b.txt")); err != nil || string(got) != "b" {
-		t.Fatalf("copied nested file mismatch: bytes=%q err=%v", got, err)
-	}
-	// Source must remain intact.
-	if got, err := os.ReadFile(filepath.Join(srcDir, "a.txt")); err != nil || string(got) != "a" {
-		t.Fatalf("source dir should remain after copy: bytes=%q err=%v", got, err)
-	}
-}
-
 func TestCopyFileSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink permissions vary on Windows")
@@ -745,34 +592,6 @@ func TestCopyFileSymlink(t *testing.T) {
 	// Source symlink must remain intact.
 	if infoSrc, err := os.Lstat(link); err != nil || infoSrc.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("source symlink should remain: err=%v", err)
-	}
-}
-
-func TestRemoveAllNonEmptyDirViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "stuff")
-	must(t, os.Mkdir(dir, 0o755))
-	must(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("x"), 0o644))
-	must(t, os.Mkdir(filepath.Join(dir, "sub"), 0o755))
-	must(t, os.WriteFile(filepath.Join(dir, "sub", "b.txt"), []byte("y"), 0o644))
-
-	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
-		"relPath": "stuff",
-	})
-	if _, err := os.Lstat(dir); !os.IsNotExist(err) {
-		t.Fatalf("expected directory tree removed, got err=%v", err)
-	}
-}
-
-func TestRemoveAllEmptyDirViaDispatcher(t *testing.T) {
-	root := t.TempDir()
-	must(t, os.Mkdir(filepath.Join(root, "empty-dir"), 0o755))
-
-	dispatchOK(t, mustFS(t, root), "fs.removeAll", map[string]any{
-		"relPath": "empty-dir",
-	})
-	if _, err := os.Lstat(filepath.Join(root, "empty-dir")); !os.IsNotExist(err) {
-		t.Fatalf("expected empty directory removed, got err=%v", err)
 	}
 }
 

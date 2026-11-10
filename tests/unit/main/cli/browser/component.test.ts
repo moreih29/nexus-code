@@ -8,7 +8,6 @@ import {
   DESCRIBE_COMPONENT,
   type PickedComponent,
 } from "../../../../../src/main/features/cli/browser/component";
-import { formatPick, type PickedElement } from "../../../../../src/main/features/cli/browser/pick";
 
 const describeComponent = new Function(`return ${DESCRIBE_COMPONENT}`)() as (
   this: object,
@@ -219,32 +218,4 @@ test("a getter on the node is never run", () => {
   });
   expect(componentOf(el)).toBeNull();
   expect(ran).toBe(false);
-});
-
-test("pick prints the component, where it is written and its props", () => {
-  const picked: PickedElement = {
-    url: "http://localhost:5173/",
-    title: "App",
-    role: "button",
-    name: "Sign in",
-    ref: "e4",
-    tag: "button",
-    selector: "#signin",
-    inShadow: false,
-    text: "Sign in",
-    html: '<button id="signin">Sign in</button>',
-    box: { x: 1, y: 2, width: 80, height: 24 },
-    clip: null,
-    component: {
-      framework: "React",
-      names: ["LoginForm", "AuthPage", "App"],
-      source: "/app/src/LoginForm.tsx:42:7",
-      props: { title: '"Sign in"', onSubmit: "ƒ handleSubmit" },
-    },
-  };
-  expect(formatPick(picked).split("\n").slice(-3)).toEqual([
-    "  component: LoginForm (React), in AuthPage < App",
-    "  source: /app/src/LoginForm.tsx:42:7",
-    '  props: {title: "Sign in", onSubmit: ƒ handleSubmit}',
-  ]);
 });

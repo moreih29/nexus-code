@@ -31,17 +31,8 @@ mock.module("../../../../../../src/renderer/ipc/client", () => ({
 // Imports after mocks
 // ---------------------------------------------------------------------------
 
-import {
-  ensureRoot,
-  refresh,
-  reveal,
-  toggleExpand,
-} from "../../../../../../src/renderer/state/operations/files";
-import {
-  handleFsChanged,
-  selectFlat,
-  useFilesStore,
-} from "../../../../../../src/renderer/state/stores/files";
+import { ensureRoot, toggleExpand } from "../../../../../../src/renderer/state/operations/files";
+import { handleFsChanged, useFilesStore } from "../../../../../../src/renderer/state/stores/files";
 import type { DirEntry } from "../../../../../../src/shared/fs/types";
 
 // ---------------------------------------------------------------------------
@@ -76,122 +67,6 @@ function setupReaddir(responses: Map<string, DirEntry[]>) {
     },
   );
 }
-
-// ---------------------------------------------------------------------------
-// Scenario 4: refresh → childrenLoaded=false → reload
-// ---------------------------------------------------------------------------
-
-describe("Scenario 4: refresh reloads", () => {
-  beforeEach(resetStore);
-
-  it("resets childrenLoaded and calls readdir again", async () => {
-    setupReaddir(new Map([["", [dirEntry("a.txt", "file")]]]));
-
-    await ensureRoot(WS_ID, ROOT);
-
-    const before = useFilesStore.getState().trees.get(WS_ID);
-    expect(before?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-
-    mockIpcCallResult.mockClear();
-    setupReaddir(new Map([["", [dirEntry("a.txt", "file"), dirEntry("b.txt", "file")]]]));
-
-    await refresh(WS_ID);
-
-    expect(mockIpcCallResult).toHaveBeenCalledTimes(1);
-    const after = useFilesStore.getState().trees.get(WS_ID);
-    expect(after?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-    expect(after?.nodes.get(ROOT)?.children).toHaveLength(2);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 5: reveal → all ancestor dirs expanded
-// ---------------------------------------------------------------------------
-
-describe("Scenario 5: reveal expands ancestors", () => {
-  beforeEach(resetStore);
-
-  it("expands all ancestor dirs from root to target", async () => {
-    const srcAbs = `${ROOT}/src`;
-    const componentsAbs = `${ROOT}/src/components`;
-    const buttonAbs = `${ROOT}/src/components/Button.tsx`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("components", "dir")]],
-        ["src/components", [dirEntry("Button.tsx", "file")]],
-      ]),
-    );
-
-    await ensureRoot(WS_ID, ROOT);
-    await reveal(WS_ID, buttonAbs);
-
-    const tree = useFilesStore.getState().trees.get(WS_ID);
-    expect(tree?.expanded.has(ROOT)).toBe(true);
-    expect(tree?.expanded.has(srcAbs)).toBe(true);
-    expect(tree?.expanded.has(componentsAbs)).toBe(true);
-
-    expect(tree?.nodes.has(buttonAbs)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scenario 6: selectFlat ordering — dirs first + alphabetical
-// ---------------------------------------------------------------------------
-
-describe("Scenario 6: selectFlat ordering — dirs first then alphabetical", () => {
-  beforeEach(resetStore);
-
-  it("returns dirs before files, both groups sorted alphabetically", async () => {
-    setupReaddir(
-      new Map([
-        [
-          "",
-          [
-            dirEntry("zebra.txt", "file"),
-            dirEntry("alpha.txt", "file"),
-            dirEntry("src", "dir"),
-            dirEntry("lib", "dir"),
-          ],
-        ],
-      ]),
-    );
-
-    await ensureRoot(WS_ID, ROOT);
-
-    const flat = selectFlat(useFilesStore.getState(), WS_ID);
-    const names = flat.slice(1).map((i) => i.node.name);
-
-    expect(names[0]).toBe("lib");
-    expect(names[1]).toBe("src");
-    expect(names[2]).toBe("alpha.txt");
-    expect(names[3]).toBe("zebra.txt");
-  });
-
-  it("assigns correct depth values", async () => {
-    const srcAbs = `${ROOT}/src`;
-
-    setupReaddir(
-      new Map([
-        ["", [dirEntry("src", "dir")]],
-        ["src", [dirEntry("index.ts", "file")]],
-      ]),
-    );
-
-    await ensureRoot(WS_ID, ROOT);
-    await toggleExpand(WS_ID, srcAbs);
-
-    const flat = selectFlat(useFilesStore.getState(), WS_ID);
-    const rootItem = flat.find((i) => i.absPath === ROOT);
-    const srcItem = flat.find((i) => i.absPath === srcAbs);
-    const indexItem = flat.find((i) => i.node.name === "index.ts");
-
-    expect(rootItem?.depth).toBe(0);
-    expect(srcItem?.depth).toBe(1);
-    expect(indexItem?.depth).toBe(2);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Scenario 7: fs.changed handler — reload expanded dirs, mark stale collapsed

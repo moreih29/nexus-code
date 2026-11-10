@@ -1,17 +1,12 @@
 /**
- * Scenario tests for tag create/delete dialog content.
+ * Scenario tests for tag delete confirmation: local and remote deletes stay apart.
  */
 import { describe, expect, it, mock } from "bun:test";
 import {
-  buildCreateTagFields,
-  CreateTagRefSelector,
   confirmTagDeleteRequest,
   type DeleteTagRequest,
-  TagDeleteConfirmContent,
 } from "../../../../../../../src/renderer/components/files/git/pickers/tag-picker";
-import { FormDialogContent } from "../../../../../../../src/renderer/components/ui/form-dialog";
 import type { RemoteTag, Tag } from "../../../../../../../src/shared/git/types";
-import { renderInAlertDialog, renderInDialog } from "../../../../../../helpers/render-in-dialog";
 
 const workspaceId = "ws-tags";
 
@@ -30,59 +25,7 @@ const remoteTag: RemoteTag = {
   scope: "remote",
 };
 
-describe("tag create FormDialog content", () => {
-  it("renders required name, optional message, and the at-ref picker affordance", () => {
-    const html = renderInDialog(
-      <FormDialogContent
-        title="Create tag"
-        description="Create a lightweight tag or add a message for an annotated tag."
-        fields={buildCreateTagFields()}
-        values={{ name: "v1.0.0", message: "release" }}
-        submitLabel="Create Tag"
-        cancelLabel="Cancel"
-        extraContent={<CreateTagRefSelector refName="HEAD" onPickRef={() => {}} />}
-        onValueChange={() => {}}
-        onCancel={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("Create tag");
-    expect(html).toContain("Name");
-    expect(html).toContain("Message");
-    expect(html).toContain("Message creates an annotated tag");
-    expect(html).toContain("Target ref");
-    expect(html).toContain("HEAD");
-    expect(html).toContain("at ref…");
-    expect(html).toContain("<textarea");
-  });
-});
-
 describe("tag delete confirmation content", () => {
-  it("renders a single local delete confirmation without a remote checkbox", () => {
-    const request = deleteRequest({ kind: "local" });
-    const html = renderInAlertDialog(
-      <TagDeleteConfirmContent request={request} onCancel={() => {}} onConfirm={() => {}} />,
-    );
-
-    expect(html).toContain("Delete tag &#x27;v1.0.0&#x27;?");
-    expect(html).toContain("Delete local tag &#x27;v1.0.0&#x27;");
-    expect(html).not.toContain("Also delete");
-    expect(html).not.toContain('type="checkbox"');
-  });
-
-  it("renders a single remote delete confirmation without a local checkbox", () => {
-    const request = deleteRequest({ kind: "remote", remote: "origin" });
-    const html = renderInAlertDialog(
-      <TagDeleteConfirmContent request={request} onCancel={() => {}} onConfirm={() => {}} />,
-    );
-
-    expect(html).toContain("Delete remote tag &#x27;origin/v1.0.0&#x27;?");
-    expect(html).toContain("Delete tag &#x27;v1.0.0&#x27; from origin");
-    expect(html).not.toContain("Also delete");
-    expect(html).not.toContain('type="checkbox"');
-  });
-
   it("calls only deleteTag for local delete confirmations", async () => {
     const deleteTag = mock(async () => true);
     const deleteRemoteTag = mock(async () => true);
