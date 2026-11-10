@@ -650,14 +650,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               <UsageLineView
                 line={usageLine}
                 trailing={
-                  hooks ? undefined : (
-                    <ProfileUsageChip
-                      agent="claude"
-                      workspaceId={workspaceId}
-                      cwd={props.cwd}
-                      profileId={props.profileId}
-                    />
-                  )
+                  hooks
+                    ? undefined
+                    : (compact) => (
+                        <ProfileUsageChip
+                          agent="claude"
+                          workspaceId={workspaceId}
+                          cwd={props.cwd}
+                          profileId={props.profileId}
+                          compact={compact}
+                        />
+                      )
                 }
               />
             }

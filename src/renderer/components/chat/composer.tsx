@@ -26,19 +26,18 @@ import {
   X,
 } from "lucide-react";
 import {
-  type RefObject,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
+import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import {
   applyCompletion,
@@ -207,6 +206,7 @@ export function Composer({
   const fit = useFitStep(
     footerRef,
     `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
+    FIT.TRUNCATE_MODE,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -747,42 +747,6 @@ const FIT = {
   NO_MODEL: 4,
   TRUNCATE_MODE: 5,
 } as const;
-
-/**
- * The step of FIT that lets `row` hold its content on one line: each
- * render it overflows at takes the next step, before it paints. A new
- * width, or a change of what `content` names, starts over from all of it.
- */
-function useFitStep(row: RefObject<HTMLElement | null>, content: string): number {
-  const [step, setStep] = useState(0);
-  const [, recheck] = useReducer((n: number) => n + 1, 0);
-  const shownFor = useRef(content);
-  useLayoutEffect(() => {
-    if (shownFor.current !== content) {
-      shownFor.current = content;
-      if (step !== 0) {
-        setStep(0);
-        return;
-      }
-    }
-    const el = row.current;
-    if (el && step < FIT.TRUNCATE_MODE && el.scrollWidth > el.clientWidth) setStep(step + 1);
-  });
-  useEffect(() => {
-    const el = row.current;
-    if (!el) return;
-    let width = el.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      setStep(0);
-      recheck();
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [row]);
-  return step;
-}
 
 /**
  * A chip's menu, open as the user opens it or as a bare command (/model,

@@ -158,3 +158,111 @@ export function resetParts(resetsAt: number, now: number, locale: string): Reset
     weekday: new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date),
   };
 }
+
+/** From this percent on, a part warns: its colour turns, and it holds out longest as the line narrows. */
+export const WARN_AT = 80;
+
+function near(percent: number): boolean {
+  return percent >= WARN_AT;
+}
+
+/** How a meter shows in one step of the line. */
+export interface UsageMeterView {
+  meter: UsageMeter;
+  bar: boolean;
+  /** Its long name ("현재 세션") or its short one ("세션"). */
+  word: "long" | "short";
+  /** When it starts over, said whole, in short, or not at all. */
+  reset: "long" | "short" | null;
+}
+
+/** What the line says in one step of narrowing. */
+export interface UsageView {
+  /** The context's ring and percent, with its word and its token counts, unless left out. */
+  context?: { word: boolean; tokens: boolean };
+  meters: UsageMeterView[];
+  /** What is left out, counted after the meters ("+2") and told on hover. */
+  hidden: { context: boolean; meters: UsageMeter[] };
+  /** The profile's name after its dot; the dot alone otherwise. */
+  profileName: boolean;
+}
+
+interface Detail {
+  tokens: boolean;
+  words: "long" | "short";
+  /** Every meter's reset time, those near their limit, theirs in short, or none. */
+  resets: "all" | "near" | "short" | "none";
+  bars: boolean;
+  profileName: boolean;
+  /** Meters below WARN_AT show. */
+  calm: boolean;
+  /** The context shows below WARN_AT, while a meter is near its limit. */
+  context: boolean;
+}
+
+const ALL: Detail = {
+  tokens: true,
+  words: "long",
+  resets: "all",
+  bars: true,
+  profileName: true,
+  calm: true,
+  context: true,
+};
+
+/** What each step leaves out, on top of the steps before it: the least wanted first. */
+const STEPS: Partial<Detail>[] = [
+  { tokens: false },
+  { resets: "near" },
+  { words: "short", resets: "short" },
+  { bars: false },
+  { profileName: false },
+  { calm: false },
+  { context: false },
+  { resets: "none" },
+];
+
+function viewOf(line: UsageLine, d: Detail): UsageView {
+  const anyNear = line.meters.some((meter) => near(meter.percent));
+  const { context } = line;
+  // With nothing near its limit, the context is the most there is to say.
+  const showContext = context !== undefined && (d.context || near(context.percent) || !anyNear);
+  const shown = line.meters.filter((meter) => d.calm || near(meter.percent));
+  const resetOf = (meter: UsageMeter): UsageMeterView["reset"] => {
+    if (meter.resetsAt === undefined || d.resets === "none") return null;
+    if (d.resets === "all") return "long";
+    if (!near(meter.percent)) return null;
+    return d.resets === "near" ? "long" : "short";
+  };
+  return {
+    ...(showContext ? { context: { word: d.words === "long", tokens: d.tokens } } : {}),
+    meters: shown.map((meter) => ({ meter, bar: d.bars, word: d.words, reset: resetOf(meter) })),
+    hidden: {
+      context: context !== undefined && !showContext,
+      meters: line.meters.filter((meter) => !shown.includes(meter)),
+    },
+    profileName: d.profileName,
+  };
+}
+
+/**
+ * The line's steps, from all of it to the least it says, for a tab as
+ * narrow as it gets: the token counts go first, then the reset times of
+ * the meters not near their limit, then the words shorten, the bars go,
+ * the profile keeps its dot alone, the meters not near their limit are
+ * counted instead of shown, then the context, and last the reset times of
+ * those near it. A step that would say the same as the one before is left
+ * out; one without a profile after it (`profile: false`) has no step for
+ * its name.
+ */
+export function usageViews(line: UsageLine, { profile = true } = {}): UsageView[] {
+  const views: UsageView[] = [];
+  let detail = ALL;
+  for (const step of [{}, ...STEPS]) {
+    detail = { ...detail, ...step };
+    const view = viewOf(line, profile ? detail : { ...detail, profileName: false });
+    const before = views.at(-1);
+    if (!before || JSON.stringify(before) !== JSON.stringify(view)) views.push(view);
+  }
+  return views;
+}

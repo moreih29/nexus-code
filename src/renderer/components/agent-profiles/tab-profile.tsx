@@ -1,6 +1,7 @@
 // What a chat tab shows of its profile: its dot and name after the tab's
 // title, and under the composer a chip that tells the account, the folder
-// and the rule that gave it, and opens a conversation with another profile.
+// and the rule that gave it, and opens a conversation with another profile;
+// in a narrow tab the chip is the dot alone, its name told on hover.
 // Neither shows while the agent has only its default profile.
 
 import { useMemo, useState } from "react";
@@ -22,6 +23,7 @@ import {
 } from "../../state/stores/agent-profiles";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Popover } from "../ui/popover";
+import { tooltipProps } from "../ui/tooltip";
 import { hasProfileChoice, ProfileDot, profileName } from "./profile-badge";
 import { sourceLabel } from "./workspace-profile-menu";
 
@@ -46,11 +48,13 @@ export function ProfileUsageChip({
   workspaceId,
   cwd,
   profileId,
+  compact = false,
 }: {
   agent: ChatAgent;
   workspaceId: string;
   cwd: string;
   profileId?: string;
+  compact?: boolean;
 }) {
   const { t } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
@@ -89,6 +93,7 @@ export function ProfileUsageChip({
       ? sourceLabel(resolved.source, config, t)
       : t("chat.profile.source.chosen");
   const others = profilesOf(config, agent).filter((p) => p.id !== profile.id);
+  const name = profileName(profile, t);
 
   const openWith = (id: string) => {
     setOpen(false);
@@ -114,16 +119,17 @@ export function ProfileUsageChip({
           type="button"
           className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1 hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           data-testid="chat-profile-chip"
+          {...(compact ? { "aria-label": name, ...tooltipProps(name) } : {})}
         >
           <ProfileDot color={profile.color} className="size-1.5" />
-          <span className="max-w-28 truncate">{profileName(profile, t)}</span>
+          {!compact && <span className="max-w-28 truncate">{name}</span>}
         </button>
       }
     >
       <div className="flex flex-col gap-2 px-2 py-1.5 text-app-ui-sm">
         <div className="flex items-center gap-1.5 text-app-body text-foreground">
           <ProfileDot color={profile.color} />
-          <span className="truncate">{profileName(profile, t)}</span>
+          <span className="truncate">{name}</span>
         </div>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
           {account && (

@@ -1479,6 +1479,7 @@
       },
       "resets_time": "{{time}} 초기화",
       "resets_date": "{{month}}/{{day}}({{weekday}}) {{time}} 초기화",
+      "resets_short_date": "{{weekday}} {{time}}",
       "meter_tip": "{{label}} {{percent}}% 사용",
       "short": {
         "session": "세션",
