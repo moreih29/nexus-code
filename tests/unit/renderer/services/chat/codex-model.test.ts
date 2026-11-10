@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { CODEX_INIT_PROMPT } from "../../../../../src/renderer/services/chat/codex-commands";
 import {
   applyCodexLines,
   type CodexModel,
@@ -9,6 +10,7 @@ import {
   originalsFor,
   shellName,
   shownCommand,
+  shownUserText,
 } from "../../../../../src/renderer/services/chat/codex-model";
 import type {
   AssistantItem,
@@ -1006,6 +1008,125 @@ describe("codex commands' answers", () => {
       i.kind === "assistant" ? i.blocks.filter((b) => b.type === "text") : [],
     );
     expect(texts).toEqual([expect.objectContaining({ text: "No issues found." })]);
+  });
+
+  // As codex 0.167 starts a review: the review's start, then the
+  // instructions it writes itself, as a message of the user's.
+  const reviewStart = (turnId: string): ChatLine[] => [
+    note("item/completed", {
+      threadId: T,
+      turnId,
+      item: { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+    }),
+    note("item/completed", {
+      threadId: T,
+      turnId,
+      item: {
+        type: "userMessage",
+        id: "ru1",
+        content: [
+          {
+            type: "text",
+            text: "Review the current code changes (staged, unstaged, and untracked files) and provide prioritized findings.",
+            text_elements: [],
+          },
+        ],
+      },
+    }),
+  ];
+
+  test("the instructions a review starts with are not shown as the user's", () => {
+    const model = run([...started(), ...sendTurn("hi"), ...reviewStart("turn_r")]);
+    const users = model.items.filter((i): i is UserItem => i.kind === "user");
+    expect(users.map((u) => u.text)).toEqual(["hi"]);
+    expect(model.items.filter((i) => i.kind === "notice")).toEqual([
+      expect.objectContaining({ code: "review", detail: "current changes" }),
+    ]);
+  });
+
+  test("nor when the thread is read again, its other messages kept", () => {
+    const user = (id: string, text: string) => ({
+      type: "userMessage",
+      id,
+      content: [{ type: "text", text }],
+    });
+    const model = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        result: {
+          thread: {
+            id: T,
+            name: null,
+            turns: [
+              {
+                id: "turn_1",
+                items: [user("u1", "hi"), { type: "agentMessage", id: "m1", text: "hello" }],
+              },
+              {
+                id: "turn_r",
+                // Listed as they ended, the instructions before the review's start.
+                items: [
+                  user("ru1", "Review the current code changes and provide prioritized findings."),
+                  { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+                  { type: "exitedReviewMode", id: "rv2", review: "No issues found." },
+                  { type: "agentMessage", id: "m2", text: "No issues found." },
+                ],
+              },
+              { id: "turn_3", items: [user("u3", "thanks")] },
+            ],
+          },
+          model: "gpt-6",
+          cwd: "/w",
+        },
+      }),
+    ]);
+    const users = model.items.filter((i): i is UserItem => i.kind === "user");
+    expect(users.map((u) => u.text)).toEqual(["hi", "thanks"]);
+  });
+
+  test("/init reads as the command typed, not the prompt it sends", () => {
+    expect(shownUserText(CODEX_INIT_PROMPT)).toBe("/init");
+    expect(shownUserText(`${CODEX_INIT_PROMPT}\n`)).toBe("/init");
+    expect(shownUserText("Generate a file named AGENTS.md")).toBe(
+      "Generate a file named AGENTS.md",
+    );
+    // As it is sent, as Codex tells it back, and as the thread is read again.
+    const live = run([...started(), ...sendTurn(CODEX_INIT_PROMPT)]);
+    expect(live.items.filter((i): i is UserItem => i.kind === "user").map((u) => u.text)).toEqual([
+      "/init",
+    ]);
+    const resumed = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        result: {
+          thread: {
+            id: T,
+            name: null,
+            turns: [
+              {
+                id: "turn_1",
+                items: [
+                  {
+                    type: "userMessage",
+                    id: "u1",
+                    content: [{ type: "text", text: CODEX_INIT_PROMPT }],
+                  },
+                ],
+              },
+            ],
+          },
+          model: "gpt-6",
+          cwd: "/w",
+        },
+      }),
+    ]);
+    expect(
+      resumed.items.filter((i): i is UserItem => i.kind === "user").map((u) => u.text),
+    ).toEqual(["/init"]);
   });
 });
 

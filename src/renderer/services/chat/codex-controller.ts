@@ -19,6 +19,7 @@ import {
   emptyCodexModel,
   idKey,
   nextThreadModel,
+  shownUserText,
 } from "./codex-model";
 import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
@@ -596,7 +597,7 @@ export class CodexController {
     ];
     if (!this.titled && text.trim()) {
       this.titled = true;
-      this.hooks.onFirstMessage?.(text.trim());
+      this.hooks.onFirstMessage?.(shownUserText(text).trim());
     }
     const clientUserMessageId = nextId();
     const { running, turnId } = this.model;
