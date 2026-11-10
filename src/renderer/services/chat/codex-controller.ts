@@ -381,10 +381,12 @@ export class CodexController {
     this.hooks.onThread?.(threadId);
     this.hooks.onTitle?.(title);
     this.titled = true;
+    // A command's card told of the thread the tab had.
     this.update((prev) => ({
       ...prev,
       history: null,
       queue: [],
+      card: undefined,
       model: nextThreadModel(this.model),
     }));
     await this.start({ resetLog: true });
@@ -408,11 +410,13 @@ export class CodexController {
     this.target = { ...this.target, threadId: undefined, fork: undefined };
     this.hooks.onTitle?.("");
     this.titled = false;
-    // The chips show the picks at once, not the defaults until the thread starts.
+    // The chips show the picks at once, not the defaults until the thread
+    // starts; a command's card told of the thread the tab had.
     this.update((prev) => ({
       ...prev,
       history: null,
       queue: [],
+      card: undefined,
       model: {
         ...nextThreadModel(this.model),
         model: picks.model,
