@@ -51,7 +51,7 @@ import { useChatFontStyle } from "../../state/stores/chat-font";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { ProfileUsageChip } from "../agent-profiles/tab-profile";
+import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { CodexIcon } from "./agent-icons";
@@ -194,6 +194,19 @@ export function CodexTabView({
   };
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
+  };
+  // Another profile starts the tab over; what it has going decides whether to ask.
+  const tabUse: TabUse = model.running
+    ? "running"
+    : model.items.length > 0
+      ? "conversation"
+      : "empty";
+  const switchProfile = (profileId: string) => {
+    setResumeQuery(null);
+    setResumeError(null);
+    void controller
+      .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   // A tab put out of sight takes its quick look with it.
   useEffect(() => {
@@ -422,8 +435,9 @@ export function CodexTabView({
                     <ProfileUsageChip
                       agent="codex"
                       workspaceId={workspaceId}
-                      cwd={props.cwd}
                       profileId={props.profileId}
+                      use={tabUse}
+                      onSwitch={switchProfile}
                       compact={compact}
                     />
                   )

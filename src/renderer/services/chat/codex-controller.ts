@@ -8,6 +8,7 @@
 // picks (model, effort, approvals) go with the next turn, as the server
 // takes them: they hold for the thread from that turn on.
 
+import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
@@ -118,6 +119,8 @@ export interface CodexTabHooks {
   onFirstMessage?: (text: string) => void;
   /** The name the thread was given, to take the first message's place. */
   onTitle?: (title: string) => void;
+  /** The profile the tab runs with now, the user having switched it. */
+  onProfile?: (profileId: string) => void;
 }
 
 let counter = 0;
@@ -416,6 +419,41 @@ export class CodexController {
         effort: picks.effort,
         permissionMode: picks.mode,
       },
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /**
+   * Starts this tab over in a new thread with another profile: its program
+   * stops, a turn under way with it, and the thread it had is left as it
+   * was. The tab's model and effort are the old profile's, so the new one
+   * starts with its own; the permission preset goes on.
+   */
+  async switchProfile(profileId: string): Promise<void> {
+    if (profileId === (this.target.profileId ?? defaultProfileId("codex"))) return;
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    const mode = this.next.mode ?? picksOf(this.model).mode;
+    this.next = mode ? { mode } : {};
+    this.target = {
+      ...this.target,
+      threadId: undefined,
+      fork: undefined,
+      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+    };
+    this.hooks.onProfile?.(profileId);
+    this.hooks.onTitle?.("");
+    this.titled = false;
+    // The account and its limits are the old profile's too.
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      card: undefined,
+      model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq, permissionMode: mode },
     }));
     await this.start({ resetLog: true });
   }

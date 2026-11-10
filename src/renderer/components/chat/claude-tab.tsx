@@ -80,7 +80,7 @@ import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
-import { ProfileUsageChip } from "../agent-profiles/tab-profile";
+import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
@@ -227,6 +227,18 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   ) => {
     setResumeError(null);
     void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
+  };
+  // Another profile starts the tab over; what it has going decides whether to ask.
+  const tabUse: TabUse = state.model.running
+    ? "running"
+    : (state.history?.items.length ?? 0) > 0 || state.model.items.length > 0
+      ? "conversation"
+      : "empty";
+  const switchProfile = (profileId: string) => {
+    setResumeError(null);
+    void controller
+      .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
@@ -673,8 +685,9 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
                         <ProfileUsageChip
                           agent="claude"
                           workspaceId={workspaceId}
-                          cwd={props.cwd}
                           profileId={props.profileId}
+                          use={tabUse}
+                          onSwitch={switchProfile}
                           compact={compact}
                         />
                       )

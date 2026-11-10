@@ -49,7 +49,7 @@ export interface ClaudeTabProps {
    * has its own id: set on a tab opened as a fork, or rewound.
    */
   fork?: { sessionId: string; at?: string; title?: string };
-  /** The agent profile its program runs with, kept for good; absent = the default. */
+  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
 }
 
@@ -59,7 +59,7 @@ export interface CodexTabProps {
   threadId?: string;
   /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
   fork?: { threadId: string; title?: string };
-  /** The agent profile its program runs with, kept for good; absent = the default. */
+  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
 }
 
@@ -275,7 +275,9 @@ interface TabsState {
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
    * Set the agent profile a Claude or Codex tab runs with: an empty tab that
-   * takes up a session another profile keeps. No-op on other tab types.
+   * takes up a session another profile keeps, or one the user switches. The
+   * session or thread it had is the old profile's, so it goes. No-op on
+   * other tab types.
    */
   setChatProfile: (workspaceId: string, tabId: string, profileId: string | undefined) => void;
 }
@@ -752,8 +754,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const tab = wsRecord?.[tabId];
         if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
         if (tab.props.profileId === profileId) return state;
-        const { profileId: _old, ...rest } = tab.props;
-        const props = profileId ? { ...rest, profileId } : rest;
+        const props = { cwd: tab.props.cwd, ...(profileId ? { profileId } : {}) };
         const next = { ...tab, props } as Tab;
         return {
           byWorkspace: {

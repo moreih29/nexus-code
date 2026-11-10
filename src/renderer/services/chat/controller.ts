@@ -502,6 +502,39 @@ export class ChatController {
   }
 
   /**
+   * Starts this tab over in a new conversation with another profile: its
+   * program stops, a turn under way with it, and the session it had is
+   * left as it was, for the old profile to go on with.
+   */
+  async switchProfile(profileId: string): Promise<void> {
+    if (profileId === this.profileId) return;
+    const { workspaceId, tabId } = this.target;
+    if (this.state.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    this.sessionId = undefined;
+    this.sessionName = undefined;
+    this.target = {
+      ...this.target,
+      sessionId: undefined,
+      fork: undefined,
+      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+    };
+    this.hooks.onProfile?.(profileId);
+    this.hooks.onTitle?.("");
+    this.titled = false;
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      card: undefined,
+      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+    }));
+    if (await this.start({ resetLog: true })) await this.rebuild();
+  }
+
+  /**
    * Names the tab's session, as /rename does: its program is started for it
    * when it is not running. False when the session cannot be named: it has
    * no conversation yet, or its version cannot.

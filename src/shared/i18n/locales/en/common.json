@@ -1636,8 +1636,13 @@
       "account": "Account",
       "folder": "Config folder",
       "rule": "Rule",
-      "locked": "The profile cannot change mid-conversation",
-      "newWith": "New conversation with another profile",
+      "switchTo": "Switch this tab to another profile",
+      "switch": {
+        "title": "Switch to {{name}}?",
+        "description": "This tab's conversation closes and a new one starts with {{name}}. The conversation so far is kept.",
+        "running": "The reply in progress stops, and a new conversation starts in this tab with {{name}}. The conversation so far is kept.",
+        "confirm": "Switch"
+      },
       "source": {
         "workspace": "This workspace",
         "folder": "Folder {{path}}",
