@@ -8,13 +8,13 @@ import type { CodexLimitWindow, CodexModel } from "./codex-model";
 import type { ChatModel } from "./model";
 import { contextOf, usageLimitsOf } from "./panel";
 
-/** Tokens as "942", "1k", "1.5k", "24.5k" or "1.2M". */
+/** Tokens as "942", "1.0k", "1.5k", "24.5k" or "1.2M": a tenth always, so they read alike. */
 export function formatTokens(count: number): string {
   if (count < 1000) return String(count);
-  // Rounded first, so 999,960 is "1M", not "1000k".
-  const thousands = Number((count / 1000).toFixed(1));
-  if (thousands < 1000) return `${thousands}k`;
-  return `${Number((count / 1_000_000).toFixed(1))}M`;
+  // Rounded first, so 999,960 is "1.0M", not "1000.0k".
+  const thousands = (count / 1000).toFixed(1);
+  if (Number(thousands) < 1000) return `${thousands}k`;
+  return `${(count / 1_000_000).toFixed(1)}M`;
 }
 
 /** A usage window, as the line names it. */
