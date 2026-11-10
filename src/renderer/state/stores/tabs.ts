@@ -5,7 +5,11 @@ import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import type { SerializedTab } from "../../../shared/types/layout";
-import type { BrowserTabPayload, DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
+import type {
+  BrowserTabPayload,
+  DiffTabPayload,
+  GitCommitTabPayload,
+} from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
@@ -331,7 +335,8 @@ export function restoredTitles(
   tab: SerializedTab,
 ): Pick<TabBase, "title" | "defaultTitle" | "customTitle" | "processTitle"> {
   const chat = tab.type === "claude" || tab.type === "codex";
-  const name = chat || tab.type === "sessions" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
+  const name =
+    chat || tab.type === "sessions" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
   const { customTitle } = tab;
   const older = tab.defaultTitle === undefined;
   const processTitle =
