@@ -17,6 +17,7 @@ import {
   type CodexModel,
   emptyCodexModel,
   idKey,
+  nextThreadModel,
 } from "./codex-model";
 import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
@@ -353,12 +354,11 @@ export class CodexController {
     this.hooks.onThread?.(threadId);
     this.hooks.onTitle?.(title);
     this.titled = true;
-    const { lastSeq } = this.model;
     this.update((prev) => ({
       ...prev,
       history: null,
       queue: [],
-      model: { ...emptyCodexModel(), lastSeq },
+      model: nextThreadModel(this.model),
     }));
     await this.start({ resetLog: true });
   }
@@ -376,16 +376,22 @@ export class CodexController {
     this.flushNow();
     // The tab's model, effort and preset go on with the new thread, as the
     // CLI's /new keeps its session's; a pick not sent yet still wins.
-    this.next = { ...picksOf(this.model), ...this.next };
+    const picks = { ...picksOf(this.model), ...this.next };
+    this.next = picks;
     this.target = { ...this.target, threadId: undefined, fork: undefined };
     this.hooks.onTitle?.("");
     this.titled = false;
-    const { lastSeq } = this.model;
+    // The chips show the picks at once, not the defaults until the thread starts.
     this.update((prev) => ({
       ...prev,
       history: null,
       queue: [],
-      model: { ...emptyCodexModel(), lastSeq },
+      model: {
+        ...nextThreadModel(this.model),
+        model: picks.model,
+        effort: picks.effort,
+        permissionMode: picks.mode,
+      },
     }));
     await this.start({ resetLog: true });
   }
