@@ -44,6 +44,25 @@ import { updateCheckFailedMessage } from "./update-check-failure";
 
 type NewerStatus = Extract<UpdateStatus, { kind: "newer" }>;
 
+/**
+ * Starts the in-place update to `version`. Main looks the version up again
+ * before it says the download began, which can take a moment, so the
+ * button turns to the download at once; a call that fails puts back what
+ * it showed. Main's own statuses take over from there, its failure too.
+ */
+export function installUpdate(version: string): void {
+  const store = useUpdatesStore.getState();
+  const before = store.status;
+  store.applyStatus({ kind: "downloading", version });
+  void ipcCallResult("updates", "install", undefined).then((result) => {
+    if (result.ok) return;
+    const now = useUpdatesStore.getState();
+    if (now.status?.kind === "downloading" && now.status.version === version) {
+      now.restoreStatus(before);
+    }
+  });
+}
+
 /** Skips `version`: the title bar stops offering it, and the app's own checks never tell of it. */
 export function skipVersion(version: string): void {
   useUpdatesStore.getState().setIgnoredVersion(version);
@@ -69,9 +88,7 @@ function announceNewer(status: NewerStatus, asked: boolean): void {
       canInstall
         ? {
             label: i18next.t("common:updates.install"),
-            onAction: () => {
-              void ipcCallResult("updates", "install", undefined);
-            },
+            onAction: () => installUpdate(latest),
           }
         : {
             label: i18next.t("common:updates.download"),
