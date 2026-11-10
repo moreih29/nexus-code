@@ -34,8 +34,6 @@ const (
 	logCapBytes = 32 * 1024 * 1024
 	// stderrTailBytes is how much of the program's stderr the exit reports.
 	stderrTailBytes = 16 * 1024
-	// stopGrace is how long a stopped program has to exit before it is killed.
-	stopGrace = 3 * time.Second
 	// exitDrainGrace lets the readers reach EOF before the exit is reported.
 	exitDrainGrace = 500 * time.Millisecond
 
@@ -45,6 +43,10 @@ const (
 	// transcriptCapBytes caps what chat.transcript returns, from the end.
 	transcriptCapBytes = 32 * 1024 * 1024
 )
+
+// stopGrace is how long a stopped program has to exit before it is killed;
+// a variable, so a test can wait less.
+var stopGrace = 3 * time.Second
 
 // EventSink is the callback the service pushes events through.
 type EventSink func(event string, payload any) error

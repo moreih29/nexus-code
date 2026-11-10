@@ -5,7 +5,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+// The runs' tests wait for what the transcript says; looking for it more
+// often than the app does only makes them wait less.
+func init() { printTranscriptPoll = 20 * time.Millisecond }
 
 // sessionA is a session id, as claude makes them.
 const sessionA = "8f7b63e3-a0e6-4b44-af95-03c2697fe716"

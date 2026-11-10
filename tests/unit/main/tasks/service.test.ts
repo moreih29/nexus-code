@@ -101,6 +101,8 @@ function setup(parentRoot = repoDir) {
       workspaceId === parent.id
         ? newLocalGitRepository(workspaceId, repoDir, path.join(repoDir, ".git"), "git")
         : null,
+    // The removal's tries in the same order, a hundred times faster.
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms / 100)),
   };
   return { deps, parent, workspaces, removed };
 }
@@ -245,7 +247,7 @@ describe("removeTask", () => {
       holding = false;
       const deadline = Date.now() + 3000;
       while (fs.existsSync(worktreePath) && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 5));
       }
       expect(fs.existsSync(worktreePath)).toBe(false);
     } finally {

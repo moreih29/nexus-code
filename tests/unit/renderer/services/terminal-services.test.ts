@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
@@ -726,10 +726,14 @@ describe("app-wide terminal exit listener", () => {
 });
 
 describe("services/terminal controller focus", () => {
-  beforeEach(resetIpc);
+  beforeEach(() => {
+    resetIpc();
+    jest.useFakeTimers();
+  });
+  afterEach(() => jest.useRealTimers());
 
   /** Past the moment a program that asked for focus reports is told about focus. */
-  const afterFocusReportDelay = (): Promise<unknown> => new Promise((r) => setTimeout(r, 300));
+  const afterFocusReportDelay = () => jest.advanceTimersByTime(300);
 
   it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
     const harness = makeTerminalControllerDeps();

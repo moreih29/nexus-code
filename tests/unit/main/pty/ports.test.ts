@@ -5,7 +5,7 @@
  * attached again, and not at all when it is quiet with none, unless a
  * command asks; and which answers it shows.
  */
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { PortWatcher } from "../../../../src/main/features/pty/ports";
 import type { ListeningPort, WorkspacePorts } from "../../../../src/shared/pty/ports";
 
@@ -24,7 +24,23 @@ function host() {
 
 const TIMING = { settleMs: 50, busyPollMs: 100, portsPollMs: 150 };
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// The watcher's timers run on a fake clock: `wait` moves it on a few
+// milliseconds at a time, letting what each step starts settle, so the
+// watcher sees time pass as it would, without the test waiting for it.
+beforeEach(() => jest.useFakeTimers());
+afterEach(() => jest.useRealTimers());
+
+const STEP_MS = 5;
+
+async function wait(ms: number): Promise<void> {
+  for (let passed = 0; passed < ms; passed += STEP_MS) {
+    jest.advanceTimersByTime(Math.min(STEP_MS, ms - passed));
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+}
+
+/** A look that takes `ms`, on the fake clock. */
+const slowLook = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function port(n: number, tabId = "t"): ListeningPort {
   return { port: n, pid: n * 10, process: "node", tabId };
@@ -41,7 +57,7 @@ function setup(answers: Array<ListeningPort[] | Error>, delayMs = 0) {
     async (workspaceId) => {
       looked.push(workspaceId);
       const answer = answers.length > 1 ? answers.shift() : answers[0];
-      if (delayMs > 0) await wait(delayMs);
+      if (delayMs > 0) await slowLook(delayMs);
       if (answer instanceof Error) throw answer;
       return answer ?? [];
     },
