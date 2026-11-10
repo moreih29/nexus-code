@@ -247,7 +247,8 @@ function Transcript({
     // The words name the tab's program, as in the tab.
     <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
       <TranscriptLinks session={session} chat={chat} cwd={cwd || rootPath} visible={visible}>
-        <div className="flex min-h-0 flex-1 flex-col" style={fontStyle}>
+        {/* The text as Settings › Agent sets it for the chat tabs. */}
+        <div className="chat-font flex min-h-0 flex-1 flex-col" style={fontStyle}>
           <MessageList
             // Keyed by the session, so each one opens at its latest message.
             key={session.key}
