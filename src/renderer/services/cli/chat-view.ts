@@ -11,7 +11,7 @@ import type {
   CliChatTool,
 } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { ChatItem, ChatModel, ToolCall } from "../chat/model";
+import { type ChatItem, type ChatModel, opensTurn, type ToolCall } from "../chat/model";
 import type { ChatTabState } from "../chat/store";
 import { lastAnswer } from "../sessions/codex-state";
 import { chatRowFacts, inputTarget } from "../sessions/rows";
@@ -56,7 +56,7 @@ function turnError(model: ChatModel): string | undefined {
   if (!model.lastResult?.isError) return undefined;
   for (let i = model.items.length - 1; i >= 0; i--) {
     const item = model.items[i];
-    if (item.kind === "user") return undefined;
+    if (opensTurn(item)) return undefined;
     if (item.kind === "notice" && item.code === "error") return item.detail ?? "the turn failed";
   }
   return model.lastResult.subtype;
@@ -149,6 +149,18 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
     }
     case "notice":
       return [{ role: "notice", text: item.detail ? `${item.code}: ${item.detail}` : item.code }];
+    case "received": {
+      const from = item.from.name ? `${item.from.kind} ${item.from.name}` : item.from.kind;
+      return [{ role: "notice", text: `from ${from}: ${item.text}` }];
+    }
+    case "task_end": {
+      const what = item.description ?? item.summary ?? item.taskId;
+      return [{ role: "notice", text: `task ${item.status}: ${what}` }];
+    }
+    case "shell": {
+      const out = [item.stdout, item.stderr].filter(Boolean).join("\n");
+      return [{ role: "notice", text: `$ ${item.command}${out ? `\n${out}` : ""}` }];
+    }
   }
 }
 

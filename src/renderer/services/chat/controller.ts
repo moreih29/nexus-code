@@ -314,7 +314,13 @@ export class ChatController {
         }),
       );
       if (!result.found) return;
-      const history = historyModel(result.lines, cut);
+      const read = historyModel(result.lines, cut);
+      // A task's end the log tells too is the log's: it has no uuid to cut at.
+      const told = new Set(
+        this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
+      );
+      const history =
+        told.size > 0 ? { ...read, items: read.items.filter((item) => !told.has(item.key)) } : read;
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
       // A session that was named, by the user or by Claude, is called by its
       // name; a branch, by the one it is to take.
