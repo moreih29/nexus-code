@@ -27,7 +27,8 @@
     "package:mac:current": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --mac dmg --publish never",
     "package:linux": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --linux AppImage deb --publish never",
     "package:win": "bun run scripts/build-agent.ts && electron-vite build && electron-builder --win appx --x64 --publish never",
-    "gen:icons": "bun run scripts/generate-material-icons.ts"
+    "gen:icons": "bun run scripts/generate-material-icons.ts",
+    "check:agent-commands": "bun run scripts/check-agent-commands.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
