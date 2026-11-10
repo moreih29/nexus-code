@@ -25,6 +25,7 @@ import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import { PROFILE_KEYWORDS, type SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
+import { KeptMounted } from "./components/ui/kept-mounted";
 import { ReleaseNotesView } from "./components/workbench/release-notes";
 import { Sidebar } from "./components/workbench/sidebar";
 import { TitleBar } from "./components/workbench/title-bar";
@@ -500,8 +501,13 @@ export function App() {
           }}
         </SettingsDialog>
         <div className="flex flex-1 min-h-0 overflow-hidden gap-[6px] p-[6px]">
-          {!sidebarHidden && agentView && <AgentSidebar />}
-          {!sidebarHidden && !agentView && (
+          {/* Kept mounted once shown, hidden while the other view or the
+              toggle hides them: switching views reveals them, folds and
+              scroll as they were, instead of building them again. */}
+          <KeptMounted shown={!sidebarHidden && agentView}>
+            <AgentSidebar />
+          </KeptMounted>
+          <KeptMounted shown={!sidebarHidden && !agentView}>
             <Sidebar
               workspaces={workspaces}
               activeWorkspaceId={activeWorkspaceId}
@@ -509,8 +515,10 @@ export function App() {
               onAddWorkspace={handleAddWorkspace}
               onRemoveWorkspace={handleRemoveWorkspace}
             />
-          )}
-          {!filesPanelHidden && !agentView && <FilesPanel />}
+          </KeptMounted>
+          <KeptMounted shown={!filesPanelHidden && !agentView}>
+            <FilesPanel />
+          </KeptMounted>
           {/* The panels, where quick look and the release notes show over them. */}
           <div
             className="relative grid grid-cols-1 grid-rows-1 flex-1 min-w-0 overflow-hidden"

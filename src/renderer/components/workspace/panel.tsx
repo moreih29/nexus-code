@@ -208,7 +208,7 @@ export const WorkspacePanel = memo(function WorkspacePanel({
           workspaceRootPath={workspace.rootPath}
         />
         <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
-        <StatusBar workspaceId={workspace.id} active={isActive} />
+        <StatusBar workspaceId={workspace.id} />
       </ErrorBoundary>
     </div>
   );

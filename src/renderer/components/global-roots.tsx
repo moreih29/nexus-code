@@ -7,6 +7,7 @@
 // React tree. A root may own one process-wide listener when the underlying
 // feature must work independently of the active workspace panel.
 
+import { memo } from "react";
 import { CliConsentDialogRoot } from "./cli/consent-dialog";
 import { ConflictResolutionDialogRoot } from "./editor/conflict-dialog";
 import { SaveConfirmDialogRoot } from "./editor/save-confirm-dialog";
@@ -29,7 +30,8 @@ import { RemoveWorkspaceDialogRoot } from "./workspace/remove-workspace-dialog";
 import { SshAuthPromptDialog } from "./workspace/ssh-auth-prompt-dialog";
 import { useSshAuthPrompts } from "./workspace/use-ssh-auth-prompts";
 
-export function GlobalRoots(): React.JSX.Element {
+// Memo: none takes props, and the app renders on every view switch.
+export const GlobalRoots = memo(function GlobalRoots(): React.JSX.Element {
   return (
     <>
       <ViewParkRoot />
@@ -49,7 +51,7 @@ export function GlobalRoots(): React.JSX.Element {
       <TooltipRoot />
     </>
   );
-}
+});
 
 /**
  * Mounts Git askpass/editor helper prompts once at App level. Credential
