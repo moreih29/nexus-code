@@ -459,7 +459,7 @@ export class CodexController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘↩). */
+  /** Holds a message until the turn ends (⌘⇧↩). */
   enqueue(text: string, images: ImageBlock[] = []): void {
     const item: QueuedMessage = { id: nextId(), text, images };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));

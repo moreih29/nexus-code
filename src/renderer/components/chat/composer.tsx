@@ -3,8 +3,9 @@
 // model, effort and permission mode.
 //
 // ↩ sends, and during a turn Claude reads it after the current tool; ⌘↩
-// (Ctrl+↩ off the Mac) holds it until the turn ends; ⇧↩ breaks the line;
-// esc stops the turn.
+// (Ctrl+↩ off the Mac) has Claude read it at once, as Claude Code's
+// Ctrl+Enter; ⌘⇧↩ holds it until the turn ends; ⇧↩ breaks the line; esc
+// stops the turn.
 // A `/` at the start completes a command, an `@` a file.
 //
 // An attached file is sent as an @-mention of its path, which the CLI
@@ -87,10 +88,10 @@ export interface ComposerController {
   send(text: string, images?: ImageBlock[]): Promise<void>;
   /**
    * During a turn, sends a message the program reads at once, where `send`
-   * waits for the tool it runs (⌘⇧↩); left out where `send` does not wait.
+   * waits for the tool it runs (⌘↩); left out where `send` does not wait.
    */
   sendNow?(text: string, images?: ImageBlock[]): Promise<void>;
-  /** Has the program read at once the messages `send` left waiting (⌘⇧↩ with nothing typed). */
+  /** Has the program read at once the messages `send` left waiting (⌘↩ with nothing typed). */
   readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
@@ -183,7 +184,7 @@ export function Composer({
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
   const canSend = !blocked && hasText && !sending;
-  // Sent during the turn, not yet read: what ⌘⇧↩ with nothing typed hurries.
+  // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
   const waiting = useMemo(() => model.items.filter(isWaiting), [model.items]);
@@ -347,7 +348,7 @@ export function Composer({
     return text.trim() ? `${text}\n\n${mentions}` : mentions;
   };
 
-  /** send: as ↩ sends; queue: after the turn (⌘↩); now: read at once (⌘⇧↩). */
+  /** send: as ↩ sends; now: read at once (⌘↩); queue: after the turn (⌘⇧↩). */
   const submit = async (how: "send" | "queue" | "now") => {
     if (!canSend) return;
     if (images.length === 0 && files.length === 0 && onCommand?.(text)) {
@@ -434,13 +435,14 @@ export function Composer({
       takeBackLast();
       return;
     }
-    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (canSend) void submit("now");
+      if (e.shiftKey) void submit("queue");
+      else if (canSend) void submit("now");
       else if (held) void controller.readHeldNow?.().catch((err: Error) => showError(err));
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void submit(e.metaKey || e.ctrlKey ? "queue" : "send");
+      void submit("send");
     } else if (e.key === "Escape" && running) {
       e.preventDefault();
       void controller.interrupt().catch((err: Error) => showError(err));
@@ -1126,8 +1128,8 @@ export function composerKeys(): {
   nowKey: string;
 } {
   return isMac()
-    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩", nowKey: "⌘⇧↩" }
-    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter", nowKey: "Ctrl+Shift+Enter" };
+    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘⇧↩", nowKey: "⌘↩" }
+    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Shift+Enter", nowKey: "Ctrl+Enter" };
 }
 
 /**

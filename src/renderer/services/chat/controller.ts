@@ -557,7 +557,7 @@ export class ChatController {
   }
 
   /**
-   * Sends a message Claude reads at once (⌘⇧↩): during a turn, what Claude
+   * Sends a message Claude reads at once (⌘↩): during a turn, what Claude
    * runs that can go on in the background goes there, and the turn stops
    * for the message when nothing can.
    */
@@ -567,7 +567,7 @@ export class ChatController {
 
   /**
    * Has Claude read at once the messages it holds for after its tool calls
-   * (⌘⇧↩ with nothing typed): the calls go on in the background, or the
+   * (⌘↩ with nothing typed): the calls go on in the background, or the
    * turn stops when none can, and Claude reads the messages next.
    */
   async readHeldNow(): Promise<void> {
@@ -617,7 +617,7 @@ export class ChatController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘↩). */
+  /** Holds a message until the turn ends (⌘⇧↩). */
   enqueue(text: string, images: ImageBlock[] = []): void {
     const item: QueuedMessage = { id: nextRequestId(), text, images };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));

@@ -796,8 +796,8 @@ function Todos({ todos }: { todos: readonly DetailTodo[] }) {
 
 /**
  * More for the conversation. A chat tab's turn that runs takes it as its
- * composer would: ↩ when the turn can read it, ⌘↩ after the turn, ⌘⇧↩ at
- * once (Claude). A terminal has it typed in, Shift+Enter between lines.
+ * composer would: ↩ when the turn can read it, ⌘↩ at once (Claude), ⌘⇧↩
+ * after the turn. A terminal has it typed in, Shift+Enter between lines.
  */
 function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState }) {
   const { t } = useTranslation();
@@ -835,7 +835,7 @@ function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState
     const mod = event.metaKey || event.ctrlKey;
     if (event.shiftKey && !mod) return;
     event.preventDefault();
-    void submit(mod ? (event.shiftKey ? "now" : "queue") : "send");
+    void submit(mod ? (event.shiftKey ? "queue" : "now") : "send");
   };
 
   const hint = running
