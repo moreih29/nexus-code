@@ -1,5 +1,5 @@
 import { Folder, GitBranch, Server, SquareTerminal, X } from "lucide-react";
-import React, { useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
@@ -451,7 +451,9 @@ function WorkspaceRow({
 // Component
 // ---------------------------------------------------------------------------
 
-export function Sidebar({
+// Memo: the app renders on every view switch, and the sidebar, kept while
+// hidden, would render again for nothing.
+export const Sidebar = memo(function Sidebar({
   workspaces: allWorkspaces,
   activeWorkspaceId,
   onSelectWorkspace,
@@ -662,7 +664,7 @@ export function Sidebar({
       <SidebarResizeHandle />
     </aside>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Connection status dot

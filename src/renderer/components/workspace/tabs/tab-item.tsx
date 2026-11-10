@@ -16,7 +16,15 @@ import {
   X,
 } from "lucide-react";
 import { Tabs as RadixTabs } from "radix-ui";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { tooltipProps } from "@/components/ui/tooltip";
@@ -317,7 +325,8 @@ export interface TabItemProps {
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
-export function TabItem({
+// Memo: the bar renders as which tabs fit changes, which changes no tab.
+export const TabItem = memo(function TabItem({
   workspaceId,
   leafId,
   tab,
@@ -618,4 +627,4 @@ export function TabItem({
       </Button>
     </div>
   );
-}
+});

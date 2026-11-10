@@ -21,6 +21,8 @@ import {
   memoryPercent,
 } from "../../services/system-stats/format";
 import { useSystemStats } from "../../services/system-stats/use-system-stats";
+import { useActiveStore } from "../../state/stores/active";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 
 function useStatsTitle(stats: SystemStats, host: string | null): string {
@@ -78,15 +80,19 @@ export function useWiderThan(ref: RefObject<HTMLElement | null>, min: number): b
   return wide;
 }
 
-/** The status bar's item: the workspace's host, asked while its panel is the one shown. */
+/**
+ * The status bar's item: the workspace's host, asked while its panel is the
+ * one shown. Read here, not handed down, so the bar around it does not
+ * render again as the view switches.
+ */
 export function SystemStatsSegment({
   workspaceId,
-  active,
 }: {
   workspaceId: string;
-  active: boolean;
 }): React.JSX.Element | null {
-  const stats = useSystemStats(workspaceId, active);
+  const isActiveWorkspace = useActiveStore((s) => s.activeWorkspaceId === workspaceId);
+  const agentView = useAgentViewStore((s) => s.mode === "agents");
+  const stats = useSystemStats(workspaceId, isActiveWorkspace && !agentView);
   const location = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.location,
   );

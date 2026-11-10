@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Folder, GitBranch, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18next from "i18next";
@@ -65,7 +65,8 @@ export async function reconnectWorkspace(
   }
 }
 
-export function FilesPanel() {
+// Memo: kept while hidden, it would render again with each of the app's.
+export const FilesPanel = memo(function FilesPanel() {
   const { t } = useTranslation("files");
   const filesPanelWidth = useUIStore((s) => s.filesPanelWidth);
   const setFilesPanelMode = useUIStore((s) => s.setFilesPanelMode);
@@ -215,7 +216,7 @@ export function FilesPanel() {
       />
     </aside>
   );
-}
+});
 
 function openGitDiffFromRow({
   workspaceId,

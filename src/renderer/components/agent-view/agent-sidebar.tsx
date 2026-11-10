@@ -4,7 +4,7 @@
 // already are, and the pointer on a row lights up the panel it is in.
 
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AGENT_FILTERS,
@@ -53,7 +53,8 @@ const FILTER_STATE: Record<Exclude<AgentFilter, "all">, string> = {
   idle: "idle",
 };
 
-export function AgentSidebar() {
+// Memo: kept while hidden, it would render again with each of the app's.
+export const AgentSidebar = memo(function AgentSidebar() {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
@@ -157,7 +158,7 @@ export function AgentSidebar() {
       <SidebarResizeHandle />
     </aside>
   );
-}
+});
 
 function FamilyGroup({
   family,
