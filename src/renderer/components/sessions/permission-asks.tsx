@@ -15,6 +15,7 @@ import type {
   PermissionAsk,
 } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
+import { markAnswered, useUnansweredAsks } from "../../services/sessions/answered-asks";
 import type { AgentSession } from "../../services/sessions/model";
 import { Button } from "../ui/button";
 import { agentLabel } from "./agent-status";
@@ -29,10 +30,12 @@ export function PermissionAsks({
   asks: readonly PermissionAsk[];
   agents: readonly AgentRun[];
 }) {
-  if (asks.length === 0) return null;
+  // One answered here leaves at once, not with the next poll.
+  const shown = useUnansweredAsks(session, asks);
+  if (shown.length === 0) return null;
   return (
     <div className="flex flex-col gap-2">
-      {asks.map((ask) => (
+      {shown.map((ask) => (
         <AskCard
           // Keyed by the request, so an answer under way is its own.
           key={ask.id}
@@ -70,11 +73,14 @@ function AskCard({
       answer: choice,
       ...(choice === "deny" || choice === "denyStop" ? { message } : {}),
     });
-    // An answer that reached Claude Code takes the request away with the next poll.
     if (!result.ok || !result.value) {
       setSending(false);
       setFailed(true);
+      return;
     }
+    // It reached Claude Code, which takes the request away: the card leaves
+    // now, and shows again if a poll still lists it a while later.
+    markAnswered(session, ask.id);
   };
   const onDeny = (event: FormEvent) => {
     event.preventDefault();
