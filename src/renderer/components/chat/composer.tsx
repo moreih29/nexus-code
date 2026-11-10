@@ -1140,7 +1140,7 @@ function ModelChip({
 }: ChipProps & { short: boolean; onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
-  const current = currentModelInfo(models, state.model.model);
+  const current = currentModelInfo(models, state.model.model, state.model.chosenModel);
   const label = current?.displayName ?? state.model.model ?? t("chat.model.default");
   const ready = state.model.process === "running" && models.length > 0;
   const [open, setOpen] = useRevealedMenu(
@@ -1190,7 +1190,9 @@ function EffortChip({
 }: ChipProps & { onMenu: (open: boolean) => void }) {
   const { t } = useTranslation();
   const models = state.model.init?.models ?? [];
-  const levels = currentModelInfo(models, state.model.model)?.supportedEffortLevels ?? [];
+  const levels =
+    currentModelInfo(models, state.model.model, state.model.chosenModel)?.supportedEffortLevels ??
+    [];
   const supported = controller.supports("apply_flag_settings");
   const note = t("chat.panel.needs_version", { version: firstVersionOf("apply_flag_settings") });
   const [open, setOpen] = useRevealedMenu(

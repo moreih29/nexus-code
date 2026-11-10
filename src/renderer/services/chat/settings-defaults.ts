@@ -28,6 +28,11 @@ export function settingsModel(answer: unknown): string | undefined {
   return str(rec(rec(answer)?.applied)?.model) ?? str(effective?.model);
 }
 
+/** The model the settings set, as they name it ("opus[1m]"); none when the default runs. */
+export function settingsChoice(answer: unknown): string | undefined {
+  return str(rec(rec(answer)?.effective)?.model);
+}
+
 /** The effort the program runs at. */
 export function appliedEffort(answer: unknown): string | undefined {
   return str(rec(rec(answer)?.applied)?.effort);
