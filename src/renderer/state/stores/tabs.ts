@@ -4,6 +4,7 @@ import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { ShellChoice } from "../../../shared/pty/shell";
+import type { SerializedTab } from "../../../shared/types/layout";
 import type { BrowserTabPayload, DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
@@ -317,6 +318,30 @@ export function defaultTitle(args: CreateTabArgs): string {
     }
   }
   return basename(args.props.filePath) || "Editor";
+}
+
+/**
+ * The titles a tab restored from a snapshot starts with: as they were
+ * saved, but a name the app gives (a chat tab's, the agents tab's), worked
+ * out again in the app's language. A snapshot from before the titles were
+ * kept has the shown one alone: a chat tab's is its conversation's unless
+ * it is the tab's name, any other tab's is taken for its name.
+ */
+export function restoredTitles(
+  tab: SerializedTab,
+): Pick<TabBase, "title" | "defaultTitle" | "customTitle" | "processTitle"> {
+  const chat = tab.type === "claude" || tab.type === "codex";
+  const name = chat || tab.type === "sessions" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
+  const { customTitle } = tab;
+  const older = tab.defaultTitle === undefined;
+  const processTitle =
+    older && chat ? (tab.title !== name ? tab.title : undefined) : tab.processTitle;
+  return {
+    defaultTitle: name,
+    customTitle,
+    processTitle,
+    title: computeDisplayTitle({ defaultTitle: name, customTitle, processTitle }),
+  };
 }
 
 /** "Terminal" for the first terminal, "Terminal 2", "Terminal 3", … after. */
