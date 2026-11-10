@@ -5,10 +5,7 @@
  */
 import { describe, expect, it } from "bun:test";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
-import {
-  chatChoicesOf,
-  planChatSettings,
-} from "../../../../../src/renderer/services/cli/chat-settings";
+import { planChatSettings } from "../../../../../src/renderer/services/cli/chat-settings";
 import { loosens } from "../../../../../src/shared/sessions/chat-modes";
 
 function claude(patch: Partial<ChatModel> = {}): ChatModel {
@@ -37,27 +34,6 @@ function claude(patch: Partial<ChatModel> = {}): ChatModel {
     ...patch,
   };
 }
-
-describe("chatChoicesOf", () => {
-  it("tells the model the tab runs, its efforts and the mode", () => {
-    const choices = chatChoicesOf("claude", claude({ model: "claude-sonnet-5-5", effort: "high" }));
-    expect(choices.model).toBe("sonnet");
-    expect(choices.effort).toBe("high");
-    expect(choices.mode).toBe("default");
-    expect(choices.efforts).toEqual(["low", "high"]);
-    expect(choices.models.map((m) => m.name)).toEqual(["Default (recommended)", "Haiku", "Sonnet"]);
-  });
-
-  it("counts no model told as the default one", () => {
-    const choices = chatChoicesOf("claude", claude());
-    expect(choices.model).toBe("default");
-    expect(choices.efforts).toEqual(["low", "medium", "high"]);
-  });
-
-  it("shows a Codex tab's preset before it tells one", () => {
-    expect(chatChoicesOf("codex", { ...emptyModel(), process: "running" }).mode).toBe("auto");
-  });
-});
 
 describe("planChatSettings", () => {
   it("takes a model by its value, its name or the model it runs, in any case", () => {

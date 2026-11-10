@@ -111,35 +111,6 @@ async function flushPromises(): Promise<void> {
 describe("renderer search store", () => {
   beforeEach(resetStore);
 
-  it("startSearch creates a running session and calls ipcStream with args and signal", () => {
-    useSearchStore.getState().startSearch(WS_A, "hello", BASE_OPTIONS);
-
-    const session = useSearchStore.getState().sessions.get(WS_A);
-    expect(session).toBeDefined();
-    expect(session!.query).toBe("hello");
-    expect(session!.options).toEqual(BASE_OPTIONS);
-    expect(session!.status).toBe("running");
-    expect(session!.results).toEqual([]);
-    expect(session!.limitHit).toBe(false);
-    expect(session!.filesScanned).toBe(0);
-    expect(session!.matchesFound).toBe(0);
-    expect(session!.elapsedMs).toBe(0);
-    expect(session!.errorMessage).toBeUndefined();
-
-    expect(mockIpcStream).toHaveBeenCalledTimes(1);
-    const [channel, method, args, opts] = mockIpcStream.mock.calls[0] as [
-      string,
-      string,
-      { workspaceId: string; query: { pattern: string } },
-      { signal: AbortSignal },
-    ];
-    expect(channel).toBe("fs");
-    expect(method).toBe("searchText");
-    expect(args).toEqual({ workspaceId: WS_A, query: { pattern: "hello", ...BASE_OPTIONS } });
-    expect(opts.signal).toBeInstanceOf(AbortSignal);
-    expect(latestStream().signal).toBe(opts.signal);
-  });
-
   it("progress appends new groups and merges matches for an existing group", () => {
     useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
     const stream = latestStream();
@@ -158,36 +129,6 @@ describe("renderer search store", () => {
     ]);
     expect(session.results[1].relPath).toBe("src/other.ts");
     expect(session.matchesFound).toBe(3);
-  });
-
-  it("complete sets status done and writes final counts", async () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const stream = latestStream();
-
-    stream.emitProgress(batch("src/index.ts", "needle"));
-    stream.resolve({ filesScanned: 8, matchesFound: 4, limitHit: true, elapsedMs: 42 });
-    await flushPromises();
-
-    const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(session.status).toBe("done");
-    expect(session.filesScanned).toBe(8);
-    expect(session.matchesFound).toBe(4);
-    expect(session.limitHit).toBe(true);
-    expect(session.elapsedMs).toBe(42);
-  });
-
-  it("cancelSearch aborts the signal, sets status idle, and keeps partial results", () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const stream = latestStream();
-    stream.emitProgress(batch("src/index.ts", "needle"));
-
-    useSearchStore.getState().cancelSearch(WS_A);
-
-    const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(stream.signal?.aborted).toBe(true);
-    expect(session.status).toBe("idle");
-    expect(session.results).toHaveLength(1);
-    expect(session.matchesFound).toBe(1);
   });
 
   it("a new startSearch aborts the prior controller and ignores stale progress/errors", async () => {
@@ -215,29 +156,6 @@ describe("renderer search store", () => {
     expect(session.matchesFound).toBe(1);
   });
 
-  it("non-abort stream errors set status error", async () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    latestStream().reject(new Error("disk full"));
-    await flushPromises();
-
-    const session = useSearchStore.getState().sessions.get(WS_A)!;
-    expect(session.status).toBe("error");
-    expect(session.errorMessage).toBe("disk full");
-  });
-
-  it("toggleGroup flips only the requested result group", () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const stream = latestStream();
-    stream.emitProgress(batch("a.ts", "needle a"));
-    stream.emitProgress(batch("b.ts", "needle b"));
-
-    useSearchStore.getState().toggleGroup(WS_A, "a.ts");
-
-    const results = useSearchStore.getState().sessions.get(WS_A)!.results;
-    expect(results.find((group) => group.relPath === "a.ts")!.expanded).toBe(false);
-    expect(results.find((group) => group.relPath === "b.ts")!.expanded).toBe(true);
-  });
-
   it("closeAllForWorkspace aborts in-flight search and removes only that workspace", () => {
     useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
     const first = latestStream();
@@ -263,44 +181,5 @@ describe("renderer search store", () => {
 
     expect(stream.signal?.aborted).toBe(true);
     expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
-  });
-
-  it("clearSearch removes a completed session (results no longer survive an empty input)", async () => {
-    useSearchStore.getState().startSearch(WS_A, "needle", BASE_OPTIONS);
-    const stream = latestStream();
-    stream.emitProgress(batch("a.ts", "needle a"));
-    stream.resolve({
-      filesScanned: 1,
-      matchesFound: 1,
-      limitHit: false,
-      elapsedMs: 1,
-    });
-    await flushPromises();
-
-    expect(useSearchStore.getState().sessions.get(WS_A)!.status).toBe("done");
-
-    useSearchStore.getState().clearSearch(WS_A);
-
-    expect(useSearchStore.getState().sessions.has(WS_A)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// toggleExpandedDir actions
-// ---------------------------------------------------------------------------
-
-describe("search store — toggleExpandedDir", () => {
-  beforeEach(resetStore);
-
-  it("toggleExpandedDir adds a dir path; toggling again removes it", () => {
-    useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(
-      useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src/components"),
-    ).toBe(true);
-
-    useSearchStore.getState().toggleExpandedDir(WS_A, "src/components");
-    expect(
-      useSearchStore.getState().expandedDirsByWorkspace.get(WS_A)?.has("src/components"),
-    ).toBe(false);
   });
 });

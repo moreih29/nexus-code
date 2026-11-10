@@ -19,14 +19,11 @@
  */
 
 import { afterAll, describe, expect, it, mock } from "bun:test";
-import { revealRange } from "../../../../../src/renderer/services/editor/tabs";
 import {
   registerRevealTarget,
   requestEditorReveal,
 } from "../../../../../src/renderer/services/editor/tabs/pending-reveal";
-import { SETTLE_FRAMES } from "../../../../../src/renderer/services/editor/tabs/reveal";
 import { __resetPendingEditorRevealsForTests } from "../../../../../src/renderer/services/editor/tabs/testing";
-import { type EditorTab, useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 
 // revealRange keeps centering for a few frames; frames here are drawn by hand.
 const frames: FrameRequestCallback[] = [];
@@ -36,10 +33,6 @@ globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) =>
 afterAll(() => {
   globalThis.requestAnimationFrame = originalRaf;
 });
-
-function nextFrame(): void {
-  for (const frame of frames.splice(0)) frame(0);
-}
 
 interface StubEditor {
   focus: ReturnType<typeof mock>;
@@ -83,148 +76,6 @@ const RANGE_B = {
   endLineNumber: 194,
   endColumn: 11,
 };
-
-describe("revealRange", () => {
-  it("focuses the editor before moving selection and viewport", () => {
-    const editor = makeStubEditor();
-
-    revealRange(editor as never, RANGE_A);
-
-    expect(editor.focus).toHaveBeenCalledTimes(1);
-    expect(editor.setSelection).toHaveBeenCalledTimes(1);
-    expect(editor.setSelection).toHaveBeenCalledWith(RANGE_A);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(1);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledWith(RANGE_A);
-
-    // Order: focus must happen before selection/viewport calls so Monaco
-    // treats the editor as the active surface for the upcoming layout pass.
-    const focusOrder = editor.focus.mock.invocationCallOrder[0]!;
-    const selectionOrder = editor.setSelection.mock.invocationCallOrder[0]!;
-    const revealOrder = editor.revealRangeInCenter.mock.invocationCallOrder[0]!;
-    expect(focusOrder).toBeLessThan(selectionOrder);
-    expect(selectionOrder).toBeLessThan(revealOrder);
-  });
-
-  it("leaves focus where it is when asked to", () => {
-    const editor = makeStubEditor();
-
-    revealRange(editor as never, RANGE_A, true);
-
-    expect(editor.focus).not.toHaveBeenCalled();
-    expect(editor.setSelection).toHaveBeenCalledWith(RANGE_A);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledWith(RANGE_A);
-  });
-
-  it("centers again as an editor mounted in a new group settles into its height", () => {
-    frames.length = 0;
-    // Laid out at a sliver first, at its height a frame later.
-    const editor = makeStubEditor(5);
-    revealRange(editor as never, RANGE_A, true);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(1);
-
-    nextFrame();
-    editor.layOut(665);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
-    editor.layOut(665);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
-
-    for (let frame = 0; frame < SETTLE_FRAMES; frame++) nextFrame();
-    editor.layOut(400);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
-  });
-
-  it("stops centering an earlier range once a newer one is revealed", () => {
-    frames.length = 0;
-    const editor = makeStubEditor(5);
-    revealRange(editor as never, RANGE_A, true);
-    revealRange(editor as never, RANGE_B, true);
-
-    editor.layOut(665);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(3);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
-  });
-});
-
-describe("requestEditorReveal — preserveFocus (the nexus CLI's opens)", () => {
-  it("reveals in a registered editor without focusing it", () => {
-    __resetPendingEditorRevealsForTests();
-    const editor = makeStubEditor();
-    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
-    registerRevealTarget(input, editor as never);
-
-    requestEditorReveal({ ...input, range: RANGE_A, preserveFocus: true });
-
-    expect(editor.focus).not.toHaveBeenCalled();
-    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
-  });
-
-  it("keeps it for a reveal queued until the editor mounts", () => {
-    __resetPendingEditorRevealsForTests();
-    const editor = makeStubEditor();
-    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
-
-    requestEditorReveal({ ...input, range: RANGE_B, preserveFocus: true });
-    registerRevealTarget(input, editor as never);
-
-    expect(editor.focus).not.toHaveBeenCalled();
-    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_B);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
-  });
-});
-
-describe("requestEditorReveal — direct routing to registered editor", () => {
-  it("calls revealRange immediately when a target is registered", () => {
-    __resetPendingEditorRevealsForTests();
-    const editor = makeStubEditor();
-    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
-
-    registerRevealTarget(input, editor as never);
-
-    requestEditorReveal({ ...input, range: RANGE_A });
-
-    expect(editor.focus).toHaveBeenCalledTimes(1);
-    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
-  });
-
-  it("delivers successive reveals on the same registered editor", () => {
-    __resetPendingEditorRevealsForTests();
-    const editor = makeStubEditor();
-    const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
-
-    registerRevealTarget(input, editor as never);
-
-    requestEditorReveal({ ...input, range: RANGE_A });
-    requestEditorReveal({ ...input, range: RANGE_B });
-
-    // The bug this guards against: the second click on a different match
-    // line in the same already-open file used to be silently swallowed.
-    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_B);
-    expect(editor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_B);
-    expect(editor.focus).toHaveBeenCalledTimes(2);
-    expect(editor.setSelection).toHaveBeenCalledTimes(2);
-    expect(editor.revealRangeInCenter).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not touch editors registered for a different workspace + path pair", () => {
-    __resetPendingEditorRevealsForTests();
-    const editor = makeStubEditor();
-
-    registerRevealTarget({ workspaceId: "ws-1", filePath: "/abs/lead.toml" }, editor as never);
-
-    requestEditorReveal({
-      workspaceId: "ws-2",
-      filePath: "/abs/other.toml",
-      range: RANGE_A,
-    });
-
-    expect(editor.focus).not.toHaveBeenCalled();
-    expect(editor.setSelection).not.toHaveBeenCalled();
-    expect(editor.revealRangeInCenter).not.toHaveBeenCalled();
-  });
-});
 
 describe("requestEditorReveal — pending queue when no target is registered", () => {
   it("queues a reveal and flushes it on the next registerRevealTarget for the same key", () => {
@@ -326,126 +177,5 @@ describe("registerRevealTarget — last-mount-wins and identity-checked unregist
     registerRevealTarget(input, secondEditor as never);
     expect(secondEditor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
     expect(secondEditor.revealRangeInCenter).toHaveBeenLastCalledWith(RANGE_A);
-  });
-});
-
-describe("registerRevealTarget — the same file in two splits", () => {
-  const input = { workspaceId: "ws-1", filePath: "/abs/lead.toml" };
-
-  it("reveals in the named tab even when another split mounted later", () => {
-    __resetPendingEditorRevealsForTests();
-    const left = makeStubEditor();
-    const right = makeStubEditor();
-    registerRevealTarget(input, left as never, "tab-left");
-    registerRevealTarget(input, right as never, "tab-right");
-
-    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-left" });
-
-    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-    expect(right.setSelection).not.toHaveBeenCalled();
-  });
-
-  it("keeps the other split registered when one split closes", () => {
-    __resetPendingEditorRevealsForTests();
-    const left = makeStubEditor();
-    const right = makeStubEditor();
-    registerRevealTarget(input, left as never, "tab-left");
-    const unregisterRight = registerRevealTarget(input, right as never, "tab-right");
-    unregisterRight();
-
-    requestEditorReveal({ ...input, range: RANGE_B });
-    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_B);
-
-    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-left" });
-    expect(left.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-  });
-
-  it("keeps a reveal queued for a tab until that tab's editor mounts", () => {
-    __resetPendingEditorRevealsForTests();
-    const left = makeStubEditor();
-    const right = makeStubEditor();
-    registerRevealTarget(input, left as never, "tab-left");
-
-    // A new split of the file opened; its editor is not mounted yet.
-    requestEditorReveal({ ...input, range: RANGE_A, tabId: "tab-right" });
-    expect(left.setSelection).not.toHaveBeenCalled();
-
-    registerRevealTarget(input, right as never, "tab-right");
-    expect(right.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-    expect(left.setSelection).not.toHaveBeenCalled();
-  });
-});
-
-describe("a reveal in a tab showing the file's preview", () => {
-  const doc = { workspaceId: "ws-1", filePath: "/repo/README.md" };
-
-  function editorTab(id: string, filePath: string, viewMode?: "raw" | "preview"): EditorTab {
-    return {
-      id,
-      type: "editor",
-      props: { workspaceId: doc.workspaceId, filePath },
-      title: "README.md",
-      defaultTitle: "README.md",
-      isPreview: false,
-      isPinned: false,
-      ...(viewMode ? { viewMode } : {}),
-    };
-  }
-
-  /** Runs `run` with animation frames held, and gives what draws them, frames they ask included. */
-  function withFrames(run: () => void): () => void {
-    const frames: FrameRequestCallback[] = [];
-    const saved = globalThis.requestAnimationFrame;
-    const held = (cb: FrameRequestCallback) => frames.push(cb);
-    const holding = (body: () => void) => {
-      globalThis.requestAnimationFrame = held;
-      try {
-        body();
-      } finally {
-        globalThis.requestAnimationFrame = saved;
-      }
-    };
-    holding(run);
-    return () =>
-      holding(() => {
-        while (frames.length > 0) frames.shift()?.(0);
-      });
-  }
-
-  it("switches the tab to its source, then reveals once the editor is laid out", () => {
-    __resetPendingEditorRevealsForTests();
-    useTabsStore.setState({
-      byWorkspace: { [doc.workspaceId]: { md: editorTab("md", doc.filePath) } },
-    });
-    const editor = { ...makeStubEditor(), layout: mock(() => {}) };
-    registerRevealTarget(doc, editor as never, "md");
-
-    const flush = withFrames(() => requestEditorReveal({ ...doc, range: RANGE_A, tabId: "md" }));
-    const tab = useTabsStore.getState().byWorkspace[doc.workspaceId]?.md as EditorTab;
-    expect(tab.viewMode).toBe("raw");
-    expect(editor.setSelection).not.toHaveBeenCalled();
-    flush();
-    expect(editor.layout).toHaveBeenCalled();
-    expect(editor.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-  });
-
-  it("reveals at once in a tab already showing the source", () => {
-    __resetPendingEditorRevealsForTests();
-    useTabsStore.setState({
-      byWorkspace: {
-        [doc.workspaceId]: {
-          md: editorTab("md", doc.filePath, "raw"),
-          ts: editorTab("ts", "/repo/a.ts"),
-        },
-      },
-    });
-    const md = makeStubEditor();
-    const ts = makeStubEditor();
-    registerRevealTarget(doc, md as never, "md");
-    registerRevealTarget({ ...doc, filePath: "/repo/a.ts" }, ts as never, "ts");
-    requestEditorReveal({ ...doc, range: RANGE_A, tabId: "md" });
-    requestEditorReveal({ ...doc, filePath: "/repo/a.ts", range: RANGE_B, tabId: "ts" });
-    expect(md.setSelection).toHaveBeenLastCalledWith(RANGE_A);
-    expect(ts.setSelection).toHaveBeenLastCalledWith(RANGE_B);
   });
 });

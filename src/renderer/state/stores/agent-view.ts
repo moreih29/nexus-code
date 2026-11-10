@@ -1,7 +1,8 @@
 /**
  * The agent view: whether the window shows it rather than the workspaces,
- * its panels, and the ended agents they show. All persist in AppState, the
- * panels a moment after they settle, so dragging a divider writes once.
+ * its panels, the ended agents they show, and the order its list's agents
+ * were dragged into. All persist in AppState, the panels a moment after
+ * they settle, so dragging a divider writes once.
  */
 
 import { create } from "zustand";
@@ -21,6 +22,12 @@ import {
   pruneKeys,
   sanitizeLayout,
 } from "../../services/agent-view/layout";
+import {
+  type AgentOrder,
+  NO_ORDER,
+  orderFromStore,
+  orderToStore,
+} from "../../services/agent-view/order";
 
 const log = createLogger("agent-view");
 
@@ -32,6 +39,8 @@ interface AgentViewState extends AgentLayout {
   hoveredKey: string | null;
   /** The terminal agents the panels show ended (services/agent-view/ended), by session key. */
   ended: ReadonlyMap<string, EndedAgent>;
+  /** The order the list's agents were dragged into (services/agent-view/order). */
+  order: AgentOrder;
   /** Restores what was stored, keeping only the agents `alive` knows. */
   hydrate(snapshot: AgentViewSnapshot | undefined, alive: (key: string) => boolean): void;
   setMode(mode: AgentViewMode): void;
@@ -40,6 +49,8 @@ interface AgentViewState extends AgentLayout {
   update(change: (layout: AgentLayout) => AgentLayout): void;
   setHovered(key: string | null): void;
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
+  /** The order of a workspace's (or task's) agents in the list, every one of them. */
+  setOrder(workspaceId: string, keys: readonly string[]): void;
 }
 
 const NO_ENDED: ReadonlyMap<string, EndedAgent> = new Map();
@@ -52,12 +63,13 @@ function schedulePersist(): void {
   if (persistTimer !== undefined) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = undefined;
-    const { mode, root, activeLeafId, ended } = useAgentViewStore.getState();
+    const { mode, root, activeLeafId, ended, order } = useAgentViewStore.getState();
     const agentView = {
       mode,
       root,
       activeLeafId,
       ...(ended.size > 0 ? { ended: endedToStore(ended) } : {}),
+      ...(Object.keys(order).length > 0 ? { order: orderToStore(order) } : {}),
     };
     void ipcCallResult("appState", "set", { agentView }).then((result) => {
       if (!result.ok) log.warn(`appState set (agent view) failed: ${result.message}`);
@@ -70,6 +82,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   ...emptyLayout(),
   hoveredKey: null,
   ended: NO_ENDED,
+  order: NO_ORDER,
 
   hydrate(snapshot, alive) {
     if (snapshot) {
@@ -79,6 +92,7 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         root: layout.root,
         activeLeafId: layout.activeLeafId,
         ended: endedFromStore(snapshot.ended, new Set(heldKeys(layout.root))),
+        order: orderFromStore(snapshot.order, alive),
       });
     }
     hydrated = true;
@@ -111,6 +125,13 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     set({ ended });
     schedulePersist();
   },
+
+  setOrder(workspaceId, keys) {
+    const was = get().order[workspaceId];
+    if (was && was.length === keys.length && was.every((key, i) => key === keys[i])) return;
+    set({ order: { ...get().order, [workspaceId]: [...keys] } });
+    schedulePersist();
+  },
 }));
 
 /** Whether the window shows the agent view. */
@@ -128,5 +149,6 @@ export function __resetAgentViewForTests(): void {
     ...emptyLayout(),
     hoveredKey: null,
     ended: NO_ENDED,
+    order: NO_ORDER,
   });
 }

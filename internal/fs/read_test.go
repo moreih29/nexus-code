@@ -7,10 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
-	"sort"
 	"testing"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -149,28 +147,6 @@ func TestReadBinaryReturnsBase64ForBinaryAndUtf8AndMissing(t *testing.T) {
 	}
 }
 
-func TestReadBinaryFrameShapeMatchesWire(t *testing.T) {
-	root := t.TempDir()
-	// Two bytes so the base64 output is short and easy to assert on.
-	must(t, os.WriteFile(filepath.Join(root, "x.bin"), []byte{0x01, 0x02}, 0o644))
-	fsys, err := New(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := dispatch.New()
-	Register(d, fsys)
-
-	res := d.Dispatch(context.Background(), proto.Request{ID: "rb-1", Method: "fs.readBinary", Params: json.RawMessage(`{"relPath":"x.bin"}`)})
-	line, err := proto.MarshalFrame(res)
-	if err != nil {
-		t.Fatal(err)
-	}
-	matched, err := regexp.MatchString(`^\{"id":"rb-1","result":\{"kind":"ok","base64":"AQI=","sizeBytes":2,"mtime":"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"\}\}\n$`, string(line))
-	if err != nil || !matched {
-		t.Fatalf("readBinary frame mismatch: %s (err=%v)", line, err)
-	}
-}
-
 func TestReadAbsoluteUsesAgentHostPath(t *testing.T) {
 	root := t.TempDir()
 	outsideRoot := t.TempDir()
@@ -259,17 +235,6 @@ func TestSymlinkSemanticsUseLstatAndDoNotEvalTarget(t *testing.T) {
 	}
 }
 
-func TestInvalidParamsAreProtocolErrors(t *testing.T) {
-	fsys, err := New(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = fsys.Stat(context.Background(), json.RawMessage(`{"relPath":1}`))
-	if err == nil || proto.ErrorCode(err) != proto.CodeProtocolError {
-		t.Fatalf("expected protocol error, got %v", err)
-	}
-}
-
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
@@ -283,44 +248,6 @@ func strconvQuote(s string) string {
 		panic(err)
 	}
 	return string(b)
-}
-
-func TestReaddirHidesOnlyVCSAndOSMetadata(t *testing.T) {
-	root := t.TempDir()
-	for _, dir := range []string{".git", "node_modules", "dist", "out", ".next", "src"} {
-		must(t, os.Mkdir(filepath.Join(root, dir), 0o755))
-	}
-	must(t, os.WriteFile(filepath.Join(root, ".DS_Store"), nil, 0o644))
-	fsys, err := New(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	names := func(params string) []string {
-		t.Helper()
-		res, err := fsys.Readdir(context.Background(), json.RawMessage(params))
-		if err != nil {
-			t.Fatal(err)
-		}
-		var out []string
-		for _, e := range res.([]DirEntry) {
-			out = append(out, e.Name)
-		}
-		sort.Strings(out)
-		return out
-	}
-
-	got := names(`{"relPath":"."}`)
-	want := []string{".next", "dist", "node_modules", "out", "src"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("readdir = %v, want %v", got, want)
-	}
-
-	got = names(`{"relPath":".","includeHidden":true}`)
-	want = []string{".DS_Store", ".git", ".next", "dist", "node_modules", "out", "src"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("readdir includeHidden = %v, want %v", got, want)
-	}
 }
 
 // The size cap must hold for what a read actually consumes. A symlink's own

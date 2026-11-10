@@ -4,7 +4,12 @@ import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { ShellChoice } from "../../../shared/pty/shell";
-import type { BrowserTabPayload, DiffTabPayload, GitCommitTabPayload } from "../../../shared/types/tab";
+import type { SerializedTab } from "../../../shared/types/layout";
+import type {
+  BrowserTabPayload,
+  DiffTabPayload,
+  GitCommitTabPayload,
+} from "../../../shared/types/tab";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
@@ -43,8 +48,8 @@ export interface ClaudeTabProps {
    * The session the tab's program copies, up to a message, until the copy
    * has its own id: set on a tab opened as a fork, or rewound.
    */
-  fork?: { sessionId: string; at?: string };
-  /** The agent profile its program runs with, kept for good; absent = the default. */
+  fork?: { sessionId: string; at?: string; title?: string };
+  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
 }
 
@@ -52,7 +57,9 @@ export interface CodexTabProps {
   cwd: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
-  /** The agent profile its program runs with, kept for good; absent = the default. */
+  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
+  fork?: { threadId: string; title?: string };
+  /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
 }
 
@@ -262,13 +269,15 @@ interface TabsState {
   setClaudeTarget: (
     workspaceId: string,
     tabId: string,
-    target: { sessionId?: string; fork?: { sessionId: string; at?: string } },
+    target: { sessionId?: string; fork?: { sessionId: string; at?: string; title?: string } },
   ) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
    * Set the agent profile a Claude or Codex tab runs with: an empty tab that
-   * takes up a session another profile keeps. No-op on other tab types.
+   * takes up a session another profile keeps, or one the user switches. The
+   * session or thread it had is the old profile's, so it goes. No-op on
+   * other tab types.
    */
   setChatProfile: (workspaceId: string, tabId: string, profileId: string | undefined) => void;
 }
@@ -315,6 +324,31 @@ export function defaultTitle(args: CreateTabArgs): string {
     }
   }
   return basename(args.props.filePath) || "Editor";
+}
+
+/**
+ * The titles a tab restored from a snapshot starts with: as they were
+ * saved, but a name the app gives (a chat tab's, the agents tab's), worked
+ * out again in the app's language. A snapshot from before the titles were
+ * kept has the shown one alone: a chat tab's is its conversation's unless
+ * it is the tab's name, any other tab's is taken for its name.
+ */
+export function restoredTitles(
+  tab: SerializedTab,
+): Pick<TabBase, "title" | "defaultTitle" | "customTitle" | "processTitle"> {
+  const chat = tab.type === "claude" || tab.type === "codex";
+  const name =
+    chat || tab.type === "sessions" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
+  const { customTitle } = tab;
+  const older = tab.defaultTitle === undefined;
+  const processTitle =
+    older && chat ? (tab.title !== name ? tab.title : undefined) : tab.processTitle;
+  return {
+    defaultTitle: name,
+    customTitle,
+    processTitle,
+    title: computeDisplayTitle({ defaultTitle: name, customTitle, processTitle }),
+  };
 }
 
 /** "Terminal" for the first terminal, "Terminal 2", "Terminal 3", … after. */
@@ -700,8 +734,11 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) => {
         const wsRecord = state.byWorkspace[workspaceId];
         const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "codex" || tab.props.threadId === threadId) return state;
-        const next: CodexTab = { ...tab, props: { ...tab.props, threadId } };
+        if (!wsRecord || tab?.type !== "codex") return state;
+        if (tab.props.threadId === threadId && !tab.props.fork) return state;
+        // A fork's copy has its own id now: the tab goes on with it.
+        const { fork: _copied, ...props } = tab.props;
+        const next: CodexTab = { ...tab, props: { ...props, threadId } };
         return {
           byWorkspace: {
             ...state.byWorkspace,
@@ -717,8 +754,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const tab = wsRecord?.[tabId];
         if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
         if (tab.props.profileId === profileId) return state;
-        const { profileId: _old, ...rest } = tab.props;
-        const props = profileId ? { ...rest, profileId } : rest;
+        const props = { cwd: tab.props.cwd, ...(profileId ? { profileId } : {}) };
         const next = { ...tab, props } as Tab;
         return {
           byWorkspace: {

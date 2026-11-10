@@ -3,8 +3,9 @@
 // model, effort and permission mode.
 //
 // ↩ sends, and during a turn Claude reads it after the current tool; ⌘↩
-// (Ctrl+↩ off the Mac) holds it until the turn ends; ⇧↩ breaks the line;
-// esc stops the turn.
+// (Ctrl+↩ off the Mac) has Claude read it at once, as Claude Code's
+// Ctrl+Enter; ⌘⇧↩ holds it until the turn ends; ⇧↩ breaks the line; esc
+// stops the turn.
 // A `/` at the start completes a command, an `@` a file.
 //
 // An attached file is sent as an @-mention of its path, which the CLI
@@ -25,19 +26,18 @@ import {
   X,
 } from "lucide-react";
 import {
-  type RefObject,
   useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
+import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
 import {
   applyCompletion,
@@ -48,6 +48,7 @@ import {
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
+  type CommandInfo,
   currentModelInfo,
   type ImageBlock,
   isWaiting,
@@ -60,6 +61,7 @@ import {
   takeReveal,
 } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -87,10 +89,10 @@ export interface ComposerController {
   send(text: string, images?: ImageBlock[]): Promise<void>;
   /**
    * During a turn, sends a message the program reads at once, where `send`
-   * waits for the tool it runs (⌘⇧↩); left out where `send` does not wait.
+   * waits for the tool it runs (⌘↩); left out where `send` does not wait.
    */
   sendNow?(text: string, images?: ImageBlock[]): Promise<void>;
-  /** Has the program read at once the messages `send` left waiting (⌘⇧↩ with nothing typed). */
+  /** Has the program read at once the messages `send` left waiting (⌘↩ with nothing typed). */
   readHeldNow?(): Promise<void>;
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
@@ -126,6 +128,8 @@ interface ComposerProps {
   onCommand?: (text: string) => boolean;
   /** The `/` menu lists the Claude tab's own commands too. */
   appCommands?: boolean;
+  /** The `/` menu's commands, in place of the CLI's and the app's (the Codex tab's). */
+  commands?: readonly CommandInfo[];
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -158,6 +162,11 @@ function fitHeight(area: HTMLTextAreaElement, column: HTMLElement | null | undef
   area.style.height = `${Math.min(area.scrollHeight, maxTextHeight(column?.clientHeight ?? 0))}px`;
 }
 
+/** In the background, a few pixels wide and inert: a height fitted there is wrong once it shows. */
+function parked(area: HTMLElement): boolean {
+  return area.clientWidth === 0 || area.closest("[inert]") !== null;
+}
+
 export function Composer({
   controller,
   state,
@@ -167,6 +176,7 @@ export function Composer({
   below,
   onCommand,
   appCommands = true,
+  commands: ownCommands,
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
@@ -183,7 +193,7 @@ export function Composer({
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
   const canSend = !blocked && hasText && !sending;
-  // Sent during the turn, not yet read: what ⌘⇧↩ with nothing typed hurries.
+  // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
   const waiting = useMemo(() => model.items.filter(isWaiting), [model.items]);
@@ -202,6 +212,7 @@ export function Composer({
   const fit = useFitStep(
     footerRef,
     `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
+    FIT.TRUNCATE_MODE,
   );
 
   // The caret, for the token it completes; a pick moves it after the render.
@@ -228,12 +239,13 @@ export function Composer({
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
+    if (ownCommands) return matchCommands([...ownCommands], completion.query);
     const cli = model.init?.commands ?? [];
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
     return matchCommands([...listedCommands(cli), ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands]);
+  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   useEffect(() => {
@@ -302,9 +314,16 @@ export function Composer({
     edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, at + space.length + 1);
   };
 
+  // Fitted as what it holds or how it is written changes, not on every
+  // render: each fit lays the page out (a streamed answer renders the
+  // composer at every chunk). A tab parked in the background waits for the
+  // observer below, which fits it as it shows.
+  const font = useChatFontStyle();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fits again as the text, placeholder or font changes
   useLayoutEffect(() => {
-    if (areaRef.current) fitHeight(areaRef.current, rootRef.current?.parentElement);
-  });
+    const area = areaRef.current;
+    if (area && !parked(area)) fitHeight(area, rootRef.current?.parentElement);
+  }, [text, placeholder, font]);
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
   // shows, so a new width fits it again. The cap follows the column's
@@ -320,7 +339,7 @@ export function Composer({
       if (area.clientWidth === width && nextHeight === height) return;
       width = area.clientWidth;
       height = nextHeight;
-      fitHeight(area, column);
+      if (!parked(area)) fitHeight(area, column);
     });
     observer.observe(area);
     if (column) observer.observe(column);
@@ -347,7 +366,7 @@ export function Composer({
     return text.trim() ? `${text}\n\n${mentions}` : mentions;
   };
 
-  /** send: as ↩ sends; queue: after the turn (⌘↩); now: read at once (⌘⇧↩). */
+  /** send: as ↩ sends; now: read at once (⌘↩); queue: after the turn (⌘⇧↩). */
   const submit = async (how: "send" | "queue" | "now") => {
     if (!canSend) return;
     if (images.length === 0 && files.length === 0 && onCommand?.(text)) {
@@ -434,13 +453,14 @@ export function Composer({
       takeBackLast();
       return;
     }
-    if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (canSend) void submit("now");
+      if (e.shiftKey) void submit("queue");
+      else if (canSend) void submit("now");
       else if (held) void controller.readHeldNow?.().catch((err: Error) => showError(err));
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      void submit(e.metaKey || e.ctrlKey ? "queue" : "send");
+      void submit("send");
     } else if (e.key === "Escape" && running) {
       e.preventDefault();
       void controller.interrupt().catch((err: Error) => showError(err));
@@ -677,7 +697,9 @@ export function Composer({
                   : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
               }
               onCommand={
-                (model.init?.commands.length ?? 0) > 0 ? () => insertTrigger("/") : undefined
+                (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
+                  ? () => insertTrigger("/")
+                  : undefined
               }
               returnFocus={() => areaRef.current?.focus()}
             />
@@ -738,42 +760,6 @@ const FIT = {
   NO_MODEL: 4,
   TRUNCATE_MODE: 5,
 } as const;
-
-/**
- * The step of FIT that lets `row` hold its content on one line: each
- * render it overflows at takes the next step, before it paints. A new
- * width, or a change of what `content` names, starts over from all of it.
- */
-function useFitStep(row: RefObject<HTMLElement | null>, content: string): number {
-  const [step, setStep] = useState(0);
-  const [, recheck] = useReducer((n: number) => n + 1, 0);
-  const shownFor = useRef(content);
-  useLayoutEffect(() => {
-    if (shownFor.current !== content) {
-      shownFor.current = content;
-      if (step !== 0) {
-        setStep(0);
-        return;
-      }
-    }
-    const el = row.current;
-    if (el && step < FIT.TRUNCATE_MODE && el.scrollWidth > el.clientWidth) setStep(step + 1);
-  });
-  useEffect(() => {
-    const el = row.current;
-    if (!el) return;
-    let width = el.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      setStep(0);
-      recheck();
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [row]);
-  return step;
-}
 
 /**
  * A chip's menu, open as the user opens it or as a bare command (/model,
@@ -1068,7 +1054,7 @@ export function ModeChip({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [open]);
+  }, [open, all]);
   return (
     <DropdownMenuRoot open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger>
@@ -1126,8 +1112,8 @@ export function composerKeys(): {
   nowKey: string;
 } {
   return isMac()
-    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘↩", nowKey: "⌘⇧↩" }
-    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Enter", nowKey: "Ctrl+Shift+Enter" };
+    ? { send: "↩", newLine: "⇧↩", queueKey: "⌘⇧↩", nowKey: "⌘↩" }
+    : { send: "Enter", newLine: "Shift+Enter", queueKey: "Ctrl+Shift+Enter", nowKey: "Ctrl+Enter" };
 }
 
 /**

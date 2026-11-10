@@ -29,7 +29,6 @@ import { StartedAgents } from "../../../../src/main/features/cli/started-agents"
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
 import type { AgentRun } from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
-import { parseSettingValue } from "../../../../src/shared/cli/settings";
 import type {
   CliAgentView,
   CliChatChoices,
@@ -41,7 +40,6 @@ import type {
   CliPanels,
   CliProblem,
   CliSessionEvent,
-  CliSettingInfo,
   CliTabInfo,
   CliUiOp,
   CliUiOps,
@@ -148,6 +146,7 @@ const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = 
 /** What is on disk, by workspace and path from its root. */
 const FILES: Record<string, Record<string, "file" | "dir">> = {
   [APP]: { "index.ts": "file", src: "dir", "src/login.ts": "file" },
+  [API]: { "main.go": "file" },
 };
 
 export interface FakeApp {
@@ -159,7 +158,6 @@ export interface FakeApp {
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
-  notified: Array<{ workspaceId: string; tabId: string; title: string; body: string }>;
   claude: Map<
     string,
     { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number }
@@ -167,12 +165,10 @@ export interface FakeApp {
   activity: Map<string, TabActivity>;
   /** The agents of each terminal's Claude session, by "workspace:tab". */
   agents: Map<string, AgentRun[]>;
-  /** The agents stop was asked of, by id; a run in `stoppable` is stopped. */
+  /** The agents stop was asked of, by id. */
   stops: string[];
-  stoppable: Set<string>;
   /** The waits on terminals listed while they run. */
   waits: WaitRegistry;
-  screens: Map<string, string>;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
   /** The Agent CLI settings. */
@@ -193,7 +189,6 @@ export interface FakeApp {
   browser: FakeBrowser;
   /** Each workspace's editor area; a test may replace one. */
   layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
-  panels: CliPanels;
   /** What problems.list gives. */
   problems: CliProblem[];
   /** The ports each workspace's terminals listen on; an Error fails the look. */
@@ -207,13 +202,6 @@ export interface FakeApp {
     to: Record<number, number>;
     error?: Error;
   };
-  /** The app's settings, as settings.list gives them. */
-  appSettings: CliSettingInfo[];
-  /**
-   * The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's
-   * codex), p1 active. A test may replace it; its agents follow the tabs.
-   */
-  agentView: Omit<CliAgentView, "agents">;
   /**
    * The Claude and Codex tabs' conversations, by tab id: where each stands
    * and its messages; a test may change them, as on a tick.
@@ -234,48 +222,6 @@ export interface FakeApp {
   /** Why tab.close leaves a tab open, by tab id; it closes the others. */
   closeRefused: Map<string, string>;
 }
-
-/** Some of the app's settings: one only the user changes, one with many choices. */
-const APP_SETTINGS: CliSettingInfo[] = [
-  {
-    key: "editor.fontSize",
-    summary: "The editor's font size, in pixels",
-    type: "integer",
-    min: 8,
-    max: 32,
-    value: 16,
-    changed: false,
-  },
-  {
-    key: "terminal.ligatures",
-    summary: "Whether the terminal joins characters into ligatures",
-    type: "boolean",
-    value: true,
-    changed: true,
-  },
-  {
-    key: "agentCli.crossWorkspace",
-    summary: "Whether nexus may change other workspaces",
-    type: "choice",
-    choices: ["ask", "allow", "deny"],
-    value: "ask",
-    changed: false,
-    readOnly: true,
-  },
-  {
-    key: "appearance.theme",
-    summary: "The color theme",
-    type: "choice",
-    choices: Array.from({ length: 12 }, (_, i) => (i === 0 ? "dark" : `a-long-theme-name-${i}`)),
-    value: "dark",
-    changed: false,
-  },
-];
-
-const SETTING_DEFAULTS: Record<string, CliSettingInfo["value"]> = {
-  "editor.fontSize": 16,
-  "terminal.ligatures": false,
-};
 
 export interface FakeBrowser {
   calls: Array<{ op: string; tabId: string; args: unknown[] }>;
@@ -407,7 +353,6 @@ export const PICKED: PickedElement = {
 
 export function fakeApp(now = Date.now()): FakeApp {
   const uiCalls: FakeApp["uiCalls"] = [];
-  const notified: FakeApp["notified"] = [];
   const claude: FakeApp["claude"] = new Map([
     [
       `${APP}:${CLAUDE_TAB}`,
@@ -423,7 +368,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   ]);
   const agents: FakeApp["agents"] = new Map();
   const stops: string[] = [];
-  const stoppable = new Set<string>();
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = [...WORKSPACES];
   const added: FakeApp["added"] = [];
@@ -467,8 +411,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     list.push(made);
     return made;
   };
-  const appSettings = APP_SETTINGS.map((setting) => ({ ...setting }));
-  const agentView: FakeApp["agentView"] = {
+  /** The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's codex), p1 active. */
+  const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
     activePanelId: "p1",
     root: {
@@ -643,40 +587,13 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "panels.get") return panels as CliUiOps[K]["result"];
     if (op === "problems.list") return { problems } as CliUiOps[K]["result"];
-    if (op === "settings.list") return { settings: appSettings } as CliUiOps[K]["result"];
-    if (op === "settings.set") {
-      const { key, value } = args as CliUiOps["settings.set"]["args"];
-      const index = appSettings.findIndex((s) => s.key.toLowerCase() === key.toLowerCase());
-      const setting = appSettings[index];
-      if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
-      if (setting.readOnly) {
-        throw new CliError(`${setting.key} is the user's to change, in Settings`);
-      }
-      const parsed =
-        value === null
-          ? { value: SETTING_DEFAULTS[setting.key] as CliSettingInfo["value"] }
-          : parseSettingValue(setting, value);
-      if ("error" in parsed) throw new CliError(`${setting.key}: ${parsed.error}`);
-      const next = { ...setting, value: parsed.value, changed: value !== null };
-      appSettings[index] = next;
-      return { setting: next } as CliUiOps[K]["result"];
-    }
     if (op === "agentView.get") {
       return { ...agentView, agents: viewAgents() } as CliUiOps[K]["result"];
-    }
-    if (op === "agentView.show") {
-      agentView.view = (args as CliUiOps["agentView.show"]["args"]).view;
-      return {} as CliUiOps[K]["result"];
     }
     if (op === "agentView.place") {
       const { panelId, side } = args as CliUiOps["agentView.place"]["args"];
       const landed = side ? "p9" : (panelId ?? agentView.activePanelId);
       return { panelId: landed } as CliUiOps[K]["result"];
-    }
-    if (op === "agentView.close") {
-      const { panelId } = args as CliUiOps["agentView.close"]["args"];
-      const panel = viewPanels(agentView.root).find((p) => p.id === panelId);
-      return { removed: panel?.tabIds.length ?? 0 } as CliUiOps[K]["result"];
     }
     if (op === "browser.navigate") {
       const { url } = args as CliUiOps["browser.navigate"]["args"];
@@ -707,15 +624,12 @@ export function fakeApp(now = Date.now()): FakeApp {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
       stop: async (_ws, _t, agentId) => {
         stops.push(agentId);
-        return stoppable.has(agentId);
+        return true;
       },
     },
     waits,
     ui,
-    notify: (workspaceId, tabId, title, body) => {
-      notified.push({ workspaceId, tabId, title, body });
-      return true;
-    },
+    notify: () => true,
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
     askUser: (request) =>
@@ -762,14 +676,11 @@ export function fakeApp(now = Date.now()): FakeApp {
     added,
     tabs,
     uiCalls,
-    notified,
     claude,
     activity,
     agents,
     stops,
-    stoppable,
     waits,
-    screens,
     foreground,
     settings,
     answers,
@@ -777,12 +688,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     time,
     browser,
     layouts,
-    panels,
     problems,
     ports,
     forwarding,
-    appSettings,
-    agentView,
     chats,
     chatSent,
     events,

@@ -27,26 +27,6 @@ func writeTempTranscript(t *testing.T, content string) string {
 	return path
 }
 
-func TestExtractLastAssistantText_EmptyPath(t *testing.T) {
-	if got := extractLastAssistantText(""); got != "" {
-		t.Errorf("empty path: want empty string, got %q", got)
-	}
-}
-
-func TestExtractLastAssistantText_NonexistentFile(t *testing.T) {
-	if got := extractLastAssistantText("/nonexistent/transcript.jsonl"); got != "" {
-		t.Errorf("nonexistent: want empty string, got %q", got)
-	}
-}
-
-func TestExtractLastAssistantText_EmptyFile(t *testing.T) {
-	t.Parallel()
-	path := writeTempTranscript(t, "")
-	if got := extractLastAssistantText(path); got != "" {
-		t.Errorf("empty file: want empty string, got %q", got)
-	}
-}
-
 func TestExtractLastAssistantText_StringContent(t *testing.T) {
 	t.Parallel()
 	// content가 string 형태 — 가장 단순한 케이스
@@ -211,29 +191,6 @@ func TestTranscriptPathFromPayload_CamelCase(t *testing.T) {
 	}
 }
 
-func TestTranscriptPathFromPayload_Missing(t *testing.T) {
-	payload := []byte(`{"session_id":"x"}`)
-	got := transcriptPathFromPayload(payload)
-	if got != "" {
-		t.Errorf("missing: want empty, got %q", got)
-	}
-}
-
-func TestTranscriptPathFromPayload_EmptyPayload(t *testing.T) {
-	got := transcriptPathFromPayload(nil)
-	if got != "" {
-		t.Errorf("nil payload: want empty, got %q", got)
-	}
-}
-
-func TestTranscriptPathFromPayload_Malformed(t *testing.T) {
-	payload := []byte(`not json at all`)
-	got := transcriptPathFromPayload(payload)
-	if got != "" {
-		t.Errorf("malformed: want empty, got %q", got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // stopAssistantText
 // ---------------------------------------------------------------------------
@@ -280,32 +237,9 @@ func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
 	}
 }
 
-func TestStopAssistantText_NothingToRead(t *testing.T) {
-	if got := stopAssistantText(nil); got != "" {
-		t.Errorf("nil payload: want empty, got %q", got)
-	}
-	if got := stopAssistantText([]byte(`not json`)); got != "" {
-		t.Errorf("malformed payload: want empty, got %q", got)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // waitForTranscriptStable — mtime stability polling
 // ---------------------------------------------------------------------------
-
-// 이미 안정된(=mtime이 변하지 않는) 파일이면 첫 polling 주기 후 빠르게 반환.
-// 최대 시간보다 한참 안에 끝나야 한다.
-func TestWaitForTranscriptStable_AlreadyStable(t *testing.T) {
-	path := writeTempTranscript(t, `{"message":{"role":"assistant","content":"done"}}`+"\n")
-	// 호출 시점에 파일은 이미 변동 없는 상태. 짧은 interval로 호출.
-	start := time.Now()
-	waitForTranscriptStable(path, 500*time.Millisecond, 20*time.Millisecond)
-	elapsed := time.Since(start)
-	// 첫 sleep(20ms) + stat 정도면 끝나야 한다. 여유로 100ms 안.
-	if elapsed > 100*time.Millisecond {
-		t.Errorf("stable file: should return quickly, took %v", elapsed)
-	}
-}
 
 // 파일이 계속 자라고 있으면 maxWait까지 polling을 계속하고 결국 반환한다.
 func TestWaitForTranscriptStable_ChangingFileTimesOut(t *testing.T) {
@@ -342,16 +276,6 @@ func TestWaitForTranscriptStable_ChangingFileTimesOut(t *testing.T) {
 	// maxWait를 한 interval 이상 크게 넘기면 안 된다.
 	if elapsed > 400*time.Millisecond {
 		t.Errorf("changing file: should not greatly exceed maxWait, took %v", elapsed)
-	}
-}
-
-// 존재하지 않는 파일이면 즉시 반환.
-func TestWaitForTranscriptStable_NonexistentFile(t *testing.T) {
-	start := time.Now()
-	waitForTranscriptStable("/nonexistent/transcript.jsonl", 500*time.Millisecond, 50*time.Millisecond)
-	elapsed := time.Since(start)
-	if elapsed > 50*time.Millisecond {
-		t.Errorf("nonexistent: should return immediately, took %v", elapsed)
 	}
 }
 

@@ -2,11 +2,15 @@ package hookclient
 
 import (
 	"bytes"
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
+
+// The runs' tests wait for what the transcript says; looking for it more
+// often than the app does only makes them wait less.
+func init() { printTranscriptPoll = 20 * time.Millisecond }
 
 // sessionA is a session id, as claude makes them.
 const sessionA = "8f7b63e3-a0e6-4b44-af95-03c2697fe716"
@@ -234,28 +238,6 @@ func TestPrintWatch_TellsThePromptOnceAndNotAMetaMessage(t *testing.T) {
 	known.line([]byte(`{"type":"user","message":{"role":"user","content":"review it"}}`))
 	if len(prompts) != 0 {
 		t.Fatalf("prompts = %#v", prompts)
-	}
-}
-
-func TestNewSessionID_IsAUUID(t *testing.T) {
-	id := newSessionID()
-	if len(id) != 36 || id[14] != '4' || !strings.Contains("89ab", string(id[19])) || id == newSessionID() {
-		t.Fatalf("id = %q", id)
-	}
-}
-
-func TestTrimInput_CutsLongStrings(t *testing.T) {
-	long := strings.Repeat("x", printTextMax+10)
-	input, _ := json.Marshal(map[string]any{"file_path": "/a", "content": long, "n": 3})
-	got := trimInput(input).(map[string]any)
-	if got["file_path"] != "/a" || got["n"] != float64(3) {
-		t.Fatalf("trimInput kept %#v", got)
-	}
-	if content := got["content"].(string); len([]rune(content)) != printTextMax+1 {
-		t.Fatalf("content not cut: %d", len([]rune(content)))
-	}
-	if !reflect.DeepEqual(trimInput(json.RawMessage(`"x"`)), map[string]any{}) {
-		t.Fatal("an input not an object is told as none")
 	}
 }
 

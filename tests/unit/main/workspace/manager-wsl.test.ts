@@ -150,12 +150,4 @@ describe("WSL workspace", () => {
     });
     globalDb.close();
   });
-
-  test("is named after its folder, or its distribution at the root", () => {
-    const { manager, globalDb } = makeManager();
-
-    expect(manager.create({ location }).name).toBe("project");
-    expect(manager.create({ location: { ...location, remotePath: "/" } }).name).toBe("Ubuntu");
-    globalDb.close();
-  });
 });

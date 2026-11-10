@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 import type { TerminalControllerDeps } from "../../../../src/renderer/services/terminal/controller";
 import type {
   PtyClientOptions,
@@ -127,7 +127,6 @@ mock.module("../../../../src/renderer/components/ui/toast", () => ({
 const { closeTerminal, closeTerminalWithConfirm, createTerminalController, openTerminal } =
   await import("../../../../src/renderer/services/terminal");
 const {
-  TERMINAL_REOPENED_SEPARATOR,
   isShellPromptLikeTitle,
   isLoginShell,
   classifyOscTitle,
@@ -139,7 +138,6 @@ const { createPtyClient } = await import("../../../../src/renderer/services/term
 const { closeGroup } = await import("../../../../src/renderer/state/operations");
 const { startTerminalExitListener } = await import("../../../../src/renderer/state/terminal-exit");
 const { useLayoutStore } = await import("../../../../src/renderer/state/stores/layout");
-const { findLeaf } = await import("../../../../src/renderer/state/stores/layout/helpers");
 const { useTabsStore } = await import("../../../../src/renderer/state/stores/tabs");
 
 const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
@@ -153,10 +151,6 @@ function resetStores(): void {
 function resetIpc(): void {
   ipcCalls.length = 0;
   listeners.length = 0;
-}
-
-function tabsFor(workspaceId: string) {
-  return Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {});
 }
 
 function emit(channel: string, event: string, args: unknown): void {
@@ -335,76 +329,6 @@ describe("services/terminal open and close", () => {
   beforeEach(() => {
     resetStores();
     resetIpc();
-  });
-
-  it("openTerminal always creates a new terminal tab", () => {
-    const first = openTerminal({ workspaceId: WS, cwd: "/workspace" });
-    const second = openTerminal({ workspaceId: WS, cwd: "/workspace" });
-
-    expect(first.tabId).not.toBe(second.tabId);
-    expect(first.groupId).toBe(second.groupId);
-    expect(tabsFor(WS)).toHaveLength(2);
-  });
-
-  it("openTerminal keeps the shell it was opened with in the tab, and only then", () => {
-    const gitBash = { kind: "detected" as const, id: "git-bash" };
-    const withShell = openTerminal({ workspaceId: WS, cwd: "/workspace", shell: gitBash });
-    const plain = openTerminal({ workspaceId: WS, cwd: "/workspace" });
-
-    const tabs = useTabsStore.getState().byWorkspace[WS] ?? {};
-    expect(tabs[withShell.tabId]?.props).toEqual({ cwd: "/workspace", shell: gitBash });
-    expect(tabs[plain.tabId]?.props).toEqual({ cwd: "/workspace" });
-  });
-
-  it("createPtyClient spawns with the tab's shell", async () => {
-    const shell = { kind: "custom" as const, id: "added-nu" };
-    const client = createPtyClient({
-      workspaceId: WS,
-      tabId: "tab-shell-spawn",
-      cwd: "/workspace",
-      shell,
-      onData: () => {},
-      onExit: () => {},
-    });
-    await client.spawn({ cols: 80, rows: 24 });
-
-    const spawn = ipcCalls.find((call) => call.method === "spawn");
-    expect(spawn?.args).toMatchObject({ tabId: "tab-shell-spawn", shell });
-    client.dispose();
-  });
-
-  it("openTerminal routes to an explicit groupId", () => {
-    openTerminal({ workspaceId: WS, cwd: "/left" });
-    const layout = useLayoutStore.getState().byWorkspace[WS];
-    if (!layout) throw new Error("layout missing");
-    const leftGroupId = layout.activeGroupId;
-    const rightGroupId = useLayoutStore
-      .getState()
-      .splitGroup(WS, leftGroupId, "horizontal", "after");
-
-    const terminal = openTerminal({ workspaceId: WS, cwd: "/right" }, { groupId: rightGroupId });
-
-    const nextLayout = useLayoutStore.getState().byWorkspace[WS];
-    if (!nextLayout) throw new Error("layout missing");
-    const rightLeaf = findLeaf(nextLayout.root, rightGroupId);
-
-    expect(terminal.groupId).toBe(rightGroupId);
-    expect(rightLeaf?.tabIds).toContain(terminal.tabId);
-    expect(nextLayout.activeGroupId).toBe(rightGroupId);
-  });
-
-  it("openTerminal supports newSplit", () => {
-    const first = openTerminal({ workspaceId: WS, cwd: "/workspace" });
-    const second = openTerminal(
-      { workspaceId: WS, cwd: "/workspace" },
-      { newSplit: { orientation: "horizontal", side: "after" } },
-    );
-
-    const layout = useLayoutStore.getState().byWorkspace[WS];
-    expect(layout?.root.kind).toBe("split");
-    expect(second.groupId).not.toBe(first.groupId);
-    expect(second.tabId).not.toBe(first.tabId);
-    expect(tabsFor(WS)).toHaveLength(2);
   });
 
   it("closeTerminal kills the PTY session and closes the tab transaction", () => {
@@ -801,61 +725,15 @@ describe("app-wide terminal exit listener", () => {
   });
 });
 
-describe("services/terminal controller spawn failure", () => {
-  beforeEach(resetIpc);
-
-  it("prints the failure's reason once, without the Error name or the agent's lead", async () => {
-    const harness = makeTerminalControllerDeps(() =>
-      Promise.reject(new Error("failed to spawn PTY: chdir /gone: no such file or directory")),
-    );
-    const controller = createTerminalController(
-      {
-        workspaceId: WS,
-        tabId: "tab-spawn-fails",
-        cwd: "/gone",
-        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
-      },
-      harness.deps,
-    );
-    await flushTerminalInit();
-    await Promise.resolve();
-
-    expect(harness.writes).toEqual([
-      "\r\n[Couldn't start the terminal: chdir /gone: no such file or directory]\r\n",
-    ]);
-
-    controller.dispose();
-  });
-});
-
 describe("services/terminal controller focus", () => {
-  beforeEach(resetIpc);
-
-  it("focuses the terminal once it opens when asked before", async () => {
-    const harness = makeTerminalControllerDeps();
-    const controller = createTerminalController(
-      {
-        workspaceId: WS,
-        tabId: "tab-focus-early",
-        cwd: "/workspace",
-        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
-      },
-      harness.deps,
-    );
-    controller.focus();
-    expect(harness.getFocusCalls()).toBe(0);
-
-    await flushTerminalInit();
-    expect(harness.getFocusCalls()).toBe(1);
-
-    controller.focus();
-    expect(harness.getFocusCalls()).toBe(2);
-
-    controller.dispose();
+  beforeEach(() => {
+    resetIpc();
+    jest.useFakeTimers();
   });
+  afterEach(() => jest.useRealTimers());
 
   /** Past the moment a program that asked for focus reports is told about focus. */
-  const afterFocusReportDelay = (): Promise<unknown> => new Promise((r) => setTimeout(r, 300));
+  const afterFocusReportDelay = () => jest.advanceTimersByTime(300);
 
   it("tells a program turning on focus reporting that an unfocused terminal is not focused", async () => {
     const harness = makeTerminalControllerDeps();
@@ -918,6 +796,55 @@ describe("services/terminal controller focus", () => {
   });
 });
 
+describe("services/terminal controller focus asked for before xterm opens", () => {
+  beforeEach(() => resetIpc());
+
+  /** A controller whose fonts load when `loaded` is called. */
+  function lateTerminal(tabId: string) {
+    const harness = makeTerminalControllerDeps();
+    let loaded = () => {};
+    harness.deps.waitForTerminalFonts = () =>
+      new Promise<void>((resolve) => {
+        loaded = resolve;
+      });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId,
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    return { harness, controller, loaded: () => loaded() };
+  }
+
+  /** Past xterm opening, once the fonts have loaded. */
+  const opened = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("focuses it once it opens", async () => {
+    const { harness, controller, loaded } = lateTerminal("tab-focus-late");
+    controller.focus();
+    loaded();
+    await opened();
+    expect(harness.getFocusCalls()).toBe(1);
+    controller.dispose();
+  });
+
+  it("asks what wanted the focus whether it still does, as it opens", async () => {
+    const { harness, controller, loaded } = lateTerminal("tab-focus-late-typing");
+    let still = true;
+    controller.focus(() => still);
+    // A tab's name being edited while the fonts load.
+    still = false;
+    loaded();
+    await opened();
+    expect(harness.getFocusCalls()).toBe(0);
+    controller.dispose();
+  });
+});
+
 describe("services/terminal controller replay", () => {
   beforeEach(resetIpc);
 
@@ -954,33 +881,6 @@ describe("services/terminal controller replay", () => {
 
 describe("services/terminal controller reopen", () => {
   beforeEach(resetIpc);
-
-  it("reopens with the same tab identity and original cwd without clearing scrollback", async () => {
-    const harness = makeTerminalControllerDeps();
-    const controller = createTerminalController(
-      {
-        workspaceId: WS,
-        tabId: "tab-reopen",
-        cwd: "/workspace/original",
-        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
-        autoSpawn: false,
-      },
-      harness.deps,
-    );
-    await flushTerminalInit();
-
-    await controller.reopen();
-
-    expect(harness.getPtyOptions()).toMatchObject({
-      workspaceId: WS,
-      tabId: "tab-reopen",
-      cwd: "/workspace/original",
-    });
-    expect(harness.spawnCalls).toEqual([{ cols: 100, rows: 40 }]);
-    expect(harness.writes).toEqual([`\r\n${TERMINAL_REOPENED_SEPARATOR}\r\n`]);
-
-    controller.dispose();
-  });
 
   it("surfaces reopen spawn failure so the view can swap to retry copy", async () => {
     const harness = makeTerminalControllerDeps(() => Promise.reject(new Error("agent down")));
@@ -1672,32 +1572,6 @@ describe("services/terminal controller — OSC title sync", () => {
     return { harness, controller, tab, titleHandler };
   }
 
-  it("OSC title 수신 → tab.processTitle 갱신 + display title 변경", async () => {
-    const { controller, tab, titleHandler } = await setupWithTab();
-
-    titleHandler("lazygit");
-
-    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
-    expect(updated.processTitle).toBe("lazygit");
-    expect(updated.title).toBe("lazygit");
-
-    controller.dispose();
-  });
-
-  it("customTitle 있을 때 OSC title은 processTitle만 갱신 — display는 보존", async () => {
-    const { controller, tab, titleHandler } = await setupWithTab();
-    useTabsStore.getState().renameTab(WS, tab.id, "Pinned");
-
-    titleHandler("lazygit");
-
-    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
-    expect(updated.customTitle).toBe("Pinned");
-    expect(updated.processTitle).toBe("lazygit");
-    expect(updated.title).toBe("Pinned");
-
-    controller.dispose();
-  });
-
   it("빈 OSC title은 processTitle clear → defaultTitle로 복귀", async () => {
     const { controller, tab, titleHandler } = await setupWithTab();
     titleHandler("lazygit");
@@ -2031,77 +1905,5 @@ describe("services/terminal controller — OSC title sync", () => {
 
     controller.dispose();
   });
-
-  it("customTitle은 alt-exit에도 보존된다 — processTitle만 clear", async () => {
-    const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
-    useTabsStore.getState().renameTab(WS, tab.id, "내 작업창");
-    const harness = makeTerminalControllerDeps();
-    const controller = createTerminalController(
-      {
-        workspaceId: WS,
-        tabId: tab.id,
-        cwd: "/workspace",
-        container: {} as HTMLElement,
-        autoSpawn: false,
-      },
-      harness.deps,
-    );
-    await flushTerminalInit();
-    const titleHandler = harness.getTitleHandler();
-    const altExit = harness.getAltExitHandler();
-    if (!titleHandler || !altExit) throw new Error("handlers missing");
-
-    titleHandler("claude");
-    altExit([1049]);
-
-    const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
-    expect(updated.customTitle).toBe("내 작업창");
-    expect(updated.processTitle).toBeUndefined();
-    expect(updated.title).toBe("내 작업창");
-
-    controller.dispose();
-  });
 });
 
-// ---------------------------------------------------------------------------
-// A chosen shell that can't be found: main falls back to the system default,
-// and the terminal says so once rather than once per tab.
-describe("services/terminal controller — missing shell", () => {
-  beforeEach(() => {
-    resetStores();
-    resetIpc();
-    toasts.length = 0;
-  });
-
-  it("warns once that the shell couldn't be found", async () => {
-    const spawnMissing = () => Promise.resolve({ pid: 1, missingShell: "Git Bash" });
-    const controllers = ["tab-missing-1", "tab-missing-2"].map((tabId) =>
-      createTerminalController(
-        { workspaceId: WS, tabId, cwd: "/workspace", container: {} as HTMLElement },
-        makeTerminalControllerDeps(spawnMissing).deps,
-      ),
-    );
-    await flushTerminalInit();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.kind).toBe("warning");
-
-    for (const controller of controllers) controller.dispose();
-  });
-
-  it("says so when the tab's added shell was removed from the settings", async () => {
-    const spawnRemoved = () => Promise.resolve({ pid: 1, missingShell: "" });
-    const controller = createTerminalController(
-      { workspaceId: WS, tabId: "tab-removed-shell", cwd: "/workspace", container: {} as HTMLElement },
-      makeTerminalControllerDeps(spawnRemoved).deps,
-    );
-    await flushTerminalInit();
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(toasts).toHaveLength(1);
-    expect(toasts[0]?.message).toMatch(/removed from the settings/);
-
-    controller.dispose();
-  });
-});

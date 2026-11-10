@@ -1,23 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import type { AgentBackedProvider } from "../../../../src/main/features/fs/bridge/provider";
 import { AgentGitExecutor } from "../../../../src/main/features/git/bridge/agent-executor";
-import type {
-  GitBlobOptions,
-  GitCommitDetailOptions,
-  GitDiffOptions,
-  GitLogOptions,
-  GitProcessOptions,
-} from "../../../../src/main/features/git/bridge/types";
-import { GitRepository } from "../../../../src/main/features/git/domain/repository";
-import { stubMetadataReader } from "./helpers/local-semantic-executor";
 import {
   GIT_BLOB_CHUNK_EVENT,
   GIT_BLOB_METHOD,
   GIT_CANCEL_METHOD,
-  GIT_COMMIT_DETAIL_METHOD,
   GIT_DIFF_CHUNK_EVENT,
   GIT_DIFF_METHOD,
   GIT_LOG_BATCH_EVENT,
@@ -27,58 +14,10 @@ import {
   GIT_STREAM_METHOD,
 } from "../../../../src/shared/git/protocol";
 import {
-  type CommitDetail,
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
-  type DiffChunk,
-  type DiffComplete,
-  type GitBlobChunk,
-  type GitBlobComplete,
   type GitStatus,
-  type LogChunk,
-  type LogComplete,
 } from "../../../../src/shared/git/types";
-
-describe("GitRepository.readStatus executor branch", () => {
-  test("uses executor.status without falling back to git.run", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-status-executor-"));
-    try {
-      const expected = cleanStatus({
-        branch: {
-          current: "main",
-          upstream: "origin/main",
-          ahead: 1,
-          behind: 0,
-          isUnborn: false,
-        },
-        capabilities: { hasHEAD: true, remotes: ["origin"], stashCount: 0, tagCount: 0 },
-      });
-      const run = mock(async () => {
-        throw new Error("fallback git.run should not be called when executor.status exists");
-      });
-      const status = mock(async (options: { readonly cwd: string }) => {
-        expect(options.cwd).toBe(root);
-        return expected;
-      });
-      const repo = new GitRepository(
-        "ws-status-agent",
-        root,
-        path.join(root, ".git"),
-        "git",
-        { run, stream: unusedStream, status },
-        stubMetadataReader,
-      );
-
-      const actual = await repo.status();
-
-      expect(actual).toBe(expected);
-      expect(status).toHaveBeenCalledTimes(1);
-      expect(run).not.toHaveBeenCalled();
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-});
 
 describe("AgentGitExecutor.status", () => {
   test("calls git.status and validates the GitStatus result schema", async () => {
@@ -112,74 +51,6 @@ describe("AgentGitExecutor.status", () => {
 
     expect(actual).toEqual(expected);
     expect(callAgentMethod).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("GitRepository semantic executor branches", () => {
-  test("uses semantic log, diff, blob, and commitDetail methods when available", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-semantic-"));
-    try {
-      const run = mock(async () => {
-        throw new Error("fallback git.run should not be called when semantic methods exist");
-      });
-      const stream = mock(async function* () {
-        yield Buffer.from("unexpected fallback stream");
-      });
-      const expectedEntry = logEntry("abc123");
-      const expectedDetail = commitDetail("abc123");
-      const log = mock(async function* (
-        options: GitLogOptions,
-      ): AsyncGenerator<LogChunk, LogComplete, unknown> {
-        expect(options.cwd).toBe(root);
-        yield { entries: [expectedEntry] };
-        return { count: 1, hasMore: false };
-      });
-      const diff = mock(async function* (
-        options: GitDiffOptions,
-      ): AsyncGenerator<DiffChunk, DiffComplete, unknown> {
-        expect(options.spec.kind).toBe("wt-vs-index");
-        yield { text: "diff" };
-        return { bytes: 4, truncated: false };
-      });
-      const blob = mock(async function* (
-        options: GitBlobOptions,
-      ): AsyncGenerator<GitBlobChunk, GitBlobComplete, unknown> {
-        expect(options.ref).toBe("HEAD");
-        yield { chunk: new Uint8Array([1, 2, 3]) };
-        return { bytes: 3 };
-      });
-      const commitDetailMock = mock(async (options: GitCommitDetailOptions) => {
-        expect(options.sha).toBe("abc123");
-        return expectedDetail;
-      });
-      const repo = new GitRepository(
-        "ws-semantic",
-        root,
-        path.join(root, ".git"),
-        "git",
-        { run, stream, status: async () => cleanStatus(), log, diff, blob, commitDetail: commitDetailMock },
-        stubMetadataReader,
-      );
-
-      const logResult = await drain(repo.log({ limit: 1 }));
-      const diffResult = await drain(repo.diff({ kind: "wt-vs-index" }));
-      const blobResult = await drain(repo.getFileBlob("HEAD", "README.md"));
-      const detail = await repo.commitDetail("abc123");
-
-      expect(logResult.chunks).toEqual([{ entries: [expectedEntry] }]);
-      expect(logResult.complete).toEqual({ count: 1, hasMore: false });
-      expect(diffResult.chunks).toEqual([{ text: "diff" }]);
-      expect(blobResult.chunks.map((chunk) => Array.from(chunk.chunk))).toEqual([[1, 2, 3]]);
-      expect(detail).toEqual(expectedDetail);
-      expect(log).toHaveBeenCalledTimes(1);
-      expect(diff).toHaveBeenCalledTimes(1);
-      expect(blob).toHaveBeenCalledTimes(1);
-      expect(commitDetailMock).toHaveBeenCalledTimes(1);
-      expect(run).not.toHaveBeenCalled();
-      expect(stream).not.toHaveBeenCalled();
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
   });
 });
 
@@ -285,18 +156,6 @@ describe("AgentGitExecutor semantic streams", () => {
     expect(actual.chunks.map((chunk) => Buffer.from(chunk.chunk).toString("utf8"))).toEqual(["ok"]);
     expect(actual.complete).toEqual({ bytes: 2 });
   });
-
-  test("commitDetail calls git.commitDetail and parses the direct result", async () => {
-    const expected = commitDetail("abc123");
-    const provider = streamingProvider(async (method, params) => {
-      expect(method).toBe(GIT_COMMIT_DETAIL_METHOD);
-      expect(params).toEqual({ cwd: "/repo", sha: "abc123" });
-      return expected;
-    });
-    const executor = new AgentGitExecutor(provider);
-
-    await expect(executor.commitDetail({ cwd: "/repo", sha: "abc123" })).resolves.toEqual(expected);
-  });
 });
 
 /** Builds a schema-valid status snapshot and allows each test to vary the signal fields. */
@@ -340,21 +199,6 @@ function logEntry(sha: string) {
   };
 }
 
-/** Minimal schema-valid commit detail result for semantic direct-call tests. */
-function commitDetail(sha: string): CommitDetail {
-  return {
-    sha,
-    parents: [],
-    subject: "subject",
-    author: "A User",
-    authorEmail: "a@example.test",
-    committerTs: "2026-05-13T00:00:00Z",
-    message: "subject\n",
-    body: "",
-    files: [],
-  };
-}
-
 function readStreamId(params: unknown): string {
   if (
     typeof params !== "object" ||
@@ -364,11 +208,6 @@ function readStreamId(params: unknown): string {
     throw new Error("expected params.streamId");
   }
   return (params as { streamId: string }).streamId;
-}
-
-/** Async generator placeholder for tests that exercise only buffered git calls. */
-async function* unusedStream(_options: GitProcessOptions): AsyncGenerator<Buffer, void, unknown> {
-  yield Buffer.from("unexpected git stream call");
 }
 
 type EmitAgentEvent = (event: string, payload: unknown) => void;

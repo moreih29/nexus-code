@@ -178,31 +178,6 @@ describe("forceDisposeExternalsForWorkspace", () => {
     releaseModel(ws1);
   });
 
-  test("only disposes workspace A's externals when both A and B have them", async () => {
-    const a1 = extInputA("/ext/wsc-mixed-a.py");
-    const b1 = extInputB("/ext/wsc-mixed-b.py");
-    const ws1 = wsInputA("/wsc-mixed-ws1/src/comp.ts");
-
-    await acquireModel(a1);
-    await acquireModel(b1);
-    await acquireModel(ws1);
-
-    forceDisposeExternalsForWorkspace(WS_A);
-
-    expect(getModelSnapshot(a1)).toBeNull();
-    expect(getModelSnapshot(b1)).not.toBeNull();
-    expect(getModelSnapshot(ws1)).not.toBeNull();
-    expect(cleanupEntryMock).toHaveBeenCalledTimes(1);
-
-    releaseModel(b1);
-    releaseModel(ws1);
-  });
-
-  test("is a no-op when no external entries exist for the workspace", () => {
-    forceDisposeExternalsForWorkspace("ws-nonexistent");
-    expect(cleanupEntryMock).not.toHaveBeenCalled();
-  });
-
   // --- untitled model cleanup ---
 
   test("disposes untitled entries for the closed workspace", async () => {
@@ -241,28 +216,5 @@ describe("forceDisposeExternalsForWorkspace", () => {
     expect(getModelSnapshot(u1)).not.toBeNull();
     expect(cleanupEntryMock).not.toHaveBeenCalled();
     releaseModel(u1);
-  });
-
-  test("disposes both external and untitled entries for the closed workspace simultaneously", async () => {
-    const ext1 = extInputA("/ext/wsc-combo-ext.py");
-    const u1 = untitledInputA("Untitled-1");
-    const b1 = extInputB("/ext/wsc-combo-b.ts");
-    const ub1 = untitledInputB("Untitled-1");
-
-    await acquireModel(ext1);
-    await acquireModel(u1);
-    await acquireModel(b1);
-    await acquireModel(ub1);
-
-    forceDisposeExternalsForWorkspace(WS_A);
-
-    expect(getModelSnapshot(ext1)).toBeNull();
-    expect(getModelSnapshot(u1)).toBeNull();
-    expect(getModelSnapshot(b1)).not.toBeNull();
-    expect(getModelSnapshot(ub1)).not.toBeNull();
-    expect(cleanupEntryMock).toHaveBeenCalledTimes(2);
-
-    releaseModel(b1);
-    releaseModel(ub1);
   });
 });

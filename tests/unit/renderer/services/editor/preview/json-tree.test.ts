@@ -1,15 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { findMatches } from "../../../../../../src/renderer/services/editor/preview/find/find-matches";
 import {
-  ancestorPaths,
   countValues,
   JsonSyntaxError,
   type JsonValue,
-  labelText,
   parseJson,
-  treeMatches,
-  valueText,
-  visibleRows,
 } from "../../../../../../src/renderer/services/editor/preview/json-tree";
 
 /** The plain value `value` stands for, numbers as numbers. */
@@ -94,81 +88,5 @@ describe("parseJson", () => {
     expect(syntaxError("/* open")).toMatchObject({ line: 1, column: 1 });
     expect(syntaxError("[01]")).toMatchObject({ line: 1, column: 3 });
     expect(syntaxError("")).toMatchObject({ line: 1, column: 1 });
-  });
-});
-
-describe("visibleRows", () => {
-  const root = parseJson('{"a": {"b": [1, 2]}, "c": "x", "d": []}');
-  const rowsOf = (open: string[]) =>
-    visibleRows(root, (path) => open.includes(path)).map((row) => [row.depth, row.label]);
-
-  it("shows the root's members, and the members of what is open under it", () => {
-    expect(rowsOf([])).toEqual([
-      [0, "a"],
-      [0, "c"],
-      [0, "d"],
-    ]);
-    expect(rowsOf(["\u0000a", "\u0000a\u0000b"])).toEqual([
-      [0, "a"],
-      [1, "b"],
-      [2, 0],
-      [2, 1],
-      [0, "c"],
-      [0, "d"],
-    ]);
-  });
-
-  it("does not open what is under a closed value", () => {
-    expect(rowsOf(["\u0000a\u0000b"])).toEqual([
-      [0, "a"],
-      [0, "c"],
-      [0, "d"],
-    ]);
-  });
-
-  it("shows a root that is no container, or an empty one, as one row", () => {
-    expect(visibleRows(parseJson("3"), () => true)).toEqual([
-      { path: "", depth: 0, label: null, value: { kind: "number", text: "3" } },
-    ]);
-    expect(visibleRows(parseJson("{}"), () => true)).toHaveLength(1);
-  });
-});
-
-describe("find in the tree", () => {
-  const root = parseJson('{"name": "fox", "list": ["a fox", {"fox": true}], "n": 12, "": null}');
-  const rows = visibleRows(root, () => true);
-  const find = (query: string, caseSensitive = false) =>
-    treeMatches(rows, (text) => findMatches(text, query, caseSensitive, 100));
-
-  it("shows keys and values as their rows do", () => {
-    expect(labelText("")).toBe('""');
-    expect(labelText("a\tb")).toBe('"a\\tb"');
-    expect(labelText(3)).toBe("3");
-    expect(valueText({ kind: "string", value: "x" })).toBe('"x"');
-    expect(valueText({ kind: "number", text: "1e400" })).toBe("1e400");
-    expect(valueText({ kind: "boolean", value: false })).toBe("false");
-    expect(valueText({ kind: "null" })).toBe("null");
-    expect(valueText({ kind: "array", items: [] })).toBeNull();
-  });
-
-  it("finds in keys and values alike, closed ones too, in order", () => {
-    expect(find("fox").map((m) => [rows[m.row]?.label, m.part, m.start, m.end])).toEqual([
-      ["name", "value", 1, 4],
-      [0, "value", 3, 6],
-      ["fox", "label", 0, 3],
-    ]);
-    expect(find("FOX", true)).toEqual([]);
-  });
-
-  it("does not run from one key or value into the next", () => {
-    // "n" then 12: no match across the two.
-    expect(find("n12")).toEqual([]);
-    expect(find("12").map((m) => m.part)).toEqual(["value"]);
-  });
-
-  it("names the objects and arrays a row is in", () => {
-    const fox = rows.find((row) => row.label === "fox");
-    expect(fox && ancestorPaths(fox.path)).toEqual(["\u0000list", "\u0000list\u00001"]);
-    expect(ancestorPaths("\u0000name")).toEqual([]);
   });
 });

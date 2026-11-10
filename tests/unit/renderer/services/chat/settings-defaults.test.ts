@@ -47,6 +47,18 @@ describe("effortToApply", () => {
     expect(appliedEffort(SET)).toBe("medium");
   });
 
+  test("is the model's own when the settings keep one (as /effort saves it)", () => {
+    const perModel = {
+      ...SET,
+      effective: { ...SET.effective, modelSettings: { "claude-opus-5-5": { effortLevel: "low" } } },
+    };
+    // A headless run takes the model's own already: nothing to set.
+    expect(
+      effortToApply({ ...perModel, applied: { ...SET.applied, effort: "low" } }),
+    ).toBeUndefined();
+    expect(effortToApply(perModel)).toBe("low");
+  });
+
   test("is none when the program runs at it, or the settings set none", () => {
     expect(effortToApply({ ...SET, applied: { effort: "xhigh" } })).toBeUndefined();
     expect(effortToApply(UNSET)).toBeUndefined();

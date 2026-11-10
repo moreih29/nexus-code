@@ -962,7 +962,8 @@ export const ipcContract = {
       /**
        * Runs `claude` in a folder for what a tab does outside its session:
        * the background sessions (`claude agents --json`, `claude --bg`,
-       * `claude stop`) and the plugins (`claude plugin …`).
+       * `claude stop`), the plugins (`claude plugin …`) and the settings
+       * a bare /config lists.
        */
       cli: call(
         z.object({
@@ -985,6 +986,7 @@ export const ipcContract = {
             }),
             z.object({ kind: z.literal("stop"), id: z.string().regex(/^[0-9A-Za-z_-]{1,128}$/) }),
             z.object({ kind: z.literal("plugins") }),
+            z.object({ kind: z.literal("configUsage") }),
             z.object({
               kind: z.literal("plugin"),
               action: z.enum(["install", "enable", "disable", "update", "uninstall"]),

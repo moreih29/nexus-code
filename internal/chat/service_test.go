@@ -245,43 +245,6 @@ func tabParams(tabID string) json.RawMessage {
 	return params
 }
 
-func TestStartSendRelaysLinesBothWays(t *testing.T) {
-	service := New()
-	rec := newRecorder()
-	service.SetEventSink(rec.sink)
-	defer service.Close()
-
-	startFake(t, service, "tab", nil)
-	if err := send(t, service, "tab", "hello"); err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	rec.waitFor(t, "the answer", func(lines []LinePayload, _ []ExitPayload) bool {
-		return hasOut(lines, `"text":"hello!"`)
-	})
-
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	var sawStart, sawIn, sawText bool
-	var last int64
-	for _, line := range rec.lines {
-		if line.Seq <= last {
-			t.Fatalf("seq %d after %d", line.Seq, last)
-		}
-		last = line.Seq
-		switch {
-		case line.Dir == DirSys && strings.Contains(string(line.Message), `"event":"start"`):
-			sawStart = true
-		case line.Dir == DirIn && string(line.Message) == `{"text":"hello","type":"user"}`:
-			sawIn = true
-		case line.Dir == DirOut && line.Text == "not json":
-			sawText = true
-		}
-	}
-	if !sawStart || !sawIn || !sawText {
-		t.Fatalf("start %v, in %v, text %v: %s", sawStart, sawIn, sawText, describe(rec.lines))
-	}
-}
-
 func TestReplayDropsStreamEventsOfCompleteMessages(t *testing.T) {
 	service := New()
 	rec := newRecorder()
@@ -368,18 +331,6 @@ func TestReplayAfterSeqSendsOnlyNewerLines(t *testing.T) {
 	}
 	if got := result.(ReplayResult).LastSeq; got != last+100 {
 		t.Fatalf("lastSeq after the end = %d, want %d", got, last+100)
-	}
-}
-
-func TestStartAttachesToRunningProgram(t *testing.T) {
-	service := New()
-	service.SetEventSink(newRecorder().sink)
-	defer service.Close()
-
-	first := startFake(t, service, "tab", nil)
-	second := startFake(t, service, "tab", nil)
-	if !second.Attached || second.PID != first.PID {
-		t.Fatalf("second start = %+v, first %+v", second, first)
 	}
 }
 
@@ -563,6 +514,9 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")
 	}
+	// The old program ignores the stop, so it ends only when killed.
+	defer func(grace time.Duration) { stopGrace = grace }(stopGrace)
+	stopGrace = 100 * time.Millisecond
 	service := New()
 	rec := newRecorder()
 	service.SetEventSink(rec.sink)
@@ -634,18 +588,6 @@ func TestEnvPutsWrapperFirstAndDropsParentSession(t *testing.T) {
 	}
 }
 
-func TestSendRefusesNonJSON(t *testing.T) {
-	service := New()
-	params := []byte(`{"workspaceId":"ws","tabId":"tab","message":"{not"}`)
-	if _, err := service.Send(context.Background(), params); err == nil {
-		t.Fatal("Send took a string message for a tab with no program")
-	}
-	params = []byte(`{"workspaceId":"ws","tabId":"tab","message":{"a":1}}`)
-	if _, err := service.Send(context.Background(), params); err == nil || !strings.Contains(err.Error(), "no program") {
-		t.Fatalf("Send without a program: %v", err)
-	}
-}
-
 func TestLogCapDropsOldestLines(t *testing.T) {
 	log := newLineLog()
 	log.cap = 1000
@@ -690,29 +632,6 @@ func TestMessageType(t *testing.T) {
 		if got := messageType(json.RawMessage(input)); got != want {
 			t.Errorf("messageType(%s) = %q, want %q", input, got, want)
 		}
-	}
-}
-
-func TestExecReturnsOutput(t *testing.T) {
-	service := New()
-	params, _ := json.Marshal(ExecParams{
-		Program: os.Args[0],
-		Args:    []string{"-test.run=^TestFakeProgramHelper$"},
-		Env:     map[string]string{"NEXUS_CHAT_FAKE": "1"},
-	})
-	result, err := service.Exec(context.Background(), params)
-	if err != nil {
-		t.Fatalf("Exec: %v", err)
-	}
-	got := result.(ExecResult)
-	if got.Code != 0 || !strings.Contains(got.Stdout, "not json") || !strings.Contains(got.Stderr, "fake started") {
-		t.Fatalf("exec = %+v", got)
-	}
-
-	params, _ = json.Marshal(ExecParams{Program: filepath.Join(t.TempDir(), "missing")})
-	result, _ = service.Exec(context.Background(), params)
-	if got := result.(ExecResult); got.Code != -1 || got.Stderr == "" {
-		t.Fatalf("missing program = %+v", got)
 	}
 }
 

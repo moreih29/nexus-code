@@ -17,12 +17,17 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "copy", argumentHint: "[N]" },
   { name: "export", argumentHint: "[filename]" },
   { name: "diff" },
+  { name: "status" },
   { name: "memory" },
   { name: "permissions", aliases: ["allowed-tools"] },
+  { name: "plan", argumentHint: "[open|<description>]" },
   { name: "add-dir", argumentHint: "<path>" },
   { name: "hooks" },
   { name: "sandbox", argumentHint: "[on|off]" },
   { name: "fork", argumentHint: "[prompt]" },
+  { name: "branch", argumentHint: "[name]" },
+  { name: "resume", argumentHint: "[search]" },
+  { name: "remote-control", aliases: ["rc"] },
   { name: "subtask", argumentHint: "<task>" },
   { name: "tasks", aliases: ["bashes"] },
   { name: "workflows" },
@@ -33,6 +38,7 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "update" },
   { name: "release-notes" },
   { name: "feedback" },
+  { name: "privacy-settings" },
   { name: "login" },
   { name: "logout" },
   { name: "teleport", aliases: ["tp"] },
@@ -43,6 +49,7 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "web-setup" },
   { name: "remote-env" },
   { name: "ultrareview", argumentHint: "[PR]" },
+  { name: "ultraplan", argumentHint: "<prompt>" },
   { name: "autofix-pr" },
   { name: "help" },
   { name: "exit", aliases: ["quit"] },
@@ -385,6 +392,23 @@ export function directoryArg(arg: string, cwd: string): string | null {
   return `${cwd.replace(/[\\/]+$/, "")}/${path.replace(/^\.\//, "")}`;
 }
 
+/** get_plan's answer: the session's plan-mode plan and its file, or null when none is written. */
+export function planOf(body: unknown): { content: string; path?: string } | null {
+  const plan = (body ?? {}) as { exists?: unknown; content?: unknown; path?: unknown };
+  if (plan.exists !== true || typeof plan.content !== "string") return null;
+  return {
+    content: plan.content,
+    ...(typeof plan.path === "string" && plan.path ? { path: plan.path } : {}),
+  };
+}
+
+/** What /branch names the copy: the name given, else the conversation's title marked, as the CLI does. */
+export function branchTitle(name: string, title: string | undefined): string | undefined {
+  const given = name.trim();
+  if (given) return given;
+  return title?.trim() ? `${title.trim()} (Branch)` : undefined;
+}
+
 /**
  * What /subtask sends: a fork of Claude with the whole conversation, whose
  * answer comes back to it (the CLI's own /subtask starts one itself).
@@ -446,6 +470,7 @@ export const COMMAND_LINKS: Readonly<Record<string, string>> = {
   upgrade: "https://claude.ai/upgrade",
   "release-notes": "https://code.claude.com/docs/en/changelog",
   feedback: "https://github.com/anthropics/claude-code/issues",
+  "privacy-settings": "https://claude.ai/settings/data-privacy-controls",
 };
 
 /**
@@ -473,6 +498,7 @@ export function terminalCommandOf(
     case "web-setup":
     case "remote-env":
     case "ultrareview":
+    case "ultraplan":
     case "autofix-pr":
       return { command: "claude", argument: `/${name}${args ? ` ${args}` : ""}` };
     default:

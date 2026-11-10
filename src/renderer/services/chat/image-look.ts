@@ -120,3 +120,36 @@ export function imageFileOf(input: unknown): string | undefined {
   const path = (input as Record<string, unknown>).file_path;
   return typeof path === "string" && path !== "" && fileKind(path) === "image" ? path : undefined;
 }
+
+/** How far in from the area's edges quick look keeps an image, leaving room around it to click away. */
+export const LOOK_MARGIN = 64;
+/** The height of quick look's header, above the image. */
+export const LOOK_HEADER = 36;
+/** The narrowest quick look gets around an image, for its header. */
+export const LOOK_MIN_WIDTH = 360;
+
+export interface Size {
+  w: number;
+  h: number;
+}
+
+/**
+ * Quick look's size around an image of `natural` size, over an area of
+ * `area`: the image fitted to the area LOOK_MARGIN in, under the header,
+ * made larger or smaller to fit, so every image shows as large as the box
+ * lets it; with `frame` for the border. Never narrower than LOOK_MIN_WIDTH,
+ * where the area has room. Null where it has none, or the size is unknown.
+ */
+export function imageLookSize(area: Size, natural: Size, frame = 0): Size | null {
+  if (natural.w <= 0 || natural.h <= 0) return null;
+  const boxW = area.w - 2 * LOOK_MARGIN - frame;
+  const boxH = area.h - 2 * LOOK_MARGIN - LOOK_HEADER - frame;
+  if (boxW <= 0 || boxH <= 0) return null;
+  const fit = Math.min(boxW / natural.w, boxH / natural.h);
+  const w = Math.floor(natural.w * fit);
+  const h = Math.floor(natural.h * fit);
+  return {
+    w: Math.max(w, Math.min(LOOK_MIN_WIDTH, area.w - 2 * LOOK_MARGIN - frame)) + frame,
+    h: h + LOOK_HEADER + frame,
+  };
+}

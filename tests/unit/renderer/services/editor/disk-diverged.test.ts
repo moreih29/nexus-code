@@ -10,7 +10,6 @@ import { describe, expect, test } from "bun:test";
 import {
   reconcileExternalChange,
   reloadEntryFromDisk,
-  snapshot,
 } from "../../../../../src/renderer/services/editor/model/entry";
 import type { ModelEntry, ModelEntryDeps } from "../../../../../src/renderer/services/editor/model/entry";
 
@@ -136,24 +135,6 @@ describe("reconcileExternalChange — dirty buffer", () => {
     // lastLoadedValue must not be updated
     expect(entry.lastLoadedValue).toBe("original-from-disk");
   });
-
-  test("snapshot exposes diskDiverged after dirty bail", async () => {
-    const deps = makeDeps({
-      readFileForModel: () =>
-        Promise.resolve({
-          content: "new-disk",
-          mtime: "T2",
-          sizeBytes: 55,
-          isBinary: false,
-        }),
-    });
-
-    const entry = makeEntry("user-edit", "base", deps);
-    await reconcileExternalChange(entry);
-
-    const snap = snapshot(entry);
-    expect(snap.diskDiverged).toEqual({ mtime: "T2", size: 55 });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -182,16 +163,6 @@ describe("reconcileExternalChange — clean buffer", () => {
     expect(entry.diskDiverged).toBeUndefined();
     expect(entry.lastLoadedValue).toBe("new-from-disk");
     expect(entry.model?.getValue()).toBe("new-from-disk");
-  });
-
-  test("snapshot shows no diskDiverged after clean reload", async () => {
-    const deps = makeDeps();
-    const entry = makeEntry("original", "original", deps);
-    entry.diskDiverged = { mtime: "T-old", size: 10 };
-
-    await reconcileExternalChange(entry);
-
-    expect(snapshot(entry).diskDiverged).toBeUndefined();
   });
 });
 

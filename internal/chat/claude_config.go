@@ -16,6 +16,7 @@ import (
 // falls back to it for. Only these are read out: the file also holds the
 // account and every project's state.
 var claudeConfigKeys = map[string]bool{
+	"agentPushNotifEnabled":      true,
 	"autoCompactEnabled":         true,
 	"autoConnectIde":             true,
 	"autoScrollEnabled":          true,
@@ -25,11 +26,15 @@ var claudeConfigKeys = map[string]bool{
 	"editorMode":                 true,
 	"externalEditorContext":      true,
 	"fileCheckpointingEnabled":   true,
+	"inputNeededNotifEnabled":    true,
 	"leftArrowOpensAgents":       true,
 	"preferredNotifChannel":      true,
+	"promptSuggestionEnabled":    true,
 	"prStatusFooterEnabled":      true,
+	"remoteControlAtStartup":     true,
 	"respectGitignore":           true,
 	"showTurnDuration":           true,
+	"teammateMode":               true,
 	"terminalProgressBarEnabled": true,
 	"theme":                      true,
 	"verbose":                    true,

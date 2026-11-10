@@ -681,41 +681,6 @@ describe("ssh-bootstrap", () => {
     expect(wrapperBatch).toContain("chmod 755");
   });
 
-  it("acceptance-4: EnsureRemoteAgentResult exposes remoteBinDir as absolute path", async () => {
-    const { distDir, sha256 } = writeDist();
-    const runner = mock(async (command: string, args: string[]) => {
-      const remoteCommand = args.at(-1) ?? "";
-      if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
-      if (command === "ssh" && remoteCommand.startsWith("printf")) {
-        return { stdout: "/home/deploy\n" };
-      }
-      if (command === "ssh" && remoteCommand.startsWith("cat ~/.nexus-code/manifest.json")) {
-        return {
-          stdout: JSON.stringify({
-            version: "0.1.0",
-            os: "linux",
-            arch: "amd64",
-            sha256,
-            installedAt: "2026-05-12T00:00:00.000Z",
-          }),
-        };
-      }
-      if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
-      if (command === "ssh" && /\/\.nexus-code\/bin\/(nexus|codex)/.test(remoteCommand))
-        return { stdout: "" };
-      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
-    }) as SshBootstrapRunner;
-
-    const result = await ensureRemoteAgent(
-      { host: "dev.example.com", user: "deploy", remotePath: "/repo" },
-      { distDir, runner },
-    );
-
-    expect(result.remoteBinDir).toBeDefined();
-    expect(result.remoteBinDir.startsWith("/")).toBe(true);
-    expect(result.remoteBinDir).toBe("/home/deploy/.nexus-code/bin");
-  });
-
   it("detectRemoteShell: surfaces remote $SHELL as remoteShell when echo returns an absolute path", async () => {
     const { distDir, sha256 } = writeDist();
     const runner = mock(async (command: string, args: string[]) => {

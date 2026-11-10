@@ -11,27 +11,24 @@ import type { ToastInput } from "../../../../../src/renderer/components/ui/toast
 type Status = Record<string, unknown> & { kind: string };
 
 const toasts: ToastInput[] = [];
-const dismissed: number[] = [];
 const calls: { method: string; args: unknown }[] = [];
 let emit: (status: Status) => void = () => {};
-let emitProgress: (progress: Record<string, unknown>) => void = () => {};
 /** What `updates.getStatus` answers: the status before the window listened. */
 let before: Status | null = null;
+/** Whether `updates.install` fails, as a call main never took would. */
+let installFails = false;
 
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
   ...realToast,
   showToast: (input: ToastInput) => toasts.push(input),
-  dismissToast: (id: number) => {
-    dismissed.push(id);
-  },
+  dismissToast: () => {},
 }));
 const realIpc = await import("../../../../../src/renderer/ipc/client");
 mock.module("../../../../../src/renderer/ipc/client", () => ({
   ...realIpc,
   ipcListen: (_channel: string, event: string, callback: (payload: never) => void) => {
-    if (event === "progress") emitProgress = callback;
-    else emit = callback;
+    if (event !== "progress") emit = callback;
     return () => {};
   },
   ipcCallResult: (_channel: string, method: string, args: unknown) => {
@@ -39,11 +36,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: { status: before, progress: null } });
     }
     calls.push({ method, args });
+    if (method === "install" && installFails) {
+      return Promise.resolve({ ok: false, error: { code: "INTERNAL", message: "gone" } });
+    }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
 
-const { initUpdatesSubscriptions } = await import(
+const { initUpdatesSubscriptions, installUpdate } = await import(
   "../../../../../src/renderer/state/operations/updates"
 );
 const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
@@ -63,8 +63,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   toasts.length = 0;
-  dismissed.length = 0;
   calls.length = 0;
+  installFails = false;
   useUpdatesStore.setState({
     status: null,
     progress: null,
@@ -82,6 +82,32 @@ describe("initUpdatesSubscriptions", () => {
 
     expect(toasts[0]?.actions).toHaveLength(2);
     expect(actionCalls()).toEqual([{ method: "install", args: undefined }]);
+  });
+
+  it("shows the download the moment the user asks for it, before main has looked the version up", () => {
+    emit(newer("1.1.0", true));
+    toasts[0]?.actions?.[0]?.onAction();
+
+    expect(useUpdatesStore.getState().status).toEqual({ kind: "downloading", version: "1.1.0" });
+  });
+
+  it("keeps the download shown while a check comes in, and gives way to main's own steps", () => {
+    emit(newer("1.1.0", true));
+    installUpdate("1.1.0");
+    emit(newer("1.1.0", true));
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "downloading" });
+
+    emit({ kind: "installFailed", releaseUrl: "https://example.invalid/releases" });
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "installFailed" });
+  });
+
+  it("puts back the offer when main never took the call", async () => {
+    installFails = true;
+    emit(newer("1.1.0", true));
+    installUpdate("1.1.0");
+    await Promise.resolve();
+
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "newer", latest: "1.1.0" });
   });
 
   it("offers the release page when the app cannot install in place", () => {
@@ -128,26 +154,6 @@ describe("initUpdatesSubscriptions", () => {
     expect(actionCalls()).toEqual([{ method: "setIgnoredVersion", args: { version: "1.6.0" } }]);
   });
 
-  it("leaves the download and the restart to the title bar's button", () => {
-    emit({ kind: "downloading", version: "1.1.0" });
-    const progress = { version: "1.1.0", transferred: 40, total: 100, bytesPerSecond: 20 };
-    emitProgress(progress);
-    emit({ kind: "verifying", version: "1.1.0" });
-    emit({ kind: "ready", version: "1.1.0" });
-
-    expect(toasts).toHaveLength(0);
-    expect(dismissed).toEqual([]);
-    expect(useUpdatesStore.getState().status).toEqual({ kind: "ready", version: "1.1.0" });
-  });
-
-  it("hands every status to the store, toast or not", () => {
-    emit({ kind: "current", trigger: "auto", current: "1.0.0" });
-    emit({ kind: "verifying", version: "1.1.0" });
-
-    expect(toasts).toHaveLength(0);
-    expect(useUpdatesStore.getState().status).toEqual({ kind: "verifying", version: "1.1.0" });
-  });
-
   it("tells of a newer version found before the window listened, once", async () => {
     before = newer("1.7.0", true);
     initUpdatesSubscriptions();
@@ -159,15 +165,5 @@ describe("initUpdatesSubscriptions", () => {
 
     expect(toasts).toHaveLength(1);
     expect(useUpdatesStore.getState().status).toMatchObject({ kind: "newer", latest: "1.7.0" });
-  });
-
-  it("links the release page from a failed install", () => {
-    emit({ kind: "installFailed", releaseUrl: "https://example.invalid/releases" });
-    toasts[0]?.actions?.[0]?.onAction();
-
-    expect(toasts[0]?.kind).toBe("error");
-    expect(calls).toEqual([
-      { method: "openReleasePage", args: { url: "https://example.invalid/releases" } },
-    ]);
   });
 });

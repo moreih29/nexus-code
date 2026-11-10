@@ -1,40 +1,9 @@
 /**
- * The profile the agent manager runs with: the one chosen for its agent, or
- * the agent's default; and the session it may go on with, which lives in
- * the folder of the profile it was made with.
+ * The session the agent manager may go on with, which lives in the folder
+ * of the profile it was made with.
  */
 import { describe, expect, it } from "bun:test";
-import type { AgentProfiles } from "../../../../src/shared/agent-profiles/profiles";
-import { managerProfileOf, sessionFits } from "../../../../src/shared/manager/manager";
-
-const config: AgentProfiles = {
-  profiles: [
-    { id: "work", agent: "claude", name: "Work", color: "violet", dir: "~/.claude-work" },
-    { id: "codex-work", agent: "codex", name: "Work", color: "green", dir: "~/.codex-work" },
-  ],
-  rules: [],
-  defaults: {},
-};
-
-describe("managerProfileOf", () => {
-  it("is the agent's default profile when none is chosen", () => {
-    expect(managerProfileOf(config, "claude", undefined).id).toBe("claude-default");
-    const withDefault = { ...config, defaults: { claude: "work" } };
-    expect(managerProfileOf(withDefault, "claude", undefined).id).toBe("work");
-  });
-
-  it("is the one chosen, over the default", () => {
-    const withDefault = { ...config, defaults: { claude: "work" } };
-    expect(managerProfileOf(withDefault, "claude", "claude-default").id).toBe("claude-default");
-    expect(managerProfileOf(config, "codex", "codex-work").id).toBe("codex-work");
-  });
-
-  it("goes back to the default when the one chosen is gone or another agent's", () => {
-    const withDefault = { ...config, defaults: { claude: "work" } };
-    expect(managerProfileOf(withDefault, "claude", "removed").id).toBe("work");
-    expect(managerProfileOf(config, "claude", "codex-work").id).toBe("claude-default");
-  });
-});
+import { sessionFits } from "../../../../src/shared/manager/manager";
 
 describe("sessionFits", () => {
   it("takes the session of the same agent and profile", () => {

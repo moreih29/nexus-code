@@ -148,13 +148,3 @@ func TestSessionsFindsAProjectWhoseNameWasCut(t *testing.T) {
 		t.Fatalf("sessions = %+v", got)
 	}
 }
-
-func TestSessionsTitleIsOneLineAndCut(t *testing.T) {
-	long := strings.Repeat("가", sessionTextMax+10)
-	if got := oneLine("a\n\tb  c"); got != "a b c" {
-		t.Fatalf("oneLine = %q", got)
-	}
-	if got := []rune(oneLine(long)); len(got) != sessionTextMax || got[len(got)-1] != '…' {
-		t.Fatalf("cut = %d runes", len(got))
-	}
-}

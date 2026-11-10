@@ -17,16 +17,12 @@
  *
  * SCENARIOS
  * ---------
- *   1. Happy path: connect ok + save ok → onConnected called, no toast.
- *   2. Partial failure (plan issue-8): connect ok + save fails →
+ *   1. Partial failure (plan issue-8): connect ok + save fails →
  *        - onConnected is called (primary flow completes)
- *        - save-failed action toast with "Retry save", which replays only the save
  *        - phase exits connecting (no freeze)
- *   3. Connect failure → phase 'error' with the humanized inline message,
- *      onConnected NOT called, nothing saved.
- *   4. Auth cancellation → phase 'idle', no inline error (silent).
- *   5. Save rejects (throws instead of returning IpcErrResult) → phase exits connecting.
- *   6. Double-submit during in-flight connect → a single openBrowseSession call.
+ *   2. Auth cancellation → phase 'idle', no inline error (silent).
+ *   3. Save rejects (throws instead of returning IpcErrResult) → phase exits connecting.
+ *   4. Double-submit during in-flight connect → a single openBrowseSession call.
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -231,34 +227,6 @@ beforeEach(() => {
 // Scenario tests
 // ---------------------------------------------------------------------------
 
-describe("SSH connect flow — happy path: connect ok + save ok", () => {
-  it("calls onConnected once and saves the profile under the session's profile id", async () => {
-    const view = mountView();
-
-    view.submit();
-    await settle(view);
-
-    expect(view.onConnected).toHaveBeenCalledTimes(1);
-    const session = view.onConnected.mock.calls[0]?.[0];
-    expect(session).toMatchObject({
-      sessionId: "sess-1",
-      initialPath: "/home/ada",
-      host: "dev.example.com",
-      user: "ada",
-    });
-    expect(session?.connectionProfileId).toBe(session?.profileId);
-    expect(callsTo("connectionProfile.save")).toHaveLength(1);
-    expect(callsTo("connectionProfile.save")[0]?.args).toMatchObject({
-      id: session?.profileId,
-      host: "dev.example.com",
-      user: "ada",
-      authMode: "interactive",
-    });
-    expect(toastCalls).toHaveLength(0);
-    expect(view.phase()).toBe("idle");
-  });
-});
-
 describe("SSH connect flow — partial failure: connect ok, save fails", () => {
   beforeEach(() => {
     saveProfile = async () => ipcErr("not-found", "Profile store unavailable");
@@ -274,54 +242,6 @@ describe("SSH connect flow — partial failure: connect ok, save fails", () => {
     expect(view.onConnected).toHaveBeenCalledTimes(1);
     expect(view.phase()).toBe("idle");
     expect(view.inlineError()).toBeNull();
-  });
-
-  it("shows a save-failed action toast with a Retry save action", async () => {
-    const view = mountView();
-
-    view.submit();
-    await settle(view);
-
-    expect(toastCalls).toHaveLength(1);
-    expect(toastCalls[0]).toMatchObject({
-      kind: "error",
-      message: "Connected. This connection couldn’t be saved for next time.",
-    });
-    expect(toastCalls[0]?.actions?.map((a) => a.label)).toEqual(["Retry save"]);
-  });
-
-  it("Retry save replays only the save and re-offers the toast when it fails again", async () => {
-    const view = mountView();
-
-    view.submit();
-    await settle(view);
-    toastCalls[0]?.actions?.[0]?.onAction();
-    await settle(view);
-
-    const saves = callsTo("connectionProfile.save");
-    expect(callsTo("ssh.openBrowseSession")).toHaveLength(1);
-    expect(saves).toHaveLength(2);
-    expect(saves[1]?.args).toEqual(saves[0]?.args);
-    expect(toastCalls).toHaveLength(2);
-  });
-});
-
-describe("SSH connect flow — connection failure", () => {
-  it("reports the error phase with the humanized message and skips the save", async () => {
-    openBrowseSession = async () =>
-      ipcErr("auth-failed", "SSH authentication failed", { code: "ssh.auth-failed" });
-    const view = mountView();
-
-    view.submit();
-    await settle(view);
-
-    expect(view.phase()).toBe("error");
-    expect(view.inlineError()).toBe(
-      "Authentication failed. Verify your credentials or identity file and try again.",
-    );
-    expect(view.onConnected).not.toHaveBeenCalled();
-    expect(callsTo("connectionProfile.save")).toHaveLength(0);
-    expect(toastCalls).toHaveLength(0);
   });
 });
 

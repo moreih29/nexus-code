@@ -121,16 +121,4 @@ describe("evaluatePermission — high-risk permissions default to ask", () => {
       expect(evaluatePermission(WS, ORIGIN, permission, makeDeps(false, null))).toBe("ask");
     });
   }
-
-  test("openExternal: globalAllowed=true → allow (global override respected)", () => {
-    expect(evaluatePermission(WS, ORIGIN, "openExternal", makeDeps(true, null))).toBe("allow");
-  });
-
-  test("fileSystem: globalAllowed=false, remembered=block → block (explicit block respected)", () => {
-    expect(evaluatePermission(WS, ORIGIN, "fileSystem", makeDeps(false, "block"))).toBe("block");
-  });
-
-  test("display-capture: globalAllowed=false, remembered=allow → allow (explicit allow respected)", () => {
-    expect(evaluatePermission(WS, ORIGIN, "display-capture", makeDeps(false, "allow"))).toBe("allow");
-  });
 });

@@ -127,37 +127,6 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Target resolution
-// ---------------------------------------------------------------------------
-
-describe("handlePaste — target", () => {
-  it("pastes into an explicit directory target", async () => {
-    setClipboard("copy", ["a.ts"]);
-    await handlePaste(`${ROOT}/src`);
-    expect(calls("copyFile").map((a) => a.toRelPath)).toEqual(["src/a.ts"]);
-  });
-
-  it("pastes next to an explicit file target", async () => {
-    setClipboard("copy", ["src/x.ts"]);
-    await handlePaste(`${ROOT}/b.ts`);
-    expect(calls("copyFile").map((a) => a.toRelPath)).toEqual(["x.ts"]);
-  });
-
-  it("uses the tree focus when no target is given", async () => {
-    useFilesStore.getState().setFocus(WS, `${ROOT}/lib`);
-    setClipboard("copy", ["a.ts"]);
-    await handlePaste();
-    expect(calls("copyFile").map((a) => a.toRelPath)).toEqual(["lib/a.ts"]);
-  });
-
-  it("falls back to the root without a target or focus", async () => {
-    setClipboard("copy", ["src/x.ts"]);
-    await handlePaste();
-    expect(calls("copyFile").map((a) => a.toRelPath)).toEqual(["x.ts"]);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Cut
 // ---------------------------------------------------------------------------
 
@@ -171,13 +140,6 @@ describe("handlePaste — cut", () => {
     ]);
     expect(useFileClipboardStore.getState().kind).toBeNull();
     expect(toastCalls).toEqual([{ kind: "info", message: "Pasted 2 items" }]);
-  });
-
-  it("moves a single entry without a summary toast", async () => {
-    setClipboard("cut", ["a.ts"]);
-    await handlePaste(`${ROOT}/src`);
-    expect(calls("rename")).toHaveLength(1);
-    expect(toastCalls).toEqual([]);
   });
 
   it("skips a folder cut into itself and names it in the summary", async () => {

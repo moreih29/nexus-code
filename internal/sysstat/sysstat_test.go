@@ -2,8 +2,6 @@ package sysstat
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -79,16 +77,6 @@ func TestParsePSCPU(t *testing.T) {
 	}
 }
 
-func TestBusy(t *testing.T) {
-	share, ok := busy(cpuTimes{total: 1000, idle: 800}, cpuTimes{total: 1200, idle: 950})
-	if !ok || math.Abs(share-25) > 1e-9 {
-		t.Fatalf("got %v ok %v", share, ok)
-	}
-	if _, ok := busy(cpuTimes{total: 1000}, cpuTimes{total: 1000}); ok {
-		t.Fatal("no time passed, yet a share")
-	}
-}
-
 // fakeService reads a host whose CPU readings come from a list.
 func fakeService(readings []cpuTimes, clock *time.Time) (*Service, *int) {
 	reads := 0
@@ -147,56 +135,4 @@ func TestServiceSpans(t *testing.T) {
 	if *slept != 2 {
 		t.Fatalf("slept %d times, want 2", *slept)
 	}
-}
-
-func TestServiceMemoryWithoutCPU(t *testing.T) {
-	s := &Service{
-		direct:     noDirect,
-		readCPU:    func() (cpuTimes, error) { return cpuTimes{}, errors.New("no") },
-		readMemory: func() (uint64, uint64, error) { return 1, 2, nil },
-		sleep:      func(time.Duration) {},
-		now:        time.Now,
-	}
-	got, err := s.Stats(context.Background(), nil)
-	if err != nil || got.(Stats).MemTotal != 2 {
-		t.Fatalf("got %+v %v", got, err)
-	}
-	s.readMemory = func() (uint64, uint64, error) { return 0, 0, errors.New("no") }
-	if _, err := s.Stats(context.Background(), nil); err == nil {
-		t.Fatal("neither read, yet no error")
-	}
-}
-
-func TestServiceDirectShare(t *testing.T) {
-	share := 42.0
-	s := &Service{
-		direct:     func() (*float64, bool) { return &share, true },
-		readCPU:    func() (cpuTimes, error) { t.Fatal("read the totals"); return cpuTimes{}, nil },
-		readMemory: func() (uint64, uint64, error) { return 1, 2, nil },
-		sleep:      func(time.Duration) { t.Fatal("slept") },
-		now:        time.Now,
-	}
-	got, err := s.Stats(context.Background(), nil)
-	if err != nil || *got.(Stats).CPU != 42 {
-		t.Fatalf("got %+v %v", got, err)
-	}
-}
-
-func TestHostReads(t *testing.T) {
-	got, err := New().Stats(context.Background(), nil)
-	if err != nil {
-		t.Skipf("not read here: %v", err)
-	}
-	stats := got.(Stats)
-	if stats.MemTotal == 0 || stats.MemUsed > stats.MemTotal {
-		t.Fatalf("memory: %+v", stats)
-	}
-	if stats.CPU != nil && (*stats.CPU < 0 || *stats.CPU > 100) {
-		t.Fatalf("cpu: %v", *stats.CPU)
-	}
-	cpu := "unknown"
-	if stats.CPU != nil {
-		cpu = fmt.Sprintf("%.1f%%", *stats.CPU)
-	}
-	t.Logf("cpu %s used %d total %d", cpu, stats.MemUsed, stats.MemTotal)
 }

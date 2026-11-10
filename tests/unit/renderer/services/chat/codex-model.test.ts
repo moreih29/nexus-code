@@ -5,6 +5,7 @@ import {
   emptyCodexModel,
   hunksOf,
   modeOf,
+  nextThreadModel,
   originalsFor,
   shellName,
   shownCommand,
@@ -476,25 +477,40 @@ describe("codex model", () => {
     expect(m.items.some((i) => i.kind === "notice")).toBe(false);
   });
 
-  test("a thread that cannot be resumed says so, not the server's error", () => {
-    const m = run([
-      sys({ event: "start", pid: 1 }),
-      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
-      out({
-        id: "app-r",
-        error: { code: -32600, message: `no rollout found for thread id ${T}` },
-      }),
-      ...started().slice(3),
-    ]);
-    expect(m.items).toEqual([
+  const notResumed = (): ChatLine[] => [
+    sys({ event: "start", pid: 2 }),
+    inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+    out({
+      id: "app-r",
+      error: { code: -32600, message: `no rollout found for thread id ${T}` },
+    }),
+    ...started().slice(3),
+  ];
+
+  test("a conversation that cannot be resumed says so, not the server's error", () => {
+    const m = run([...started(), ...sendTurn("hello"), ...notResumed()]);
+    expect(m.items.at(-1)).toEqual(
       expect.objectContaining({
         kind: "notice",
         code: "not_resumed",
         detail: `no rollout found for thread id ${T}`,
       }),
-    ]);
+    );
     expect(m.threadId).toBe(T);
     expect(m.outgoing).toEqual({});
+  });
+
+  test("a thread that never had a turn starts over without a word", () => {
+    // Codex saves a thread with its first turn: an unused one is not there.
+    const once = run([...started(), ...notResumed()]);
+    expect(once.items).toEqual([]);
+    expect(once.threadId).toBe(T);
+    // Nor again after that, the notice of an earlier one being no conversation.
+    const withNotice = run(notResumed(), {
+      ...emptyCodexModel(),
+      items: [{ kind: "notice", key: "n0", code: "not_resumed" }],
+    });
+    expect(withNotice.items).toHaveLength(1);
   });
 
   test("a resumed thread shows its turns", () => {
@@ -764,6 +780,35 @@ describe("codex model", () => {
     expect(other.rateLimits).toBe(rolled.rateLimits);
   });
 
+  test("a read that finds no windows leaves the last ones shown", () => {
+    const window = { usedPercent: 20, windowDurationMins: 300, resetsAt: 1_700_000_000 };
+    const m = run([
+      ...started(),
+      inn({ id: "app-r1", method: "account/rateLimits/read", params: {} }),
+      out({ id: "app-r1", result: { rateLimits: { limitId: "codex", primary: window } } }),
+      inn({ id: "app-r2", method: "account/rateLimits/read", params: {} }),
+      out({ id: "app-r2", result: { rateLimits: { limitId: "codex", primary: null } } }),
+    ]);
+    expect(m.rateLimits?.primary?.usedPercent).toBe(20);
+  });
+
+  test("a subagent's context size and compaction are not the tab's", () => {
+    const usage = (threadId: string, totalTokens: number) =>
+      note("thread/tokenUsage/updated", {
+        threadId,
+        turnId: "turn_x",
+        tokenUsage: { last: { totalTokens }, modelContextWindow: 400_000 },
+      });
+    const m = run([
+      ...started(),
+      usage(T, 12_000),
+      usage("thr_child", 90_000),
+      note("thread/compacted", { threadId: "thr_child", turnId: "turn_x" }),
+    ]);
+    expect(m.tokens).toEqual({ used: 12_000, window: 400_000 });
+    expect(m.items).toEqual([]);
+  });
+
   test("an API-key sign-in has no limits to read, and says nothing of it", () => {
     const m = run([
       ...started(),
@@ -896,5 +941,99 @@ describe("codex helpers", () => {
     ]);
     expect(hunksOf("gone\n", "delete")).toEqual([{ lines: ["-gone"] }]);
     expect(hunksOf("", "add")).toEqual([]);
+  });
+});
+
+describe("codex commands' answers", () => {
+  test("a fork's thread comes with the turns it copied", () => {
+    const model = run([
+      sys({ event: "start", pid: 1 }),
+      inn({ id: "app-f", method: "thread/fork", params: { threadId: T, cwd: "/w" } }),
+      out({
+        id: "app-f",
+        result: {
+          thread: {
+            id: "thr_2",
+            name: null,
+            turns: [
+              {
+                id: "turn_1",
+                items: [
+                  { type: "userMessage", id: "u1", content: [{ type: "text", text: "hi" }] },
+                  { type: "agentMessage", id: "m1", text: "hello" },
+                ],
+              },
+            ],
+          },
+          model: "gpt-6",
+          cwd: "/w",
+        },
+      }),
+    ]);
+    expect(model.threadId).toBe("thr_2");
+    expect(model.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+  });
+
+  test("a review is told as it starts, and its findings once, as Codex's message", () => {
+    // As codex 0.167 sends them: the review's end, then the message with its findings.
+    const model = run([
+      ...started(),
+      note("item/started", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "enteredReviewMode", id: "rv1", review: "current changes" },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "exitedReviewMode", id: "rv2", review: "No issues found." },
+      }),
+      note("item/completed", {
+        threadId: T,
+        turnId: "turn_r",
+        item: { type: "agentMessage", id: "m1", text: "No issues found." },
+      }),
+    ]);
+    expect(model.items.filter((i) => i.kind === "notice")).toEqual([
+      expect.objectContaining({ code: "review", detail: "current changes" }),
+    ]);
+    const texts = model.items.flatMap((i) =>
+      i.kind === "assistant" ? i.blocks.filter((b) => b.type === "text") : [],
+    );
+    expect(texts).toEqual([expect.objectContaining({ text: "No issues found." })]);
+  });
+});
+
+describe("another thread in the same tab", () => {
+  test("starts empty but for the program's and the account's", () => {
+    const prev: CodexModel = {
+      ...emptyCodexModel(),
+      lastSeq: 42,
+      threadId: "t1",
+      threadName: "old",
+      model: "gpt-x",
+      effort: "high",
+      permissionMode: "fullAccess",
+      version: "0.167.0",
+      init: { commands: [], models: [], remoteControl: false },
+      account: { type: "chatgpt" },
+      signedOut: false,
+      rateLimits: { primary: { usedPercent: 1 } },
+      items: [{ kind: "notice", key: "n1", code: "compacted" }],
+    };
+    expect(nextThreadModel(prev)).toEqual({
+      ...emptyCodexModel(),
+      lastSeq: 42,
+      version: "0.167.0",
+      init: { commands: [], models: [], remoteControl: false },
+      account: { type: "chatgpt" },
+      signedOut: false,
+      rateLimits: { primary: { usedPercent: 1 } },
+    });
   });
 });

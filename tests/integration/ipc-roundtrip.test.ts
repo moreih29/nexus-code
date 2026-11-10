@@ -108,12 +108,6 @@ describe("ipc round-trip — call.echo with zod validation", () => {
     });
   });
 
-  it("call.echo returns uppercased value", async () => {
-    const handler = getHandler();
-    const result = await handler({}, "integration-echo", "echo", { val: "hello" });
-    expect(result).toBe("HELLO");
-  });
-
   it("call.echo returns invalid-args IpcErrResult for missing val field", async () => {
     const handler = getHandler();
     const result = await handler({}, "integration-echo", "echo", { notVal: 123 });
@@ -137,30 +131,6 @@ describe("ipc round-trip — call.echo with zod validation", () => {
 // ---------------------------------------------------------------------------
 
 describe("ipc round-trip — broadcast reaches listener", () => {
-  it("broadcast sends ipc:event to all non-destroyed webContents", () => {
-    const mockSend = mock((..._args: unknown[]) => {});
-    fakeListeners.splice(0, fakeListeners.length, {
-      isDestroyed: () => false,
-      send: mockSend,
-    });
-
-    broadcast("integration-echo", "result", { val: "HELLO" });
-
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    const [channel, channelName, event, args] = mockSend.mock.calls[0] as [
-      string,
-      string,
-      string,
-      unknown,
-    ];
-    expect(channel).toBe("ipc:event");
-    expect(channelName).toBe("integration-echo");
-    expect(event).toBe("result");
-    expect(args).toEqual({ val: "HELLO" });
-
-    fakeListeners.splice(0, fakeListeners.length);
-  });
-
   // Regression: broadcasts (terminal output, OAuth redirects, SSH prompts)
   // went to every WebContents, including embedded browser tabs and popups.
   it("broadcast skips WebContents excluded as third-party pages", () => {

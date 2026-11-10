@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { memo, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { openTerminal } from "@/services/terminal";
 import { cn } from "@/utils/cn";
@@ -47,7 +47,12 @@ const EMPTY_TABS: Record<string, Tab> = {};
 // (via CSS hide) so PTYs survive across workspace switches.
 // ---------------------------------------------------------------------------
 
-export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
+// Memoized: a panel renders for its own workspace and stores, not each time
+// App does (a switch, the agent view's toggle, another workspace's news).
+export const WorkspacePanel = memo(function WorkspacePanel({
+  workspace,
+  isActive,
+}: WorkspacePanelProps) {
   const { t } = useTranslation();
   const layout = useLayoutStore((s) => s.byWorkspace[workspace.id]);
   const tabs = useTabsStore((s) => s.byWorkspace[workspace.id] ?? EMPTY_TABS);
@@ -203,11 +208,11 @@ export function WorkspacePanel({ workspace, isActive }: WorkspacePanelProps) {
           workspaceRootPath={workspace.rootPath}
         />
         <ContentPool workspaceId={workspace.id} isWorkspaceActive={isActive} />
-        <StatusBar workspaceId={workspace.id} active={isActive} />
+        <StatusBar workspaceId={workspace.id} />
       </ErrorBoundary>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // 부트스트랩 진행 표시줄

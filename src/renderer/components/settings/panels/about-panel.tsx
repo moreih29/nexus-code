@@ -41,6 +41,7 @@ import type { UpdateProgress, UpdateStatus } from "../../../../shared/updates/st
 import { ipcCallResult } from "../../../ipc/client";
 import { showReleaseNotes } from "../../../state/operations/release-notes";
 import { updateCheckFailedMessage } from "../../../state/operations/update-check-failure";
+import { installUpdate } from "../../../state/operations/updates";
 import { useUpdatesStore } from "../../../state/stores/updates";
 import { formatBytes } from "../../../utils/format-bytes";
 import { Button } from "../../ui/button";
@@ -206,7 +207,7 @@ function UpdateActions({
   return (
     <>
       {status?.kind === "newer" && status.canInstall && (
-        <Button size="sm" onClick={() => void ipcCallResult("updates", "install", undefined)}>
+        <Button size="sm" onClick={() => installUpdate(status.latest)}>
           {t("common:updates.install")}
         </Button>
       )}

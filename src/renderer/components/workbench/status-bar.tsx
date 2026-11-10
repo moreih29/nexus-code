@@ -51,7 +51,7 @@ import {
   type LucideIcon,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { BranchInfo, GitStatus } from "../../../shared/git/types";
@@ -76,15 +76,16 @@ const STATS_MIN_WIDTH = 576;
 
 interface StatusBarProps {
   workspaceId: string;
-  /** Whether its workspace is the one shown: only then is its host asked how busy it is. */
-  active?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // StatusBar root
 // ---------------------------------------------------------------------------
 
-export function StatusBar({ workspaceId, active = false }: StatusBarProps): React.JSX.Element {
+// Memo: its panel renders as the view switches, which changes nothing here.
+export const StatusBar = memo(function StatusBar({
+  workspaceId,
+}: StatusBarProps): React.JSX.Element {
   const { t } = useTranslation();
   const loadInitial = useGitStore((s) => s.loadInitial);
 
@@ -156,14 +157,14 @@ export function StatusBar({ workspaceId, active = false }: StatusBarProps): Reac
       {/* RIGHT segments */}
       <div className="flex items-center shrink-0">
         {inFlightOp && <InFlightOpSegment op={inFlightOp} />}
-        {roomForStats && <SystemStatsSegment workspaceId={workspaceId} active={active} />}
+        {roomForStats && <SystemStatsSegment workspaceId={workspaceId} />}
         <PortsSegment workspaceId={workspaceId} />
         <EncodingSegment workspaceId={workspaceId} />
         <LspStatusSegment workspaceId={workspaceId} />
       </div>
     </div>
   );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Branch segment
@@ -323,7 +324,9 @@ function ChangesSegment({
     });
   }
 
-  const title = t("statusBar.changes_title", { summary: tokens.map((tok) => tok.label).join(", ") });
+  const title = t("statusBar.changes_title", {
+    summary: tokens.map((tok) => tok.label).join(", "),
+  });
 
   return (
     <button

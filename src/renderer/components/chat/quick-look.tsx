@@ -1,8 +1,10 @@
 // Quick look: a file the conversation names, shown in the app's previews
 // over the panels; an image, with the conversation's other images a step
 // away. The sidebar and the title bar stay in sight, with what other agents
-// ask. The sides of an image, and ← →, step through the images; ↗ opens the
-// file as a tab; esc closes, as does clicking around it or going elsewhere.
+// ask. An image's box wraps it, fitted as large as the area lets it, so
+// there is room around it to click away (imageLookSize); the arrows over its
+// sides, and ← →, step through the images; ↗ opens the file as a tab; esc
+// closes, as does clicking around it or going elsewhere.
 // A file the session changed shows as a diff, and can be reverted. Images
 // with no file, as a tool or the user gave them, show the same way from
 // their data.
@@ -19,14 +21,14 @@ import {
   X,
 } from "lucide-react";
 import type * as Monaco from "monaco-editor";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
-import { imageSrc } from "../../services/chat/image-look";
+import { imageLookSize, imageSrc, type Size } from "../../services/chat/image-look";
 import { baseName, isUnder, type LineAt } from "../../services/chat/links";
 import type { ImageBlock } from "../../services/chat/model";
 import { useSharedModel } from "../../services/editor";
@@ -148,6 +150,37 @@ export function QuickLook({
   }
   const showDiff = diff && changed;
 
+  // An image's box wraps it, once its size is known; until the next one
+  // loads, the box keeps the size of the one before.
+  const shownAsImage = image !== undefined || (isImageFile(path) && !showDiff);
+  const [sizes, setSizes] = useState<Readonly<Record<string, Size>>>({});
+  const [lastSize, setLastSize] = useState<Size | null>(null);
+  const sized = (of: string) => (size: Size) => {
+    setSizes((known) => (known[of] ? known : { ...known, [of]: size }));
+    setLastSize(size);
+  };
+  const layerRef = useRef<HTMLDivElement>(null);
+  const [areaSize, setAreaSize] = useState<Size | null>(null);
+  useLayoutEffect(() => {
+    const el = layerRef.current;
+    if (!el) return;
+    const measure = () => setAreaSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const natural = sizes[path] ?? lastSize;
+  const box =
+    shownAsImage && areaSize && natural ? imageLookSize(areaSize, natural, BORDER_PX) : null;
+  // The first image shows in its box, not first in the big one; one that
+  // has not loaded in a moment shows in the big one.
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setWaited(true), SIZE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
   // The keys go to the overlay while it is open; the focus goes back after,
   // unless it went elsewhere, which closed it.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -199,7 +232,12 @@ export function QuickLook({
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      className="absolute inset-4 flex flex-col overflow-hidden rounded-(--radius-island) border border-[var(--surface-floating-border)] bg-background outline-none @xl:inset-8 @3xl:inset-12"
+      className={cn(
+        "absolute flex flex-col overflow-hidden rounded-(--radius-island) border border-[var(--surface-floating-border)] bg-background outline-none",
+        box ? "inset-0 m-auto" : "inset-4 @xl:inset-8 @3xl:inset-12",
+        shownAsImage && !box && !waited && "opacity-0",
+      )}
+      style={box ? { width: box.w, height: box.h } : undefined}
       data-testid="chat-quick-look"
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2">
@@ -270,16 +308,10 @@ export function QuickLook({
           <X className="size-4" />
         </IconButton>
       </div>
-      {/* The images' strips to step by, on the backdrop the image shows on. */}
-      <div
-        className={cn(
-          "relative min-h-0 flex-1",
-          stepping && "bg-[var(--surface-backdrop-bg)] px-12",
-        )}
-      >
+      <div className="group/body relative min-h-0 flex-1">
         {image ? (
           <div key={path} className="flex h-full">
-            <ZoomableImage src={imageSrc(image)} alt={name} />
+            <ZoomableImage src={imageSrc(image)} alt={name} onNaturalSize={sized(path)} fill />
           </div>
         ) : showDiff ? (
           <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
@@ -290,6 +322,7 @@ export function QuickLook({
             path={path}
             preview={support === "supported" && mode === "preview"}
             line={line?.line}
+            onImageSize={sized(path)}
           />
         )}
         {stepping && (
@@ -302,7 +335,7 @@ export function QuickLook({
     </div>
   );
   const layer = (
-    <div className="@container absolute inset-0 z-(--layer-in-panel)">
+    <div ref={layerRef} className="@container absolute inset-0 z-(--layer-in-panel)">
       <div
         aria-hidden
         className="absolute inset-0 bg-[var(--floating-scrim)]"
@@ -319,9 +352,15 @@ export function QuickLook({
   return area ? createPortal(layer, area) : layer;
 }
 
+/** The dialog's border, both sides together. */
+const BORDER_PX = 2;
+
+/** How long an image may take to load before it shows in the big box. */
+const SIZE_WAIT_MS = 300;
+
 /**
- * A side of the body that steps to the image before or after: the whole
- * strip takes the click, with a round button in its middle.
+ * A round button over a side of the image, to step to the one before or
+ * after: in sight while the pointer is over the image, or it has the focus.
  */
 function StepButton({
   side,
@@ -339,14 +378,13 @@ function StepButton({
       aria-label={label}
       onClick={onStep}
       className={cn(
-        "group/step absolute inset-y-0 flex w-12 items-center justify-center outline-none",
-        side === "left" ? "left-0" : "right-0",
+        "absolute top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--surface-floating-border)] bg-popover/80 text-foreground opacity-0 shadow-md outline-none backdrop-blur-sm transition-opacity",
+        "group-hover/body:opacity-100 hover:bg-popover focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-ring",
+        side === "left" ? "left-3" : "right-3",
       )}
       data-testid={`chat-quick-look-${side === "left" ? "previous" : "next"}`}
     >
-      <span className="flex size-9 items-center justify-center rounded-full border border-[var(--surface-floating-border)] bg-popover text-muted-foreground group-hover/step:border-muted-foreground group-hover/step:text-foreground group-focus-visible/step:ring-1 group-focus-visible/step:ring-ring">
-        <Icon className="size-5" />
-      </span>
+      <Icon className="size-4" />
     </button>
   );
 }
@@ -369,16 +407,19 @@ function LookBody({
   path,
   preview,
   line,
+  onImageSize,
 }: {
   workspaceId: string;
   path: string;
   preview: boolean;
   line?: number;
+  /** Hears an image file's size once it loads, which its box wraps. */
+  onImageSize?: (size: Size) => void;
 }) {
   if (isImageFile(path)) {
     return (
       <div className="flex h-full">
-        <ImagePreview workspaceId={workspaceId} filePath={path} />
+        <ImagePreview workspaceId={workspaceId} filePath={path} onNaturalSize={onImageSize} fill />
       </div>
     );
   }

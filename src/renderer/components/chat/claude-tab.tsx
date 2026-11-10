@@ -46,6 +46,7 @@ import {
   outsideLinksOf,
   todosOf,
 } from "../../services/chat/panel";
+import { usePlanUsage } from "../../services/chat/plan-usage";
 import {
   printRunRows,
   stopPrintRun,
@@ -67,6 +68,7 @@ import {
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { claudeUsageLine } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -78,7 +80,7 @@ import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
-import { ProfileUsageChip } from "../agent-profiles/tab-profile";
+import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
@@ -122,7 +124,7 @@ const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 type PanelPlace = "beside" | "drawer" | "summary";
 
 /** The parts a bare command asks for that are in the side panel. */
-const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp"]);
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -171,18 +173,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
-  const { contextUsage, usage } = state.model;
+  const { contextUsage } = state.model;
+  // The plan's usage is the profile's, one for all its tabs; the tab's own
+  // answer until the profile has one.
+  const plan = usePlanUsage("claude", workspaceId, props.profileId);
+  const usage = plan?.claude ?? state.model.usage;
+  // A minute's clock, so a window that resets leaves the line while it shows.
+  const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(
-    () => claudeUsageLine({ contextUsage, usage }, Date.now()),
-    [contextUsage, usage],
+    () => claudeUsageLine({ contextUsage, usage }, now),
+    [contextUsage, usage, now],
   );
 
-  // The line under the composer: the context after each turn, and when the
-  // tab is shown or its program comes up; the plan's usage with it.
+  // The line under the composer: the context and the plan's usage when the
+  // tab is shown or its program comes up. The controller asks again after
+  // each turn by itself, and the profile's store says when the usage is due.
   const lineReady = state.phase === "ready" && state.model.process === "running";
   useEffect(() => {
-    if (isVisible && lineReady && !state.model.running) controller.refreshUsageLine();
-  }, [controller, isVisible, lineReady, state.model.running]);
+    if (isVisible && lineReady) controller.refreshUsageLine();
+  }, [controller, isVisible, lineReady]);
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -210,11 +219,29 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   }, [customTitle, controller]);
 
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const resumeSession = (sessionId: string, profileId?: string) => {
+  // Under the empty conversation a failure shows there; from /resume, as a toast.
+  const resumeSession = (
+    sessionId: string,
+    profileId?: string,
+    fail: (message: string) => void = setResumeError,
+  ) => {
+    setResumeError(null);
+    void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
+  };
+  // Another profile starts the tab over; what it has going decides whether to ask.
+  const tabUse: TabUse = state.model.running
+    ? "running"
+    : (state.history?.items.length ?? 0) > 0 || state.model.items.length > 0
+      ? "conversation"
+      : "empty";
+  const switchProfile = (profileId: string) => {
     setResumeError(null);
     void controller
-      .resumeSession(sessionId, profileId)
-      .catch((err: Error) => setResumeError(err.message));
+      .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
+  const resumeFailed = (message: string) => {
+    showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
   };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
@@ -222,17 +249,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   };
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
-  const actions: MessageActions = {
-    running: state.model.running,
-    canFork: !hooks && controller.forkPoint("", { before: false }) !== null,
-    onRewind: (item) => setRewinding(item),
-    ...(hooks ? {} : { onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item) }),
-    onBackground: (toolUseId) =>
-      controller
-        .backgroundTool(toolUseId)
-        .catch((err: Error) => showToast({ kind: "error", message: err.message })),
-    waiting: new Set(state.model.permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
-  };
+  // Kept while what it says holds, so the conversation's messages do not
+  // all render each time the tab does.
+  const running = state.model.running;
+  const canFork = !hooks && controller.forkPoint("", { before: false }) !== null;
+  const asking = state.model.permissions;
+  const actions = useMemo<MessageActions>(
+    () => ({
+      running,
+      canFork,
+      onRewind: (item) => setRewinding(item),
+      ...(hooks ? {} : { onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item) }),
+      onBackground: (toolUseId) =>
+        controller
+          .backgroundTool(toolUseId)
+          .catch((err: Error) => showToast({ kind: "error", message: err.message })),
+      waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+    }),
+    [running, canFork, hooks, controller, workspaceId, props.cwd, asking],
+  );
 
   // Where the side panel goes follows the tab's width.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -278,7 +313,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       if (dropped && back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [drawerOpen]);
-  // A bare /context, /usage or /mcp opens the panel; its section opens itself.
+  // A bare /context, /usage or /mcp, or /status, opens the panel; its section opens itself.
   const reveal = state.reveal;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
   useEffect(() => {
@@ -436,6 +471,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
 
   // Claude Code's settings (/config), and the one a command opened them at.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
+  // /resume's list above the composer, with the words it was given.
+  const [resumeQuery, setResumeQuery] = useState<string | null>(null);
 
   /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
@@ -451,6 +488,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     }
     const command = parseAppCommand(text, state.model.init?.commands ?? []);
     if (!command) return false;
+    if (command.name === "resume") {
+      if (state.model.running) {
+        showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
+      } else setResumeQuery(command.args);
+      return true;
+    }
     const { history, model } = state;
     runAppCommand(command, {
       controller,
@@ -555,7 +598,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
                       workspaceId={workspaceId}
                       tabId={tabId}
                       cwd={props.cwd}
-                      onResume={resumeSession}
+                      profileId={controller.profileId}
+                      onResume={(sessionId, profileId) => resumeSession(sessionId, profileId)}
                     />
                   </div>
                 ) : null
@@ -604,14 +648,30 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={
-              state.card && (
-                <CommandCardView
-                  card={state.card}
+              resumeQuery !== null ? (
+                <SessionList
                   workspaceId={workspaceId}
+                  tabId={tabId}
                   cwd={props.cwd}
-                  rootPath={rootPath}
-                  onClose={() => controller.closeCard()}
+                  profileId={controller.profileId}
+                  query={resumeQuery}
+                  exceptSessionId={controller.currentSession()}
+                  onClose={() => setResumeQuery(null)}
+                  onResume={(sessionId, profileId) => {
+                    setResumeQuery(null);
+                    resumeSession(sessionId, profileId, resumeFailed);
+                  }}
                 />
+              ) : (
+                state.card && (
+                  <CommandCardView
+                    card={state.card}
+                    workspaceId={workspaceId}
+                    cwd={props.cwd}
+                    rootPath={rootPath}
+                    onClose={() => controller.closeCard()}
+                  />
+                )
               )
             }
             onCommand={runCommand}
@@ -619,14 +679,18 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               <UsageLineView
                 line={usageLine}
                 trailing={
-                  hooks ? undefined : (
-                    <ProfileUsageChip
-                      agent="claude"
-                      workspaceId={workspaceId}
-                      cwd={props.cwd}
-                      profileId={props.profileId}
-                    />
-                  )
+                  hooks
+                    ? undefined
+                    : (compact) => (
+                        <ProfileUsageChip
+                          agent="claude"
+                          workspaceId={workspaceId}
+                          profileId={props.profileId}
+                          use={tabUse}
+                          onSwitch={switchProfile}
+                          compact={compact}
+                        />
+                      )
                 }
               />
             }

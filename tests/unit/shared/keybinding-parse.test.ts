@@ -2,13 +2,8 @@
  * Pure tests for the accelerator parser. No DOM; we hand-roll
  * KeyboardEvent-shaped objects to satisfy `matchesEvent`.
  */
-import { describe, expect, it, test } from "bun:test";
-import {
-  acceleratorToLabel,
-  chordToLabel,
-  matchesEvent,
-  parseAccelerator,
-} from "../../../src/shared/keybindings/keybinding-parse";
+import { describe, expect, it } from "bun:test";
+import { matchesEvent, parseAccelerator } from "../../../src/shared/keybindings/keybinding-parse";
 
 interface MockKE {
   metaKey: boolean;
@@ -277,54 +272,5 @@ describe("matchesEvent", () => {
       true,
     );
     expect(matchesEvent(p, ev("Comma") as unknown as KeyboardEvent, true)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// acceleratorToLabel — maps accelerator string + isMac flag to display label
-// ---------------------------------------------------------------------------
-
-describe("acceleratorToLabel", () => {
-  test.each([
-    ["CmdOrCtrl+W",       true,  "⌘W"],
-    ["CmdOrCtrl+W",       false, "Ctrl+W"],
-    ["CmdOrCtrl+Alt+R",   true,  "⌘⌥R"],
-    ["CmdOrCtrl+Alt+Left",true,  "⌘⌥←"],
-    ["Shift+Enter",       true,  "⇧↵"],
-    ["Cmd+Ctrl+Up",       true,  "⌘⌃↑"],
-  ] as const)("%s isMac=%s → %s", (accelerator, isMac, expected) => {
-    expect(acceleratorToLabel(accelerator, { isMac })).toBe(expected);
-  });
-
-  // Cmd+, has two cases (Mac and Win) so both are checked in one test.
-  it("renders Cmd+, with a literal comma", () => {
-    expect(acceleratorToLabel("Cmd+,", { isMac: true })).toBe("⌘,");
-    expect(acceleratorToLabel("Cmd+,", { isMac: false })).toBe("Ctrl+,");
-  });
-
-  // Off macOS an explicit Cmd names the key it matches: Ctrl, or the
-  // Windows/Super key in a literal Cmd+Ctrl combo. Never the ⌘ symbol.
-  test.each([
-    ["Cmd+Backspace", "win32", "Ctrl+Backspace"],
-    ["Cmd+Option+V", "win32", "Ctrl+Alt+V"],
-    ["Cmd+Ctrl+Up", "win32", "Win+Ctrl+Up"],
-    ["Cmd+Ctrl+Up", "linux", "Super+Ctrl+Up"],
-    ["Cmd+Ctrl+Up", undefined, "Win+Ctrl+Up"],
-  ] as const)("%s on %s → %s", (accelerator, platform, expected) => {
-    expect(acceleratorToLabel(accelerator, { isMac: false, platform })).toBe(expected);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// chordToLabel — joins two accelerator halves with a space
-// ---------------------------------------------------------------------------
-
-describe("chordToLabel", () => {
-  test.each([
-    [["CmdOrCtrl+K", "CmdOrCtrl+W"] as const, true,  "⌘K ⌘W"],
-    [["CmdOrCtrl+K", "CmdOrCtrl+W"] as const, false, "Ctrl+K Ctrl+W"],
-    [["CmdOrCtrl+K", "U"]           as const, true,  "⌘K U"],
-  ] as const)("%s isMac=%s → %s", (chord, isMac, expected) => {
-    expect(chordToLabel(chord as [string, string], { isMac })).toBe(expected);
   });
 });

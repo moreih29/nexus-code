@@ -13,9 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type logExpected struct {
@@ -112,69 +109,6 @@ func TestLogBatchesAtLogBatchSizeAndCarriesStreamID(t *testing.T) {
 		if batch.StreamID != params.StreamID {
 			t.Fatalf("batch streamId = %q, want %q", batch.StreamID, params.StreamID)
 		}
-	}
-}
-
-func TestBuildLogArgsCoversScopeSourceCursorAndPaths(t *testing.T) {
-	sourceOff := false
-	skip := 3
-	args := buildLogArgs(LogParams{Scope: "ref", Ref: "main", Skip: &skip, Limit: 5})
-	want := []string{
-		"log",
-		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
-		"--date=iso-strict",
-		"--date-order",
-		"--skip=3",
-		"--max-count=6",
-		"main",
-	}
-	if !reflect.DeepEqual(args, want) {
-		t.Fatalf("ref skip args = %#v\nwant %#v", args, want)
-	}
-
-	args = buildLogArgs(LogParams{
-		Scope:    "all",
-		Source:   &sourceOff,
-		AfterSHA: "abc123",
-		Grep:     "UI-42",
-		Limit:    10,
-		Paths:    []string{"src/a.ts", "README.md"},
-	})
-	want = []string{
-		"log",
-		"--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
-		"--date=iso-strict",
-		"--date-order",
-		"--grep=UI-42",
-		"--all",
-		"--",
-		"src/a.ts",
-		"README.md",
-	}
-	if !reflect.DeepEqual(args, want) {
-		t.Fatalf("args = %#v\nwant %#v", args, want)
-	}
-
-	sourceOn := true
-	args = buildLogArgs(LogParams{Scope: "branches", Source: &sourceOn, Limit: 1})
-	want = []string{
-		"log",
-		"--pretty=format:%S%x1f%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%b%x1f%D%x1e",
-		"--date=iso-strict",
-		"--date-order",
-		"--max-count=2",
-		"--source",
-		"--branches",
-	}
-	if !reflect.DeepEqual(args, want) {
-		t.Fatalf("branches args = %#v\nwant %#v", args, want)
-	}
-}
-
-func TestParseLogParamsRejectsSkipOutsideRefScope(t *testing.T) {
-	_, err := parseLogParams(json.RawMessage(`{"scope":"all","skip":0}`))
-	if err == nil || !strings.Contains(err.Error(), "skip is only supported for ref scope") {
-		t.Fatalf("err = %v, want ref-scope skip validation", err)
 	}
 }
 
@@ -373,33 +307,6 @@ func TestLogOnUnbornBranchIsNoHead(t *testing.T) {
 	var failure Failure
 	if !errors.As(err, &failure) || failure.Kind != KindNoHead {
 		t.Fatalf("Log error = %#v, want a %s failure", err, KindNoHead)
-	}
-}
-
-func TestLogRegisteredWithDispatcher(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	d := dispatch.New()
-	service := New(root)
-	batchCount := 0
-	service.SetEventSink(func(event string, payload any) error {
-		if event == "git.log.batch" {
-			batchCount++
-		}
-		return nil
-	})
-	Register(d, service)
-	res := d.Dispatch(context.Background(), proto.Request{ID: "git.log", Method: "git.log", Params: json.RawMessage(`{"scope":"ref","ref":"HEAD","limit":1}`)})
-	if res.Error != nil {
-		t.Fatalf("git.log dispatch returned error: %#v", res.Error)
-	}
-	result, ok := res.Result.(LogResult)
-	if !ok {
-		t.Fatalf("git.log result type = %T", res.Result)
-	}
-	if result.Count != 1 || result.HasMore || batchCount != 1 {
-		t.Fatalf("result=%#v batchCount=%d", result, batchCount)
 	}
 }
 

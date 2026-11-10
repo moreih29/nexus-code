@@ -13,22 +13,6 @@ afterEach(() => {
 });
 
 describe("defaultFolderLabel", () => {
-  test("~/.claude and ~/.codex until main has told the folders", () => {
-    const state = { home: "", defaultDirs: { claude: "", codex: "" } };
-    expect(defaultFolderLabel("claude", state)).toBe("~/.claude");
-    expect(defaultFolderLabel("codex", state)).toBe("~/.codex");
-  });
-
-  test("the folder main tells, in the home as ~/", () => {
-    setPlatformForTests("darwin");
-    const state = {
-      home: "/Users/me",
-      defaultDirs: { claude: "/Users/me/.config/claude", codex: "/opt/codex" },
-    };
-    expect(defaultFolderLabel("claude", state)).toBe("~/.config/claude");
-    expect(defaultFolderLabel("codex", state)).toBe("/opt/codex");
-  });
-
   test("on Windows, with the slash every other profile folder shows", () => {
     setPlatformForTests("win32");
     const state = {

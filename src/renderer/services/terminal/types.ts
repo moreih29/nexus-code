@@ -73,8 +73,11 @@ export interface TerminalController {
    * a black viewport until the next data arrives.
    */
   refresh: () => void;
-  /** Focus the terminal, or do so once it has opened if it has not yet. */
-  focus: () => void;
+  /**
+   * Focus the terminal, or do so once it has opened if it has not yet and
+   * `wanted` (asked then) still says so.
+   */
+  focus: (wanted?: () => boolean) => void;
   /** The last `lines` lines it shows, scrollback included, as plain text. */
   readText: (lines: number) => string;
   /**

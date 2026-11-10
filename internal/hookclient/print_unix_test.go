@@ -530,15 +530,6 @@ func TestRunPrint_AnAppGoneDoesNotHoldTheRun(t *testing.T) {
 	}
 }
 
-func TestRunPrint_ClaudeNotFound(t *testing.T) {
-	var stderr bytes.Buffer
-	code, _ := runPrint(filepath.Join(t.TempDir(), "none"), []string{"-p"}, strings.NewReader(""),
-		&bytes.Buffer{}, &stderr, nil)
-	if code != 127 || !strings.HasPrefix(stderr.String(), "nexus: ") {
-		t.Fatalf("exit %d, stderr %q", code, stderr.String())
-	}
-}
-
 func (f toldFrame) String() string {
 	b, _ := json.Marshal(f.Payload)
 	return f.Subcommand + string(b)

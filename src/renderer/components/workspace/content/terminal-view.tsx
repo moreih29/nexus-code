@@ -274,7 +274,7 @@ export function TerminalView({
       },
     });
     controllerRef.current = controller;
-    const unregisterFocus = registerTabFocusTarget(tabId, () => controller.focus());
+    const unregisterFocus = registerTabFocusTarget(tabId, (wanted) => controller.focus(wanted));
     const unregisterController = registerTerminalController(tabId, controller);
     return () => {
       unregisterFocus();

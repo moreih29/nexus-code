@@ -29,7 +29,7 @@ import {
   SquareArrowOutUpRight,
   X,
 } from "lucide-react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
@@ -38,6 +38,7 @@ import type { SessionActivity } from "../../../shared/claude/activity";
 import { existingCodexController } from "../../services/chat/codex-controller";
 import type { CodexModel } from "../../services/chat/codex-model";
 import { existingChatController } from "../../services/chat/controller";
+import { planUsageKeyFor, usePlanUsage, wantPlanUsage } from "../../services/chat/plan-usage";
 import { type ChatTabState, chatKey, useChatStore, useChatTab } from "../../services/chat/store";
 import { claudeUsageLine, codexUsageLine, type UsageLine } from "../../services/chat/usage-line";
 import { interrupt, sendLine, showChanges, showTerminal } from "../../services/sessions/actions";
@@ -53,6 +54,7 @@ import {
 } from "../../services/sessions/detail";
 import type { AgentSession } from "../../services/sessions/model";
 import { oneLineMarkdown } from "../../services/sessions/preview";
+import { useNow } from "../../services/sessions/use-family";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -70,7 +72,7 @@ import { showToast } from "../ui/toast";
 import { FoldToggle, useFold } from "./fold";
 import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
-import { useSessionProfile } from "./session-profile";
+import { useSessionProfile, useTabProfileId } from "./session-profile";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark } from "./status-view";
 import { TerminalScreen } from "./terminal-screen";
@@ -127,14 +129,31 @@ export function ConversationDetail({
     (s) => s.workspaces.find((w) => w.id === session.workspaceId)?.rootPath ?? "",
   );
   const profile = useSessionProfile(session);
-  // The plan's limits, as its tab last heard them: its account's, not this conversation's.
+  // The plan's limits: its profile's, as its tabs heard them last, not this
+  // conversation's. Shown, it asks for them when they are due. A minute's
+  // clock, so a window that resets leaves.
+  const agent = session.kind === "codex" ? "codex" : "claude";
+  const profileId = useTabProfileId(session);
+  const plan = usePlanUsage(agent, session.workspaceId, profileId);
+  useEffect(() => {
+    if (visible && !terminal)
+      void wantPlanUsage(planUsageKeyFor(agent, session.workspaceId, profileId));
+  }, [visible, terminal, agent, session.workspaceId, profileId]);
+  const now = useNow(visible && !terminal, 60_000);
   const usage = useMemo(() => {
     if (terminal) return null;
-    const now = Date.now();
-    return session.kind === "codex"
-      ? codexUsageLine(chat.model as CodexModel, now)
-      : claudeUsageLine(chat.model, now);
-  }, [terminal, session.kind, chat.model]);
+    if (session.kind === "codex") {
+      const model = chat.model as CodexModel;
+      return codexUsageLine(
+        { tokens: model.tokens, rateLimits: plan?.codex ?? model.rateLimits },
+        now,
+      );
+    }
+    return claudeUsageLine(
+      { contextUsage: chat.model.contextUsage, usage: plan?.claude ?? chat.model.usage },
+      now,
+    );
+  }, [terminal, session.kind, chat.model, plan, now]);
   const footer = (
     <>
       {!held && session.state !== "exited" && (terminal || loaded) && (
@@ -247,7 +266,8 @@ function Transcript({
     // The words name the tab's program, as in the tab.
     <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
       <TranscriptLinks session={session} chat={chat} cwd={cwd || rootPath} visible={visible}>
-        <div className="flex min-h-0 flex-1 flex-col" style={fontStyle}>
+        {/* The text as Settings › Agent sets it for the chat tabs. */}
+        <div className="chat-font flex min-h-0 flex-1 flex-col" style={fontStyle}>
           <MessageList
             // Keyed by the session, so each one opens at its latest message.
             key={session.key}
@@ -796,8 +816,8 @@ function Todos({ todos }: { todos: readonly DetailTodo[] }) {
 
 /**
  * More for the conversation. A chat tab's turn that runs takes it as its
- * composer would: ↩ when the turn can read it, ⌘↩ after the turn, ⌘⇧↩ at
- * once (Claude). A terminal has it typed in, Shift+Enter between lines.
+ * composer would: ↩ when the turn can read it, ⌘↩ at once (Claude), ⌘⇧↩
+ * after the turn. A terminal has it typed in, Shift+Enter between lines.
  */
 function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState }) {
   const { t } = useTranslation();
@@ -835,7 +855,7 @@ function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState
     const mod = event.metaKey || event.ctrlKey;
     if (event.shiftKey && !mod) return;
     event.preventDefault();
-    void submit(mod ? (event.shiftKey ? "now" : "queue") : "send");
+    void submit(mod ? (event.shiftKey ? "queue" : "now") : "send");
   };
 
   const hint = running

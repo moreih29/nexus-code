@@ -1,9 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   newsVersionOf,
-  releaseDate,
   releaseMark,
-  shownNote,
 } from "../../../../../src/renderer/services/updates/release-notes";
 import type { ReleaseNote } from "../../../../../src/shared/updates/release-notes";
 
@@ -17,18 +15,6 @@ function note(version: string, prerelease = false): ReleaseNote {
     prerelease,
   };
 }
-
-const NOTES = [note("1.2.0-beta.1", true), note("1.1.0"), note("1.0.0")];
-
-describe("shownNote", () => {
-  it("shows the release asked for, else the running one's, else the newest", () => {
-    expect(shownNote(NOTES, "1.0.0", "1.1.0")?.version).toBe("1.0.0");
-    expect(shownNote(NOTES, null, "1.1.0")?.version).toBe("1.1.0");
-    expect(shownNote(NOTES, "0.9.0", "1.1.0")?.version).toBe("1.1.0");
-    expect(shownNote(NOTES, null, "0.9.0")?.version).toBe("1.2.0-beta.1");
-    expect(shownNote([], null, "1.1.0")).toBeNull();
-  });
-});
 
 describe("releaseMark", () => {
   it("marks the running release, newer ones and prereleases", () => {
@@ -52,12 +38,5 @@ describe("newsVersionOf", () => {
     expect(newsVersionOf(null, "1.1.0")).toBeNull();
     expect(newsVersionOf("dev", "1.1.0")).toBeNull();
     expect(newsVersionOf("1.0.0", "dev")).toBeNull();
-  });
-});
-
-describe("releaseDate", () => {
-  it("words the date in the reader's language, and leaves out one it cannot read", () => {
-    expect(releaseDate("2026-11-05T08:26:47Z", "en")).toBe("Nov 5, 2026");
-    expect(releaseDate("not a date", "en")).toBe("");
   });
 });

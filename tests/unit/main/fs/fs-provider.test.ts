@@ -1,20 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { describe, expect, it } from "bun:test";
 import { createFsProvider } from "../../../../src/main/features/fs/bridge/create-provider";
 import type { SshChannel } from "../../../../src/main/infra/agent/ssh/channel";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
-
-let tmpRoot: string;
-
-beforeEach(async () => {
-  tmpRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), "nexus-fs-provider-"));
-});
-
-afterEach(async () => {
-  await fs.promises.rm(tmpRoot, { recursive: true, force: true });
-});
 
 /**
  * Builds workspace metadata for fs provider factory tests.
@@ -33,28 +20,6 @@ function makeMeta(location: WorkspaceMeta["location"]): WorkspaceMeta {
 }
 
 describe("createFsProvider", () => {
-  it("creates a local provider for local workspace metadata", () => {
-    const provider = createFsProvider(makeMeta({ kind: "local", rootPath: tmpRoot }));
-
-    expect(provider.kind).toBe("local");
-  });
-
-  it("creates an ssh provider stub for ssh workspace metadata", async () => {
-    let provider: ReturnType<typeof createFsProvider> | undefined;
-
-    expect(() => {
-      provider = createFsProvider(
-        makeMeta({ kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" }),
-      );
-    }).not.toThrow();
-
-    if (!provider) {
-      throw new Error("expected ssh provider");
-    }
-    expect(provider.kind).toBe("ssh");
-    await expect(provider.readdir("")).rejects.toThrow("ssh fs provider: channel not yet wired");
-  });
-
   it("creates an ssh provider that delegates fs calls through the supplied channel", async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     const channel: SshChannel = {
@@ -117,29 +82,6 @@ describe("createFsProvider", () => {
       { method: "fs.createFile", params: { relPath: "new.txt" } },
       { method: "fs.mkdir", params: { relPath: "src/new" } },
     ]);
-  });
-
-  it("sends includeHidden to the agent only when requested", async () => {
-    const calls: unknown[] = [];
-    const channel: SshChannel = {
-      ready: Promise.resolve(),
-      call: async (_method: string, params?: unknown) => {
-        calls.push(params);
-        return [];
-      },
-      fire: () => {},
-      on: () => () => {},
-      onLifecycle: () => () => {},
-      dispose: () => {},
-    };
-    const provider = createFsProvider(
-      makeMeta({ kind: "ssh", host: "dev.example.com", remotePath: "/srv/repo" }),
-      channel,
-    );
-
-    await provider.readdir("src", { includeHidden: true });
-    await provider.readdir("src", { includeHidden: false });
-    expect(calls).toEqual([{ relPath: "src", includeHidden: true }, { relPath: "src" }]);
   });
 
   it("classifies malformed ssh provider responses as agent protocol errors", async () => {

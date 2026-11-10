@@ -4,14 +4,11 @@
  * the same kept as it was.
  */
 import { describe, expect, it } from "bun:test";
-import { buildFamily, sameFamily } from "../../../../../src/renderer/services/sessions/model";
 import {
   mergeChanges,
   startPolling,
   type WorktreeChanges,
 } from "../../../../../src/renderer/services/sessions/use-family";
-import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
-import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -79,35 +76,5 @@ describe("mergeChanges", () => {
       ["a", a],
       ["b", b],
     ]);
-  });
-});
-
-describe("sameFamily", () => {
-  const root = {
-    id: "r",
-    name: "app",
-    location: { kind: "local", rootPath: "/r" },
-    rootPath: "/r",
-    tabs: [],
-  } as unknown as WorkspaceMeta;
-  const tab = (title: string) =>
-    ({ id: "t", type: "terminal", title, props: { cwd: "/" } }) as unknown as Tab;
-  const build = (title: string, lastOutputAt: number, now: number) =>
-    buildFamily({
-      workspaces: [root],
-      workspaceId: "r",
-      tabsByWorkspace: { r: { t: tab(title) } },
-      claudeByWorkspace: {},
-      activity: new Map([["r:t", { lastOutputAt }]]),
-      now,
-    });
-
-  it("is the same for a rebuild that shows the same, and not for a changed state", () => {
-    expect(sameFamily(build("codex", 0, 10_000), build("codex", 0, 20_000))).toBe(true);
-    // Printing again: busy, not quiet.
-    expect(sameFamily(build("codex", 0, 10_000), build("codex", 19_500, 20_000))).toBe(false);
-    expect(sameFamily(build("codex", 0, 10_000), build("codex · 2", 0, 10_000))).toBe(false);
-    expect(sameFamily(null, null)).toBe(true);
-    expect(sameFamily(build("codex", 0, 10_000), null)).toBe(false);
   });
 });

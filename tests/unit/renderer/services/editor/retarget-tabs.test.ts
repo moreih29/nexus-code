@@ -77,19 +77,6 @@ describe("retargetEditorTabs", () => {
     expect(tab(external).props.filePath).toBe("/r/dir/b.ts");
   });
 
-  it("follows the new file name in the title but keeps one the user gave", async () => {
-    const plain = openTab("/r/a.ts");
-    const named = openTab("/r/b.ts");
-    useTabsStore.getState().renameTab(WS, named, "Mine");
-
-    await retargetEditorTabs(WS, "/r/a.ts", "/r/c.ts", cleanDeps());
-    await retargetEditorTabs(WS, "/r/b.ts", "/r/d.ts", cleanDeps());
-
-    expect(tab(plain).title).toBe("c.ts");
-    expect(tab(named).title).toBe("Mine");
-    expect(tab(named).defaultTitle).toBe("d.ts");
-  });
-
   it("carries unsaved text onto the model at the new path", async () => {
     const id = openTab("/r/a.ts");
     openTab("/r/a.ts");

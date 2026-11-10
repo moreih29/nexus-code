@@ -52,6 +52,8 @@ interface UpdatesState {
   applyStatus(status: UpdateStatus): void;
   /** Takes the download's progress from main. */
   applyProgress(progress: UpdateProgress): void;
+  /** Puts back the status shown before an update that did not start. */
+  restoreStatus(status: UpdateStatus | null): void;
 }
 
 export const useUpdatesStore = create<UpdatesState>((set) => ({
@@ -92,6 +94,10 @@ export const useUpdatesStore = create<UpdatesState>((set) => ({
       const status = nextUpdateStatus(state.status, next);
       return { status, progress: status?.kind === "downloading" ? state.progress : null };
     });
+  },
+
+  restoreStatus(status) {
+    set({ status, progress: null });
   },
 
   applyProgress(progress) {

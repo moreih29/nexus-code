@@ -3,6 +3,7 @@
 // element via slotRegistry, or into the App-level view park when its
 // workspace is inactive (see view-park.tsx).
 
+import { memo } from "react";
 import { Grid } from "@/engine";
 import { useLayoutStore } from "../../../state/stores/layout";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
@@ -13,7 +14,9 @@ import { ownerLeafIdOf } from "./selectors";
 // identity on every render and trip useSyncExternalStore's infinite-loop guard.
 const EMPTY_TABS: Record<string, Tab> = {};
 
-export function ContentPool({
+// Memoized: it renders for its own tabs and layout, and when its workspace
+// is shown or hidden, not each time the panel above it does.
+export const ContentPool = memo(function ContentPool({
   workspaceId,
   isWorkspaceActive,
 }: {
@@ -50,4 +53,4 @@ export function ContentPool({
       })}
     </>
   );
-}
+});

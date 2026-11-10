@@ -784,7 +784,8 @@
   "resize": {
     "sidebar": "사이드바 크기 조정",
     "horizontal": "패널을 가로로 크기 조정",
-    "vertical": "패널을 세로로 크기 조정"
+    "vertical": "패널을 세로로 크기 조정",
+    "sessions_list": "목록과 대화 크기 조정"
   },
   "panel": {
     "connection_failed": "연결 실패",
@@ -863,7 +864,8 @@
       "exited_codex": "Codex가 종료됨",
       "restarted_codex": "Codex가 다시 시작됨",
       "not_resumed": "이전 대화를 이어갈 수 없어 새 대화로 시작함",
-      "not_resumed_codex": "이전 Codex 대화를 이어갈 수 없어 새 대화로 시작함"
+      "not_resumed_codex": "이전 Codex 대화를 이어갈 수 없어 새 대화로 시작함",
+      "review": "코드 리뷰"
     },
     "tool": {
       "denied": "거부됨",
@@ -1100,7 +1102,8 @@
         "copy_session": "세션 ID 복사",
         "fork_session": "세션 전체를 포크",
         "model": "모델",
-        "version": "버전"
+        "version": "버전",
+        "account": "계정"
       },
       "context": {
         "title": "컨텍스트",
@@ -1226,7 +1229,12 @@
       "more": "{{count}}개 더 보기",
       "resume_failed": "세션을 이어가지 못했습니다: {{message}}",
       "show": "이전 세션 이어가기 · {{count}}개",
-      "all_profiles": "전체"
+      "all_profiles": "전체",
+      "show_others": "다른 프로필의 세션 · {{count}}개",
+      "title_query": "이전 세션 · \"{{query}}\"",
+      "loading": "세션을 읽는 중…",
+      "none_in_profile": "이 프로필에는 이 폴더의 세션이 없습니다.",
+      "none": "이 폴더에 이어갈 세션이 없습니다."
     },
     "commands": {
       "close": "닫기",
@@ -1302,7 +1310,14 @@
         "web-setup": "GitHub로 클라우드 세션 설정 (터미널)",
         "remote-env": "클라우드 에이전트 기본 환경 선택 (터미널)",
         "ultrareview": "클라우드 세션에서 브랜치 리뷰 (터미널)",
-        "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)"
+        "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)",
+        "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기",
+        "status": "버전, 모델, 계정, 원격 제어 등 이 세션의 상태 보기",
+        "plan": "Plan 모드로 바꾸기, 또는 이 세션의 계획 보기·열기",
+        "branch": "이 대화를 지금 시점에서 분기해 새 탭으로 열기",
+        "remote-control": "휴대폰이나 claude.ai/code에서 이 세션 조작하기 (켜고 끄기)",
+        "privacy-settings": "개인정보 설정 보기·바꾸기 (claude.ai 열기)",
+        "ultraplan": "클라우드 세션에서 고칠 수 있는 계획 작성 (터미널)"
       },
       "fork_none": "먼저 메시지를 보내세요. 아직 복사할 대화가 없습니다.",
       "subtask_empty": "하위 작업에 맡길 일을 입력하세요: /subtask <작업>",
@@ -1347,7 +1362,16 @@
       "plugin_uninstall_body": "플러그인을 제거합니다. 다시 설치할 때를 위해 저장된 데이터는 남겨 둡니다.",
       "marketplace_title": "마켓플레이스",
       "marketplace_hint": "Claude Code의 /plugin으로 플러그인을 찾아 설치합니다.",
-      "marketplace_open": "터미널에서 열기"
+      "marketplace_open": "터미널에서 열기",
+      "resume_busy": "응답이 끝난 뒤에 다른 세션으로 옮길 수 있습니다.",
+      "plan_on": "Plan 모드를 켰습니다.",
+      "plan_none": "아직 작성된 계획이 없습니다.",
+      "plan_title": "이 세션의 계획",
+      "plan_needs_version": "계획을 보려면 Claude Code {{version}} 이상이 필요합니다.",
+      "remote_on": "Remote Control을 켰습니다.",
+      "remote_off": "Remote Control을 껐습니다.",
+      "remote_unavailable": "이 계정에서는 Remote Control을 쓸 수 없습니다.",
+      "remote_not_ready": "Claude가 시작된 뒤에 Remote Control을 바꿀 수 있습니다."
     },
     "codex": {
       "tab_title": "Codex",
@@ -1371,6 +1395,76 @@
         "bypass_confirm_title": "Codex에 전체 권한을 줄까요?",
         "bypass_confirm_body": "Codex가 샌드박스 밖에서 묻지 않고 어떤 파일이든 수정하고, 어떤 명령이든 실행하고, 네트워크에 접속합니다. 문제가 생겨도 괜찮은 격리된 환경에서만 사용하세요.",
         "bypass_confirm": "전체 권한 주기"
+      },
+      "commands": {
+        "describe": {
+          "model": "모델 고르기 (이 탭만)",
+          "effort": "추론 수준 고르기 (이 탭만)",
+          "config": "새 탭의 기본 모델과 추론 수준",
+          "new": "이 탭에서 새 대화 시작",
+          "resume": "이 폴더의 이전 대화를 이 탭에서 이어가기",
+          "fork": "이 대화를 새 탭으로 복사",
+          "rename": "이 대화의 이름 바꾸기",
+          "compact": "컨텍스트 한도에 닿지 않게 대화를 요약",
+          "review": "커밋하지 않은 변경을 리뷰 (지시를 주면 그대로)",
+          "init": "Codex용 지침 파일 AGENTS.md 만들기",
+          "goal": "오래 걸리는 작업의 목표 보기·정하기·멈추기·지우기",
+          "status": "이 대화의 모델, 폴더, 사용한 컨텍스트 보기",
+          "diff": "커밋하지 않은 변경 보기",
+          "copy": "Codex의 마지막 응답(또는 끝에서 N번째) 복사",
+          "export": "대화를 폴더 안 Markdown 파일로 저장",
+          "mcp": "MCP 서버와 상태 보기",
+          "skills": "이 폴더에서 쓸 수 있는 스킬 보기",
+          "logout": "Codex에서 로그아웃",
+          "help": "탭이 처리하는 Codex 명령 보기",
+          "exit": "이 탭 닫기"
+        },
+        "busy": "응답이 끝난 뒤에 실행할 수 있습니다.",
+        "rename_empty": "새 이름을 입력하세요: /rename <이름>",
+        "help_intro": "Codex 탭이 처리하는 명령입니다. 그 밖의 `/`로 시작하는 글은 Codex에 그대로 보냅니다.",
+        "goal_no_thread": "먼저 메시지를 보내세요. 아직 목표를 둘 대화가 없습니다.",
+        "goal_none": "이 대화에는 목표가 없습니다. /goal <목표>로 정하세요.",
+        "goal_set": "목표를 정했습니다. Codex가 목표를 이룰 때까지 작업을 이어갑니다.",
+        "goal_cleared": "목표를 지웠습니다.",
+        "goal_paused": "목표를 멈췄습니다.",
+        "goal_resumed": "목표를 다시 이어갑니다.",
+        "goal_tokens": "{{used}} 토큰 사용",
+        "goal_status": {
+          "active": "진행 중",
+          "paused": "멈춤",
+          "blocked": "막힘",
+          "usageLimited": "사용량 한도",
+          "budgetLimited": "토큰 예산 소진",
+          "complete": "완료"
+        },
+        "status": {
+          "model": "모델",
+          "effort": "추론",
+          "folder": "폴더",
+          "thread": "대화",
+          "version": "버전",
+          "account": "계정",
+          "signed_out": "로그인하지 않음",
+          "context": "컨텍스트"
+        },
+        "mcp_title_one": "MCP 서버 {{count}}개",
+        "mcp_title_other": "MCP 서버 {{count}}개",
+        "mcp_none": "설정된 MCP 서버가 없습니다.",
+        "mcp_tools_one": "도구 {{count}}개",
+        "mcp_tools_other": "도구 {{count}}개",
+        "mcp_status": {
+          "notStarted": "시작 전",
+          "starting": "시작 중",
+          "connected": "연결됨",
+          "authenticationRequired": "로그인 필요",
+          "failed": "실패",
+          "cancelled": "취소됨",
+          "disabled": "꺼짐",
+          "notLoggedIn": "로그인 필요"
+        },
+        "logout": "로그아웃",
+        "logout_title": "Codex에서 로그아웃할까요?",
+        "logout_body": "이 프로필의 Codex 로그인이 지워집니다. 다시 쓰려면 로그인해야 합니다."
       }
     },
     "usage": {
@@ -1386,6 +1480,7 @@
       },
       "resets_time": "{{time}} 초기화",
       "resets_date": "{{month}}/{{day}}({{weekday}}) {{time}} 초기화",
+      "resets_short_date": "{{weekday}} {{time}}",
       "meter_tip": "{{label}} {{percent}}% 사용",
       "short": {
         "session": "세션",
@@ -1450,7 +1545,14 @@
         "externalEditorContext": "외부 편집기에 마지막 응답 표시",
         "autoConnectIde": "IDE 자동 연결 (외부 터미널)",
         "defaultToAgentsView": "기본으로 에이전트 보기 열기",
-        "leftArrowOpensAgents": "← 키로 에이전트 보기 열기"
+        "leftArrowOpensAgents": "← 키로 에이전트 보기 열기",
+        "model": "기본 모델",
+        "effortDefault": "기본 effort · {{model}}",
+        "remoteControl": "시작할 때 원격 제어 켜기",
+        "agentPushNotifEnabled": "Claude가 판단할 때 푸시 알림",
+        "inputNeededNotifEnabled": "조치가 필요할 때 푸시 알림",
+        "promptSuggestionEnabled": "프롬프트 제안",
+        "teammateMode": "팀원 표시 방식"
       },
       "desc": {
         "autoCompact": "컨텍스트가 차면 대화를 요약하고 이어 갑니다.",
@@ -1460,7 +1562,10 @@
         "checkpoints": "되돌리기로 파일을 되살릴 수 있게 이전 내용을 남깁니다.",
         "permissionMode": "새 대화가 시작할 때의 권한 모드입니다.",
         "gitignore": ".gitignore에 있는 파일을 @ 제안에서 뺍니다.",
-        "worktreeBaseRef": "새 워크트리 브랜치가 시작하는 곳입니다."
+        "worktreeBaseRef": "새 워크트리 브랜치가 시작하는 곳입니다.",
+        "model": "새 대화가 시작할 때의 모델입니다. 입력창의 모델 칩은 그 탭에만 적용됩니다.",
+        "effortDefault": "모델마다 따로 저장됩니다. max는 저장되지 않습니다.",
+        "remoteControl": "새 대화마다 claude.ai와 모바일 앱에서 이어 볼 수 있게 원격 제어를 켭니다."
       },
       "option": {
         "outputStyle": {
@@ -1506,7 +1611,24 @@
           "kitty": "Kitty",
           "ghostty": "Ghostty",
           "notifications_disabled": "끄기"
+        },
+        "model": {
+          "default": "기본값 (권장)",
+          "best": "가장 좋은 모델",
+          "opusplan": "계획은 Opus, 실행은 Sonnet"
+        },
+        "remoteControl": {
+          "default": "기본값"
+        },
+        "teammateMode": {
+          "auto": "자동",
+          "in-process": "같은 프로세스"
         }
+      },
+      "codex": {
+        "title": "Codex 기본 설정",
+        "description": "새 대화가 시작할 때의 모델과 추론 강도입니다. 이 프로필의 config.toml에 저장됩니다.",
+        "effort": "기본 추론 강도"
       }
     },
     "profile": {
@@ -1514,8 +1636,13 @@
       "account": "계정",
       "folder": "설정 폴더",
       "rule": "적용 규칙",
-      "locked": "대화 도중에는 프로필을 바꿀 수 없습니다",
-      "newWith": "다른 프로필로 새 대화",
+      "switchTo": "이 탭을 다른 프로필로 전환",
+      "switch": {
+        "title": "{{name}} 프로필로 전환할까요?",
+        "description": "이 탭의 대화를 닫고 {{name}} 프로필로 새 대화를 시작합니다. 지금까지의 대화는 지워지지 않습니다.",
+        "running": "진행 중인 응답을 멈추고, 이 탭에서 {{name}} 프로필로 새 대화를 시작합니다. 지금까지의 대화는 지워지지 않습니다.",
+        "confirm": "전환"
+      },
       "source": {
         "workspace": "이 워크스페이스",
         "folder": "폴더 {{path}}",

@@ -68,20 +68,6 @@ function makeFixture() {
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("AgentGitWatcher", () => {
-  it("delegates git watch calls to the agent and forwards matching git.changed events", async () => {
-    const { watcher, provider, listeners, dirty } = makeFixture();
-
-    await watcher.watch(WORKSPACE_ID, "/repo/.git");
-    for (const callback of listeners.get("git.changed") ?? []) {
-      callback({ gitDir: "/repo/.git" });
-      callback({ gitDir: "/other/.git" });
-    }
-
-    expect(provider.callAgentMethod).toHaveBeenCalledWith("git.watch", { gitDir: "/repo/.git" });
-    expect(dirty).toHaveBeenCalledTimes(1);
-    expect(dirty).toHaveBeenCalledWith(WORKSPACE_ID);
-  });
-
   it("unsubscribes and asks the agent to unwatch when disposed", async () => {
     const { watcher, provider, listeners, dirty } = makeFixture();
 

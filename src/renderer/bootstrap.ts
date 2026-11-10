@@ -49,7 +49,7 @@ import { useManagerStore } from "./state/stores/manager";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { useSessionsViewStore } from "./state/stores/sessions-view";
-import { defaultTitle as defaultTabTitle, useTabsStore } from "./state/stores/tabs";
+import { restoredTitles, useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
@@ -163,6 +163,7 @@ export async function bootstrapAppState(): Promise<void> {
     filesPanelWidth: state.filesPanelWidth,
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
+    sessionsListRatio: state.sessionsListRatio,
   });
 
   // Hydrate theme from appState (authoritative store).
@@ -290,26 +291,9 @@ export async function bootstrapAppState(): Promise<void> {
           const isPreview =
             "isPreview" in t && typeof t.isPreview === "boolean" ? t.isPreview : false;
           const isPinned = "isPinned" in t && typeof t.isPinned === "boolean" ? t.isPinned : false;
-          // 마이그레이션: defaultTitle 필드가 없는 옛 스냅샷은 현재 title을 fallback으로
-          // 사용. 이후 정상 동작 — set 경로들이 같은 invariant를 유지한다.
-          const saved =
-            "defaultTitle" in t && typeof t.defaultTitle === "string" ? t.defaultTitle : t.title;
-          // The agents tab is named by the app, not by what it shows: one
-          // saved under an older name takes the current one.
-          if (t.type === "sessions") {
-            const defaultTitle = defaultTabTitle({ type: "sessions", props: {} });
-            const customTitle =
-              "customTitle" in t && typeof t.customTitle === "string" ? t.customTitle : undefined;
-            tabsMap[t.id] = {
-              ...t,
-              isPreview,
-              isPinned,
-              defaultTitle,
-              title: customTitle ?? defaultTitle,
-            };
-            continue;
-          }
-          tabsMap[t.id] = { ...t, isPreview, isPinned, defaultTitle: saved };
+          // Its titles as saved: a rename stays the user's, and a name the
+          // app gives follows its language (restoredTitles).
+          tabsMap[t.id] = { ...t, isPreview, isPinned, ...restoredTitles(t) };
         }
         useTabsStore.setState((s) => ({
           byWorkspace: { ...s.byWorkspace, [wsId]: tabsMap },

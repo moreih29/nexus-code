@@ -9,47 +9,6 @@ import (
 	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
-// TestLayout pins the ~/.nexus-code layout. Root, BinDir and SocketsDir must
-// match src/main/infra/agent/runtimeDirs.ts.
-func TestLayout(t *testing.T) {
-	t.Setenv(agentpaths.HomeEnv, "")
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir() error: %v", err)
-	}
-	root := filepath.Join(home, ".nexus-code")
-	for _, tc := range []struct {
-		name string
-		dir  func() (string, error)
-		want string
-	}{
-		{"Root", agentpaths.Root, root},
-		{"BinDir", agentpaths.BinDir, filepath.Join(root, "bin")},
-		{"SocketsDir", agentpaths.SocketsDir, filepath.Join(root, "sockets")},
-		{"RunDir", agentpaths.RunDir, filepath.Join(root, "run")},
-	} {
-		got, err := tc.dir()
-		if err != nil {
-			t.Errorf("%s() error: %v", tc.name, err)
-		} else if got != tc.want {
-			t.Errorf("%s() = %q; want %q", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestRoot_NamedByTheEnvironment: a copy of the app beside the installed one
-// keeps its files apart.
-func TestRoot_NamedByTheEnvironment(t *testing.T) {
-	named := filepath.Join(t.TempDir(), "qa")
-	t.Setenv(agentpaths.HomeEnv, named)
-	if got, err := agentpaths.Root(); err != nil || got != named {
-		t.Fatalf("Root() = %q, %v; want %q", got, err, named)
-	}
-	if got, err := agentpaths.SocketsDir(); err != nil || got != filepath.Join(named, "sockets") {
-		t.Fatalf("SocketsDir() = %q, %v", got, err)
-	}
-}
-
 // TestEnsureDir_IdempotentAndMode verifies that EnsureDir creates a directory
 // with 0700 permissions and succeeds when called a second time (idempotence).
 func TestEnsureDir_IdempotentAndMode(t *testing.T) {

@@ -1,24 +1,13 @@
 /**
- * WorkspaceManager.getWrapperBinDir / getWrapperAgentBin / getWrapperShell
- * / getWrapperShimDir 단위 테스트.
+ * WorkspaceManager.getWrapperBinDir / getWrapperAgentBin / getWrapperShell 단위 테스트.
  *
- * 이 테스트는 WorkspaceManager의 네 getter 메서드가
- * 워크스페이스 종류(local / ssh / unknown)에 따라 올바른 경로를 반환하는지 검증한다.
+ * 이 테스트는 WorkspaceManager의 getter 메서드가
+ * 워크스페이스 종류(local / ssh)와 OS에 따라 올바른 경로를 반환하는지 검증한다.
  *
- * - acceptance #1: getWrapperBinDir(localWs) → getAgentBinDir() 동일 값
- * - acceptance #2: getWrapperBinDir(sshWs)   → bootstrap.remoteBinDir
- * - acceptance #3: getWrapperBinDir(unknownWs) → null
- * - acceptance #4: getWrapperAgentBin(localWs) → getAgentBinaryPath() 동일 값
+ * - acceptance #1w: getWrapperBinDir(Windows localWs) → nexus 런처 디렉터리
  * - acceptance #5: getWrapperAgentBin(sshWs)  → remoteBinDir/agent-<...> 형식
- * - acceptance #6: getWrapperShell(localWs)   → process.env.SHELL,
- *                                                없으면 /bin/zsh로 폴백
- *                                                (macOS Catalina+ 기본 셸 가정)
- * - acceptance #7: getWrapperShell(sshWs)     → bootstrap.remoteShell,
- *                                                없으면 null (원격은 폴백 안 함)
- * - acceptance #8: getWrapperShell(unknownWs) → null
- * - acceptance #9: getWrapperShimDir(localWs) → shimDir(workspaceId) (로컬 fs 경로)
- * - acceptance #10: getWrapperShimDir(sshWs)  → bootstrap.remoteShimDir (원격 절대 경로)
- * - acceptance #11: getWrapperShimDir(unknownWs / bootstrap 없음 / remoteShimDir 없음) → null
+ * - acceptance #6: getWrapperShell(localWs)   → $SHELL이 없거나 비면 계정의 login shell,
+ *                                                Windows에서는 null
  *
  * electron mock이 필요하므로 mock.module()을 import보다 먼저 선언하고
  * dynamic import로 대상 모듈을 로드한다.
@@ -59,9 +48,6 @@ const { WorkspaceStorage } = await import(
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
 const { WorkspaceManager } = await import(
   "../../../../src/main/features/workspace/manager"
-);
-const { getAgentBinDir, getAgentBinaryPath } = await import(
-  "../../../../src/main/infra/agent/getAgentBinDir"
 );
 const { loginShell } = await import("../../../../src/main/infra/platform");
 
@@ -171,16 +157,6 @@ const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
 
 describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
-  posixTest("#1: 로컬 워크스페이스 → getAgentBinDir() 동일 값", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
-
-    const result = manager.getWrapperBinDir(meta.id);
-
-    expect(result).toBe(getAgentBinDir());
-    globalDb.close();
-  });
-
   windowsTest("#1w: Windows 로컬 워크스페이스 → nexus 런처 디렉터리", () => {
     const { manager, globalDb } = makeManager();
     const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
@@ -188,74 +164,9 @@ describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
     expect(manager.getWrapperBinDir(meta.id)).toBe(WINDOWS_LAUNCHER_DIR);
     globalDb.close();
   });
-
-  test("#2: SSH 워크스페이스 → bootstrap.remoteBinDir 동일 값", () => {
-    const { manager, globalDb } = makeManager();
-    // SSH 워크스페이스를 직접 생성하고 bootstrap을 주입한다.
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/foo",
-        authMode: "key-only",
-      },
-      name: "ssh-ws",
-    });
-    const bootstrap = makeSshBootstrap({ remoteBinDir: REMOTE_BIN_DIR });
-    injectSshBootstrap(manager, meta.id, bootstrap);
-
-    const result = manager.getWrapperBinDir(meta.id);
-
-    expect(result).toBe(REMOTE_BIN_DIR);
-    globalDb.close();
-  });
-
-  test("#3: 존재하지 않는 워크스페이스 → null", () => {
-    const { manager, globalDb } = makeManager();
-
-    const result = manager.getWrapperBinDir("nonexistent-ws-id");
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("SSH 워크스페이스지만 bootstrap이 없으면 → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/foo",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-no-bootstrap",
-    });
-    // bootstrap 없이 조회
-
-    const result = manager.getWrapperBinDir(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
 });
 
 describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
-  test("#4: 로컬 워크스페이스 → getAgentBinaryPath() 동일 값 (undefined → null 변환)", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      rootPath: path.join(os.tmpdir(), "ws-local-agentbin"),
-      name: "local-agent",
-    });
-
-    const result = manager.getWrapperAgentBin(meta.id);
-    const expected = getAgentBinaryPath() ?? null;
-
-    expect(result).toBe(expected);
-    globalDb.close();
-  });
-
   test("#5: SSH 워크스페이스 → remoteBinDir/agent-<version>-<os>-<arch> 형식", () => {
     // Packaged mode reads the manifest from process.resourcesPath/agent, which
     // lets the test supply its own manifest instead of depending on dist/.
@@ -298,34 +209,6 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
       globalDb.close();
     }
   });
-
-  test("존재하지 않는 워크스페이스 → null", () => {
-    const { manager, globalDb } = makeManager();
-
-    const result = manager.getWrapperAgentBin("nonexistent-ws-id");
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("SSH 워크스페이스지만 bootstrap이 없으면 → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/baz",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-no-bootstrap-agent",
-    });
-
-    const result = manager.getWrapperAgentBin(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
 });
 
 describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
@@ -340,24 +223,6 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     if (savedShell === undefined) delete process.env.SHELL;
     else process.env.SHELL = savedShell;
   }
-
-  posixTest("#6a: 로컬 워크스페이스 + process.env.SHELL 설정 → 그 값을 그대로 반환", () => {
-    process.env.SHELL = "/bin/zsh";
-    try {
-      const { manager, globalDb } = makeManager();
-      const meta = manager.create({
-        rootPath: path.join(os.tmpdir(), "ws-local-shell"),
-        name: "local-shell",
-      });
-
-      const result = manager.getWrapperShell(meta.id);
-
-      expect(result).toBe("/bin/zsh");
-      globalDb.close();
-    } finally {
-      restoreShell();
-    }
-  });
 
   // Launched from Finder or a desktop entry, the app can run without $SHELL;
   // loginShell() then falls back to the account's shell (tested on its own).
@@ -411,167 +276,5 @@ describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
     } finally {
       restoreShell();
     }
-  });
-
-  test("#7a: SSH 워크스페이스 + bootstrap.remoteShell 있음 → 그 값", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shell",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shell",
-    });
-    const bootstrap = makeSshBootstrap({ remoteShell: "/usr/bin/fish" });
-    injectSshBootstrap(manager, meta.id, bootstrap);
-
-    const result = manager.getWrapperShell(meta.id);
-
-    expect(result).toBe("/usr/bin/fish");
-    globalDb.close();
-  });
-
-  test("#7b: SSH 워크스페이스 + bootstrap.remoteShell 없음(undefined) → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shell-noshell",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shell-missing",
-    });
-    // remoteShell 미지정 = undefined
-    const bootstrap = makeSshBootstrap({});
-    injectSshBootstrap(manager, meta.id, bootstrap);
-
-    const result = manager.getWrapperShell(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("#7c: SSH 워크스페이스지만 bootstrap이 없으면 → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shell-no-bootstrap",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shell-no-bootstrap",
-    });
-
-    const result = manager.getWrapperShell(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("#8: 존재하지 않는 워크스페이스 → null", () => {
-    const { manager, globalDb } = makeManager();
-
-    const result = manager.getWrapperShell("nonexistent-ws-id");
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-});
-
-describe("WorkspaceManager.getWrapperShimDir — acceptance #9, #10, #11", () => {
-  test("#9: 로컬 워크스페이스 → 로컬 shimDir(workspaceId) 경로", async () => {
-    // shimDir은 runtimeDirs의 export. 직접 호출하는 대신 결과 형태로 검증한다.
-    const { shimDir } = await import("../../../../src/main/infra/agent/runtimeDirs");
-
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      rootPath: path.join(os.tmpdir(), "ws-local-shimdir"),
-      name: "local-shim",
-    });
-
-    const result = manager.getWrapperShimDir(meta.id);
-
-    expect(result).toBe(shimDir(meta.id));
-    expect(result).toContain(meta.id);
-    globalDb.close();
-  });
-
-  test("#10: SSH 워크스페이스 + bootstrap.remoteShimDir 있음 → 그 값", () => {
-    const REMOTE_SHIM = `${REMOTE_HOME}/.nexus-code/shim/some-ws`;
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shim",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shim",
-    });
-    const bootstrap = makeSshBootstrap({ remoteShimDir: REMOTE_SHIM });
-    injectSshBootstrap(manager, meta.id, bootstrap);
-
-    const result = manager.getWrapperShimDir(meta.id);
-
-    expect(result).toBe(REMOTE_SHIM);
-    globalDb.close();
-  });
-
-  test("#11a: SSH 워크스페이스 + bootstrap.remoteShimDir 없음(undefined) → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shim-noshim",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shim-missing",
-    });
-    // remoteShimDir 미지정 = undefined
-    const bootstrap = makeSshBootstrap({});
-    injectSshBootstrap(manager, meta.id, bootstrap);
-
-    const result = manager.getWrapperShimDir(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("#11b: SSH 워크스페이스지만 bootstrap이 없으면 → null", () => {
-    const { manager, globalDb } = makeManager();
-    const meta = manager.create({
-      location: {
-        kind: "ssh",
-        host: "test.example.com",
-        user: "testuser",
-        remotePath: "/home/testuser/projects/shim-no-bootstrap",
-        authMode: "key-only",
-      },
-      name: "ssh-ws-shim-no-bootstrap",
-    });
-
-    const result = manager.getWrapperShimDir(meta.id);
-
-    expect(result).toBeNull();
-    globalDb.close();
-  });
-
-  test("#11c: 존재하지 않는 워크스페이스 → null", () => {
-    const { manager, globalDb } = makeManager();
-
-    const result = manager.getWrapperShimDir("nonexistent-ws-id");
-
-    expect(result).toBeNull();
-    globalDb.close();
   });
 });

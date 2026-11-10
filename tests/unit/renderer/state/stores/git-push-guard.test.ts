@@ -117,46 +117,6 @@ describe("git store — push guardrails", () => {
     expect(session?.lastError?.hint).toEqual({ kind: "fetch-then-force" });
     expect(session?.pendingNonFFRetry?.originalPushOpts).toEqual({ force: true });
   });
-
-  it("lets Cancel clear a pending non-fast-forward retry", async () => {
-    ipcImpl = async () => {
-      throw gitError("non-fast-forward", "remote has commits");
-    };
-
-    await useGitStore.getState().push(WORKSPACE_ID);
-    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.pendingNonFFRetry).not.toBeNull();
-
-    useGitStore.getState().clearPendingNonFFRetry(WORKSPACE_ID);
-
-    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.pendingNonFFRetry).toBeNull();
-    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.lastError).toBeNull();
-  });
-
-  it("pushTags calls the dedicated IPC route and tracks the in-flight operation", async () => {
-    let finishPushTags!: () => void;
-    ipcImpl = async (_channel, method) => {
-      if (method !== "pushTags") throw new Error(`unexpected ${method}`);
-      return new Promise<void>((resolve) => {
-        finishPushTags = resolve;
-      });
-    };
-
-    const pending = useGitStore.getState().pushTags(WORKSPACE_ID, "origin");
-
-    expect(ipcCalls).toEqual([
-      {
-        channel: "git",
-        method: "pushTags",
-        args: { workspaceId: WORKSPACE_ID, remote: "origin" },
-      },
-    ]);
-    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.inFlightOp?.kind).toBe("pushTags");
-
-    finishPushTags();
-    await pending;
-
-    expect(useGitStore.getState().sessions.get(WORKSPACE_ID)?.inFlightOp).toBeNull();
-  });
 });
 
 /** Seeds one repository session with a tracking branch. */

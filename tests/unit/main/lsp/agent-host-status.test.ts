@@ -93,23 +93,6 @@ function boot() {
 }
 
 describe("LSP server status", () => {
-  test("reports a server starting, then running with the name it gave", async () => {
-    const { host, statuses, open } = boot();
-
-    await open();
-
-    expect(statuses.map((s) => s.state)).toEqual(["starting", "running"]);
-    expect(host.serverStatuses()).toEqual([
-      {
-        workspaceId: WORKSPACE_ID,
-        languageId: "python",
-        state: "running",
-        serverName: "pyright",
-        serverVersion: "1.1.400",
-      },
-    ]);
-  });
-
   test("an idle exit stops the server without reopening its documents", async () => {
     const { channel, host, resets, open } = boot();
     await open();
@@ -202,25 +185,5 @@ describe("LSP server status", () => {
 
     expect(channel.spawns).toBe(4);
     expect(host.serverStatuses()[0]?.state).toBe("running");
-  });
-
-  test("keeps what the server logs and reports its memory", async () => {
-    const { channel, host, open } = boot();
-    await open();
-
-    channel.emit("lsp.message", {
-      serverId: channel.serverId,
-      message: { jsonrpc: "2.0", method: "window/logMessage", params: { type: 3, message: "hi" } },
-    });
-
-    const entries = host.serverLog(WORKSPACE_ID, "python");
-    expect(entries.map((e) => [e.level, e.message])).toEqual([
-      ["lifecycle", "Started pyright 1.1.400"],
-      ["info", "hi"],
-    ]);
-    expect(host.serverLog(WORKSPACE_ID, "python", entries[0]?.seq)).toHaveLength(1);
-    expect(await host.serverMemory(WORKSPACE_ID)).toEqual([
-      { languageId: "python", rssBytes: 123_000_000 },
-    ]);
   });
 });

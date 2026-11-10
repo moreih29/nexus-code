@@ -16,7 +16,15 @@ import {
   X,
 } from "lucide-react";
 import { Tabs as RadixTabs } from "radix-ui";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { tooltipProps } from "@/components/ui/tooltip";
@@ -317,7 +325,8 @@ export interface TabItemProps {
   onTabContextMenu?: (tabId: string, event: React.MouseEvent) => void;
 }
 
-export function TabItem({
+// Memo: the bar renders as which tabs fit changes, which changes no tab.
+export const TabItem = memo(function TabItem({
   workspaceId,
   leafId,
   tab,
@@ -442,9 +451,9 @@ export function TabItem({
         // user can type right away. Not on arrow keys: Radix activates the tab
         // as the user arrows through the strip, and focus must stay there. Not
         // on the second click of a double-click either, which starts a rename
-        // that focuses its own input.
+        // that focuses its own input, nor while the name is being edited.
         onClick={(e) => {
-          if (e.detail <= 1 && !e.ctrlKey) requestTabFocus(tab.id);
+          if (e.detail <= 1 && !e.ctrlKey && !isEditing) requestTabFocus(tab.id);
         }}
         aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
@@ -552,6 +561,12 @@ export function TabItem({
                 e.stopPropagation();
               }
             }}
+            // The field sits in the tab's <button>: releasing Space in it
+            // would press the button, whose click hands the focus to the
+            // tab's content mid-name ("renamed t").
+            onKeyUp={(e) => {
+              if (e.key === " ") e.preventDefault();
+            }}
             onBlur={() => commitEdit(editValue)}
             onClick={(e) => e.stopPropagation()}
             // 입력 모드에서는 부모 트리거가 active state로 잡혀 있어도 input이
@@ -618,4 +633,4 @@ export function TabItem({
       </Button>
     </div>
   );
-}
+});

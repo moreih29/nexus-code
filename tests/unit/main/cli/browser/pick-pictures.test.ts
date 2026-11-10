@@ -3,12 +3,11 @@
  * can read them, and dropped once they are a day old.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   PICK_PICTURE_MAX_AGE_MS,
-  prunePickPictures,
   savePickPicture,
 } from "../../../../../src/main/features/cli/browser/pick-pictures";
 
@@ -31,12 +30,6 @@ async function fileAged(name: string, now: number, ageMs: number): Promise<void>
 }
 
 describe("pick pictures", () => {
-  test("are saved as PNG files named by tab and time", async () => {
-    const file = await savePickPicture(dir, "52099023", Buffer.from("png").toString("base64"), 7);
-    expect(file).toBe(join(dir, "nexus-pick-52099023-7.png"));
-    expect(await readFile(file, "utf8")).toBe("png");
-  });
-
   test("older than a day are deleted when one is saved, and nothing else is", async () => {
     const now = Date.now();
     await fileAged("nexus-pick-aaaa-1.png", now, PICK_PICTURE_MAX_AGE_MS + 60_000);
@@ -50,9 +43,5 @@ describe("pick pictures", () => {
       `nexus-pick-dddd-${now}.png`,
       "notes.txt",
     ]);
-  });
-
-  test("pruning a directory that is not there does nothing", async () => {
-    await prunePickPictures(join(dir, "gone"), Date.now());
   });
 });

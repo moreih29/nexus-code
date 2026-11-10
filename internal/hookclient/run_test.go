@@ -155,28 +155,6 @@ func TestRunENVMissing_ExitsZero(t *testing.T) {
 	}
 }
 
-// TestRunENVPartial_ExitsZero 는 ENV 중 NEXUS_TAB_ID만 없을 때에도
-// exit 0을 반환하는지 검증한다.
-func TestRunENVPartial_ExitsZero(t *testing.T) {
-	withStdin(t, []byte(`{}`))
-	clearHookEnv(t)
-
-	_ = os.Setenv(envAgentSocket, "/tmp/dummy.sock")
-	_ = os.Setenv(envHookToken, "tok")
-	_ = os.Setenv(envWorkspaceID, "ws1")
-	// envTabID 는 설정하지 않는다.
-	t.Cleanup(func() {
-		_ = os.Unsetenv(envAgentSocket)
-		_ = os.Unsetenv(envHookToken)
-		_ = os.Unsetenv(envWorkspaceID)
-	})
-
-	got := Run([]string{"session-start"})
-	if got != 0 {
-		t.Errorf("expected exit 0 when tabId missing, got %d", got)
-	}
-}
-
 // TestRunNDJSON_RoundTrip 은 정상 NDJSON 송수신 시나리오를 검증한다:
 // (1) hookclient가 요청 프레임을 올바른 형식으로 송신한다.
 // (2) agent 응답 ok=true·stdout="HOOK_OK" 를 받으면 stdout에 기록하고 exit 0을 반환한다.

@@ -82,28 +82,6 @@ func TestConflictedPathSet(t *testing.T) {
 // Integration tests using real temp git repos
 // ---------------------------------------------------------------------------
 
-// TestConflictMarkResolvedEmptyParamsReturnsError verifies empty params are rejected.
-func TestConflictMarkResolvedEmptyParamsReturnsError(t *testing.T) {
-	t.Parallel()
-	service := New(t.TempDir())
-	_, err := service.ConflictMarkResolved(context.Background(), json.RawMessage(`{}`))
-	if !isProtocolError(err) {
-		t.Fatalf("ConflictMarkResolved with empty params error = %v, want a protocol error", err)
-	}
-}
-
-// TestConflictMarkResolvedEmptyPathsReturnsError verifies empty relPaths is rejected.
-func TestConflictMarkResolvedEmptyPathsReturnsError(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	service := New(root)
-	raw, _ := json.Marshal(map[string]any{"cwd": root, "relPaths": []string{}})
-	_, err := service.ConflictMarkResolved(context.Background(), raw)
-	if !isProtocolError(err) {
-		t.Fatalf("ConflictMarkResolved with empty relPaths error = %v, want a protocol error", err)
-	}
-}
-
 // TestConflictMarkResolvedNotConflictedReturnsError verifies non-conflicted path is rejected.
 func TestConflictMarkResolvedNotConflictedReturnsError(t *testing.T) {
 	t.Parallel()

@@ -1,10 +1,11 @@
 // The agent view's list: every workspace's agents under it, a workspace's
 // tasks set in below it, in the sidebar's order. A row shows its agent in
-// a panel, by a click or dragged where it should go; the eye tells which
-// already are, and the pointer on a row lights up the panel it is in.
+// a panel, by a click or dragged where it should go; dragged among its
+// workspace's rows, it takes the place it is dropped on. The eye tells which
+// already are shown, and the pointer on a row lights up the panel it is in.
 
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type DragEvent, memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AGENT_FILTERS,
@@ -13,7 +14,8 @@ import {
   passesFilter,
   workspaceColor,
 } from "@/services/agent-view/agents";
-import { leafHolding, leafShowing } from "@/services/agent-view/layout";
+import { leafHolding, leafShowing, parseSessionKey } from "@/services/agent-view/layout";
+import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
@@ -28,22 +30,22 @@ import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { ManagerChip } from "../manager/manager-chip";
 import { AgentRows } from "../sessions/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../sessions/session-status";
 import { AgentMark, RowLine } from "../sessions/status-view";
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
-import { setAgentDrag } from "./drag";
+import { listDrag, setAgentDrag, setListDrag } from "./drag";
+
+type DropEdge = "before" | "after";
+
+/** Moves the agent `moved` to just before or after `target`, among its workspace's. */
+type Reorder = (moved: string, target: string, edge: DropEdge) => void;
 
 /** The state whose glyph stands for a filter. */
 const FILTER_STATE: Record<Exclude<AgentFilter, "all">, string> = {
@@ -53,7 +55,8 @@ const FILTER_STATE: Record<Exclude<AgentFilter, "all">, string> = {
   idle: "idle",
 };
 
-export function AgentSidebar() {
+// Memo: kept while hidden, it would render again with each of the app's.
+export const AgentSidebar = memo(function AgentSidebar() {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
@@ -66,6 +69,18 @@ export function AgentSidebar() {
   );
   const activity = useSessionActivity(ids, true);
   const chats = useChatStore((s) => s.tabs);
+  const order = useAgentViewStore((s) => s.order);
+
+  // Among every agent of the workspace, those the filter hides too.
+  const reorder: Reorder = (moved, target, edge) => {
+    const workspaceId = parseSessionKey(target)?.workspaceId;
+    const worktree = agents.families
+      .flatMap((family) => family.worktrees)
+      .find((each) => each.workspace.id === workspaceId);
+    if (!worktree || !workspaceId) return;
+    const keys = orderSessions(worktree.sessions, order[workspaceId]).map((each) => each.key);
+    useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
+  };
 
   const families = agents.families
     .map((family) => ({
@@ -73,7 +88,9 @@ export function AgentSidebar() {
       worktrees: family.worktrees
         .map((worktree) => ({
           worktree,
-          sessions: worktree.sessions.filter((session) => passesFilter(session, filter)),
+          sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
+            (session) => passesFilter(session, filter),
+          ),
         }))
         // A task shows with agents to list; the workspace itself always does
         // while nothing is filtered, for its + to start one.
@@ -148,6 +165,7 @@ export function AgentSidebar() {
                 activity={activity}
                 chats={chats}
                 filtered={filter !== "all"}
+                onReorder={reorder}
               />
             ))
           )}
@@ -157,7 +175,7 @@ export function AgentSidebar() {
       <SidebarResizeHandle />
     </aside>
   );
-}
+});
 
 function FamilyGroup({
   family,
@@ -167,6 +185,7 @@ function FamilyGroup({
   activity,
   chats,
   filtered,
+  onReorder,
 }: {
   family: SessionFamily;
   worktrees: readonly { worktree: WorktreeEntry; sessions: readonly AgentSession[] }[];
@@ -175,6 +194,7 @@ function FamilyGroup({
   activity: ActivityByKey;
   chats: Record<string, ChatTabState>;
   filtered: boolean;
+  onReorder: Reorder;
 }) {
   const { t } = useTranslation();
   const root = family.root;
@@ -239,6 +259,7 @@ function FamilyGroup({
                 session={session}
                 activity={activity}
                 chat={chats[chatKey(session.workspaceId, session.tabId)]}
+                onReorder={onReorder}
               />
             ))}
             {worktree.isRoot && sessions.length === 0 && !filtered && (
@@ -272,12 +293,19 @@ function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
   );
 }
 
-/** The + that starts a Claude or Codex conversation in a workspace, shown in a panel. */
+/**
+ * The + that starts a Claude or Codex conversation in a workspace, shown in
+ * a panel: with the profile the workspace gives, or, where there is more
+ * than one, another picked from its submenu, as the tab bar's + does.
+ */
 function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
-  const start = (kind: "claude" | "codex") => {
+  const start = (kind: "claude" | "codex", profileId?: string) => {
     const open = kind === "claude" ? openClaudeTab : openCodexTab;
-    const tab = open(workspace.id, { cwd: workspace.rootPath });
+    const tab = open(workspace.id, {
+      cwd: workspace.rootPath,
+      ...(profileId ? { profileId } : {}),
+    });
     showInAgentView(workspace.id, tab.id);
   };
   return (
@@ -288,27 +316,44 @@ function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => start("claude")}>
-          <ClaudeIcon aria-hidden className="mr-1.5 size-3.5 shrink-0" />
-          <span className="flex-1">{t("tabBar.new_claude")}</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => start("codex")}>
-          <CodexIcon aria-hidden className="mr-1.5 size-3.5 shrink-0" />
-          <span className="flex-1">{t("tabBar.new_codex")}</span>
-        </DropdownMenuItem>
+        <NewChatMenuItems
+          workspaceId={workspace.id}
+          agent="claude"
+          onOpen={(profileId) => start("claude", profileId)}
+        />
+        <NewChatMenuItems
+          workspaceId={workspace.id}
+          agent="codex"
+          onOpen={(profileId) => start("codex", profileId)}
+        />
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );
+}
+
+/**
+ * Where a row takes an agent dragged over it: before or after it, by the
+ * half the pointer is in; null for one it cannot take, of another
+ * workspace or itself.
+ */
+function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge | null {
+  const moved = listDrag();
+  if (!moved || moved === session.key) return null;
+  if (parseSessionKey(moved)?.workspaceId !== session.workspaceId) return null;
+  const rect = e.currentTarget.getBoundingClientRect();
+  return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
 
 function AgentItem({
   session,
   activity,
   chat,
+  onReorder,
 }: {
   session: AgentSession;
   activity: ActivityByKey;
   chat: ChatTabState | undefined;
+  onReorder: Reorder;
 }) {
   const { t } = useTranslation();
   const key = session.key;
@@ -326,7 +371,9 @@ function AgentItem({
         : hookRowFacts(undefined);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
+  const [dropEdge, setDropEdge] = useState<DropEdge | null>(null);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a drop target for the row's own drag; the keyboard reaches its button
     <div
       className={cn(
         "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
@@ -336,16 +383,48 @@ function AgentItem({
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
+      onDragOver={(e) => {
+        const edge = dropEdgeOf(e, session);
+        if (!edge) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (edge !== dropEdge) setDropEdge(edge);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropEdge(null);
+      }}
+      onDrop={(e) => {
+        const moved = listDrag();
+        const edge = dropEdgeOf(e, session);
+        setDropEdge(null);
+        if (!moved || !edge) return;
+        e.preventDefault();
+        onReorder(moved, key, edge);
+      }}
       data-testid="agent-sidebar-item"
       data-session-key={key}
     >
+      {dropEdge && (
+        <div
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-[var(--state-selected-indicator)]",
+            dropEdge === "before" ? "-top-px" : "-bottom-px",
+          )}
+          data-testid="agent-sidebar-drop"
+        />
+      )}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
         draggable
         aria-label={session.title}
         onClick={show}
-        onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
+        onDragStart={(e) => {
+          setAgentDrag(e.dataTransfer, key);
+          setListDrag(key);
+        }}
+        onDragEnd={() => setListDrag(null)}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-0.5">
@@ -354,19 +433,32 @@ function AgentItem({
           <span className="min-w-0 flex-1 truncate text-foreground" title={session.title}>
             {session.title}
           </span>
-          {duration && (
+          {/* Its state at a glance, the glyph its filter has (running, waiting
+              on the user, done, or idle), and for how long. */}
+          <span className="flex shrink-0 items-center gap-1">
             <span
-              className={cn(
-                "shrink-0 text-app-micro tabular-nums",
-                session.phase === "attention"
-                  ? "text-(--state-warning-fg)"
-                  : "text-muted-foreground",
-              )}
+              role="img"
+              aria-label={stateLabel(session)}
               title={stateLabel(session)}
+              className="inline-flex"
+              data-testid="agent-sidebar-state"
             >
-              {duration}
+              <StateGlyph state={session.state} />
             </span>
-          )}
+            {duration && (
+              <span
+                className={cn(
+                  "text-app-micro tabular-nums",
+                  session.phase === "attention"
+                    ? "text-(--state-warning-fg)"
+                    : "text-muted-foreground",
+                )}
+                title={stateLabel(session)}
+              >
+                {duration}
+              </span>
+            )}
+          </span>
           {where && (
             <span
               role="img"

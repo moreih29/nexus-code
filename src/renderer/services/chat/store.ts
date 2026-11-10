@@ -32,7 +32,7 @@ export interface ChatTabState {
   model: ChatModel;
   /** What the tab showed before its program's log: a transcript, an earlier agent's log. */
   history: ChatModel | null;
-  /** Messages the app holds until the turn ends (⌘↩). */
+  /** Messages the app holds until the turn ends (⌘⇧↩). */
   queue: QueuedMessage[];
   /** `claude --version` where the program runs. */
   version: string | null;
@@ -52,7 +52,7 @@ export interface ChatTabState {
  * side panel's context, usage and MCP servers, the composer's model and
  * effort menus.
  */
-export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort";
+export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort" | "status";
 
 export interface Reveal {
   part: RevealPart;

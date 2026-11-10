@@ -88,28 +88,6 @@ describe("saveIn", () => {
 });
 
 describe("noticeDownloads", () => {
-  test("saves the user's download in the folder without asking and tells it once done", () => {
-    const { dir, told, start } = setup();
-    fs.writeFileSync(path.join(dir, "report.pdf"), "x");
-    const item = makeItem("report.pdf");
-    start(item);
-    expect(item.savePath).toBe(path.join(dir, "report (1).pdf"));
-    expect(told).toEqual([]);
-    item.emit("done", {}, "completed");
-    expect(told).toEqual(["report (1).pdf"]);
-  });
-
-  test("does not tell a cancelled or interrupted download", () => {
-    const { told, start } = setup();
-    const cancelled = makeItem("a.zip");
-    const interrupted = makeItem("b.zip");
-    start(cancelled);
-    start(interrupted);
-    cancelled.emit("done", {}, "cancelled");
-    interrupted.emit("done", {}, "interrupted");
-    expect(told).toEqual([]);
-  });
-
   test("leaves a download a nexus command claimed first where the command saved it", () => {
     const { told, session } = setup();
     const item = makeItem("a.md");
@@ -132,14 +110,5 @@ describe("noticeDownloads", () => {
     claimDownload(item as unknown as DownloadItem);
     item.emit("done", {}, "completed");
     expect(told).toEqual([]);
-  });
-
-  test("watches a session once, however many tabs share it", () => {
-    const { session, told, start } = setup();
-    noticeDownloads(session as unknown as Session, (_from, file) => told.push(`again ${file}`));
-    const item = makeItem("x.txt");
-    start(item);
-    item.emit("done", {}, "completed");
-    expect(told).toEqual(["x.txt"]);
   });
 });

@@ -10,7 +10,7 @@
  * `useDragSource` itself; these tests pin that contract.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Minimal document stub — bun:test has no jsdom by default.  We only need
@@ -46,7 +46,16 @@ const docStub: DocStub = {
   },
 };
 
-(globalThis as Record<string, unknown>).document = docStub;
+// The stub stands in for `document` only while this file runs: left in place,
+// later files that read `document.hasFocus()` fail.
+const globals = globalThis as Record<string, unknown>;
+const hadDocument = "document" in globals;
+const originalDocument = globals.document;
+globals.document = docStub;
+afterAll(() => {
+  if (hadDocument) globals.document = originalDocument;
+  else delete globals.document;
+});
 
 // Lightweight Event polyfill — bun:test does not expose a DOM Event class by
 // default.  Only the `type` field matters for our dispatch path.

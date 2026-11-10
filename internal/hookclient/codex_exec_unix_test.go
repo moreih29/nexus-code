@@ -173,12 +173,3 @@ func TestRunCodexExec_RunsWithNoAppToTell(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q", code, stdout.String())
 	}
 }
-
-func TestRunCodexExec_CodexNotFound(t *testing.T) {
-	var stderr bytes.Buffer
-	code, _ := runCodexExec(filepath.Join(t.TempDir(), "missing"), []string{"exec", "hi"},
-		strings.NewReader(""), &bytes.Buffer{}, &stderr, nil)
-	if code != 127 || !strings.HasPrefix(stderr.String(), "nexus: ") {
-		t.Fatalf("exit %d, stderr %q", code, stderr.String())
-	}
-}

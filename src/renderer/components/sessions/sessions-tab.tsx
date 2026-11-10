@@ -8,7 +8,7 @@
 // place until closed.
 
 import { ChevronDown, GitBranch, GitBranchPlus, List, Plus, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -20,22 +20,32 @@ import type { SessionsView } from "../../../shared/sessions/view";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { newTask } from "../../services/sessions/actions";
 import { findAgent } from "../../services/sessions/agents";
+import type { InboxItem } from "../../services/sessions/inbox";
+import type { SessionFamily } from "../../services/sessions/model";
 import {
   useSessionActivity,
   useSessionFamily,
   useTerminalWaits,
   useWorktreeChanges,
 } from "../../services/sessions/use-family";
+import { markRead } from "../../services/sessions/use-inbox";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { resolveWorkspaceProfile, useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import { useAppFocusStore } from "../../state/stores/app-focus";
 import { selectSessionsView, useSessionsViewStore } from "../../state/stores/sessions-view";
 import { useTerminalStore } from "../../state/stores/terminal";
+import {
+  SESSIONS_LIST_RATIO_MAX,
+  SESSIONS_LIST_RATIO_MIN,
+  useUIStore,
+} from "../../state/stores/ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { hasProfileChoice, ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { ResizeHandle } from "../ui/resize-handle";
 import { resolveSelection, type SessionsSelection } from "./selection";
 import { SessionDetail } from "./session-detail";
 import { StatusView } from "./status-view";
@@ -55,6 +65,10 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
   const rootId = family?.root.id ?? workspaceId;
   const view = useSessionsViewStore((s) => selectSessionsView(s, rootId));
 
+  const listRatio = useUIStore((s) => s.sessionsListRatio);
+  const setListRatio = useUIStore((s) => s.setSessionsListRatio);
+  const [splitWidth, splitRef] = useWidth();
+
   const [picked, setPicked] = useState<SessionsSelection | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -67,6 +81,25 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
     : null;
   // The task view and a task's detail tell which terminal waits on which.
   const waits = useTerminalWaits(isVisible && (view === "task" || selection?.kind === "worktree"));
+  // A done conversation the user picks and reads here is read, as it is in
+  // its own tab: not one shown first by itself, nor while the window is away.
+  const [readKey, setReadKey] = useState<string | null>(null);
+  const focused = useAppFocusStore((s) => s.focused);
+  const reading =
+    family && selection?.kind === "session" && selection.key === readKey && isVisible && focused
+      ? findSession(family, selection.key)
+      : undefined;
+  // Once for each result it reads, not on each render while it shows.
+  const doneKey =
+    reading?.session.phase === "done"
+      ? `${reading.session.key}@${reading.session.since ?? ""}`
+      : null;
+  const readingRef = useRef(reading);
+  readingRef.current = reading;
+  useEffect(() => {
+    if (doneKey !== null && readingRef.current) markRead([readingRef.current]);
+  }, [doneKey]);
+
   // Keep what was shown first, so the panel doesn't jump as states change;
   // move on only when it is gone, and then back to the list where narrow.
   const selectionKey = selection && keyOf(selection);
@@ -78,9 +111,14 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
 
   if (!family || !selection) return null;
 
+  // The list's width: the share its divider was dragged to, else the default.
+  const listWidth = listRatio === null ? DEFAULT_LIST_WIDTH : `${listRatio * 100}%`;
+  const listPx = listRatio === null ? Math.min(480, splitWidth / 2) : listRatio * splitWidth;
+
   const select = (next: SessionsSelection) => {
     setPicked(next);
     setDetailOpen(true);
+    setReadKey(next.kind === "session" ? next.key : null);
   };
 
   return (
@@ -99,34 +137,51 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
           <GitBranchPlus aria-hidden className="size-3.5" />
         </Button>
       </div>
-      <div className="@container/agents flex min-h-0 flex-1">
+      <div ref={splitRef} className="@container/agents flex min-h-0 flex-1">
         <div
           className={cn(
-            "app-scrollbar w-[min(480px,50%)] shrink-0 overflow-auto border-r border-border",
+            "relative w-(--agents-list-width) shrink-0 border-r border-border",
             "@max-2xl/agents:w-full @max-2xl/agents:border-r-0",
             detailOpen && "@max-2xl/agents:hidden",
           )}
+          style={{ "--agents-list-width": listWidth } as CSSProperties}
         >
-          {view === "task" ? (
-            <TaskView
-              family={family}
-              changes={changes}
-              activity={activity}
-              waits={waits}
-              selection={selection}
-              onSelect={select}
-              query={query}
-            />
-          ) : (
-            <StatusView
-              family={family}
-              changes={changes}
-              activity={activity}
-              selection={selection}
-              onSelect={select}
-              query={query}
-            />
-          )}
+          <div className="app-scrollbar absolute inset-0 overflow-auto">
+            {view === "task" ? (
+              <TaskView
+                family={family}
+                changes={changes}
+                activity={activity}
+                waits={waits}
+                selection={selection}
+                onSelect={select}
+                query={query}
+              />
+            ) : (
+              <StatusView
+                family={family}
+                changes={changes}
+                activity={activity}
+                selection={selection}
+                onSelect={select}
+                query={query}
+              />
+            )}
+          </div>
+          {/* Dragged to the share the user wants; double-click for the default.
+              Narrow, the list and the detail take turns, with nothing to divide. */}
+          <ResizeHandle
+            value={Math.round(listPx)}
+            min={Math.round(splitWidth * SESSIONS_LIST_RATIO_MIN)}
+            max={Math.round(splitWidth * SESSIONS_LIST_RATIO_MAX)}
+            placement="rightInside"
+            className="z-10 @max-2xl/agents:hidden"
+            ariaLabel={t("resize.sessions_list")}
+            onResize={(px, persist) => {
+              if (splitWidth > 0) setListRatio(px / splitWidth, persist);
+            }}
+            onReset={() => setListRatio(null, true)}
+          />
         </div>
         <div className={cn("min-w-0 flex-1", !detailOpen && "@max-2xl/agents:hidden")}>
           <SessionDetail
@@ -143,6 +198,36 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
       </div>
     </div>
   );
+}
+
+/** The list's width until its divider is dragged. */
+const DEFAULT_LIST_WIDTH = "min(480px, 50%)";
+
+/**
+ * The width of the element the returned ref is set on, kept current as it
+ * is resized; 0 until it is in the document.
+ */
+function useWidth(): [number, (el: HTMLElement | null) => void] {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    if (!el) return;
+    const update = () => setWidth(el.clientWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  return [width, setEl];
+}
+
+/** The session `key` names in the family, with its workspace. */
+function findSession(family: SessionFamily, key: string): InboxItem | undefined {
+  for (const { workspace, sessions } of family.worktrees) {
+    const session = sessions.find((each) => each.key === key);
+    if (session) return { workspace, session };
+  }
+  return undefined;
 }
 
 function keyOf(selection: SessionsSelection): string {

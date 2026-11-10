@@ -1,124 +1,82 @@
-/**
- * The line under a chat tab's composer: the context and the plan's usage
- * windows, from what the Claude or Codex program last reported.
- */
-
-import { describe, expect, it } from "bun:test";
-import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex-model";
-import { emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { describe, expect, test } from "bun:test";
 import {
-  claudeUsageLine,
-  codexUsageLine,
-  formatTokens,
-  resetParts,
+  type UsageLine,
+  type UsageView,
+  usageViews,
 } from "../../../../../src/renderer/services/chat/usage-line";
 
-describe("formatTokens", () => {
-  it("counts in k and M past a thousand, with one decimal kept when it says something", () => {
-    expect([942, 1000, 1500, 1049, 24_512, 999_960, 1_200_000].map(formatTokens)).toEqual([
-      "942",
-      "1k",
-      "1.5k",
-      "1k",
-      "24.5k",
-      "1M",
-      "1.2M",
+const AT = Date.parse("2026-11-10T12:00:00Z");
+
+/** A view in a word per part: what shows of each, what is counted, and the profile. */
+function said(view: UsageView): string {
+  const parts: string[] = [];
+  if (view.context) {
+    parts.push(
+      ["context", view.context.word && "word", view.context.tokens && "tokens"]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+  for (const m of view.meters) {
+    parts.push(
+      [m.bar && "bar", `${m.meter.kind}:${m.word}`, m.reset && `reset:${m.reset}`]
+        .filter(Boolean)
+        .join(" "),
+    );
+  }
+  const hidden = (view.hidden.context ? 1 : 0) + view.hidden.meters.length;
+  if (hidden > 0) parts.push(`+${hidden}`);
+  parts.push(view.profileName ? "name" : "dot");
+  return parts.join(" | ");
+}
+
+function line(context: number | null, session: number, weekly: number): UsageLine {
+  return {
+    ...(context !== null ? { context: { percent: context, used: 17_500, max: 400_000 } } : {}),
+    meters: [
+      { kind: "session", percent: session, resetsAt: AT + 3 * 3_600_000 },
+      { kind: "weekly", percent: weekly, resetsAt: AT + 2 * 86_400_000 },
+    ],
+    more: [],
+  };
+}
+
+describe("the usage line, as a tab narrows", () => {
+  test("it says less, the least wanted first; what is near its limit holds out longest", () => {
+    expect(usageViews(line(4, 0, 98)).map(said)).toEqual([
+      "context word tokens | bar session:long reset:long | bar weekly:long reset:long | name",
+      "context word | bar session:long reset:long | bar weekly:long reset:long | name",
+      "context word | bar session:long | bar weekly:long reset:long | name",
+      "context | bar session:short | bar weekly:short reset:short | name",
+      "context | session:short | weekly:short reset:short | name",
+      "context | session:short | weekly:short reset:short | dot",
+      "context | weekly:short reset:short | +1 | dot",
+      "weekly:short reset:short | +2 | dot",
+      "weekly:short | +2 | dot",
     ]);
   });
-});
 
-const NOW = Date.parse("2026-11-08T10:00:00Z");
-const HOUR = 60 * 60 * 1000;
-
-const contextUsage = {
-  categories: [
-    { name: "Messages", tokens: 30_000, kind: "used" },
-    { name: "Free space", tokens: 900_000, kind: "free" },
-  ],
-  totalTokens: 40_800,
-  maxTokens: 1_000_000,
-};
-
-const usage = (limits: unknown[]) => ({ rate_limits: { limits } });
-
-describe("claudeUsageLine", () => {
-  it("has nothing to show before the program answers", () => {
-    expect(claudeUsageLine(emptyModel(), NOW)).toBeNull();
+  test("with nothing near its limit, the context is the last there is to say", () => {
+    const views = usageViews(line(50, 10, 30));
+    expect(views.every((view) => view.context !== undefined)).toBe(true);
+    expect(said(views.at(-1) as UsageView)).toBe("context | +2 | dot");
   });
 
-  it("shows the context, the session and the week; a model's week only on hover", () => {
-    const model = {
-      ...emptyModel(),
-      contextUsage,
-      usage: usage([
-        { kind: "session", percent: 32, resets_at: new Date(NOW + 3 * HOUR).toISOString() },
-        { kind: "weekly_all", percent: 12, resets_at: new Date(NOW + 80 * HOUR).toISOString() },
-        {
-          kind: "weekly_scoped",
-          percent: 40,
-          scope: { model: { display_name: "Opus" } },
-          resets_at: new Date(NOW + 80 * HOUR).toISOString(),
-        },
-      ]),
-    };
-    expect(claudeUsageLine(model, NOW)).toEqual({
-      context: { percent: 4, used: 40_800, max: 1_000_000 },
-      meters: [
-        { kind: "session", percent: 32, resetsAt: NOW + 3 * HOUR },
-        { kind: "weekly", percent: 12, resetsAt: NOW + 80 * HOUR },
-      ],
-      more: [{ kind: "weekly_scoped", scope: "Opus", percent: 40, resetsAt: NOW + 80 * HOUR }],
-    });
+  test("a context near its limit stays beside the meters near theirs", () => {
+    const views = usageViews(line(85, 0, 98));
+    expect(views.every((view) => !view.hidden.context)).toBe(true);
+    expect(said(views.at(-1) as UsageView)).toBe("context | weekly:short | +1 | dot");
   });
 
-  it("leaves out a window that has started over since it was read", () => {
-    const model = {
-      ...emptyModel(),
-      usage: usage([
-        { kind: "session", percent: 95, resets_at: new Date(NOW - HOUR).toISOString() },
-        { kind: "weekly_all", percent: 12 },
-      ]),
-    };
-    expect(claudeUsageLine(model, NOW)?.meters).toEqual([{ kind: "weekly", percent: 12 }]);
-  });
-});
-
-describe("codexUsageLine", () => {
-  it("shows the thread's context and the plan's windows", () => {
-    const model = {
-      ...emptyCodexModel(),
-      tokens: { used: 31_000, window: 258_000 },
-      rateLimits: {
-        primary: { usedPercent: 20, windowMins: 300, resetsAt: NOW / 1000 + 3600 },
-        secondary: { usedPercent: 8, windowMins: 10080, resetsAt: NOW / 1000 + 86_400 * 4 },
-      },
-    };
-    expect(codexUsageLine(model, NOW)).toEqual({
-      context: { percent: 12, used: 31_000, max: 258_000 },
-      meters: [
-        { kind: "window", windowMins: 300, percent: 20, resetsAt: NOW + HOUR },
-        { kind: "weekly", percent: 8, resetsAt: NOW + 96 * HOUR },
-      ],
-      more: [],
-    });
-  });
-
-  it("has nothing to show without a window size or limits", () => {
-    expect(codexUsageLine({ ...emptyCodexModel(), tokens: { used: 10 } }, NOW)).toBeNull();
-  });
-});
-
-describe("resetParts", () => {
-  it("tells the time alone within a day, and the date beyond", () => {
-    const at = new Date(2026, 10, 12, 9, 5).getTime();
-    expect(resetParts(at, at - 3 * HOUR, "ko")).toEqual({
-      soon: true,
-      time: "09:05",
-      month: 11,
-      day: 12,
-      weekday: "목",
-    });
-    expect(resetParts(at, at - 30 * HOUR, "en")).toMatchObject({ soon: false, weekday: "Thu" });
-    expect(resetParts(new Date(2026, 10, 12, 15, 0).getTime(), at, "en").time).toBe("15:00");
+  test("no step says the same as the one before: none for tokens without a context, none for a name without a profile", () => {
+    const views = usageViews(line(null, 0, 98), { profile: false }).map(said);
+    expect(views).toEqual([
+      "bar session:long reset:long | bar weekly:long reset:long | dot",
+      "bar session:long | bar weekly:long reset:long | dot",
+      "bar session:short | bar weekly:short reset:short | dot",
+      "session:short | weekly:short reset:short | dot",
+      "weekly:short reset:short | +1 | dot",
+      "weekly:short | +1 | dot",
+    ]);
   });
 });

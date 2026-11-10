@@ -2,9 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   answerOf,
   isSupportedCodex,
+  picksOf,
   suggestedPaths,
   threadSettings,
+  threadStartParams,
+  threadsOf,
 } from "../../../../../src/renderer/services/chat/codex-controller";
+import { emptyCodexModel } from "../../../../../src/renderer/services/chat/codex-model";
 
 describe("codex answers", () => {
   test("an approval's decision from the card's answer", () => {
@@ -104,5 +108,70 @@ describe("codex thread settings", () => {
       developerInstructions: "Manage.",
       config: { projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } } },
     });
+  });
+
+  test("a new thread starts with the tab's picks, its effort as a config override", () => {
+    expect(threadStartParams(target, {})).toEqual({ cwd: target.cwd });
+    expect(
+      threadStartParams(
+        { ...target, trusted: true },
+        { model: "gpt-x", effort: "low", mode: "readOnly" },
+      ),
+    ).toEqual({
+      cwd: target.cwd,
+      config: {
+        projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } },
+        model_reasoning_effort: "low",
+      },
+      model: "gpt-x",
+      approvalPolicy: "on-request",
+      sandbox: "read-only",
+    });
+  });
+
+  test("/new's thread goes on with what the last one ran with", () => {
+    const model = {
+      ...emptyCodexModel(),
+      model: "gpt-x",
+      effort: "high",
+      permissionMode: "fullAccess",
+    };
+    expect(picksOf(model)).toEqual({ model: "gpt-x", effort: "high", mode: "fullAccess" });
+    expect(picksOf({ ...emptyCodexModel(), permissionMode: "default" })).toEqual({});
+  });
+});
+
+describe("codex threads to go on with", () => {
+  test("named by their name, else their first prompt's first line; seconds become ms", () => {
+    const listed = threadsOf([
+      {
+        id: "t1",
+        name: null,
+        preview: "Fix the build\nand the tests",
+        updatedAt: 1_700_000_000,
+        gitInfo: { branch: "main" },
+      },
+      { id: "t2", name: "Named", preview: "first prompt", updatedAt: 1_700_000_100, gitInfo: null },
+    ]);
+    expect(listed).toEqual([
+      {
+        sessionId: "t1",
+        title: "Fix the build",
+        firstPrompt: "Fix the build\nand the tests",
+        gitBranch: "main",
+        lastModified: 1_700_000_000_000,
+      },
+      {
+        sessionId: "t2",
+        title: "Named",
+        firstPrompt: "first prompt",
+        lastModified: 1_700_000_100_000,
+      },
+    ]);
+  });
+
+  test("a thread with nothing to call it by, or no id, is left out", () => {
+    expect(threadsOf([{ id: "t1", preview: "  " }, { preview: "no id" }, null])).toEqual([]);
+    expect(threadsOf(undefined)).toEqual([]);
   });
 });

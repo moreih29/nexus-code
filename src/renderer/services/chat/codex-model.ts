@@ -92,6 +92,16 @@ export function emptyCodexModel(): CodexModel {
   return { ...emptyModel(), blocks: {}, requests: {}, originals: {} };
 }
 
+/**
+ * The model a tab starts another thread with (/new, /resume): empty but
+ * for what is the program's or the account's, shown on while the next
+ * handshake reads it again: the models, the sign-in, the usage limits.
+ */
+export function nextThreadModel(prev: CodexModel): CodexModel {
+  const { lastSeq, init, version, account, signedOut, rateLimits } = prev;
+  return { ...emptyCodexModel(), lastSeq, init, version, account, signedOut, rateLimits };
+}
+
 /** A JSON-RPC id as a key, so the number 1 and the string "1" stay apart. */
 export function idKey(id: unknown): string | null {
   return typeof id === "string" || typeof id === "number" ? JSON.stringify(id) : null;
@@ -242,8 +252,11 @@ function applyResponse(
       return;
     }
     if (sent.subtype === "thread/resume") {
-      // The app starts a new thread instead. The server's reason is for the
-      // log and the notice's tooltip, not the conversation.
+      // The app starts a new thread instead, and says so where the tab had a
+      // conversation to go on with. One that never had a turn was never
+      // saved by Codex, so it cannot be resumed and nothing is lost.
+      if (!m.items.some((i) => i.kind !== "notice")) return;
+      // The server's reason is for the log and the notice's tooltip.
       draft.push({
         kind: "notice",
         key: `n${seq}`,
@@ -266,6 +279,7 @@ function applyResponse(
   switch (sent.subtype) {
     case "thread/start":
     case "thread/resume":
+    case "thread/fork":
       applyThread(draft, result, seq);
       return;
     case "turn/start":
@@ -284,7 +298,8 @@ function applyResponse(
       m.signedOut = m.account === null && result.requiresOpenaiAuth === true;
       return;
     case "account/rateLimits/read":
-      m.rateLimits = rateLimitsOf(result.rateLimits);
+      // A read with no windows leaves the last ones shown.
+      m.rateLimits = rateLimitsOf(result.rateLimits) ?? m.rateLimits;
       return;
   }
 }
@@ -356,6 +371,9 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
   return undefined;
 }
 
+/** Thread notifications about the tab's own thread alone. */
+const OWN_THREAD_ONLY = new Set(["thread/tokenUsage/updated", "thread/compacted"]);
+
 function applyNotification(
   draft: CodexDraft,
   method: string,
@@ -365,9 +383,11 @@ function applyNotification(
 ): void {
   const m = draft.next;
   const tag = String(seq);
-  // Another thread's (a subagent's) turns and items are not the tab's.
+  // Another thread's (a subagent's) turns and items are not the tab's, nor
+  // its context's size and compactions.
   const threadId = str(params.threadId);
-  if (threadId && m.threadId && threadId !== m.threadId && !method.startsWith("thread/")) return;
+  const another = threadId && m.threadId && threadId !== m.threadId;
+  if (another && (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method))) return;
   switch (method) {
     case "turn/started": {
       const turnId = str(rec(params.turn)?.id);
@@ -607,6 +627,13 @@ function applyItem(
     }
     case "contextCompaction":
       if (phase === "completed") pushCompacted(draft, `n${tag}`, at);
+      return;
+    // A review (/review) is told as it starts; its findings come as Codex's
+    // message after it ends, which tells what the review's end item does.
+    case "enteredReviewMode":
+      if (!m.items.some((i) => i.key === `r${id}`)) {
+        draft.push({ kind: "notice", key: `r${id}`, code: "review", detail: str(item.review), at });
+      }
       return;
   }
   const tools = toolsOf(item, id, phase);
@@ -1210,7 +1237,7 @@ function limitWindowOf(raw: unknown): CodexLimitWindow | undefined {
 }
 
 /** A RateLimitSnapshot's windows; undefined when it has none. */
-function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
+export function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
   const snapshot = rec(raw);
   const primary = limitWindowOf(snapshot?.primary);
   const secondary = limitWindowOf(snapshot?.secondary);
@@ -1228,7 +1255,7 @@ function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
  * only, and one it leaves out still holds. Another bucket's update (a
  * different limitId) is not the tab's.
  */
-function mergeRateLimits(
+export function mergeRateLimits(
   prev: CodexRateLimits | undefined,
   raw: unknown,
 ): CodexRateLimits | undefined {

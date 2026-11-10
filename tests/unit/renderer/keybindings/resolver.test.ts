@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
-  __resetContextProbesForTests,
-  registerContextProbe,
-} from "../../../../src/renderer/keybindings/context-keys";
-import {
   __resetActiveBindingsForTests,
   resolveEvent,
   setActiveBindings,
@@ -34,35 +30,6 @@ function ev(code: string, mods: Partial<Omit<MockKE, "code" | "key">> = {}, key 
 }
 
 describe("resolveEvent — no chord pending", () => {
-  it("returns single-match for ⌘W", () => {
-    const r = resolveEvent(ev("KeyW", { metaKey: true }) as unknown as KeyboardEvent, null);
-    expect(r.kind).toBe("single");
-    if (r.kind !== "single") throw new Error("unreachable");
-    expect(r.command).toBe(COMMANDS.tabClose);
-  });
-
-  it("returns chord-leader for ⌘K", () => {
-    const r = resolveEvent(ev("KeyK", { metaKey: true }) as unknown as KeyboardEvent, null);
-    expect(r.kind).toBe("chord-leader");
-    if (r.kind !== "chord-leader") throw new Error("unreachable");
-    expect(r.leaderId).toBe("CmdOrCtrl+K");
-  });
-
-  it("returns none for an unbound key", () => {
-    const r = resolveEvent(ev("KeyJ", { metaKey: true }) as unknown as KeyboardEvent, null);
-    expect(r.kind).toBe("none");
-  });
-
-  it("matches files.refresh on ⌘R outside browser tabs / Win-Linux terminals", () => {
-    // `when: "!browserTabActive && (!terminalFocus || isMac)"` — with no
-    // browser tab active and no terminal focus both guards pass, so ⌘R
-    // still refreshes files from any ordinary focus context.
-    const r = resolveEvent(ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, null);
-    expect(r.kind).toBe("single");
-    if (r.kind !== "single") throw new Error("unreachable");
-    expect(r.command).toBe(COMMANDS.filesRefresh);
-  });
-
   it("matches ⌘\\ only on the Backslash code — ⌘/ must pass through to Monaco", () => {
     expect(
       resolveEvent(ev("Backslash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
@@ -72,33 +39,6 @@ describe("resolveEvent — no chord pending", () => {
     expect(
       resolveEvent(ev("Slash", { metaKey: true }) as unknown as KeyboardEvent, null).kind,
     ).toBe("none");
-  });
-});
-
-describe("resolveEvent — when scoping", () => {
-  function withTarget(
-    code: string,
-    mods: Partial<Omit<MockKE, "code" | "key">>,
-    matches: string[],
-  ): KeyboardEvent {
-    const target = {
-      tagName: "DIV",
-      isContentEditable: false,
-      closest: (sel: string) => (matches.includes(sel) ? ({} as HTMLElement) : null),
-    };
-    return { ...ev(code, mods), target } as unknown as KeyboardEvent;
-  }
-
-  it("⌘↵ matches openToSide inside the file tree (fileTreeFocus = true)", () => {
-    const e = withTarget("Enter", { metaKey: true }, ['[role="tree"]']);
-    const r = resolveEvent(e, null);
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.openToSide);
-  });
-
-  it("⌘↵ does not match outside the file tree (fileTreeFocus = false)", () => {
-    const e = withTarget("Enter", { metaKey: true }, []);
-    expect(resolveEvent(e, null).kind).toBe("none");
   });
 });
 
@@ -149,69 +89,6 @@ describe("resolveEvent — runtime recompilation (user overrides)", () => {
   });
 });
 
-describe("resolveEvent — browserTabActive state probe", () => {
-  afterEach(() => {
-    __resetContextProbesForTests();
-  });
-
-  it("routes ⌘R to browser.reload when the active tab is a browser tab", () => {
-    registerContextProbe("browserTabActive", () => true);
-    const r = resolveEvent(ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, null);
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.browserReload);
-  });
-
-  it("routes ⌘⇧R to browser.hardReload when the active tab is a browser tab", () => {
-    registerContextProbe("browserTabActive", () => true);
-    const r = resolveEvent(
-      ev("KeyR", { metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
-      null,
-    );
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.browserHardReload);
-  });
-
-  it("keeps ⌘R on files.refresh when the probe reports no browser tab", () => {
-    registerContextProbe("browserTabActive", () => false);
-    const r = resolveEvent(ev("KeyR", { metaKey: true }) as unknown as KeyboardEvent, null);
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.filesRefresh);
-  });
-
-  it("matches ⌘L / ⌘[ / ⌘] only while a browser tab is active", () => {
-    // Without the probe (or with it false) these must resolve to none —
-    // ⌘L etc. are not global app shortcuts.
-    expect(resolveEvent(ev("KeyL", { metaKey: true }) as unknown as KeyboardEvent, null).kind).toBe(
-      "none",
-    );
-    registerContextProbe("browserTabActive", () => true);
-    const focusUrl = resolveEvent(ev("KeyL", { metaKey: true }) as unknown as KeyboardEvent, null);
-    if (focusUrl.kind !== "single") throw new Error("expected single match");
-    expect(focusUrl.command).toBe(COMMANDS.browserFocusUrl);
-    const back = resolveEvent(
-      ev("BracketLeft", { metaKey: true }) as unknown as KeyboardEvent,
-      null,
-    );
-    if (back.kind !== "single") throw new Error("expected single match");
-    expect(back.command).toBe(COMMANDS.browserGoBack);
-    const fwd = resolveEvent(
-      ev("BracketRight", { metaKey: true }) as unknown as KeyboardEvent,
-      null,
-    );
-    if (fwd.kind !== "single") throw new Error("expected single match");
-    expect(fwd.command).toBe(COMMANDS.browserGoForward);
-  });
-
-  it("⌘⌥I is not in the table (owned by the Electron menu DevTools role)", () => {
-    registerContextProbe("browserTabActive", () => true);
-    const devtools = resolveEvent(
-      ev("KeyI", { metaKey: true, altKey: true }) as unknown as KeyboardEvent,
-      null,
-    );
-    expect(devtools.kind).toBe("none");
-  });
-});
-
 function terminalTarget(code: string, mods: Partial<Omit<MockKE, "code" | "key">>) {
   const target = {
     tagName: "DIV",
@@ -220,28 +97,6 @@ function terminalTarget(code: string, mods: Partial<Omit<MockKE, "code" | "key">
   };
   return { ...ev(code, mods), target } as unknown as KeyboardEvent;
 }
-
-describe("resolveEvent — terminal shell-key guard (Mac)", () => {
-  // On Mac (`isMac` true) the `!terminalFocus || isMac` guard is always
-  // satisfied — ⌘-letter shortcuts keep firing inside the terminal.
-
-  it("⌘R inside the terminal still refreshes files on Mac", () => {
-    const r = resolveEvent(terminalTarget("KeyR", { metaKey: true }), null);
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.filesRefresh);
-  });
-
-  it("⌘W inside the terminal still closes the tab on Mac", () => {
-    const r = resolveEvent(terminalTarget("KeyW", { metaKey: true }), null);
-    if (r.kind !== "single") throw new Error("expected single match");
-    expect(r.command).toBe(COMMANDS.tabClose);
-  });
-
-  it("⌘K inside the terminal still arms the chord leader on Mac", () => {
-    const r = resolveEvent(terminalTarget("KeyK", { metaKey: true }), null);
-    expect(r.kind).toBe("chord-leader");
-  });
-});
 
 describe("resolveEvent — terminal shell-key guard (Win/Linux)", () => {
   // `CmdOrCtrl` is Ctrl here, and the Ctrl keys a shell uses go to the

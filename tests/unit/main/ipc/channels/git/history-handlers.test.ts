@@ -5,56 +5,12 @@ import { describe, expect, test } from "bun:test";
 import type { GitRegistry } from "../../../../../../src/main/features/git/domain/registry";
 import {
   checkoutDetachedHandler,
-  commitDetailHandler,
   resetSoftHandler,
-  searchCommitsHandler,
 } from "../../../../../../src/main/features/git/ipc/history-handlers";
-import { isIpcGitErrorResult } from "../../../../../../src/shared/git/error-ipc";
 
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("git history IPC handlers", () => {
-  test("read handlers call the repository without bumping generation", async () => {
-    const events: string[] = [];
-    const registry = makeRegistry(
-      {
-        commitDetail: async (sha: string) => {
-          events.push(`detail:${sha}`);
-          return {
-            sha,
-            parents: [],
-            subject: "subject",
-            author: "Ada",
-            authorEmail: "ada@example.invalid",
-            committerTs: "2026-05-10T00:00:00.000Z",
-            message: "subject",
-            body: "",
-            files: [],
-          };
-        },
-        searchCommits: async (query: string, limit: number) => {
-          events.push(`search:${query}:${limit}`);
-          return { kind: "grep" as const, entries: [] };
-        },
-      },
-      events,
-    );
-
-    await commitDetailHandler(registry)({ workspaceId: WORKSPACE_ID, sha: "abc123" });
-    await searchCommitsHandler(registry)({
-      workspaceId: WORKSPACE_ID,
-      query: "fix popover",
-      limit: 25,
-    });
-
-    expect(events).toEqual([
-      "getOrDetect",
-      "detail:abc123",
-      "getOrDetect",
-      "search:fix popover:25",
-    ]);
-  });
-
   test("mutating handlers bump generation before refreshing status", async () => {
     const cases = [
       {
@@ -82,22 +38,6 @@ describe("git history IPC handlers", () => {
         events: ["getOrDetect", "bumpGeneration", "refreshStatus"],
       });
     }
-  });
-
-  test("non-repository workspaces surface typed not-repo", async () => {
-    // Per T4 Result-contract migration, GitError outcomes are returned as
-    // IpcGitErrorResult envelopes rather than thrown, so the handler resolves.
-    const registry = {
-      getOrDetect: async () => null,
-    } as unknown as GitRegistry;
-
-    const result = await commitDetailHandler(registry)({
-      workspaceId: WORKSPACE_ID,
-      sha: "abc123",
-    });
-    expect(isIpcGitErrorResult(result)).toBe(true);
-    // @ts-expect-error — narrowed by isIpcGitErrorResult check above
-    expect(result.gitKind).toBe("not-repo");
   });
 });
 

@@ -1,18 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CONFIG_KEYS,
-  changesOf,
-  choicesOf,
-  configCommandOf,
+  configKeysOf,
   configMessages,
+  configUsageOf,
   configValues,
+  defaultEffortOf,
+  effortModelOf,
+  parseConfigUsage,
 } from "../../../../../src/renderer/services/chat/claude-config";
+import { remoteAtStartup } from "../../../../../src/renderer/services/chat/settings-defaults";
 
-const keyOf = (name: string) => {
-  const key = CONFIG_KEYS.find((k) => k.key === name);
-  if (!key) throw new Error(`no key ${name}`);
-  return key;
-};
+// A bare /config's answer, as `claude -p --output-format json "/config"` gives it (2.1.321, cut).
+const USAGE = [
+  "Usage: /config key=value [key=value ...]",
+  "  autoCompact=true|false",
+  "  language=<value>",
+  "  model=default|sonnet|opus|haiku|fable|best|sonnet[1m]|opus[1m]|fable[1m]|opusplan",
+  "  remoteControl=true|false|default",
+  "  someNewKey=a|b",
+  "  theme=auto|dark|light",
+].join("\n");
 
 describe("configValues", () => {
   test("settings.json first, then the global config file, then the fallback", () => {
@@ -42,26 +49,6 @@ describe("configValues", () => {
     expect(values.autoCompact).toBe(true);
     expect(values.outputStyle).toBe("default");
   });
-
-  test("disableWorkflows turns workflows off; emacs shows as normal", () => {
-    const values = configValues(
-      { enableWorkflows: true, disableWorkflows: true, editorMode: "emacs" },
-      {},
-    );
-    expect(values.workflows).toBe(false);
-    expect(values.editor).toBe("normal");
-  });
-});
-
-describe("choicesOf", () => {
-  test("the output styles the CLI names, and a value the list lacks", () => {
-    expect(choicesOf(keyOf("outputStyle"), "Mine", ["default", "Mine"])).toEqual([
-      "default",
-      "Mine",
-    ]);
-    expect(choicesOf(keyOf("theme"), "custom:ocean")).toContain("custom:ocean");
-    expect(choicesOf(keyOf("worktreeBaseRef"), undefined)).toEqual(["fresh", "head"]);
-  });
 });
 
 describe("configMessages", () => {
@@ -77,29 +64,80 @@ describe("configMessages", () => {
   });
 });
 
-describe("configCommandOf", () => {
-  test("bare commands open the dialog, at their setting", () => {
-    expect(configCommandOf("/config")).toEqual({});
-    expect(configCommandOf(" /Settings ")).toEqual({});
-    expect(configCommandOf("/output-style")).toEqual({ focus: "outputStyle" });
-    expect(configCommandOf("/autocompact")).toEqual({ focus: "autoCompact" });
+describe("the keys /config lists", () => {
+  test("parsed from the CLI's JSON answer: on/off, text and choices", () => {
+    const listed = parseConfigUsage(configUsageOf(JSON.stringify({ result: USAGE })));
+    expect(listed).toContainEqual({ key: "autoCompact", kind: "boolean" });
+    expect(listed).toContainEqual({ key: "language", kind: "text" });
+    expect(listed).toContainEqual({
+      key: "remoteControl",
+      kind: "choice",
+      options: ["true", "false", "default"],
+    });
+    expect(listed.find((k) => k.key === "model")?.options).toContain("opus[1m]");
   });
 
-  test("with arguments, or another command, it is the CLI's", () => {
-    expect(configCommandOf("/config verbose=true")).toBeNull();
-    expect(configCommandOf("/output-style Concise")).toBeNull();
-    expect(configCommandOf("/model")).toBeNull();
-    expect(configCommandOf("config")).toBeNull();
+  test("the dialog shows what the CLI lists: known keys as the table has them, new ones last", () => {
+    const keys = configKeysOf(parseConfigUsage(USAGE));
+    expect(keys.map((k) => k.key)).toEqual([
+      "model",
+      "autoCompact",
+      "language",
+      "remoteControl",
+      "theme",
+      "someNewKey",
+    ]);
+    expect(keys.find((k) => k.key === "remoteControl")?.setting).toBe("remoteControlAtStartup");
+    expect(keys.find((k) => k.key === "someNewKey")).toEqual({
+      key: "someNewKey",
+      group: "other",
+      kind: "choice",
+      options: ["a", "b"],
+    });
+    // Without the CLI's list, the table.
+    expect(configKeysOf(null).length).toBeGreaterThan(30);
+  });
+
+  test("remote control at startup reads as on, off or the default", () => {
+    const keys = configKeysOf(parseConfigUsage(USAGE));
+    expect(configValues({ remoteControlAtStartup: true }, {}, keys).remoteControl).toBe("true");
+    expect(configValues({}, { remoteControlAtStartup: false }, keys).remoteControl).toBe("false");
+    expect(configValues({}, {}, keys).remoteControl).toBe("default");
+    expect(configMessages({ remoteControl: "true", model: "opus" }, keys)).toEqual([
+      "/config model=opus remoteControl=true",
+    ]);
   });
 });
 
-describe("changesOf", () => {
-  test("only what differs from now", () => {
-    expect(
-      changesOf(
-        { autoCompact: true, verbose: true, language: " korean ", theme: "dark" },
-        { autoCompact: true, verbose: false, language: "korean", theme: undefined },
-      ),
-    ).toEqual({ verbose: true, theme: "dark" });
+describe("the default effort", () => {
+  const models = [
+    { value: "opus", displayName: "Opus 5.5", resolvedModel: "claude-opus-5-5" },
+    { value: "haiku", displayName: "Haiku 5.5", resolvedModel: "claude-haiku-5-5" },
+  ];
+
+  test("the model's own, else effortLevel", () => {
+    const effective = {
+      effortLevel: "high",
+      modelSettings: { "claude-opus-5-5": { effortLevel: "xhigh" } },
+    };
+    expect(defaultEffortOf(effective, "claude-opus-5-5")).toBe("xhigh");
+    expect(defaultEffortOf(effective, "claude-haiku-5-5")).toBe("high");
+    expect(defaultEffortOf({}, "claude-haiku-5-5")).toBeUndefined();
+  });
+
+  test("of the new default model when the draft changes it, else the session's", () => {
+    expect(effortModelOf("haiku", "claude-opus-5-5", models)?.id).toBe("claude-haiku-5-5");
+    expect(effortModelOf("opus[1m]", "claude-haiku-5-5", models)?.id).toBe("claude-opus-5-5");
+    expect(effortModelOf(undefined, "claude-opus-5-5", models)?.info?.displayName).toBe("Opus 5.5");
+  });
+});
+
+describe("remoteAtStartup", () => {
+  test("on when the user set it and it can be; the gate can hold it back", () => {
+    const init = { remote_control_available: true, remote_control_auto_enable: true };
+    expect(remoteAtStartup(init)).toBe(true);
+    expect(remoteAtStartup({ ...init, remote_control_auto_enable: false })).toBe(false);
+    expect(remoteAtStartup({ ...init, remote_control_available: false })).toBe(false);
+    expect(remoteAtStartup({ ...init, ide_rc_auto_enable_gate: false })).toBe(false);
   });
 });

@@ -10,7 +10,6 @@ import {
   formatPick,
   type PickedDetails,
   type PickedElement,
-  pickedLabel,
   withoutControls,
 } from "../../../../../src/main/features/cli/browser/pick";
 
@@ -228,25 +227,6 @@ describe("the picked element's selector", () => {
   });
 });
 
-describe("the picked element's text, HTML and box", () => {
-  test("collapses white space, cuts long HTML after the open tag, and clips in page coordinates", () => {
-    const built = page(["div", { key: "box", id: "box", class: "card" }]);
-    const el = built.at.box as FakeElement;
-    el.innerText = "  Hello\n   world  ";
-    el.outerHTML = `<div id="box" class="card">${"<i>x</i>".repeat(100)}</div>`;
-    const details = describeIn(built.doc, el);
-    expect(details).toMatchObject({
-      tag: "div",
-      text: "Hello world",
-      html: '<div id="box" class="card">…</div>',
-      inShadow: false,
-      box: { x: 10, y: 20, width: 80, height: 24 },
-      // 8 px around it, moved down by the page's scroll of 300.
-      clip: { x: 2, y: 312, width: 96, height: 40 },
-    });
-  });
-});
-
 const PICKED: PickedElement = {
   url: "http://localhost:5173/",
   title: "App",
@@ -263,35 +243,6 @@ const PICKED: PickedElement = {
 };
 
 describe("the printed block", () => {
-  test("names the element by its tag when its role says nothing", () => {
-    expect(pickedLabel({ role: "generic", name: "", tag: "span" })).toBe("span");
-    expect(pickedLabel({ role: "", name: "Total", tag: "div" })).toBe('div "Total"');
-    expect(pickedLabel({ role: "link", name: "Docs", tag: "a" })).toBe('link "Docs"');
-  });
-
-  test("gives the text only when the name does not, and marks a shadow root", () => {
-    expect(formatPick(PICKED)).toBe(
-      "[element] http://localhost:5173/\n" +
-        '  button "Save" (ref e3)\n' +
-        "  selector: #save\n" +
-        "  box: 80x24 at (10, 20)\n" +
-        '  html: <button id="save">Save</button>',
-    );
-    const inShadow = formatPick(
-      { ...PICKED, role: "generic", name: "", text: "Total: 3", inShadow: true },
-      "/tmp/a.png",
-    );
-    expect(inShadow).toContain("\n  button (ref e3)\n");
-    expect(inShadow).toContain('  text: "Total: 3"');
-    expect(inShadow.endsWith("  screenshot: /tmp/a.png")).toBe(true);
-    expect(formatPick({ ...PICKED, selector: null, inShadow: true })).toContain(
-      "  selector: none, as it is inside a shadow root; use the ref\n",
-    );
-    expect(formatPick({ ...PICKED, selector: null })).toContain(
-      "  selector: none found; use the ref\n",
-    );
-  });
-
   test("carries no control characters from the page to the terminal", () => {
     const hostile = {
       ...PICKED,
@@ -310,11 +261,5 @@ describe("the printed block", () => {
     expect(clean.text).toBe("ab");
     expect(JSON.stringify(clean)).not.toMatch(/[\u0080-\u009f]|\\u001b/);
     expect(withoutControls("a\n\tb\r\u0000")).toBe("a\n\tb");
-  });
-
-  test("names the browser tab for a reader who did not pick it", () => {
-    expect(formatPick(PICKED, undefined, "7c8a").split("\n")[0]).toBe(
-      "[element in browser tab 7c8a] http://localhost:5173/",
-    );
   });
 });

@@ -1,32 +1,26 @@
 // The line under a chat tab's composer: how full the context is and how
 // much of the plan's usage limits is spent, in the colours of the context
-// ring, turning to the warning colour from 80%. The narrower the tab, the
-// less it says: first the token counts go, then the week's reset time, then
-// the session's, then the words shorten, and at the narrowest the bars go;
-// the percentages stay. Hovering a part tells it whole. The agents tab's
-// detail shows the plan's part of it as a chip (UsageChip).
+// ring, turning to the warning colour from 80%. A tab too narrow for all of
+// it says less, a step at a time and no more than it has to (usageViews):
+// what is near its limit holds out longest, and what is left out is counted
+// ("+2"). Hovering a part tells it whole. The agents tab's detail shows the
+// plan's part of it as a chip (UsageChip).
 
-import type { ReactNode } from "react";
+import { RotateCcw } from "lucide-react";
+import { type ReactNode, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { useFitStep } from "../../hooks/use-fit-step";
 import {
   formatTokens,
   resetParts,
   type UsageLine,
   type UsageMeter,
+  usageViews,
+  WARN_AT,
 } from "../../services/chat/usage-line";
 import { ContextRing } from "../ui/context-ring";
 import { tooltipProps } from "../ui/tooltip";
-
-const WARN_AT = 80;
-
-/** Where a detail shows, by the line's width: the most wanted holds out longest. */
-const DETAIL = {
-  bar: "hidden @3xs:block",
-  sessionReset: "hidden @sm:inline",
-  weekReset: "hidden @lg:inline",
-  tokens: "hidden @xl:inline",
-} as const;
 
 function Percent({ percent }: { percent: number }) {
   return (
@@ -36,14 +30,9 @@ function Percent({ percent }: { percent: number }) {
   );
 }
 
-function Bar({ percent, always = false }: { percent: number; always?: boolean }) {
+function Bar({ percent }: { percent: number }) {
   return (
-    <span
-      className={cn(
-        !always && DETAIL.bar,
-        "relative h-1 w-6 shrink-0 overflow-hidden rounded-full bg-current/25",
-      )}
-    >
+    <span className="relative h-1 w-6 shrink-0 overflow-hidden rounded-full bg-current/25">
       <span
         className={cn(
           "absolute inset-y-0 left-0 rounded-full",
@@ -78,7 +67,7 @@ function useUsageWords(line: UsageLine) {
       }
     }
   };
-  /** The word for a meter in the narrowest line. */
+  /** The word for a meter in a narrow line. */
   const short = (meter: UsageMeter): string =>
     meter.kind === "session"
       ? t("chat.usage.short.session")
@@ -97,6 +86,14 @@ function useUsageWords(line: UsageLine) {
           time: parts.time,
         });
   };
+  /** When a meter starts over, in a narrow line: "15:29", or "목 09:59" past a day. */
+  const resetShort = (meter: UsageMeter): string | null => {
+    if (meter.resetsAt === undefined) return null;
+    const parts = resetParts(meter.resetsAt, now, i18n.language);
+    return parts.soon
+      ? parts.time
+      : t("chat.usage.resets_short_date", { weekday: parts.weekday, time: parts.time });
+  };
   const tip = (meter: UsageMeter): string => {
     const when = reset(meter);
     const head = t("chat.usage.meter_tip", {
@@ -110,7 +107,7 @@ function useUsageWords(line: UsageLine) {
     meter.kind === "weekly" && line.more.length > 0
       ? [tip(meter), ...line.more.map(tip)].join("\n")
       : tip(meter);
-  return { label, short, reset, told };
+  return { label, short, reset, resetShort, told };
 }
 
 export function UsageLineView({
@@ -118,15 +115,15 @@ export function UsageLineView({
   trailing,
 }: {
   line: UsageLine | null;
-  /** What ends the line on its right: the tab's profile. */
-  trailing?: ReactNode;
+  /** What ends the line on its right: the tab's profile, its dot alone when `compact`. */
+  trailing?: (compact: boolean) => ReactNode;
 }) {
   if (!line) {
     if (!trailing) return null;
     return (
-      <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
+      <div className="-mt-1 px-1" data-testid="chat-usage-line">
         <div className="flex items-center justify-end text-app-micro text-muted-foreground">
-          {trailing}
+          {trailing(false)}
         </div>
       </div>
     );
@@ -134,35 +131,52 @@ export function UsageLineView({
   return <Line line={line} trailing={trailing} />;
 }
 
-function Line({ line, trailing }: { line: UsageLine; trailing?: ReactNode }) {
-  const { t } = useTranslation();
-  const { label, short, reset, told } = useUsageWords(line);
+function Line({ line, trailing }: { line: UsageLine; trailing?: (compact: boolean) => ReactNode }) {
+  const { t, i18n } = useTranslation();
+  const { label, short, reset, resetShort, told } = useUsageWords(line);
+  const profile = trailing !== undefined;
+  const views = useMemo(() => usageViews(line, { profile }), [line, profile]);
+  const row = useRef<HTMLDivElement>(null);
+  const step = useFitStep(
+    row,
+    `${JSON.stringify(line)}|${i18n.language}|${profile}`,
+    views.length - 1,
+  );
+  const view = views[step] ?? views[0];
   const { context } = line;
+  const contextTip = context
+    ? t("chat.usage.context_tip", {
+        used: formatTokens(context.used),
+        max: formatTokens(context.max),
+        percent: context.percent,
+      })
+    : "";
+  const hidden = [...(view.hidden.context ? [contextTip] : []), ...view.hidden.meters.map(told)];
   return (
-    <div className="@container -mt-1 px-1" data-testid="chat-usage-line">
-      <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap text-app-micro text-muted-foreground tabular-nums">
-        {context && (
+    <div className="-mt-1 px-1" data-testid="chat-usage-line">
+      <div
+        ref={row}
+        className="flex items-center gap-3 overflow-hidden whitespace-nowrap text-app-micro text-muted-foreground tabular-nums"
+        data-step={step}
+      >
+        {context && view.context && (
           <span
             className="flex shrink-0 items-center gap-1"
             data-usage="context"
-            {...tooltipProps(
-              t("chat.usage.context_tip", {
-                used: formatTokens(context.used),
-                max: formatTokens(context.max),
-                percent: context.percent,
-              }),
-            )}
+            {...tooltipProps(contextTip)}
           >
             <ContextRing percent={context.percent} />
-            <span className="hidden @xs:inline">{t("chat.usage.context")}</span>
+            {view.context.word && <span>{t("chat.usage.context")}</span>}
             <Percent percent={context.percent} />
-            <span className={cn(DETAIL.tokens, "text-muted-foreground/70")}>
-              {formatTokens(context.used)} / {formatTokens(context.max)}
-            </span>
+            {view.context.tokens && (
+              <span className="text-muted-foreground/70">
+                {formatTokens(context.used)} / {formatTokens(context.max)}
+              </span>
+            )}
           </span>
         )}
-        {line.meters.map((meter) => {
-          const when = reset(meter);
+        {view.meters.map(({ meter, bar, word, reset: when }) => {
+          const said = when === "long" ? reset(meter) : when === "short" ? resetShort(meter) : null;
           return (
             <span
               key={`${meter.kind}-${meter.windowMins ?? ""}`}
@@ -170,24 +184,30 @@ function Line({ line, trailing }: { line: UsageLine; trailing?: ReactNode }) {
               data-usage={meter.kind}
               {...tooltipProps(told(meter))}
             >
-              <Bar percent={meter.percent} />
-              <span className="hidden @xs:inline">{label(meter)}</span>
-              <span className="@xs:hidden">{short(meter)}</span>
+              {bar && <Bar percent={meter.percent} />}
+              <span>{word === "long" ? label(meter) : short(meter)}</span>
               <Percent percent={meter.percent} />
-              {when && (
-                <span
-                  className={cn(
-                    meter.kind === "weekly" ? DETAIL.weekReset : DETAIL.sessionReset,
-                    "text-muted-foreground/70",
-                  )}
-                >
-                  {when}
+              {said && (
+                <span className="flex items-center gap-0.5 text-muted-foreground/70">
+                  {when === "short" && <RotateCcw className="size-2.5" aria-hidden="true" />}
+                  {said}
                 </span>
               )}
             </span>
           );
         })}
-        {trailing && <span className="ml-auto flex shrink-0 items-center">{trailing}</span>}
+        {hidden.length > 0 && (
+          <span
+            className="shrink-0 rounded-sm bg-current/15 px-1"
+            data-usage="hidden"
+            {...tooltipProps(hidden.join("\n"))}
+          >
+            +{hidden.length}
+          </span>
+        )}
+        {trailing && (
+          <span className="ml-auto flex shrink-0 items-center">{trailing(!view.profileName)}</span>
+        )}
       </div>
     </div>
   );
@@ -224,7 +244,7 @@ export function UsageChip({
           className="flex shrink-0 items-center gap-1"
           data-usage={meter.kind}
         >
-          <Bar percent={meter.percent} always />
+          <Bar percent={meter.percent} />
           {short(meter)}
           <Percent percent={meter.percent} />
         </span>

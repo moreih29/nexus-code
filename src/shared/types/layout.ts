@@ -34,12 +34,19 @@ export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
  * A Claude tab: a conversation with `claude -p` run in `cwd`. `sessionId` is
  * the session it last had, to go on with once its program is gone. `fork`
  * is the session its program copies, up to a message, until the copy has
- * its own id: a tab opened as a fork, or one rewound.
+ * its own id: a tab opened as a fork or a branch, or one rewound.
  */
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   sessionId: z.string().max(128).optional(),
-  fork: z.object({ sessionId: z.string().max(128), at: z.string().max(128).optional() }).optional(),
+  fork: z
+    .object({
+      sessionId: z.string().max(128),
+      at: z.string().max(128).optional(),
+      /** The name the copy takes (/branch). */
+      title: z.string().max(200).optional(),
+    })
+    .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
 });
@@ -52,6 +59,10 @@ export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 export const CodexTabPropsSchema = z.object({
   cwd: z.string(),
   threadId: z.string().max(128).optional(),
+  /** The thread it copies until the copy has its own id (/fork). */
+  fork: z
+    .object({ threadId: z.string().max(128), title: z.string().max(200).optional() })
+    .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
 });
@@ -65,11 +76,23 @@ export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
 // SerializedTab
 // ---------------------------------------------------------------------------
 
+/**
+ * A tab's titles beside the one shown: the name it was made with, the
+ * user's own (a rename), and the one its content gave it (a terminal's,
+ * a page's, a conversation's), so a restart keeps a rename the user's.
+ */
+const TAB_TITLES = {
+  defaultTitle: z.string().optional(),
+  customTitle: z.string().optional(),
+  processTitle: z.string().optional(),
+};
+
 export const SerializedTabSchema = z.discriminatedUnion("type", [
   z.object({
     id: z.string().uuid(),
     type: z.literal("terminal"),
     title: z.string(),
+    ...TAB_TITLES,
     props: TerminalTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -78,6 +101,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("editor"),
     title: z.string(),
+    ...TAB_TITLES,
     props: EditorTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -88,6 +112,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("editor.diff"),
     title: z.string(),
+    ...TAB_TITLES,
     props: DiffTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -96,6 +121,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("git.commit"),
     title: z.string(),
+    ...TAB_TITLES,
     props: GitCommitTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -104,6 +130,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("browser"),
     title: z.string(),
+    ...TAB_TITLES,
     props: BrowserTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -112,6 +139,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("claude"),
     title: z.string(),
+    ...TAB_TITLES,
     props: ClaudeTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -120,6 +148,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("codex"),
     title: z.string(),
+    ...TAB_TITLES,
     props: CodexTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -128,6 +157,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("sessions"),
     title: z.string(),
+    ...TAB_TITLES,
     props: SessionsTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),

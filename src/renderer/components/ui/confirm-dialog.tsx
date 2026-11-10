@@ -146,11 +146,23 @@ export function ConfirmDialogRoot(): React.JSX.Element {
       {...(active?.description ? {} : { "aria-describedby": undefined })}
     >
       <DialogHeader title={active?.title} description={active?.description} />
+      {/* Enter takes the focused button: Cancel when confirming would
+          delete or discard something, so a stray Enter loses nothing. */}
       <div className="mt-5 flex justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={handleCancelClick}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCancelClick}
+          autoFocus={variant === "destructive"}
+        >
           {cancelLabel}
         </Button>
-        <Button variant={variant} size="sm" onClick={handleConfirmClick} autoFocus>
+        <Button
+          variant={variant}
+          size="sm"
+          onClick={handleConfirmClick}
+          autoFocus={variant !== "destructive"}
+        >
           {confirmLabel}
         </Button>
       </div>

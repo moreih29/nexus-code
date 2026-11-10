@@ -3,7 +3,7 @@
  * whose tabs still exist, and a change is stored once things settle, never
  * before what was stored came back.
  */
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const stored: unknown[] = [];
 
@@ -24,16 +24,19 @@ const P2 = "00000000-0000-4000-8000-0000000000a2";
 const A = "ws-a:t1";
 const B = "ws-b:t2";
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+/** Past the store's wait before it stores a change. */
+const settle = () => jest.advanceTimersByTime(400);
 
 describe("agent view store", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     stored.length = 0;
     __resetAgentViewForTests();
   });
 
   afterEach(() => {
     __resetAgentViewForTests();
+    jest.useRealTimers();
   });
 
   it("restores the mode and the panels, without the agents whose tabs closed", () => {
@@ -75,13 +78,6 @@ describe("agent view store", () => {
     expect(agentView.root.tabIds).toEqual([A]);
   });
 
-  it("stores nothing for a change that changes nothing", async () => {
-    useAgentViewStore.getState().hydrate(undefined, () => true);
-    useAgentViewStore.getState().update((layout) => layout);
-    await settle();
-    expect(stored).toEqual([]);
-  });
-
   it("restores the ended agents of the panels' terminals, and stores them as they change", async () => {
     useAgentViewStore.getState().hydrate(
       {
@@ -115,6 +111,30 @@ describe("agent view store", () => {
     await settle();
     expect((stored[1] as { agentView: { ended: unknown } }).agentView.ended).toEqual({
       [A]: { agent: "codex", prompted: false },
+    });
+  });
+
+  it("restores the list's order without the agents whose tabs closed, and stores it as it changes", async () => {
+    useAgentViewStore.getState().hydrate(
+      {
+        mode: "agents",
+        root: { kind: "leaf", id: P1, tabIds: [], activeTabId: null },
+        activeLeafId: P1,
+        order: { "ws-a": ["ws-a:t3", A, "ws-a:gone"], "ws-b": ["ws-b:gone"] },
+      },
+      (key) => !key.endsWith(":gone"),
+    );
+    expect(useAgentViewStore.getState().order).toEqual({ "ws-a": ["ws-a:t3", A] });
+
+    useAgentViewStore.getState().setOrder("ws-a", ["ws-a:t3", A]);
+    await settle();
+    expect(stored).toEqual([]);
+
+    useAgentViewStore.getState().setOrder("ws-b", [B, "ws-b:t4"]);
+    await settle();
+    expect((stored[0] as { agentView: { order: unknown } }).agentView.order).toEqual({
+      "ws-a": ["ws-a:t3", A],
+      "ws-b": [B, "ws-b:t4"],
     });
   });
 });

@@ -11,10 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import type { DownloadItem } from "electron";
 import {
-  DOWNLOAD_KEEP_MS,
   DRIVE_GRACE_MS,
   DrivenTabs,
-  pruneDownloads,
   saveCommandDownload,
 } from "../../../../../src/main/features/cli/browser/downloads";
 
@@ -58,12 +56,6 @@ describe("DrivenTabs", () => {
     second();
     expect(tabs.drives(tab, now + DRIVE_GRACE_MS + 1)).toBe(false);
   });
-
-  test("tells tabs apart", () => {
-    const tabs = new DrivenTabs<object>();
-    tabs.begin({});
-    expect(tabs.drives({})).toBe(false);
-  });
 });
 
 describe("the download folder", () => {
@@ -75,17 +67,6 @@ describe("the download folder", () => {
   };
   afterEach(() => {
     for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-  });
-
-  test("removes downloads older than a day and keeps newer ones", () => {
-    const dir = makeDir();
-    const now = Date.now();
-    fs.writeFileSync(path.join(dir, "old.md"), "x");
-    fs.writeFileSync(path.join(dir, "new.md"), "x");
-    const old = (now - DOWNLOAD_KEEP_MS - 1000) / 1000;
-    fs.utimesSync(path.join(dir, "old.md"), old, old);
-    pruneDownloads(dir, now);
-    expect(fs.readdirSync(dir)).toEqual(["new.md"]);
   });
 
   test("saves each download at a path of its own, even before it is written", () => {

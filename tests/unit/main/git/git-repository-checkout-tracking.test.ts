@@ -103,6 +103,9 @@ realGitDescribe("GitRepository against a real clone", () => {
 function makeClonePair(): { client: string; remoteUrl: string } {
   const remote = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-git-track-remote-"));
   runGit(remote, ["init", "-b", "main"]);
+  // A commit can start git's maintenance in the background, whose lock file
+  // the clone then finds in the objects it copies and fails on as it goes.
+  runGit(remote, ["config", "maintenance.auto", "false"]);
   runGit(remote, [
     "-c",
     "user.name=Nexus Test",

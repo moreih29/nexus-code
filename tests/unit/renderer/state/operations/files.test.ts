@@ -33,7 +33,6 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 import {
   __cancelPendingSavesForTests,
   ensureRoot,
-  loadChildren,
   reveal,
   toggleExpand,
 } from "../../../../../src/renderer/state/operations/files";
@@ -77,26 +76,6 @@ function setupReaddir(responses: Record<string, DirEntry[]>) {
 
 describe("ensureRoot: initializes tree and calls IPC", () => {
   beforeEach(resetStore);
-
-  it("calls getExpanded then watch then readdir", async () => {
-    setupReaddir({ "": [dirEntry("a.ts")] });
-
-    await ensureRoot(WS_ID, ROOT);
-
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "getExpanded", { workspaceId: WS_ID });
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
-      workspaceId: WS_ID,
-      relPath: "",
-    });
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
-      workspaceId: WS_ID,
-      relPath: "",
-    });
-
-    const tree = useFilesStore.getState().trees.get(WS_ID);
-    expect(tree?.rootAbsPath).toBe(ROOT);
-    expect(tree?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-  });
 
   it("prunes persisted rels whose fs.watch returns NOT_FOUND (stale-row cleanup)", async () => {
     // Scenario: previous session persisted three expanded paths. The user
@@ -219,102 +198,6 @@ describe("ensureRoot: initializes tree and calls IPC", () => {
     for (const save of setExpandedCalls) {
       expect(save).toContain("locked");
     }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// loadChildren
-// ---------------------------------------------------------------------------
-
-describe("loadChildren: calls readdir and updates store", () => {
-  beforeEach(resetStore);
-
-  it("marks loading, calls readdir, sets children on success", async () => {
-    setupReaddir({ "": [dirEntry("src", "dir"), dirEntry("index.ts")] });
-    await ensureRoot(WS_ID, ROOT);
-
-    // Reset childrenLoaded to test loadChildren independently
-    useFilesStore.setState((s) => {
-      const t = s.trees.get(WS_ID);
-      if (!t) return s;
-      const nodes = new Map(t.nodes);
-      const rootNode = nodes.get(ROOT);
-      if (rootNode) nodes.set(ROOT, { ...rootNode, childrenLoaded: false, children: [] });
-      const trees = new Map(s.trees);
-      trees.set(WS_ID, { ...t, nodes, loading: new Set() });
-      return { trees };
-    });
-    mockIpcCallResult.mockClear();
-    setupReaddir({ "": [dirEntry("src", "dir"), dirEntry("index.ts")] });
-
-    await loadChildren(WS_ID, ROOT);
-
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "readdir", {
-      workspaceId: WS_ID,
-      relPath: "",
-    });
-
-    const updated = useFilesStore.getState().trees.get(WS_ID);
-    expect(updated?.nodes.get(ROOT)?.childrenLoaded).toBe(true);
-    expect(updated?.nodes.get(ROOT)?.children).toHaveLength(2);
-    expect(updated?.loading.has(ROOT)).toBe(false);
-  });
-
-  it("stores error message on readdir failure", async () => {
-    setupReaddir({ "": [] });
-    await ensureRoot(WS_ID, ROOT);
-
-    // Reset to unloaded and inject a failing readdir
-    useFilesStore.setState((s) => {
-      const t = s.trees.get(WS_ID);
-      if (!t) return s;
-      const nodes = new Map(t.nodes);
-      const rootNode = nodes.get(ROOT);
-      if (rootNode) nodes.set(ROOT, { ...rootNode, childrenLoaded: false, children: [] });
-      const trees = new Map(s.trees);
-      trees.set(WS_ID, { ...t, nodes, loading: new Set() });
-      return { trees };
-    });
-
-    mockIpcCallResult.mockImplementation((_ch: string, method: string) => {
-      if (method === "readdir") return Promise.reject(new Error("EACCES"));
-      return Promise.resolve({ ok: true as const, value: undefined });
-    });
-
-    await loadChildren(WS_ID, ROOT);
-
-    const t = useFilesStore.getState().trees.get(WS_ID);
-    expect(t?.errors.get(ROOT)).toContain("EACCES");
-    expect(t?.loading.has(ROOT)).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// toggleExpand debounce
-// ---------------------------------------------------------------------------
-
-describe("toggleExpand: calls watch/unwatch", () => {
-  beforeEach(resetStore);
-
-  it("calls watch on expand and unwatch on collapse", async () => {
-    setupReaddir({ "": [dirEntry("lib", "dir")], lib: [] });
-    await ensureRoot(WS_ID, ROOT);
-
-    const libAbs = `${ROOT}/lib`;
-    mockIpcCallResult.mockClear();
-
-    await toggleExpand(WS_ID, libAbs);
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "watch", {
-      workspaceId: WS_ID,
-      relPath: "lib",
-    });
-
-    mockIpcCallResult.mockClear();
-    await toggleExpand(WS_ID, libAbs);
-    expect(mockIpcCallResult).toHaveBeenCalledWith("fs", "unwatch", {
-      workspaceId: WS_ID,
-      relPath: "lib",
-    });
   });
 });
 

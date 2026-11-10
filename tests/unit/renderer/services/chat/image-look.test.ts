@@ -1,121 +1,27 @@
-/**
- * The images a chat shows open in quick look among all of the
- * conversation's images: an image file as that file, while it is there,
- * any other from its data.
- */
+import { describe, expect, it } from "bun:test";
+import { imageLookSize } from "../../../../../src/renderer/services/chat/image-look";
 
-import { describe, expect, test } from "bun:test";
-import {
-  conversationLook,
-  imageFileOf,
-  imageLook,
-  imageSrc,
-  lookAtImage,
-  type ShownImage,
-  shownIndex,
-} from "../../../../../src/renderer/services/chat/image-look";
+const AREA = { w: 1220, h: 620 };
 
-const A = { mediaType: "image/png", data: "AAAA" };
-const B = { mediaType: "image/jpeg", data: "BBBB" };
-
-describe("imageLook", () => {
-  test("holds each image by a key no path is, at the one opened", () => {
-    const look = imageLook([A, B], 1);
-    expect(look.files).toEqual(["image:1", "image:2"]);
-    expect(look.index).toBe(1);
-    expect(look.images["image:1"]).toBe(A);
-    expect(look.images["image:2"]).toBe(B);
+describe("quick look's size around an image", () => {
+  it("wraps a wide screenshot fitted to the area 64px in, under its header", () => {
+    expect(imageLookSize(AREA, { w: 2560, h: 1600 }, 2)).toEqual({ w: 728, h: 492 });
   });
 
-  test("opens at an image there is", () => {
-    expect(imageLook([A, B], 5).index).toBe(1);
-    expect(imageLook([A], -1).index).toBe(0);
-  });
-});
-
-const C = { mediaType: "image/png", data: "CCCC" };
-
-describe("shownIndex", () => {
-  const shown: ShownImage[] = [{ image: A }, { file: "/p/a.png", image: B }, { file: "/p/b.png" }];
-
-  test("finds an image file by its path", () => {
-    expect(shownIndex(shown, { file: "/p/b.png" })).toBe(2);
-    expect(shownIndex(shown, { file: "/p/a.png" })).toBe(1);
+  it("makes a small image as large as a big one: the same height, so stepping keeps it", () => {
+    expect(imageLookSize(AREA, { w: 256, h: 256 }, 2)).toEqual({ w: 456, h: 492 });
   });
 
-  test("finds an image with no file by its data, the same block or the same bytes", () => {
-    expect(shownIndex(shown, { image: A })).toBe(0);
-    expect(shownIndex(shown, { image: { ...B } })).toBe(1);
+  it("keeps room for the header beside a tall, narrow image", () => {
+    expect(imageLookSize(AREA, { w: 600, h: 2000 }, 2)).toEqual({ w: 362, h: 492 });
   });
 
-  test("is -1 for an image not among them", () => {
-    expect(shownIndex(shown, { image: C })).toBe(-1);
-    expect(shownIndex(shown, { file: "/p/z.png" })).toBe(-1);
-    expect(shownIndex(shown, {})).toBe(-1);
-  });
-});
-
-describe("conversationLook", () => {
-  const shown: ShownImage[] = [
-    { image: A },
-    { file: "/p/gone.png" },
-    { file: "/p/read.png", image: B },
-    { file: "/p/here.png" },
-  ];
-
-  test("shows each image file there as the file, the others from their data", () => {
-    const look = conversationLook(shown, 3, (file) => file === "/p/here.png");
-    expect(look.files).toEqual(["image:1", "image:2", "/p/here.png"]);
-    expect(look.images).toEqual({ "image:1": A, "image:2": B });
-    // The file gone with no data is left out, and the index counts without it.
-    expect(look.index).toBe(2);
+  it("is narrower than that only where the area is", () => {
+    expect(imageLookSize({ w: 300, h: 260 }, { w: 2560, h: 1600 })).toEqual({ w: 172, h: 132 });
   });
 
-  test("keeps the one opened, gone or not", () => {
-    const look = conversationLook(shown, 1, () => false);
-    expect(look.files).toEqual(["image:1", "/p/gone.png", "image:2"]);
-    expect(look.index).toBe(1);
+  it("has none where the area has no room, or the image no size", () => {
+    expect(imageLookSize({ w: 200, h: 150 }, { w: 100, h: 100 })).toBeNull();
+    expect(imageLookSize(AREA, { w: 0, h: 0 })).toBeNull();
   });
-});
-
-describe("lookAtImage", () => {
-  const shown: ShownImage[] = [{ image: A }, { file: "/p/a.png" }];
-  const allThere = async (files: string[]) => new Set(files);
-
-  test("opens at the image among the conversation's", async () => {
-    const asked: string[][] = [];
-    const look = await lookAtImage(shown, { image: A }, async (files) => {
-      asked.push(files);
-      return new Set(files);
-    });
-    expect(look).toEqual({ files: ["image:1", "/p/a.png"], index: 0, images: { "image:1": A } });
-    expect(asked).toEqual([["/p/a.png"]]);
-  });
-
-  test("puts an image file not among them first", async () => {
-    const look = await lookAtImage(shown, { file: "/p/new.png" }, allThere);
-    expect(look?.files).toEqual(["/p/new.png", "image:1", "/p/a.png"]);
-    expect(look?.index).toBe(0);
-  });
-
-  test("is null for an image with no file not among them", async () => {
-    expect(await lookAtImage(shown, { image: C }, allThere)).toBeNull();
-  });
-});
-
-describe("imageFileOf", () => {
-  test("is the image file a tool read", () => {
-    expect(imageFileOf({ file_path: "/p/shot.png" })).toBe("/p/shot.png");
-    expect(imageFileOf({ file_path: "C:\\p\\a.JPG" })).toBe("C:\\p\\a.JPG");
-  });
-
-  test("is none for a tool that read no image file", () => {
-    expect(imageFileOf({ file_path: "/p/n.ipynb" })).toBeUndefined();
-    expect(imageFileOf({ url: "https://example.com" })).toBeUndefined();
-    expect(imageFileOf(undefined)).toBeUndefined();
-  });
-});
-
-test("imageSrc is the image's data URL", () => {
-  expect(imageSrc(A)).toBe("data:image/png;base64,AAAA");
 });

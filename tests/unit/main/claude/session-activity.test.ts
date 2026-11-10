@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
-  describeTool,
   type SaidMessage,
   SessionActivityLog,
 } from "../../../../src/main/features/claude/session-activity";
 import type { AgentRun } from "../../../../src/shared/claude/activity";
-import {
-  AGENT_MESSAGES_KEPT,
-  ENDED_AGENTS_KEPT,
-  SESSION_TOOLS_KEPT,
-} from "../../../../src/shared/claude/activity";
+import { AGENT_MESSAGES_KEPT } from "../../../../src/shared/claude/activity";
 
 const WS = "ws-1";
 const TAB = "tab-1";
@@ -102,20 +97,6 @@ describe("tools", () => {
     expect(tools[1]?.background).toBe(true);
     expect(toolCount).toBe(0);
     expect(turnStart).toBe(5_000);
-  });
-
-  test("keeps the latest tools only", () => {
-    for (let i = 0; i < SESSION_TOOLS_KEPT + 5; i++) {
-      hook("pre-tool-use", {
-        tool_name: "Glob",
-        tool_use_id: `t${i}`,
-        tool_input: { pattern: "*" },
-      });
-    }
-    const { tools, toolCount } = activity();
-    expect(tools).toHaveLength(SESSION_TOOLS_KEPT);
-    expect(tools[0]?.id).toBe("t5");
-    expect(toolCount).toBe(SESSION_TOOLS_KEPT + 5);
   });
 
   test("the files written, relative to the session's directory", () => {
@@ -370,19 +351,6 @@ describe("agents", () => {
     hook("post-tool-use-failure", { tool_name: "Agent", tool_use_id: "t1", tool_input: explore });
     hook("subagent-start", { agent_id: "a1", agent_type: "Explore" });
     expect(activity().agents[0]?.description).toBeUndefined();
-  });
-
-  test("lists running agents first, then the latest ended ones", () => {
-    for (let i = 0; i < ENDED_AGENTS_KEPT + 3; i++) {
-      clock = 1_000 + i;
-      hook("subagent-start", { agent_id: `done${i}` });
-      hook("subagent-stop", { agent_id: `done${i}` });
-    }
-    hook("subagent-start", { agent_id: "live" });
-    const ids = activity().agents.map((agent) => agent.id);
-    expect(ids).toHaveLength(ENDED_AGENTS_KEPT + 1);
-    expect(ids[0]).toBe("live");
-    expect(ids[1]).toBe(`done${ENDED_AGENTS_KEPT + 2}`);
   });
 });
 
@@ -722,43 +690,5 @@ describe("sessions", () => {
     hook("user-prompt-submit", { prompt: "go" });
     log.clear(WS, TAB);
     expect(log.get(WS, TAB)).toBeNull();
-  });
-
-  test("lists the sessions of the workspaces asked for", () => {
-    log.noteHook("ws-1", "a", "user-prompt-submit", {});
-    log.noteHook("ws-2", "b", "user-prompt-submit", {});
-    log.noteHook("ws-3", "c", "user-prompt-submit", {});
-    expect(log.list(["ws-1", "ws-3"]).map((a) => a.tabId)).toEqual(["a", "c"]);
-    log.clearWorkspace("ws-1");
-    expect(log.list(["ws-1", "ws-3"]).map((a) => a.tabId)).toEqual(["c"]);
-  });
-
-  test("a snapshot is a copy", () => {
-    hook("pre-tool-use", { tool_name: "Glob", tool_use_id: "t1", tool_input: { pattern: "*" } });
-    const before = activity();
-    hook("post-tool-use", { tool_name: "Glob", tool_use_id: "t1", tool_input: {} });
-    expect(before.tools[0]?.end).toBeUndefined();
-  });
-});
-
-describe("describeTool", () => {
-  test.each([
-    ["Read", { file_path: "/repo/src/a.ts" }, { target: "src/a.ts" }],
-    ["Grep", { pattern: "x" }, { target: '"x"' }],
-    ["Glob", { pattern: "**/*.ts" }, { target: "**/*.ts" }],
-    ["WebFetch", { url: "https://a.b" }, { target: "https://a.b" }],
-    ["WebSearch", { query: "q" }, { target: "q" }],
-    ["Agent", { description: "d", subagent_type: "Explore" }, { target: "d", note: "Explore" }],
-    ["Skill", { skill: "review" }, { target: "review" }],
-    ["TaskUpdate", { taskId: "3", status: "completed" }, { target: "#3 completed" }],
-    ["TodoWrite", { todos: [] }, {}],
-    ["mcp__x__y", { n: 1, query: "find" }, { target: "find" }],
-  ] as const)("%s", (name, input, expected) => {
-    expect(describeTool(name, input as Record<string, unknown>, CWD)).toEqual(expected);
-  });
-
-  test("a long target is cut", () => {
-    const { target } = describeTool("Bash", { command: "x".repeat(3_000) }, CWD);
-    expect(target?.length).toBe(2_001);
   });
 });

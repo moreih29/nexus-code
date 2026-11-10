@@ -17,11 +17,19 @@ const FIRST_SEEN: Record<string, string> = {
   get_usage: "2.1.238",
   stop_task: "2.1.238",
   list_permission_rules: "2.1.288",
+  update_settings: "2.1.318",
   get_hooks_listing: "2.1.288",
+  get_plan: "2.1.318",
   // Answered from 2.1.77, but only from 2.1.160 is the drop told by a
   // command_lifecycle event, which takes the message off the list.
   cancel_async_message: "2.1.160",
 };
+
+/**
+ * From here get_usage takes `skip_behaviors`, which spares it a scan of
+ * every transcript of the last week for a section the app does not read.
+ */
+const USAGE_SKIPS_BEHAVIORS_FROM = "2.1.318";
 
 /** -1, 0 or 1 as a is before, the same as, or after b; x.y.z only. */
 export function compareVersions(a: string, b: string): number {
@@ -47,6 +55,11 @@ export function supportsControl(version: string | null | undefined, subtype: str
 /** The version a control request first answered in, for the note on a hidden control. */
 export function firstVersionOf(subtype: string): string | undefined {
   return FIRST_SEEN[subtype];
+}
+
+/** Whether get_usage may be asked for the plan's limits alone. */
+export function usageSkipsBehaviors(version: string | null | undefined): boolean {
+  return !!version && compareVersions(version, USAGE_SKIPS_BEHAVIORS_FROM) >= 0;
 }
 
 export function isSupportedClaude(version: string | null | undefined): boolean {

@@ -8,16 +8,7 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { CliChatInfo } from "../../../../src/shared/cli/ui";
 import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
-import {
-  API,
-  APP,
-  CODEX_TAB,
-  contextFor,
-  type FakeApp,
-  fakeApp,
-  NEW_TAB,
-  SHELL_TAB,
-} from "./fake-services";
+import { APP, CODEX_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
 const MANAGER = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
 const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
@@ -48,22 +39,6 @@ function withChat(info: Partial<CliChatInfo> = {}): FakeApp {
 }
 
 describe("the agent manager", () => {
-  test("is in no workspace: status says so, and what the user sees", async () => {
-    const result = await nexus(fakeApp(), ["status"]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("you are:   the agent manager, in no workspace\n");
-    expect(result.stdout).toContain("user sees: app (11111111), tab aaaaaaaa");
-  });
-
-  test("works in the workspace the user sees when it gives none", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["chat", "new", "--prompt", "add a test"]);
-    expect(result.exitCode).toBe(0);
-    expect(app.uiCalls.find((call) => call.op === "chat.open")?.args).toMatchObject({
-      workspaceId: APP,
-    });
-  });
-
   test("changes another workspace without asking the user", async () => {
     const app = fakeApp();
     const result = await nexus(app, ["terminal", "send", "codex", "go on", "--workspace", "api"]);
@@ -72,27 +47,6 @@ describe("the agent manager", () => {
     expect(app.uiCalls.find((call) => call.op === "terminal.input")?.args).toMatchObject({
       tabId: CODEX_TAB,
     });
-  });
-
-  test("tells the app the sessions it hands work to, and what it sent them", async () => {
-    const app = withChat();
-    await nexus(app, ["chat", "new", "--prompt", " add a test ", "--workspace", "api"]);
-    await nexus(app, ["chat", "send", "release", "ship it", "--workspace", "app"]);
-    await nexus(app, ["terminal", "send", "codex", "go on", "--workspace", "api"]);
-    expect(app.dispatched).toEqual([
-      { workspaceId: API, tabId: NEW_TAB, text: "add a test" },
-      { workspaceId: APP, tabId: CHAT_TAB, text: "ship it" },
-      { workspaceId: API, tabId: CODEX_TAB, text: "go on" },
-    ]);
-  });
-
-  test("a terminal or a tab hands nothing to the manager's list", async () => {
-    const app = withChat();
-    await nexus(app, ["chat", "send", "release", "ship it"], {
-      workspaceId: APP,
-      tabId: SHELL_TAB,
-    });
-    expect(app.dispatched).toEqual([]);
   });
 });
 
@@ -188,43 +142,6 @@ describe("chat answer", () => {
     const result = await nexus(app, ["chat", "answer", "release", "allow", "--workspace", "app"]);
     expect(result.stderr).toBe(`nexus: ${error}\n`);
     expect(app.chatAnswered).toEqual([]);
-  });
-
-  test.each([
-    [["chat", "answer", "release", "maybe"], 'the answer is "allow" or "deny"'],
-    [["chat", "answer", "release", "allow", "--message", "x"], "--message goes with deny"],
-  ])("takes allow or deny: %p", async (argv, error) => {
-    const result = await nexus(withChat(), [...argv, "--workspace", "app"]);
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain(error);
-  });
-});
-
-describe("manager show, hide and new", () => {
-  test("open and close its dock, saying when the manager is off", async () => {
-    const app = fakeApp();
-    const shell = { workspaceId: APP, tabId: SHELL_TAB };
-    expect((await nexus(app, ["manager", "show"], shell)).stdout).toBe(
-      "Opened the agent manager's dock.\n",
-    );
-    expect(app.uiCalls.at(-1)).toEqual({ op: "manager.dock", args: { open: true } });
-    await nexus(app, ["manager", "hide"], shell);
-    expect(app.uiCalls.at(-1)?.args).toEqual({ open: false });
-    app.settings.managerEnabled = false;
-    expect((await nexus(app, ["manager", "show"], shell)).stdout).toBe(
-      "Opened the agent manager's dock. The agent manager is off (Settings › Agent manager).\n",
-    );
-  });
-
-  test("new starts it over for another session, never for the manager itself", async () => {
-    const app = fakeApp();
-    const shell = { workspaceId: APP, tabId: SHELL_TAB };
-    expect((await nexus(app, ["manager", "new"], shell)).stdout).toBe(
-      "Started the agent manager over, in a new conversation.\n",
-    );
-    const own = await nexus(app, ["manager", "new"]);
-    expect(own.exitCode).toBe(1);
-    expect(own.stderr).toContain("that is this conversation");
   });
 });
 

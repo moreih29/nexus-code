@@ -74,7 +74,9 @@ export type NoticeCode =
   | "error"
   | "dropped"
   /** A thread the app could not go on with; it started a new one. */
-  | "not_resumed";
+  | "not_resumed"
+  /** Codex began reviewing (/review): what it looks at is the detail. */
+  | "review";
 
 export interface NoticeItem {
   kind: "notice";
@@ -186,6 +188,16 @@ export interface InitializeInfo {
   remoteControl: boolean;
   /** The output styles /config takes, the user's own among them. */
   outputStyles?: string[];
+  /** Who the program is signed in as, for /status. */
+  account?: AccountInfo;
+}
+
+export interface AccountInfo {
+  email?: string;
+  organization?: string;
+  subscription?: string;
+  /** firstParty, bedrock, vertex… */
+  provider?: string;
 }
 
 export interface ResultInfo {
@@ -380,7 +392,7 @@ export function applyLine(prev: ChatModel, line: ChatLine, now: number = Date.no
   const at = line.at ?? (line.replay ? undefined : now);
   if (line.dir === "sys") applySys(draft, message, line.seq, at);
   else if (line.dir === "in") applyIn(draft, message, line.seq, at);
-  else applyOut(draft, message, line.seq, at);
+  else applyOut(draft, message, line.seq, at, !line.replay);
   return draft.next;
 }
 
@@ -482,7 +494,13 @@ function applyIn(draft: Draft, message: Rec, seq: number, at: number | undefined
   }
 }
 
-function applyOut(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
+function applyOut(
+  draft: Draft,
+  message: Rec,
+  seq: number,
+  at: number | undefined,
+  live = true,
+): void {
   switch (message.type) {
     case "system":
       applySystem(draft, message, seq, at);
@@ -494,7 +512,7 @@ function applyOut(draft: Draft, message: Rec, seq: number, at: number | undefine
       applyAssistant(draft, message, seq, at);
       return;
     case "user":
-      applyUserOut(draft, message, seq, at);
+      applyUserOut(draft, message, seq, at, live);
       return;
     case "result":
       applyResult(draft, message, seq, at);
@@ -850,7 +868,13 @@ export function isCommandOutput(text: string): boolean {
   return text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>");
 }
 
-function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
+function applyUserOut(
+  draft: Draft,
+  message: Rec,
+  seq: number,
+  at: number | undefined,
+  live: boolean,
+): void {
   const m = draft.next;
   const body = rec(message.message);
   const content = body?.content;
@@ -868,6 +892,14 @@ function applyUserOut(draft: Draft, message: Rec, seq: number, at: number | unde
       ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
       : -1;
     if (index < 0) index = m.items.findIndex(sent);
+    // Taken live after a turn ended, it begins the next one: one the user
+    // sent as the last turn was ending, or one the CLI was given itself
+    // (Remote Control, a background task's news). A transcript's messages
+    // come the same way, with no turn's end after them.
+    if (live && !m.running && m.process === "running") {
+      m.running = true;
+      m.turn = { startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+    }
     if (index >= 0) {
       const { queued, ...item } = m.items[index] as UserItem;
       const taken: UserItem = { ...item, state: "taken", uuid, at: item.at ?? when };
@@ -1026,6 +1058,7 @@ function applyControlResponse(
         outputStyles: Array.isArray(body.available_output_styles)
           ? body.available_output_styles.filter((s): s is string => typeof s === "string")
           : undefined,
+        account: accountOf(rec(body.account)),
       };
       m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
       m.version = str(body.claude_code_version) ?? m.version;
@@ -1051,9 +1084,13 @@ function applyControlResponse(
     case "get_context_usage":
       m.contextUsage = body;
       return;
-    case "get_usage":
-      m.usage = body;
+    case "get_usage": {
+      // A usage endpoint that failed (a 429 among them) still answers, with
+      // no limits: the last answer that had them stays.
+      const limits = rec(body.rate_limits)?.limits;
+      if (!m.usage || (Array.isArray(limits) && limits.length > 0)) m.usage = body;
       return;
+    }
     case "mcp_status":
       m.mcp = Array.isArray(body.mcpServers)
         ? body.mcpServers.flatMap((raw) => {
@@ -1078,6 +1115,17 @@ function applyControlResponse(
           : { enabled: false };
       return;
   }
+}
+
+function accountOf(account: Rec | null): AccountInfo | undefined {
+  if (!account) return undefined;
+  const info: AccountInfo = {
+    email: str(account.email),
+    organization: str(account.organization),
+    subscription: str(account.subscriptionType),
+    provider: str(account.apiProvider),
+  };
+  return Object.values(info).some(Boolean) ? info : undefined;
 }
 
 export function stopRunningTools(draft: Draft): void {

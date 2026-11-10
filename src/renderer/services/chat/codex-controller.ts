@@ -8,6 +8,7 @@
 // picks (model, effort, approvals) go with the next turn, as the server
 // takes them: they hold for the thread from that turn on.
 
+import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
@@ -17,13 +18,23 @@ import {
   type CodexModel,
   emptyCodexModel,
   idKey,
+  nextThreadModel,
 } from "./codex-model";
 import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
 import { LiveLines } from "./live-lines";
 import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
 import {
+  forgetPlanWait,
+  ingestCodexPush,
+  planUsageKeyFor,
+  registerPlanSource,
+  wantPlanUsage,
+} from "./plan-usage";
+import type { ListedSession } from "./sessions";
+import {
   type ChatTabState,
+  type CommandCard,
   chatKey,
   emptyTabState,
   type QueuedMessage,
@@ -87,6 +98,8 @@ export interface CodexTabTarget {
   cwd: string;
   /** The thread the tab had, to go on with when its program is gone. */
   threadId?: string;
+  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
+  fork?: { threadId: string; title?: string };
   /** What the thread is told beside Codex's own instructions (the agent manager's). */
   developerInstructions?: string;
   /**
@@ -106,6 +119,8 @@ export interface CodexTabHooks {
   onFirstMessage?: (text: string) => void;
   /** The name the thread was given, to take the first message's place. */
   onTitle?: (title: string) => void;
+  /** The profile the tab runs with now, the user having switched it. */
+  onProfile?: (profileId: string) => void;
 }
 
 let counter = 0;
@@ -135,14 +150,31 @@ export class CodexController {
   private disposed = false;
   private titled = false;
   /** What the user picked for the next turn. */
-  private next: { model?: string; effort?: string; mode?: CodexMode } = {};
+  private next: CodexPicks = {};
   private readonly removeReceiver: () => void;
+  /** The tab as a source of its profile's plan usage, taken away as it closes. */
+  private readonly leavePlanUsage: () => void;
+  /** Whether the program is past its handshake, where it can be asked for its limits. */
+  private limitsReadable = false;
 
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
     this.removeReceiver = addLineReceiver(this.key, this);
+    this.leavePlanUsage = registerPlanSource({
+      agent: "codex",
+      usageKey: () => this.usageKey(),
+      ready: () =>
+        this.limitsReadable && this.state.phase === "ready" && this.model.process === "running",
+      busy: () => this.model.running,
+      fetchUsage: () => this.request("account/rateLimits/read", {}),
+    });
+  }
+
+  /** The profile whose plan usage the tab shows: its agent, host and profile. */
+  usageKey(): string {
+    return planUsageKeyFor("codex", this.target.workspaceId, this.target.profileId);
   }
 
   get state(): ChatTabState {
@@ -272,6 +304,18 @@ export class CodexController {
     const { cwd } = this.target;
     const settings = threadSettings(this.target);
     const threadId = this.model.threadId ?? this.target.threadId;
+    const fork = this.target.fork;
+    if (!threadId && fork) {
+      try {
+        await this.request("thread/fork", { threadId: fork.threadId, cwd, ...settings });
+        // The copy is called as the tab it came from was.
+        this.titled = true;
+        if (fork.title) this.hooks.onTitle?.(fork.title);
+        return true;
+      } catch (err) {
+        log.warn(`thread ${fork.threadId} not forked: ${(err as Error).message}`);
+      }
+    }
     if (threadId) {
       try {
         // The log shows what came before already; a new log asks for it.
@@ -287,18 +331,7 @@ export class CodexController {
       }
     }
     try {
-      const mode = this.next.mode;
-      await this.request("thread/start", {
-        cwd,
-        ...settings,
-        ...(this.next.model ? { model: this.next.model } : {}),
-        ...(mode
-          ? {
-              approvalPolicy: MODE_SETTINGS[mode].approvalPolicy,
-              sandbox: SANDBOX_MODES[mode],
-            }
-          : {}),
-      });
+      await this.request("thread/start", threadStartParams(this.target, this.next));
       return true;
     } catch (err) {
       log.warn(`thread/start failed: ${(err as Error).message}`);
@@ -316,6 +349,146 @@ export class CodexController {
     await this.start({});
   }
 
+  /**
+   * The folder's threads that this profile's Codex keeps, newest first
+   * (thread/list), but the tab's own: for /resume and a new tab's list.
+   */
+  async listThreads(): Promise<Omit<ListedSession, "profileId">[]> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const own = this.currentThread();
+    const result = await this.request("thread/list", {
+      cwd: this.target.cwd,
+      sortKey: "updated_at",
+      limit: THREAD_LIST_LIMIT,
+      ...(own ? { excludedThreadIds: [own] } : {}),
+    });
+    return threadsOf(result.data);
+  }
+
+  /**
+   * Goes on with another of the folder's threads in this tab (/resume):
+   * the program starts again with it, and the tab shows its turns, under
+   * the thread's name or first prompt.
+   */
+  async resumeThread(threadId: string, title: string): Promise<void> {
+    if (this.model.running) throw new Error("a turn is running");
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    this.target = { ...this.target, threadId };
+    this.hooks.onThread?.(threadId);
+    this.hooks.onTitle?.(title);
+    this.titled = true;
+    // A command's card told of the thread the tab had.
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      card: undefined,
+      model: nextThreadModel(this.model),
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /**
+   * Starts a new thread in this tab (/new): the program starts again
+   * without one, and the tab takes its default name until the first message.
+   */
+  async newThread(): Promise<void> {
+    if (this.model.running) throw new Error("a turn is running");
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    // The tab's model, effort and preset go on with the new thread, as the
+    // CLI's /new keeps its session's; a pick not sent yet still wins.
+    const picks = { ...picksOf(this.model), ...this.next };
+    this.next = picks;
+    this.target = { ...this.target, threadId: undefined, fork: undefined };
+    this.hooks.onTitle?.("");
+    this.titled = false;
+    // The chips show the picks at once, not the defaults until the thread
+    // starts; a command's card told of the thread the tab had.
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      card: undefined,
+      model: {
+        ...nextThreadModel(this.model),
+        model: picks.model,
+        effort: picks.effort,
+        permissionMode: picks.mode,
+      },
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /**
+   * Starts this tab over in a new thread with another profile: its program
+   * stops, a turn under way with it, and the thread it had is left as it
+   * was. The tab's model and effort are the old profile's, so the new one
+   * starts with its own; the permission preset goes on.
+   */
+  async switchProfile(profileId: string): Promise<void> {
+    if (profileId === (this.target.profileId ?? defaultProfileId("codex"))) return;
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    const mode = this.next.mode ?? picksOf(this.model).mode;
+    this.next = mode ? { mode } : {};
+    this.target = {
+      ...this.target,
+      threadId: undefined,
+      fork: undefined,
+      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+    };
+    this.hooks.onProfile?.(profileId);
+    this.hooks.onTitle?.("");
+    this.titled = false;
+    // The account and its limits are the old profile's too.
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      card: undefined,
+      model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq, permissionMode: mode },
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /** Asks the program for a command (/mcp, /goal, /compact…), once it is running. */
+  async ask(
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown>> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    return this.request(method, params);
+  }
+
+  /** Shows what a command answered above the composer, until it is closed. */
+  showCard(card: Omit<CommandCard, "id">): string {
+    const id = nextId();
+    this.update((prev) => ({ ...prev, card: { ...card, id } }));
+    return id;
+  }
+
+  /** Fills in a card that is still shown. */
+  updateCard(id: string, patch: Partial<Omit<CommandCard, "id">>): void {
+    this.update((prev) =>
+      prev.card?.id === id ? { ...prev, card: { ...prev.card, ...patch } } : prev,
+    );
+  }
+
+  closeCard(): void {
+    this.update((prev) => (prev.card ? { ...prev, card: undefined } : prev));
+  }
+
   /** The thread the tab goes on with, once it has one. */
   currentThread(): string | undefined {
     return this.model.threadId ?? this.target.threadId;
@@ -325,15 +498,20 @@ export class CodexController {
   async refreshAccount(): Promise<void> {
     if (!(await this.ensureRunning())) return;
     await this.request("account/read", {}).catch(() => {});
+    // Another sign-in: what the profile had heard, or had no limits, is past.
+    forgetPlanWait(this.usageKey());
     this.readRateLimits();
   }
 
   /**
-   * Asks for the plan's usage limits; a ChatGPT sign-in has them, and the
-   * program reports them again as they change. Without one it errs, quietly.
+   * The program can be asked for the plan's usage limits now: the profile's
+   * store asks, if it is time, through this tab or another of the profile's.
+   * A ChatGPT sign-in has them, and the program reports them again as they
+   * change. Without one it errs, quietly.
    */
   private readRateLimits(): void {
-    void this.request("account/rateLimits/read", {}).catch(() => {});
+    this.limitsReadable = true;
+    void wantPlanUsage(this.usageKey());
   }
 
   /**
@@ -459,7 +637,7 @@ export class CodexController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘↩). */
+  /** Holds a message until the turn ends (⌘⇧↩). */
   enqueue(text: string, images: ImageBlock[] = []): void {
     const item: QueuedMessage = { id: nextId(), text, images };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
@@ -503,6 +681,35 @@ export class CodexController {
     this.next = { ...this.next, effort: level };
     this.patchModel({ effort: level });
     return undefined;
+  }
+
+  /**
+   * The model and reasoning effort a new conversation starts with, as
+   * Codex's config has them for the tab's folder (config/read).
+   */
+  async readDefaults(): Promise<{ model?: string; effort?: string }> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const result = await this.request("config/read", { cwd: this.target.cwd });
+    const config = (result.config ?? {}) as { model?: unknown; model_reasoning_effort?: unknown };
+    const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    return { model: text(config.model), effort: text(config.model_reasoning_effort) };
+  }
+
+  /**
+   * Saves new defaults in the profile's config.toml (config/batchWrite),
+   * where Codex's /model would. Conversations already open keep theirs,
+   * but this tab takes them, as the CLI's session does.
+   */
+  async saveDefaults(defaults: { model?: string; effort?: string }): Promise<void> {
+    const edits = [
+      ...(defaults.model ? [{ keyPath: "model", value: defaults.model }] : []),
+      ...(defaults.effort ? [{ keyPath: "model_reasoning_effort", value: defaults.effort }] : []),
+    ].map((edit) => ({ ...edit, mergeStrategy: "replace" }));
+    if (edits.length === 0) return;
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    await this.request("config/batchWrite", { edits });
+    if (defaults.model) await this.setModel(defaults.model);
+    if (defaults.effort) await this.setEffort(defaults.effort);
   }
 
   private patchModel(patch: Partial<CodexModel>): void {
@@ -622,6 +829,11 @@ export class CodexController {
       return;
     }
     if (method === "account/login/completed") void this.refreshAccount();
+    // After a turn: the profile's limits as they are now, for all its tabs.
+    if (method === "account/rateLimits/updated") {
+      const params = message.params as Record<string, unknown> | undefined;
+      ingestCodexPush(this.usageKey(), params?.rateLimits, Date.now());
+    }
   }
 
   flushNow(): void {
@@ -637,15 +849,17 @@ export class CodexController {
     if (model === before) return;
     this.update((prev) => ({ ...prev, model, phase: phaseAfter(prev.phase, model) }));
     if (model.threadId && model.threadId !== this.target.threadId) {
-      this.target = { ...this.target, threadId: model.threadId };
+      this.target = { ...this.target, threadId: model.threadId, fork: undefined };
       this.hooks.onThread?.(model.threadId);
     }
-    if (model.threadName && !this.titled) {
+    // The thread's name, when it gets one or another (/rename), is the tab's.
+    if (model.threadName && model.threadName !== before.threadName) {
       this.titled = true;
       this.hooks.onTitle?.(model.threadName);
     }
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
+      this.limitsReadable = false;
       this.ready = Promise.resolve(false);
       this.rejectPending("the program exited");
     }
@@ -672,6 +886,7 @@ export class CodexController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
     this.removeReceiver();
+    this.leavePlanUsage();
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }
@@ -706,6 +921,52 @@ export function threadSettings({
   return {
     ...(developerInstructions ? { developerInstructions } : {}),
     ...(trusted ? { config: { projects: { [cwd]: { trust_level: "trusted" } } } } : {}),
+  };
+}
+
+/** The model, effort and preset a tab picked, for its next turn or thread. */
+export interface CodexPicks {
+  model?: string;
+  effort?: string;
+  mode?: CodexMode;
+}
+
+/** What a thread runs with, as picks: for a new thread to start as it did. */
+export function picksOf(model: CodexModel): CodexPicks {
+  const { permissionMode } = model;
+  return {
+    ...(model.model ? { model: model.model } : {}),
+    ...(model.effort ? { effort: model.effort } : {}),
+    ...(permissionMode && permissionMode in MODE_SETTINGS
+      ? { mode: permissionMode as CodexMode }
+      : {}),
+  };
+}
+
+/**
+ * thread/start's params: the tab's settings, then its picks; the effort
+ * as a config override, as thread/start takes it no other way.
+ */
+export function threadStartParams(
+  target: CodexTabTarget,
+  picks: CodexPicks,
+): Record<string, unknown> {
+  const settings = threadSettings(target);
+  const config = {
+    ...(settings.config as Record<string, unknown> | undefined),
+    ...(picks.effort ? { model_reasoning_effort: picks.effort } : {}),
+  };
+  return {
+    cwd: target.cwd,
+    ...settings,
+    ...(Object.keys(config).length > 0 ? { config } : {}),
+    ...(picks.model ? { model: picks.model } : {}),
+    ...(picks.mode
+      ? {
+          approvalPolicy: MODE_SETTINGS[picks.mode].approvalPolicy,
+          sandbox: SANDBOX_MODES[picks.mode],
+        }
+      : {}),
   };
 }
 
@@ -820,4 +1081,31 @@ export function closeCodexTab(workspaceId: string, tabId: string): void {
     return;
   }
   void ipcCallResult("chat", "close", { workspaceId, tabId }).catch(() => {});
+}
+
+/** How many of the folder's threads /resume lists. */
+const THREAD_LIST_LIMIT = 50;
+
+/** thread/list's threads as a tab's list shows them: the title it was given, else its first prompt. */
+export function threadsOf(data: unknown): Omit<ListedSession, "profileId">[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((raw) => {
+    const thread = (raw ?? {}) as Record<string, unknown>;
+    const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const id = text(thread.id);
+    const preview = text(thread.preview);
+    const title = text(thread.name) ?? preview;
+    if (!id || !title) return [];
+    const branch = text((thread.gitInfo as { branch?: unknown } | null)?.branch);
+    const updated = typeof thread.updatedAt === "number" ? thread.updatedAt : 0;
+    return [
+      {
+        sessionId: id,
+        title: title.split("\n")[0].slice(0, 200),
+        ...(preview ? { firstPrompt: preview } : {}),
+        ...(branch ? { gitBranch: branch } : {}),
+        lastModified: updated * 1000,
+      },
+    ];
+  });
 }

@@ -43,6 +43,12 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onThread: (threadId) => tabs().setCodexThread(workspaceId, tabId, threadId),
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onProfile: (profileId) =>
+      tabs().setChatProfile(
+        workspaceId,
+        tabId,
+        isDefaultProfileId(profileId) ? undefined : profileId,
+      ),
   };
 }
 
@@ -68,11 +74,11 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
     };
   }
   if (tab?.type === "codex") {
-    const { cwd, threadId, profileId } = tab.props;
+    const { cwd, threadId, fork, profileId } = tab.props;
     return {
       agent: "codex",
       controller: codexController(
-        { workspaceId, tabId, cwd, threadId, ...(profileId ? { profileId } : {}) },
+        { workspaceId, tabId, cwd, threadId, fork, ...(profileId ? { profileId } : {}) },
         codexTabHooks(workspaceId, tabId),
       ),
     };

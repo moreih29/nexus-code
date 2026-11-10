@@ -784,7 +784,8 @@
   "resize": {
     "sidebar": "Resize sidebar",
     "horizontal": "Resize panels horizontally",
-    "vertical": "Resize panels vertically"
+    "vertical": "Resize panels vertically",
+    "sessions_list": "Resize the list and the conversation"
   },
   "panel": {
     "connection_failed": "Connection failed",
@@ -863,7 +864,8 @@
       "exited_codex": "Codex exited",
       "restarted_codex": "Codex started again",
       "not_resumed": "Couldn't go on with the earlier conversation; started a new one",
-      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one"
+      "not_resumed_codex": "Couldn't go on with the earlier Codex conversation; started a new one",
+      "review": "Code review"
     },
     "tool": {
       "denied": "Denied",
@@ -1100,7 +1102,8 @@
         "copy_session": "Copy the session ID",
         "fork_session": "Fork the whole session",
         "model": "Model",
-        "version": "Version"
+        "version": "Version",
+        "account": "Account"
       },
       "context": {
         "title": "Context",
@@ -1226,7 +1229,12 @@
       "more": "Show {{count}} more",
       "resume_failed": "Could not go on with the session: {{message}}",
       "show": "Earlier sessions · {{count}}",
-      "all_profiles": "All"
+      "all_profiles": "All",
+      "show_others": "Sessions of other profiles · {{count}}",
+      "title_query": "Earlier sessions · \"{{query}}\"",
+      "loading": "Reading the sessions…",
+      "none_in_profile": "This profile has no sessions of this folder.",
+      "none": "No sessions of this folder to go on with."
     },
     "commands": {
       "close": "Close",
@@ -1302,7 +1310,14 @@
         "web-setup": "Set up cloud sessions with GitHub, in a terminal",
         "remote-env": "Choose the cloud agents' default environment, in a terminal",
         "ultrareview": "Review the branch in a cloud session, in a terminal",
-        "autofix-pr": "Watch the PR and fix what fails, in a terminal"
+        "autofix-pr": "Watch the PR and fix what fails, in a terminal",
+        "resume": "Go on with an earlier session of this folder in this tab",
+        "status": "Show this session's status: version, model, account, Remote Control",
+        "plan": "Switch to plan mode, or view or open this session's plan",
+        "branch": "Branch this conversation here, in a new tab",
+        "remote-control": "Control this session from your phone or claude.ai/code (on or off)",
+        "privacy-settings": "View and change your privacy settings (opens claude.ai)",
+        "ultraplan": "Draft an editable plan in a cloud session (terminal)"
       },
       "fork_none": "Send a message first: there is no conversation to copy yet.",
       "subtask_empty": "Say what the subtask should do: /subtask <task>",
@@ -1347,7 +1362,16 @@
       "plugin_uninstall_body": "The plugin is uninstalled. Its saved data is kept, for if it is installed again.",
       "marketplace_title": "Marketplaces",
       "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
-      "marketplace_open": "Open in terminal"
+      "marketplace_open": "Open in terminal",
+      "resume_busy": "Another session can be taken up once the turn ends.",
+      "plan_on": "Plan mode is on.",
+      "plan_none": "No plan has been written yet.",
+      "plan_title": "This session's plan",
+      "plan_needs_version": "Viewing the plan needs Claude Code {{version}} or later.",
+      "remote_on": "Remote Control is on.",
+      "remote_off": "Remote Control is off.",
+      "remote_unavailable": "Remote Control is not available for this account.",
+      "remote_not_ready": "Remote Control can be changed once Claude has started."
     },
     "codex": {
       "tab_title": "Codex",
@@ -1371,6 +1395,76 @@
         "bypass_confirm_title": "Give Codex full access?",
         "bypass_confirm_body": "Codex will edit any file, run any command and reach the network without asking, outside the sandbox. Use it only where nothing can be harmed.",
         "bypass_confirm": "Give full access"
+      },
+      "commands": {
+        "describe": {
+          "model": "Choose the model (this tab only)",
+          "effort": "Choose the reasoning effort (this tab only)",
+          "config": "The default model and effort for new tabs",
+          "new": "Start a new conversation in this tab",
+          "resume": "Go on with an earlier conversation of this folder in this tab",
+          "fork": "Copy this conversation into a new tab",
+          "rename": "Rename this conversation",
+          "compact": "Summarize the conversation so it stays within the context limit",
+          "review": "Review the uncommitted changes (or as the words given ask)",
+          "init": "Create an AGENTS.md file with instructions for Codex",
+          "goal": "View, set, pause or clear the goal of a long-running task",
+          "status": "Show this conversation's model, folder and context used",
+          "diff": "Show the uncommitted changes",
+          "copy": "Copy Codex's last answer (or the Nth from the end)",
+          "export": "Save the conversation as a Markdown file in the folder",
+          "mcp": "Show the MCP servers and how they stand",
+          "skills": "Show the skills this folder can use",
+          "logout": "Sign out of Codex",
+          "help": "Show the Codex commands the tab runs",
+          "exit": "Close this tab"
+        },
+        "busy": "This can run once the turn ends.",
+        "rename_empty": "Type the new name: /rename <name>",
+        "help_intro": "The commands the Codex tab runs. Anything else that starts with `/` goes to Codex as typed.",
+        "goal_no_thread": "Send a message first: there is no conversation to give a goal yet.",
+        "goal_none": "This conversation has no goal. Set one with /goal <objective>.",
+        "goal_set": "The goal is set. Codex keeps working until it is met.",
+        "goal_cleared": "The goal is cleared.",
+        "goal_paused": "The goal is paused.",
+        "goal_resumed": "The goal goes on.",
+        "goal_tokens": "{{used}} tokens used",
+        "goal_status": {
+          "active": "Active",
+          "paused": "Paused",
+          "blocked": "Blocked",
+          "usageLimited": "Usage limit reached",
+          "budgetLimited": "Token budget spent",
+          "complete": "Complete"
+        },
+        "status": {
+          "model": "Model",
+          "effort": "Effort",
+          "folder": "Folder",
+          "thread": "Conversation",
+          "version": "Version",
+          "account": "Account",
+          "signed_out": "Not signed in",
+          "context": "Context"
+        },
+        "mcp_title_one": "{{count}} MCP server",
+        "mcp_title_other": "{{count}} MCP servers",
+        "mcp_none": "No MCP servers are set up.",
+        "mcp_tools_one": "{{count}} tool",
+        "mcp_tools_other": "{{count}} tools",
+        "mcp_status": {
+          "notStarted": "Not started",
+          "starting": "Starting",
+          "connected": "Connected",
+          "authenticationRequired": "Sign-in needed",
+          "failed": "Failed",
+          "cancelled": "Cancelled",
+          "disabled": "Off",
+          "notLoggedIn": "Sign-in needed"
+        },
+        "logout": "Sign out",
+        "logout_title": "Sign out of Codex?",
+        "logout_body": "This profile's Codex sign-in is removed. You will need to sign in again to use it."
       }
     },
     "usage": {
@@ -1386,6 +1480,7 @@
       },
       "resets_time": "resets {{time}}",
       "resets_date": "resets {{weekday}} {{month}}/{{day}} {{time}}",
+      "resets_short_date": "{{weekday}} {{time}}",
       "meter_tip": "{{label}}: {{percent}}% used",
       "short": {
         "session": "Session",
@@ -1450,7 +1545,14 @@
         "externalEditorContext": "Show last response in external editor",
         "autoConnectIde": "Auto-connect to IDE (external terminal)",
         "defaultToAgentsView": "Open agents view by default",
-        "leftArrowOpensAgents": "Left arrow opens agents view"
+        "leftArrowOpensAgents": "Left arrow opens agents view",
+        "model": "Default model",
+        "effortDefault": "Default effort · {{model}}",
+        "remoteControl": "Remote Control at startup",
+        "agentPushNotifEnabled": "Push when Claude decides",
+        "inputNeededNotifEnabled": "Push when actions required",
+        "promptSuggestionEnabled": "Prompt suggestions",
+        "teammateMode": "Teammate mode"
       },
       "desc": {
         "autoCompact": "Summarizes the conversation when the context fills up.",
@@ -1460,7 +1562,10 @@
         "checkpoints": "Keeps what files were, for a rewind to bring back.",
         "permissionMode": "The mode a new conversation starts in.",
         "gitignore": "Files .gitignore names are left out of @ suggestions.",
-        "worktreeBaseRef": "Where a new worktree's branch starts."
+        "worktreeBaseRef": "Where a new worktree's branch starts.",
+        "model": "The model a new conversation starts with. The composer’s model chip sets only its tab’s.",
+        "effortDefault": "Saved for each model on its own; max is not saved.",
+        "remoteControl": "Turns on Remote Control in each new conversation, to follow it on claude.ai and in the mobile app."
       },
       "option": {
         "outputStyle": {
@@ -1506,7 +1611,24 @@
           "kitty": "Kitty",
           "ghostty": "Ghostty",
           "notifications_disabled": "Off"
+        },
+        "model": {
+          "default": "Default (recommended)",
+          "best": "Best model",
+          "opusplan": "Opus to plan, Sonnet to run"
+        },
+        "remoteControl": {
+          "default": "Default"
+        },
+        "teammateMode": {
+          "auto": "Auto",
+          "in-process": "In-process"
         }
+      },
+      "codex": {
+        "title": "Codex defaults",
+        "description": "The model and reasoning effort a new conversation starts with, saved in this profile’s config.toml.",
+        "effort": "Default reasoning effort"
       }
     },
     "profile": {
@@ -1514,8 +1636,13 @@
       "account": "Account",
       "folder": "Config folder",
       "rule": "Rule",
-      "locked": "The profile cannot change mid-conversation",
-      "newWith": "New conversation with another profile",
+      "switchTo": "Switch this tab to another profile",
+      "switch": {
+        "title": "Switch to {{name}}?",
+        "description": "This tab's conversation closes and a new one starts with {{name}}. The conversation so far is kept.",
+        "running": "The reply in progress stops, and a new conversation starts in this tab with {{name}}. The conversation so far is kept.",
+        "confirm": "Switch"
+      },
       "source": {
         "workspace": "This workspace",
         "folder": "Folder {{path}}",

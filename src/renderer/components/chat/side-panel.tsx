@@ -45,6 +45,7 @@ import {
   todosOf,
   usageLimitsOf,
 } from "../../services/chat/panel";
+import { usePlanUsageStore } from "../../services/chat/plan-usage";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import { formatTokens } from "../../services/chat/usage-line";
 import { firstVersionOf } from "../../services/chat/versions";
@@ -492,8 +493,21 @@ function EnvSection({
       })
       .finally(() => setSwitching(false));
   };
+  const account = model.init?.account;
+  const signedIn = account
+    ? [
+        account.email,
+        account.organization,
+        account.subscription,
+        account.provider && account.provider !== "firstParty" ? account.provider : undefined,
+      ].filter(Boolean)
+    : [];
   return (
-    <Section title={t("chat.panel.env.title")}>
+    <Section
+      title={t("chat.panel.env.title")}
+      reveal={revealSeq(state, "status")}
+      onRevealed={(seq) => takeReveal(controller.key, seq)}
+    >
       <Field label={t("chat.panel.env.remote_control")}>
         <Switch
           checked={remote?.enabled === true}
@@ -555,6 +569,13 @@ function EnvSection({
       {(state.version ?? model.version) && (
         <Field label={t("chat.panel.env.version")}>
           <span className="font-mono text-app-micro">{state.version ?? model.version}</span>
+        </Field>
+      )}
+      {signedIn.length > 0 && (
+        <Field label={t("chat.panel.env.account")}>
+          <span className="min-w-0 truncate text-app-micro" title={signedIn.join(" · ")}>
+            {signedIn.join(" · ")}
+          </span>
         </Field>
       )}
     </Section>
@@ -1100,7 +1121,9 @@ function ChangedRow({ file, cwd, onOpen }: { file: ChangedFile; cwd: string; onO
 
 function UsageSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
   const { t, i18n } = useTranslation();
-  const limits = usageLimitsOf(state.model.usage);
+  // The profile's, one for all its tabs; the tab's own until it has one.
+  const plan = usePlanUsageStore((s) => s.byKey[controller.usageKey()]);
+  const limits = usageLimitsOf(plan?.claude ?? state.model.usage);
   const supported = controller.supports("get_usage");
   const cost = state.model.costUsd;
   return (

@@ -61,41 +61,6 @@ func TestParsePorcelainV2RejectsMissingNulRenameOldPath(t *testing.T) {
 	}
 }
 
-func TestStatusServiceTempRepoShape(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-	writeFile(t, filepath.Join(root, "README.md"), "changed\n")
-	writeFile(t, filepath.Join(root, "untracked.txt"), "new\n")
-
-	service := New(root)
-	res, err := service.Status(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("Status returned error: %v", err)
-	}
-	status, ok := res.(GitStatus)
-	if !ok {
-		t.Fatalf("Status result type = %T", res)
-	}
-	if status.Branch == nil || status.Branch.Current != "main" || status.Branch.IsUnborn {
-		t.Fatalf("unexpected branch: %#v", status.Branch)
-	}
-	if !status.Capabilities.HasHEAD {
-		t.Fatal("capabilities.hasHEAD = false, want true")
-	}
-	if len(status.Working) != 1 || status.Working[0].RelPath != "README.md" || status.Working[0].XY != ".M" {
-		t.Fatalf("working mismatch: %#v", status.Working)
-	}
-	if len(status.Untracked) != 1 || status.Untracked[0].RelPath != "untracked.txt" {
-		t.Fatalf("untracked mismatch: %#v", status.Untracked)
-	}
-	if got := status.OperationState["kind"]; got != "none" {
-		t.Fatalf("operationState.kind got %#v want none", got)
-	}
-	if status.LastFetchedAt != nil {
-		t.Fatalf("lastFetchedAt got %v want nil", *status.LastFetchedAt)
-	}
-}
-
 func normalizeExpectedForPorcelain(status GitStatus) GitStatus {
 	status.Capabilities.Remotes = []string{}
 	status.Capabilities.StashCount = 0

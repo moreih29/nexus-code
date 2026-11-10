@@ -7,9 +7,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { defaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { codexTabHooks } from "../../services/chat/agent-tab";
-import { revealOf } from "../../services/chat/app-commands";
+import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex-commands";
 import {
   type CodexController,
   type CodexTabHooks,
@@ -32,10 +34,13 @@ import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
+import { usePlanUsage } from "../../services/chat/plan-usage";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { codexUsageLine } from "../../services/chat/usage-line";
+import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -46,18 +51,23 @@ import { useChatFontStyle } from "../../state/stores/chat-font";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { CodexTabProps } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { ProfileUsageChip } from "../agent-profiles/tab-profile";
+import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
+import { showToast } from "../ui/toast";
 import { CodexIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
+import { CodexConfigDialog } from "./codex-config-dialog";
+import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
+import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
+import { toolSummary } from "./tool-row";
 import { UsageLineView } from "./usage-line";
 
 interface CodexTabViewProps {
@@ -104,6 +114,7 @@ export function CodexTabView({
           tabId,
           cwd: props.cwd,
           threadId: props.threadId,
+          ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
@@ -114,10 +125,16 @@ export function CodexTabView({
   );
   const state = useChatTab(workspaceId, tabId);
   const model = state.model as CodexModel;
-  const { tokens, rateLimits } = model;
+  const { tokens } = model;
+  // The plan's limits are the profile's, one for all its tabs; the tab's
+  // own until the profile has them.
+  const plan = usePlanUsage("codex", workspaceId, props.profileId);
+  const rateLimits = plan?.codex ?? model.rateLimits;
+  // A minute's clock, so a window that resets leaves the line while it shows.
+  const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(
-    () => codexUsageLine({ tokens, rateLimits }, Date.now()),
-    [tokens, rateLimits],
+    () => codexUsageLine({ tokens, rateLimits }, now),
+    [tokens, rateLimits, now],
   );
 
   // Opened the first time the tab is shown, so restored tabs in the
@@ -155,6 +172,42 @@ export function CodexTabView({
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
+  // /resume's list above the composer, with the words it was given.
+  const [resumeQuery, setResumeQuery] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const profileId = props.profileId ?? defaultProfileId("codex");
+  // The `/` menu: Codex's commands the tab runs, described in the app's words.
+  const commands = useMemo(
+    () => codexCommandsListed((name) => t(`chat.codex.commands.describe.${name}`)),
+    [t],
+  );
+  // Under the empty conversation a failure shows there; from /resume, as a toast.
+  const resumeThread = (
+    threadId: string,
+    title: string,
+    fail: (message: string) => void = setResumeError,
+  ) => {
+    setResumeQuery(null);
+    setResumeError(null);
+    void controller.resumeThread(threadId, title).catch((err: Error) => fail(err.message));
+  };
+  const resumeFailed = (message: string) => {
+    showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
+  };
+  // Another profile starts the tab over; what it has going decides whether to ask.
+  const tabUse: TabUse = model.running
+    ? "running"
+    : model.items.length > 0
+      ? "conversation"
+      : "empty";
+  const switchProfile = (profileId: string) => {
+    setResumeQuery(null);
+    setResumeError(null);
+    void controller
+      .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
   // A tab put out of sight takes its quick look with it.
   useEffect(() => {
     if (!isVisible) setLook(null);
@@ -308,6 +361,20 @@ export function CodexTabView({
                 <div className="max-w-full truncate font-mono text-app-micro" title={props.cwd}>
                   {props.cwd}
                 </div>
+                {resumeError && (
+                  <div className="text-app-ui-sm text-[var(--state-error-fg)]">
+                    {t("chat.sessions.resume_failed", { message: resumeError })}
+                  </div>
+                )}
+                {state.phase === "ready" && (
+                  <CodexSessionList
+                    workspaceId={workspaceId}
+                    tabId={tabId}
+                    controller={controller}
+                    profileId={profileId}
+                    onResume={(threadId, _profile, title) => resumeThread(threadId, title)}
+                  />
+                )}
               </div>
             ) : null
           }
@@ -333,30 +400,96 @@ export function CodexTabView({
         controller={controller}
         state={state}
         local={isLocal}
-        appCommands={false}
+        commands={commands}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
+        above={
+          resumeQuery !== null ? (
+            <CodexSessionList
+              workspaceId={workspaceId}
+              tabId={tabId}
+              controller={controller}
+              profileId={profileId}
+              query={resumeQuery}
+              onClose={() => setResumeQuery(null)}
+              onResume={(threadId, _profile, title) => resumeThread(threadId, title, resumeFailed)}
+            />
+          ) : (
+            state.card && (
+              <CommandCardView
+                card={state.card}
+                workspaceId={workspaceId}
+                cwd={props.cwd}
+                rootPath={rootPath}
+                onClose={() => controller.closeCard()}
+              />
+            )
+          )
+        }
         below={
           <UsageLineView
             line={usageLine}
             trailing={
-              hooks ? undefined : (
-                <ProfileUsageChip
-                  agent="codex"
-                  workspaceId={workspaceId}
-                  cwd={props.cwd}
-                  profileId={props.profileId}
-                />
-              )
+              hooks
+                ? undefined
+                : (compact) => (
+                    <ProfileUsageChip
+                      agent="codex"
+                      workspaceId={workspaceId}
+                      profileId={props.profileId}
+                      use={tabUse}
+                      onSwitch={switchProfile}
+                      compact={compact}
+                    />
+                  )
             }
           />
         }
         onCommand={(text) => {
-          // A bare /model or /effort opens its menu, as Codex's own does;
-          // anything else goes to the model as typed.
+          // A bare /config (or /settings) opens the defaults.
+          if (/^\/(config|settings)$/i.test(text.trim())) {
+            setConfigOpen(true);
+            return true;
+          }
+          // /resume lists the folder's threads, to go on with one here.
+          if (parseAppCommand(text, [])?.name === "resume") {
+            if (state.model.running) {
+              showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
+            } else setResumeQuery(text.trim().replace(/^\/\S+\s*/, ""));
+            return true;
+          }
+          // A bare /model or /effort opens its menu, as Codex's own does.
           const part = revealOf(text, ["model", "effort"]);
-          if (part) revealPart(controller.key, part);
-          return part !== null;
+          if (part) {
+            revealPart(controller.key, part);
+            return true;
+          }
+          // The rest of Codex's commands the tab runs; anything else goes to
+          // the model as typed.
+          const command = parseCodexCommand(text);
+          if (!command || ["model", "effort", "config", "resume"].includes(command.name)) {
+            return false;
+          }
+          const { history, model } = state;
+          runCodexCommand(command, {
+            controller,
+            workspaceId,
+            tabId,
+            cwd: props.cwd,
+            rootPath,
+            ...(props.profileId ? { profileId: props.profileId } : {}),
+            items: history ? [...history.items, ...model.items] : model.items,
+            tools: history ? { ...history.tools, ...model.tools } : model.tools,
+            summarize: (tool) => toolSummary(tool, props.cwd),
+            openFileTab: links.openFileTab,
+          }).catch((err: Error) => showToast({ kind: "error", message: err.message }));
+          return true;
         }}
+      />
+      <CodexConfigDialog
+        controller={controller}
+        state={state}
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
       />
       {look && (
         <QuickLook
