@@ -1,7 +1,8 @@
 // What a chat tab shows of its profile: its dot and name after the tab's
 // title, and under the composer a chip that tells the account, the folder
-// and the rule that gave it, and opens a conversation with another profile;
-// in a narrow tab the chip is the dot alone, its name told on hover.
+// and the rule that gave it, and switches the tab to another profile, in a
+// new conversation; in a narrow tab the chip is the dot alone, its name
+// told on hover.
 // Neither shows while the agent has only its default profile.
 
 import { useMemo, useState } from "react";
@@ -14,7 +15,6 @@ import {
 } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { statusSummary, useProfileStatusStore } from "../../services/agent-profiles/status";
-import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import {
   defaultFolderLabel,
   resolveWorkspaceProfile,
@@ -22,6 +22,7 @@ import {
   useAgentProfilesStore,
 } from "../../state/stores/agent-profiles";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { showConfirmDialog } from "../ui/confirm-dialog";
 import { Popover } from "../ui/popover";
 import { tooltipProps } from "../ui/tooltip";
 import { hasProfileChoice, ProfileDot, profileName } from "./profile-badge";
@@ -43,17 +44,26 @@ export function TabProfileMark({ agent, profileId }: { agent: ChatAgent; profile
   );
 }
 
+/**
+ * What a chat tab has going, for switching its profile: a conversation,
+ * one with a turn under way, or none yet (the recent sessions show).
+ */
+export type TabUse = "empty" | "conversation" | "running";
+
 export function ProfileUsageChip({
   agent,
   workspaceId,
-  cwd,
   profileId,
+  use,
+  onSwitch,
   compact = false,
 }: {
   agent: ChatAgent;
   workspaceId: string;
-  cwd: string;
   profileId?: string;
+  use: TabUse;
+  /** Starts the tab over in a new conversation with another profile. */
+  onSwitch: (profileId: string) => void;
   compact?: boolean;
 }) {
   const { t } = useTranslation();
@@ -95,11 +105,22 @@ export function ProfileUsageChip({
   const others = profilesOf(config, agent).filter((p) => p.id !== profile.id);
   const name = profileName(profile, t);
 
-  const openWith = (id: string) => {
+  // A tab with nothing in it yet switches at once; one with a conversation
+  // asks first, as the conversation leaves the tab.
+  const switchTo = async (id: string, otherName: string) => {
     setOpen(false);
-    const props = { cwd, profileId: id };
-    if (agent === "claude") openClaudeTab(workspaceId, props);
-    else openCodexTab(workspaceId, props);
+    if (use !== "empty") {
+      const ok = await showConfirmDialog({
+        title: t("chat.profile.switch.title", { name: otherName }),
+        description: t(
+          use === "running" ? "chat.profile.switch.running" : "chat.profile.switch.description",
+          { name: otherName },
+        ),
+        confirmLabel: t("chat.profile.switch.confirm"),
+      });
+      if (!ok) return;
+    }
+    onSwitch(id);
   };
 
   return (
@@ -145,17 +166,16 @@ export function ProfileUsageChip({
           <dt className="text-muted-foreground">{t("chat.profile.rule")}</dt>
           <dd className="truncate">{rule}</dd>
         </dl>
-        <p className="text-muted-foreground">{t("chat.profile.locked")}</p>
         {others.length > 0 && (
           <div className="flex flex-col border-t border-border pt-1.5">
             <span className="pb-0.5 text-app-micro text-muted-foreground">
-              {t("chat.profile.newWith")}
+              {t("chat.profile.switchTo")}
             </span>
             {others.map((other) => (
               <button
                 key={other.id}
                 type="button"
-                onClick={() => openWith(other.id)}
+                onClick={() => void switchTo(other.id, profileName(other, t))}
                 className="-mx-1 flex items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left hover:bg-[var(--state-hover-bg)]"
               >
                 <ProfileDot color={other.color} />

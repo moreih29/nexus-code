@@ -43,6 +43,12 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
     onThread: (threadId) => tabs().setCodexThread(workspaceId, tabId, threadId),
     onFirstMessage: (text) => tabs().setProcessTitle(workspaceId, tabId, titleOf(text)),
     onTitle: (title) => tabs().setProcessTitle(workspaceId, tabId, clipTitle(title)),
+    onProfile: (profileId) =>
+      tabs().setChatProfile(
+        workspaceId,
+        tabId,
+        isDefaultProfileId(profileId) ? undefined : profileId,
+      ),
   };
 }
 
