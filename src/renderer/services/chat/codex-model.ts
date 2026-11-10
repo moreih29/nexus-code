@@ -92,6 +92,16 @@ export function emptyCodexModel(): CodexModel {
   return { ...emptyModel(), blocks: {}, requests: {}, originals: {} };
 }
 
+/**
+ * The model a tab starts another thread with (/new, /resume): empty but
+ * for what is the program's or the account's, shown on while the next
+ * handshake reads it again: the models, the sign-in, the usage limits.
+ */
+export function nextThreadModel(prev: CodexModel): CodexModel {
+  const { lastSeq, init, version, account, signedOut, rateLimits } = prev;
+  return { ...emptyCodexModel(), lastSeq, init, version, account, signedOut, rateLimits };
+}
+
 /** A JSON-RPC id as a key, so the number 1 and the string "1" stay apart. */
 export function idKey(id: unknown): string | null {
   return typeof id === "string" || typeof id === "number" ? JSON.stringify(id) : null;

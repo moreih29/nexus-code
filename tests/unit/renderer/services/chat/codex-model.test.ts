@@ -5,6 +5,7 @@ import {
   emptyCodexModel,
   hunksOf,
   modeOf,
+  nextThreadModel,
   originalsFor,
   shellName,
   shownCommand,
@@ -961,5 +962,34 @@ describe("codex commands' answers", () => {
       i.kind === "assistant" ? i.blocks.filter((b) => b.type === "text") : [],
     );
     expect(texts).toEqual([expect.objectContaining({ text: "No issues found." })]);
+  });
+});
+
+describe("another thread in the same tab", () => {
+  test("starts empty but for the program's and the account's", () => {
+    const prev: CodexModel = {
+      ...emptyCodexModel(),
+      lastSeq: 42,
+      threadId: "t1",
+      threadName: "old",
+      model: "gpt-x",
+      effort: "high",
+      permissionMode: "fullAccess",
+      version: "0.167.0",
+      init: { commands: [], models: [], remoteControl: false },
+      account: { type: "chatgpt" },
+      signedOut: false,
+      rateLimits: { primary: { usedPercent: 1 } },
+      items: [{ kind: "notice", key: "n1", code: "compacted" }],
+    };
+    expect(nextThreadModel(prev)).toEqual({
+      ...emptyCodexModel(),
+      lastSeq: 42,
+      version: "0.167.0",
+      init: { commands: [], models: [], remoteControl: false },
+      account: { type: "chatgpt" },
+      signedOut: false,
+      rateLimits: { primary: { usedPercent: 1 } },
+    });
   });
 });
