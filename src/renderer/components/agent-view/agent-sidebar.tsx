@@ -28,17 +28,12 @@ import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { ManagerChip } from "../manager/manager-chip";
 import { AgentRows } from "../sessions/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../sessions/session-status";
 import { AgentMark, RowLine } from "../sessions/status-view";
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRoot,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
@@ -273,12 +268,19 @@ function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
   );
 }
 
-/** The + that starts a Claude or Codex conversation in a workspace, shown in a panel. */
+/**
+ * The + that starts a Claude or Codex conversation in a workspace, shown in
+ * a panel: with the profile the workspace gives, or, where there is more
+ * than one, another picked from its submenu, as the tab bar's + does.
+ */
 function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
-  const start = (kind: "claude" | "codex") => {
+  const start = (kind: "claude" | "codex", profileId?: string) => {
     const open = kind === "claude" ? openClaudeTab : openCodexTab;
-    const tab = open(workspace.id, { cwd: workspace.rootPath });
+    const tab = open(workspace.id, {
+      cwd: workspace.rootPath,
+      ...(profileId ? { profileId } : {}),
+    });
     showInAgentView(workspace.id, tab.id);
   };
   return (
@@ -289,14 +291,16 @@ function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onSelect={() => start("claude")}>
-          <ClaudeIcon aria-hidden className="mr-1.5 size-3.5 shrink-0" />
-          <span className="flex-1">{t("tabBar.new_claude")}</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => start("codex")}>
-          <CodexIcon aria-hidden className="mr-1.5 size-3.5 shrink-0" />
-          <span className="flex-1">{t("tabBar.new_codex")}</span>
-        </DropdownMenuItem>
+        <NewChatMenuItems
+          workspaceId={workspace.id}
+          agent="claude"
+          onOpen={(profileId) => start("claude", profileId)}
+        />
+        <NewChatMenuItems
+          workspaceId={workspace.id}
+          agent="codex"
+          onOpen={(profileId) => start("codex", profileId)}
+        />
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );
