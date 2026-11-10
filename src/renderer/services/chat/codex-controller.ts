@@ -505,6 +505,35 @@ export class CodexController {
     return undefined;
   }
 
+  /**
+   * The model and reasoning effort a new conversation starts with, as
+   * Codex's config has them for the tab's folder (config/read).
+   */
+  async readDefaults(): Promise<{ model?: string; effort?: string }> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const result = await this.request("config/read", { cwd: this.target.cwd });
+    const config = (result.config ?? {}) as { model?: unknown; model_reasoning_effort?: unknown };
+    const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    return { model: text(config.model), effort: text(config.model_reasoning_effort) };
+  }
+
+  /**
+   * Saves new defaults in the profile's config.toml (config/batchWrite),
+   * where Codex's /model would. Conversations already open keep theirs,
+   * but this tab takes them, as the CLI's session does.
+   */
+  async saveDefaults(defaults: { model?: string; effort?: string }): Promise<void> {
+    const edits = [
+      ...(defaults.model ? [{ keyPath: "model", value: defaults.model }] : []),
+      ...(defaults.effort ? [{ keyPath: "model_reasoning_effort", value: defaults.effort }] : []),
+    ].map((edit) => ({ ...edit, mergeStrategy: "replace" }));
+    if (edits.length === 0) return;
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    await this.request("config/batchWrite", { edits });
+    if (defaults.model) await this.setModel(defaults.model);
+    if (defaults.effort) await this.setEffort(defaults.effort);
+  }
+
   private patchModel(patch: Partial<CodexModel>): void {
     this.update((prev) => ({ ...prev, model: { ...prev.model, ...patch } }));
   }

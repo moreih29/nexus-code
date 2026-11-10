@@ -10,6 +10,7 @@ import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-prof
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
+import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
 import {
   type HistoryCut,
   historyModel,
@@ -29,7 +30,7 @@ import {
   type PermissionRequest,
   type UserItem,
 } from "./model";
-import { effortToApply } from "./settings-defaults";
+import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import {
   type ChatTabState,
   type CommandCard,
@@ -53,6 +54,13 @@ const TITLE_FROM_CHARS = 2_000;
 const REPLAY_CATCH_UP_MS = 3_000;
 /** Longest one of Claude Code's own commands (/config) is waited on before the next is sent. */
 const COMMAND_DONE_MS = 10_000;
+
+/**
+ * What a bare /config lists, for each workspace's profile and Claude Code
+ * version: asked of the CLI once (a run of a couple of seconds), and again
+ * after a failure.
+ */
+const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
 /** Least time between two asks for the plan's usage the line under the composer makes. */
 const USAGE_REFRESH_MS = 60_000;
@@ -327,14 +335,25 @@ export class ChatController {
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
+      let remote = false;
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
-        .then(() => {
+        .then((init) => {
+          remote = remoteAtStartup(init);
           // What /add-dir and /sandbox set holds for the tab, not one program.
           if (Object.keys(this.flags).length > 0) {
             return this.request("apply_flag_settings", { settings: this.flags });
           }
         })
         .then(() => this.followSettings())
+        .then(() => {
+          // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
+          if (remote) {
+            return this.request("remote_control", { enabled: true }).then(
+              () => {},
+              (err: Error) => log.warn(`remote control not started: ${err.message}`),
+            );
+          }
+        })
         .then(
           () => {},
           (err: Error) => {
@@ -860,8 +879,12 @@ export class ChatController {
   async readConfig(): Promise<{
     effective: Record<string, unknown>;
     global: Record<string, unknown>;
+    /** The model the program runs ("claude-opus-5-5"), whose default effort is shown. */
+    model?: string;
+    /** The keys a bare /config lists; null when the CLI's list was not read. */
+    listed: ListedKey[] | null;
   }> {
-    const [settings, global] = await Promise.all([
+    const [settings, global, listed] = await Promise.all([
       this.ask("get_settings"),
       ipcCallResult("chat", "claudeConfig", {
         workspaceId: this.target.workspaceId,
@@ -872,15 +895,69 @@ export class ChatController {
           log.warn(`Claude Code's global config not read: ${err.message}`);
           return {};
         }),
+      this.listedConfigKeys(),
     ]);
     const effective = settings.effective;
+    const applied = settings.applied as { model?: unknown } | undefined;
     return {
       effective:
         typeof effective === "object" && effective !== null
           ? (effective as Record<string, unknown>)
           : {},
       global,
+      model: typeof applied?.model === "string" ? applied.model : undefined,
+      listed,
     };
+  }
+
+  /** The keys a bare /config lists, asked of a `claude -p` run beside the tab's. */
+  private listedConfigKeys(): Promise<ListedKey[] | null> {
+    const { workspaceId, cwd, profileId } = this.target;
+    const version = this.state.version ?? this.state.model.version ?? "";
+    const key = [workspaceId, profileId ?? "", version].join("\n");
+    let listed = listedConfigKeys.get(key);
+    if (!listed) {
+      listed = ipcCallResult("chat", "cli", {
+        workspaceId,
+        cwd,
+        ...profileArg(profileId),
+        command: { kind: "configUsage" },
+      })
+        .then((result) => {
+          const keys = parseConfigUsage(configUsageOf(unwrapIpcResult(result).stdout));
+          if (keys.length === 0) throw new Error("no keys in its answer");
+          return keys;
+        })
+        .catch((err: Error) => {
+          log.warn(`/config's keys not listed: ${err.message}`);
+          listedConfigKeys.delete(key);
+          return null;
+        });
+      listedConfigKeys.set(key, listed);
+    }
+    return listed;
+  }
+
+  /**
+   * Applies the settings dialog's changes: its /config messages, which save
+   * the defaults (and switch the session to a new default model), then the
+   * default effort, saved for the model the session runs as Claude Code's
+   * /effort saves it. The tab's own chips take both, as the CLI's session
+   * does.
+   */
+  async applyConfig(
+    messages: readonly string[],
+    after: { model?: string; effort?: string } = {},
+  ): Promise<void> {
+    await this.sendCommands(messages, true);
+    if (after.model) await this.setModel(after.model);
+    if (after.effort) {
+      await this.request("update_settings", {
+        source: "userSettings",
+        settings: { effortLevel: after.effort },
+      });
+      await this.setEffort(after.effort);
+    }
   }
 
   /**
@@ -889,12 +966,14 @@ export class ChatController {
    * the conversation. Each goes once the one before is done, so that it
    * is not taken for a message waiting on a turn.
    */
-  async sendCommands(texts: readonly string[]): Promise<void> {
+  async sendCommands(texts: readonly string[], waitForLast = false): Promise<void> {
     for (const [index, text] of texts.entries()) {
       if (!(await this.ensureRunning())) throw new Error("Claude is not running");
       const message = userMessageOf(text, []);
       await this.write(message);
-      if (index < texts.length - 1) await this.commandDone(message.uuid as string);
+      if (waitForLast || index < texts.length - 1) {
+        await this.commandDone(message.uuid as string);
+      }
     }
   }
 

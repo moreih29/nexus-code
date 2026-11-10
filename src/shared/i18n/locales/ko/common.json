@@ -1450,7 +1450,14 @@
         "externalEditorContext": "외부 편집기에 마지막 응답 표시",
         "autoConnectIde": "IDE 자동 연결 (외부 터미널)",
         "defaultToAgentsView": "기본으로 에이전트 보기 열기",
-        "leftArrowOpensAgents": "← 키로 에이전트 보기 열기"
+        "leftArrowOpensAgents": "← 키로 에이전트 보기 열기",
+        "model": "기본 모델",
+        "effortDefault": "기본 effort · {{model}}",
+        "remoteControl": "시작할 때 원격 제어 켜기",
+        "agentPushNotifEnabled": "Claude가 판단할 때 푸시 알림",
+        "inputNeededNotifEnabled": "조치가 필요할 때 푸시 알림",
+        "promptSuggestionEnabled": "프롬프트 제안",
+        "teammateMode": "팀원 표시 방식"
       },
       "desc": {
         "autoCompact": "컨텍스트가 차면 대화를 요약하고 이어 갑니다.",
@@ -1460,7 +1467,10 @@
         "checkpoints": "되돌리기로 파일을 되살릴 수 있게 이전 내용을 남깁니다.",
         "permissionMode": "새 대화가 시작할 때의 권한 모드입니다.",
         "gitignore": ".gitignore에 있는 파일을 @ 제안에서 뺍니다.",
-        "worktreeBaseRef": "새 워크트리 브랜치가 시작하는 곳입니다."
+        "worktreeBaseRef": "새 워크트리 브랜치가 시작하는 곳입니다.",
+        "model": "새 대화가 시작할 때의 모델입니다. 입력창의 모델 칩은 그 탭에만 적용됩니다.",
+        "effortDefault": "모델마다 따로 저장됩니다. max는 저장되지 않습니다.",
+        "remoteControl": "새 대화마다 claude.ai와 모바일 앱에서 이어 볼 수 있게 원격 제어를 켭니다."
       },
       "option": {
         "outputStyle": {
@@ -1506,7 +1516,24 @@
           "kitty": "Kitty",
           "ghostty": "Ghostty",
           "notifications_disabled": "끄기"
+        },
+        "model": {
+          "default": "기본값 (권장)",
+          "best": "가장 좋은 모델",
+          "opusplan": "계획은 Opus, 실행은 Sonnet"
+        },
+        "remoteControl": {
+          "default": "기본값"
+        },
+        "teammateMode": {
+          "auto": "자동",
+          "in-process": "같은 프로세스"
         }
+      },
+      "codex": {
+        "title": "Codex 기본 설정",
+        "description": "새 대화가 시작할 때의 모델과 추론 강도입니다. 이 프로필의 config.toml에 저장됩니다.",
+        "effort": "기본 추론 강도"
       }
     },
     "profile": {

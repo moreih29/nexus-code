@@ -1450,7 +1450,14 @@
         "externalEditorContext": "Show last response in external editor",
         "autoConnectIde": "Auto-connect to IDE (external terminal)",
         "defaultToAgentsView": "Open agents view by default",
-        "leftArrowOpensAgents": "Left arrow opens agents view"
+        "leftArrowOpensAgents": "Left arrow opens agents view",
+        "model": "Default model",
+        "effortDefault": "Default effort · {{model}}",
+        "remoteControl": "Remote Control at startup",
+        "agentPushNotifEnabled": "Push when Claude decides",
+        "inputNeededNotifEnabled": "Push when actions required",
+        "promptSuggestionEnabled": "Prompt suggestions",
+        "teammateMode": "Teammate mode"
       },
       "desc": {
         "autoCompact": "Summarizes the conversation when the context fills up.",
@@ -1460,7 +1467,10 @@
         "checkpoints": "Keeps what files were, for a rewind to bring back.",
         "permissionMode": "The mode a new conversation starts in.",
         "gitignore": "Files .gitignore names are left out of @ suggestions.",
-        "worktreeBaseRef": "Where a new worktree's branch starts."
+        "worktreeBaseRef": "Where a new worktree's branch starts.",
+        "model": "The model a new conversation starts with. The composer’s model chip sets only its tab’s.",
+        "effortDefault": "Saved for each model on its own; max is not saved.",
+        "remoteControl": "Turns on Remote Control in each new conversation, to follow it on claude.ai and in the mobile app."
       },
       "option": {
         "outputStyle": {
@@ -1506,7 +1516,24 @@
           "kitty": "Kitty",
           "ghostty": "Ghostty",
           "notifications_disabled": "Off"
+        },
+        "model": {
+          "default": "Default (recommended)",
+          "best": "Best model",
+          "opusplan": "Opus to plan, Sonnet to run"
+        },
+        "remoteControl": {
+          "default": "Default"
+        },
+        "teammateMode": {
+          "auto": "Auto",
+          "in-process": "In-process"
         }
+      },
+      "codex": {
+        "title": "Codex defaults",
+        "description": "The model and reasoning effort a new conversation starts with, saved in this profile’s config.toml.",
+        "effort": "Default reasoning effort"
       }
     },
     "profile": {
