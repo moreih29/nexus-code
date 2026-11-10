@@ -11,7 +11,7 @@ import { hasProfileChoice } from "../agent-profiles/profile-badge";
 import { TabProfileMark } from "../agent-profiles/tab-profile";
 
 /** The profile id the session's tab runs with; undefined for its agent's default, or a terminal. */
-function useTabProfileId(session: AgentSession): string | undefined {
+export function useTabProfileId(session: AgentSession): string | undefined {
   return useTabsStore((s) => {
     const tab = s.byWorkspace[session.workspaceId]?.[session.tabId];
     return tab?.type === "claude" || tab?.type === "codex" ? tab.props.profileId : undefined;

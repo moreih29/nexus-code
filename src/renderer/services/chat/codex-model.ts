@@ -1237,7 +1237,7 @@ function limitWindowOf(raw: unknown): CodexLimitWindow | undefined {
 }
 
 /** A RateLimitSnapshot's windows; undefined when it has none. */
-function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
+export function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
   const snapshot = rec(raw);
   const primary = limitWindowOf(snapshot?.primary);
   const secondary = limitWindowOf(snapshot?.secondary);
@@ -1255,7 +1255,7 @@ function rateLimitsOf(raw: unknown): CodexRateLimits | undefined {
  * only, and one it leaves out still holds. Another bucket's update (a
  * different limitId) is not the tab's.
  */
-function mergeRateLimits(
+export function mergeRateLimits(
   prev: CodexRateLimits | undefined,
   raw: unknown,
 ): CodexRateLimits | undefined {
