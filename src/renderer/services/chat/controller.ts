@@ -492,9 +492,11 @@ export class ChatController {
     }
     this.hooks.onTarget?.({ sessionId });
     this.titled = false;
+    // A command's card told of the session the tab had.
     this.update((prev) => ({
       ...prev,
       history: null,
+      card: undefined,
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
     }));
     await this.loadTranscript(sessionId);
@@ -1339,9 +1341,11 @@ export class ChatController {
       this.hooks.onSession?.(model.sessionId);
       if (branch) void this.renameSession(branch).catch(() => {});
     }
-    // What the tab showed before a /clear is another session's.
+    // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {
-      this.update((prev) => (prev.history ? { ...prev, history: null } : prev));
+      this.update((prev) =>
+        prev.history || prev.card ? { ...prev, history: null, card: undefined } : prev,
+      );
     }
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
