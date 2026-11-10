@@ -3,7 +3,7 @@
  * whose tabs still exist, and a change is stored once things settle, never
  * before what was stored came back.
  */
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from "bun:test";
 
 const stored: unknown[] = [];
 
@@ -24,16 +24,19 @@ const P2 = "00000000-0000-4000-8000-0000000000a2";
 const A = "ws-a:t1";
 const B = "ws-b:t2";
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
+/** Past the store's wait before it stores a change. */
+const settle = () => jest.advanceTimersByTime(400);
 
 describe("agent view store", () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     stored.length = 0;
     __resetAgentViewForTests();
   });
 
   afterEach(() => {
     __resetAgentViewForTests();
+    jest.useRealTimers();
   });
 
   it("restores the mode and the panels, without the agents whose tabs closed", () => {

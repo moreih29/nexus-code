@@ -48,6 +48,8 @@ export interface TaskServiceDeps {
   readonly getRepository: (workspaceId: string) => Promise<GitRepository | null>;
   /** Whether a local path exists; injectable for tests. */
   readonly localPathExists?: (p: string) => boolean;
+  /** How it waits between tries at removing a worktree; injectable for tests. */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 export interface CreateTaskArgs {
@@ -141,8 +143,9 @@ export async function removeTask(
   deps.manager.remove(id);
   if (!repo) return;
 
-  await removeWorktree(repo, task.worktreePath);
-  if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath);
+  const wait = deps.sleep ?? sleep;
+  await removeWorktree(repo, task.worktreePath, wait);
+  if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath, wait);
   if (deleteBranch === true) await repo.deleteBranch(task.branch, true);
   if (deleteBranch === "merged") await repo.deleteBranch(task.branch, false).catch(() => {});
 }
@@ -164,7 +167,11 @@ async function worktreeHasChanges(repo: GitRepository, worktreePath: string): Pr
  * failure is retried once. A failed attempt can still drop git's record with
  * the files, leaving the folder, so then the retry finds no working tree.
  */
-async function removeWorktree(repo: GitRepository, worktreePath: string): Promise<void> {
+async function removeWorktree(
+  repo: GitRepository,
+  worktreePath: string,
+  wait: (ms: number) => Promise<void>,
+): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
       await repo.removeWorktree(worktreePath, true);
@@ -176,7 +183,7 @@ async function removeWorktree(repo: GitRepository, worktreePath: string): Promis
         return;
       }
       if (attempt === 2) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await wait(500);
     }
   }
 }
@@ -194,14 +201,17 @@ const HELD_FOLDER_INTERVAL_MS = 1000;
  * returns. So a folder still held is tried again after the removal returns,
  * for a minute. One that stays, or has files in it, is left as it is.
  */
-async function removeEmptyFolder(folder: string): Promise<void> {
+async function removeEmptyFolder(
+  folder: string,
+  wait: (ms: number) => Promise<void>,
+): Promise<void> {
   for (let attempt = 1; attempt <= EMPTY_FOLDER_ATTEMPTS; attempt++) {
     if (await removedOrKept(folder)) return;
-    await sleep(100 * attempt);
+    await wait(100 * attempt);
   }
   void (async () => {
     for (let waited = 0; waited < HELD_FOLDER_MS; waited += HELD_FOLDER_INTERVAL_MS) {
-      await sleep(HELD_FOLDER_INTERVAL_MS);
+      await wait(HELD_FOLDER_INTERVAL_MS);
       if (await removedOrKept(folder)) return;
     }
   })();

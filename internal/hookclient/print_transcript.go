@@ -17,8 +17,9 @@ import (
 )
 
 // printTranscriptPoll is how often a run's transcript is looked for, and
-// then read for what was written to it.
-const printTranscriptPoll = 200 * time.Millisecond
+// then read for what was written to it; a variable, so tests can look more
+// often.
+var printTranscriptPoll = 200 * time.Millisecond
 
 // printTranscript follows a run's transcript.
 type printTranscript struct {

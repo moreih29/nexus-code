@@ -514,6 +514,9 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("signals")
 	}
+	// The old program ignores the stop, so it ends only when killed.
+	defer func(grace time.Duration) { stopGrace = grace }(stopGrace)
+	stopGrace = 100 * time.Millisecond
 	service := New()
 	rec := newRecorder()
 	service.SetEventSink(rec.sink)

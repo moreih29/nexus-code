@@ -220,7 +220,7 @@ describeInGitBash("codex wrapper — Git Bash on Windows", () => {
 
 describeOnWindows("PowerShell's codex function", () => {
   /** Runs `calls` after the function in Windows PowerShell, with a fake codex.cmd on PATH. */
-  function runPowerShell(calls: string, env: Record<string, string> = {}): string {
+  function runPowerShell(calls: string): string {
     const realDir = path.join(tmp, "real");
     write(
       path.join(realDir, "codex.cmd"),
@@ -246,7 +246,7 @@ describeOnWindows("PowerShell's codex function", () => {
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-EncodedCommand", script],
       {
-        env: { ...process.env, ...env, PATH: `${realDir};${process.env.PATH ?? ""}` },
+        env: { ...process.env, PATH: `${realDir};${process.env.PATH ?? ""}` },
         encoding: "utf8",
         timeout: 30000,
       },
@@ -254,13 +254,18 @@ describeOnWindows("PowerShell's codex function", () => {
     return result.stdout.replaceAll("\r", "");
   }
 
-  // Two starts of Windows PowerShell, each running codex.cmd a few times,
-  // can take longer than bun's 5 s on a CI runner, which then kills them.
-  // The test waits as long as its spawns may.
+  // One start of Windows PowerShell, which is slow to start, for every
+  // case: the function asks codex for its options on each call, so the last
+  // one, after FAKE_OLD is set, meets a codex without the option. Running
+  // codex.cmd this often can still outlast bun's 5 s on a CI runner, so the
+  // test waits as long as its spawn may.
   test("adds --no-daemon unless codex refuses it or lacks it", () => {
-    expect(runPowerShell("codex 'a b'; codex agents; codex --remote=ws://x; codex resume")).toBe(
-      'ARGS:--no-daemon "a b"\nARGS:agents\nARGS:--remote=ws://x\nARGS:--no-daemon resume\n',
+    expect(
+      runPowerShell(
+        "codex 'a b'; codex agents; codex --remote=ws://x; codex resume; $env:FAKE_OLD = '1'; codex hi",
+      ),
+    ).toBe(
+      'ARGS:--no-daemon "a b"\nARGS:agents\nARGS:--remote=ws://x\nARGS:--no-daemon resume\nARGS:hi\n',
     );
-    expect(runPowerShell("codex hi", { FAKE_OLD: "1" })).toBe("ARGS:hi\n");
   }, 60_000);
 });
