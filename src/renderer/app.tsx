@@ -65,8 +65,12 @@ const log = createLogger("app");
 export function App() {
   const { t } = useTranslation("settings");
   const monaco = useMonaco();
-  const { workspaces, setAll } = useWorkspacesStore();
-  const { activeWorkspaceId, setActiveWorkspaceId } = useActiveStore();
+  // Picked one by one: the whole store would render the app, every
+  // workspace's tabs below it, for each connection status and progress.
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const setAll = useWorkspacesStore((s) => s.setAll);
+  const activeWorkspaceId = useActiveStore((s) => s.activeWorkspaceId);
+  const setActiveWorkspaceId = useActiveStore((s) => s.setActiveWorkspaceId);
   const settingsOpen = useSettingsUIStore((s) => s.settingsOpen);
   const settingsInitialActiveId = useSettingsUIStore((s) => s.initialActiveId);
   const closeSettings = useSettingsUIStore((s) => s.closeSettings);
@@ -370,10 +374,14 @@ export function App() {
     }
   }, [workspaces, activeWorkspaceId, setActiveWorkspaceId]);
 
+  // Read from the stores when called, so it stays the same function across
+  // switches and the sidebar's rows are not handed a new one each time.
   const handleSelectWorkspace = useCallback(
     (id: string) => {
       // The sidebar row stands for the workspace and its tasks; clicking the
       // row the active task belongs to keeps that task.
+      const activeWorkspaceId = useActiveStore.getState().activeWorkspaceId;
+      const workspaces = useWorkspacesStore.getState().workspaces;
       if (
         activeWorkspaceId !== null &&
         activeWorkspaceId !== id &&
@@ -387,7 +395,7 @@ export function App() {
         if (!result.ok) log.warn(`workspace activate failed: ${result.message}`);
       });
     },
-    [workspaces, activeWorkspaceId, setActiveWorkspaceId],
+    [setActiveWorkspaceId],
   );
 
   const handleAddWorkspace = useCallback(() => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
@@ -140,138 +140,152 @@ export function ContentHost({
     };
   }, [portalTarget]);
 
+  // Only a terminal and a browser are told where they are placed; the
+  // others would re-render for nothing each time the agent view comes or
+  // goes, which moves every tab's placement.
+  const placed = tab.type === "terminal" || tab.type === "browser";
+  const leafId = placed ? placedLeafId : null;
+  const parentEl = placed ? currentParent : null;
+
   // No CSS-based visibility masking on the inner wrapper: when the tab is
   // not visible, its portalTarget lives in the view park (off-screen, inert,
   // visibility:hidden, contain:strict), so it is already neither painted nor
   // hit-tested. Adding `invisible pointer-events-none` here would be dead
   // weight and previously caused the stacking bug this rule fixes.
-  const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
-  const inner = (
-    <div className="absolute inset-0">
-      {tab.type === "terminal" ? (
-        <TerminalView
-          workspaceId={workspaceId}
-          tabId={tab.id}
-          cwd={tab.props.cwd}
-          ownerLeafId={placedLeafId}
-          parentEl={currentParent}
-          isVisible={isVisible}
-        />
-      ) : tab.type === "editor" ? (
-        // key on filePath: the preview-slot reuse path swaps props.filePath on
-        // the same Tab id, so without a key the EditorView would keep the same
-        // monaco editor instance while useSharedModel disposed the old model
-        // out from under it — triggering "InstantiationService has been disposed"
-        // when setModel ran against the half-torn editor. Remounting on filePath
-        // change gives @monaco-editor/react a clean dispose + create cycle.
-        //
-        // Raster images route to ImageEditorView, which renders an `<img>`
-        // via the `nexus-workspace://` protocol and bypasses Monaco/model
-        // acquisition. Sharing the same `key={filePath}` keeps split-tab
-        // and preview-slot behaviour identical to the text path.
-        //
-        // Audio and video route to MediaEditorView, fonts to FontEditorView,
-        // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, Word
-        // documents to DocxEditorView, and presentations to PptxEditorView,
-        // the same way.
-        //
-        // tabId is forwarded so EditorView can read its own viewMode from the
-        // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
-        isImageFile(tab.props.filePath) ? (
-          <ImageEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
+  //
+  // Kept while what it is made of holds: a workspace switch or the agent
+  // view's toggle renders every tab's host, and without this every tab's
+  // view (each transcript, composer and menu) with it. A view still renders
+  // for its own stores and contexts.
+  const inner = useMemo(() => {
+    const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
+    return (
+      <div className="absolute inset-0">
+        {tab.type === "terminal" ? (
+          <TerminalView
             workspaceId={workspaceId}
-          />
-        ) : mediaKind ? (
-          <MediaEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-            kind={mediaKind}
-          />
-        ) : isFontFile(tab.props.filePath) ? (
-          <FontEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-          />
-        ) : isPdfFile(tab.props.filePath) ? (
-          <PdfEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-          />
-        ) : isSpreadsheetFile(tab.props.filePath) ? (
-          <SpreadsheetEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-          />
-        ) : isDocxFile(tab.props.filePath) ? (
-          <DocxEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-          />
-        ) : isPresentationFile(tab.props.filePath) ? (
-          <PptxEditorView
-            key={tab.props.filePath}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-          />
-        ) : (
-          <EditorView
-            key={tab.props.filePath}
             tabId={tab.id}
-            filePath={tab.props.filePath}
-            workspaceId={workspaceId}
-            // External tabs must reload through the external loader after a
-            // restart; as workspace files they resolved under the root.
-            origin={tab.props.origin}
+            cwd={tab.props.cwd}
+            ownerLeafId={leafId}
+            parentEl={parentEl}
+            isVisible={isVisible}
           />
-        )
-      ) : tab.type === "untitled" ? (
-        <EditorView
-          key={`untitled-${tab.props.untitledIndex}`}
-          tabId={tab.id}
-          filePath={`Untitled-${tab.props.untitledIndex}`}
-          workspaceId={workspaceId}
-          origin="untitled"
-        />
-      ) : tab.type === "editor.diff" ? (
-        <DiffTab tabId={tab.id} {...tab.props} />
-      ) : tab.type === "git.commit" ? (
-        <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
-      ) : tab.type === "browser" ? (
-        <BrowserTabView
-          tabId={tab.id}
-          workspaceId={workspaceId}
-          initialUrl={tab.props.initialUrl}
-          lastUrl={tab.props.lastUrl}
-          partition={tab.props.partition}
-          isActive={isVisible}
-          parentEl={currentParent}
-        />
-      ) : tab.type === "sessions" ? (
-        <SessionsTabView workspaceId={workspaceId} isVisible={isVisible} />
-      ) : tab.type === "claude" ? (
-        <ClaudeTabView
-          workspaceId={workspaceId}
-          tabId={tab.id}
-          props={tab.props}
-          isVisible={isVisible}
-        />
-      ) : tab.type === "codex" ? (
-        <CodexTabView
-          workspaceId={workspaceId}
-          tabId={tab.id}
-          props={tab.props}
-          isVisible={isVisible}
-        />
-      ) : null}
-    </div>
-  );
+        ) : tab.type === "editor" ? (
+          // key on filePath: the preview-slot reuse path swaps props.filePath on
+          // the same Tab id, so without a key the EditorView would keep the same
+          // monaco editor instance while useSharedModel disposed the old model
+          // out from under it — triggering "InstantiationService has been disposed"
+          // when setModel ran against the half-torn editor. Remounting on filePath
+          // change gives @monaco-editor/react a clean dispose + create cycle.
+          //
+          // Raster images route to ImageEditorView, which renders an `<img>`
+          // via the `nexus-workspace://` protocol and bypasses Monaco/model
+          // acquisition. Sharing the same `key={filePath}` keeps split-tab
+          // and preview-slot behaviour identical to the text path.
+          //
+          // Audio and video route to MediaEditorView, fonts to FontEditorView,
+          // PDFs to PdfEditorView, spreadsheets to SpreadsheetEditorView, Word
+          // documents to DocxEditorView, and presentations to PptxEditorView,
+          // the same way.
+          //
+          // tabId is forwarded so EditorView can read its own viewMode from the
+          // tabs store (Raw/Preview toggle per-tab persistence — plan 60).
+          isImageFile(tab.props.filePath) ? (
+            <ImageEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : mediaKind ? (
+            <MediaEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+              kind={mediaKind}
+            />
+          ) : isFontFile(tab.props.filePath) ? (
+            <FontEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : isPdfFile(tab.props.filePath) ? (
+            <PdfEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : isSpreadsheetFile(tab.props.filePath) ? (
+            <SpreadsheetEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : isDocxFile(tab.props.filePath) ? (
+            <DocxEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : isPresentationFile(tab.props.filePath) ? (
+            <PptxEditorView
+              key={tab.props.filePath}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+            />
+          ) : (
+            <EditorView
+              key={tab.props.filePath}
+              tabId={tab.id}
+              filePath={tab.props.filePath}
+              workspaceId={workspaceId}
+              // External tabs must reload through the external loader after a
+              // restart; as workspace files they resolved under the root.
+              origin={tab.props.origin}
+            />
+          )
+        ) : tab.type === "untitled" ? (
+          <EditorView
+            key={`untitled-${tab.props.untitledIndex}`}
+            tabId={tab.id}
+            filePath={`Untitled-${tab.props.untitledIndex}`}
+            workspaceId={workspaceId}
+            origin="untitled"
+          />
+        ) : tab.type === "editor.diff" ? (
+          <DiffTab tabId={tab.id} {...tab.props} />
+        ) : tab.type === "git.commit" ? (
+          <CommitTab workspaceId={workspaceId} sha={tab.props.sha} tabId={tab.id} />
+        ) : tab.type === "browser" ? (
+          <BrowserTabView
+            tabId={tab.id}
+            workspaceId={workspaceId}
+            initialUrl={tab.props.initialUrl}
+            lastUrl={tab.props.lastUrl}
+            partition={tab.props.partition}
+            isActive={isVisible}
+            parentEl={parentEl}
+          />
+        ) : tab.type === "sessions" ? (
+          <SessionsTabView workspaceId={workspaceId} isVisible={isVisible} />
+        ) : tab.type === "claude" ? (
+          <ClaudeTabView
+            workspaceId={workspaceId}
+            tabId={tab.id}
+            props={tab.props}
+            isVisible={isVisible}
+          />
+        ) : tab.type === "codex" ? (
+          <CodexTabView
+            workspaceId={workspaceId}
+            tabId={tab.id}
+            props={tab.props}
+            isVisible={isVisible}
+          />
+        ) : null}
+      </div>
+    );
+  }, [tab, workspaceId, isVisible, leafId, parentEl]);
 
   return createPortal(inner, portalTarget);
 }

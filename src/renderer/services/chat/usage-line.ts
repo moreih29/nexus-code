@@ -4,6 +4,7 @@
  * or Codex program last reported.
  */
 
+import { dateTimeFormat } from "../../utils/intl-format";
 import type { CodexLimitWindow, CodexModel } from "./codex-model";
 import type { ChatModel } from "./model";
 import { contextOf, usageLimitsOf } from "./panel";
@@ -144,18 +145,21 @@ export interface ResetParts {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+const RESET_TIME: Intl.DateTimeFormatOptions = {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+};
+const RESET_WEEKDAY: Intl.DateTimeFormatOptions = { weekday: "short" };
+
 export function resetParts(resetsAt: number, now: number, locale: string): ResetParts {
   const date = new Date(resetsAt);
   return {
     soon: resetsAt - now < DAY_MS,
-    time: new Intl.DateTimeFormat(locale, {
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).format(date),
+    time: dateTimeFormat(locale, RESET_TIME).format(date),
     month: date.getMonth() + 1,
     day: date.getDate(),
-    weekday: new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date),
+    weekday: dateTimeFormat(locale, RESET_WEEKDAY).format(date),
   };
 }
 

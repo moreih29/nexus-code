@@ -235,17 +235,25 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   };
 
   const [rewinding, setRewinding] = useState<UserItem | null>(null);
-  const actions: MessageActions = {
-    running: state.model.running,
-    canFork: !hooks && controller.forkPoint("", { before: false }) !== null,
-    onRewind: (item) => setRewinding(item),
-    ...(hooks ? {} : { onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item) }),
-    onBackground: (toolUseId) =>
-      controller
-        .backgroundTool(toolUseId)
-        .catch((err: Error) => showToast({ kind: "error", message: err.message })),
-    waiting: new Set(state.model.permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
-  };
+  // Kept while what it says holds, so the conversation's messages do not
+  // all render each time the tab does.
+  const running = state.model.running;
+  const canFork = !hooks && controller.forkPoint("", { before: false }) !== null;
+  const asking = state.model.permissions;
+  const actions = useMemo<MessageActions>(
+    () => ({
+      running,
+      canFork,
+      onRewind: (item) => setRewinding(item),
+      ...(hooks ? {} : { onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item) }),
+      onBackground: (toolUseId) =>
+        controller
+          .backgroundTool(toolUseId)
+          .catch((err: Error) => showToast({ kind: "error", message: err.message })),
+      waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+    }),
+    [running, canFork, hooks, controller, workspaceId, props.cwd, asking],
+  );
 
   // Where the side panel goes follows the tab's width.
   const rootRef = useRef<HTMLDivElement>(null);

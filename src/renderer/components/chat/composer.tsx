@@ -61,6 +61,7 @@ import {
   takeReveal,
 } from "../../services/chat/store";
 import { firstVersionOf } from "../../services/chat/versions";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -159,6 +160,11 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
 function fitHeight(area: HTMLTextAreaElement, column: HTMLElement | null | undefined): void {
   area.style.height = "auto";
   area.style.height = `${Math.min(area.scrollHeight, maxTextHeight(column?.clientHeight ?? 0))}px`;
+}
+
+/** In the background, a few pixels wide and inert: a height fitted there is wrong once it shows. */
+function parked(area: HTMLElement): boolean {
+  return area.clientWidth === 0 || area.closest("[inert]") !== null;
 }
 
 export function Composer({
@@ -308,9 +314,16 @@ export function Composer({
     edit(`${text.slice(0, at)}${space}@${text.slice(at)}`, at + space.length + 1);
   };
 
+  // Fitted as what it holds or how it is written changes, not on every
+  // render: each fit lays the page out (a streamed answer renders the
+  // composer at every chunk). A tab parked in the background waits for the
+  // observer below, which fits it as it shows.
+  const font = useChatFontStyle();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fits again as the text, placeholder or font changes
   useLayoutEffect(() => {
-    if (areaRef.current) fitHeight(areaRef.current, rootRef.current?.parentElement);
-  });
+    const area = areaRef.current;
+    if (area && !parked(area)) fitHeight(area, rootRef.current?.parentElement);
+  }, [text, placeholder, font]);
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
   // shows, so a new width fits it again. The cap follows the column's
@@ -326,7 +339,7 @@ export function Composer({
       if (area.clientWidth === width && nextHeight === height) return;
       width = area.clientWidth;
       height = nextHeight;
-      fitHeight(area, column);
+      if (!parked(area)) fitHeight(area, column);
     });
     observer.observe(area);
     if (column) observer.observe(column);
