@@ -477,25 +477,40 @@ describe("codex model", () => {
     expect(m.items.some((i) => i.kind === "notice")).toBe(false);
   });
 
-  test("a thread that cannot be resumed says so, not the server's error", () => {
-    const m = run([
-      sys({ event: "start", pid: 1 }),
-      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
-      out({
-        id: "app-r",
-        error: { code: -32600, message: `no rollout found for thread id ${T}` },
-      }),
-      ...started().slice(3),
-    ]);
-    expect(m.items).toEqual([
+  const notResumed = (): ChatLine[] => [
+    sys({ event: "start", pid: 2 }),
+    inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+    out({
+      id: "app-r",
+      error: { code: -32600, message: `no rollout found for thread id ${T}` },
+    }),
+    ...started().slice(3),
+  ];
+
+  test("a conversation that cannot be resumed says so, not the server's error", () => {
+    const m = run([...started(), ...sendTurn("hello"), ...notResumed()]);
+    expect(m.items.at(-1)).toEqual(
       expect.objectContaining({
         kind: "notice",
         code: "not_resumed",
         detail: `no rollout found for thread id ${T}`,
       }),
-    ]);
+    );
     expect(m.threadId).toBe(T);
     expect(m.outgoing).toEqual({});
+  });
+
+  test("a thread that never had a turn starts over without a word", () => {
+    // Codex saves a thread with its first turn: an unused one is not there.
+    const once = run([...started(), ...notResumed()]);
+    expect(once.items).toEqual([]);
+    expect(once.threadId).toBe(T);
+    // Nor again after that, the notice of an earlier one being no conversation.
+    const withNotice = run(notResumed(), {
+      ...emptyCodexModel(),
+      items: [{ kind: "notice", key: "n0", code: "not_resumed" }],
+    });
+    expect(withNotice.items).toHaveLength(1);
   });
 
   test("a resumed thread shows its turns", () => {
