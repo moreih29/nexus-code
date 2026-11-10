@@ -8,7 +8,7 @@
 // place until closed.
 
 import { ChevronDown, GitBranch, GitBranchPlus, List, Plus, Search } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
@@ -20,14 +20,18 @@ import type { SessionsView } from "../../../shared/sessions/view";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { newTask } from "../../services/sessions/actions";
 import { findAgent } from "../../services/sessions/agents";
+import type { InboxItem } from "../../services/sessions/inbox";
+import type { SessionFamily } from "../../services/sessions/model";
 import {
   useSessionActivity,
   useSessionFamily,
   useTerminalWaits,
   useWorktreeChanges,
 } from "../../services/sessions/use-family";
+import { markRead } from "../../services/sessions/use-inbox";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { resolveWorkspaceProfile, useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import { useAppFocusStore } from "../../state/stores/app-focus";
 import { selectSessionsView, useSessionsViewStore } from "../../state/stores/sessions-view";
 import { useTerminalStore } from "../../state/stores/terminal";
 import {
@@ -77,6 +81,25 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
     : null;
   // The task view and a task's detail tell which terminal waits on which.
   const waits = useTerminalWaits(isVisible && (view === "task" || selection?.kind === "worktree"));
+  // A done conversation the user picks and reads here is read, as it is in
+  // its own tab: not one shown first by itself, nor while the window is away.
+  const [readKey, setReadKey] = useState<string | null>(null);
+  const focused = useAppFocusStore((s) => s.focused);
+  const reading =
+    family && selection?.kind === "session" && selection.key === readKey && isVisible && focused
+      ? findSession(family, selection.key)
+      : undefined;
+  // Once for each result it reads, not on each render while it shows.
+  const doneKey =
+    reading?.session.phase === "done"
+      ? `${reading.session.key}@${reading.session.since ?? ""}`
+      : null;
+  const readingRef = useRef(reading);
+  readingRef.current = reading;
+  useEffect(() => {
+    if (doneKey !== null && readingRef.current) markRead([readingRef.current]);
+  }, [doneKey]);
+
   // Keep what was shown first, so the panel doesn't jump as states change;
   // move on only when it is gone, and then back to the list where narrow.
   const selectionKey = selection && keyOf(selection);
@@ -95,6 +118,7 @@ export function SessionsTabView({ workspaceId, isVisible }: SessionsTabViewProps
   const select = (next: SessionsSelection) => {
     setPicked(next);
     setDetailOpen(true);
+    setReadKey(next.kind === "session" ? next.key : null);
   };
 
   return (
@@ -195,6 +219,15 @@ function useWidth(): [number, (el: HTMLElement | null) => void] {
     return () => observer.disconnect();
   }, [el]);
   return [width, setEl];
+}
+
+/** The session `key` names in the family, with its workspace. */
+function findSession(family: SessionFamily, key: string): InboxItem | undefined {
+  for (const { workspace, sessions } of family.worktrees) {
+    const session = sessions.find((each) => each.key === key);
+    if (session) return { workspace, session };
+  }
+  return undefined;
 }
 
 function keyOf(selection: SessionsSelection): string {
