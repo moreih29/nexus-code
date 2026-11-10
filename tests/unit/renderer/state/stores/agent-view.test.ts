@@ -113,4 +113,28 @@ describe("agent view store", () => {
       [A]: { agent: "codex", prompted: false },
     });
   });
+
+  it("restores the list's order without the agents whose tabs closed, and stores it as it changes", async () => {
+    useAgentViewStore.getState().hydrate(
+      {
+        mode: "agents",
+        root: { kind: "leaf", id: P1, tabIds: [], activeTabId: null },
+        activeLeafId: P1,
+        order: { "ws-a": ["ws-a:t3", A, "ws-a:gone"], "ws-b": ["ws-b:gone"] },
+      },
+      (key) => !key.endsWith(":gone"),
+    );
+    expect(useAgentViewStore.getState().order).toEqual({ "ws-a": ["ws-a:t3", A] });
+
+    useAgentViewStore.getState().setOrder("ws-a", ["ws-a:t3", A]);
+    await settle();
+    expect(stored).toEqual([]);
+
+    useAgentViewStore.getState().setOrder("ws-b", [B, "ws-b:t4"]);
+    await settle();
+    expect((stored[0] as { agentView: { order: unknown } }).agentView.order).toEqual({
+      "ws-a": ["ws-a:t3", A],
+      "ws-b": [B, "ws-b:t4"],
+    });
+  });
 });
