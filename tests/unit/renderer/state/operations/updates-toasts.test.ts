@@ -15,6 +15,8 @@ const calls: { method: string; args: unknown }[] = [];
 let emit: (status: Status) => void = () => {};
 /** What `updates.getStatus` answers: the status before the window listened. */
 let before: Status | null = null;
+/** Whether `updates.install` fails, as a call main never took would. */
+let installFails = false;
 
 const realToast = await import("../../../../../src/renderer/components/ui/toast");
 mock.module("../../../../../src/renderer/components/ui/toast", () => ({
@@ -34,11 +36,14 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
       return Promise.resolve({ ok: true, value: { status: before, progress: null } });
     }
     calls.push({ method, args });
+    if (method === "install" && installFails) {
+      return Promise.resolve({ ok: false, error: { code: "INTERNAL", message: "gone" } });
+    }
     return Promise.resolve({ ok: true, value: undefined });
   },
 }));
 
-const { initUpdatesSubscriptions } = await import(
+const { initUpdatesSubscriptions, installUpdate } = await import(
   "../../../../../src/renderer/state/operations/updates"
 );
 const { useUpdatesStore } = await import("../../../../../src/renderer/state/stores/updates");
@@ -59,6 +64,7 @@ beforeAll(() => {
 beforeEach(() => {
   toasts.length = 0;
   calls.length = 0;
+  installFails = false;
   useUpdatesStore.setState({
     status: null,
     progress: null,
@@ -76,6 +82,32 @@ describe("initUpdatesSubscriptions", () => {
 
     expect(toasts[0]?.actions).toHaveLength(2);
     expect(actionCalls()).toEqual([{ method: "install", args: undefined }]);
+  });
+
+  it("shows the download the moment the user asks for it, before main has looked the version up", () => {
+    emit(newer("1.1.0", true));
+    toasts[0]?.actions?.[0]?.onAction();
+
+    expect(useUpdatesStore.getState().status).toEqual({ kind: "downloading", version: "1.1.0" });
+  });
+
+  it("keeps the download shown while a check comes in, and gives way to main's own steps", () => {
+    emit(newer("1.1.0", true));
+    installUpdate("1.1.0");
+    emit(newer("1.1.0", true));
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "downloading" });
+
+    emit({ kind: "installFailed", releaseUrl: "https://example.invalid/releases" });
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "installFailed" });
+  });
+
+  it("puts back the offer when main never took the call", async () => {
+    installFails = true;
+    emit(newer("1.1.0", true));
+    installUpdate("1.1.0");
+    await Promise.resolve();
+
+    expect(useUpdatesStore.getState().status).toMatchObject({ kind: "newer", latest: "1.1.0" });
   });
 
   it("offers the release page when the app cannot install in place", () => {
