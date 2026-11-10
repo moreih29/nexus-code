@@ -2,7 +2,14 @@
 // agent, shown as a conversation. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
-import { Bot, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  ListChecks,
+  PanelRightClose,
+  PanelRightOpen,
+  SquareTerminal,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -570,7 +577,26 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
-            <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
+            <>
+              <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
+              {/* Too narrow for the agents' strip: the way back from one's transcript. */}
+              {shown && (
+                <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
+                  <button
+                    type="button"
+                    onClick={() => showAgent(null)}
+                    className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                    data-testid="chat-to-main"
+                  >
+                    <ArrowLeft className="size-3.5" aria-hidden />
+                    {t("chat.strip.to_main")}
+                  </button>
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {shown.description}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <AgentStrip
               agents={agents}
