@@ -90,6 +90,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
+import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
@@ -173,6 +174,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
+  const goal = useTabGoal(workspaceId, tabId);
   const { contextUsage } = state.model;
   // The plan's usage is the profile's, one for all its tabs; the tab's own
   // answer until the profile has one.
@@ -607,9 +609,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             />
           )}
           {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
-          {(permissions.length > 0 || state.model.running) && (
+          {(permissions.length > 0 || state.model.running || goal) && (
             <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
               <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+                {goal && (
+                  <GoalBar
+                    tab={goal}
+                    onClear={() => controller.clearGoal()}
+                    onClose={() => closeGoalBar(workspaceId, tabId, goal.goal)}
+                  />
+                )}
                 {permissions.length > 0 && shown && (
                   <div
                     className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"

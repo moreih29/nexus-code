@@ -308,7 +308,13 @@ export class CodexController {
     const fork = this.target.fork;
     if (!threadId && fork) {
       try {
-        await this.request("thread/fork", { threadId: fork.threadId, cwd, ...settings });
+        const forked = await this.request("thread/fork", {
+          threadId: fork.threadId,
+          cwd,
+          ...settings,
+        });
+        const copy = (forked.thread as { id?: unknown } | undefined)?.id;
+        this.readGoal(typeof copy === "string" ? copy : undefined);
         // The copy is called as the tab it came from was.
         this.titled = true;
         if (fork.title) this.hooks.onTitle?.(fork.title);
@@ -326,6 +332,7 @@ export class CodexController {
           excludeTurns: this.model.items.length > 0,
           ...settings,
         });
+        this.readGoal(threadId);
         return true;
       } catch (err) {
         log.warn(`thread ${threadId} not resumed: ${(err as Error).message}`);
@@ -338,6 +345,26 @@ export class CodexController {
       log.warn(`thread/start failed: ${(err as Error).message}`);
       return false;
     }
+  }
+
+  /**
+   * Asks for the goal of a thread the tab goes on with: a thread's start
+   * or resume does not tell it, and the server tells only its changes.
+   */
+  private readGoal(threadId: string | undefined): void {
+    if (threadId) void this.request("thread/goal/get", { threadId }).catch(() => {});
+  }
+
+  /** Pauses the thread's goal, or goes on with it (the goal bar). */
+  async setGoalStatus(status: "active" | "paused"): Promise<void> {
+    const threadId = this.currentThread();
+    if (threadId) await this.ask("thread/goal/set", { threadId, status, origin: "user" });
+  }
+
+  /** Clears the thread's goal (the goal bar). */
+  async clearGoal(): Promise<void> {
+    const threadId = this.currentThread();
+    if (threadId) await this.ask("thread/goal/clear", { threadId });
   }
 
   /** Starts the program again, going on with the thread. */

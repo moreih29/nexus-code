@@ -61,6 +61,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CodexConfigDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
+import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
@@ -124,6 +125,7 @@ export function CodexTabView({
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
+  const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
   const { tokens } = model;
   // The plan's limits are the profile's, one for all its tabs; the tab's
@@ -380,9 +382,17 @@ export function CodexTabView({
           }
         />
       )}
-      {(permissions.length > 0 || model.running) && (
+      {(permissions.length > 0 || model.running || goal) && (
         <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
           <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+            {goal && (
+              <GoalBar
+                tab={goal}
+                onClear={() => controller.clearGoal()}
+                onStatus={(status) => controller.setGoalStatus(status)}
+                onClose={() => closeGoalBar(workspaceId, tabId, goal.goal)}
+              />
+            )}
             {permissions.length > 0 && (
               <PermissionCard
                 requests={permissions}
