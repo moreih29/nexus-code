@@ -23,6 +23,7 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "hooks" },
   { name: "sandbox", argumentHint: "[on|off]" },
   { name: "fork", argumentHint: "[prompt]" },
+  { name: "resume", argumentHint: "[search]" },
   { name: "subtask", argumentHint: "<task>" },
   { name: "tasks", aliases: ["bashes"] },
   { name: "workflows" },
