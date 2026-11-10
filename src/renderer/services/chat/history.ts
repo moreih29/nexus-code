@@ -3,7 +3,14 @@
 // writes one JSON entry per line: the messages, and its own bookkeeping
 // (summaries, file snapshots), which is skipped.
 
-import { applyLines, type ChatLine, type ChatModel, emptyModel, isCommandOutput } from "./model";
+import {
+  applyLines,
+  type ChatLine,
+  type ChatModel,
+  emptyModel,
+  isCommandOutput,
+  typedCommand,
+} from "./model";
 
 type Rec = Record<string, unknown>;
 
@@ -31,7 +38,7 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
       const text = textOf(message.content);
       // A command's output, which went to the user and not the model.
       if (isCommandOutput(text)) continue;
-      const command = commandText(text);
+      const command = typedCommand(text);
       // The /clear a session starts with: the tab shows that as it happens.
       if (command === "/clear") continue;
       if (command !== null) message = { ...message, content: command };
@@ -81,19 +88,6 @@ function textOf(content: unknown): string {
 
 function isInterrupt(content: unknown): boolean {
   return textOf(content).startsWith("[Request interrupted");
-}
-
-/**
- * A command the user ran, as the transcript records it
- * (`<command-name>/clear</command-name>…<command-args>…`), written as typed;
- * null for any other text.
- */
-function commandText(text: string): string | null {
-  const name = /^\s*<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim();
-  if (!name) return null;
-  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
-  const typed = name.startsWith("/") ? name : `/${name}`;
-  return args ? `${typed} ${args}` : typed;
 }
 
 export interface HistoryCut {

@@ -891,6 +891,19 @@ export function isCommandOutput(text: string): boolean {
   return text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>");
 }
 
+/**
+ * A command the user ran, as the CLI writes it
+ * (`<command-name>/clear</command-name>…<command-args>…`), written as typed;
+ * null for any other text.
+ */
+export function typedCommand(text: string): string | null {
+  const name = /^\s*<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
+  const typed = name.startsWith("/") ? name : `/${name}`;
+  return args ? `${typed} ${args}` : typed;
+}
+
 function applyUserOut(
   draft: Draft,
   message: Rec,
@@ -904,9 +917,14 @@ function applyUserOut(
   const when = time(message.timestamp) ?? at;
 
   if (message.isReplay === true) {
+    const said = userContent(content).text;
     // Echoed as a message taken, it is none the app wrote: shown, it would
     // read as the user's, and take a message the user wrote for its own.
-    if (isCommandOutput(userContent(content).text)) return;
+    if (isCommandOutput(said)) return;
+    const command = typedCommand(said);
+    // /clear's echo comes after the reset that took the message it was typed
+    // as, and would take another one for its own: the reset's notice tells it.
+    if (command === "/clear") return;
     // The CLI took a message the app wrote: the one it was written with
     // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
@@ -934,8 +952,17 @@ function applyUserOut(
         draft.replaceItem(index, taken);
       }
     } else {
+      // A command the CLI was given itself (Remote Control) reads as typed.
       const { text, images } = userContent(content);
-      draft.push({ kind: "user", key: `u${seq}`, text, images, state: "taken", uuid, at: when });
+      draft.push({
+        kind: "user",
+        key: `u${seq}`,
+        text: command ?? text,
+        images,
+        state: "taken",
+        uuid,
+        at: when,
+      });
     }
     return;
   }
