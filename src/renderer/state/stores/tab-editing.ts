@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { cancelTabFocus } from "../../services/tab-focus";
 
 /**
  * 탭 이름 inline 편집 모드의 활성 tab id를 관리하는 store.
@@ -25,6 +26,9 @@ interface TabEditingState {
 export const useTabEditingStore = create<TabEditingState>((set) => ({
   editingTabId: null,
   startEditing(tabId) {
+    // A tab's focus still to come (the tab just clicked, a terminal not open
+    // yet) would take the name being typed from its field.
+    cancelTabFocus();
     set({ editingTabId: tabId });
   },
   cancelEditing() {
