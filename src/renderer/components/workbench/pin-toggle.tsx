@@ -3,10 +3,12 @@
  *
  * Visual contract:
  *   - pinned=true  → always visible, filled Pin icon, accent color, aria-pressed=true
- *   - pinned=false → hidden at rest, revealed on row hover or keyboard focus,
- *                    outlined Pin icon, muted color, aria-pressed=false
+ *   - pinned=false → hidden at rest, revealed on row hover or keyboard focus
+ *                    in the row, outlined Pin icon, muted color,
+ *                    aria-pressed=false
  *
  * Must be placed inside a `.group` ancestor so the group-hover reveal works.
+ * The row places it, through `className`.
  * Click event is stopped from propagating so the parent row-select button
  * does not fire when the pin is clicked.
  */
@@ -33,6 +35,8 @@ export interface PinToggleProps {
    * Defaults to undefined (browser default behavior).
    */
   draggable?: false;
+  /** Where the row places it. */
+  className?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,7 +44,13 @@ export interface PinToggleProps {
 // ---------------------------------------------------------------------------
 
 /** Renders a Pin icon button that toggles workspace pin state. */
-export function PinToggle({ pinned, workspaceName, onToggle, draggable }: PinToggleProps) {
+export function PinToggle({
+  pinned,
+  workspaceName,
+  onToggle,
+  draggable,
+  className,
+}: PinToggleProps) {
   const { t } = useTranslation();
   const tooltipLabel = pinned ? t("sidebar.unpin") : t("sidebar.pin_to_top");
   const ariaLabel = pinned
@@ -62,15 +72,15 @@ export function PinToggle({ pinned, workspaceName, onToggle, draggable }: PinTog
       {...tooltipProps(tooltipLabel)}
       onClick={handleClick}
       className={cn(
-        "absolute top-1/2 -translate-y-1/2 right-9",
         "inline-flex items-center justify-center",
         "size-5 rounded-(--radius-control)",
         "transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         pinned
           ? // Always visible when pinned; filled icon; accent color.
             "opacity-100 text-[var(--state-selected-indicator)]"
-          : // Hidden at rest; revealed on row hover or keyboard focus.
-            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-foreground",
+          : // Hidden at rest; revealed on row hover or keyboard focus in the row.
+            "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 text-muted-foreground hover:text-foreground",
+        className,
       )}
     >
       <Pin
