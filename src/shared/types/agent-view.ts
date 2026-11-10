@@ -76,5 +76,11 @@ export const AgentViewSnapshotSchema = z.object({
   // The ended agents the panels show, by session key. Ones this version
   // cannot read are dropped rather than costing the panels.
   ended: z.record(SessionKeySchema, EndedAgentSnapshotSchema).optional().catch(undefined),
+  // The order the list's agents were dragged into, by the workspace (or
+  // task) they run in. One this version cannot read is dropped.
+  order: z
+    .record(z.string().max(200), z.array(SessionKeySchema).max(256))
+    .optional()
+    .catch(undefined),
 });
 export type AgentViewSnapshot = z.infer<typeof AgentViewSnapshotSchema>;
