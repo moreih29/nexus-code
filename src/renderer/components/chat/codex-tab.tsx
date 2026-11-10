@@ -34,6 +34,7 @@ import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
+import { usePlanUsage } from "../../services/chat/plan-usage";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
@@ -124,7 +125,11 @@ export function CodexTabView({
   );
   const state = useChatTab(workspaceId, tabId);
   const model = state.model as CodexModel;
-  const { tokens, rateLimits } = model;
+  const { tokens } = model;
+  // The plan's limits are the profile's, one for all its tabs; the tab's
+  // own until the profile has them.
+  const plan = usePlanUsage("codex", workspaceId, props.profileId);
+  const rateLimits = plan?.codex ?? model.rateLimits;
   // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(

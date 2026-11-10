@@ -23,6 +23,13 @@ import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
 import { LiveLines } from "./live-lines";
 import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
+import {
+  forgetPlanWait,
+  ingestCodexPush,
+  planUsageKeyFor,
+  registerPlanSource,
+  wantPlanUsage,
+} from "./plan-usage";
 import type { ListedSession } from "./sessions";
 import {
   type ChatTabState,
@@ -142,12 +149,29 @@ export class CodexController {
   /** What the user picked for the next turn. */
   private next: CodexPicks = {};
   private readonly removeReceiver: () => void;
+  /** The tab as a source of its profile's plan usage, taken away as it closes. */
+  private readonly leavePlanUsage: () => void;
+  /** Whether the program is past its handshake, where it can be asked for its limits. */
+  private limitsReadable = false;
 
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
     this.removeReceiver = addLineReceiver(this.key, this);
+    this.leavePlanUsage = registerPlanSource({
+      agent: "codex",
+      usageKey: () => this.usageKey(),
+      ready: () =>
+        this.limitsReadable && this.state.phase === "ready" && this.model.process === "running",
+      busy: () => this.model.running,
+      fetchUsage: () => this.request("account/rateLimits/read", {}),
+    });
+  }
+
+  /** The profile whose plan usage the tab shows: its agent, host and profile. */
+  usageKey(): string {
+    return planUsageKeyFor("codex", this.target.workspaceId, this.target.profileId);
   }
 
   get state(): ChatTabState {
@@ -432,15 +456,20 @@ export class CodexController {
   async refreshAccount(): Promise<void> {
     if (!(await this.ensureRunning())) return;
     await this.request("account/read", {}).catch(() => {});
+    // Another sign-in: what the profile had heard, or had no limits, is past.
+    forgetPlanWait(this.usageKey());
     this.readRateLimits();
   }
 
   /**
-   * Asks for the plan's usage limits; a ChatGPT sign-in has them, and the
-   * program reports them again as they change. Without one it errs, quietly.
+   * The program can be asked for the plan's usage limits now: the profile's
+   * store asks, if it is time, through this tab or another of the profile's.
+   * A ChatGPT sign-in has them, and the program reports them again as they
+   * change. Without one it errs, quietly.
    */
   private readRateLimits(): void {
-    void this.request("account/rateLimits/read", {}).catch(() => {});
+    this.limitsReadable = true;
+    void wantPlanUsage(this.usageKey());
   }
 
   /**
@@ -758,6 +787,11 @@ export class CodexController {
       return;
     }
     if (method === "account/login/completed") void this.refreshAccount();
+    // After a turn: the profile's limits as they are now, for all its tabs.
+    if (method === "account/rateLimits/updated") {
+      const params = message.params as Record<string, unknown> | undefined;
+      ingestCodexPush(this.usageKey(), params?.rateLimits, Date.now());
+    }
   }
 
   flushNow(): void {
@@ -783,6 +817,7 @@ export class CodexController {
     }
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
+      this.limitsReadable = false;
       this.ready = Promise.resolve(false);
       this.rejectPending("the program exited");
     }
@@ -809,6 +844,7 @@ export class CodexController {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
     this.removeReceiver();
+    this.leavePlanUsage();
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }

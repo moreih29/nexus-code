@@ -1,10 +1,11 @@
 /**
  * What the line under the composer asks Claude for: the context after each
  * turn, whoever began it and the tab shown or not, and the plan's usage,
- * for its limits alone, at most once a minute. The real ipc client is spread
- * under a spy, so later files keep its other exports.
+ * for its limits alone, through the profile's store, which asks once for
+ * all its tabs. The real ipc client is spread under a spy, so later files
+ * keep its other exports.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const sent: Record<string, unknown>[] = [];
 
@@ -23,6 +24,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 
 const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { resetPlanUsage } = await import("../../../../../src/renderer/services/chat/plan-usage");
 type ChatLine = import("../../../../../src/renderer/services/chat/model").ChatLine;
 type Controller = InstanceType<typeof ChatController>;
 
@@ -56,16 +58,32 @@ function asked(): Record<string, unknown>[] {
     .map((message) => message.request as Record<string, unknown>);
 }
 
+beforeEach(() => resetPlanUsage());
+
 afterEach(() => {
   for (const c of live.splice(0)) c.dispose();
   sent.length = 0;
 });
 
+const USAGE = { subtype: "get_usage", skip_behaviors: true };
+/** Lets the asks waiting on the program's initialize go out. */
+const settle = async () => {
+  for (let i = 0; i < 4; i++) await Promise.resolve();
+};
+
 describe("the line under the composer", () => {
-  test("asks for the context as each turn ends, with no one looking at the tab", () => {
+  test("asks for the context as each turn ends, with no one looking at the tab, and the profile's usage", () => {
     const c = running();
     c.receive(result());
-    expect(asked()).toEqual([{ subtype: "get_context_usage" }]);
+    expect(asked()).toEqual([{ subtype: "get_context_usage" }, USAGE]);
+  });
+
+  test("two tabs of one profile ending their turns ask for its usage once", () => {
+    const a = running();
+    const b = running();
+    a.receive(result());
+    b.receive(result());
+    expect(asked().filter((r) => r.subtype === "get_usage")).toEqual([USAGE]);
   });
 
   test("asks again after a compaction, mid-turn", () => {
@@ -84,25 +102,23 @@ describe("the line under the composer", () => {
     expect(asked()).toEqual([]);
   });
 
-  test("asks for the plan's limits alone, once a minute however often it is shown", async () => {
+  test("asks for the plan's limits alone as it is shown, not again while the profile's are being fetched", async () => {
     const c = running();
-    c.refreshUsageLine(1_000_000);
-    await Promise.resolve();
-    await Promise.resolve();
-    c.refreshPlanUsage(1_030_000);
-    c.refreshPlanUsage(1_061_000);
+    c.refreshUsageLine();
+    await settle();
+    c.refreshUsageLine();
+    await settle();
     expect(asked()).toEqual([
       { subtype: "get_context_usage" },
-      { subtype: "get_usage", skip_behaviors: true },
-      { subtype: "get_usage", skip_behaviors: true },
+      USAGE,
+      { subtype: "get_context_usage" },
     ]);
   });
 
   test("an older Claude Code is asked for its usage as before", async () => {
     const c = running("2.1.300");
-    c.refreshUsageLine(1_000_000);
-    await Promise.resolve();
-    await Promise.resolve();
+    c.refreshUsageLine();
+    await settle();
     expect(asked()).toContainEqual({ subtype: "get_usage" });
   });
 
@@ -110,7 +126,7 @@ describe("the line under the composer", () => {
     const c = new ChatController({ workspaceId: "ws-usage", tabId: `t${++seq}`, cwd: "/p" }, {});
     live.push(c);
     c.receive(result());
-    c.refreshPlanUsage();
+    c.refreshUsageLine();
     expect(asked()).toEqual([]);
   });
 });

@@ -46,6 +46,7 @@ import {
   outsideLinksOf,
   todosOf,
 } from "../../services/chat/panel";
+import { usePlanUsage } from "../../services/chat/plan-usage";
 import {
   printRunRows,
   stopPrintRun,
@@ -172,7 +173,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
-  const { contextUsage, usage } = state.model;
+  const { contextUsage } = state.model;
+  // The plan's usage is the profile's, one for all its tabs; the tab's own
+  // answer until the profile has one.
+  const plan = usePlanUsage("claude", workspaceId, props.profileId);
+  const usage = plan?.claude ?? state.model.usage;
   // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(
@@ -181,15 +186,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   );
 
   // The line under the composer: the context and the plan's usage when the
-  // tab is shown or its program comes up, and the usage again as a turn
-  // ends. The controller asks for the context after each turn by itself.
+  // tab is shown or its program comes up. The controller asks again after
+  // each turn by itself, and the profile's store says when the usage is due.
   const lineReady = state.phase === "ready" && state.model.process === "running";
   useEffect(() => {
     if (isVisible && lineReady) controller.refreshUsageLine();
   }, [controller, isVisible, lineReady]);
-  useEffect(() => {
-    if (isVisible && lineReady && !state.model.running) controller.refreshPlanUsage();
-  }, [controller, isVisible, lineReady, state.model.running]);
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.

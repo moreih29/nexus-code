@@ -30,6 +30,7 @@ import {
   type PermissionRequest,
   type UserItem,
 } from "./model";
+import { planUsageKeyFor, registerPlanSource, wantPlanUsage } from "./plan-usage";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import {
   type ChatTabState,
@@ -62,8 +63,8 @@ const COMMAND_DONE_MS = 10_000;
  */
 const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
-/** Least time between two asks for the plan's usage the line under the composer makes. */
-const USAGE_REFRESH_MS = 60_000;
+/** How long an ask for the plan's usage (a request to Anthropic's servers) is waited on. */
+const USAGE_TIMEOUT_MS = 60_000;
 
 /** How long after a failed ask for the context it is asked once more. */
 const CONTEXT_RETRY_MS = 3_000;
@@ -186,8 +187,10 @@ export class ChatController {
   private opening: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
-  /** When the line under the composer last asked for the plan's usage. */
-  private usageAskedAt = Number.NEGATIVE_INFINITY;
+  /** The tab as a source of its profile's plan usage, taken away as it closes. */
+  private readonly leavePlanUsage: () => void;
+  /** Whether the program's initialize is still on its way: until then it is asked nothing else. */
+  private initPending = false;
   /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
@@ -202,6 +205,18 @@ export class ChatController {
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
     this.sessionId = target.sessionId;
+    this.leavePlanUsage = registerPlanSource({
+      agent: "claude",
+      usageKey: () => this.usageKey(),
+      ready: () => this.lineCanAsk() && !this.initPending && this.supports("get_usage"),
+      busy: () => this.state.model.running,
+      fetchUsage: () => this.request("get_usage", this.panelParams("usage"), USAGE_TIMEOUT_MS),
+    });
+  }
+
+  /** The profile whose plan usage the tab shows: its agent, host and profile. */
+  usageKey(): string {
+    return planUsageKeyFor("claude", this.target.workspaceId, this.target.profileId);
   }
 
   get state(): ChatTabState {
@@ -344,6 +359,7 @@ export class ChatController {
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
+      this.initPending = true;
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
@@ -367,7 +383,10 @@ export class ChatController {
           (err: Error) => {
             log.warn(`initialize failed: ${err.message}`);
           },
-        );
+        )
+        .finally(() => {
+          this.initPending = false;
+        });
     }
     return true;
   }
@@ -724,6 +743,11 @@ export class ChatController {
         this.refreshContext();
         continue;
       }
+      if (part === "usage") {
+        // The user opened it: the profile's store asks, sooner than it would.
+        void wantPlanUsage(this.usageKey(), { force: true });
+        continue;
+      }
       const subtype = PANEL_REQUESTS[part];
       if (this.supports(subtype)) this.request(subtype, this.panelParams(part)).catch(() => {});
     }
@@ -731,25 +755,18 @@ export class ChatController {
 
   /**
    * Asks again for what the line under the composer shows, as the tab is
-   * shown or its program comes up: the context, and the plan's usage (a
-   * request to Anthropic's servers) at most once a minute. After the
-   * program's initialize, which a first ask could otherwise pass.
+   * shown or its program comes up: the context, after the program's
+   * initialize, which a first ask could otherwise pass; and the profile's
+   * plan usage, which its store asks for when it is time.
    */
-  refreshUsageLine(now: number = Date.now()): void {
+  refreshUsageLine(): void {
     if (!this.lineCanAsk()) return;
-    const parts: PanelPart[] = ["context"];
-    if (now - this.usageAskedAt >= USAGE_REFRESH_MS) {
-      this.usageAskedAt = now;
-      parts.push("usage");
-    }
-    void this.initializing.catch(() => {}).then(() => this.refreshPanel(parts));
-  }
-
-  /** The plan's usage again, as a turn ends in a shown tab: at most once a minute. */
-  refreshPlanUsage(now: number = Date.now()): void {
-    if (!this.lineCanAsk() || now - this.usageAskedAt < USAGE_REFRESH_MS) return;
-    this.usageAskedAt = now;
-    this.refreshPanel(["usage"]);
+    void this.initializing
+      .catch(() => {})
+      .then(() => {
+        this.refreshContext();
+        void wantPlanUsage(this.usageKey());
+      });
   }
 
   private lineCanAsk(): boolean {
@@ -1231,8 +1248,10 @@ export class ChatController {
       (message.type === "system" && message.subtype === "compact_boundary")
     ) {
       // Each turn's end, whoever began it: the app, a message the CLI took
-      // after the last turn, Remote Control, a background task's news.
+      // after the last turn, Remote Control, a background task's news. The
+      // profile's usage too, which its store asks for when it is time.
       this.refreshContext();
+      if (message.type === "result") void wantPlanUsage(this.usageKey());
     } else if (message.type === "system" && message.subtype === "session_title_changed") {
       // Said when the name changes, and as the program starts on a session
       // that has one; the CLI has trimmed it and made it unique.
@@ -1317,6 +1336,7 @@ export class ChatController {
     this.rejectPending("the tab closed");
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
+    this.leavePlanUsage();
     useChatStore.getState().remove(this.key);
     controllers.delete(this.key);
   }
