@@ -3,9 +3,11 @@
 # build dry-run은 electron-vite build(out/ 산출)까지만 수행.
 #
 # What can differ between operating systems runs on each desktop OS the app
-# targets: the tests, the native modules' build and the renderer's build on
-# Windows. What can't — the typecheck, lint and the agent's cross-compile,
-# which the release also runs on Ubuntu alone — runs once, beside them.
+# targets: the tests and the native modules' build. What can't — the
+# typecheck, lint, the agent's cross-compile (which the release also runs on
+# Ubuntu alone) and the renderer's build — runs once on Ubuntu, beside them,
+# each in a job of its own, since there the install takes seconds. The
+# release builds the renderer on each OS again.
 # Whenever node-pty, better-sqlite3 or Electron changes, each runner builds
 # the native modules against Electron on its own OS, proving they build there.
 
@@ -46,10 +48,8 @@ jobs:
       - name: Lint
         run: bun run lint
 
-  # Beside the checks: on Ubuntu the install takes seconds, so the two jobs
-  # cost little more than one and finish in about half the time.
-  build:
-    name: Build (dry-run)
+  build-agent:
+    name: Build agent (dry-run)
     runs-on: ubuntu-latest
 
     steps:
@@ -89,6 +89,20 @@ jobs:
           NODE_RUNTIME_VERSION: ${{ steps.node-runtime.outputs.version }}
           NODE_RUNTIME_CACHE_DIR: .cache/node-runtime
         run: bun run scripts/build-agent.ts
+
+  build-renderer:
+    name: Build renderer (dry-run)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build renderer (dry-run)
         # electron-vite build — out/ 디렉터리 산출.
@@ -139,25 +153,6 @@ jobs:
 
       - name: Test
         run: bun run test
-
-  # The renderer's build plugins handle paths, which Windows writes its own
-  # way; built beside the Windows tests rather than after them.
-  build-windows:
-    name: Build renderer (windows-latest)
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install JS dependencies
-        run: bun install --frozen-lockfile --ignore-scripts
-
-      - name: Build renderer (dry-run)
-        run: bun run build
 
   # The agent's tests need none of the JS setup, so they run beside the jobs
   # above instead of after them.
