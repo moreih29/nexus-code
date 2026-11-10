@@ -37,6 +37,27 @@ function run(lines: ChatLine[]): ChatModel {
   return applyLines(applyLine(emptyModel(), { ...started, seq: 0.5 }), lines, 1000);
 }
 
+/** A message the tab writes, as the CLI is given it. */
+function typed(seq: number, text: string, uuid: string): ChatLine {
+  return {
+    seq,
+    dir: "in",
+    message: { type: "user", uuid, message: { role: "user", content: text } },
+  };
+}
+
+/** A message the CLI echoes as taken. */
+function echoed(seq: number, text: string, uuid: string): ChatLine {
+  return {
+    seq,
+    dir: "out",
+    message: { type: "user", isReplay: true, uuid, message: { role: "user", content: text } },
+  };
+}
+
+const CLEAR_ECHO =
+  "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>";
+
 describe("chat model from a recorded conversation", () => {
   test("the whole conversation", () => {
     const model = run(FIXTURE);
@@ -95,20 +116,54 @@ describe("chat model from a recorded conversation", () => {
     });
     const before = run(FIXTURE);
     const lastSeq = before.lastSeq;
-    // As 2.1.318 answers a /clear: the reset, then an init with the new id.
+    // As 2.1.319 answers a /clear: the reset, an init with the new id, then
+    // the command echoed as a message taken.
     const model = applyLines(before, [
+      typed(lastSeq + 1, "/clear", "c1"),
       {
-        seq: lastSeq + 1,
+        seq: lastSeq + 2,
         dir: "out",
         message: { type: "conversation_reset", session_id: before.sessionId },
       },
-      sid(lastSeq + 2, "new-session"),
-      { seq: lastSeq + 3, dir: "out", message: { type: "result", subtype: "success" } },
+      sid(lastSeq + 3, "new-session"),
+      echoed(lastSeq + 4, CLEAR_ECHO, "c1"),
+      { seq: lastSeq + 5, dir: "out", message: { type: "result", subtype: "success" } },
     ]);
     expect(model.sessionId).toBe("new-session");
     expect(model.items.map((i) => (i.kind === "notice" ? i.code : i.kind))).toEqual(["cleared"]);
     expect(model.tools).toEqual({});
     expect(model.clears).toBe(1);
+    expect(model.running).toBe(false);
+  });
+
+  test("a message sent as /clear runs is not taken by its echo", () => {
+    const before = run(FIXTURE);
+    const lastSeq = before.lastSeq;
+    const model = applyLines(before, [
+      typed(lastSeq + 1, "/clear", "c1"),
+      {
+        seq: lastSeq + 2,
+        dir: "out",
+        message: { type: "conversation_reset", session_id: before.sessionId },
+      },
+      typed(lastSeq + 3, "hello", "h1"),
+      echoed(lastSeq + 4, CLEAR_ECHO, "c1"),
+    ]);
+    const users = model.items.filter((i) => i.kind === "user");
+    expect(users.map((u) => [u.text, u.state])).toEqual([["hello", "sent"]]);
+  });
+
+  test("a command the CLI was given itself reads as typed", () => {
+    const model = applyLines(emptyModel(), [
+      { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+      echoed(
+        2,
+        "<command-name>/compact</command-name>\n<command-message>compact</command-message>\n<command-args>keep the plan</command-args>",
+        "r1",
+      ),
+    ]);
+    const users = model.items.filter((i) => i.kind === "user");
+    expect(users.map((u) => u.text)).toEqual(["/compact keep the plan"]);
   });
 
   test("a policy refusing bypass mode is remembered", () => {
