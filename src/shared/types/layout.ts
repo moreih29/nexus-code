@@ -76,11 +76,23 @@ export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
 // SerializedTab
 // ---------------------------------------------------------------------------
 
+/**
+ * A tab's titles beside the one shown: the name it was made with, the
+ * user's own (a rename), and the one its content gave it (a terminal's,
+ * a page's, a conversation's), so a restart keeps a rename the user's.
+ */
+const TAB_TITLES = {
+  defaultTitle: z.string().optional(),
+  customTitle: z.string().optional(),
+  processTitle: z.string().optional(),
+};
+
 export const SerializedTabSchema = z.discriminatedUnion("type", [
   z.object({
     id: z.string().uuid(),
     type: z.literal("terminal"),
     title: z.string(),
+    ...TAB_TITLES,
     props: TerminalTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -89,6 +101,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("editor"),
     title: z.string(),
+    ...TAB_TITLES,
     props: EditorTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -99,6 +112,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("editor.diff"),
     title: z.string(),
+    ...TAB_TITLES,
     props: DiffTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -107,6 +121,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("git.commit"),
     title: z.string(),
+    ...TAB_TITLES,
     props: GitCommitTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -115,6 +130,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("browser"),
     title: z.string(),
+    ...TAB_TITLES,
     props: BrowserTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -123,6 +139,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("claude"),
     title: z.string(),
+    ...TAB_TITLES,
     props: ClaudeTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -131,6 +148,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("codex"),
     title: z.string(),
+    ...TAB_TITLES,
     props: CodexTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
@@ -139,6 +157,7 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     id: z.string().uuid(),
     type: z.literal("sessions"),
     title: z.string(),
+    ...TAB_TITLES,
     props: SessionsTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
