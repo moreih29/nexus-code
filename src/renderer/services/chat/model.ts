@@ -8,7 +8,8 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { terminalText } from "../editor/preview/notebook";
-import { appliedEffort, settingsModel } from "./settings-defaults";
+import { type ClaudeGoal, goalFeedbackReason } from "./goal";
+import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
 
 export type LineDir = "out" | "in" | "sys";
 
@@ -76,7 +77,12 @@ export type NoticeCode =
   /** A thread the app could not go on with; it started a new one. */
   | "not_resumed"
   /** Codex began reviewing (/review): what it looks at is the detail. */
-  | "review";
+  | "review"
+  /** A goal set, cleared, met or found impossible (/goal): its condition is the detail. */
+  | "goal_set"
+  | "goal_cleared"
+  | "goal_met"
+  | "goal_failed";
 
 export interface NoticeItem {
   kind: "notice";
@@ -86,7 +92,74 @@ export interface NoticeItem {
   at?: number;
 }
 
-export type ChatItem = UserItem | AssistantItem | NoticeItem;
+/** Who wrote a message the CLI took, when it was not the user. */
+export interface MessageSource {
+  /** peer (another session, a teammate), channel, coordinator, or as the CLI names it. */
+  kind: string;
+  /** The session's or teammate's name, the channel's server. */
+  name?: string;
+}
+
+/**
+ * A message the CLI took that the user did not write: another session's, a
+ * channel's, the coordinator's. Claude answers it as it does the user's.
+ */
+export interface ReceivedItem {
+  kind: "received";
+  key: string;
+  uuid?: string;
+  from: MessageSource;
+  text: string;
+  at?: number;
+}
+
+/** A task that ended while Claude did not wait for it: the news of it wakes Claude. */
+export interface TaskEndItem {
+  kind: "task_end";
+  key: string;
+  taskId: string;
+  /** completed, failed, killed or stopped. */
+  status: string;
+  /** What the task was, when the news or the tab's tasks tell. */
+  description?: string;
+  /** local_bash, local_agent…, when the tab's tasks tell. */
+  taskType?: string;
+  summary?: string;
+  toolUseId?: string;
+  /** It came with no turn running, and Claude's next words answer it: another turn. */
+  wakes?: boolean;
+  at?: number;
+}
+
+/** A shell command the user ran in the terminal's Claude Code (`!command`), with its output. */
+export interface ShellItem {
+  kind: "shell";
+  key: string;
+  command: string;
+  stdout?: string;
+  stderr?: string;
+  at?: number;
+}
+
+export type ChatItem =
+  | UserItem
+  | AssistantItem
+  | NoticeItem
+  | ReceivedItem
+  | TaskEndItem
+  | ShellItem;
+
+/** Whether what comes after an item is another turn: a message Claude answers, or news that wakes it. */
+export function opensTurn(item: ChatItem): boolean {
+  return (
+    item.kind === "user" ||
+    item.kind === "received" ||
+    (item.kind === "task_end" && item.wakes === true)
+  );
+}
+
+/** The origins of a message that is someone's, though not the user's: shown even when the CLI marks it its own. */
+export const SENDER_KINDS: ReadonlySet<string> = new Set(["peer", "channel", "coordinator"]);
 
 export interface ToolResult {
   text: string;
@@ -153,15 +226,33 @@ export interface ModelInfo {
   supportedEffortLevels?: string[];
 }
 
-/** The model info the session runs, as the CLI names it either way (alias or id). */
+/**
+ * The model info the session runs, as the CLI names it either way (alias or
+ * id). A model `chosen` ("opus") goes by its own name even where the default
+ * runs the same one ("default" and "opus" both claude-opus-5-5): the default
+ * is what runs when nothing chose a model.
+ */
 export function currentModelInfo(
   models: readonly ModelInfo[],
   current: string | undefined,
+  chosen?: string,
 ): ModelInfo | undefined {
   // Before its first turn the session names no model: it runs the default.
   if (!current) return models.find((m) => m.value === "default");
-  // "claude-opus-5-5[1m]" is Opus 5.5 with its long context.
-  const base = current.replace(/\[[^\]]*\]$/, "");
+  const named =
+    chosen && longContextBase(chosen) !== "default"
+      ? models.filter((m) => m.value !== "default")
+      : models;
+  return modelInfoOf(named, current) ?? modelInfoOf(models, current);
+}
+
+/** "claude-opus-5-5[1m]" is Opus 5.5 with its long context. */
+function longContextBase(model: string): string {
+  return model.replace(/\[[^\]]*\]$/, "");
+}
+
+function modelInfoOf(models: readonly ModelInfo[], current: string): ModelInfo | undefined {
+  const base = longContextBase(current);
   return (
     models.find((m) => m.value === current) ??
     models.find((m) => m.resolvedModel === current) ??
@@ -258,6 +349,11 @@ export interface ChatModel {
   sessionId?: string;
   /** The model the session runs, as the CLI names it ("claude-haiku-5-5"). */
   model?: string;
+  /**
+   * The model the tab or the settings chose, as they name it ("opus"); none
+   * when nothing chose one and the default runs.
+   */
+  chosenModel?: string;
   permissionMode?: string;
   effort?: string;
   cwd?: string;
@@ -301,6 +397,8 @@ export interface ChatModel {
    * came before is in the session's transcript, not here.
    */
   resumed?: boolean;
+  /** The goal Claude works toward (/goal); null once it was cleared. */
+  goal?: ClaudeGoal | null;
 }
 
 export function emptyModel(): ChatModel {
@@ -517,6 +615,9 @@ function applyOut(
     case "result":
       applyResult(draft, message, seq, at);
       return;
+    case "goal_status":
+      applyGoalStatus(draft, message, seq, at);
+      return;
     case "control_request":
       applyControlRequest(draft, message);
       return;
@@ -545,6 +646,7 @@ function applyOut(
       m.agentItems = {};
       m.contextUsage = undefined;
       m.clears = (m.clears ?? 0) + 1;
+      m.goal = undefined;
       return;
     }
     case "rate_limit_event": {
@@ -603,8 +705,11 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     case "task_started":
     case "task_progress":
     case "task_updated":
+      applyTask(draft, message, at);
+      return;
     case "task_notification":
       applyTask(draft, message, at);
+      applyTaskEnd(draft, message, at);
       return;
     case "background_tasks_changed": {
       if (!Array.isArray(message.tasks)) return;
@@ -773,6 +878,7 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
   const parent = str(message.parent_tool_use_id) ?? null;
   const messageId = str(body?.id) ?? `m${seq}`;
   const when = time(message.timestamp) ?? at;
+  if (!parent && applyGoalCommand(draft, message, content, seq, when)) return;
 
   const blocks: AssistantBlock[] = [];
   for (const raw of content) {
@@ -868,6 +974,19 @@ export function isCommandOutput(text: string): boolean {
   return text.startsWith("<local-command-stdout>") || text.startsWith("<local-command-stderr>");
 }
 
+/**
+ * A command the user ran, as the CLI writes it
+ * (`<command-name>/clear</command-name>…<command-args>…`), written as typed;
+ * null for any other text.
+ */
+export function typedCommand(text: string): string | null {
+  const name = /^\s*<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
+  const typed = name.startsWith("/") ? name : `/${name}`;
+  return args ? `${typed} ${args}` : typed;
+}
+
 function applyUserOut(
   draft: Draft,
   message: Rec,
@@ -880,10 +999,19 @@ function applyUserOut(
   const content = body?.content;
   const when = time(message.timestamp) ?? at;
 
+  // A check that found the goal unmet, which Claude reads to go on: not
+  // the user's message, though it comes as one.
+  if (!message.parent_tool_use_id && applyGoalFeedback(draft, message, content, when)) return;
+
   if (message.isReplay === true) {
+    const said = userContent(content).text;
     // Echoed as a message taken, it is none the app wrote: shown, it would
     // read as the user's, and take a message the user wrote for its own.
-    if (isCommandOutput(userContent(content).text)) return;
+    if (isCommandOutput(said)) return;
+    const command = typedCommand(said);
+    // /clear's echo comes after the reset that took the message it was typed
+    // as, and would take another one for its own: the reset's notice tells it.
+    if (command === "/clear") return;
     // The CLI took a message the app wrote: the one it was written with
     // this uuid, else the oldest one not yet taken.
     const uuid = str(message.uuid);
@@ -891,7 +1019,11 @@ function applyUserOut(
     let index = uuid
       ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
       : -1;
-    if (index < 0) index = m.items.findIndex(sent);
+    // One the app did not write may be no message of the user's at all: a
+    // shell command run in the terminal, which no turn follows.
+    if (index < 0 && applyShell(draft, said, seq, when)) return;
+    const other = index < 0 ? notTheUsers(message, said) : null;
+    if (!other && index < 0) index = m.items.findIndex(sent);
     // Taken live after a turn ended, it begins the next one: one the user
     // sent as the last turn was ending, or one the CLI was given itself
     // (Remote Control, a background task's news). A transcript's messages
@@ -899,6 +1031,24 @@ function applyUserOut(
     if (live && !m.running && m.process === "running") {
       m.running = true;
       m.turn = { startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+    }
+    if (other) {
+      // A task's end is told live by the CLI's own notice of it (applyTaskEnd).
+      if (other.kind === "task") {
+        if (message.fromTranscript === true) {
+          pushTaskEnd(draft, taskNews(said), when, message.midTurn !== true);
+        }
+      } else if (other.kind === "from") {
+        draft.push({
+          kind: "received",
+          key: `r${seq}`,
+          uuid,
+          from: other.from,
+          text: other.text,
+          at: when,
+        });
+      }
+      return;
     }
     if (index >= 0) {
       const { queued, ...item } = m.items[index] as UserItem;
@@ -911,8 +1061,17 @@ function applyUserOut(
         draft.replaceItem(index, taken);
       }
     } else {
+      // A command the CLI was given itself (Remote Control) reads as typed.
       const { text, images } = userContent(content);
-      draft.push({ kind: "user", key: `u${seq}`, text, images, state: "taken", uuid, at: when });
+      draft.push({
+        kind: "user",
+        key: `u${seq}`,
+        text: command ?? text,
+        images,
+        state: "taken",
+        uuid,
+        at: when,
+      });
     }
     return;
   }
@@ -984,6 +1143,266 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     const detail = str(message.result) ?? (errors.length > 0 ? errors.join("\n") : subtype);
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
   }
+}
+
+/**
+ * /goal's own output, which Claude Code writes as a message of its own: a
+ * goal set or cleared is the tab's goal, and a notice in the conversation.
+ * Its other answers ("Goal active: …", "No goal set") show as they are.
+ */
+function applyGoalCommand(
+  draft: Draft,
+  message: Rec,
+  content: unknown[],
+  seq: number,
+  at: number | undefined,
+): boolean {
+  const run = rec(message.local_command_run);
+  if (run?.command !== "goal") return false;
+  const m = draft.next;
+  const text = userContent(content).text.trim();
+  const set = /^Goal set: ([\s\S]+)$/.exec(text);
+  if (set) {
+    // As typed: the output may cut a long one short.
+    const condition = str(run.args)?.trim() || set[1].trim();
+    m.goal = { condition, setAt: at, status: "active", checks: [] };
+    draft.push({ kind: "notice", key: `n${seq}`, code: "goal_set", detail: condition, at });
+    return true;
+  }
+  const cleared = /^Goal cleared: ([\s\S]+)$/.exec(text);
+  if (cleared) {
+    m.goal = null;
+    draft.push({
+      kind: "notice",
+      key: `n${seq}`,
+      code: "goal_cleared",
+      detail: cleared[1].trim(),
+      at,
+    });
+    return true;
+  }
+  if (text === "No goal set") m.goal = null;
+  return false;
+}
+
+type NotTheUsers =
+  | { kind: "task" }
+  | { kind: "from"; from: MessageSource; text: string }
+  /** The CLI's own word to Claude (a reminder, a hook's, a skill's text). */
+  | { kind: "hidden" };
+
+/**
+ * What a message the CLI took is, when the user did not write it: the CLI
+ * says who did (origin) and marks what it wrote itself (isSynthetic). How
+ * the text looks tells nothing: the user can paste any tag.
+ */
+function notTheUsers(message: Rec, said: string): NotTheUsers | null {
+  const origin = rec(message.origin);
+  const kind = str(origin?.kind);
+  const own = message.isSynthetic === true;
+  if (kind === "task-notification") return { kind: "task" };
+  // Before the CLI named origins, its own notice of a task came bare.
+  if (!kind && /^\s*<task-notification>/.test(said) && /<task-id>/.test(said)) {
+    return { kind: "task" };
+  }
+  if (kind && SENDER_KINDS.has(kind)) return received(kind, origin, said);
+  if (own) return { kind: "hidden" };
+  if (!kind || USER_KINDS.has(kind)) return null;
+  return received(kind, origin, said);
+}
+
+/** The origins of a message the user wrote: here, by voice, or from another device. */
+const USER_KINDS: ReadonlySet<string> = new Set([
+  "human",
+  "composer",
+  "remote",
+  "voice-call",
+  // The CLI could not tell whose: the user's, as it was before it told.
+  "unclassified",
+]);
+
+/**
+ * A message someone else sent, without the tag the CLI wraps it in for
+ * Claude (`<cross-session-message from-name="…">`, `<agent-message from="…">`,
+ * `<channel source="…">`) or the line it leads it with.
+ */
+function received(kind: string, origin: Rec | null, said: string): NotTheUsers {
+  // The line the CLI leads it with, when it begins a turn ("Another Claude
+  // session sent a message:", "The coordinator sent a message while…:").
+  const body = said.replace(/^\s*[^\n<]{1,160}:\n(?=\s*<[a-z])/, "");
+  const wrapped = /^\s*<([a-z][\w-]*)((?:\s+[\w-]+="[^"]*")*)\s*>\n?([\s\S]*?)\n?<\/\1>\s*$/.exec(
+    body,
+  );
+  const attr = (name: string) =>
+    wrapped ? new RegExp(`\\s${name}="([^"]*)"`).exec(wrapped[2])?.[1] : undefined;
+  const name =
+    str(origin?.name) ??
+    attr("from-name") ??
+    str(origin?.server) ??
+    attr("source") ??
+    attr("from") ??
+    str(origin?.from);
+  let text = wrapped ? wrapped[3] : said;
+  if (kind === "coordinator")
+    text = text.replace(/^\s*The coordinator sent a message[^\n]*:\n/, "");
+  return { kind: "from", from: name ? { kind, name } : { kind }, text: text.trim() };
+}
+
+/** What a task's end says of it, as the CLI writes it for Claude (`<task-notification>`). */
+function taskNews(said: string): Rec {
+  const tag = (name: string) =>
+    new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(said)?.[1]?.trim() || undefined;
+  return {
+    task_id: tag("task-id"),
+    tool_use_id: tag("tool-use-id"),
+    status: tag("status"),
+    summary: tag("summary"),
+  };
+}
+
+/**
+ * The CLI's notice that a task ended. One Claude waited for (a subagent it
+ * ran in the turn) ends with its call's result, which shows it; one it did
+ * not wait for has had that result since it began, and gets a line here.
+ */
+function applyTaskEnd(draft: Draft, message: Rec, at: number | undefined): void {
+  const toolUseId = str(message.tool_use_id);
+  const call = toolUseId ? draft.next.tools[toolUseId] : undefined;
+  if (call && !call.result) return;
+  pushTaskEnd(draft, message, at, !draft.next.running);
+}
+
+function pushTaskEnd(draft: Draft, news: Rec, at: number | undefined, wakes: boolean): void {
+  const m = draft.next;
+  const taskId = str(news.task_id);
+  const status = str(news.status);
+  if (!taskId || !status) return;
+  const key = `te-${taskId}`;
+  if (m.items.some((item) => item.key === key)) return;
+  const task = m.tasks[taskId];
+  draft.push({
+    kind: "task_end",
+    key,
+    taskId,
+    status,
+    description: task?.description || undefined,
+    taskType: task?.type || undefined,
+    summary: str(news.summary),
+    toolUseId: str(news.tool_use_id) ?? task?.toolUseId,
+    ...(wakes ? { wakes } : {}),
+    at,
+  });
+}
+
+/**
+ * A shell command the user ran in the terminal's Claude Code (`!command`),
+ * as the CLI keeps it: `<bash-input>` and then `<bash-stdout>…<bash-stderr>`.
+ */
+function applyShell(draft: Draft, said: string, seq: number, at: number | undefined): boolean {
+  const m = draft.next;
+  const input = /^\s*<bash-input>([\s\S]*)<\/bash-input>\s*$/.exec(said);
+  if (input) {
+    draft.push({ kind: "shell", key: `sh${seq}`, command: input[1].trim(), at });
+    return true;
+  }
+  if (!/^\s*<bash-(stdout|stderr)>/.test(said)) return false;
+  const part = (name: string) =>
+    new RegExp(`<bash-${name}>([\\s\\S]*?)</bash-${name}>`).exec(said)?.[1]?.replace(/\s+$/, "") ||
+    undefined;
+  const last = m.items.length - 1;
+  const prev = m.items[last];
+  const out = { stdout: part("stdout"), stderr: part("stderr") };
+  if (prev?.kind === "shell" && prev.stdout === undefined && prev.stderr === undefined) {
+    draft.replaceItem(last, { ...prev, ...out });
+  } else {
+    draft.push({ kind: "shell", key: `sh${seq}`, command: "", ...out, at });
+  }
+  return true;
+}
+
+/**
+ * A check that found the goal unmet ("Stop hook feedback: [condition]: why"),
+ * which Claude reads as a message to go on. True when the message is one, of
+ * the goal's or of another Stop hook's: none is the user's to show.
+ */
+function applyGoalFeedback(draft: Draft, message: Rec, content: unknown, at: number | undefined) {
+  const said = userContent(content).text;
+  if (!said.startsWith("Stop hook feedback:")) return false;
+  const goal = draft.next.goal;
+  const reason = goal?.status === "active" ? goalFeedbackReason(said, goal.condition) : null;
+  if (goal && reason !== null) {
+    draft.next.goal = { ...goal, checks: [...goal.checks, { at, reason }] };
+    return true;
+  }
+  return message.isSynthetic === true;
+}
+
+/**
+ * A goal's check as the transcript keeps it (history.ts makes it a line):
+ * one that found the goal unmet, or the one that ended it met or failed.
+ */
+function applyGoalStatus(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
+  const condition = str(message.condition);
+  if (!condition || message.sentinel === true) return;
+  const m = draft.next;
+  const when = time(message.timestamp) ?? at;
+  const reason = str(message.reason);
+  // A goal set before the part of the transcript read is taken from its checks.
+  const goal: ClaudeGoal =
+    m.goal?.condition === condition ? m.goal : { condition, status: "active", checks: [] };
+  if (goal.status !== "active") return;
+  const met = message.met === true;
+  if (met || message.failed === true) {
+    m.goal = {
+      ...goal,
+      status: met ? "met" : "failed",
+      reason,
+      iterations: num(message.iterations),
+      durationMs: num(message.durationMs),
+      tokens: num(message.tokens),
+      endedAt: when,
+    };
+    draft.push(goalEndNotice(m.goal, `n${seq}`));
+  } else if (reason) {
+    m.goal = { ...goal, checks: [...goal.checks, { at: when, reason }] };
+  }
+}
+
+function goalEndNotice(goal: ClaudeGoal, key: string): NoticeItem {
+  const met = goal.status === "met";
+  return {
+    kind: "notice",
+    key,
+    code: met ? "goal_met" : "goal_failed",
+    detail: met ? goal.condition : (goal.reason ?? goal.condition),
+    at: goal.endedAt,
+  };
+}
+
+/**
+ * The model once the transcript told that its goal ended: a check that finds
+ * it met (or impossible) ends the turn without a word in the stream. The
+ * goal takes what the transcript told, and the conversation a notice where
+ * it ended.
+ */
+export function endGoal(model: ChatModel, told: ClaudeGoal): ChatModel {
+  const goal = model.goal;
+  if (!goal || goal.status !== "active" || told.status === "active") return model;
+  if (told.condition !== goal.condition) return model;
+  const ended: ClaudeGoal = {
+    ...told,
+    setAt: goal.setAt ?? told.setAt,
+    checks: told.checks.length >= goal.checks.length ? told.checks : goal.checks,
+    endedLive: true,
+  };
+  const items = [...model.items];
+  let index = items.length;
+  const endedAt = ended.endedAt;
+  if (endedAt !== undefined) {
+    while (index > 0 && (items[index - 1].at ?? 0) > endedAt) index--;
+  }
+  items.splice(index, 0, goalEndNotice(ended, `goal-end-${endedAt ?? goal.setAt ?? ""}`));
+  return { ...model, items, goal: ended };
 }
 
 function applyControlRequest(draft: Draft, message: Rec): void {
@@ -1070,6 +1489,7 @@ function applyControlResponse(
       return;
     case "set_model":
       m.model = str(request.model) ?? m.model;
+      m.chosenModel = str(request.model) ?? m.chosenModel;
       return;
     case "apply_flag_settings": {
       const effort = str(rec(request.settings)?.effortLevel);
@@ -1079,6 +1499,7 @@ function applyControlResponse(
     case "get_settings":
       // Before its first turn the session names no model, nor ever its effort.
       m.model ??= settingsModel(body);
+      m.chosenModel ??= settingsChoice(body);
       m.effort ??= appliedEffort(body);
       return;
     case "get_context_usage":

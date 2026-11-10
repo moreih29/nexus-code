@@ -1,8 +1,8 @@
 /**
  * A Claude tab's program runs as the user's settings say: the model they
- * set shows before the first turn names it, and the effort they set, which
- * `claude -p` leaves out, is given to it. Answers as claude 2.1.319 gave
- * them.
+ * set shows before the first turn names it, by its own name even where the
+ * default runs the same one, and the effort they set, which `claude -p`
+ * leaves out, is given to it. Answers as claude 2.1.319 gave them.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -16,6 +16,7 @@ import {
 import {
   appliedEffort,
   effortToApply,
+  settingsChoice,
   settingsModel,
 } from "../../../../../src/renderer/services/chat/settings-defaults";
 
@@ -38,6 +39,17 @@ describe("settingsModel", () => {
   test("is none when no setting names one: the default runs", () => {
     expect(settingsModel(UNSET)).toBeUndefined();
     expect(settingsModel(null)).toBeUndefined();
+  });
+});
+
+describe("settingsChoice", () => {
+  test("is the model the settings set, as they name it", () => {
+    expect(settingsChoice(SET)).toBe("opus[1m]");
+  });
+
+  test("is none when no setting names one", () => {
+    expect(settingsChoice(UNSET)).toBeUndefined();
+    expect(settingsChoice(null)).toBeUndefined();
   });
 });
 
@@ -89,6 +101,34 @@ describe("currentModelInfo", () => {
   });
 });
 
+// As claude 2.1.32x lists them: the default runs Opus 5.5, as "opus" does.
+const SAME: ModelInfo[] = [
+  { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)" },
+  { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5" },
+  { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5" },
+] as ModelInfo[];
+
+describe("currentModelInfo, where the default runs a model another choice names", () => {
+  test("is the default when nothing chose a model", () => {
+    expect(currentModelInfo(SAME, "claude-opus-5-5")?.value).toBe("default");
+    expect(currentModelInfo(SAME, "claude-opus-5-5", "default")?.value).toBe("default");
+  });
+
+  test("is the model chosen, by alias or id, with its long context or not", () => {
+    expect(currentModelInfo(SAME, "claude-opus-5-5", "opus")?.value).toBe("opus");
+    expect(currentModelInfo(SAME, "claude-opus-5-5[1m]", "opus[1m]")?.value).toBe("opus");
+    expect(currentModelInfo(SAME, "claude-opus-5-5", "claude-opus-5-5")?.value).toBe("opus");
+  });
+
+  test("is what runs, when that is not what was chosen", () => {
+    expect(currentModelInfo(SAME, "claude-sonnet-5-5", "opus")?.value).toBe("sonnet");
+  });
+
+  test("is still the default when no other choice runs that model", () => {
+    expect(currentModelInfo(MODELS, "claude-opus-4-8", "opus")?.value).toBe("default");
+  });
+});
+
 function answered(answer: unknown, model = emptyModel()) {
   const lines: ChatLine[] = [
     { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
@@ -124,5 +164,48 @@ describe("a get_settings answer", () => {
     const model = answered(SET, { ...emptyModel(), model: "claude-haiku-5-5", effort: "high" });
     expect(model.model).toBe("claude-haiku-5-5");
     expect(model.effort).toBe("high");
+  });
+
+  test("tells the model the settings chose, for the chip to name", () => {
+    expect(answered(SET).chosenModel).toBe("opus[1m]");
+    expect(answered(UNSET).chosenModel).toBeUndefined();
+    expect(answered(SET, { ...emptyModel(), chosenModel: "sonnet" }).chosenModel).toBe("sonnet");
+  });
+});
+
+describe("a model the tab sets (its chip, /config)", () => {
+  const SET_OPUS: ChatLine[] = [
+    { seq: 1, dir: "sys", message: { event: "start", pid: 1 } },
+    {
+      seq: 2,
+      dir: "in",
+      message: {
+        type: "control_request",
+        request_id: "m",
+        request: { subtype: "set_model", model: "opus" },
+      },
+    },
+    {
+      seq: 3,
+      dir: "out",
+      message: {
+        type: "control_response",
+        response: { subtype: "success", request_id: "m", response: {} },
+      },
+    },
+  ];
+
+  test("keeps its name once a turn names the model it runs by id", () => {
+    const set = applyLines(emptyModel(), SET_OPUS);
+    expect(set.chosenModel).toBe("opus");
+    const turn = applyLines(set, [
+      {
+        seq: 4,
+        dir: "out",
+        message: { type: "system", subtype: "init", session_id: "s", model: "claude-opus-5-5" },
+      },
+    ]);
+    expect(turn.model).toBe("claude-opus-5-5");
+    expect(currentModelInfo(SAME, turn.model, turn.chosenModel)?.displayName).toBe("Opus 5.5");
   });
 });

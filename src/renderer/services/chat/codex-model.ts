@@ -12,7 +12,9 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
+import { CODEX_INIT_PROMPT } from "./codex-commands";
 import { fileMention } from "./composer-input";
+import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "./goal";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -76,6 +78,13 @@ export interface CodexModel extends ChatModel {
   /** The plan's usage limits; only a ChatGPT sign-in has them. */
   rateLimits?: CodexRateLimits;
   threadName?: string;
+  /**
+   * The turn a review (/review) runs in: the message that starts it there
+   * is Codex's own, which the review's notice tells.
+   */
+  reviewTurn?: string;
+  /** The thread's goal (/goal), as the server last told it; null when it has none. */
+  threadGoal?: CodexGoal | null;
   /** Where the text an item streams goes: its message's key and the block's index. */
   blocks: Record<string, { key: string; index: number }>;
   /** The server's requests waiting for an answer, by their JSON id. */
@@ -113,6 +122,7 @@ const QUIET_REQUESTS = new Set([
   "account/read",
   "account/rateLimits/read",
   "fuzzyFileSearch",
+  "thread/goal/get",
 ]);
 
 /** Most of a running command's output a row keeps; the start goes first. */
@@ -301,7 +311,48 @@ function applyResponse(
       // A read with no windows leaves the last ones shown.
       m.rateLimits = rateLimitsOf(result.rateLimits) ?? m.rateLimits;
       return;
+    case "thread/goal/get":
+    case "thread/goal/set":
+      if (!sent.request.threadId || sent.request.threadId === m.threadId) {
+        m.threadGoal = nextGoal(m.threadGoal, result.goal, at);
+      }
+      return;
+    case "thread/goal/clear":
+      if (!sent.request.threadId || sent.request.threadId === m.threadId) m.threadGoal = null;
+      return;
   }
+}
+
+/**
+ * The goal the server told, after `prev`: one that completes as the tab
+ * looks on says so until it is closed.
+ */
+function nextGoal(
+  prev: CodexGoal | null | undefined,
+  raw: unknown,
+  at: number | undefined,
+): CodexGoal | null {
+  const goal = rec(raw);
+  const objective = str(goal?.objective);
+  const status = str(goal?.status);
+  if (!goal || !objective || !CODEX_GOAL_STATUSES.includes(status as CodexGoalStatus)) return null;
+  const complete = status === "complete";
+  const createdAt = num(goal.createdAt);
+  return {
+    objective,
+    status: status as CodexGoalStatus,
+    timeUsedSeconds: num(goal.timeUsedSeconds) ?? 0,
+    usedAt: at,
+    tokensUsed: num(goal.tokensUsed) ?? 0,
+    tokenBudget: num(goal.tokenBudget) ?? null,
+    createdAt: createdAt !== undefined ? createdAt * 1000 : undefined,
+    endedLive:
+      complete &&
+      prev !== undefined &&
+      prev !== null &&
+      prev.objective === objective &&
+      (prev.status !== "complete" || prev.endedLive === true),
+  };
 }
 
 /** A started or resumed thread: its settings, and the turns it had when resumed. */
@@ -322,6 +373,8 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
     const turn = rec(raw);
     const turnId = str(turn?.id);
     if (!turn || !turnId || !Array.isArray(turn.items)) return;
+    // A review's turn, whichever of its items is listed first.
+    if (turn.items.some((item) => rec(item)?.type === "enteredReviewMode")) m.reviewTurn = turnId;
     const startedAt = num(turn.startedAt);
     inStartOrder(turn.items).forEach(({ item, i }) => {
       const at = num(item.startedAtMs) ?? (startedAt !== undefined ? startedAt * 1000 : undefined);
@@ -372,7 +425,12 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
 }
 
 /** Thread notifications about the tab's own thread alone. */
-const OWN_THREAD_ONLY = new Set(["thread/tokenUsage/updated", "thread/compacted"]);
+const OWN_THREAD_ONLY = new Set([
+  "thread/tokenUsage/updated",
+  "thread/compacted",
+  "thread/goal/updated",
+  "thread/goal/cleared",
+]);
 
 function applyNotification(
   draft: CodexDraft,
@@ -498,6 +556,12 @@ function applyNotification(
     case "thread/compacted":
       pushCompacted(draft, `n${seq}`, at);
       return;
+    case "thread/goal/updated":
+      m.threadGoal = nextGoal(m.threadGoal, params.goal, at);
+      return;
+    case "thread/goal/cleared":
+      m.threadGoal = null;
+      return;
     case "model/rerouted":
       m.model = str(params.toModel) ?? m.model;
       return;
@@ -600,6 +664,8 @@ function applyItem(
       if (m.items.some((i) => i.kind === "user" && i.uuid === id)) return;
       const clientId = str(item.clientId);
       if (clientId && takeUser(draft, `u-${clientId}`, id)) return;
+      // The instructions a review starts with, which the app did not write.
+      if (m.reviewTurn === turnId) return;
       // A message the app sent, told without its client id: the oldest not yet told.
       const index = m.items.findIndex(
         (i) => i.kind === "user" && i.key.startsWith("u-") && i.uuid === undefined,
@@ -631,6 +697,7 @@ function applyItem(
     // A review (/review) is told as it starts; its findings come as Codex's
     // message after it ends, which tells what the review's end item does.
     case "enteredReviewMode":
+      m.reviewTurn = turnId;
       if (!m.items.some((i) => i.key === `r${id}`)) {
         draft.push({ kind: "notice", key: `r${id}`, code: "review", detail: str(item.review), at });
       }
@@ -1165,6 +1232,14 @@ function describePermissions(permissions: Rec | null): string | undefined {
 // Small readers.
 // ---------------------------------------------------------------------------
 
+/**
+ * A message's text as its bubble and the tab's title show it: the prompt
+ * /init sends reads as the command typed.
+ */
+export function shownUserText(text: string): string {
+  return text.trim() === CODEX_INIT_PROMPT.trim() ? "/init" : text;
+}
+
 /** A message's input as a bubble shows it: text, mentions as @paths, images. */
 function userInputOf(input: unknown): Pick<UserItem, "text" | "images"> {
   const texts: string[] = [];
@@ -1189,7 +1264,7 @@ function userInputOf(input: unknown): Pick<UserItem, "text" | "images"> {
       }
     }
   }
-  const text = texts.join("\n");
+  const text = shownUserText(texts.join("\n"));
   if (mentions.length === 0) return { text, images };
   return { text: text ? `${text}\n\n${mentions.join(" ")}` : mentions.join(" "), images };
 }

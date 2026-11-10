@@ -3,7 +3,13 @@
 // the CLI lists under the same name is the CLI's, so a Claude Code that
 // gains one runs its own. Pure, for the tab and its tests.
 
-import type { AssistantItem, ChatItem, CommandInfo, ToolCall } from "./model";
+import {
+  type AssistantItem,
+  type ChatItem,
+  type CommandInfo,
+  opensTurn,
+  type ToolCall,
+} from "./model";
 import type { RevealPart } from "./store";
 
 export interface AppCommand {
@@ -133,7 +139,7 @@ export function answersOf(items: readonly ChatItem[]): string[] {
     turn = [];
   };
   for (const item of items) {
-    if (item.kind === "user") close();
+    if (opensTurn(item)) close();
     else if (item.kind === "assistant") turn.push(item);
   }
   close();
@@ -162,7 +168,20 @@ export function conversationMarkdown(
   const parts: string[] = [];
   let speaker: "user" | "assistant" | null = null;
   for (const item of items) {
-    if (item.kind === "notice") continue;
+    if (item.kind === "received") {
+      if (!item.text.trim()) continue;
+      const from = item.from.name ? `${item.from.kind}: ${item.from.name}` : item.from.kind;
+      parts.push(`## ${from}\n\n${item.text.trim()}`);
+      speaker = "user";
+      continue;
+    }
+    if (item.kind === "shell") {
+      const out = [item.stdout, item.stderr].filter(Boolean).join("\n");
+      parts.push(`\`\`\`\n$ ${item.command}${out ? `\n${out}` : ""}\n\`\`\``);
+      speaker = null;
+      continue;
+    }
+    if (item.kind !== "user" && item.kind !== "assistant") continue;
     if (item.kind === "user") {
       if (!item.text.trim()) continue;
       parts.push(`## ${labels.user}\n\n${item.text.trim()}`);

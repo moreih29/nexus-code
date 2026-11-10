@@ -37,6 +37,7 @@ import {
   changedFilesOf,
   contextOf,
   distinctResults,
+  exitCodeOf,
   jobCommand,
   jobOutputFile,
   jobsOf,
@@ -194,11 +195,17 @@ export function SidePanel({
         </Section>
       )}
       {jobs.length > 0 && (
-        <Section title={t("chat.panel.jobs.title")} count={jobs.length}>
+        <Section
+          title={t("chat.panel.jobs.title")}
+          count={jobs.length}
+          opened={revealSeq(state, "jobs")}
+        >
           {jobs.map((job) => (
             <JobEntry
               key={job.taskId}
               job={job}
+              reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
+              onRevealed={(seq) => takeReveal(controller.key, seq)}
               tools={tools}
               now={now}
               workspaceId={workspaceId}
@@ -306,6 +313,19 @@ function scrollToTop(el: HTMLElement): void {
   }
 }
 
+/** Scrolls the panel just far enough to show all of a row, or its start when it is taller. */
+function scrollIntoPanel(el: HTMLElement): void {
+  for (let box = el.parentElement; box; box = box.parentElement) {
+    const { overflowY } = getComputedStyle(box);
+    if (overflowY !== "auto" && overflowY !== "scroll") continue;
+    const row = el.getBoundingClientRect();
+    const view = box.getBoundingClientRect();
+    if (row.top < view.top || row.height > view.height) box.scrollTop += row.top - view.top;
+    else if (row.bottom > view.bottom) box.scrollTop += row.bottom - view.bottom;
+    return;
+  }
+}
+
 /** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
@@ -319,6 +339,7 @@ function Section({
   openAgain,
   reveal,
   onRevealed,
+  opened,
   children,
 }: {
   title: string;
@@ -332,9 +353,14 @@ function Section({
   /** Set when a bare command asked for this section: it opens and comes into view. */
   reveal?: number;
   onRevealed?: (seq: number) => void;
+  /** Set when one of its rows was asked for: it opens, and the row shows itself. */
+  opened?: number;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(!folded);
+  useEffect(() => {
+    if (opened !== undefined) setOpen(true);
+  }, [opened]);
   const ref = useRef<HTMLElement>(null);
   // The ask to scroll to, once the section has opened: before, the panel
   // may be too short to bring it to the top.
@@ -721,12 +747,6 @@ function sameOutput(a: JobOutput | null | undefined, b: JobOutput | null): boole
   );
 }
 
-/** The exit code a job's end tells, as "… completed (exit code 0)" does. */
-function exitCodeOf(summary: string | undefined): number | undefined {
-  const code = summary?.match(/exit code (-?\d+)/i)?.[1];
-  return code === undefined ? undefined : Number(code);
-}
-
 /**
  * A background job: its state and how long it ran; opened, the command it
  * runs, the end of its output (as it comes, while it runs) and how it
@@ -742,8 +762,13 @@ function JobEntry({
   stopNote,
   onShowCall,
   onOpenFile,
+  reveal,
+  onRevealed,
 }: {
   job: TaskInfo;
+  /** Set when the conversation asked for this job: it opens and comes into view. */
+  reveal?: number;
+  onRevealed?: (seq: number) => void;
   tools: Record<string, ToolCall>;
   now: number;
   workspaceId: string;
@@ -757,8 +782,41 @@ function JobEntry({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
+  const ref = useRef<HTMLDivElement>(null);
+  // The ask the row is lit for, for a moment: which of the jobs was meant.
+  const [lit, setLit] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
+  useEffect(() => {
+    if (reveal === undefined) return;
+    setOpen(true);
+    setLit(reveal);
+    onRevealed?.(reveal);
+  }, [reveal]);
+  useEffect(() => {
+    const el = ref.current;
+    if (lit === null || !el) return;
+    scrollIntoPanel(el);
+    // Its output comes a moment later and makes it taller: it follows for a while.
+    const observer = new ResizeObserver(() => scrollIntoPanel(el));
+    observer.observe(el);
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      setLit(null);
+    }, REVEAL_FOLLOW_MS);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [lit]);
   return (
-    <div className="flex flex-col" data-testid="chat-job">
+    <div
+      ref={ref}
+      className={cn(
+        "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
+        lit !== null && "bg-[var(--state-hover-bg)]",
+      )}
+      data-testid="chat-job"
+    >
       <Row>
         <button
           type="button"

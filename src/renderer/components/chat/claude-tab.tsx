@@ -2,7 +2,14 @@
 // agent, shown as a conversation. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
-import { Bot, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
+import {
+  ArrowLeft,
+  Bot,
+  ListChecks,
+  PanelRightClose,
+  PanelRightOpen,
+  SquareTerminal,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -90,6 +97,7 @@ import { type ChatLinks, ChatLinksContext } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
+import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
@@ -124,7 +132,7 @@ const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 type PanelPlace = "beside" | "drawer" | "summary";
 
 /** The parts a bare command asks for that are in the side panel. */
-const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status"]);
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -173,6 +181,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     [workspaceId, tabId],
   );
   const state = useChatTab(workspaceId, tabId);
+  const goal = useTabGoal(workspaceId, tabId);
   const { contextUsage } = state.model;
   // The plan's usage is the profile's, one for all its tabs; the tab's own
   // answer until the profile has one.
@@ -254,6 +263,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   const running = state.model.running;
   const canFork = !hooks && controller.forkPoint("", { before: false }) !== null;
   const asking = state.model.permissions;
+  // Set below, where the agents are known; read when a row renders.
+  const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   const actions = useMemo<MessageActions>(
     () => ({
       running,
@@ -265,6 +276,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           .backgroundTool(toolUseId)
           .catch((err: Error) => showToast({ kind: "error", message: err.message })),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+      taskShower: (item) => taskShower.current(item),
     }),
     [running, canFork, hooks, controller, workspaceId, props.cwd, asking],
   );
@@ -341,6 +353,19 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     dropAgentAsk(tabId);
   };
   useAgentAsk(tabId, agents, showAgent);
+  // A task's end in the conversation shows the task: an agent's transcript,
+  // a job in the side panel. One the tab no longer knows (a conversation
+  // resumed) has nothing to show.
+  taskShower.current = (item) => {
+    const task = state.model.tasks[item.taskId];
+    const toolUseId = task?.toolUseId ?? item.toolUseId;
+    if (toolUseId && agents.some((a) => a.toolUseId === toolUseId)) {
+      return () => showAgent(toolUseId);
+    }
+    return task && jobsOf(state.model).includes(task)
+      ? () => revealPart(controller.key, "jobs", item.taskId)
+      : undefined;
+  };
   // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
   const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
   const showCall = (toolUseId: string) => {
@@ -552,7 +577,26 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       <div className="relative flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
-            <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
+            <>
+              <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
+              {/* Too narrow for the agents' strip: the way back from one's transcript. */}
+              {shown && (
+                <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
+                  <button
+                    type="button"
+                    onClick={() => showAgent(null)}
+                    className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                    data-testid="chat-to-main"
+                  >
+                    <ArrowLeft className="size-3.5" aria-hidden />
+                    {t("chat.strip.to_main")}
+                  </button>
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {shown.description}
+                  </span>
+                </div>
+              )}
+            </>
           ) : (
             <AgentStrip
               agents={agents}
@@ -607,9 +651,16 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             />
           )}
           {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
-          {(permissions.length > 0 || state.model.running) && (
+          {(permissions.length > 0 || state.model.running || goal) && (
             <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
               <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+                {goal && (
+                  <GoalBar
+                    tab={goal}
+                    onClear={() => controller.clearGoal()}
+                    onClose={() => closeGoalBar(workspaceId, tabId, goal.goal)}
+                  />
+                )}
                 {permissions.length > 0 && shown && (
                   <div
                     className="flex items-center gap-2 rounded-(--radius-control) border border-[var(--state-warning-border)] bg-[var(--state-warning-bg)] px-2 py-1 text-app-ui-sm text-[var(--state-warning-fg)]"

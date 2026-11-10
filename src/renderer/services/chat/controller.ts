@@ -18,6 +18,7 @@ import {
   modelBefore,
   modelUuids,
   sessionTitleOf,
+  transcriptGoal,
   uuidBefore,
 } from "./history";
 import { LiveLines } from "./live-lines";
@@ -26,6 +27,7 @@ import {
   type ChatLine,
   type ChatModel,
   emptyModel,
+  endGoal,
   type ImageBlock,
   type PermissionRequest,
   type UserItem,
@@ -55,6 +57,14 @@ const TITLE_FROM_CHARS = 2_000;
 const REPLAY_CATCH_UP_MS = 3_000;
 /** Longest one of Claude Code's own commands (/config) is waited on before the next is sent. */
 const COMMAND_DONE_MS = 10_000;
+/**
+ * How long after a turn ends with the goal set the transcript is read for
+ * how the goal stands, and read once more after that: Claude Code writes
+ * the check that ended the turn as the turn ends.
+ */
+const GOAL_SYNC_MS = [500, 2_500];
+/** How long clearing the goal waits for the turn it stops to end. */
+const GOAL_STOP_MS = 10_000;
 
 /**
  * What a bare /config lists, for each workspace's profile and Claude Code
@@ -261,6 +271,8 @@ export class ChatController {
       // A program started on a session logs only what came after; the rest
       // is in the transcript.
       if (this.state.model.resumed) await this.loadResumedHistory();
+      // A goal met while no window looked on.
+      if (!this.state.model.running) void this.syncGoal();
       return;
     }
     // The agent has no log: a new tab, or one whose agent restarted.
@@ -302,7 +314,13 @@ export class ChatController {
         }),
       );
       if (!result.found) return;
-      const history = historyModel(result.lines, cut);
+      const read = historyModel(result.lines, cut);
+      // A task's end the log tells too is the log's: it has no uuid to cut at.
+      const told = new Set(
+        this.state.model.items.flatMap((item) => (item.kind === "task_end" ? [item.key] : [])),
+      );
+      const history =
+        told.size > 0 ? { ...read, items: read.items.filter((item) => !told.has(item.key)) } : read;
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
       // A session that was named, by the user or by Claude, is called by its
       // name; a branch, by the one it is to take.
@@ -316,7 +334,15 @@ export class ChatController {
         this.titled = true;
         this.hooks.onFirstMessage?.(first.text.trim());
       }
-      this.update((prev) => ({ ...prev, history: history.items.length > 0 ? history : null }));
+      this.update((prev) => ({
+        ...prev,
+        history: history.items.length > 0 ? history : null,
+        // The goal the session had goes on with it: Claude Code sets it again.
+        model:
+          prev.model.goal === undefined && history.goal
+            ? { ...prev.model, goal: history.goal }
+            : prev.model,
+      }));
     } catch (err) {
       log.warn(`transcript of ${sessionId} not read: ${(err as Error).message}`);
     }
@@ -1105,6 +1131,49 @@ export class ChatController {
     }
   }
 
+  /**
+   * Reads in the session's transcript how its goal stands, while the tab
+   * has it running: a check that finds it met, or impossible, ends the
+   * turn, and only the transcript says so.
+   */
+  private async syncGoal(): Promise<void> {
+    const sessionId = this.state.model.sessionId ?? this.sessionId;
+    if (this.disposed || this.state.model.goal?.status !== "active" || !sessionId) return;
+    try {
+      const result = unwrapIpcResult(
+        await ipcCallResult("chat", "transcript", {
+          workspaceId: this.target.workspaceId,
+          sessionId,
+          ...profileArg(this.target.profileId),
+        }),
+      );
+      const told = result.found ? transcriptGoal(result.lines) : undefined;
+      if (!told || told.status === "active") return;
+      this.update((prev) => {
+        const model = endGoal(prev.model, told);
+        return model === prev.model ? prev : { ...prev, model };
+      });
+    } catch (err) {
+      log.warn(`goal of ${sessionId} not read: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Clears the goal (/goal clear). Claude Code runs the command once the
+   * turn ends, which a goal holds off until it is met: the turn stops first.
+   */
+  async clearGoal(): Promise<void> {
+    if (this.state.model.running) {
+      await this.interrupt().catch(() => {});
+      const deadline = Date.now() + GOAL_STOP_MS;
+      while (!this.disposed && this.state.model.running && Date.now() < deadline) {
+        this.flushNow();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    await this.sendCommands(["/goal clear"], true);
+  }
+
   /** Shows a card above the composer, in place of the one before; its id, to fill it in. */
   showCard(card: Omit<CommandCard, "id">): string {
     const id = nextRequestId();
@@ -1287,6 +1356,9 @@ export class ChatController {
       // profile's usage too, which its store asks for when it is time.
       this.refreshContext();
       if (message.type === "result") void wantPlanUsage(this.usageKey());
+      if (message.type === "result" && this.state.model.goal?.status === "active") {
+        for (const ms of GOAL_SYNC_MS) setTimeout(() => void this.syncGoal(), ms);
+      }
     } else if (message.type === "system" && message.subtype === "session_title_changed") {
       // Said when the name changes, and as the program starts on a session
       // that has one; the CLI has trimmed it and made it unique.

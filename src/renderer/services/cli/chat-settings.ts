@@ -12,7 +12,7 @@ import { type ChatModel, currentModelInfo, type ModelInfo } from "../chat/model"
 /** What a tab runs with now, and what it may be set to. */
 export function chatChoicesOf(agent: ChatAgent, model: ChatModel): CliChatChoices {
   const models = model.init?.models ?? [];
-  const current = currentModelInfo(models, model.model);
+  const current = currentModelInfo(models, model.model, model.chosenModel);
   return {
     agent,
     model: current?.value ?? model.model ?? null,
@@ -66,7 +66,7 @@ export function planChatSettings(
       );
     }
   }
-  const modelInfo = nextModel ?? currentModelInfo(models, model.model);
+  const modelInfo = nextModel ?? currentModelInfo(models, model.model, model.chosenModel);
   let effort: string | undefined;
   if (wanted.effort !== undefined) {
     if (!effortSettable) throw new Error("its Claude Code is too old to set the effort");

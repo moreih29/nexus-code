@@ -45,6 +45,8 @@ export interface ChatTabState {
   card?: CommandCard;
   /** A part of the tab a command typed bare asked to see, till it is shown. */
   reveal?: Reveal;
+  /** The ended goal whose bar was closed, by its key (GoalView.key). */
+  goalClosed?: string;
 }
 
 /**
@@ -52,10 +54,12 @@ export interface ChatTabState {
  * side panel's context, usage and MCP servers, the composer's model and
  * effort menus.
  */
-export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort" | "status";
+export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort" | "status" | "jobs";
 
 export interface Reveal {
   part: RevealPart;
+  /** Which one of the part's: a job, by its task's id. */
+  id?: string;
   /** Tells one ask from the next, so the same part asked twice opens twice. */
   seq: number;
 }
@@ -130,10 +134,10 @@ export const useChatStore = create<ChatStore>((set) => ({
 }));
 
 /** Asks the tab with `key` to show one of its parts. */
-export function revealPart(key: string, part: RevealPart): void {
+export function revealPart(key: string, part: RevealPart, id?: string): void {
   useChatStore.getState().update(key, (prev) => ({
     ...prev,
-    reveal: { part, seq: (prev.reveal?.seq ?? 0) + 1 },
+    reveal: { part, ...(id ? { id } : {}), seq: (prev.reveal?.seq ?? 0) + 1 },
   }));
 }
 
