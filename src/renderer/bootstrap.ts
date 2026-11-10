@@ -163,6 +163,7 @@ export async function bootstrapAppState(): Promise<void> {
     filesPanelWidth: state.filesPanelWidth,
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
+    sessionsListRatio: state.sessionsListRatio,
   });
 
   // Hydrate theme from appState (authoritative store).
