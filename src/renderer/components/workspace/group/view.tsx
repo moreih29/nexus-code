@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
+import { requestTabFocus } from "@/services/tab-focus";
 import { openTerminal } from "@/services/terminal";
 import {
   openClaudeTab,
@@ -99,21 +100,25 @@ export function GroupView({
     onActivateGroup(leaf.id);
   }
 
+  // A conversation opened from the + menu takes the keyboard in its message
+  // box, as a terminal or an untitled file opened from it does.
   function handleNewClaudeTab(profileId?: string) {
-    openClaudeTab(
+    const tab = openClaudeTab(
       workspaceId,
       { cwd: workspaceRootPath, ...(profileId ? { profileId } : {}) },
       { groupId: leaf.id },
     );
+    requestTabFocus(tab.id);
     onActivateGroup(leaf.id);
   }
 
   function handleNewCodexTab(profileId?: string) {
-    openCodexTab(
+    const tab = openCodexTab(
       workspaceId,
       { cwd: workspaceRootPath, ...(profileId ? { profileId } : {}) },
       { groupId: leaf.id },
     );
+    requestTabFocus(tab.id);
     onActivateGroup(leaf.id);
   }
 
