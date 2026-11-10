@@ -31,6 +31,7 @@ import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/sto
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
+import { GoalRowLine } from "../chat/goal-bar";
 import { ManagerChip } from "../manager/manager-chip";
 import { AgentRows } from "../sessions/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../sessions/session-status";
@@ -482,6 +483,9 @@ function AgentItem({
           {managers && <ManagerChip />}
           <RowLine session={session} facts={facts} />
         </div>
+        {session.kind !== "terminal" && (
+          <GoalRowLine workspaceId={session.workspaceId} tabId={session.tabId} />
+        )}
       </div>
       <AgentRows
         agents={run?.agents ?? []}

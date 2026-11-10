@@ -3,6 +3,7 @@
 // writes one JSON entry per line: the messages, and its own bookkeeping
 // (summaries, file snapshots), which is skipped.
 
+import type { ClaudeGoal } from "./goal";
 import {
   applyLines,
   type ChatLine,
@@ -32,6 +33,11 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
       (entry.promptSource === "system" || rec(entry.origin)?.kind === "task-notification")
     )
       continue;
+    const goal = goalLine(entry, lines.length + 1);
+    if (goal) {
+      lines.push(goal);
+      continue;
+    }
     let message = rec(entry.message);
     if (!message) continue;
     if (entry.type === "user") {
@@ -78,6 +84,48 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
     }
   }
   return lines;
+}
+
+/**
+ * A goal's part of the transcript as a line: /goal's output when it set or
+ * cleared one (the stream's own form of it), and each check of it, which
+ * only the transcript keeps once one finds the goal met.
+ */
+function goalLine(entry: Rec, seq: number): ChatLine | null {
+  if (entry.type === "attachment") {
+    const attachment = rec(entry.attachment);
+    if (attachment?.type !== "goal_status" || attachment.sentinel === true) return null;
+    return {
+      seq,
+      dir: "out",
+      replay: true,
+      message: { ...attachment, type: "goal_status", timestamp: entry.timestamp },
+    };
+  }
+  if (entry.type !== "system" || entry.subtype !== "local_command") return null;
+  const content = typeof entry.content === "string" ? entry.content.trim() : "";
+  const output = /^<local-command-stdout>([\s\S]*)<\/local-command-stdout>$/.exec(content)?.[1];
+  if (!output || !/^Goal (set|cleared): /.test(output.trim())) return null;
+  return {
+    seq,
+    dir: "out",
+    replay: true,
+    message: {
+      type: "assistant",
+      local_command_run: { command: "goal" },
+      message: {
+        id: `goal-${String(entry.uuid)}`,
+        content: [{ type: "text", text: output.trim() }],
+      },
+      uuid: entry.uuid,
+      timestamp: entry.timestamp,
+    },
+  };
+}
+
+/** The goal a session's transcript ends with, as far as it goes. */
+export function transcriptGoal(entries: readonly unknown[]): ClaudeGoal | null | undefined {
+  return applyLines(emptyModel(), transcriptLines(entries)).goal;
 }
 
 /** A message's text: the string, or its first block's. */

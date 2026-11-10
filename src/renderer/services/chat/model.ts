@@ -8,6 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { terminalText } from "../editor/preview/notebook";
+import { type ClaudeGoal, goalFeedbackReason } from "./goal";
 import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
 
 export type LineDir = "out" | "in" | "sys";
@@ -76,7 +77,12 @@ export type NoticeCode =
   /** A thread the app could not go on with; it started a new one. */
   | "not_resumed"
   /** Codex began reviewing (/review): what it looks at is the detail. */
-  | "review";
+  | "review"
+  /** A goal set, cleared, met or found impossible (/goal): its condition is the detail. */
+  | "goal_set"
+  | "goal_cleared"
+  | "goal_met"
+  | "goal_failed";
 
 export interface NoticeItem {
   kind: "notice";
@@ -324,6 +330,8 @@ export interface ChatModel {
    * came before is in the session's transcript, not here.
    */
   resumed?: boolean;
+  /** The goal Claude works toward (/goal); null once it was cleared. */
+  goal?: ClaudeGoal | null;
 }
 
 export function emptyModel(): ChatModel {
@@ -540,6 +548,9 @@ function applyOut(
     case "result":
       applyResult(draft, message, seq, at);
       return;
+    case "goal_status":
+      applyGoalStatus(draft, message, seq, at);
+      return;
     case "control_request":
       applyControlRequest(draft, message);
       return;
@@ -568,6 +579,7 @@ function applyOut(
       m.agentItems = {};
       m.contextUsage = undefined;
       m.clears = (m.clears ?? 0) + 1;
+      m.goal = undefined;
       return;
     }
     case "rate_limit_event": {
@@ -796,6 +808,7 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
   const parent = str(message.parent_tool_use_id) ?? null;
   const messageId = str(body?.id) ?? `m${seq}`;
   const when = time(message.timestamp) ?? at;
+  if (!parent && applyGoalCommand(draft, message, content, seq, when)) return;
 
   const blocks: AssistantBlock[] = [];
   for (const raw of content) {
@@ -916,6 +929,10 @@ function applyUserOut(
   const content = body?.content;
   const when = time(message.timestamp) ?? at;
 
+  // A check that found the goal unmet, which Claude reads to go on: not
+  // the user's message, though it comes as one.
+  if (!message.parent_tool_use_id && applyGoalFeedback(draft, message, content, when)) return;
+
   if (message.isReplay === true) {
     const said = userContent(content).text;
     // Echoed as a message taken, it is none the app wrote: shown, it would
@@ -1034,6 +1051,131 @@ function applyResult(draft: Draft, message: Rec, seq: number, at: number | undef
     const detail = str(message.result) ?? (errors.length > 0 ? errors.join("\n") : subtype);
     draft.push({ kind: "notice", key: `n${seq}`, code: "error", detail, at });
   }
+}
+
+/**
+ * /goal's own output, which Claude Code writes as a message of its own: a
+ * goal set or cleared is the tab's goal, and a notice in the conversation.
+ * Its other answers ("Goal active: …", "No goal set") show as they are.
+ */
+function applyGoalCommand(
+  draft: Draft,
+  message: Rec,
+  content: unknown[],
+  seq: number,
+  at: number | undefined,
+): boolean {
+  const run = rec(message.local_command_run);
+  if (run?.command !== "goal") return false;
+  const m = draft.next;
+  const text = userContent(content).text.trim();
+  const set = /^Goal set: ([\s\S]+)$/.exec(text);
+  if (set) {
+    // As typed: the output may cut a long one short.
+    const condition = str(run.args)?.trim() || set[1].trim();
+    m.goal = { condition, setAt: at, status: "active", checks: [] };
+    draft.push({ kind: "notice", key: `n${seq}`, code: "goal_set", detail: condition, at });
+    return true;
+  }
+  const cleared = /^Goal cleared: ([\s\S]+)$/.exec(text);
+  if (cleared) {
+    m.goal = null;
+    draft.push({
+      kind: "notice",
+      key: `n${seq}`,
+      code: "goal_cleared",
+      detail: cleared[1].trim(),
+      at,
+    });
+    return true;
+  }
+  if (text === "No goal set") m.goal = null;
+  return false;
+}
+
+/**
+ * A check that found the goal unmet ("Stop hook feedback: [condition]: why"),
+ * which Claude reads as a message to go on. True when the message is one, of
+ * the goal's or of another Stop hook's: none is the user's to show.
+ */
+function applyGoalFeedback(draft: Draft, message: Rec, content: unknown, at: number | undefined) {
+  const said = userContent(content).text;
+  if (!said.startsWith("Stop hook feedback:")) return false;
+  const goal = draft.next.goal;
+  const reason = goal?.status === "active" ? goalFeedbackReason(said, goal.condition) : null;
+  if (goal && reason !== null) {
+    draft.next.goal = { ...goal, checks: [...goal.checks, { at, reason }] };
+    return true;
+  }
+  return message.isSynthetic === true;
+}
+
+/**
+ * A goal's check as the transcript keeps it (history.ts makes it a line):
+ * one that found the goal unmet, or the one that ended it met or failed.
+ */
+function applyGoalStatus(draft: Draft, message: Rec, seq: number, at: number | undefined): void {
+  const condition = str(message.condition);
+  if (!condition || message.sentinel === true) return;
+  const m = draft.next;
+  const when = time(message.timestamp) ?? at;
+  const reason = str(message.reason);
+  // A goal set before the part of the transcript read is taken from its checks.
+  const goal: ClaudeGoal =
+    m.goal?.condition === condition ? m.goal : { condition, status: "active", checks: [] };
+  if (goal.status !== "active") return;
+  const met = message.met === true;
+  if (met || message.failed === true) {
+    m.goal = {
+      ...goal,
+      status: met ? "met" : "failed",
+      reason,
+      iterations: num(message.iterations),
+      durationMs: num(message.durationMs),
+      tokens: num(message.tokens),
+      endedAt: when,
+    };
+    draft.push(goalEndNotice(m.goal, `n${seq}`));
+  } else if (reason) {
+    m.goal = { ...goal, checks: [...goal.checks, { at: when, reason }] };
+  }
+}
+
+function goalEndNotice(goal: ClaudeGoal, key: string): NoticeItem {
+  const met = goal.status === "met";
+  return {
+    kind: "notice",
+    key,
+    code: met ? "goal_met" : "goal_failed",
+    detail: met ? goal.condition : (goal.reason ?? goal.condition),
+    at: goal.endedAt,
+  };
+}
+
+/**
+ * The model once the transcript told that its goal ended: a check that finds
+ * it met (or impossible) ends the turn without a word in the stream. The
+ * goal takes what the transcript told, and the conversation a notice where
+ * it ended.
+ */
+export function endGoal(model: ChatModel, told: ClaudeGoal): ChatModel {
+  const goal = model.goal;
+  if (!goal || goal.status !== "active" || told.status === "active") return model;
+  if (told.condition !== goal.condition) return model;
+  const ended: ClaudeGoal = {
+    ...told,
+    setAt: goal.setAt ?? told.setAt,
+    checks: told.checks.length >= goal.checks.length ? told.checks : goal.checks,
+    endedLive: true,
+  };
+  const items = [...model.items];
+  let index = items.length;
+  const endedAt = ended.endedAt;
+  if (endedAt !== undefined) {
+    while (index > 0 && (items[index - 1].at ?? 0) > endedAt) index--;
+  }
+  items.splice(index, 0, goalEndNotice(ended, `goal-end-${endedAt ?? goal.setAt ?? ""}`));
+  return { ...model, items, goal: ended };
 }
 
 function applyControlRequest(draft: Draft, message: Rec): void {

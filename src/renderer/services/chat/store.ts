@@ -45,6 +45,8 @@ export interface ChatTabState {
   card?: CommandCard;
   /** A part of the tab a command typed bare asked to see, till it is shown. */
   reveal?: Reveal;
+  /** The ended goal whose bar was closed, by its key (GoalView.key). */
+  goalClosed?: string;
 }
 
 /**

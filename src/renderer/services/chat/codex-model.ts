@@ -14,6 +14,7 @@
 
 import { CODEX_INIT_PROMPT } from "./codex-commands";
 import { fileMention } from "./composer-input";
+import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "./goal";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -82,6 +83,8 @@ export interface CodexModel extends ChatModel {
    * is Codex's own, which the review's notice tells.
    */
   reviewTurn?: string;
+  /** The thread's goal (/goal), as the server last told it; null when it has none. */
+  threadGoal?: CodexGoal | null;
   /** Where the text an item streams goes: its message's key and the block's index. */
   blocks: Record<string, { key: string; index: number }>;
   /** The server's requests waiting for an answer, by their JSON id. */
@@ -119,6 +122,7 @@ const QUIET_REQUESTS = new Set([
   "account/read",
   "account/rateLimits/read",
   "fuzzyFileSearch",
+  "thread/goal/get",
 ]);
 
 /** Most of a running command's output a row keeps; the start goes first. */
@@ -307,7 +311,48 @@ function applyResponse(
       // A read with no windows leaves the last ones shown.
       m.rateLimits = rateLimitsOf(result.rateLimits) ?? m.rateLimits;
       return;
+    case "thread/goal/get":
+    case "thread/goal/set":
+      if (!sent.request.threadId || sent.request.threadId === m.threadId) {
+        m.threadGoal = nextGoal(m.threadGoal, result.goal, at);
+      }
+      return;
+    case "thread/goal/clear":
+      if (!sent.request.threadId || sent.request.threadId === m.threadId) m.threadGoal = null;
+      return;
   }
+}
+
+/**
+ * The goal the server told, after `prev`: one that completes as the tab
+ * looks on says so until it is closed.
+ */
+function nextGoal(
+  prev: CodexGoal | null | undefined,
+  raw: unknown,
+  at: number | undefined,
+): CodexGoal | null {
+  const goal = rec(raw);
+  const objective = str(goal?.objective);
+  const status = str(goal?.status);
+  if (!goal || !objective || !CODEX_GOAL_STATUSES.includes(status as CodexGoalStatus)) return null;
+  const complete = status === "complete";
+  const createdAt = num(goal.createdAt);
+  return {
+    objective,
+    status: status as CodexGoalStatus,
+    timeUsedSeconds: num(goal.timeUsedSeconds) ?? 0,
+    usedAt: at,
+    tokensUsed: num(goal.tokensUsed) ?? 0,
+    tokenBudget: num(goal.tokenBudget) ?? null,
+    createdAt: createdAt !== undefined ? createdAt * 1000 : undefined,
+    endedLive:
+      complete &&
+      prev !== undefined &&
+      prev !== null &&
+      prev.objective === objective &&
+      (prev.status !== "complete" || prev.endedLive === true),
+  };
 }
 
 /** A started or resumed thread: its settings, and the turns it had when resumed. */
@@ -380,7 +425,12 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
 }
 
 /** Thread notifications about the tab's own thread alone. */
-const OWN_THREAD_ONLY = new Set(["thread/tokenUsage/updated", "thread/compacted"]);
+const OWN_THREAD_ONLY = new Set([
+  "thread/tokenUsage/updated",
+  "thread/compacted",
+  "thread/goal/updated",
+  "thread/goal/cleared",
+]);
 
 function applyNotification(
   draft: CodexDraft,
@@ -505,6 +555,12 @@ function applyNotification(
     }
     case "thread/compacted":
       pushCompacted(draft, `n${seq}`, at);
+      return;
+    case "thread/goal/updated":
+      m.threadGoal = nextGoal(m.threadGoal, params.goal, at);
+      return;
+    case "thread/goal/cleared":
+      m.threadGoal = null;
       return;
     case "model/rerouted":
       m.model = str(params.toModel) ?? m.model;

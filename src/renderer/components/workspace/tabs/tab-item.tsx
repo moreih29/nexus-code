@@ -49,6 +49,7 @@ import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
+import { GoalTabBadge } from "../../chat/goal-bar";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { codexStatusLabel, estimatedLabel } from "../../sessions/session-status";
@@ -602,6 +603,9 @@ export const TabItem = memo(function TabItem({
               <span className="text-muted-foreground/60"> · {parentDirSuffix}</span>
             )}
           </span>
+        )}
+        {(tab.type === "claude" || tab.type === "codex") && !isEditing && (
+          <GoalTabBadge workspaceId={workspaceId} tabId={tab.id} />
         )}
         {(tab.type === "claude" || tab.type === "codex") && !isEditing && (
           <TabProfileMark agent={tab.type} profileId={tab.props.profileId} />
