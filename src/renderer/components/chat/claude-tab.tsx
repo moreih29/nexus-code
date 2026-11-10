@@ -210,11 +210,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   }, [customTitle, controller]);
 
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const resumeSession = (sessionId: string, profileId?: string) => {
+  // Under the empty conversation a failure shows there; from /resume, as a toast.
+  const resumeSession = (
+    sessionId: string,
+    profileId?: string,
+    fail: (message: string) => void = setResumeError,
+  ) => {
     setResumeError(null);
-    void controller
-      .resumeSession(sessionId, profileId)
-      .catch((err: Error) => setResumeError(err.message));
+    void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
+  };
+  const resumeFailed = (message: string) => {
+    showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
   };
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
@@ -436,6 +442,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
 
   // Claude Code's settings (/config), and the one a command opened them at.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
+  // /resume's list above the composer, with the words it was given.
+  const [resumeQuery, setResumeQuery] = useState<string | null>(null);
 
   /** Runs a message that is one of the tab's own commands (/copy, /btw…); false for one to send. */
   const runCommand = (text: string): boolean => {
@@ -451,6 +459,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     }
     const command = parseAppCommand(text, state.model.init?.commands ?? []);
     if (!command) return false;
+    if (command.name === "resume") {
+      if (state.model.running) {
+        showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
+      } else setResumeQuery(command.args);
+      return true;
+    }
     const { history, model } = state;
     runAppCommand(command, {
       controller,
@@ -555,7 +569,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
                       workspaceId={workspaceId}
                       tabId={tabId}
                       cwd={props.cwd}
-                      onResume={resumeSession}
+                      profileId={controller.profileId}
+                      onResume={(sessionId, profileId) => resumeSession(sessionId, profileId)}
                     />
                   </div>
                 ) : null
@@ -604,14 +619,30 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={
-              state.card && (
-                <CommandCardView
-                  card={state.card}
+              resumeQuery !== null ? (
+                <SessionList
                   workspaceId={workspaceId}
+                  tabId={tabId}
                   cwd={props.cwd}
-                  rootPath={rootPath}
-                  onClose={() => controller.closeCard()}
+                  profileId={controller.profileId}
+                  query={resumeQuery}
+                  exceptSessionId={controller.currentSession()}
+                  onClose={() => setResumeQuery(null)}
+                  onResume={(sessionId, profileId) => {
+                    setResumeQuery(null);
+                    resumeSession(sessionId, profileId, resumeFailed);
+                  }}
                 />
+              ) : (
+                state.card && (
+                  <CommandCardView
+                    card={state.card}
+                    workspaceId={workspaceId}
+                    cwd={props.cwd}
+                    rootPath={rootPath}
+                    onClose={() => controller.closeCard()}
+                  />
+                )
               )
             }
             onCommand={runCommand}

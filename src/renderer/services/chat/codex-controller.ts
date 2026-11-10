@@ -22,6 +22,7 @@ import type { PermissionAnswer } from "./controller";
 import { addLineReceiver } from "./controller";
 import { LiveLines } from "./live-lines";
 import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
+import type { ListedSession } from "./sessions";
 import {
   type ChatTabState,
   chatKey,
@@ -314,6 +315,48 @@ export class CodexController {
     }
     this.flushNow();
     await this.start({});
+  }
+
+  /**
+   * The folder's threads that this profile's Codex keeps, newest first
+   * (thread/list), but the tab's own: for /resume and a new tab's list.
+   */
+  async listThreads(): Promise<Omit<ListedSession, "profileId">[]> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    const own = this.currentThread();
+    const result = await this.request("thread/list", {
+      cwd: this.target.cwd,
+      sortKey: "updated_at",
+      limit: THREAD_LIST_LIMIT,
+      ...(own ? { excludedThreadIds: [own] } : {}),
+    });
+    return threadsOf(result.data);
+  }
+
+  /**
+   * Goes on with another of the folder's threads in this tab (/resume):
+   * the program starts again with it, and the tab shows its turns, under
+   * the thread's name or first prompt.
+   */
+  async resumeThread(threadId: string, title: string): Promise<void> {
+    if (this.model.running) throw new Error("a turn is running");
+    const { workspaceId, tabId } = this.target;
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    this.target = { ...this.target, threadId };
+    this.hooks.onThread?.(threadId);
+    this.hooks.onTitle?.(title);
+    this.titled = true;
+    const { lastSeq } = this.model;
+    this.update((prev) => ({
+      ...prev,
+      history: null,
+      queue: [],
+      model: { ...emptyCodexModel(), lastSeq },
+    }));
+    await this.start({ resetLog: true });
   }
 
   /** The thread the tab goes on with, once it has one. */
@@ -849,4 +892,31 @@ export function closeCodexTab(workspaceId: string, tabId: string): void {
     return;
   }
   void ipcCallResult("chat", "close", { workspaceId, tabId }).catch(() => {});
+}
+
+/** How many of the folder's threads /resume lists. */
+const THREAD_LIST_LIMIT = 50;
+
+/** thread/list's threads as a tab's list shows them: the title it was given, else its first prompt. */
+export function threadsOf(data: unknown): Omit<ListedSession, "profileId">[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((raw) => {
+    const thread = (raw ?? {}) as Record<string, unknown>;
+    const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const id = text(thread.id);
+    const preview = text(thread.preview);
+    const title = text(thread.name) ?? preview;
+    if (!id || !title) return [];
+    const branch = text((thread.gitInfo as { branch?: unknown } | null)?.branch);
+    const updated = typeof thread.updatedAt === "number" ? thread.updatedAt : 0;
+    return [
+      {
+        sessionId: id,
+        title: title.split("\n")[0].slice(0, 200),
+        ...(preview ? { firstPrompt: preview } : {}),
+        ...(branch ? { gitBranch: branch } : {}),
+        lastModified: updated * 1000,
+      },
+    ];
+  });
 }

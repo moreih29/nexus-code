@@ -1226,7 +1226,12 @@
       "more": "Show {{count}} more",
       "resume_failed": "Could not go on with the session: {{message}}",
       "show": "Earlier sessions · {{count}}",
-      "all_profiles": "All"
+      "all_profiles": "All",
+      "show_others": "Sessions of other profiles · {{count}}",
+      "title_query": "Earlier sessions · \"{{query}}\"",
+      "loading": "Reading the sessions…",
+      "none_in_profile": "This profile has no sessions of this folder.",
+      "none": "No sessions of this folder to go on with."
     },
     "commands": {
       "close": "Close",
@@ -1302,7 +1307,8 @@
         "web-setup": "Set up cloud sessions with GitHub, in a terminal",
         "remote-env": "Choose the cloud agents' default environment, in a terminal",
         "ultrareview": "Review the branch in a cloud session, in a terminal",
-        "autofix-pr": "Watch the PR and fix what fails, in a terminal"
+        "autofix-pr": "Watch the PR and fix what fails, in a terminal",
+        "resume": "Go on with an earlier session of this folder in this tab"
       },
       "fork_none": "Send a message first: there is no conversation to copy yet.",
       "subtask_empty": "Say what the subtask should do: /subtask <task>",
@@ -1347,7 +1353,8 @@
       "plugin_uninstall_body": "The plugin is uninstalled. Its saved data is kept, for if it is installed again.",
       "marketplace_title": "Marketplaces",
       "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
-      "marketplace_open": "Open in terminal"
+      "marketplace_open": "Open in terminal",
+      "resume_busy": "Another session can be taken up once the turn ends."
     },
     "codex": {
       "tab_title": "Codex",

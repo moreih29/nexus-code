@@ -1226,7 +1226,12 @@
       "more": "{{count}}개 더 보기",
       "resume_failed": "세션을 이어가지 못했습니다: {{message}}",
       "show": "이전 세션 이어가기 · {{count}}개",
-      "all_profiles": "전체"
+      "all_profiles": "전체",
+      "show_others": "다른 프로필의 세션 · {{count}}개",
+      "title_query": "이전 세션 · \"{{query}}\"",
+      "loading": "세션을 읽는 중…",
+      "none_in_profile": "이 프로필에는 이 폴더의 세션이 없습니다.",
+      "none": "이 폴더에 이어갈 세션이 없습니다."
     },
     "commands": {
       "close": "닫기",
@@ -1302,7 +1307,8 @@
         "web-setup": "GitHub로 클라우드 세션 설정 (터미널)",
         "remote-env": "클라우드 에이전트 기본 환경 선택 (터미널)",
         "ultrareview": "클라우드 세션에서 브랜치 리뷰 (터미널)",
-        "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)"
+        "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)",
+        "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기"
       },
       "fork_none": "먼저 메시지를 보내세요. 아직 복사할 대화가 없습니다.",
       "subtask_empty": "하위 작업에 맡길 일을 입력하세요: /subtask <작업>",
@@ -1347,7 +1353,8 @@
       "plugin_uninstall_body": "플러그인을 제거합니다. 다시 설치할 때를 위해 저장된 데이터는 남겨 둡니다.",
       "marketplace_title": "마켓플레이스",
       "marketplace_hint": "Claude Code의 /plugin으로 플러그인을 찾아 설치합니다.",
-      "marketplace_open": "터미널에서 열기"
+      "marketplace_open": "터미널에서 열기",
+      "resume_busy": "응답이 끝난 뒤에 다른 세션으로 옮길 수 있습니다."
     },
     "codex": {
       "tab_title": "Codex",

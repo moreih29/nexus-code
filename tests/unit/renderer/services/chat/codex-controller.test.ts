@@ -4,6 +4,7 @@ import {
   isSupportedCodex,
   suggestedPaths,
   threadSettings,
+  threadsOf,
 } from "../../../../../src/renderer/services/chat/codex-controller";
 
 describe("codex answers", () => {
@@ -104,5 +105,40 @@ describe("codex thread settings", () => {
       developerInstructions: "Manage.",
       config: { projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } } },
     });
+  });
+});
+
+describe("codex threads to go on with", () => {
+  test("named by their name, else their first prompt's first line; seconds become ms", () => {
+    const listed = threadsOf([
+      {
+        id: "t1",
+        name: null,
+        preview: "Fix the build\nand the tests",
+        updatedAt: 1_700_000_000,
+        gitInfo: { branch: "main" },
+      },
+      { id: "t2", name: "Named", preview: "first prompt", updatedAt: 1_700_000_100, gitInfo: null },
+    ]);
+    expect(listed).toEqual([
+      {
+        sessionId: "t1",
+        title: "Fix the build",
+        firstPrompt: "Fix the build\nand the tests",
+        gitBranch: "main",
+        lastModified: 1_700_000_000_000,
+      },
+      {
+        sessionId: "t2",
+        title: "Named",
+        firstPrompt: "first prompt",
+        lastModified: 1_700_000_100_000,
+      },
+    ]);
+  });
+
+  test("a thread with nothing to call it by, or no id, is left out", () => {
+    expect(threadsOf([{ id: "t1", preview: "  " }, { preview: "no id" }, null])).toEqual([]);
+    expect(threadsOf(undefined)).toEqual([]);
   });
 });
