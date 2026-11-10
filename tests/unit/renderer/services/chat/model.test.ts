@@ -504,12 +504,78 @@ describe("messages written during a turn", () => {
     expect(users(model)).toEqual(["go:sent", "now:sent"]);
   });
 
+  test("one taken after the turn ended begins the next turn, which its result ends", () => {
+    const result = (seq: number) =>
+      ({ seq, dir: "out", message: { type: "result", subtype: "success" } }) as ChatLine;
+    let model = run([
+      sent(1, "go", "u-1"),
+      echo(2, "go", "u-1"),
+      sent(3, "and this", "u-2"),
+      result(4),
+    ]);
+    expect(model.running).toBe(false);
+    model = applyLine(model, echo(5, "and this", "u-2"));
+    expect(model.running).toBe(true);
+    expect(users(model)).toEqual(["go:taken", "and this:taken"]);
+    model = applyLine(model, result(6));
+    expect(model.running).toBe(false);
+  });
+
+  test("a message the CLI was given itself begins a turn: Remote Control's, a task's news", () => {
+    const model = run([echo(1, "from the phone", "cli-1")]);
+    expect(model.running).toBe(true);
+    expect(users(model)).toEqual(["from the phone:taken"]);
+  });
+
+  test("a transcript's messages, and a command's output, begin no turn", () => {
+    const model = run([
+      { ...echo(1, "said before", "old-1"), replay: true },
+      echo(2, "<local-command-stdout>Set model</local-command-stdout>", "c-1"),
+    ]);
+    expect(model.running).toBe(false);
+  });
+
   test("an echo with no uuid of the app's takes the oldest sent", () => {
     const model = applyLines(emptyModel(), [
       { seq: 1, dir: "in", message: { type: "user", message: { role: "user", content: "a" } } },
       echo(2, "a", "cli-uuid"),
     ]);
     expect(model.items[0]).toMatchObject({ state: "taken", uuid: "cli-uuid" });
+  });
+});
+
+describe("the plan's usage", () => {
+  const usageAnswer = (seq: number, id: string, body: Record<string, unknown>): ChatLine[] => [
+    {
+      seq,
+      dir: "in",
+      message: { type: "control_request", request_id: id, request: { subtype: "get_usage" } },
+    },
+    {
+      seq: seq + 0.5,
+      dir: "out",
+      message: {
+        type: "control_response",
+        response: { subtype: "success", request_id: id, response: body },
+      },
+    },
+  ];
+  const limits = { rate_limits: { limits: [{ kind: "session", percent: 40 }] } };
+
+  test("an answer with no limits, as when the usage endpoint failed, keeps the last that had them", () => {
+    const model = run([
+      ...usageAnswer(1, "r1", limits),
+      ...usageAnswer(2, "r2", { rate_limits: null }),
+      ...usageAnswer(3, "r3", { rate_limits: { limits: [] } }),
+    ]);
+    expect(model.usage).toEqual(limits);
+  });
+
+  test("the first answer is taken, limits or not, and a later one with limits replaces it", () => {
+    const first = run(usageAnswer(1, "r1", { rate_limits: null }));
+    expect(first.usage).toEqual({ rate_limits: null });
+    const later = applyLines(first, usageAnswer(2, "r2", limits));
+    expect(later.usage).toEqual(limits);
   });
 });
 

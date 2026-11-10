@@ -298,7 +298,8 @@ function applyResponse(
       m.signedOut = m.account === null && result.requiresOpenaiAuth === true;
       return;
     case "account/rateLimits/read":
-      m.rateLimits = rateLimitsOf(result.rateLimits);
+      // A read with no windows leaves the last ones shown.
+      m.rateLimits = rateLimitsOf(result.rateLimits) ?? m.rateLimits;
       return;
   }
 }
@@ -370,6 +371,9 @@ export function modeOf(sandbox: unknown): CodexMode | undefined {
   return undefined;
 }
 
+/** Thread notifications about the tab's own thread alone. */
+const OWN_THREAD_ONLY = new Set(["thread/tokenUsage/updated", "thread/compacted"]);
+
 function applyNotification(
   draft: CodexDraft,
   method: string,
@@ -379,9 +383,11 @@ function applyNotification(
 ): void {
   const m = draft.next;
   const tag = String(seq);
-  // Another thread's (a subagent's) turns and items are not the tab's.
+  // Another thread's (a subagent's) turns and items are not the tab's, nor
+  // its context's size and compactions.
   const threadId = str(params.threadId);
-  if (threadId && m.threadId && threadId !== m.threadId && !method.startsWith("thread/")) return;
+  const another = threadId && m.threadId && threadId !== m.threadId;
+  if (another && (!method.startsWith("thread/") || OWN_THREAD_ONLY.has(method))) return;
   switch (method) {
     case "turn/started": {
       const turnId = str(rec(params.turn)?.id);

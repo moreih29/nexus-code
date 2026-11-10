@@ -53,6 +53,7 @@ import {
 } from "../../services/sessions/detail";
 import type { AgentSession } from "../../services/sessions/model";
 import { oneLineMarkdown } from "../../services/sessions/preview";
+import { useNow } from "../../services/sessions/use-family";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -127,14 +128,15 @@ export function ConversationDetail({
     (s) => s.workspaces.find((w) => w.id === session.workspaceId)?.rootPath ?? "",
   );
   const profile = useSessionProfile(session);
-  // The plan's limits, as its tab last heard them: its account's, not this conversation's.
+  // The plan's limits, as its tab last heard them: its account's, not this
+  // conversation's. A minute's clock, so a window that resets leaves.
+  const now = useNow(visible && !terminal, 60_000);
   const usage = useMemo(() => {
     if (terminal) return null;
-    const now = Date.now();
     return session.kind === "codex"
       ? codexUsageLine(chat.model as CodexModel, now)
       : claudeUsageLine(chat.model, now);
-  }, [terminal, session.kind, chat.model]);
+  }, [terminal, session.kind, chat.model, now]);
   const footer = (
     <>
       {!held && session.state !== "exited" && (terminal || loaded) && (
