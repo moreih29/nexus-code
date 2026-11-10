@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
@@ -107,6 +107,13 @@ export function ContentHost({
   const isVisible = inAgentView ? agentLeafId !== null : isActiveTab && isWorkspaceActive;
   const currentParent = isVisible ? (slotEl ?? parkEl) : parkEl;
 
+  // A viewer is built the first time its tab shows: one restored behind
+  // others costs nothing until it is looked at. Set while rendering, as a
+  // value derived from props is.
+  const [shown, setShown] = useState(isVisible);
+  if (isVisible && !shown) setShown(true);
+  const deferred = !shown && builtWhenShown(tab);
+
   // Stable per-tab portal target. Created once on first render and reused
   // for the component's entire lifetime. Use lazy-init via ref so we don't
   // re-create on each render.
@@ -158,6 +165,7 @@ export function ContentHost({
   // view (each transcript, composer and menu) with it. A view still renders
   // for its own stores and contexts.
   const inner = useMemo(() => {
+    if (deferred) return null;
     const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
     return (
       <div className="absolute inset-0">
@@ -285,7 +293,29 @@ export function ContentHost({
         ) : null}
       </div>
     );
-  }, [tab, workspaceId, isVisible, leafId, parentEl]);
+  }, [tab, workspaceId, isVisible, leafId, parentEl, deferred]);
 
   return createPortal(inner, portalTarget);
+}
+
+/**
+ * Whether the tab is a viewer, built only once it shows: an image, media, a
+ * font, a PDF, a spreadsheet, a document or a presentation, a diff or a
+ * commit. Not a terminal, a browser or an agent's tab, which run while
+ * hidden (a command, a page, a turn), nor a text editor, whose model the
+ * language servers' problems follow.
+ */
+function builtWhenShown(tab: Tab): boolean {
+  if (tab.type === "editor.diff" || tab.type === "git.commit") return true;
+  if (tab.type !== "editor") return false;
+  const path = tab.props.filePath;
+  return (
+    isImageFile(path) ||
+    mediaKindFor(path) !== null ||
+    isFontFile(path) ||
+    isPdfFile(path) ||
+    isSpreadsheetFile(path) ||
+    isDocxFile(path) ||
+    isPresentationFile(path)
+  );
 }
