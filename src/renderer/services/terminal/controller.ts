@@ -391,8 +391,11 @@ class XtermTerminalController implements TerminalController {
   private replayWritesPending = 0;
   /** Who waits for the program's next output; see nextOutput. */
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
-  /** Focus asked for before xterm existed; applied once it opens. */
-  private focusOnOpen = false;
+  /**
+   * Focus asked for before xterm existed: applied once it opens, if what
+   * asked for it still wants it then.
+   */
+  private focusOnOpen: (() => boolean) | null = null;
 
   constructor(
     private readonly options: TerminalControllerOptions,
@@ -424,10 +427,10 @@ class XtermTerminalController implements TerminalController {
     term.refresh(0, term.rows - 1);
   }
 
-  focus(): void {
+  focus(wanted: () => boolean = () => true): void {
     if (this.disposed) return;
     if (this.term) this.term.focus();
-    else this.focusOnOpen = true;
+    else this.focusOnOpen = wanted;
   }
 
   readText(lines: number): string {
@@ -626,8 +629,9 @@ class XtermTerminalController implements TerminalController {
     term.loadAddon(fitAddon);
     term.open(this.options.container);
     if (this.focusOnOpen) {
-      this.focusOnOpen = false;
-      term.focus();
+      const wanted = this.focusOnOpen;
+      this.focusOnOpen = null;
+      if (wanted()) term.focus();
     }
     // Ligatures must be applied AFTER open() — the addon hooks the active
     // (DOM) renderer, which only exists once the terminal is attached.

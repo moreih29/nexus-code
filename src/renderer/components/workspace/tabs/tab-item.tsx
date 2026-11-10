@@ -451,9 +451,9 @@ export const TabItem = memo(function TabItem({
         // user can type right away. Not on arrow keys: Radix activates the tab
         // as the user arrows through the strip, and focus must stay there. Not
         // on the second click of a double-click either, which starts a rename
-        // that focuses its own input.
+        // that focuses its own input, nor while the name is being edited.
         onClick={(e) => {
-          if (e.detail <= 1 && !e.ctrlKey) requestTabFocus(tab.id);
+          if (e.detail <= 1 && !e.ctrlKey && !isEditing) requestTabFocus(tab.id);
         }}
         aria-label={terminalEnded ? `${displayTitle}${t("tabBar.terminal_ended_aria")}` : undefined}
         className={cn(
@@ -560,6 +560,12 @@ export const TabItem = memo(function TabItem({
                 // (예: ArrowLeft/Right로 탭 전환되는 등 키바인딩 충돌 방지).
                 e.stopPropagation();
               }
+            }}
+            // The field sits in the tab's <button>: releasing Space in it
+            // would press the button, whose click hands the focus to the
+            // tab's content mid-name ("renamed t").
+            onKeyUp={(e) => {
+              if (e.key === " ") e.preventDefault();
             }}
             onBlur={() => commitEdit(editValue)}
             onClick={(e) => e.stopPropagation()}

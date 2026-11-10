@@ -796,6 +796,55 @@ describe("services/terminal controller focus", () => {
   });
 });
 
+describe("services/terminal controller focus asked for before xterm opens", () => {
+  beforeEach(() => resetIpc());
+
+  /** A controller whose fonts load when `loaded` is called. */
+  function lateTerminal(tabId: string) {
+    const harness = makeTerminalControllerDeps();
+    let loaded = () => {};
+    harness.deps.waitForTerminalFonts = () =>
+      new Promise<void>((resolve) => {
+        loaded = resolve;
+      });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId,
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        autoSpawn: false,
+      },
+      harness.deps,
+    );
+    return { harness, controller, loaded: () => loaded() };
+  }
+
+  /** Past xterm opening, once the fonts have loaded. */
+  const opened = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("focuses it once it opens", async () => {
+    const { harness, controller, loaded } = lateTerminal("tab-focus-late");
+    controller.focus();
+    loaded();
+    await opened();
+    expect(harness.getFocusCalls()).toBe(1);
+    controller.dispose();
+  });
+
+  it("asks what wanted the focus whether it still does, as it opens", async () => {
+    const { harness, controller, loaded } = lateTerminal("tab-focus-late-typing");
+    let still = true;
+    controller.focus(() => still);
+    // A tab's name being edited while the fonts load.
+    still = false;
+    loaded();
+    await opened();
+    expect(harness.getFocusCalls()).toBe(0);
+    controller.dispose();
+  });
+});
+
 describe("services/terminal controller replay", () => {
   beforeEach(resetIpc);
 

@@ -12,24 +12,69 @@
  * Focus is applied on the next animation frame. Activating a tab moves its
  * content out of the view park in an effect, and a parked element is
  * `visibility:hidden`, which silently refuses focus.
+ *
+ * A focus comes late at times: that frame is long when a terminal first
+ * shows, a view mounts, a terminal opens only once its fonts load. It must
+ * not cut short what the user started typing meanwhile. Starting to edit a
+ * tab's name drops every focus not yet given (cancelTabFocus), and one that
+ * waited is dropped too once the user has gone into a text field since it
+ * was asked for. A view's focus function is handed the test, for a focus it
+ * must put off itself (a terminal not open yet).
  */
 
-const targets = new Map<string, () => void>();
-let pendingTabId: string | null = null;
+/** Focuses a tab's content; `wanted` tells, when it must wait, whether it still should. */
+export type TabFocusTarget = (wanted: () => boolean) => void;
 
-function focusNextFrame(focus: () => void): void {
-  requestAnimationFrame(() => focus());
+const targets = new Map<string, TabFocusTarget>();
+let pending: { tabId: string; wanted: () => boolean } | null = null;
+/** Counts requests and cancels: a focus is given only while none came after it. */
+let generation = 0;
+
+/** Inputs that take no typing: a focus may still move on from them. */
+const NON_TEXT_INPUTS = new Set([
+  "button",
+  "checkbox",
+  "radio",
+  "range",
+  "color",
+  "file",
+  "submit",
+  "reset",
+]);
+
+function isTextField(el: Element): boolean {
+  if (el.tagName === "TEXTAREA") return true;
+  if (el.tagName === "INPUT") return !NON_TEXT_INPUTS.has((el as HTMLInputElement).type);
+  return (el as HTMLElement).isContentEditable === true;
+}
+
+function focusedElement(): Element | null {
+  return globalThis.document?.activeElement ?? null;
+}
+
+/**
+ * Whether a focus asked for while `from` had it still applies after waiting:
+ * not when the user has put the focus in a text field since, where it would
+ * cut short what they are typing.
+ */
+export function focusStillWanted(from: Element | null): boolean {
+  const now = focusedElement();
+  if (!now || now === from || now === globalThis.document?.body) return true;
+  return !isTextField(now);
 }
 
 /**
  * Registers `focus` as the way to focus tab `tabId`'s content. Returns an
  * unregister function for the view's unmount.
  */
-export function registerTabFocusTarget(tabId: string, focus: () => void): () => void {
+export function registerTabFocusTarget(tabId: string, focus: TabFocusTarget): () => void {
   targets.set(tabId, focus);
-  if (pendingTabId === tabId) {
-    pendingTabId = null;
-    focusNextFrame(focus);
+  if (pending?.tabId === tabId) {
+    const { wanted } = pending;
+    pending = null;
+    requestAnimationFrame(() => {
+      if (wanted()) focus(wanted);
+    });
   }
   return () => {
     if (targets.get(tabId) === focus) targets.delete(tabId);
@@ -38,11 +83,25 @@ export function registerTabFocusTarget(tabId: string, focus: () => void): () => 
 
 /** Focuses tab `tabId`'s content, now or once its view registers. */
 export function requestTabFocus(tabId: string): void {
+  const asked = ++generation;
+  const from = focusedElement();
+  const current = () => asked === generation;
+  const wanted = () => current() && focusStillWanted(from);
   const focus = targets.get(tabId);
   if (!focus) {
-    pendingTabId = tabId;
+    pending = { tabId, wanted };
     return;
   }
-  pendingTabId = null;
-  focusNextFrame(focus);
+  pending = null;
+  // Not tested for typing elsewhere: within the frame the focus has only
+  // moved as the switch moved it (a closing menu or palette handing it back).
+  requestAnimationFrame(() => {
+    if (current()) focus(wanted);
+  });
+}
+
+/** Drops every focus asked for and not yet given: the user is about to type (a tab's name). */
+export function cancelTabFocus(): void {
+  generation += 1;
+  pending = null;
 }
