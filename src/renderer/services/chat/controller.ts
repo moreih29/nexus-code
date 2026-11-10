@@ -86,6 +86,8 @@ export type PanelPart = keyof typeof PANEL_REQUESTS;
 export interface ForkPoint {
   sessionId: string;
   at?: string;
+  /** The name the copy takes once it is a session of its own (/branch). */
+  title?: string;
 }
 
 export interface ChatTabTarget {
@@ -284,8 +286,11 @@ export class ChatController {
       if (!result.found) return;
       const history = historyModel(result.lines, cut);
       const first = history.items.find((item) => item.kind === "user" && item.text.trim());
-      // A session that was named, by the user or by Claude, is called by its name.
-      const title = cut ? undefined : sessionTitleOf(result.lines);
+      // A session that was named, by the user or by Claude, is called by its
+      // name; a branch, by the one it is to take.
+      const fork = this.target.fork;
+      const branch = fork?.sessionId === sessionId ? fork.title : undefined;
+      const title = branch ?? (cut ? undefined : sessionTitleOf(result.lines));
       if (!this.titled && title) {
         this.titled = true;
         this.hooks.onTitle?.(title);
@@ -1207,10 +1212,13 @@ export class ChatController {
 
   private afterModel(before: ChatModel, model: ChatModel): void {
     if (model.sessionId && model.sessionId !== this.sessionId) {
-      // The copy a fork made has its own id now: the tab goes on with it.
+      // The copy a fork made has its own id now: the tab goes on with it,
+      // and a branch takes its name.
+      const branch = this.target.fork?.title;
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
+      if (branch) void this.renameSession(branch).catch(() => {});
     }
     // What the tab showed before a /clear is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {

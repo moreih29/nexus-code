@@ -1100,7 +1100,8 @@
         "copy_session": "세션 ID 복사",
         "fork_session": "세션 전체를 포크",
         "model": "모델",
-        "version": "버전"
+        "version": "버전",
+        "account": "계정"
       },
       "context": {
         "title": "컨텍스트",
@@ -1308,7 +1309,13 @@
         "remote-env": "클라우드 에이전트 기본 환경 선택 (터미널)",
         "ultrareview": "클라우드 세션에서 브랜치 리뷰 (터미널)",
         "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)",
-        "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기"
+        "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기",
+        "status": "버전, 모델, 계정, 원격 제어 등 이 세션의 상태 보기",
+        "plan": "Plan 모드로 바꾸기, 또는 이 세션의 계획 보기·열기",
+        "branch": "이 대화를 지금 시점에서 분기해 새 탭으로 열기",
+        "remote-control": "휴대폰이나 claude.ai/code에서 이 세션 조작하기 (켜고 끄기)",
+        "privacy-settings": "개인정보 설정 보기·바꾸기 (claude.ai 열기)",
+        "ultraplan": "클라우드 세션에서 고칠 수 있는 계획 작성 (터미널)"
       },
       "fork_none": "먼저 메시지를 보내세요. 아직 복사할 대화가 없습니다.",
       "subtask_empty": "하위 작업에 맡길 일을 입력하세요: /subtask <작업>",
@@ -1354,7 +1361,15 @@
       "marketplace_title": "마켓플레이스",
       "marketplace_hint": "Claude Code의 /plugin으로 플러그인을 찾아 설치합니다.",
       "marketplace_open": "터미널에서 열기",
-      "resume_busy": "응답이 끝난 뒤에 다른 세션으로 옮길 수 있습니다."
+      "resume_busy": "응답이 끝난 뒤에 다른 세션으로 옮길 수 있습니다.",
+      "plan_on": "Plan 모드를 켰습니다.",
+      "plan_none": "아직 작성된 계획이 없습니다.",
+      "plan_title": "이 세션의 계획",
+      "plan_needs_version": "계획을 보려면 Claude Code {{version}} 이상이 필요합니다.",
+      "remote_on": "Remote Control을 켰습니다.",
+      "remote_off": "Remote Control을 껐습니다.",
+      "remote_unavailable": "이 계정에서는 Remote Control을 쓸 수 없습니다.",
+      "remote_not_ready": "Claude가 시작된 뒤에 Remote Control을 바꿀 수 있습니다."
     },
     "codex": {
       "tab_title": "Codex",

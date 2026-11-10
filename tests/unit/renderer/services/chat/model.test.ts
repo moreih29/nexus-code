@@ -512,3 +512,40 @@ describe("messages written during a turn", () => {
     expect(model.items[0]).toMatchObject({ state: "taken", uuid: "cli-uuid" });
   });
 });
+
+describe("initialize", () => {
+  const initialized = (body: Record<string, unknown>) => {
+    const asked = applyLine(emptyModel(), {
+      seq: 1,
+      dir: "in",
+      message: { type: "control_request", request_id: "i1", request: { subtype: "initialize" } },
+    });
+    return applyLine(asked, {
+      seq: 2,
+      dir: "out",
+      message: {
+        type: "control_response",
+        response: { subtype: "success", request_id: "i1", response: body },
+      },
+    });
+  };
+
+  test("the account it is signed in as, for /status", () => {
+    const model = initialized({
+      account: {
+        email: "a@example.com",
+        organization: "Org",
+        subscriptionType: "Claude Team",
+        apiProvider: "firstParty",
+      },
+    });
+    expect(model.init?.account).toEqual({
+      email: "a@example.com",
+      organization: "Org",
+      subscription: "Claude Team",
+      provider: "firstParty",
+    });
+    expect(initialized({}).init?.account).toBeUndefined();
+    expect(initialized({ account: {} }).init?.account).toBeUndefined();
+  });
+});

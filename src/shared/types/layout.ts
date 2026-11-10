@@ -34,12 +34,19 @@ export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
  * A Claude tab: a conversation with `claude -p` run in `cwd`. `sessionId` is
  * the session it last had, to go on with once its program is gone. `fork`
  * is the session its program copies, up to a message, until the copy has
- * its own id: a tab opened as a fork, or one rewound.
+ * its own id: a tab opened as a fork or a branch, or one rewound.
  */
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   sessionId: z.string().max(128).optional(),
-  fork: z.object({ sessionId: z.string().max(128), at: z.string().max(128).optional() }).optional(),
+  fork: z
+    .object({
+      sessionId: z.string().max(128),
+      at: z.string().max(128).optional(),
+      /** The name the copy takes (/branch). */
+      title: z.string().max(200).optional(),
+    })
+    .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
 });

@@ -19,6 +19,7 @@ const FIRST_SEEN: Record<string, string> = {
   list_permission_rules: "2.1.288",
   update_settings: "2.1.318",
   get_hooks_listing: "2.1.288",
+  get_plan: "2.1.318",
   // Answered from 2.1.77, but only from 2.1.160 is the drop told by a
   // command_lifecycle event, which takes the message off the list.
   cancel_async_message: "2.1.160",

@@ -492,8 +492,21 @@ function EnvSection({
       })
       .finally(() => setSwitching(false));
   };
+  const account = model.init?.account;
+  const signedIn = account
+    ? [
+        account.email,
+        account.organization,
+        account.subscription,
+        account.provider && account.provider !== "firstParty" ? account.provider : undefined,
+      ].filter(Boolean)
+    : [];
   return (
-    <Section title={t("chat.panel.env.title")}>
+    <Section
+      title={t("chat.panel.env.title")}
+      reveal={revealSeq(state, "status")}
+      onRevealed={(seq) => takeReveal(controller.key, seq)}
+    >
       <Field label={t("chat.panel.env.remote_control")}>
         <Switch
           checked={remote?.enabled === true}
@@ -555,6 +568,13 @@ function EnvSection({
       {(state.version ?? model.version) && (
         <Field label={t("chat.panel.env.version")}>
           <span className="font-mono text-app-micro">{state.version ?? model.version}</span>
+        </Field>
+      )}
+      {signedIn.length > 0 && (
+        <Field label={t("chat.panel.env.account")}>
+          <span className="min-w-0 truncate text-app-micro" title={signedIn.join(" · ")}>
+            {signedIn.join(" · ")}
+          </span>
         </Field>
       )}
     </Section>

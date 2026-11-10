@@ -186,6 +186,16 @@ export interface InitializeInfo {
   remoteControl: boolean;
   /** The output styles /config takes, the user's own among them. */
   outputStyles?: string[];
+  /** Who the program is signed in as, for /status. */
+  account?: AccountInfo;
+}
+
+export interface AccountInfo {
+  email?: string;
+  organization?: string;
+  subscription?: string;
+  /** firstParty, bedrock, vertex… */
+  provider?: string;
 }
 
 export interface ResultInfo {
@@ -1026,6 +1036,7 @@ function applyControlResponse(
         outputStyles: Array.isArray(body.available_output_styles)
           ? body.available_output_styles.filter((s): s is string => typeof s === "string")
           : undefined,
+        account: accountOf(rec(body.account)),
       };
       m.permissionMode = str(body.current_permission_mode) ?? m.permissionMode;
       m.version = str(body.claude_code_version) ?? m.version;
@@ -1078,6 +1089,17 @@ function applyControlResponse(
           : { enabled: false };
       return;
   }
+}
+
+function accountOf(account: Rec | null): AccountInfo | undefined {
+  if (!account) return undefined;
+  const info: AccountInfo = {
+    email: str(account.email),
+    organization: str(account.organization),
+    subscription: str(account.subscriptionType),
+    provider: str(account.apiProvider),
+  };
+  return Object.values(info).some(Boolean) ? info : undefined;
 }
 
 export function stopRunningTools(draft: Draft): void {

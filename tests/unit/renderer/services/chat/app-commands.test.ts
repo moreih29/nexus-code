@@ -1,16 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import {
+  appCommandsBeside,
   backgroundIdOf,
   backgroundSessionsOf,
+  branchTitle,
+  COMMAND_LINKS,
   directoryArg,
   exportFileName,
   exportRelPath,
   memoryFilesOf,
   parseAppCommand,
+  planOf,
   pluginResultOf,
   pluginsOf,
   sandboxOn,
   skillsOf,
+  terminalCommandOf,
 } from "../../../../../src/renderer/services/chat/app-commands";
 import type { ChatItem } from "../../../../../src/renderer/services/chat/model";
 
@@ -188,5 +193,47 @@ describe("app commands", () => {
       ok: false,
       message: "boom",
     });
+  });
+});
+
+describe("the CLI's commands its headless mode lacks", () => {
+  test("listed beside the CLI's, under their names and aliases", () => {
+    const listed = appCommandsBeside([], (name) => name).map((c) => c.name);
+    for (const name of [
+      "status",
+      "plan",
+      "branch",
+      "remote-control",
+      "privacy-settings",
+      "ultraplan",
+    ]) {
+      expect(listed).toContain(name);
+    }
+    expect(parseAppCommand("/rc", [])).toEqual({ name: "remote-control", args: "" });
+    expect(parseAppCommand("/plan open", [])).toEqual({ name: "plan", args: "open" });
+    expect(COMMAND_LINKS["privacy-settings"]).toBe(
+      "https://claude.ai/settings/data-privacy-controls",
+    );
+    expect(terminalCommandOf("ultraplan", "add search")).toEqual({
+      command: "claude",
+      argument: "/ultraplan add search",
+    });
+  });
+
+  test("get_plan's plan, or none", () => {
+    expect(planOf({ exists: true, content: "# Plan", path: "/h/.claude/plans/a.md" })).toEqual({
+      content: "# Plan",
+      path: "/h/.claude/plans/a.md",
+    });
+    // A cloud session's plan has no file here.
+    expect(planOf({ exists: true, content: "# Plan" })).toEqual({ content: "# Plan" });
+    expect(planOf({ exists: false })).toBeNull();
+    expect(planOf(undefined)).toBeNull();
+  });
+
+  test("a branch is named as given, else as the conversation marked", () => {
+    expect(branchTitle("  try sqlite ", "Fix the build")).toBe("try sqlite");
+    expect(branchTitle("", "Fix the build")).toBe("Fix the build (Branch)");
+    expect(branchTitle("", undefined)).toBeUndefined();
   });
 });

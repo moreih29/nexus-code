@@ -6,6 +6,7 @@ import { showConfirmDialog } from "../../components/ui/confirm-dialog";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openClaudeTab } from "../../state/operations/tabs";
+import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { showChanges } from "../sessions/actions";
@@ -15,6 +16,7 @@ import { agentCommandLine } from "../workspace/tasks";
 import {
   APP_COMMANDS,
   backgroundSessionsOf,
+  branchTitle,
   COMMAND_LINKS,
   conversationMarkdown,
   copyIndex,
@@ -28,6 +30,7 @@ import {
   permissionFiles,
   permissionsMarkdown,
   permissionsOf,
+  planOf,
   pluginResultOf,
   pluginsOf,
   RESTART_AFTER,
@@ -38,7 +41,8 @@ import {
 } from "./app-commands";
 import type { ChatController } from "./controller";
 import type { ChatItem, ToolCall } from "./model";
-import { type CardSection, chatKey, useChatStore } from "./store";
+import { type CardSection, chatKey, revealPart, useChatStore } from "./store";
+import { firstVersionOf } from "./versions";
 
 export interface AppCommandContext {
   controller: ChatController;
@@ -159,6 +163,34 @@ export async function runAppCommand(
     case "diff":
       showChanges(ctx.workspaceId);
       return;
+    case "status":
+      // The panel's environment section: version, model, account, Remote Control.
+      revealPart(controller.key, "status");
+      return;
+    case "plan":
+      await runPlan(ctx, command.args);
+      return;
+    case "remote-control": {
+      const model = controller.state.model;
+      if (model.init && !model.init.remoteControl) {
+        showToast({ kind: "warning", message: t("chat.commands.remote_unavailable") });
+        return;
+      }
+      if (!model.init || model.process !== "running") {
+        showToast({ kind: "warning", message: t("chat.commands.remote_not_ready") });
+        return;
+      }
+      // As the CLI's: on when off, off when on.
+      const on = model.remoteControl?.enabled === true;
+      await controller.setRemoteControl(!on);
+      showToast({
+        kind: "info",
+        message: t(on ? "chat.commands.remote_off" : "chat.commands.remote_on"),
+      });
+      // Its link is in the panel.
+      if (!on) revealPart(controller.key, "status");
+      return;
+    }
     case "memory": {
       const id = controller.showCard({ title, loading: true });
       try {
@@ -256,6 +288,23 @@ export async function runAppCommand(
           .getState()
           .update(chatKey(ctx.workspaceId, tab.id), (prev) => ({ ...prev, draft }));
       }
+      return;
+    }
+    case "branch": {
+      // The conversation so far, in a tab of its own under the name given,
+      // else its title marked as a branch; this one stays as it is.
+      const sessionId = controller.currentSession();
+      if (!sessionId) {
+        showToast({ kind: "warning", message: t("chat.commands.fork_none") });
+        return;
+      }
+      const shown = useTabsStore.getState().byWorkspace[ctx.workspaceId]?.[ctx.tabId]?.title;
+      const name = branchTitle(command.args, shown);
+      openClaudeTab(ctx.workspaceId, {
+        cwd: ctx.cwd,
+        fork: { sessionId, ...(name ? { title: name } : {}) },
+        profileId: controller.profileId,
+      });
       return;
     }
     case "subtask":
@@ -442,6 +491,42 @@ async function showTasks(
     error = (err as Error).message;
   }
   controller.updateCard(id, { loading: false, sections, error });
+}
+
+/**
+ * /plan: plan mode on, then the description sent when one is given. In
+ * plan mode already, the session's plan; `open` opens its file.
+ */
+async function runPlan(ctx: AppCommandContext, args: string): Promise<void> {
+  const t = i18next.t.bind(i18next);
+  const { controller } = ctx;
+  const open = args.toLowerCase() === "open";
+  const inPlan = controller.state.model.permissionMode === "plan";
+  if (open || (!args && inPlan)) {
+    if (!controller.supports("get_plan")) {
+      const version = firstVersionOf("get_plan");
+      showToast({ kind: "warning", message: t("chat.commands.plan_needs_version", { version }) });
+      return;
+    }
+    const plan = planOf(await controller.ask("get_plan"));
+    if (!plan) {
+      showToast({ kind: "info", message: t("chat.commands.plan_none") });
+      return;
+    }
+    if (open && plan.path) {
+      ctx.openFileTab(plan.path);
+      return;
+    }
+    controller.showCard({
+      title: t("chat.commands.plan_title"),
+      text: plan.content,
+      files: plan.path ? [{ path: plan.path, label: plan.path }] : undefined,
+    });
+    return;
+  }
+  if (!inPlan) await controller.setPermissionMode("plan");
+  if (args) await controller.send(args);
+  else showToast({ kind: "info", message: t("chat.commands.plan_on") });
 }
 
 function failed(err: Error): void {
