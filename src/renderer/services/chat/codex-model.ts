@@ -252,8 +252,11 @@ function applyResponse(
       return;
     }
     if (sent.subtype === "thread/resume") {
-      // The app starts a new thread instead. The server's reason is for the
-      // log and the notice's tooltip, not the conversation.
+      // The app starts a new thread instead, and says so where the tab had a
+      // conversation to go on with. One that never had a turn was never
+      // saved by Codex, so it cannot be resumed and nothing is lost.
+      if (!m.items.some((i) => i.kind !== "notice")) return;
+      // The server's reason is for the log and the notice's tooltip.
       draft.push({
         kind: "notice",
         key: `n${seq}`,
