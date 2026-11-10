@@ -17,6 +17,10 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
+/** The share of the agents tab's width its list may take, dragged by its divider. */
+export const SESSIONS_LIST_RATIO_MIN = 0.2;
+export const SESSIONS_LIST_RATIO_MAX = 0.8;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -29,6 +33,11 @@ function clampFilesPanel(value: number): number {
   return Math.min(FILES_PANEL_WIDTH_MAX, Math.max(FILES_PANEL_WIDTH_MIN, value));
 }
 
+function clampSessionsList(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return Math.min(SESSIONS_LIST_RATIO_MAX, Math.max(SESSIONS_LIST_RATIO_MIN, value));
+}
+
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -38,6 +47,7 @@ interface HydrateOpts {
   filesPanelWidth?: number;
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
+  sessionsListRatio?: number | null;
 }
 
 export type FilesPanelMode = "tree" | "search" | "git";
@@ -54,11 +64,18 @@ interface UIState {
    */
   sidebarHidden: boolean;
   filesPanelHidden: boolean;
+  /**
+   * The agents tab's list as a share of the tab's width, one for every
+   * agents tab; null keeps the default, min(480px, 50%).
+   */
+  sessionsListRatio: number | null;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
+  /** Sets the agents tab's list share (null for the default), clamped. */
+  setSessionsListRatio(ratio: number | null, persist?: boolean): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
   /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
   toggleFilesPanel(): void;
@@ -95,9 +112,10 @@ export const useUIStore = create<UIState>((set) => {
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
     sidebarHidden: false,
     filesPanelHidden: false,
+    sessionsListRatio: null,
     filesPanelModes: new Map(),
 
-    hydrate({ sidebarWidth, filesPanelWidth, sidebarHidden, filesPanelHidden }) {
+    hydrate({ sidebarWidth, filesPanelWidth, sidebarHidden, filesPanelHidden, sessionsListRatio }) {
       set({
         sidebarWidth:
           sidebarWidth !== undefined ? clampSidebar(sidebarWidth) : SIDEBAR_WIDTH_DEFAULT,
@@ -107,6 +125,7 @@ export const useUIStore = create<UIState>((set) => {
             : FILES_PANEL_WIDTH_DEFAULT,
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
+        sessionsListRatio: clampSessionsList(sessionsListRatio),
       });
     },
 
@@ -127,6 +146,16 @@ export const useUIStore = create<UIState>((set) => {
       if (persist) {
         // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { filesPanelWidth: next }).then((result) => {
+          if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+        });
+      }
+    },
+
+    setSessionsListRatio(ratio, persist) {
+      const next = clampSessionsList(ratio);
+      set({ sessionsListRatio: next });
+      if (persist) {
+        void ipcCallResult("appState", "set", { sessionsListRatio: next }).then((result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }

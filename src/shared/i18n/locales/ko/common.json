@@ -784,7 +784,8 @@
   "resize": {
     "sidebar": "사이드바 크기 조정",
     "horizontal": "패널을 가로로 크기 조정",
-    "vertical": "패널을 세로로 크기 조정"
+    "vertical": "패널을 세로로 크기 조정",
+    "sessions_list": "목록과 대화 크기 조정"
   },
   "panel": {
     "connection_failed": "연결 실패",

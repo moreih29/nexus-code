@@ -784,7 +784,8 @@
   "resize": {
     "sidebar": "Resize sidebar",
     "horizontal": "Resize panels horizontally",
-    "vertical": "Resize panels vertically"
+    "vertical": "Resize panels vertically",
+    "sessions_list": "Resize the list and the conversation"
   },
   "panel": {
     "connection_failed": "Connection failed",
