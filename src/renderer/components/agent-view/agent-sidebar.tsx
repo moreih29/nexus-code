@@ -355,19 +355,32 @@ function AgentItem({
           <span className="min-w-0 flex-1 truncate text-foreground" title={session.title}>
             {session.title}
           </span>
-          {duration && (
+          {/* Its state at a glance, the glyph its filter has (running, waiting
+              on the user, done, or idle), and for how long. */}
+          <span className="flex shrink-0 items-center gap-1">
             <span
-              className={cn(
-                "shrink-0 text-app-micro tabular-nums",
-                session.phase === "attention"
-                  ? "text-(--state-warning-fg)"
-                  : "text-muted-foreground",
-              )}
+              role="img"
+              aria-label={stateLabel(session)}
               title={stateLabel(session)}
+              className="inline-flex"
+              data-testid="agent-sidebar-state"
             >
-              {duration}
+              <StateGlyph state={session.state} />
             </span>
-          )}
+            {duration && (
+              <span
+                className={cn(
+                  "text-app-micro tabular-nums",
+                  session.phase === "attention"
+                    ? "text-(--state-warning-fg)"
+                    : "text-muted-foreground",
+                )}
+                title={stateLabel(session)}
+              >
+                {duration}
+              </span>
+            )}
+          </span>
           {where && (
             <span
               role="img"
