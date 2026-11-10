@@ -52,6 +52,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "../../../utils/cn";
 import { EmptyState } from "../../ui/empty-state";
 import { useFileVersion, versionedUrl } from "./use-file-version";
 import { useWorkspaceFile } from "./use-workspace-file";
@@ -67,9 +68,11 @@ export interface ImagePreviewProps {
    * in the toolbar without duplicating the image fetch.
    */
   onNaturalSize?: (size: { w: number; h: number }) => void;
+  /** The image fills its box, with no margin: where the box is sized to the image (ZoomableImage). */
+  fill?: boolean;
 }
 
-export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePreviewProps) {
+export function ImagePreview({ workspaceId, filePath, onNaturalSize, fill }: ImagePreviewProps) {
   const { t } = useTranslation();
   const file = useWorkspaceFile(workspaceId, filePath);
 
@@ -99,6 +102,7 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize }: ImagePrev
       workspaceId={workspaceId}
       relPath={file.relPath}
       onNaturalSize={onNaturalSize}
+      fill={fill}
     />
   );
 }
@@ -111,6 +115,7 @@ interface ImageCanvasProps {
   /** Workspace-relative path — used to stat the file on a load error. */
   relPath: string;
   onNaturalSize?: (size: { w: number; h: number }) => void;
+  fill?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,11 +153,18 @@ interface ZoomAnchor {
  *   - File deleted/moved on disk after the tab opened (404 from protocol).
  *   - Format the OS/Chromium can't decode (rare for the supported set).
  */
-function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize }: ImageCanvasProps) {
+function ImageCanvas({ url, alt, workspaceId, relPath, onNaturalSize, fill }: ImageCanvasProps) {
   // Bumped whenever the file changes on disk; appended to the URL so the
   // <img> re-requests it (see LIVE RELOAD above).
   const version = useFileVersion(workspaceId, relPath);
-  return <ZoomableImage src={versionedUrl(url, version)} alt={alt} onNaturalSize={onNaturalSize} />;
+  return (
+    <ZoomableImage
+      src={versionedUrl(url, version)}
+      alt={alt}
+      onNaturalSize={onNaturalSize}
+      fill={fill}
+    />
+  );
 }
 
 export interface ZoomableImageProps {
@@ -160,10 +172,15 @@ export interface ZoomableImageProps {
   src: string;
   alt: string;
   onNaturalSize?: (size: { w: number; h: number }) => void;
+  /**
+   * The image fills its box edge to edge, with no margin around it: where
+   * the box is sized to the image, as quick look's is.
+   */
+  fill?: boolean;
 }
 
 /** An image fitted to its box and zoomed with cmd+wheel (see ZOOM above). */
-export function ZoomableImage({ src, alt, onNaturalSize }: ZoomableImageProps) {
+export function ZoomableImage({ src, alt, onNaturalSize, fill = false }: ZoomableImageProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   // The container unmounts while a load error is shown and a new one mounts
@@ -216,8 +233,9 @@ export function ZoomableImage({ src, alt, onNaturalSize }: ZoomableImageProps) {
     if (!el) return;
     const recompute = () => {
       const rect = el.getBoundingClientRect();
-      const availW = Math.floor(rect.width) - 2 * CANVAS_PADDING_PX;
-      const availH = Math.floor(rect.height) - 2 * CANVAS_PADDING_PX;
+      const padding = fill ? 0 : CANVAS_PADDING_PX;
+      const availW = Math.floor(rect.width) - 2 * padding;
+      const availH = Math.floor(rect.height) - 2 * padding;
       if (availW <= 0 || availH <= 0) return;
       setFitScale(Math.min(availW / naturalSize.w, availH / naturalSize.h));
     };
@@ -225,7 +243,7 @@ export function ZoomableImage({ src, alt, onNaturalSize }: ZoomableImageProps) {
     const ro = new ResizeObserver(recompute);
     ro.observe(el, { box: "border-box" });
     return () => ro.disconnect();
-  }, [naturalSize, containerEl]);
+  }, [naturalSize, containerEl, fill]);
 
   // Apply cursor-anchored scroll correction immediately after the new image
   // dimensions land in the DOM. useLayoutEffect runs before paint, so the
@@ -301,7 +319,12 @@ export function ZoomableImage({ src, alt, onNaturalSize }: ZoomableImageProps) {
       ref={attachContainer}
       className="app-scrollbar flex-1 min-h-0 overflow-auto bg-[var(--surface-backdrop-bg)]"
     >
-      <div className="min-w-full min-h-full flex items-center-safe justify-center-safe p-4">
+      <div
+        className={cn(
+          "min-w-full min-h-full flex items-center-safe justify-center-safe",
+          !fill && "p-4",
+        )}
+      >
         <img
           ref={imgRef}
           src={src}
