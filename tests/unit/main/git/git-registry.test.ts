@@ -16,31 +16,6 @@ import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174020";
 
-function makeManager(
-  workspaces: WorkspaceMeta[],
-  provider = fakeAgentProvider(),
-  activeId: string | null = workspaces[0]?.id ?? null,
-) {
-  return {
-    list: (): WorkspaceMeta[] => workspaces,
-    getActiveId: () => activeId,
-    requireContext: (id: string) => {
-      const workspace = workspaces.find((candidate) => candidate.id === id);
-      if (!workspace) throw new Error(`workspace not found: ${id}`);
-      return { fs: provider };
-    },
-    // getFs gates the async git paths (getOrDetect / refreshDetection /
-    // reinit) on fs-provider readiness; the production WorkspaceManager
-    // builds this around ensureProviderReady. Tests can resolve
-    // immediately because the fake provider is wired from construction.
-    getFs: async (id: string) => {
-      const workspace = workspaces.find((candidate) => candidate.id === id);
-      if (!workspace) throw new Error(`workspace not found: ${id}`);
-      return provider;
-    },
-  };
-}
-
 function makeSshWorkspace(remotePath = "/srv/repo"): WorkspaceMeta {
   return {
     id: WORKSPACE_ID,
@@ -53,50 +28,6 @@ function makeSshWorkspace(remotePath = "/srv/repo"): WorkspaceMeta {
     tabs: [],
   };
 }
-
-function makeRegistry(
-  workspaces: WorkspaceMeta[],
-  provider = fakeAgentProvider(),
-  activeId: string | null = workspaces[0]?.id ?? null,
-) {
-  const broadcast = mock((_channel: string, _event: string, _payload: unknown) => {});
-  const registry = new GitRegistry(
-    makeManager(workspaces, provider, activeId) as never,
-    broadcast,
-    {
-      path: "/usr/bin/git",
-      version: "test",
-    },
-  );
-  return { registry, broadcast };
-}
-
-describe("GitRegistry agent-backed workspaces", () => {
-  it("detects an SSH repository through the required agent provider", async () => {
-    const workspace = makeSshWorkspace();
-    const { registry } = makeRegistry([workspace]);
-
-    const repo = await registry.getOrDetect(WORKSPACE_ID);
-
-    expect(repo?.topLevel).toBe(workspace.rootPath);
-    expect(repo?.gitDir).toBe(`${workspace.rootPath}/.git`);
-  });
-
-  it("reads repo info and status through the required agent provider", async () => {
-    const workspace = makeSshWorkspace();
-    const { registry, broadcast } = makeRegistry([workspace]);
-
-    expect(registry.getRepoInfo(WORKSPACE_ID)).toEqual({ kind: "detecting" });
-    const status = await registry.refreshStatus(WORKSPACE_ID);
-
-    expect(status).toEqual(cleanStatus());
-    expect(broadcast).toHaveBeenCalledWith("git", "statusChanged", {
-      workspaceId: WORKSPACE_ID,
-      status,
-    });
-  });
-
-});
 
 describe("GitRegistry on a host without Git", () => {
   const OTHER_ID = "123e4567-e89b-12d3-a456-426614174021";

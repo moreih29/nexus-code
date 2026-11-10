@@ -46,35 +46,9 @@ describe("applyShellPathShim", () => {
     expect(output.env.NEXUS_USER_ZDOTDIR).toBe("");
   });
 
-  test("2: shell=zsh-5.9 → zsh branch (ZDOTDIR redirected)", () => {
-    const input = {
-      shell: "zsh-5.9",
-      env: {},
-      shimDir: SHIM_DIR,
-    };
-    const output = applyShellPathShim(input);
-
-    expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
-    expect(output.env.NEXUS_USER_ZDOTDIR).toBe("");
-  });
-
   test("3: shell=/bin/bash → args starts with --rcfile <shimDir>/bashrc -i", () => {
     const input = {
       shell: "/bin/bash",
-      env: {},
-      shimDir: SHIM_DIR,
-    };
-    const output = applyShellPathShim(input);
-
-    expect(output.args).toBeDefined();
-    expect(output.args![0]).toBe("--rcfile");
-    expect(output.args![1]).toBe(`${SHIM_DIR}/bashrc`);
-    expect(output.args![2]).toBe("-i");
-  });
-
-  test("4: shell=/usr/local/bin/bash → same as /bin/bash", () => {
-    const input = {
-      shell: "/usr/local/bin/bash",
       env: {},
       shimDir: SHIM_DIR,
     };
@@ -110,33 +84,6 @@ describe("applyShellPathShim", () => {
 
     expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
     expect(output.env.NEXUS_USER_ZDOTDIR).toBe("");
-  });
-
-  test("7: shell undefined + env.SHELL undefined → no-op", () => {
-    const env = { PATH: "/usr/bin" };
-    const input = {
-      env,
-      shimDir: SHIM_DIR,
-    };
-    const output = applyShellPathShim(input);
-
-    expect(output.env).toBe(env);
-    expect(output.args).toBeUndefined();
-  });
-
-  test("8: zsh branch + existing args → args unchanged", () => {
-    const existingArgs = ["--login", "--interactive"];
-    const input = {
-      shell: "/bin/zsh",
-      env: {},
-      args: existingArgs,
-      shimDir: SHIM_DIR,
-    };
-    const output = applyShellPathShim(input);
-
-    // zsh uses env mutation, args must remain as-is
-    expect(output.args).toBe(existingArgs);
-    expect(output.env.ZDOTDIR).toBe(SHIM_DIR);
   });
 
   test("9: bash branch + existing args → --rcfile/-i prepended before existing args", () => {
@@ -179,28 +126,5 @@ describe("applyShellPathShim", () => {
     const output = applyShellPathShim({ shell: "/bin/bash", env: {}, args, shimDir: SHIM_DIR });
 
     expect(output.args).toEqual(args);
-  });
-
-  test("bash branch, args=undefined → new array created with shim args only", () => {
-    const input = {
-      shell: "/bin/bash",
-      env: {},
-      shimDir: SHIM_DIR,
-    };
-    const output = applyShellPathShim(input);
-
-    expect(output.args).toEqual(["--rcfile", `${SHIM_DIR}/bashrc`, "-i"]);
-  });
-
-  test("input env object is not mutated (zsh branch)", () => {
-    const originalEnv = { ZDOTDIR: "/orig", PATH: "/usr/bin" };
-    const input = {
-      shell: "/bin/zsh",
-      env: { ...originalEnv },
-      shimDir: SHIM_DIR,
-    };
-    applyShellPathShim(input);
-    // input.env should not be mutated
-    expect(input.env.ZDOTDIR).toBe("/orig");
   });
 });

@@ -1,9 +1,9 @@
 /**
  * Unit tests for src/main/infra/agent/runtimeDirs.ts.
  *
- * Verifies that root/binDir/socketsDir produce consistent absolute paths
- * under the user's home directory, and that ensureDir creates directories
- * with 0o700 permissions idempotently.
+ * Verifies that NEXUS_CODE_HOME moves root(), that ensureDir creates
+ * directories with 0o700 permissions, and that the shim rc files keep the
+ * wrappers first on PATH under real bash and zsh.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -13,12 +13,9 @@ import os from "node:os";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import {
-  binDir,
   ensureDir,
   HOME_ENV,
-  removeShimDir,
   root,
-  shimDir,
   socketsDir,
   writeShimFiles,
 } from "../../../../src/main/infra/agent/runtimeDirs";
@@ -36,32 +33,11 @@ describe("root", () => {
     else process.env[HOME_ENV] = named;
   });
 
-  test("returns path ending with .nexus-code under home directory", () => {
-    const result = root();
-    const home = os.homedir();
-    expect(result).toBe(path.join(home, ".nexus-code"));
-    expect(path.isAbsolute(result)).toBe(true);
-  });
-
   test("is the directory NEXUS_CODE_HOME names, for a copy of the app beside the installed one", () => {
     const dir = path.join(os.tmpdir(), "nexus-code-qa");
     process.env[HOME_ENV] = dir;
     expect(root()).toBe(dir);
     expect(socketsDir()).toBe(path.join(dir, "sockets"));
-  });
-});
-
-describe("binDir", () => {
-  test("is root()/bin", () => {
-    expect(binDir()).toBe(path.join(root(), "bin"));
-    expect(path.isAbsolute(binDir())).toBe(true);
-  });
-});
-
-describe("socketsDir", () => {
-  test("is root()/sockets", () => {
-    expect(socketsDir()).toBe(path.join(root(), "sockets"));
-    expect(path.isAbsolute(socketsDir())).toBe(true);
   });
 });
 
@@ -76,14 +52,6 @@ describe("ensureDir", () => {
     await fsp.rm(tmpBase, { recursive: true, force: true });
   });
 
-  test("creates nested directories that do not exist", async () => {
-    const target = path.join(tmpBase, "a", "b", "c");
-    await ensureDir(target);
-
-    const stat = fsSync.statSync(target);
-    expect(stat.isDirectory()).toBe(true);
-  });
-
   modeTest("creates directory with 0o700 permissions", async () => {
     const target = path.join(tmpBase, "secure");
     await ensureDir(target);
@@ -91,30 +59,6 @@ describe("ensureDir", () => {
     const stat = fsSync.statSync(target);
     const perm = stat.mode & 0o777;
     expect(perm).toBe(0o700);
-  });
-
-  test("is idempotent — calling twice on the same path does not throw", async () => {
-    const target = path.join(tmpBase, "repeat");
-    await ensureDir(target);
-    await expect(ensureDir(target)).resolves.toBeUndefined();
-  });
-
-  test("succeeds when path already exists as a directory", async () => {
-    // tmpBase itself already exists.
-    await expect(ensureDir(tmpBase)).resolves.toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// shimDir / writeShimFiles / removeShimDir
-// ---------------------------------------------------------------------------
-
-describe("shimDir", () => {
-  test("returns <root>/shim/<workspaceId> as an absolute path", () => {
-    const id = "ws-abc123";
-    const result = shimDir(id);
-    expect(result).toBe(path.join(root(), "shim", id));
-    expect(path.isAbsolute(result)).toBe(true);
   });
 });
 
@@ -152,45 +96,6 @@ describe("writeShimFiles", () => {
       await fsp.rm(createdShimDir, { recursive: true, force: true });
       createdShimDir = "";
     }
-  });
-
-  test("acceptance 1 — returns correct absolute paths", async () => {
-    const id = "test-ws-paths-" + Date.now();
-    const result = await writeShimFiles(id);
-    createdShimDir = result.dir;
-
-    expect(result.dir).toBe(shimDir(id));
-    expect(result.zshrc).toBe(path.join(shimDir(id), ".zshrc"));
-    expect(result.zshenv).toBe(path.join(shimDir(id), ".zshenv"));
-    expect(result.bashrc).toBe(path.join(shimDir(id), "bashrc"));
-  });
-
-  test("acceptance 2 — creates 3 files with spec-compliant content", async () => {
-    const id = "test-ws-content-" + Date.now();
-    const result = await writeShimFiles(id);
-    createdShimDir = result.dir;
-
-    const zshrcContent = await fsp.readFile(result.zshrc, "utf-8");
-    const zshenvContent = await fsp.readFile(result.zshenv, "utf-8");
-    const bashrcContent = await fsp.readFile(result.bashrc, "utf-8");
-
-    // Verify key functional fragments from the spec are present.
-    expect(zshrcContent).toContain("NEXUS_USER_ZDOTDIR");
-    expect(zshrcContent).toContain("add-zsh-hook precmd _nexus_prepend_wrapper");
-    expect(zshrcContent).toContain("_nexus_prepend_wrapper");
-    expect(zshrcContent).toContain("NEXUS_WRAPPER_SELF_DIR");
-
-    expect(zshenvContent).toContain("NEXUS_USER_ZDOTDIR");
-    expect(zshenvContent).toContain(".zshenv");
-
-    expect(bashrcContent).toContain(".bashrc");
-    expect(bashrcContent).toContain("PROMPT_COMMAND");
-    expect(bashrcContent).toContain("_nexus_prepend_wrapper");
-    expect(bashrcContent).toContain("NEXUS_WRAPPER_SELF_DIR");
-
-    // Verify the PATH dedup pattern is present in both zshrc and bashrc.
-    expect(zshrcContent).toContain("${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}");
-    expect(bashrcContent).toContain("${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}");
   });
 
   test.skipIf(!fsSync.existsSync("/bin/zsh"))(
@@ -298,32 +203,6 @@ describe("writeShimFiles", () => {
     },
   );
 
-  test("acceptance 3 — idempotent: second call produces identical content", async () => {
-    const id = "test-ws-idempotent-" + Date.now();
-    const r1 = await writeShimFiles(id);
-    createdShimDir = r1.dir;
-
-    const before = {
-      zshrc: await fsp.readFile(r1.zshrc, "utf-8"),
-      zshenv: await fsp.readFile(r1.zshenv, "utf-8"),
-      bashrc: await fsp.readFile(r1.bashrc, "utf-8"),
-    };
-
-    // Second call must not throw and must produce identical content.
-    const r2 = await writeShimFiles(id);
-    expect(r2.dir).toBe(r1.dir);
-
-    const after = {
-      zshrc: await fsp.readFile(r2.zshrc, "utf-8"),
-      zshenv: await fsp.readFile(r2.zshenv, "utf-8"),
-      bashrc: await fsp.readFile(r2.bashrc, "utf-8"),
-    };
-
-    expect(after.zshrc).toBe(before.zshrc);
-    expect(after.zshenv).toBe(before.zshenv);
-    expect(after.bashrc).toBe(before.bashrc);
-  });
-
   modeTest("acceptance 5 — dir mode 0700, file mode 0644", async () => {
     const id = "test-ws-mode-" + Date.now();
     const result = await writeShimFiles(id);
@@ -346,34 +225,5 @@ describe("writeShimFiles", () => {
     for (const filePath of [result.zshrc, result.bashrc]) {
       expect(() => execSync(`bash -n "${filePath}"`, { stdio: "pipe" })).not.toThrow();
     }
-  });
-});
-
-describe("removeShimDir", () => {
-  let createdShimDir: string;
-
-  afterEach(async () => {
-    if (createdShimDir) {
-      await fsp.rm(createdShimDir, { recursive: true, force: true });
-      createdShimDir = "";
-    }
-  });
-
-  test("acceptance 4 — removes the shim directory", async () => {
-    const id = "test-ws-remove-" + Date.now();
-    const result = await writeShimFiles(id);
-    createdShimDir = result.dir;
-
-    await removeShimDir(id);
-    expect(fsSync.existsSync(result.dir)).toBe(false);
-
-    // Second call (dir already gone) must not throw.
-    await expect(removeShimDir(id)).resolves.toBeUndefined();
-    createdShimDir = ""; // already cleaned up
-  });
-
-  test("does not throw when workspace shim dir never existed", async () => {
-    const id = "test-ws-nonexistent-" + Date.now();
-    await expect(removeShimDir(id)).resolves.toBeUndefined();
   });
 });

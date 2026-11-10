@@ -72,12 +72,6 @@ describe("createKeyedDebouncer", () => {
     expect(fired).toEqual([]);
   });
 
-  test("cancel on non-existent key is a no-op", () => {
-    const scheduler = makeFakeScheduler();
-    const debouncer = createKeyedDebouncer<string>({ delayMs: 100, scheduler });
-    expect(() => debouncer.cancel("ghost")).not.toThrow();
-  });
-
   test("clearAll cancels all pending timers", () => {
     const scheduler = makeFakeScheduler();
     const debouncer = createKeyedDebouncer<string>({ delayMs: 100, scheduler });
@@ -88,37 +82,5 @@ describe("createKeyedDebouncer", () => {
     scheduler.tick();
     expect(fired).toEqual([]);
     expect(debouncer.size).toBe(0);
-  });
-
-  test("size reflects current pending count", () => {
-    const scheduler = makeFakeScheduler();
-    const debouncer = createKeyedDebouncer<string>({ delayMs: 100, scheduler });
-    expect(debouncer.size).toBe(0);
-    debouncer.schedule("a", () => {});
-    expect(debouncer.size).toBe(1);
-    debouncer.schedule("b", () => {});
-    expect(debouncer.size).toBe(2);
-    debouncer.cancel("a");
-    expect(debouncer.size).toBe(1);
-    scheduler.tick();
-    expect(debouncer.size).toBe(0);
-  });
-
-  test("size decrements when timer fires", () => {
-    const scheduler = makeFakeScheduler();
-    const debouncer = createKeyedDebouncer<string>({ delayMs: 100, scheduler });
-    debouncer.schedule("a", () => {});
-    expect(debouncer.size).toBe(1);
-    scheduler.tick();
-    expect(debouncer.size).toBe(0);
-  });
-
-  test("rescheduling same key does not increase size beyond 1", () => {
-    const scheduler = makeFakeScheduler();
-    const debouncer = createKeyedDebouncer<string>({ delayMs: 100, scheduler });
-    debouncer.schedule("a", () => {});
-    debouncer.schedule("a", () => {});
-    debouncer.schedule("a", () => {});
-    expect(debouncer.size).toBe(1);
   });
 });

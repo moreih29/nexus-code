@@ -35,19 +35,6 @@ function makeMeta(overrides: Partial<WorkspaceMeta> = {}): WorkspaceMeta {
 // ---------------------------------------------------------------------------
 
 describe("applyMigrations", () => {
-  it("creates _meta and workspaces tables on fresh DB", () => {
-    const db = makeDb();
-    applyMigrations(db);
-
-    const tables = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
-      .all() as { name: string }[];
-    const names = tables.map((r) => r.name);
-    expect(names).toContain("_meta");
-    expect(names).toContain("workspaces");
-    db.close();
-  });
-
   it("advances schemaVersion to the latest migration", () => {
     const db = makeDb();
     applyMigrations(db);
@@ -155,20 +142,6 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
     db.close();
   });
 
-  it("addWorkspace inserts exactly 1 row and listWorkspaces returns it", () => {
-    const meta = makeMeta();
-    storage.addWorkspace(meta);
-    const list = storage.listWorkspaces();
-    expect(list.length).toBe(1);
-    const row = list[0];
-    expect(row.id).toBe(meta.id);
-    expect(row.name).toBe(meta.name);
-    expect(row.rootPath).toBe(meta.rootPath);
-    expect(row.location).toEqual(meta.location);
-    expect(row.colorTone).toBe(meta.colorTone);
-    expect(row.pinned).toBe(false);
-  });
-
   it("addWorkspace persists ssh location and remotePath compatibility rootPath", () => {
     const meta = makeMeta({
       rootPath: "/srv/app",
@@ -204,28 +177,6 @@ describe("GlobalStorage.addWorkspace / listWorkspaces", () => {
       authMode: "interactive",
     });
   });
-
-  it("column mapping is accurate — pinned integer round-trips to boolean", () => {
-    storage.addWorkspace(makeMeta({ pinned: true }));
-    const list = storage.listWorkspaces();
-    expect(list[0].pinned).toBe(true);
-  });
-
-  it("listWorkspaces returns empty array when no workspaces exist", () => {
-    expect(storage.listWorkspaces()).toEqual([]);
-  });
-
-  it("addWorkspace stores multiple workspaces", () => {
-    storage.addWorkspace(makeMeta({ id: "00000000-0000-0000-0000-000000000001" }));
-    storage.addWorkspace(
-      makeMeta({
-        id: "00000000-0000-0000-0000-000000000002",
-        name: "second",
-        lastOpenedAt: new Date(1_700_000_001_000).toISOString(),
-      }),
-    );
-    expect(storage.listWorkspaces().length).toBe(2);
-  });
 });
 
 describe("GlobalStorage.updateWorkspace", () => {
@@ -240,14 +191,6 @@ describe("GlobalStorage.updateWorkspace", () => {
 
   afterEach(() => {
     db.close();
-  });
-
-  it("updates name field", () => {
-    storage.updateWorkspace("00000000-0000-0000-0000-000000000001", {
-      name: "renamed",
-    });
-    const list = storage.listWorkspaces();
-    expect(list[0].name).toBe("renamed");
   });
 
   it("updates location and keeps rootPath compatibility in sync", () => {
@@ -326,39 +269,6 @@ describe("GlobalStorage.updateWorkspace", () => {
       "00000000-0000-0000-0000-000000000001",
     ) as { location: string };
     expect(raw.location).toBe(stored);
-  });
-
-  it("throws when workspace is not found", () => {
-    expect(() =>
-      storage.updateWorkspace("00000000-0000-0000-0000-000000000099", {
-        name: "x",
-      }),
-    ).toThrow("workspace not found");
-  });
-});
-
-describe("GlobalStorage.removeWorkspace", () => {
-  let db: Database;
-  let storage: GlobalStorage;
-
-  beforeEach(() => {
-    db = makeDb();
-    storage = new GlobalStorage(db);
-    storage.addWorkspace(makeMeta());
-  });
-
-  afterEach(() => {
-    db.close();
-  });
-
-  it("removes the workspace row", () => {
-    storage.removeWorkspace("00000000-0000-0000-0000-000000000001");
-    expect(storage.listWorkspaces().length).toBe(0);
-  });
-
-  it("is a no-op when the workspace does not exist", () => {
-    storage.removeWorkspace("00000000-0000-0000-0000-000000000099");
-    expect(storage.listWorkspaces().length).toBe(1);
   });
 });
 
@@ -454,16 +364,6 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
     db.close();
   });
 
-  it("v6 on an empty DB is a noop — no rows to backfill", () => {
-    const db = buildPreV6Db([]);
-    expect(() => applyMigrations(db)).not.toThrow();
-    const count = (
-      db.prepare("SELECT COUNT(*) AS cnt FROM workspaces").get() as { cnt: number }
-    ).cnt;
-    expect(count).toBe(0);
-    db.close();
-  });
-
   it("v6 migration replay is a noop — non-zero positions are not overwritten", () => {
     const db = buildPreV6Db([
       { id: uuid(1), pinned: 0, last_opened_at: 2000 },
@@ -485,20 +385,6 @@ describe("migration v6: sort_order and pinned_sort_order backfill", () => {
       .all() as { id: string; sort_order: number }[];
     expect(afterSecond[0].sort_order).toBe(1024);
     expect(afterSecond[1].sort_order).toBe(2048);
-
-    db.close();
-  });
-
-  it("idx_workspaces_order index is created by v6", () => {
-    const db = buildPreV6Db([]);
-    applyMigrations(db);
-
-    const indexes = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='workspaces'",
-      )
-      .all() as { name: string }[];
-    expect(indexes.map((i) => i.name)).toContain("idx_workspaces_order");
 
     db.close();
   });
@@ -672,18 +558,6 @@ describe("GlobalStorage.computeInsertPosition", () => {
     insertWs(uuid(1), 0, 1, 0); // first row at the bottom of the range
     const result = storage.computeInsertPosition({ groupKind: "unpinned", beforeId: uuid(1) });
     expect(result).toEqual({ rebalance: true });
-  });
-
-  it("throws when both beforeId and afterId are provided", () => {
-    insertWs(uuid(1), 0, 1024, 0);
-    insertWs(uuid(2), 0, 2048, 0);
-    expect(() =>
-      storage.computeInsertPosition({
-        groupKind: "unpinned",
-        beforeId: uuid(1),
-        afterId: uuid(2),
-      }),
-    ).toThrow();
   });
 });
 

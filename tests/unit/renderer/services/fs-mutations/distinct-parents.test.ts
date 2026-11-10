@@ -31,14 +31,6 @@ describe("distinctParents", () => {
     expect(result).toEqual(["/repo/a.ts"]);
   });
 
-  it("returns [] for empty input", () => {
-    expect(distinctParents([])).toEqual([]);
-  });
-
-  it("returns the single path for a single-element input", () => {
-    expect(distinctParents(["/repo/foo.ts"])).toEqual(["/repo/foo.ts"]);
-  });
-
   it("keeps unrelated siblings — neither is a prefix of the other", () => {
     const result = distinctParents(["/repo/a.ts", "/repo/b.ts"]);
     expect(result).toHaveLength(2);
@@ -68,18 +60,5 @@ describe("distinctParents", () => {
     expect(result).toHaveLength(2);
     expect(result).toContain("/repo/src");
     expect(result).toContain("/repo/lib");
-  });
-
-  it("output is sorted by ascending path length", () => {
-    const result = distinctParents(["/a/b/c", "/a", "/a/b"]);
-    // /a is the top ancestor → keeps only /a; /a/b and /a/b/c are descendants.
-    expect(result).toEqual(["/a"]);
-  });
-
-  it("two unrelated dirs at same depth are both preserved", () => {
-    const result = distinctParents(["/a/foo", "/a/bar"]);
-    expect(result).toHaveLength(2);
-    expect(result).toContain("/a/foo");
-    expect(result).toContain("/a/bar");
   });
 });

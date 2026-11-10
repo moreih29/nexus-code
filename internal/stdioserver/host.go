@@ -34,9 +34,8 @@ import (
 )
 
 // forceExitAfter caps how long SIGTERM will wait for in-flight handlers
-// to flush. 75ms matches the test timeout in main_test.go's drain
-// assertion and is short enough that a stuck handler cannot keep the
-// process alive past the parent's expected shutdown window.
+// to flush: short enough that a stuck handler cannot keep the process
+// alive past the parent's expected shutdown window.
 const forceExitAfter = 75 * time.Millisecond
 
 // idleWatchdogExitCode is the process exit code used when the idle watchdog

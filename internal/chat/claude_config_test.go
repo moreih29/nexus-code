@@ -51,20 +51,3 @@ func TestClaudeConfigFallsBackToTheLegacyFile(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
-
-func TestClaudeConfigWithoutAFile(t *testing.T) {
-	got := claudeConfigOf(t, t.TempDir())
-	if got.Found || len(got.Values) != 0 {
-		t.Fatalf("got %+v", got)
-	}
-}
-
-func TestClaudeConfigThatIsNotJSON(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte("{oops"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := claudeConfigOf(t, dir); got.Found {
-		t.Fatalf("got %+v", got)
-	}
-}

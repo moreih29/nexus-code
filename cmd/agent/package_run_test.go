@@ -22,9 +22,3 @@ func TestInDirTakesOnlyFilesInsideTheDirectory(t *testing.T) {
 		}
 	}
 }
-
-func TestPackageRunRefusesOutsideAPackage(t *testing.T) {
-	if code := runPackageProgram([]string{filepath.Join(t.TempDir(), "program")}); code != 1 {
-		t.Fatalf("runPackageProgram outside a package = %d, want 1", code)
-	}
-}

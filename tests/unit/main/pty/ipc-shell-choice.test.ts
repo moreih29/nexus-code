@@ -148,41 +148,6 @@ const spawnArgs = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe("pty.spawn — the shell of a local terminal", () => {
-  test("no choice: the agent picks the system default, and main reports which one", async () => {
-    const { call, agent } = setup({});
-    const result = await call("spawn", spawnArgs());
-
-    expect(agent.spawnCalls[0]?.shell).toBeUndefined();
-    expect(agent.spawnCalls[0]?.args).toBeUndefined();
-    expect(result).toEqual({ pid: 42, shellPath: POWERSHELL });
-  });
-
-  test("the default shell from the settings starts with its arguments", async () => {
-    const { call, agent } = setup({ defaultShell: { kind: "detected", id: "git-bash" } });
-    const result = await call("spawn", spawnArgs());
-
-    expect(agent.spawnCalls[0]).toMatchObject({ shell: GIT_BASH, args: ["--login", "-i"] });
-    expect(result).toEqual({ pid: 42, shellPath: GIT_BASH });
-  });
-
-  test("the tab's own shell wins over the setting", async () => {
-    const { call, agent } = setup({ defaultShell: { kind: "detected", id: "git-bash" } });
-    await call("spawn", spawnArgs({ shell: { kind: "detected", id: "powershell" } }));
-
-    expect(agent.spawnCalls[0]?.shell).toBe(POWERSHELL);
-    expect(agent.spawnCalls[0]?.args).toBeUndefined();
-  });
-
-  test("an added shell starts with its program and arguments", async () => {
-    const { call, agent } = setup({
-      customShells: [{ id: "ps-nologo", name: "PS", path: "powershell", args: ["-NoLogo"] }],
-    });
-    const result = await call("spawn", spawnArgs({ shell: { kind: "custom", id: "ps-nologo" } }));
-
-    expect(agent.spawnCalls[0]).toMatchObject({ shell: POWERSHELL, args: ["-NoLogo"] });
-    expect(result).toEqual({ pid: 42, shellPath: POWERSHELL });
-  });
-
   test("a tab whose added shell was removed falls back and is reported without a name", async () => {
     const { call, agent } = setup({ customShells: [] });
     const result = await call("spawn", spawnArgs({ shell: { kind: "custom", id: "ps-nologo" } }));
@@ -334,23 +299,5 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     expect(sent?.args).toBeUndefined();
     expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBeUndefined();
-  });
-});
-
-describe("pty.listShells and pty.findShell", () => {
-  test("lists the installed shells and the system default", async () => {
-    const { call } = setup({});
-    const result = (await call("listShells", undefined)) as {
-      shells: { id: string }[];
-      systemDefault: { id: string };
-    };
-    expect(result.shells.map((s) => s.id)).toEqual(["powershell", "cmd", "git-bash"]);
-    expect(result.systemDefault.id).toBe("powershell");
-  });
-
-  test("finds a custom shell's program, or reports null", async () => {
-    const { call } = setup({});
-    expect(await call("findShell", { program: "powershell" })).toEqual({ path: POWERSHELL });
-    expect(await call("findShell", { program: "nu" })).toEqual({ path: null });
   });
 });

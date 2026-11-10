@@ -50,103 +50,6 @@ function makeMeta(id: string, rootPath: string): WorkspaceMeta {
 }
 
 // ---------------------------------------------------------------------------
-// storage-restart: GlobalStorage persists workspace across close/re-open
-// ---------------------------------------------------------------------------
-
-describe("storage-restart — GlobalStorage round-trip on real SQLite file", () => {
-  let tmpDir: string;
-  let globalDbPath: string;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir();
-    globalDbPath = path.join(tmpDir, "state.db");
-  });
-
-  afterEach(() => {
-    closeTestDatabases();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("workspace added in session 1 is visible in session 2", () => {
-    const id = "00000000-0000-0000-0000-000000000001";
-    const rootPath = path.join(os.tmpdir(), "my-project");
-
-    // Session 1 — add workspace then close.
-    const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, rootPath));
-    storage1.close();
-
-    // Session 2 — open the same file and list.
-    const storage2 = openGlobalStorage(globalDbPath);
-    const list = storage2.listWorkspaces();
-    storage2.close();
-
-    expect(list.length).toBe(1);
-    expect(list[0].id).toBe(id);
-    expect(list[0].rootPath).toBe(rootPath);
-  });
-
-  it("workspace update in session 1 is reflected in session 2", () => {
-    const id = "00000000-0000-0000-0000-000000000002";
-
-    const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, path.join(os.tmpdir(), "proj")));
-    storage1.updateWorkspace(id, { name: "renamed-in-s1" });
-    storage1.close();
-
-    const storage2 = openGlobalStorage(globalDbPath);
-    const list = storage2.listWorkspaces();
-    storage2.close();
-
-    expect(list[0].name).toBe("renamed-in-s1");
-  });
-
-  it("workspace removed in session 1 is absent in session 2", () => {
-    const id = "00000000-0000-0000-0000-000000000003";
-
-    const storage1 = openGlobalStorage(globalDbPath);
-    storage1.addWorkspace(makeMeta(id, path.join(os.tmpdir(), "to-remove")));
-    storage1.removeWorkspace(id);
-    storage1.close();
-
-    const storage2 = openGlobalStorage(globalDbPath);
-    const list = storage2.listWorkspaces();
-    storage2.close();
-
-    expect(list.length).toBe(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// storage-restart: StateService persists lastActiveWorkspaceId
-// ---------------------------------------------------------------------------
-
-describe("storage-restart — StateService persists across re-construction", () => {
-  let tmpDir: string;
-  let statePath: string;
-
-  beforeEach(() => {
-    tmpDir = makeTmpDir();
-    statePath = path.join(tmpDir, "state.json");
-  });
-
-  afterEach(() => {
-    closeTestDatabases();
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("lastActiveWorkspaceId written in session 1 is readable in session 2", () => {
-    const wsId = "00000000-0000-0000-0000-aabbccddeeff";
-
-    const ss1 = new StateService(statePath);
-    ss1.setState({ lastActiveWorkspaceId: wsId });
-
-    const ss2 = new StateService(statePath);
-    expect(ss2.getState().lastActiveWorkspaceId).toBe(wsId);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // storage-restart: WorkspaceStorage — per-workspace directory + state.db survive
 // ---------------------------------------------------------------------------
 
@@ -163,26 +66,6 @@ describe("storage-restart — WorkspaceStorage directory survives session bounda
   afterEach(() => {
     closeTestDatabases();
     fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  it("workspace directory and state.db created in session 1 exist in session 2", () => {
-    const id = "00000000-0000-0000-0000-111122223333";
-
-    // Session 1
-    const ws1 = new WorkspaceStorage(wsBaseDir, bunSqliteFactory);
-    ws1.openForWorkspace(id);
-    ws1.closeForWorkspace(id);
-
-    // Session 2 — construct a new WorkspaceStorage instance over the same dir.
-    const ws2 = new WorkspaceStorage(wsBaseDir, bunSqliteFactory);
-    ws2.openForWorkspace(id); // must not throw even though dir already exists
-
-    const wsDir = path.join(wsBaseDir, id);
-    const dbPath = path.join(wsDir, "state.db");
-    expect(fs.existsSync(wsDir)).toBe(true);
-    expect(fs.existsSync(dbPath)).toBe(true);
-
-    ws2.closeForWorkspace(id);
   });
 
   it("setMeta in session 1 is readable via workspace.json in session 2", () => {

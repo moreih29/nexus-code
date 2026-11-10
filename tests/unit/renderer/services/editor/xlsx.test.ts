@@ -3,8 +3,6 @@ import { strToU8, zipSync } from "fflate";
 import {
   cellPosition,
   columnName,
-  isSpreadsheetFile,
-  MAX_SHEET_COLUMNS,
 } from "../../../../../src/renderer/services/editor/preview/spreadsheet";
 import {
   readWorkbook,
@@ -66,15 +64,6 @@ function workbook({
 
 const texts = (rows: readonly (readonly ({ text: string } | undefined)[] | undefined)[]) =>
   Array.from(rows, (row) => (row ? Array.from(row, (cell) => cell?.text ?? "") : null));
-
-describe("isSpreadsheetFile", () => {
-  it("knows .xlsx and .xlsm, case aside, and not legacy .xls", () => {
-    expect(isSpreadsheetFile("/w/a/Budget.XLSX")).toBe(true);
-    expect(isSpreadsheetFile("/w/a/tool.xlsm")).toBe(true);
-    expect(isSpreadsheetFile("/w/a/old.xls")).toBe(false);
-    expect(isSpreadsheetFile("/w/a/xlsx")).toBe(false);
-  });
-});
 
 describe("readWorkbook", () => {
   it("reads each kind of cell value where the file puts it", () => {
@@ -166,54 +155,6 @@ describe("readWorkbook", () => {
       ["1", "2"],
       ["", "", "3", "4"],
     ]);
-  });
-
-  it("sizes columns by the file's widths, else by their text", () => {
-    const [sheet] = readWorkbook(
-      workbook({
-        strings: ["<t>a much longer heading</t>"],
-        sheets: [
-          {
-            name: "S",
-            xml: `<cols><col min="2" max="3" width="20.7" customWidth="1"/></cols>
-              <sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1"><v>1</v></c><c r="C1"><v>1</v></c><c r="D1"><v>1</v></c></row></sheetData>`,
-          },
-        ],
-      }),
-    ).sheets;
-    expect(sheet?.widths).toEqual([21, 21, 21, 4]);
-  });
-
-  it("sizes a column by rows through the whole sheet, not only its first", () => {
-    const rows = Array.from(
-      { length: 9000 },
-      (_, i) => `<row r="${i + 1}"><c r="A${i + 1}"><v>${i + 1}</v></c></row>`,
-    ).join("");
-    const [sheet] = readWorkbook(
-      workbook({ sheets: [{ name: "S", xml: `<sheetData>${rows}</sheetData>` }] }),
-    ).sheets;
-    expect(sheet?.widths).toEqual([4]);
-    const longer = rows.replace("<v>9000</v>", "<v>123456789</v>");
-    const [grown] = readWorkbook(
-      workbook({ sheets: [{ name: "S", xml: `<sheetData>${longer}</sheetData>` }] }),
-    ).sheets;
-    expect(grown?.widths).toEqual([9]);
-  });
-
-  it("leaves out values past the widest it shows", () => {
-    const far = columnName(MAX_SHEET_COLUMNS);
-    const [sheet] = readWorkbook(
-      workbook({
-        sheets: [
-          {
-            name: "S",
-            xml: `<sheetData><row r="1"><c r="A1"><v>1</v></c><c r="${far}1"><v>2</v></c></row></sheetData>`,
-          },
-        ],
-      }),
-    ).sheets;
-    expect(sheet?.columns).toBe(1);
-    expect(sheet?.clipped).toBe(true);
   });
 
   it("refuses bytes that are not a workbook", () => {

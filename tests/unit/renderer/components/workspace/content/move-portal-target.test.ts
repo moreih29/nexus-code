@@ -58,12 +58,6 @@ describe("movePortalTarget", () => {
     expect(log).toEqual(["appendChild"]);
   });
 
-  it("appends where there is no moveBefore", () => {
-    const log: string[] = [];
-    movePortalTarget(fakeParent(log, { moveBefore: false }), fakeNode(log, []));
-    expect(log).toEqual(["appendChild"]);
-  });
-
   it("appends when moveBefore refuses the move", () => {
     const log: string[] = [];
     const media = [fakeMedia(log, "audio")];

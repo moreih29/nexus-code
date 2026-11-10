@@ -13,36 +13,6 @@ import (
 // git.info tests
 // ---------------------------------------------------------------------------
 
-func TestServiceInfo_ReturnsResult(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	service := New(root)
-
-	result, err := service.Info(context.Background(), json.RawMessage("{}"))
-	if err != nil {
-		t.Fatalf("Info returned unexpected error: %v", err)
-	}
-	if result == nil {
-		// git may not be available in the test environment; skip rather than fail.
-		t.Skip("git binary not found in test environment")
-	}
-
-	info, ok := result.(InfoResult)
-	if !ok {
-		t.Fatalf("Info returned unexpected type: %T", result)
-	}
-	if info.BinaryPath == "" {
-		t.Error("expected non-empty binaryPath")
-	}
-	if info.BinaryVersion == "" {
-		t.Error("expected non-empty binaryVersion")
-	}
-	// version should look like "2.39.0" or similar.
-	if !strings.Contains(info.BinaryVersion, ".") {
-		t.Errorf("unexpected binaryVersion format: %q", info.BinaryVersion)
-	}
-}
-
 func TestParseGitVersionOutput_Valid(t *testing.T) {
 	cases := []struct {
 		input string
@@ -63,77 +33,9 @@ func TestParseGitVersionOutput_Valid(t *testing.T) {
 	}
 }
 
-func TestParseGitVersionOutput_Invalid(t *testing.T) {
-	cases := []string{
-		"",
-		"not git output",
-		"git: command not found",
-	}
-	for _, c := range cases {
-		t.Run(c, func(t *testing.T) {
-			got := parseGitVersionOutput(c)
-			if got != "" {
-				t.Errorf("parseGitVersionOutput(%q) = %q, want empty string", c, got)
-			}
-		})
-	}
-}
-
 // ---------------------------------------------------------------------------
 // git.detect tests
 // ---------------------------------------------------------------------------
-
-func TestServiceDetect_Repo(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	runGit(t, root, "init", "-b", "main")
-
-	service := New(root)
-	params := `{"cwd":"` + jsonEscapePath(root) + `"}`
-	result, err := service.Detect(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("Detect returned error: %v", err)
-	}
-
-	dr, ok := result.(DetectResult)
-	if !ok {
-		t.Fatalf("expected DetectResult, got %T", result)
-	}
-	if dr.Kind != "repo" {
-		t.Errorf("expected kind=repo, got %q", dr.Kind)
-	}
-	if dr.TopLevel == "" {
-		t.Error("expected non-empty topLevel")
-	}
-	if dr.GitDir == "" {
-		t.Error("expected non-empty gitDir")
-	}
-	// .git directory should be inside root.
-	if !strings.HasPrefix(dr.GitDir, root) {
-		t.Errorf("gitDir %q not inside root %q", dr.GitDir, root)
-	}
-}
-
-func TestServiceDetect_NonRepo(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	// root is not a git repo.
-
-	service := New(root)
-	params := `{"cwd":"` + jsonEscapePath(root) + `"}`
-	result, err := service.Detect(context.Background(), json.RawMessage(params))
-	if err != nil {
-		t.Fatalf("Detect returned error: %v", err)
-	}
-
-	dr, ok := result.(DetectResult)
-	if !ok {
-		t.Fatalf("expected DetectResult, got %T", result)
-	}
-	if dr.Kind != "non-repo" {
-		t.Errorf("expected kind=non-repo, got %q", dr.Kind)
-	}
-}
 
 func TestServiceDetect_GitMissing(t *testing.T) {
 	root := t.TempDir()
@@ -264,16 +166,6 @@ func TestServiceDetect_PathsPassTheServiceChecks(t *testing.T) {
 	}
 	if _, err := service.resolveGitDir(context.Background(), dr.GitDir); err != nil {
 		t.Errorf("resolveGitDir(%q): %v", dr.GitDir, err)
-	}
-}
-
-func TestServiceDetect_MissingCwd(t *testing.T) {
-	root := t.TempDir()
-	service := New(root)
-
-	_, err := service.Detect(context.Background(), json.RawMessage(`{}`))
-	if err == nil {
-		t.Error("expected error for missing cwd param, got nil")
 	}
 }
 

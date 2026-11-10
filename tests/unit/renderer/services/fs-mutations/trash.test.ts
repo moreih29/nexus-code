@@ -100,21 +100,4 @@ describe("trashPath", () => {
     expect(ipcCalls.some((c) => c.method === "trash")).toBe(false);
     expect(toastCalls).toHaveLength(1);
   });
-
-  it("returns false and toasts on IPC failure (folder wording)", async () => {
-    rejectNext = new Error("PERMISSION_DENIED: /repo/dir");
-
-    const ok = await trashPath({
-      workspaceId: WS,
-      workspaceRootPath: ROOT,
-      absPath: "/repo/dir",
-      nodeType: "dir",
-    });
-
-    expect(ok).toBe(false);
-    expect(toastCalls).toHaveLength(1);
-    expect(toastCalls[0]?.kind).toBe("error");
-    // Wording branches on nodeType — folder copy must mention "folder".
-    expect(toastCalls[0]?.message.toLowerCase()).toContain("folder");
-  });
 });

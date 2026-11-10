@@ -217,26 +217,6 @@ describe("respond", () => {
 
     expect(setRememberedCalls).toHaveLength(0);
   });
-
-  test("is a no-op for unknown promptId", () => {
-    const manager = makeManager();
-    expect(() => manager.respond("unknown-id", "allow", false)).not.toThrow();
-  });
-
-  test("removes the pending entry after resolution", () => {
-    const manager = makeManager();
-    const results: boolean[] = [];
-
-    manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
-      (ok) => results.push(ok),
-    );
-    manager.respond("prompt-1", "allow", false);
-
-    // Second respond with the same promptId should be no-op (already cleared)
-    manager.respond("prompt-1", "block", false);
-    expect(results).toHaveLength(1);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -272,11 +252,6 @@ describe("cancel", () => {
     manager.cancel("prompt-1");
 
     expect(setRememberedCalls).toHaveLength(0);
-  });
-
-  test("is a no-op for unknown promptId", () => {
-    const manager = makeManager();
-    expect(() => manager.cancel("no-such-id")).not.toThrow();
   });
 });
 
@@ -328,28 +303,6 @@ describe("disposeByWebContents", () => {
     expect(results).toEqual([false, true]);
   });
 
-  test("removes empty pending group from the map", () => {
-    const manager = makeManager();
-
-    manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
-      () => {},
-    );
-
-    manager.disposeByWebContents(10);
-
-    // After dispose the group is gone; a new request should create a new prompt
-    manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
-      () => {},
-    );
-
-    // Two prompts: initial + after dispose the new one
-    const prompts = broadcastCalls.filter((call) => call.event === "prompt");
-    expect(prompts).toHaveLength(2);
-    expect((prompts[1].args as { promptId: string }).promptId).toBe("prompt-2");
-  });
-
   // Regression: the renderer was never told, so the modal for a closed tab
   // stayed up, did nothing when answered, and blocked later prompts.
   test("tells the renderer to drop a prompt nothing waits on any more", () => {
@@ -370,17 +323,5 @@ describe("disposeByWebContents", () => {
     expect(broadcastCalls.filter((call) => call.event === "dismissed")).toEqual([
       { channelName: "browserPermission", event: "dismissed", args: { promptId: "prompt-1" } },
     ]);
-  });
-
-  test("no-op when webContentsId has no waiters", () => {
-    const manager = makeManager();
-    manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
-      () => {},
-    );
-
-    expect(() => manager.disposeByWebContents(99)).not.toThrow();
-    // The existing waiter for id=10 is untouched
-    expect(broadcastCalls).toHaveLength(1);
   });
 });

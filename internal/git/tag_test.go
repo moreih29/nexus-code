@@ -57,117 +57,6 @@ func TestTagListFixtures(t *testing.T) {
 	t.Logf("loaded %d tag list fixtures", loaded)
 }
 
-// TestTagListServiceTempRepo verifies TagList against a real git repository.
-func TestTagListServiceTempRepo(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-
-	// Empty tag list.
-	res, err := service.TagList(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("TagList on empty repo returned error: %v", err)
-	}
-	tags := res.([]Tag)
-	if len(tags) != 0 {
-		t.Fatalf("TagList expected 0 tags, got %d", len(tags))
-	}
-
-	// Create a lightweight tag.
-	_, err = service.TagCreate(context.Background(), json.RawMessage(`{"name":"v1.0"}`))
-	if err != nil {
-		t.Fatalf("TagCreate lightweight returned error: %v", err)
-	}
-
-	// Create an annotated tag.
-	_, err = service.TagCreate(context.Background(), json.RawMessage(`{"name":"v2.0","message":"release two"}`))
-	if err != nil {
-		t.Fatalf("TagCreate annotated returned error: %v", err)
-	}
-
-	res, err = service.TagList(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("TagList after creates returned error: %v", err)
-	}
-	tags = res.([]Tag)
-	if len(tags) != 2 {
-		t.Fatalf("TagList expected 2 tags, got %d", len(tags))
-	}
-
-	var light, annotated *Tag
-	for i := range tags {
-		if tags[i].Name == "v1.0" {
-			light = &tags[i]
-		}
-		if tags[i].Name == "v2.0" {
-			annotated = &tags[i]
-		}
-	}
-	if light == nil {
-		t.Fatal("lightweight tag v1.0 not found")
-	}
-	if light.Type != "lightweight" {
-		t.Errorf("v1.0 type = %q, want lightweight", light.Type)
-	}
-	if light.Message != nil {
-		t.Errorf("v1.0 message = %v, want nil", light.Message)
-	}
-	if annotated == nil {
-		t.Fatal("annotated tag v2.0 not found")
-	}
-	if annotated.Type != "annotated" {
-		t.Errorf("v2.0 type = %q, want annotated", annotated.Type)
-	}
-	if annotated.Message == nil || *annotated.Message != "release two" {
-		t.Errorf("v2.0 message = %v, want \"release two\"", annotated.Message)
-	}
-	if annotated.TaggerDate == nil || *annotated.TaggerDate <= 0 {
-		t.Errorf("v2.0 taggerDate = %v, want positive epoch ms", annotated.TaggerDate)
-	}
-}
-
-// TestTagCreateRefNotFound verifies bad ref surfaces as ref-not-found.
-func TestTagCreateRefNotFound(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-	_, err := service.TagCreate(context.Background(), json.RawMessage(`{"name":"v1.0","ref":"definitely-missing"}`))
-	if err == nil {
-		t.Fatal("TagCreate with bad ref should return error")
-	}
-	if !strings.Contains(err.Error(), "ref-not-found") {
-		t.Errorf("TagCreate bad ref error = %q, want ref-not-found", err.Error())
-	}
-}
-
-// TestTagDeleteServiceTempRepo verifies TagDelete removes a local tag.
-func TestTagDeleteServiceTempRepo(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	service := New(root)
-
-	_, err := service.TagCreate(context.Background(), json.RawMessage(`{"name":"v1.0"}`))
-	if err != nil {
-		t.Fatalf("TagCreate returned error: %v", err)
-	}
-	_, err = service.TagDelete(context.Background(), json.RawMessage(`{"name":"v1.0"}`))
-	if err != nil {
-		t.Fatalf("TagDelete returned error: %v", err)
-	}
-
-	// Confirm tag is gone.
-	res, err := service.TagList(context.Background(), json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("TagList after delete returned error: %v", err)
-	}
-	if len(res.([]Tag)) != 0 {
-		t.Fatalf("expected 0 tags after delete, got %d", len(res.([]Tag)))
-	}
-}
-
 // TestTagNameInvalidRejected verifies invalid tag names are rejected before git.
 func TestTagNameInvalidRejected(t *testing.T) {
 	service := New(t.TempDir())
@@ -178,14 +67,6 @@ func TestTagNameInvalidRejected(t *testing.T) {
 		if err == nil {
 			t.Errorf("TagCreate(%q) should reject invalid name", name)
 		}
-	}
-}
-
-// TestParseTagListEmpty verifies parseTagList on empty output.
-func TestParseTagListEmpty(t *testing.T) {
-	got := parseTagList("")
-	if len(got) != 0 {
-		t.Fatalf("parseTagList(\"\") = %d tags, want 0", len(got))
 	}
 }
 

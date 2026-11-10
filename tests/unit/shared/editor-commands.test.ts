@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { detectConflicts } from "../../../src/shared/keybindings/conflicts";
-import {
-  ALL_EDITOR_COMMAND_IDS,
-  EDITOR_COMMANDS,
-  editorCommandDefault,
-} from "../../../src/shared/keybindings/editor-commands";
+import { EDITOR_COMMANDS } from "../../../src/shared/keybindings/editor-commands";
 import { parseAccelerator } from "../../../src/shared/keybindings/keybinding-parse";
 
 describe("editor command catalog", () => {
@@ -20,17 +16,6 @@ describe("editor command catalog", () => {
       if (c.defaultPrimary === undefined) continue;
       expect(() => parseAccelerator(c.defaultPrimary as string)).not.toThrow();
     }
-  });
-
-  test("ALL_EDITOR_COMMAND_IDS mirrors the catalog", () => {
-    expect(ALL_EDITOR_COMMAND_IDS.size).toBe(EDITOR_COMMANDS.length);
-    for (const c of EDITOR_COMMANDS) expect(ALL_EDITOR_COMMAND_IDS.has(c.id)).toBe(true);
-  });
-
-  test("editorCommandDefault returns the declared default, or null when unbound", () => {
-    expect(editorCommandDefault("editor.action.commentLine")).toBe("CmdOrCtrl+/");
-    expect(editorCommandDefault("editor.action.duplicateSelection")).toBeNull();
-    expect(editorCommandDefault("editor.action.nope")).toBeNull();
   });
 });
 

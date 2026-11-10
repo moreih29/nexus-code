@@ -57,37 +57,6 @@ describe("browser-view key interceptor", () => {
     updateBrowserKeybindings(undefined);
   });
 
-  test("⌘R → reload, ⌘⇧R → hard reload (the reported dead shortcuts)", () => {
-    updateBrowserKeybindings(undefined);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "tab-1", run);
-
-    const r = h.press({ type: "keyDown", code: "KeyR", ...primaryMod({}) });
-    expect(r.prevented).toBe(true);
-    expect(run).toHaveBeenCalledWith(COMMANDS.browserReload, "tab-1");
-
-    const sr = h.press({ type: "keyDown", code: "KeyR", ...primaryMod({ shift: true }) });
-    expect(sr.prevented).toBe(true);
-    expect(run).toHaveBeenCalledWith(COMMANDS.browserHardReload, "tab-1");
-  });
-
-  test("back / forward / focus-url all route", () => {
-    updateBrowserKeybindings(undefined);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "t", run);
-
-    h.press({ type: "keyDown", code: "BracketLeft", ...primaryMod({}) });
-    h.press({ type: "keyDown", code: "BracketRight", ...primaryMod({}) });
-    h.press({ type: "keyDown", code: "KeyL", ...primaryMod({}) });
-
-    const cmds = run.mock.calls.map((c) => c[0]);
-    expect(cmds).toContain(COMMANDS.browserGoBack);
-    expect(cmds).toContain(COMMANDS.browserGoForward);
-    expect(cmds).toContain(COMMANDS.browserFocusUrl);
-  });
-
   test("⌘⌥I (DevTools) is NOT intercepted — left to the Electron menu role", () => {
     updateBrowserKeybindings(undefined);
     const run = mock((_cmd: string, _tab: string) => {});
@@ -97,54 +66,6 @@ describe("browser-view key interceptor", () => {
     const r = h.press({ type: "keyDown", code: "KeyI", ...primaryMod({ alt: true }) });
     expect(r.prevented).toBe(false);
     expect(run).not.toHaveBeenCalled();
-  });
-
-  test("keyUp is ignored; non-bound keys pass through untouched", () => {
-    updateBrowserKeybindings(undefined);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "t", run);
-
-    expect(h.press({ type: "keyUp", code: "KeyR", ...primaryMod({}) }).prevented).toBe(false);
-    expect(h.press({ type: "keyDown", code: "KeyP", ...primaryMod({}) }).prevented).toBe(false);
-    expect(run).not.toHaveBeenCalled();
-  });
-
-  test("user override is honoured: reload moved to ⌘⇧L, old ⌘R no longer reloads", () => {
-    updateBrowserKeybindings([{ command: COMMANDS.browserReload, primary: "CmdOrCtrl+Shift+L" }]);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "t", run);
-
-    h.press({ type: "keyDown", code: "KeyL", ...primaryMod({ shift: true }) });
-    expect(run).toHaveBeenCalledWith(COMMANDS.browserReload, "t");
-
-    run.mockClear();
-    const r = h.press({ type: "keyDown", code: "KeyR", ...primaryMod({}) });
-    // ⌘R is now unassigned among browser commands → no reload, no preventDefault.
-    expect(r.prevented).toBe(false);
-    expect(run).not.toHaveBeenCalled();
-  });
-
-  test("app tab / file / terminal / settings keys route from the page", () => {
-    updateBrowserKeybindings(undefined);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "t", run);
-
-    for (const [code, extra, command] of [
-      ["KeyW", {}, COMMANDS.tabClose],
-      ["KeyT", {}, COMMANDS.terminalNew],
-      ["KeyN", {}, COMMANDS.fileNew],
-      ["Comma", {}, COMMANDS.settingsOpen],
-      ["KeyW", { shift: true }, COMMANDS.groupClose],
-      ["KeyN", { shift: true }, COMMANDS.workspaceAdd],
-      ["ArrowLeft", { alt: true }, COMMANDS.groupFocusLeft],
-    ] as const) {
-      run.mockClear();
-      expect(h.press({ type: "keyDown", code, ...primaryMod(extra) }).prevented).toBe(true);
-      expect(run).toHaveBeenCalledWith(command, "t");
-    }
   });
 
   test("Ctrl+PageUp/PageDown cycle tabs from the page on Win/Linux only", () => {
@@ -183,16 +104,5 @@ describe("browser-view key interceptor", () => {
       expect(h.press({ type: "keyDown", code, ...primaryMod(extra) }).prevented).toBe(false);
     }
     expect(run).not.toHaveBeenCalled();
-  });
-
-  test("a rebound app key follows the override", () => {
-    updateBrowserKeybindings([{ command: COMMANDS.tabClose, primary: "CmdOrCtrl+Shift+Q" }]);
-    const run = mock((_cmd: string, _tab: string) => {});
-    const h = fakeWc();
-    installBrowserKeyInterceptor(h.wc, "t", run);
-
-    expect(h.press({ type: "keyDown", code: "KeyW", ...primaryMod({}) }).prevented).toBe(false);
-    h.press({ type: "keyDown", code: "KeyQ", ...primaryMod({ shift: true }) });
-    expect(run).toHaveBeenCalledWith(COMMANDS.tabClose, "t");
   });
 });

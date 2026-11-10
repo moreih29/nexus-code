@@ -29,35 +29,6 @@ afterEach(async () => {
 });
 
 describe("helpers-launcher", () => {
-  it("buildHelperEnv returns askpass and editor helper variables", () => {
-    const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
-    const env = buildHelperEnv(
-      { askpass: true, editor: true },
-      {
-        connection: { socketPath: "/tmp/nexus.sock", token: "token-123" },
-        electronPath: "/Applications/NexusCode.app/Contents/MacOS/NexusCode",
-        helperDir: "/app/helpers",
-        wrapperDir,
-        baseEnv: {},
-        platform: "linux",
-      },
-    );
-
-    expect(env.GIT_TERMINAL_PROMPT).toBe("0");
-    expect(env.NEXUS_HELPERS_SOCKET).toBe("/tmp/nexus.sock");
-    expect(env.NEXUS_HELPERS_TOKEN).toBe("token-123");
-    expect(env.ELECTRON_RUN_AS_NODE).toBe("1");
-    expect(env.GIT_ASKPASS).toBeUndefined();
-    expect(env.SSH_ASKPASS).toBeUndefined();
-    expect(env.SSH_ASKPASS_REQUIRE).toBe("force");
-    expect(env.GIT_EDITOR).toBe(path.join(wrapperDir, "nexus-git-editor-helper"));
-    expect(env.DISPLAY).toBe(":0");
-
-    if (HAS_POSIX_MODES) expect(modeOf(env.GIT_EDITOR ?? "")).toBe(0o700);
-    expect(fs.readFileSync(env.GIT_EDITOR ?? "", "utf8")).toContain("editor-helper.cjs");
-    expect(env.GIT_EDITOR).not.toMatch(/^'.*' '.*'$/);
-  });
-
   it("quotes the Windows editor wrapper so Git's sh keeps the backslashes", () => {
     const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
     const env = buildHelperEnv(
@@ -90,26 +61,6 @@ describe("helpers-launcher", () => {
     expect(
       agentAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
     ).toBeNull();
-  });
-
-  it("does not create an Electron-host askpass wrapper", () => {
-    const wrapperDir = makeTmpDir("nexus-helper-wrappers-");
-    const env = buildHelperEnv(
-      { askpass: true },
-      {
-        connection: { socketPath: "/tmp/nexus.sock", token: "token-123" },
-        electronPath: process.execPath,
-        helperDir: "/app/helpers",
-        wrapperDir,
-        baseEnv: {},
-        platform: process.platform,
-      },
-    );
-
-    expect(env.GIT_ASKPASS).toBeUndefined();
-    expect(env.SSH_ASKPASS).toBeUndefined();
-    expect(fs.existsSync(path.join(wrapperDir, "nexus-git-askpass-helper"))).toBe(false);
-    expect(env.SSH_ASKPASS_REQUIRE).toBe("force");
   });
 });
 

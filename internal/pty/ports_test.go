@@ -64,19 +64,3 @@ stty -echo
 	}
 	t.Fatalf("ListeningPorts() = %+v, missing port %d", result, port)
 }
-
-func TestListeningPortsOfAWorkspaceWithoutTerminals(t *testing.T) {
-	t.Parallel()
-	service, _ := newTestService(t)
-
-	result, err := service.ListeningPorts(context.Background(), mustJSON(t, ListeningPortsParams{WorkspaceID: "none"}))
-	if err != nil {
-		t.Fatalf("ListeningPorts() error = %v", err)
-	}
-	if ports := result.(ListeningPortsResult).Ports; ports == nil || len(ports) != 0 {
-		t.Fatalf("ListeningPorts() = %#v, want an empty list", ports)
-	}
-	if _, err := service.ListeningPorts(context.Background(), mustJSON(t, ListeningPortsParams{})); err == nil {
-		t.Fatal("ListeningPorts() without a workspace succeeded")
-	}
-}

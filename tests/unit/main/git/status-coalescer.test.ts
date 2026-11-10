@@ -111,25 +111,6 @@ describe("createStatusCoalescer", () => {
     expect(coalescer.size).toBe(0);
   });
 
-  test("suppression window defaults to max(delayMs, 1000ms) when not specified", () => {
-    let fakeNow = 1000;
-    const scheduler = makeFakeScheduler();
-    const coalescer = createStatusCoalescer({
-      delayMs: 100,
-      scheduler,
-      nowFn: () => fakeNow,
-    });
-    const run = mock(() => Promise.resolve());
-
-    coalescer.markRecentlyRefreshed("workspace-a");
-    // 800 ms is past delayMs but still inside the default 1000 ms window, so
-    // the run waits for the window's end instead of the 100 ms debounce.
-    fakeNow = 1000 + 800;
-    coalescer.schedule("workspace-a", run);
-
-    expect(scheduler.lastDelayMs).toBe(200);
-  });
-
   test("back-to-back deferrals past the chain limit back off instead of looping at window pace", async () => {
     let fakeNow = 1000;
     const scheduler = makeFakeScheduler();

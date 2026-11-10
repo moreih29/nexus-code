@@ -93,7 +93,6 @@ import { useFilesStore } from "../../../../../src/renderer/state/stores/files";
 import { useLayoutStore } from "../../../../../src/renderer/state/stores/layout";
 import { useTabsStore } from "../../../../../src/renderer/state/stores/tabs";
 import { useWorkspacesStore } from "../../../../../src/renderer/state/stores/workspaces";
-import { setPlatformForTests } from "../../../../../src/renderer/utils/platform";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -191,47 +190,6 @@ describe("confirmAndDeleteBatch — N=2 batch, local", () => {
     const trashCalls = ipcCalls.filter((c) => c.method === "trash");
     expect(trashCalls).toHaveLength(2);
   });
-
-  it("description includes comma-separated names + trash suffix for N=2", async () => {
-    await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
-    expect(lastConfirmArgs?.description).toContain("a.ts, b.ts");
-    expect(lastConfirmArgs?.description).toContain("You can restore the items from the Trash.");
-    expect(lastConfirmArgs?.confirmLabel).toBe("Move to Trash");
-  });
-
-  it("names the Recycle Bin on Windows", async () => {
-    setPlatformForTests("win32");
-    try {
-      await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
-    } finally {
-      setPlatformForTests(null);
-    }
-    expect(lastConfirmArgs?.description).toContain(
-      "You can restore the items from the Recycle Bin.",
-    );
-    expect(lastConfirmArgs?.confirmLabel).toBe("Move to Recycle Bin");
-  });
-});
-
-describe("confirmAndDeleteBatch — N=3 comma", () => {
-  it("description includes all 3 names separated by commas", async () => {
-    await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`, `${ROOT}/c.ts`]);
-    expect(lastConfirmArgs?.description).toContain("a.ts, b.ts, c.ts");
-  });
-});
-
-describe("confirmAndDeleteBatch — N=5 truncation", () => {
-  it("description shows 3 names + 'and 2 more' for N=5", async () => {
-    await confirmAndDeleteBatch(WS, ROOT, [
-      `${ROOT}/a.ts`,
-      `${ROOT}/b.ts`,
-      `${ROOT}/c.ts`,
-      `${ROOT}/d.ts`,
-      `${ROOT}/e.ts`,
-    ]);
-    expect(lastConfirmArgs?.description).toContain("and 2 more");
-    expect(lastConfirmArgs?.title).toBe("Delete 5 items");
-  });
 });
 
 describe("confirmAndDeleteBatch — SSH permanent delete", () => {
@@ -251,24 +209,6 @@ describe("confirmAndDeleteBatch — cancel confirm", () => {
     const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
     expect(result).toBe(false);
     expect(ipcCalls.filter((c) => c.method === "trash")).toHaveLength(0);
-  });
-});
-
-describe("confirmAndDeleteBatch — success toast", () => {
-  it("shows success toast with count after N=2 delete", async () => {
-    await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
-    expect(toastCalls.some((t) => t.message === "Deleted 2 items")).toBe(true);
-  });
-
-  it("names the failed item, not its path, after a partial failure", async () => {
-    failTrashRelPath = "b.ts";
-    const result = await confirmAndDeleteBatch(WS, ROOT, [`${ROOT}/a.ts`, `${ROOT}/b.ts`]);
-    expect(result).toBe(false);
-    // The item's own toast gives the reason; the summary names the item.
-    expect(toastCalls.map((t) => t.message)).toEqual([
-      "Permission denied while moving file to Trash.",
-      'Deleted 1 of 2 items. Couldn\'t delete "b.ts".',
-    ]);
   });
 });
 

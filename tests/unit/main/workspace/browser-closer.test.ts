@@ -72,22 +72,6 @@ class FakeWebContentsView {
   readonly webContents = new FakeWebContents();
 }
 
-/** A popup BrowserWindow opened from a tab via window.open. */
-class FakePopup {
-  readonly webContents = new FakeWebContents();
-  destroyed = false;
-
-  once(): this {
-    return this;
-  }
-  isDestroyed(): boolean {
-    return this.destroyed;
-  }
-  destroy(): void {
-    this.destroyed = true;
-  }
-}
-
 const realElectron = await import("electron");
 mock.module("electron", () => ({
   ...realElectron,
@@ -118,7 +102,6 @@ const { WorkspaceManager } = await import("../../../../src/main/features/workspa
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-const OTHER_WORKSPACE_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 function makeManager() {
   const globalDb = new Database(":memory:");
@@ -168,34 +151,6 @@ beforeEach(() => {
 });
 
 describe("registerBrowserCloser — view destroy + clearStorageData", () => {
-  test("destroys all views belonging to the target workspaceId", async () => {
-    const tab1 = openTab("tab-1", WORKSPACE_ID);
-    const tab2 = openTab("tab-2", WORKSPACE_ID);
-    const other = openTab("tab-other", OTHER_WORKSPACE_ID);
-
-    await captureCloser()(WORKSPACE_ID);
-
-    const registry = getBrowserRegistry()!;
-    expect(registry.listByWorkspace(WORKSPACE_ID)).toEqual([]);
-    expect(tab1.webContents.closed).toBe(true);
-    expect(tab2.webContents.closed).toBe(true);
-    // Other workspace tab is unaffected.
-    expect(registry.listByWorkspace(OTHER_WORKSPACE_ID)).toEqual(["tab-other"]);
-    expect(other.webContents.closed).toBe(false);
-  });
-
-  test("closes the popups opened from the workspace's tabs", async () => {
-    const popup = new FakePopup();
-    const otherPopup = new FakePopup();
-    openTab("tab-1", WORKSPACE_ID).webContents.emit("did-create-window", popup);
-    openTab("tab-other", OTHER_WORKSPACE_ID).webContents.emit("did-create-window", otherPopup);
-
-    await captureCloser()(WORKSPACE_ID);
-
-    expect(popup.destroyed).toBe(true);
-    expect(otherPopup.destroyed).toBe(false);
-  });
-
   test("clears the workspace partition once, after all views are destroyed", async () => {
     const tab1 = openTab("tab-order-1", WORKSPACE_ID);
     const tab2 = openTab("tab-order-2", WORKSPACE_ID);

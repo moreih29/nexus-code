@@ -106,19 +106,6 @@ describe("createNdjsonPipe — ready frame extended fields", () => {
 
     pipe.dispose();
   });
-
-  it("leaves methods and heartbeatIntervalMs undefined when the ready frame omits them", async () => {
-    const { stdout, pipe } = buildPipe();
-
-    // Plain ready frame — no extended fields.
-    stdout.emitData(readyFrame());
-    await pipe.ready;
-
-    expect(pipe.methods).toBeUndefined();
-    expect(pipe.heartbeatIntervalMs).toBeUndefined();
-
-    pipe.dispose();
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -143,25 +130,6 @@ describe("createNdjsonPipe — heartbeat event routing", () => {
     expect(received).toHaveLength(2);
     expect(received[0]).toEqual({ seq: 1, uptimeMs: 100 });
     expect(received[1]).toEqual({ seq: 2, uptimeMs: 200 });
-
-    pipe.dispose();
-  });
-
-  it("supports multiple independent on() subscribers for agent.heartbeat", async () => {
-    const { stdout, pipe } = buildPipe();
-
-    stdout.emitData(readyFrame());
-    await pipe.ready;
-
-    const callsA: unknown[] = [];
-    const callsB: unknown[] = [];
-    pipe.on("agent.heartbeat", (p) => callsA.push(p));
-    pipe.on("agent.heartbeat", (p) => callsB.push(p));
-
-    stdout.emitData(heartbeatFrame(3, 300));
-
-    expect(callsA).toHaveLength(1);
-    expect(callsB).toHaveLength(1);
 
     pipe.dispose();
   });

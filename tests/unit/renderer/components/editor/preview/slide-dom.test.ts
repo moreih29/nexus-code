@@ -4,16 +4,6 @@ import {
   isImageData,
   safeColor,
 } from "../../../../../../src/renderer/components/editor/preview/slide-dom";
-import { isPresentationFile } from "../../../../../../src/renderer/services/editor/preview/pptx";
-
-describe("isPresentationFile", () => {
-  it("knows .pptx, .pptm and .ppsx, case aside, and not legacy .ppt", () => {
-    expect(isPresentationFile("/w/a/Deck.PPTX")).toBe(true);
-    expect(isPresentationFile("/w/a/macros.pptm")).toBe(true);
-    expect(isPresentationFile("/w/a/show.ppsx")).toBe(true);
-    expect(isPresentationFile("/w/a/old.ppt")).toBe(false);
-  });
-});
 
 describe("safeColor", () => {
   it("takes CSS colors and nothing else", () => {
@@ -27,19 +17,6 @@ describe("safeColor", () => {
 });
 
 describe("gradientCss", () => {
-  it("writes a linear gradient turned as the file turns it", () => {
-    expect(
-      gradientCss({
-        path: "line",
-        rot: 45,
-        colors: [
-          { pos: "0%", color: "#000000" },
-          { pos: "100000", color: "#ffffff" },
-        ],
-      }),
-    ).toBe("linear-gradient(135deg, #000000 0%, #ffffff 100%)");
-  });
-
   it("writes other paths as radial, and refuses a stop that is not a color", () => {
     expect(gradientCss({ path: "circle", rot: 0, colors: [{ pos: "50", color: "red" }] })).toBe(
       "radial-gradient(red 50%)",

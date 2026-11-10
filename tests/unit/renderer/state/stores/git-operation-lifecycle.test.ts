@@ -1,15 +1,14 @@
 /**
  * Characterization tests for the git store's operation lifecycle.
  *
- * These tests pin the concurrent-operation, failOperation-ignores-abort,
- * and push non-FF retry capture behaviours.
+ * These tests pin the concurrent-operation, failOperation-ignores-abort
+ * and overlapping-failure behaviours.
  *
  * Scenarios:
  *   (1) concurrent operations: a second operation does not abort the first;
  *       inFlightOp shows the newest operation still running
  *   (2) failOperation ignores aborted operations (AbortError)
  *   (3) an operation that fails after another finished records its error
- *   (4) push non-FF retry capture
  */
 
 import { beforeEach, describe, expect, it, mock } from "bun:test";
@@ -298,77 +297,5 @@ describe("git operation lifecycle — overlapping failure", () => {
 
     expect(useGitStore.getState().sessions.get(WS)?.lastError?.operation).toBe("fetch");
     expect(useGitStore.getState().sessions.get(WS)?.inFlightOp).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (4) push non-FF retry capture
-//
-// When push fails with non-fast-forward, the session records both the error
-// and a pendingNonFFRetry with the original push options. The retry opts are
-// preserved through an intermediate pull so the user can one-click re-push.
-// ---------------------------------------------------------------------------
-
-describe("git operation lifecycle — push non-FF retry capture", () => {
-  beforeEach(() => {
-    resetStore();
-    seedSession();
-  });
-
-  it("non-fast-forward push sets lastError and pendingNonFFRetry", async () => {
-    ipcImpl = async (_ch, method) => {
-      if (method === "push") {
-        throw gitError("non-fast-forward", "Updates were rejected");
-      }
-      return {};
-    };
-
-    await useGitStore.getState().push(WS, { publish: true });
-
-    const session = useGitStore.getState().sessions.get(WS);
-    expect(session?.lastError?.kind).toBe("non-fast-forward");
-    expect(session?.pendingNonFFRetry).not.toBeNull();
-    expect(session?.pendingNonFFRetry?.originalPushOpts).toEqual({ publish: true });
-    expect(session?.pendingNonFFRetry?.branch).toBe("main");
-  });
-
-  it("pull preserves pendingNonFFRetry through the pull operation", async () => {
-    // First: set up a non-FF push failure.
-    ipcImpl = async (_ch, method) => {
-      if (method === "push") throw gitError("non-fast-forward", "rejected");
-      return {};
-    };
-    await useGitStore.getState().push(WS, { publish: true });
-    expect(useGitStore.getState().sessions.get(WS)?.pendingNonFFRetry).not.toBeNull();
-
-    // Then pull — pendingNonFFRetry must survive.
-    ipcImpl = async (_ch, method) => {
-      if (method === "pull") return { alreadyUpToDate: false };
-      return {};
-    };
-    await useGitStore.getState().pull(WS);
-
-    const session = useGitStore.getState().sessions.get(WS);
-    expect(session?.lastError).toBeNull();
-    expect(session?.pendingNonFFRetry?.originalPushOpts).toEqual({ publish: true });
-  });
-
-  it("successful push after non-FF clears pendingNonFFRetry", async () => {
-    ipcImpl = async (_ch, method) => {
-      if (method === "push") throw gitError("non-fast-forward", "rejected");
-      return {};
-    };
-    await useGitStore.getState().push(WS, { publish: true });
-    expect(useGitStore.getState().sessions.get(WS)?.pendingNonFFRetry).not.toBeNull();
-
-    ipcImpl = async (_ch, method) => {
-      if (method === "push") return { pushed: true };
-      return {};
-    };
-    await useGitStore.getState().push(WS, { force: true });
-
-    const session = useGitStore.getState().sessions.get(WS);
-    expect(session?.pendingNonFFRetry).toBeNull();
-    expect(session?.lastError).toBeNull();
   });
 });

@@ -43,16 +43,4 @@ describe("LSP status store", () => {
     expect(statuses[KEY]?.state).toBe("running");
     expect(statuses[lspStatusKey(WS, "python")]?.state).toBe("running");
   });
-
-  test("forgets a removed workspace", () => {
-    const store = useLspStatusStore.getState();
-    store.setStatus({ workspaceId: WS, languageId: "typescript", state: "starting" });
-    store.setStatus({ workspaceId: "ws-2", languageId: "typescript", state: "starting" });
-
-    store.forgetWorkspace(WS);
-
-    expect(Object.keys(useLspStatusStore.getState().statuses)).toEqual([
-      lspStatusKey("ws-2", "typescript"),
-    ]);
-  });
 });

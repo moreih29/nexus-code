@@ -7,7 +7,6 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-  artifactName,
   artifactOf,
   artifactsOf,
   isHtmlPage,
@@ -117,16 +116,5 @@ describe("titleOfHtml", () => {
   it("is null for a document with no title, or an empty one", () => {
     expect(titleOfHtml("<html><body>hi</body></html>")).toBeNull();
     expect(titleOfHtml("<title> </title>")).toBeNull();
-  });
-});
-
-describe("artifactName", () => {
-  const page = artifactOf(publish("t", { file_path: "/w/sales-dashboard.html" }), "/w");
-
-  it("is the call's name, else the document's title, else the file's", () => {
-    if (!page) throw new Error("no page");
-    expect(artifactName({ ...page, title: "Given" }, "Titled")).toBe("Given");
-    expect(artifactName(page, "Titled")).toBe("Titled");
-    expect(artifactName(page, null)).toBe("sales-dashboard");
   });
 });

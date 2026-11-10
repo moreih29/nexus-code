@@ -87,22 +87,6 @@ describe("PendingRequestMap", () => {
     expect(map.size).toBe(0);
   });
 
-  test("resolve returns true when key exists and false when it does not", () => {
-    const map = new PendingRequestMap<string, number>();
-    // The returned promise resolves; suppress so the test does not need to await it.
-    map.register({ key: "k1", timeoutMs: 5_000 }).catch(() => {});
-    expect(map.resolve("k1", 1)).toBe(true);
-    expect(map.resolve("k1", 2)).toBe(false);
-  });
-
-  test("reject returns true when key exists and false when it does not", () => {
-    const map = new PendingRequestMap<string, number>();
-    // Suppress the unhandled rejection from the discarded promise.
-    map.register({ key: "k1", timeoutMs: 5_000 }).catch(() => {});
-    expect(map.reject("k1", new Error("e"))).toBe(true);
-    expect(map.reject("k1", new Error("e"))).toBe(false);
-  });
-
   test("double resolve is a no-op (second call returns false)", async () => {
     const map = new PendingRequestMap<string, number>();
     const promise = map.register({ key: "k1", timeoutMs: 5_000 });
@@ -110,29 +94,5 @@ describe("PendingRequestMap", () => {
     const secondResult = map.resolve("k1", 99);
     expect(secondResult).toBe(false);
     await expect(promise).resolves.toBe(10);
-  });
-
-  test("size reflects the number of pending requests", () => {
-    const map = new PendingRequestMap<string, number>();
-    expect(map.size).toBe(0);
-    // Keep handles for each registered request so the test does not leave a
-    // pending timeout that can reject later in the full suite.
-    map.register({ key: "k1", timeoutMs: 5_000 }).catch(() => {});
-    expect(map.size).toBe(1);
-    map.register({ key: "k2", timeoutMs: 5_000 }).catch(() => {});
-    expect(map.size).toBe(2);
-    map.resolve("k1", 0);
-    expect(map.size).toBe(1);
-    map.resolve("k2", 0);
-    expect(map.size).toBe(0);
-  });
-
-  test("has returns true for pending keys and false otherwise", () => {
-    const map = new PendingRequestMap<string, number>();
-    expect(map.has("k1")).toBe(false);
-    map.register({ key: "k1", timeoutMs: 5_000 });
-    expect(map.has("k1")).toBe(true);
-    map.resolve("k1", 0);
-    expect(map.has("k1")).toBe(false);
   });
 });

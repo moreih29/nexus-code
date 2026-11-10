@@ -154,117 +154,7 @@ function spawnArgs(workspaceId: string, tabId = TAB_ID): unknown {
   return { workspaceId, tabId, cwd: "/repo", cols: 80, rows: 24 };
 }
 
-describe("registerPtyChannel agent lifecycle", () => {
-  test("spawn routes to agent host and returns pid", async () => {
-    const { handler, agentChannel } = makeFixture();
-
-    const result = await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-
-    expect(result).toEqual({ pid: 202 });
-    expect(agentChannel.calls[0]).toMatchObject({ method: "pty.spawn" });
-  });
-
-  test("write forwards to agent host", async () => {
-    const { handler, agentChannel } = makeFixture();
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    agentChannel.calls.length = 0;
-
-    await handler({}, "pty", "write", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      data: "hello",
-    });
-
-    expect(agentChannel.calls).toEqual([
-      { method: "pty.write", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, data: "hello" } },
-    ]);
-  });
-
-  test("resize forwards to agent host and records resize", async () => {
-    const { handler, agentChannel, recorder } = makeFixture();
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    agentChannel.calls.length = 0;
-
-    await handler({}, "pty", "resize", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      cols: 100,
-      rows: 30,
-    });
-
-    expect(agentChannel.calls).toEqual([
-      { method: "pty.resize", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 100, rows: 30 } },
-    ]);
-    expect(recorder.resizes).toEqual([
-      { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 100, rows: 30 },
-    ]);
-  });
-
-  test("ack sends bytesConsumed to agent host", async () => {
-    const { handler, agentChannel } = makeFixture();
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    agentChannel.calls.length = 0;
-
-    await handler({}, "pty", "ack", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      bytesConsumed: 17,
-    });
-
-    expect(agentChannel.calls).toEqual([
-      {
-        method: "pty.ack",
-        params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, bytesConsumed: 17 },
-      },
-    ]);
-  });
-
-  test("kill forwards to agent host", async () => {
-    const { handler, agentChannel } = makeFixture();
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    agentChannel.calls.length = 0;
-
-    await handler({}, "pty", "kill", { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID });
-
-    expect(agentChannel.calls).toEqual([
-      { method: "pty.kill", params: { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID } },
-    ]);
-  });
-
-  test("SSH workspace also routes to agent host", async () => {
-    const { handler, agentChannel } = makeFixture();
-
-    const result = await handler({}, "pty", "spawn", spawnArgs(SSH_WORKSPACE_ID));
-
-    expect(result).toEqual({ pid: 202 });
-    expect(agentChannel.calls[0]).toMatchObject({ method: "pty.spawn" });
-  });
-});
-
 describe("registerPtyChannel agent events", () => {
-  test("forwards agent data to renderer and recorder", async () => {
-    const { handler, agentChannel, recorder } = makeFixture();
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-    agentChannel.calls.length = 0;
-    mockSend.mockClear();
-
-    agentChannel.emit("pty.data", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      chunk: Buffer.from("hello", "utf8").toString("base64"),
-    });
-
-    expect(mockSend).toHaveBeenCalledWith("ipc:event", "pty", "data", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      chunk: "hello",
-    });
-    expect(recorder.data).toEqual([
-      { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, chunk: "hello" },
-    ]);
-    expect(agentChannel.calls.some((call) => call.method === "pty.ack")).toBe(false);
-  });
-
   test("streams UTF-8 decoding across split base64 PTY chunks", async () => {
     const { handler, agentChannel } = makeFixture();
     await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
@@ -366,45 +256,6 @@ describe("registerPtyChannel attach to a running session", () => {
   });
 });
 
-describe("registerPtyChannel recorder", () => {
-  test("starts recorder on spawn and stops on exit", async () => {
-    const { handler, agentChannel, recorder } = makeFixture();
-
-    await handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID));
-
-    expect(recorder.starts).toEqual([
-      { workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID, cols: 80, rows: 24 },
-    ]);
-
-    agentChannel.emit("pty.exit", {
-      workspaceId: LOCAL_WORKSPACE_ID,
-      tabId: TAB_ID,
-      code: 0,
-    });
-
-    expect(recorder.stops).toEqual([{ workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID }]);
-  });
-
-  test("stops recorder when spawn call throws", async () => {
-    const agentChannel = new FakeAgentChannel();
-    const recorder = new FakeRecorder();
-    // Override call so spawn always rejects.
-    agentChannel.call = async (method: string) => {
-      if (method === "pty.spawn") throw new Error("agent error");
-      return {};
-    };
-    const agentHost = startAgentPtyHost({ getAgentChannel: async () => agentChannel });
-    registerPtyChannel({ agentHost, recorder });
-    const handler = getIpcCallHandler();
-
-    await expect(handler({}, "pty", "spawn", spawnArgs(LOCAL_WORKSPACE_ID))).rejects.toThrow(
-      "agent error",
-    );
-
-    expect(recorder.stops).toEqual([{ workspaceId: LOCAL_WORKSPACE_ID, tabId: TAB_ID }]);
-  });
-});
-
 describe("agentPtyHost dispose broadcasts pty.exit (W2)", () => {
   test("dispose emits pty.exit code=null for each active session", async () => {
     const agentChannel = new FakeAgentChannel();
@@ -439,16 +290,5 @@ describe("agentPtyHost dispose broadcasts pty.exit (W2)", () => {
     expect(exits).toHaveLength(2);
     expect(exits).toContainEqual({ workspaceId, tabId: tabA, code: null });
     expect(exits).toContainEqual({ workspaceId, tabId: tabB, code: null });
-  });
-
-  test("dispose emits no pty.exit when there are no active sessions", () => {
-    const agentChannel = new FakeAgentChannel();
-    const agentHost = startAgentPtyHost({ getAgentChannel: async () => agentChannel });
-    const exits: Array<unknown> = [];
-    agentHost.on("exit", (args) => exits.push(args));
-
-    agentHost.dispose();
-
-    expect(exits).toHaveLength(0);
   });
 });

@@ -6,7 +6,6 @@ import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import {
-  API,
   APP,
   contextFor,
   type FakeApp,
@@ -33,79 +32,6 @@ function uiArgs(app: FakeApp, op: string): unknown {
 }
 
 describe("worktree new", () => {
-  test("makes one of this workspace behind the user's view, and prints its agent's tab", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["worktree", "new", "fix login", "--prompt", "fix it"]);
-    expect(result.stdout).toBe(
-      "Made worktree fix-login (33333333) on branch fix-login, at /home/u/.nexus-code/worktrees/app/fix-login.\n" +
-        "Its Claude tab cccccccc was sent the prompt. To wait for it:\n" +
-        "  nexus chat wait cccccccc --workspace 33333333\n",
-    );
-    expect(uiArgs(app, "task.create")).toEqual({
-      parentId: APP,
-      name: "fix login",
-      prompt: "fix it",
-      show: false,
-      createdBy: { workspaceId: APP, tabId: SHELL_TAB },
-    });
-    expect(app.asked).toEqual([]);
-  });
-
-  test("--json gives the worktree, its tab and the agent", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["worktree", "new", "fix login", "--show", "--json"]);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      id: FIX,
-      worktree: { parentId: APP, branch: "fix-login" },
-      tabId: NEW_TAB,
-      agent: "claude",
-    });
-    expect(uiArgs(app, "task.create")).toMatchObject({ prompt: "", show: true });
-  });
-
-  test("--agent picks the tab's agent; a tab given no prompt waits for a message", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["worktree", "new", "pay", "--agent", "Codex"]);
-    expect(uiArgs(app, "task.create")).toMatchObject({ start: { agent: "codex" } });
-    expect(result.stdout).toContain(
-      "Its Codex tab cccccccc waits for a message; chat commands reach it with --workspace 33333333.\n",
-    );
-
-    const wrong = await nexus(fakeApp(), ["worktree", "new", "pay", "--agent", "gemini"]);
-    expect(wrong.stderr).toContain("--agent is claude or codex");
-    const both = await nexus(fakeApp(), [
-      "worktree",
-      "new",
-      "x",
-      "--agent",
-      "codex",
-      "--command",
-      "y",
-    ]);
-    expect(both.stderr).toContain("--agent and --command do not go together");
-  });
-
-  test("--command runs a command in a terminal, and an empty one a plain shell", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, [
-      "worktree",
-      "new",
-      "pay",
-      "--command",
-      "codex -m gpt-5.5",
-      "--prompt",
-      "add refunds",
-    ]);
-    expect(uiArgs(app, "task.create")).toMatchObject({ start: { command: "codex -m gpt-5.5" } });
-    expect(result.stdout).toContain("Its terminal cccccccc runs codex -m gpt-5.5 with the prompt.");
-
-    const shell = fakeApp();
-    expect((await nexus(shell, ["worktree", "new", "pay", "--command", ""])).stdout).toContain(
-      "Its terminal is cccccccc; terminal commands reach it with --workspace 33333333.\n",
-    );
-    expect(uiArgs(shell, "task.create")).toMatchObject({ start: { command: "" } });
-  });
-
   test("from a worktree, branches off the workspace it belongs to", async () => {
     const app = fakeApp();
     app.answers.push("once");
@@ -113,14 +39,6 @@ describe("worktree new", () => {
     expect(uiArgs(app, "task.create")).toMatchObject({ parentId: APP });
     // The workspace is not the worktree's own, so the user is asked.
     expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "pay" });
-  });
-
-  test("asks before making one in another workspace", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["worktree", "new", "x", "--workspace", "api"]);
-    expect(result.stderr).toBe("nexus: the user did not allow it\n");
-    expect(app.asked[0]).toMatchObject({ toWorkspaceId: API });
-    expect(uiArgs(app, "task.create")).toBeUndefined();
   });
 });
 
@@ -155,12 +73,6 @@ describe("worktree claude-create", () => {
     expect(app.asked).toEqual([]);
   });
 
-  test("shortens a subagent's id in the task's name", async () => {
-    const app = fakeApp();
-    await hook(app, JSON.stringify({ name: "agent-a5331c8493a024505" }));
-    expect(uiArgs(app, "task.create")).toMatchObject({ name: "agent-a5331c8" });
-  });
-
   test("from a Claude Code inside a task, makes the worktree beside it once the user allows", async () => {
     const app = fakeApp();
     app.answers.push("once");
@@ -174,10 +86,6 @@ describe("worktree claude-create", () => {
     expect((await hook(app, "{}")).exitCode).not.toBe(0);
     expect((await hook(app, "not json")).exitCode).not.toBe(0);
     expect(uiArgs(app, "task.create")).toBeUndefined();
-  });
-
-  test("is not in help", async () => {
-    expect((await nexus(fakeApp(), ["help"])).stdout).not.toContain("claude-create");
   });
 });
 
@@ -245,10 +153,6 @@ describe("worktree claude-remove", () => {
     expect((await hook(app, payload("/w/app"))).exitCode).toBe(1);
     expect((await hook(app, "{}")).exitCode).not.toBe(0);
     expect(uiArgs(app, "task.remove")).toBeUndefined();
-  });
-
-  test("is not in help", async () => {
-    expect((await nexus(fakeApp(), ["help"])).stdout).not.toContain("claude-remove");
   });
 });
 

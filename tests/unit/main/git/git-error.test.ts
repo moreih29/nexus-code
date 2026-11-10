@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  GitError,
-  gitErrorFromAgent,
-  gitErrorFromExit,
-  outputTooLargeGitError,
-} from "../../../../src/main/features/git/domain/error";
+import { GitError, gitErrorFromAgent } from "../../../../src/main/features/git/domain/error";
 
 describe("gitErrorFromAgent", () => {
   test("wraps an agent-classified envelope as a GitError marker", () => {
@@ -61,23 +56,5 @@ describe("gitErrorFromAgent", () => {
     expect(error.kind).toBe("output-too-large");
     expect(error.message).toBe("Git output exceeded 10 MB limit");
     expect(error.code).toBe(0);
-  });
-});
-
-describe("legacy local GitError helpers", () => {
-  test("preserve instanceof GitError for local output cap and process exits", () => {
-    const tooLarge = outputTooLargeGitError({ args: ["log"], limitBytes: 10 * 1024 * 1024 });
-    expect(tooLarge).toBeInstanceOf(GitError);
-    expect(tooLarge.kind).toBe("output-too-large");
-
-    const localExit = gitErrorFromExit({
-      args: ["status"],
-      stderr: "fatal: not a git repository\n",
-      exitCode: 128,
-      signal: null,
-    });
-    expect(localExit).toBeInstanceOf(GitError);
-    expect(localExit.kind).toBe("unknown");
-    expect(localExit.message).toBe("fatal: not a git repository");
   });
 });

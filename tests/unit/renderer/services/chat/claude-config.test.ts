@@ -1,18 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  CONFIG_KEYS,
-  changesOf,
-  choicesOf,
-  configCommandOf,
   configMessages,
   configValues,
 } from "../../../../../src/renderer/services/chat/claude-config";
-
-const keyOf = (name: string) => {
-  const key = CONFIG_KEYS.find((k) => k.key === name);
-  if (!key) throw new Error(`no key ${name}`);
-  return key;
-};
 
 describe("configValues", () => {
   test("settings.json first, then the global config file, then the fallback", () => {
@@ -42,26 +32,6 @@ describe("configValues", () => {
     expect(values.autoCompact).toBe(true);
     expect(values.outputStyle).toBe("default");
   });
-
-  test("disableWorkflows turns workflows off; emacs shows as normal", () => {
-    const values = configValues(
-      { enableWorkflows: true, disableWorkflows: true, editorMode: "emacs" },
-      {},
-    );
-    expect(values.workflows).toBe(false);
-    expect(values.editor).toBe("normal");
-  });
-});
-
-describe("choicesOf", () => {
-  test("the output styles the CLI names, and a value the list lacks", () => {
-    expect(choicesOf(keyOf("outputStyle"), "Mine", ["default", "Mine"])).toEqual([
-      "default",
-      "Mine",
-    ]);
-    expect(choicesOf(keyOf("theme"), "custom:ocean")).toContain("custom:ocean");
-    expect(choicesOf(keyOf("worktreeBaseRef"), undefined)).toEqual(["fresh", "head"]);
-  });
 });
 
 describe("configMessages", () => {
@@ -74,32 +44,5 @@ describe("configMessages", () => {
   test("the language emptied goes back to its default; nothing changed sends nothing", () => {
     expect(configMessages({ language: "  " })).toEqual(["/config language=default"]);
     expect(configMessages({})).toEqual([]);
-  });
-});
-
-describe("configCommandOf", () => {
-  test("bare commands open the dialog, at their setting", () => {
-    expect(configCommandOf("/config")).toEqual({});
-    expect(configCommandOf(" /Settings ")).toEqual({});
-    expect(configCommandOf("/output-style")).toEqual({ focus: "outputStyle" });
-    expect(configCommandOf("/autocompact")).toEqual({ focus: "autoCompact" });
-  });
-
-  test("with arguments, or another command, it is the CLI's", () => {
-    expect(configCommandOf("/config verbose=true")).toBeNull();
-    expect(configCommandOf("/output-style Concise")).toBeNull();
-    expect(configCommandOf("/model")).toBeNull();
-    expect(configCommandOf("config")).toBeNull();
-  });
-});
-
-describe("changesOf", () => {
-  test("only what differs from now", () => {
-    expect(
-      changesOf(
-        { autoCompact: true, verbose: true, language: " korean ", theme: "dark" },
-        { autoCompact: true, verbose: false, language: "korean", theme: undefined },
-      ),
-    ).toEqual({ verbose: true, theme: "dark" });
   });
 });

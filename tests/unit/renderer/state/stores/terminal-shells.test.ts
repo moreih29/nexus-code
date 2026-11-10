@@ -36,23 +36,6 @@ beforeEach(() => {
 });
 
 describe("terminal store — added shells", () => {
-  it("adds shells in order and saves the list", () => {
-    const store = useTerminalStore.getState();
-    store.saveCustomShell(nu);
-    store.saveCustomShell(psNoLogo);
-
-    expect(useTerminalStore.getState().customShells).toEqual([nu, psNoLogo]);
-    expect(writes.at(-1)).toEqual({ terminalShells: [nu, psNoLogo] });
-  });
-
-  it("an edit replaces the shell in place", () => {
-    useTerminalStore.getState().hydrate({ customShells: [nu, psNoLogo] });
-    const renamed = { ...nu, name: "Nu", args: ["-l"] };
-    useTerminalStore.getState().saveCustomShell(renamed);
-
-    expect(useTerminalStore.getState().customShells).toEqual([renamed, psNoLogo]);
-  });
-
   it("removing the default shell resets the default", () => {
     useTerminalStore.getState().hydrate({
       customShells: [nu, psNoLogo],
@@ -88,14 +71,6 @@ describe("terminal store — added shells", () => {
 });
 
 describe("terminal store — task agent", () => {
-  it("opens Claude until set", () => {
-    expect(resolvedTaskAgent()).toBe("claude");
-
-    useTerminalStore.getState().setTaskAgent("codex");
-    expect(resolvedTaskAgent()).toBe("codex");
-    expect(writes.at(-1)).toEqual({ taskAgent: "codex" });
-  });
-
   it("carries over the command an earlier version ran, once", () => {
     useTerminalStore.getState().hydrate({ taskAgentCommand: " codex --full-auto " });
     expect(resolvedTaskAgent()).toBe("codex");

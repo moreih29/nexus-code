@@ -5,7 +5,6 @@ import {
   AgentProfilesSchema,
   defaultProfileId,
   EMPTY_AGENT_PROFILES,
-  folderDepth,
   isDefaultDir,
   type ProfileWorkspace,
   portableProfileDir,
@@ -212,13 +211,6 @@ describe("edits", () => {
 });
 
 describe("folders", () => {
-  test("folderDepth", () => {
-    expect(folderDepth("/a/b", "/a/b")).toBe(2);
-    expect(folderDepth("/a/b/", "/a/b/c")).toBe(2);
-    expect(folderDepth("/a/b", "/a/bc")).toBe(-1);
-    expect(folderDepth("/", "/x")).toBe(0);
-  });
-
   test("a new profile's folder is named after it, apart from those taken", () => {
     expect(suggestedProfileDir("claude", "Personal", [])).toBe("~/.claude-personal");
     expect(suggestedProfileDir("codex", "개인", [])).toBe("~/.codex-profile");

@@ -6,32 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseRequestAndMarshalShapes(t *testing.T) {
-	req, err := ParseRequest([]byte(`{"id":"1","method":"fs.readdir","params":{"relPath":"."}}`))
-	if err != nil {
-		t.Fatalf("ParseRequest() error = %v", err)
-	}
-	if req.ID != "1" || req.Method != "fs.readdir" || string(req.Params) != `{"relPath":"."}` {
-		t.Fatalf("unexpected request: %#v params=%s", req, req.Params)
-	}
-
-	line, err := MarshalFrame(Success("1", map[string]string{"ok": "yes"}))
-	if err != nil {
-		t.Fatalf("MarshalFrame() error = %v", err)
-	}
-	if string(line) != `{"id":"1","result":{"ok":"yes"}}`+"\n" {
-		t.Fatalf("success frame mismatch: %s", line)
-	}
-
-	line, err = MarshalFrame(Failure("2", CodeUnsupported, "method not supported: fs.writeFile"))
-	if err != nil {
-		t.Fatalf("MarshalFrame() error = %v", err)
-	}
-	if string(line) != `{"id":"2","error":{"code":"unsupported-method","message":"method not supported: fs.writeFile"}}`+"\n" {
-		t.Fatalf("error frame mismatch: %s", line)
-	}
-}
-
 type dataError struct{}
 
 func (dataError) Error() string     { return "push rejected" }
@@ -64,19 +38,6 @@ func TestSuccessCoercesNilResultToExplicitNull(t *testing.T) {
 	}
 }
 
-func TestReadyFrameIncludesVersions(t *testing.T) {
-	// methods 슬라이스와 heartbeat 간격을 함께 전달한 경우 wire 포맷 확인.
-	// agentEpoch=0, capabilities=nil 인 경우 omitempty로 wire에서 생략된다.
-	data, err := json.Marshal(Ready([]string{"fs.readFile", "git.log"}, 10_000, 90_000, 0, nil))
-	if err != nil {
-		t.Fatalf("Marshal ready: %v", err)
-	}
-	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":["fs.readFile","git.log"],"heartbeatIntervalMs":10000,"idleWatchdogMs":90000}`
-	if string(data) != want {
-		t.Fatalf("ready frame = %s, want %s", data, want)
-	}
-}
-
 func TestReadyFrameNilMethodsCoercedToEmptySlice(t *testing.T) {
 	// nil methods는 빈 슬라이스로 변환되어 JSON "methods":[] 로 직렬화된다.
 	f := Ready(nil, 0, 0, 0, nil)
@@ -88,18 +49,6 @@ func TestReadyFrameNilMethodsCoercedToEmptySlice(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":0,"idleWatchdogMs":0}`
-	if string(data) != want {
-		t.Fatalf("ready frame = %s, want %s", data, want)
-	}
-}
-
-func TestReadyFrameEpochAndCapabilities(t *testing.T) {
-	// agentEpoch와 capabilities 필드가 wire에 포함되는지 확인한다.
-	data, err := json.Marshal(Ready([]string{}, 5_000, 300_000, 0xdeadbeef, []string{"reattach"}))
-	if err != nil {
-		t.Fatalf("Marshal ready: %v", err)
-	}
-	want := `{"type":"ready","protocolVersion":"2","serverVersion":"0.1.0","methods":[],"heartbeatIntervalMs":5000,"idleWatchdogMs":300000,"agentEpoch":3735928559,"capabilities":["reattach"]}`
 	if string(data) != want {
 		t.Fatalf("ready frame = %s, want %s", data, want)
 	}

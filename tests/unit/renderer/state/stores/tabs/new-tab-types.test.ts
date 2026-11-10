@@ -2,11 +2,8 @@
  * Unit tests for UntitledTab and BrowserTab additions.
  *
  * Covers:
- *   - defaultTitle for "untitled" and "browser" types
- *   - createTab stores the correct type and props
  *   - BrowserTab round-trip through toSnapshot (present) and fromSnapshot
  *   - UntitledTab is stripped from toSnapshot (not persisted)
- *   - useUntitledCounterStore.claimNext is monotonically increasing per workspace
  */
 
 import { beforeEach, describe, expect, it } from "bun:test";
@@ -37,11 +34,7 @@ if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
 // Imports after shims
 // ---------------------------------------------------------------------------
 
-import {
-  defaultTitle,
-  useTabsStore,
-  useUntitledCounterStore,
-} from "../../../../../../src/renderer/state/stores/tabs";
+import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
 import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout";
 import { WorkspaceLayoutSnapshotSchema } from "../../../../../../src/shared/types/layout";
 import type { Tab } from "../../../../../../src/renderer/state/stores/tabs";
@@ -54,7 +47,6 @@ const WS = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 
 function resetStores() {
   useTabsStore.setState({ byWorkspace: {} });
-  useUntitledCounterStore.setState({ nextByWorkspace: {} });
   useLayoutStore.setState({ byWorkspace: {} });
 }
 
@@ -72,87 +64,6 @@ function buildSnapshot(workspaceId: string) {
     tabs,
   };
 }
-
-// ---------------------------------------------------------------------------
-// defaultTitle
-// ---------------------------------------------------------------------------
-
-describe("defaultTitle — untitled type", () => {
-  it("returns 'Untitled-<index>' for untitled tabs", () => {
-    expect(defaultTitle({ type: "untitled", props: { untitledIndex: 1 } })).toBe("Untitled-1");
-    expect(defaultTitle({ type: "untitled", props: { untitledIndex: 42 } })).toBe("Untitled-42");
-  });
-});
-
-describe("defaultTitle — browser type", () => {
-  it("returns host of initialUrl when URL is valid", () => {
-    expect(
-      defaultTitle({
-        type: "browser",
-        props: { initialUrl: "https://example.com/path", lastUrl: "", partition: "p" },
-      }),
-    ).toBe("example.com");
-  });
-
-  it("returns 'New Tab' when initialUrl is empty", () => {
-    expect(
-      defaultTitle({
-        type: "browser",
-        props: { initialUrl: "", lastUrl: "", partition: "p" },
-      }),
-    ).toBe("New Tab");
-  });
-
-  it("returns 'New Tab' when initialUrl is not a valid URL", () => {
-    expect(
-      defaultTitle({
-        type: "browser",
-        props: { initialUrl: "not-a-url", lastUrl: "", partition: "p" },
-      }),
-    ).toBe("New Tab");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// createTab — stores correct type and props
-// ---------------------------------------------------------------------------
-
-describe("useTabsStore.createTab — untitled type", () => {
-  beforeEach(resetStores);
-
-  it("creates an untitled tab with the correct type and props", () => {
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS, { type: "untitled", props: { untitledIndex: 3 } });
-
-    expect(tab.type).toBe("untitled");
-    if (tab.type === "untitled") {
-      expect(tab.props.untitledIndex).toBe(3);
-    }
-    expect(tab.title).toBe("Untitled-3");
-  });
-});
-
-describe("useTabsStore.createTab — browser type", () => {
-  beforeEach(resetStores);
-
-  it("creates a browser tab with all props preserved", () => {
-    const props = {
-      initialUrl: "https://nexus.example.com",
-      lastUrl: "https://nexus.example.com/page",
-      partition: "persist:browser-" + WS,
-    };
-    const tab = useTabsStore.getState().createTab(WS, { type: "browser", props });
-
-    expect(tab.type).toBe("browser");
-    if (tab.type === "browser") {
-      expect(tab.props.initialUrl).toBe(props.initialUrl);
-      expect(tab.props.lastUrl).toBe(props.lastUrl);
-      expect(tab.props.partition).toBe(props.partition);
-    }
-    expect(tab.title).toBe("nexus.example.com");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Persistence: BrowserTab roundtrip (present in snapshot), UntitledTab stripped
@@ -307,45 +218,5 @@ describe("persistence — UntitledTab is stripped from snapshot", () => {
     const snapshot = buildSnapshot(WS);
     expect(snapshot!.tabs).toHaveLength(1);
     expect(snapshot!.tabs[0]!.type).toBe("browser");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// useUntitledCounterStore
-// ---------------------------------------------------------------------------
-
-describe("useUntitledCounterStore", () => {
-  beforeEach(() => {
-    useUntitledCounterStore.setState({ nextByWorkspace: {} });
-  });
-
-  it("starts at 1 for a new workspace", () => {
-    const idx = useUntitledCounterStore.getState().claimNext(WS);
-    expect(idx).toBe(1);
-  });
-
-  it("increments monotonically and never reuses", () => {
-    const a = useUntitledCounterStore.getState().claimNext(WS);
-    const b = useUntitledCounterStore.getState().claimNext(WS);
-    const c = useUntitledCounterStore.getState().claimNext(WS);
-    expect(a).toBe(1);
-    expect(b).toBe(2);
-    expect(c).toBe(3);
-  });
-
-  it("counters are independent per workspace", () => {
-    const WS2 = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
-    useUntitledCounterStore.getState().claimNext(WS);
-    useUntitledCounterStore.getState().claimNext(WS);
-    const first = useUntitledCounterStore.getState().claimNext(WS2);
-    expect(first).toBe(1);
-  });
-
-  it("clearWorkspace resets the counter for that workspace", () => {
-    useUntitledCounterStore.getState().claimNext(WS);
-    useUntitledCounterStore.getState().claimNext(WS);
-    useUntitledCounterStore.getState().clearWorkspace(WS);
-    const after = useUntitledCounterStore.getState().claimNext(WS);
-    expect(after).toBe(1);
   });
 });

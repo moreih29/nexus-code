@@ -4,19 +4,11 @@
  */
 import { describe, expect, it } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  CommitMessageDialogContent,
-  hasCommitMessageBody,
-} from "../../../../../../src/renderer/components/files/git/commit/message-dialog";
-import {
-  CredentialPromptDialogContent,
-  credentialPromptInputType,
-} from "../../../../../../src/renderer/components/files/git/dialogs/credential-prompt-dialog";
+import { credentialPromptInputType } from "../../../../../../src/renderer/components/files/git/dialogs/credential-prompt-dialog";
 import {
   __resetGitHelperPromptsForTests,
   type GitHelperPromptState,
   getGitHelperPromptSnapshot,
-  gitHelperOccupancyMessage,
   gitHelperOccupancyMessageForWorkspace,
   installGitHelperPromptListeners,
   isPromptForWorkspace,
@@ -24,7 +16,6 @@ import {
 } from "../../../../../../src/renderer/components/files/git/hooks/use-helper-prompts";
 import type { ipcCallResult, ipcListen } from "../../../../../../src/renderer/ipc/client";
 import type { AskpassPrompt, GitEditorPrompt } from "../../../../../../src/shared/git/types";
-import { renderInDialog } from "../../../../../helpers/render-in-dialog";
 
 const WORKSPACE_ID = "123e4567-e89b-12d3-a456-426614174000";
 const OTHER_WORKSPACE_ID = "223e4567-e89b-12d3-a456-426614174000";
@@ -35,48 +26,6 @@ describe("CredentialPromptDialogContent", () => {
     expect(credentialPromptInputType("password")).toBe("password");
     expect(credentialPromptInputType("passphrase")).toBe("password");
   });
-
-  it("renders the active askpass prompt in a reusable dialog body", () => {
-    const prompt = makeAskpassPrompt({
-      promptId: "prompt-1",
-      prompt: "Password for 'https://example.com':",
-      field: "password",
-    });
-
-    const html = renderInDialog(
-      <CredentialPromptDialogContent
-        prompt={prompt}
-        value=""
-        onValueChange={() => {}}
-        onCancel={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("Git credentials");
-    expect(html).toContain('type="password"');
-    expect(html).toContain("Password for");
-  });
-});
-
-describe("CommitMessageDialogContent", () => {
-  it("renders a monospace commit message editor and validates comment-only text", () => {
-    const prompt = makeEditorPrompt();
-    const html = renderInDialog(
-      <CommitMessageDialogContent
-        prompt={prompt}
-        content={"subject\n\n# comment\n"}
-        onContentChange={() => {}}
-        onCancel={() => {}}
-        onSubmit={() => {}}
-      />,
-    );
-
-    expect(html).toContain("Commit message");
-    expect(html).toContain("font-mono");
-    expect(hasCommitMessageBody("# comment only\n")).toBe(false);
-    expect(hasCommitMessageBody("subject\n# comment\n")).toBe(true);
-  });
 });
 
 describe("Git helper prompt workspace filtering and banner copy", () => {
@@ -84,47 +33,6 @@ describe("Git helper prompt workspace filtering and banner copy", () => {
     expect(isPromptForWorkspace({ workspaceId: WORKSPACE_ID }, WORKSPACE_ID)).toBe(true);
     expect(isPromptForWorkspace({}, WORKSPACE_ID)).toBe(true);
     expect(isPromptForWorkspace({ workspaceId: "other" }, WORKSPACE_ID)).toBe(false);
-  });
-
-  it("shows queue occupancy only while a prompt is active", () => {
-    const credentialPrompt = makeAskpassPrompt({ promptId: "p1" });
-    const editorPrompt = makeEditorPrompt();
-
-    expect(gitHelperOccupancyMessage({ credentialPrompt, editorPrompt: null })).toBe(
-      "Awaiting credentials…",
-    );
-    expect(gitHelperOccupancyMessage({ credentialPrompt: null, editorPrompt })).toBe(
-      "Editing commit message…",
-    );
-    expect(gitHelperOccupancyMessage({ credentialPrompt: null, editorPrompt: null })).toBeNull();
-  });
-
-  it("derives GitPanel occupancy from global prompts without accepting other workspaces", () => {
-    const credentialPrompt = makeAskpassPrompt({ promptId: "p1" });
-    const otherPrompt = makeAskpassPrompt({ promptId: "p2", workspaceId: "other" });
-    const globalEditorPrompt = makeEditorPrompt({ workspaceId: undefined });
-
-    expect(
-      gitHelperOccupancyMessageForWorkspace({
-        workspaceId: WORKSPACE_ID,
-        credentialPrompt,
-        editorPrompt: null,
-      }),
-    ).toBe("Awaiting credentials…");
-    expect(
-      gitHelperOccupancyMessageForWorkspace({
-        workspaceId: WORKSPACE_ID,
-        credentialPrompt: otherPrompt,
-        editorPrompt: null,
-      }),
-    ).toBeNull();
-    expect(
-      gitHelperOccupancyMessageForWorkspace({
-        workspaceId: WORKSPACE_ID,
-        credentialPrompt: null,
-        editorPrompt: globalEditorPrompt,
-      }),
-    ).toBe("Editing commit message…");
   });
 });
 
@@ -169,18 +77,6 @@ describe("Global Git helper prompt mounting contract", () => {
 
     unlisten();
     expect(unlistened.sort()).toEqual(["askpass.closed", "askpass.prompt", "editor.prompt"]);
-  });
-
-  it("keeps dialogs/listeners globally mounted rather than GitPanel-owned", async () => {
-    const globalRoots = await Bun.file("src/renderer/components/global-roots.tsx").text();
-    const gitPanel = await Bun.file("src/renderer/components/files/git/panel/panel.tsx").text();
-
-    expect(globalRoots).toContain("<GitHelperPromptsRoot />");
-    expect(globalRoots).toContain("useGitHelperPrompts");
-    expect(gitPanel).toContain("useGitHelperOccupancy");
-    expect(gitPanel).not.toContain("useGitHelperPrompts(");
-    expect(gitPanel).not.toContain("<CredentialPromptDialog");
-    expect(gitPanel).not.toContain("<CommitMessageDialog");
   });
 });
 

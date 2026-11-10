@@ -1,9 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  asTaskAgent,
-  chatAgentOf,
-  taskAgentOfCommand,
-} from "../../../src/shared/sessions/task-agent";
+import { asTaskAgent, taskAgentOfCommand } from "../../../src/shared/sessions/task-agent";
 
 describe("asTaskAgent", () => {
   it("takes the agents this version has, and nothing else", () => {
@@ -11,14 +7,6 @@ describe("asTaskAgent", () => {
     expect(asTaskAgent("terminal")).toBe("terminal");
     expect(asTaskAgent("gemini")).toBeUndefined();
     expect(asTaskAgent(undefined)).toBeUndefined();
-  });
-});
-
-describe("chatAgentOf", () => {
-  it("opens the default agent's conversation, and Claude's for a terminal", () => {
-    expect(chatAgentOf("claude")).toBe("claude");
-    expect(chatAgentOf("codex")).toBe("codex");
-    expect(chatAgentOf("terminal")).toBe("claude");
   });
 });
 

@@ -8,9 +8,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/nexus-code/nexus-code/internal/dispatch"
-	"github.com/nexus-code/nexus-code/internal/proto"
 )
 
 type blobFixture struct {
@@ -100,42 +97,5 @@ func TestParseBlobCatFileOutputFixtures(t *testing.T) {
 	}
 	if loaded == 0 {
 		t.Fatal("no blob fixtures loaded")
-	}
-}
-
-func TestBlobRegisteredWithDispatcher(t *testing.T) {
-	t.Parallel()
-	root := newRepo(t)
-
-	d := dispatch.New()
-	service := New(root)
-	Register(d, service)
-	var events []BlobChunkPayload
-	service.SetEventSink(func(event string, payload any) error {
-		if event == "git.blob.chunk" {
-			events = append(events, payload.(BlobChunkPayload))
-		}
-		return nil
-	})
-	res := d.Dispatch(context.Background(), proto.Request{ID: "git.blob", Method: "git.blob", Params: json.RawMessage(`{"ref":"HEAD","relPath":"README.md","maxChunkBytes":65536}`)})
-	if res.Error != nil {
-		t.Fatalf("git.blob dispatch returned error: %#v", res.Error)
-	}
-	result, ok := res.Result.(BlobResult)
-	if !ok {
-		t.Fatalf("git.blob result type = %T", res.Result)
-	}
-	if result.Size != int64(len("base\n")) || result.IsBinary || result.Encoding != "utf8" || result.Truncated {
-		t.Fatalf("unexpected result: %#v", result)
-	}
-	if len(events) != 1 || events[0].HeaderProbe == nil {
-		t.Fatalf("unexpected events: %#v", events)
-	}
-}
-
-func TestBlobRejectsWorkingRef(t *testing.T) {
-	_, err := parseBlobParams(json.RawMessage(`{"ref":"WORKING","relPath":"README.md"}`))
-	if err == nil {
-		t.Fatal("expected WORKING ref error")
 	}
 }

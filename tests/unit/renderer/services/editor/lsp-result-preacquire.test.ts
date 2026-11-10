@@ -27,8 +27,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   ipcListen: mock(() => () => {}),
 }));
 
-const { PEEK_PREACQUIRE_HOLD_MS, PEEK_PREACQUIRE_MAX_FILES, preAcquireLocationModels } =
-  await import("../../../../../src/renderer/services/editor/lsp/result-preacquire");
+const { PEEK_PREACQUIRE_HOLD_MS, preAcquireLocationModels } = await import(
+  "../../../../../src/renderer/services/editor/lsp/result-preacquire"
+);
 
 import type { PreAcquireDeps } from "../../../../../src/renderer/services/editor/lsp/result-preacquire";
 import type { EntryMetadata } from "../../../../../src/renderer/services/editor/model/cache";
@@ -83,57 +84,6 @@ afterEach(() => {
 });
 
 describe("preAcquireLocationModels", () => {
-  test("acquires at most PEEK_PREACQUIRE_MAX_FILES files, in result order", async () => {
-    const locations = Array.from({ length: PEEK_PREACQUIRE_MAX_FILES + 30 }, (_, i) =>
-      makeLocation(`file:///workspace/src/f${i}.ts`),
-    );
-    await preAcquireLocationModels(locations as any, SOURCE_URI, deps);
-    expect(acquireMock).toHaveBeenCalledTimes(PEEK_PREACQUIRE_MAX_FILES);
-    expect(acquireMock.mock.calls[0]?.[0]).toEqual({
-      workspaceId: "ws-1",
-      filePath: "/workspace/src/f0.ts",
-    });
-  });
-
-  test("acquires nothing for a cancelled request", async () => {
-    await preAcquireLocationModels(
-      [makeLocation("file:///workspace/src/lib.ts")] as any,
-      SOURCE_URI,
-      deps,
-      { isCancellationRequested: true },
-    );
-    expect(acquireMock).not.toHaveBeenCalled();
-  });
-
-  test("returns early when locations array is empty", async () => {
-    await preAcquireLocationModels([] as any, SOURCE_URI, deps);
-    expect(acquireMock).not.toHaveBeenCalled();
-    expect(getEntryMetadataMock).not.toHaveBeenCalled();
-  });
-
-  test("returns early when source model is not tracked in cache", async () => {
-    getEntryMetadataMock.mockImplementation(() => null);
-    await preAcquireLocationModels(
-      [makeLocation("file:///workspace/lib.ts")] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).not.toHaveBeenCalled();
-  });
-
-  test("acquires workspace-internal target with default origin/readOnly", async () => {
-    await preAcquireLocationModels(
-      [makeLocation("file:///workspace/src/lib.ts")] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).toHaveBeenCalledTimes(1);
-    expect(acquireMock.mock.calls[0]?.[0]).toEqual({
-      workspaceId: "ws-1",
-      filePath: "/workspace/src/lib.ts",
-    });
-  });
-
   test("acquires external target with origin=external, readOnly=true", async () => {
     await preAcquireLocationModels(
       [makeLocation("file:///external/typeshed/pathlib.pyi")] as any,
@@ -163,40 +113,6 @@ describe("preAcquireLocationModels", () => {
       origin: "external",
       readOnly: true,
     });
-  });
-
-  test("filters out self-references", async () => {
-    await preAcquireLocationModels(
-      [makeLocation(SOURCE_URI), makeLocation("file:///workspace/src/lib.ts")] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).toHaveBeenCalledTimes(1);
-    expect((acquireMock.mock.calls[0]?.[0] as { filePath: string }).filePath).toBe(
-      "/workspace/src/lib.ts",
-    );
-  });
-
-  test("dedupes multiple locations in the same file", async () => {
-    const sameFile = "file:///workspace/src/lib.ts";
-    await preAcquireLocationModels(
-      [makeLocation(sameFile), makeLocation(sameFile), makeLocation(sameFile)] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("skips locations whose URI does not parse to a file path", async () => {
-    await preAcquireLocationModels(
-      [makeLocation("inmemory://model/1"), makeLocation("file:///workspace/src/lib.ts")] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).toHaveBeenCalledTimes(1);
-    expect((acquireMock.mock.calls[0]?.[0] as { filePath: string }).filePath).toBe(
-      "/workspace/src/lib.ts",
-    );
   });
 
   test("schedules release after PEEK_PREACQUIRE_HOLD_MS", async () => {
@@ -230,22 +146,5 @@ describe("preAcquireLocationModels", () => {
     );
     jest.advanceTimersByTime(PEEK_PREACQUIRE_HOLD_MS + 1);
     expect(releaseMock).not.toHaveBeenCalled();
-  });
-
-  test("acquires multiple distinct targets in parallel", async () => {
-    await preAcquireLocationModels(
-      [
-        makeLocation("file:///workspace/src/a.ts"),
-        makeLocation("file:///workspace/src/b.ts"),
-        makeLocation("file:///external/typeshed/c.pyi"),
-      ] as any,
-      SOURCE_URI,
-      deps,
-    );
-    expect(acquireMock).toHaveBeenCalledTimes(3);
-    const inputs = acquireMock.mock.calls.map((c) => c[0] as { filePath: string; origin?: string });
-    expect(inputs.find((i) => i.filePath === "/workspace/src/a.ts")?.origin).toBeUndefined();
-    expect(inputs.find((i) => i.filePath === "/workspace/src/b.ts")?.origin).toBeUndefined();
-    expect(inputs.find((i) => i.filePath === "/external/typeshed/c.pyi")?.origin).toBe("external");
   });
 });

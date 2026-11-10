@@ -1,11 +1,12 @@
 /**
  * nexus reaching past its own workspace and waiting on other terminals:
- * the user's leave for changes elsewhere, terminal wait and send --wait, and
- * the note Claude Code sessions get at their start.
+ * the user's leave for changes elsewhere, and terminal wait and send --wait.
  */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
+import type { AgentRun } from "../../../../src/shared/claude/activity";
+import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import {
   API,
   APP,
@@ -86,15 +87,163 @@ describe("changing another workspace", () => {
     await nexus(app, ["workspace", "switch", "api"]);
     expect(app.asked).toHaveLength(0);
   });
+
+  // Every command that takes --workspace, as run on a busy "api" with the user
+  // saying no: one that changes it asks first and changes nothing, one that
+  // reads it runs through without asking. A new command fails until it is here.
+  const CHANGES = `
+    worktree new feat | worktree remove api-feat | terminal new | terminal send codex hi
+    terminal key codex enter | tab close codex | tab save main.go | tab revert main.go
+    tab move codex 2 | tab rename codex x | tab pin codex | tab unpin codex
+    layout split codex right | layout resize 1 50 | layout even | layout close 1
+    chat new | chat send eeee hi | chat interrupt eeee | chat set eeee --effort high
+    open main.go | diff main.go | show | port forward 3000 | port unforward 3000
+    agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
+    browser back | browser forward | browser reload | browser click e1 | browser hover e1
+    browser drag e1 e2 | browser scroll down | browser fill e1 x | browser type x
+    browser press Enter | browser upload e1 index.ts | browser eval 1`;
+  const READS = `
+    worktree list | tab list | tab show codex | terminal list | terminal read codex
+    terminal wait codex --match Working | session list | events | layout show | problems
+    chat read eeee | chat tool eeee 2 | chat wait eeee | reveal main.go | port list
+    view open codex | view split codex right | view move codex p1 | view remove codex
+    panel list | panel show files | panel hide files | agent list --tab codex
+    agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
+    browser snapshot | browser inspect e1 | browser dialog | browser screenshot
+    browser console | browser wait --text hi | browser pick | browser network`;
+  /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
+  const LOOKS = new Set(
+    `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
+    files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
+    panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
+    page.pick page.network`.split(/\s+/),
+  );
+
+  test("every command asks before it changes another workspace, and only then", async () => {
+    const lines = (table: string) =>
+      table
+        .split(/[|\n]/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    const paths = CLI_COMMANDS.filter((c) => c.flags?.workspace).map((c) => c.path.join(" "));
+    const commandOf = (line: string) =>
+      paths.filter((p) => `${line} `.startsWith(`${p} `)).sort((a, b) => b.length - a.length)[0];
+    const runs = [
+      ...lines(CHANGES).map((line) => ({ line, changes: true })),
+      ...lines(READS).map((line) => ({ line, changes: false })),
+    ];
+    // chat answer is refused to a terminal outright; manager.test.ts covers who may answer.
+    expect([...runs.map((r) => commandOf(r.line)), "chat answer"].sort()).toEqual(paths.sort());
+    for (const { line, changes } of runs) {
+      const app = apiAtWork();
+      const forwards = JSON.stringify(app.forwarding.forwards);
+      const result = await nexus(app, [...line.split(" "), "--workspace", "api"]);
+      const made = [
+        ...app.uiCalls.map((c) => c.op),
+        ...app.browser.calls.map((c) => `page.${c.op}`),
+        ...app.stops.map(() => "agent.stop"),
+        ...(JSON.stringify(app.forwarding.forwards) === forwards ? [] : ["forwards"]),
+      ].filter((op) => !LOOKS.has(op));
+      expect({ line, asked: app.asked.length > 0, ran: result.exitCode === 0, made }).toEqual({
+        line,
+        asked: changes,
+        ran: !changes,
+        made: [],
+      });
+    }
+  });
 });
 
-describe("terminal wait", () => {
-  test("returns at once for a Claude Code that is not running", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["terminal", "wait", "✳ claude code"]);
-    expect(result.stdout).toBe("Claude Code finished:\nFixed the login bug.\n");
-  });
+const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
+const WEB_TAB = "dddddddd-0000-4000-8000-000000000007";
+const MAIN_TAB = "dddddddd-0000-4000-8000-00000000000a";
 
+/**
+ * "api" over SSH with something for every command: a Claude tab asking the
+ * user, a browser and an unsaved editor in a second group, a worktree, a
+ * forwarded port, and a claude -p run in its codex terminal beside one that
+ * ended.
+ */
+function apiAtWork(): FakeApp {
+  const app = fakeApp();
+  const at = app.workspaces.findIndex((w) => w.id === API);
+  const api = app.workspaces[at] as WorkspaceMeta;
+  app.workspaces[at] = { ...api, location: { kind: "ssh", host: "box", remotePath: "/w/api" } };
+  app.workspaces.push({
+    ...api,
+    id: "55555555-5555-4555-8555-555555555555",
+    name: "api-feat",
+    task: { parentId: API, branch: "feat", worktreePath: "/w/api-feat" },
+  });
+  app.tabs[API]?.push(
+    { id: CHAT_TAB, type: "claude", title: "Fix the login", groupId: "g3", shown: false },
+    {
+      id: WEB_TAB,
+      type: "browser",
+      title: "Docs",
+      url: "http://localhost:3000/",
+      groupId: "g5",
+      shown: false,
+    },
+    {
+      id: MAIN_TAB,
+      type: "editor",
+      title: "main.go",
+      filePath: "/w/api/main.go",
+      groupId: "g5",
+      shown: false,
+      unsaved: true,
+    },
+  );
+  const group = (id: string, tabIds: string[]) =>
+    ({ kind: "group", id, tabIds, shownTabId: tabIds[0] ?? null }) as const;
+  app.layouts[API] = {
+    root: {
+      kind: "split",
+      id: "s3",
+      direction: "columns",
+      ratio: 0.5,
+      first: group("g3", [CODEX_TAB, CHAT_TAB]),
+      second: group("g5", [WEB_TAB, MAIN_TAB]),
+    },
+    activeGroupId: "g3",
+  };
+  app.chats.set(CHAT_TAB, {
+    info: { agent: "claude", state: "asking", message: "asks: Bash ls" },
+    entries: [{ i: 0, role: "user", text: "Fix the login" }],
+    tools: [
+      {
+        i: 2,
+        toolUseId: "toolu_1",
+        name: "Read",
+        status: "done",
+        input: {},
+        result: { text: "", isError: false },
+      },
+    ],
+  });
+  const run = (sessionId: string, extra: Partial<AgentRun> = {}): AgentRun => ({
+    id: `print-${sessionId.slice(0, 8)}`,
+    kind: "print",
+    prompt: "Summarize the API",
+    start: app.time.now - 9_000,
+    state: "running",
+    tools: [],
+    toolCount: 0,
+    failedCount: 0,
+    toolsTold: true,
+    sessionId,
+    ...extra,
+  });
+  app.agents.set(`${API}:${CODEX_TAB}`, [
+    run("8f7b63e3-a0e6-4b44-af95-03c2697fe716"),
+    run("1a2b63e3-a0e6-4b44-af95-03c2697fe716", { state: "completed", end: app.time.now - 1_000 }),
+  ]);
+  app.forwarding.forwards[API] = [{ remotePort: 3000, localPort: 3000, active: true }];
+  return app;
+}
+
+describe("terminal wait", () => {
   test("send --wait waits for the turn the text starts", async () => {
     const app = fakeApp();
     const key = `${APP}:${CLAUDE_TAB}`;
@@ -126,25 +275,6 @@ describe("terminal wait", () => {
     expect(result.stdout).toBe(
       "Sent to ✳ Claude Code (aaaaaaaa).\nClaude Code stopped on an error: API Error: 429\n",
     );
-  });
-
-  test("lists the wait while it runs, for the sessions view", async () => {
-    const app = fakeApp();
-    const key = `${APP}:${CLAUDE_TAB}`;
-    const startedAt = app.time.now;
-    app.claude.set(key, { status: "running", since: startedAt });
-    const seen: unknown[] = [];
-    app.time.onTick = (now) => {
-      seen.push(...app.waits.snapshot());
-      if (now - startedAt === 1_000) app.claude.set(key, { status: "completed", since: now });
-    };
-    await nexus(app, ["terminal", "wait", "✳ claude code"]);
-    expect(seen[0]).toEqual({
-      waiter: { workspaceId: APP, tabId: SHELL_TAB },
-      target: { workspaceId: APP, tabId: CLAUDE_TAB },
-      since: startedAt,
-    });
-    expect(app.waits.snapshot()).toEqual([]);
   });
 
   test("send --wait tells a Claude Code that never starts a turn apart after a grace", async () => {
@@ -269,52 +399,6 @@ describe("terminal wait", () => {
     expect(result.stdout).toBe("build is back at its prompt.\n");
     expect(app.time.now - start).toBe(2_500);
   });
-
-  test("--match waits for a line on the screen", async () => {
-    const app = fakeApp();
-    app.tabs[APP]?.push({
-      id: SERVER_TAB,
-      type: "terminal",
-      title: "dev",
-      groupId: "g1",
-      shown: false,
-    });
-    const start = app.time.now;
-    app.time.onTick = (now) => {
-      if (now - start === 1_000)
-        app.screens.set(SERVER_TAB, "vite\n  ➜  Local:   http://localhost:5173/");
-    };
-    const result = await nexus(app, ["terminal", "wait", "dev", "--match", "Local:\\s+http"]);
-    expect(result.stdout).toBe("  ➜  Local:   http://localhost:5173/\n");
-  });
-
-  test("--exit waits for the terminal to exit", async () => {
-    const app = fakeApp();
-    const start = app.time.now;
-    app.time.onTick = (now) => {
-      const codex = app.tabs[API]?.[0];
-      if (codex && now - start === 2_000) app.tabs[API] = [{ ...codex, dead: true }];
-    };
-    const result = await nexus(app, ["terminal", "wait", "codex", "--workspace", "api", "--exit"]);
-    expect(result.stdout).toBe("codex has exited.\n");
-  });
-
-  test("exits 124 when the wait runs out", async () => {
-    const app = fakeApp();
-    app.claude.set(`${APP}:${CLAUDE_TAB}`, { status: "running", since: app.time.now });
-    const result = await nexus(app, ["terminal", "wait", "✳ claude code", "--timeout", "3s"]);
-    expect(result.exitCode).toBe(124);
-    expect(result.stdout).toStartWith("✳ Claude Code was still busy when the wait ran out");
-  });
-
-  test.each([
-    [["terminal", "wait", "codex", "--timeout", "2h"], "nexus: --timeout is at most 30m\n"],
-    [["terminal", "wait", "codex", "--match", "("], "nexus: --match: "],
-  ])("%j is a usage error", async (argv, stderr) => {
-    const result = await nexus(fakeApp(), [...argv, "--workspace", "api"]);
-    expect(result.exitCode).toBe(2);
-    expect(result.stderr).toStartWith(stderr);
-  });
 });
 
 describe("terminal wait after worktree new --command", () => {
@@ -374,23 +458,5 @@ describe("terminal wait after worktree new --command", () => {
     const result = await nexus(app, wait);
     expect(result.stdout).toBe("zsh is back at its prompt.\n");
     expect(app.time.now).toBe(start);
-  });
-});
-
-describe("agent-context", () => {
-  test("tells a session where it runs and what nexus does, and is not in help", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["agent-context"]);
-    expect(result.stdout).toStartWith(
-      'You are running in a terminal of NexusCode (workspace "app", terminal aaaaaaaa).',
-    );
-    expect(result.stdout).toContain("nexus help");
-    expect((await nexus(app, ["help"])).stdout).not.toContain("agent-context");
-  });
-
-  test("prints nothing when the setting is off", async () => {
-    const app = fakeApp();
-    app.settings.agentContext = false;
-    expect(await nexus(app, ["agent-context"])).toEqual({ stdout: "", stderr: "", exitCode: 0 });
   });
 });

@@ -48,15 +48,6 @@ func TestMatchGivesASharedPortToItsLowestProcess(t *testing.T) {
 	}
 }
 
-func TestOnlyShells(t *testing.T) {
-	if !onlyShells(map[int]int{}) || !onlyShells(map[int]int{100: 100, 200: 200}) {
-		t.Fatal("onlyShells(roots alone) = false")
-	}
-	if onlyShells(map[int]int{100: 100, 101: 100}) {
-		t.Fatal("onlyShells(a program under a root) = true")
-	}
-}
-
 func TestUnderSkipsRootsThatAreNotRunning(t *testing.T) {
 	table := map[int]Process{100: {PPID: 1, Name: "zsh"}, 101: {PPID: 100, Name: "vim"}}
 

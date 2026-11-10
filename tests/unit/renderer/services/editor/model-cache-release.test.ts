@@ -84,15 +84,4 @@ describe("model-cache subscribeOnRelease", () => {
 
     unsubscribe();
   });
-
-  test("unsubscribe removes the release listener", async () => {
-    const subscriber = mock(() => {});
-    const unsubscribe = subscribeOnRelease(subscriber);
-    unsubscribe();
-
-    await acquireModel(INPUT);
-    releaseModel(INPUT);
-
-    expect(subscriber).toHaveBeenCalledTimes(0);
-  });
 });

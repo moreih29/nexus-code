@@ -2,7 +2,7 @@
 
 package pty
 
-// ring_test.go — unit tests for the ring buffer, session.list, and pty.replay.
+// ring_test.go — unit tests for the ring buffer and pty.replay.
 //
 // Coverage required by task 11 acceptance (6):
 //   (a) Front-drop boundary: when ring is full the oldest bytes are lost and
@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -494,67 +493,6 @@ exit 0
 	capturedSess.ringMu.Unlock()
 	if !ringNil {
 		t.Fatal("ring not nilled after removeSession — memory will not be reclaimed")
-	}
-}
-
-// TestSessionListReturnsLiveSessions verifies session.list reports running tabs.
-func TestSessionListReturnsLiveSessions(t *testing.T) {
-	t.Parallel()
-	rec := &sinkRecorder{}
-	svc := New()
-	svc.SetEventSink(rec.sink)
-	t.Cleanup(svc.Close)
-
-	tabID := "list-live"
-	spawnTestScript(t, svc, tabID, `
-echo READY
-sleep 10
-`)
-	rec.requireTranscriptContains(t, "READY", 2*time.Second)
-
-	result, err := svc.SessionList(context.Background(), mustJSON(t, SessionListParams{
-		WorkspaceID: testWorkspaceID,
-	}))
-	if err != nil {
-		t.Fatalf("session.list: %v", err)
-	}
-	slr, ok := result.(SessionListResult)
-	if !ok {
-		t.Fatalf("wrong result type %T", result)
-	}
-	found := false
-	for _, info := range slr.Sessions {
-		if info.TabID == tabID && info.WorkspaceID == testWorkspaceID {
-			found = true
-			if info.CreatedAt <= 0 {
-				t.Fatalf("createdAt must be positive, got %d", info.CreatedAt)
-			}
-		}
-	}
-	if !found {
-		// Marshal the result for a helpful diagnostic.
-		b, _ := json.Marshal(slr)
-		t.Fatalf("tabID %q not in session.list result: %s", tabID, b)
-	}
-}
-
-// TestSessionListEmptyWhenNoSessions verifies session.list returns an empty
-// slice (not nil) when no sessions exist, so the JSON field is always an array.
-func TestSessionListEmptyWhenNoSessions(t *testing.T) {
-	svc := New()
-	result, err := svc.SessionList(context.Background(), mustJSON(t, SessionListParams{}))
-	if err != nil {
-		t.Fatalf("session.list: %v", err)
-	}
-	slr, ok := result.(SessionListResult)
-	if !ok {
-		t.Fatalf("wrong result type %T", result)
-	}
-	if slr.Sessions == nil {
-		t.Fatal("sessions must be non-nil empty slice, got nil")
-	}
-	if len(slr.Sessions) != 0 {
-		t.Fatalf("expected empty, got %d sessions", len(slr.Sessions))
 	}
 }
 

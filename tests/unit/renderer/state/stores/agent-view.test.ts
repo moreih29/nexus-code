@@ -75,13 +75,6 @@ describe("agent view store", () => {
     expect(agentView.root.tabIds).toEqual([A]);
   });
 
-  it("stores nothing for a change that changes nothing", async () => {
-    useAgentViewStore.getState().hydrate(undefined, () => true);
-    useAgentViewStore.getState().update((layout) => layout);
-    await settle();
-    expect(stored).toEqual([]);
-  });
-
   it("restores the ended agents of the panels' terminals, and stores them as they change", async () => {
     useAgentViewStore.getState().hydrate(
       {

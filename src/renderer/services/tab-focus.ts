@@ -46,8 +46,3 @@ export function requestTabFocus(tabId: string): void {
   pendingTabId = null;
   focusNextFrame(focus);
 }
-
-export function __resetTabFocusForTests(): void {
-  targets.clear();
-  pendingTabId = null;
-}

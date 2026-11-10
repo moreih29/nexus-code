@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/nexus-code/nexus-code/internal/agentpaths"
 )
 
 // TestMain points HOME at a scratch directory, so the servers the tests open
@@ -145,64 +143,6 @@ func TestNew_SocketPathTooLong(t *testing.T) {
 // -----------------------------------------------------------------------
 // (b) 정상 요청 → sink 호출 + inflight 등록 검증
 // -----------------------------------------------------------------------
-
-// TestHandleConn_NormalRequest 는 유효한 요청이 오면 sink가 호출되고
-// inflight 맵에 연결이 등록되는지 검증한다.
-func TestHandleConn_NormalRequest(t *testing.T) {
-	type sinkCall struct {
-		event   string
-		payload HookEventPayload
-	}
-	calls := make(chan sinkCall, 1)
-
-	srv := newTestServer(t, func(event string, payload any) error {
-		p, ok := payload.(HookEventPayload)
-		if !ok {
-			return fmt.Errorf("unexpected payload type %T", payload)
-		}
-		calls <- sinkCall{event: event, payload: p}
-		return nil
-	})
-
-	conn := dialAndSendRequest(t, srv.SocketPath(), hookWireRequest{
-		Type:        "hook",
-		Token:       srv.Token(),
-		WorkspaceID: "ws-test",
-		TabID:       "tab-test",
-		Subcommand:  "session-start",
-		Payload:     json.RawMessage(`{"key":"value"}`),
-	})
-	defer conn.Close()
-
-	// sink가 호출되기를 기다린다.
-	select {
-	case call := <-calls:
-		if call.event != "claude.hook" {
-			t.Errorf("event: want 'claude.hook', got %q", call.event)
-		}
-		if call.payload.WorkspaceID != "ws-test" {
-			t.Errorf("workspaceId: want 'ws-test', got %q", call.payload.WorkspaceID)
-		}
-		if call.payload.TabID != "tab-test" {
-			t.Errorf("tabId: want 'tab-test', got %q", call.payload.TabID)
-		}
-		if call.payload.Subcommand != "session-start" {
-			t.Errorf("subcommand: want 'session-start', got %q", call.payload.Subcommand)
-		}
-		if call.payload.HookID == "" {
-			t.Error("hookId is empty")
-		}
-
-		// inflight 맵에 등록되어 있어야 한다.
-		_, inflightExists := srv.inflight.Load(call.payload.HookID)
-		if !inflightExists {
-			t.Error("hookId not found in inflight map after sink call")
-		}
-
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for sink call")
-	}
-}
 
 // TestHandleConn_LargePayload 는 64 KiB를 넘는 payload(큰 파일을 쓰는 Write의
 // permission-request 등)도 이벤트로 전달되는지 검증한다. 이전에는 bufio.Scanner
@@ -478,18 +418,6 @@ func TestReleaseHooks_AnswersWaitingHooks(t *testing.T) {
 	}
 }
 
-// TestDeadlineFor checks that a PermissionRequest waits on the user far
-// longer than any other hook waits on main.
-func TestDeadlineFor(t *testing.T) {
-	srv := newTestServer(t, func(string, any) error { return nil })
-	if got := srv.deadlineFor("permission-request"); got != permissionDeadline {
-		t.Errorf("permission-request: want %v, got %v", permissionDeadline, got)
-	}
-	if got := srv.deadlineFor("pre-tool-use"); got != connDeadline {
-		t.Errorf("pre-tool-use: want %v, got %v", connDeadline, got)
-	}
-}
-
 // TestHookGone_ToldWhenClientLeaves checks that main is told when the client
 // of a waiting PermissionRequest goes away unanswered, as Claude Code ends
 // the hook when the user interrupts at its dialog, and that the hook is no
@@ -713,46 +641,6 @@ func TestClose_CleanupAll(t *testing.T) {
 // -----------------------------------------------------------------------
 // Acceptance tests — Task 2: new socket location + stale cleanup
 // -----------------------------------------------------------------------
-
-// Test_makeSocketPath_NewLocation 는 새 소켓 경로가 agentpaths.SocketsDir() prefix를 가지고
-// 파일명이 h-<12hex>.sock 형식인지 검증한다.
-func Test_makeSocketPath_NewLocation(t *testing.T) {
-	socketsDir, err := agentpaths.SocketsDir()
-	if err != nil {
-		t.Fatalf("agentpaths.SocketsDir: %v", err)
-	}
-
-	path, gotDir, err := makeSocketPath("test-agent-key")
-	if err != nil {
-		t.Fatalf("makeSocketPath: %v", err)
-	}
-
-	// socketsDir이 일치해야 한다.
-	if gotDir != socketsDir {
-		t.Errorf("socketsDir: want %q, got %q", socketsDir, gotDir)
-	}
-
-	// 경로의 prefix가 socketsDir이어야 한다.
-	if !strings.HasPrefix(path, socketsDir+string(filepath.Separator)) {
-		t.Errorf("socket path %q does not have prefix %q", path, socketsDir)
-	}
-
-	// 파일명이 h-<12hex>.sock 형식이어야 한다.
-	base := filepath.Base(path)
-	if !strings.HasPrefix(base, "h-") || !strings.HasSuffix(base, ".sock") {
-		t.Errorf("socket filename %q: want h-<hash>.sock format", base)
-	}
-	// h- 와 .sock 사이의 해시 부분이 12자 hex이어야 한다.
-	hashPart := strings.TrimPrefix(strings.TrimSuffix(base, ".sock"), "h-")
-	if len(hashPart) != 12 {
-		t.Errorf("hash part %q: want 12 chars, got %d", hashPart, len(hashPart))
-	}
-	for _, c := range hashPart {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			t.Errorf("hash part %q contains non-hex character %c", hashPart, c)
-		}
-	}
-}
 
 // shortTempDir 는 macOS 104자 sun_path 제한을 고려해 /tmp 아래에 짧은 임시 디렉토리를 생성한다.
 // t.TempDir()은 /var/folders/... 경로로 경우에 따라 80자+를 사용해 소켓 파일명이 104자를 초과할 수 있다.

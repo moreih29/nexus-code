@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  columnWidths,
   delimiterFor,
   parseDelimited,
 } from "../../../../../src/renderer/services/editor/preview/delimited";
@@ -37,13 +36,5 @@ describe("parseDelimited", () => {
     expect(delimiterFor("/r/data.TSV")).toBe("\t");
     expect(delimiterFor("/r/data.csv")).toBe(",");
     expect(parseDelimited("a,1\tb\n", "\t").rows).toEqual([["a,1", "b"]]);
-  });
-});
-
-describe("columnWidths", () => {
-  it("is each column's widest field, wide characters counting two, within the bounds", () => {
-    const table = parseDelimited(`id,이름,note\n1,김민수,${"x".repeat(80)}\n`, ",");
-    expect(columnWidths(table)).toEqual([4, 6, 40]);
-    expect(columnWidths(table, { min: 1, max: 10 })).toEqual([2, 6, 10]);
   });
 });

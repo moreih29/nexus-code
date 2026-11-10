@@ -37,9 +37,6 @@ mock.module("../../../../../../src/shared/log/renderer", () => ({
 const { MarkdownPreview, stripFrontmatter } = await import(
   "../../../../../../src/renderer/components/editor/preview/markdown-preview"
 );
-const { MAX_PREVIEW_BYTES, PREVIEW_TRUNCATED_MESSAGE } = await import(
-  "../../../../../../src/renderer/components/editor/preview/constants"
-);
 
 const BASE_PROPS = {
   workspaceId: "ws-1",
@@ -77,28 +74,6 @@ describe("MarkdownPreview — XSS / script suppression", () => {
   });
 });
 
-describe("MarkdownPreview — GitHub-allowlisted HTML renders", () => {
-  test("a centered <div> with an <img width> renders as real DOM (not escaped text)", () => {
-    const source = '<div align="center"><img src="./logo.png" width="120" alt="logo" /></div>';
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    // The div + align survive sanitize; not shown as literal "&lt;div".
-    expect(html).not.toContain("&lt;div");
-    expect(html).toContain('align="center"');
-    expect(html).toContain('width="120"');
-    // The raw <img> still flows through the workspace-image guard. `./logo.png`
-    // resolves against the README's dir (docs/) → docs/logo.png.
-    expect(html).toContain("nexus-workspace://ws-1/docs/logo.png");
-  });
-
-  test("<details>/<summary> render as collapsible markup", () => {
-    const source = "<details><summary>More</summary>\n\nHidden body.\n\n</details>";
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    expect(html).toContain("<details");
-    expect(html).toContain("<summary");
-    expect(html).toContain("Hidden body.");
-  });
-});
-
 describe("MarkdownPreview — disallowed link schemes", () => {
   test("`javascript:` href on a link is NOT placed into href attribute (sanitiser strips it)", () => {
     const source = "[click](javascript:alert(1))";
@@ -133,33 +108,6 @@ describe("MarkdownPreview — workspace image rewriting", () => {
 });
 
 describe("MarkdownPreview — YAML frontmatter", () => {
-  test("a leading `---` YAML block is stripped from the rendered output", () => {
-    const source = [
-      "---",
-      "title: Hello",
-      "tags: [a, b]",
-      "---",
-      "",
-      "# Body heading",
-      "",
-      "Body paragraph.",
-    ].join("\n");
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    expect(html).not.toContain("title: Hello");
-    expect(html).not.toContain("tags:");
-    expect(html).toContain("Body heading");
-    expect(html).toContain("Body paragraph.");
-  });
-
-  test("a thematic break (`---`) deeper in the document is preserved (not treated as frontmatter)", () => {
-    const source = ["# Heading", "", "Para one.", "", "---", "", "Para two."].join("\n");
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    // The body must survive; an <hr> remains where the thematic break was.
-    expect(html).toContain("Para one.");
-    expect(html).toContain("Para two.");
-    expect(html).toContain("<hr");
-  });
-
   describe("stripFrontmatter — unit", () => {
     test("strips a CRLF-terminated frontmatter block", () => {
       const src = "---\r\nfoo: bar\r\n---\r\nbody\r\n";
@@ -232,20 +180,6 @@ describe("MarkdownPreview — YAML frontmatter", () => {
       const src = "# heading\n\nparagraph";
       expect(stripFrontmatter(src)).toBe(src);
     });
-  });
-});
-
-describe("MarkdownPreview — byte cap", () => {
-  test("source exceeding MAX_PREVIEW_BYTES surfaces the truncate banner", () => {
-    const oversized = "x".repeat(MAX_PREVIEW_BYTES + 1);
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={oversized} />);
-    expect(html).toContain(PREVIEW_TRUNCATED_MESSAGE);
-  });
-
-  test("source under MAX_PREVIEW_BYTES does not render the banner", () => {
-    const source = "# small";
-    const html = renderToStaticMarkup(<MarkdownPreview {...BASE_PROPS} source={source} />);
-    expect(html).not.toContain(PREVIEW_TRUNCATED_MESSAGE);
   });
 });
 

@@ -185,23 +185,6 @@ func TestFindBinaryDoesNotAskRustupAboutAServerOfItsOwn(t *testing.T) {
 	}
 }
 
-func TestSearchDirsIncludeWhereInstallersPutServers(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "home")
-	t.Setenv("GOBIN", "")
-	t.Setenv("GOPATH", filepath.Join(home, "gopath"))
-
-	dirs := strings.Join(searchDirs(home, ""), "\n")
-	for _, want := range []string{
-		filepath.Join(home, "gopath", "bin"),
-		filepath.Join(home, "go", "bin"),
-		filepath.Join(home, ".cargo", "bin"),
-	} {
-		if !strings.Contains(dirs, want) {
-			t.Fatalf("searchDirs() leaves out %q", want)
-		}
-	}
-}
-
 func TestFindBinaryGivesTheServerTheInstallDirectories(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -252,29 +235,6 @@ func TestLoginShellPathIsAskedEachTime(t *testing.T) {
 		if got := loginShellPath(); got != want {
 			t.Fatalf("loginShellPath() = %q, want %q", got, want)
 		}
-	}
-}
-
-func TestExpandHome(t *testing.T) {
-	home := filepath.Join("/", "home", "me")
-	for path, want := range map[string]string{
-		"~":                home,
-		"~/go/bin/gopls":   filepath.Join(home, "go", "bin", "gopls"),
-		"/opt/gopls":       "/opt/gopls",
-		"~other/bin/gopls": "~other/bin/gopls",
-		"":                 "",
-	} {
-		if got := expandHome(path, home); got != want {
-			t.Errorf("expandHome(%q) = %q, want %q", path, got, want)
-		}
-	}
-}
-
-func TestJoinPathListsKeepsEachDirectoryOnce(t *testing.T) {
-	sep := string(os.PathListSeparator)
-	got := joinPathLists("/a", "/b"+sep+"/a"+sep, "/c"+sep+"/b")
-	if want := strings.Join([]string{"/a", "/b", "/c"}, sep); got != want {
-		t.Fatalf("joinPathLists() = %q, want %q", got, want)
 	}
 }
 

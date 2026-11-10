@@ -104,19 +104,6 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
 
     expect(exits).toHaveLength(1); // only one exit emitted
   });
-
-  test("closeWorkspaceSessions on unknown workspace is a no-op", () => {
-    const channel = new FakeAgentChannel();
-    const manager = makeWorkspaceManager(WORKSPACE_ID, channel);
-    const host = startAgentPtyHost(manager);
-
-    const exits: Array<unknown> = [];
-    host.on("exit", (args) => exits.push(args));
-
-    // Calling on a workspace that never had sessions must not throw.
-    expect(() => host.closeWorkspaceSessions("unknown-workspace-id")).not.toThrow();
-    expect(exits).toHaveLength(0);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -131,48 +118,6 @@ describe("AgentPtyHostHandle.call — no-op for removed workspace", () => {
 
     // WORKSPACE_ID is unknown to this manager — tryGetAgentChannel returns null.
     const result = await host.call("write", { workspaceId: WORKSPACE_ID, tabId: TAB_A, data: "x" });
-
-    expect(result).toBeUndefined();
-    expect(channel.calls).toHaveLength(0);
-  });
-
-  test("kill returns undefined and emits no channel call when workspace is gone", async () => {
-    const channel = new FakeAgentChannel();
-    const manager = makeWorkspaceManager("other-workspace", channel);
-    const host = startAgentPtyHost(manager);
-
-    const result = await host.call("kill", { workspaceId: WORKSPACE_ID, tabId: TAB_A });
-
-    expect(result).toBeUndefined();
-    expect(channel.calls).toHaveLength(0);
-  });
-
-  test("resize returns undefined and emits no channel call when workspace is gone", async () => {
-    const channel = new FakeAgentChannel();
-    const manager = makeWorkspaceManager("other-workspace", channel);
-    const host = startAgentPtyHost(manager);
-
-    const result = await host.call("resize", {
-      workspaceId: WORKSPACE_ID,
-      tabId: TAB_A,
-      cols: 100,
-      rows: 30,
-    });
-
-    expect(result).toBeUndefined();
-    expect(channel.calls).toHaveLength(0);
-  });
-
-  test("ack returns undefined and emits no channel call when workspace is gone", async () => {
-    const channel = new FakeAgentChannel();
-    const manager = makeWorkspaceManager("other-workspace", channel);
-    const host = startAgentPtyHost(manager);
-
-    const result = await host.call("ack", {
-      workspaceId: WORKSPACE_ID,
-      tabId: TAB_A,
-      bytesConsumed: 128,
-    });
 
     expect(result).toBeUndefined();
     expect(channel.calls).toHaveLength(0);

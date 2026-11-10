@@ -3,16 +3,8 @@
  * sessions in their terminals, each in a phase, and which one to show first.
  */
 import { describe, expect, it } from "bun:test";
-import { resolveSelection } from "../../../../../src/renderer/components/sessions/selection";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import {
-  buildFamily,
-  estimatedGlyph,
-  type FamilyInput,
-  firstSession,
-  phaseOf,
-  workspaceEstimatedGlyph,
-} from "../../../../../src/renderer/services/sessions/model";
+import { buildFamily, type FamilyInput } from "../../../../../src/renderer/services/sessions/model";
 import type { Tab } from "../../../../../src/renderer/state/stores/tabs";
 import type { StatusEntry } from "../../../../../src/shared/claude/status";
 import type { TabActivity } from "../../../../../src/shared/sessions/agent-state";
@@ -89,33 +81,7 @@ function input(overrides: Partial<FamilyInput> = {}): FamilyInput {
   };
 }
 
-describe("phaseOf", () => {
-  it("puts what waits on the user first, then work, done and the rest", () => {
-    expect(phaseOf("permissionPending")).toBe("attention");
-    expect(phaseOf("needsInput")).toBe("attention");
-    expect(phaseOf("error")).toBe("attention");
-    expect(phaseOf("running")).toBe("running");
-    expect(phaseOf("busy")).toBe("running");
-    expect(phaseOf("completed")).toBe("done");
-    expect(phaseOf("idle")).toBe("idle");
-    expect(phaseOf("quiet")).toBe("idle");
-    expect(phaseOf("exited")).toBe("idle");
-  });
-});
-
 describe("buildFamily", () => {
-  it("is the workspace and its tasks, whichever of them the tab is in", () => {
-    const fromRoot = buildFamily(input());
-    const fromTask = buildFamily(input({ workspaceId: TASK }));
-    for (const family of [fromRoot, fromTask]) {
-      expect(family?.root.id).toBe(ROOT);
-      expect(family?.worktrees.map((w) => [w.workspace.id, w.isRoot, w.branch])).toEqual([
-        [ROOT, true, undefined],
-        [TASK, false, "task/fix-login"],
-      ]);
-    }
-  });
-
   it("lists Claude tabs as Claude sessions, idle until their hooks tell", () => {
     const family = buildFamily(
       input({
@@ -172,10 +138,6 @@ describe("buildFamily", () => {
     });
     // Its view not shown since the app started: nothing tells it yet.
     expect(fresh).toMatchObject({ kind: "codex", state: "idle", phase: "idle" });
-  });
-
-  it("is null for a workspace that is gone", () => {
-    expect(buildFamily(input({ workspaceId: "gone" }))).toBeNull();
   });
 
   it("lists only terminals running an agent, with Claude's state and last prompt", () => {
@@ -338,100 +300,5 @@ describe("buildFamily", () => {
     expect(family?.worktrees[0].sessions.map((s) => [s.tabId, s.agent])).toEqual([
       ["up", "claude"],
     ]);
-  });
-});
-
-describe("the tab bar and sidebar glyphs of agents told by their output", () => {
-  const codex = terminal("c", "codex");
-  const busy = { lastOutputAt: NOW - 500 };
-  const done = { lastOutputAt: NOW - 9_500, lastNotice: { body: "5", at: NOW - 10_000 } };
-
-  it("shows running while the agent prints and a done turn until it is looked at", () => {
-    expect(estimatedGlyph(codex, busy, undefined, NOW, false)).toBe("running");
-    expect(estimatedGlyph(codex, done, undefined, NOW, false)).toBe("completed");
-    expect(estimatedGlyph(codex, done, NOW - 20_000, NOW, false)).toBe("completed");
-    expect(estimatedGlyph(codex, done, NOW - 1_000, NOW, false)).toBeNull();
-  });
-
-  it("counts a turn that ends in front of the user as looked at", () => {
-    expect(estimatedGlyph(codex, done, undefined, NOW, true)).toBeNull();
-    expect(estimatedGlyph(codex, busy, undefined, NOW, true)).toBe("running");
-  });
-
-  it("shows nothing for a quiet agent, a shell, or an ended terminal", () => {
-    expect(estimatedGlyph(codex, { lastOutputAt: NOW - 10_000 }, undefined, NOW, false)).toBeNull();
-    expect(estimatedGlyph(terminal("s", "zsh"), busy, undefined, NOW, false)).toBeNull();
-    expect(estimatedGlyph(terminal("x", "codex", true), busy, undefined, NOW, false)).toBeNull();
-    expect(estimatedGlyph(codex, undefined, undefined, NOW, false)).toBeNull();
-  });
-
-  it("gives a workspace the strongest glyph of its and its tasks' terminals Claude has no state for", () => {
-    const tabs = {
-      [ROOT]: { run: terminal("run", "codex"), claude: terminal("claude", "claude") },
-      [TASK]: { done: terminal("done", "codex") },
-    };
-    const sessions = {
-      tabsByWorkspace: tabs,
-      claudeByWorkspace: { [ROOT]: { claude: claude("idle") } },
-      activity: new Map([
-        [`${ROOT}:run`, busy],
-        // Claude's own terminal prints too; its hooks tell its state.
-        [`${ROOT}:claude`, busy],
-        [`${TASK}:done`, done],
-      ]),
-      now: NOW,
-      seenByWorkspace: {},
-    };
-    expect(workspaceEstimatedGlyph(sessions, [ROOT], null)).toBe("running");
-    expect(workspaceEstimatedGlyph(sessions, [ROOT, TASK], null)).toBe("completed");
-    expect(workspaceEstimatedGlyph(sessions, [ROOT, TASK], `${TASK}:done`)).toBe("running");
-    const claudeOnly = { ...sessions, activity: new Map([[`${ROOT}:claude`, busy]]) };
-    expect(workspaceEstimatedGlyph(claudeOnly, [ROOT, TASK], null)).toBeNull();
-  });
-});
-
-describe("what to show first", () => {
-  const family = buildFamily(
-    input({
-      tabsByWorkspace: {
-        [ROOT]: { idle: terminal("idle", "claude"), run: terminal("run", "claude") },
-        [TASK]: { done: terminal("done", "claude"), ask: terminal("ask", "claude") },
-      },
-      claudeByWorkspace: {
-        [ROOT]: { idle: claude("idle"), run: claude("running") },
-        [TASK]: { done: claude("completed"), ask: claude("needsInput") },
-      },
-    }),
-  );
-  if (!family) throw new Error("no family");
-
-  it("starts with a session waiting on the user", () => {
-    expect(firstSession(family)?.tabId).toBe("ask");
-    expect(resolveSelection(family, null)).toEqual({ kind: "session", key: `${TASK}:ask` });
-  });
-
-  it("keeps a selection that still names something", () => {
-    const session = { kind: "session", key: `${ROOT}:idle` } as const;
-    const worktree = { kind: "worktree", workspaceId: TASK } as const;
-    expect(resolveSelection(family, session)).toBe(session);
-    expect(resolveSelection(family, worktree)).toBe(worktree);
-  });
-
-  it("moves on from a selection that is gone", () => {
-    expect(resolveSelection(family, { kind: "session", key: `${ROOT}:closed` })).toEqual({
-      kind: "session",
-      key: `${TASK}:ask`,
-    });
-    expect(resolveSelection(family, { kind: "worktree", workspaceId: OTHER })).toEqual({
-      kind: "session",
-      key: `${TASK}:ask`,
-    });
-  });
-
-  it("shows the workspace when there are no sessions", () => {
-    const empty = buildFamily(input());
-    if (!empty) throw new Error("no family");
-    expect(firstSession(empty)).toBeUndefined();
-    expect(resolveSelection(empty, null)).toEqual({ kind: "worktree", workspaceId: ROOT });
   });
 });

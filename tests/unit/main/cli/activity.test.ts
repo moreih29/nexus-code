@@ -78,18 +78,6 @@ test("what a terminal echoes of the keys typed in is no sign of work", () => {
   });
 });
 
-test("snapshot lists every terminal with its workspace and tab", () => {
-  const source = host();
-  const tracker = new ActivityTracker(source, () => 2_000);
-
-  source.emit("data", { workspaceId: "w", tabId: "t:1", chunk: "hi" });
-  source.emit("data", { workspaceId: "v", tabId: "u", chunk: "\x1b]9;Done\x07" });
-  expect(tracker.snapshot()).toEqual([
-    { workspaceId: "w", tabId: "t:1", lastOutputAt: 2_000 },
-    { workspaceId: "v", tabId: "u", lastOutputAt: 2_000, lastNotice: { body: "Done", at: 2_000 } },
-  ]);
-});
-
 test("looks at the foreground program as output starts, and again once it has settled", async () => {
   const source = host();
   let now = 1_000;

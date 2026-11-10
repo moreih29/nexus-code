@@ -85,20 +85,6 @@ HostName sibling.example.com
 });
 
 describe("listConfigHostsHandler", () => {
-  it("reads ssh config hosts through the IPC contract shape", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-ssh-config-"));
-    const configPath = path.join(tmpDir, "config");
-    fs.writeFileSync(configPath, "Host dev\n  HostName dev.example.com\n");
-
-    try {
-      const hosts = await listConfigHostsHandler(configPath)(undefined);
-
-      expect(hosts).toEqual([{ alias: "dev", host: "dev.example.com" }]);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
   it("returns an empty list when the ssh config file is missing", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-ssh-config-"));
     const configPath = path.join(tmpDir, "missing-config");

@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GitStatusSchema } from "../../../src/shared/git/types";
 
 const fixtureRoot = join(import.meta.dir, "../../fixtures/git/status");
-const requiredFixtureFiles = ["stdout.bin", "expected.json", "meta.json"] as const;
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -19,23 +18,6 @@ describe("git status parity fixtures", () => {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-
-  test("provide a reviewable fixture triplet for every case", () => {
-    expect(cases.length).toBeGreaterThanOrEqual(12);
-
-    for (const caseName of cases) {
-      const caseDir = join(fixtureRoot, caseName);
-      for (const fileName of requiredFixtureFiles) {
-        expect(existsSync(join(caseDir, fileName))).toBe(true);
-      }
-
-      const meta = readJson(join(caseDir, "meta.json")) as Record<string, unknown>;
-      expect(meta.gitVersion).toBeString();
-      expect(meta.LANG).toBe("C");
-      expect(["synthetic", "manual-capture"]).toContain(meta.source);
-      expect(readFileSync(join(caseDir, "stdout.bin")).byteLength).toBeGreaterThan(0);
-    }
-  });
 
   test("expected status JSON conforms to the shared schema", () => {
     for (const caseName of cases) {

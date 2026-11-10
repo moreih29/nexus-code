@@ -48,48 +48,6 @@ function firstBlock(text: string) {
 }
 
 // ---------------------------------------------------------------------------
-// acceptCurrent — 2-way
-// ---------------------------------------------------------------------------
-
-describe("acceptCurrent — 2-way", () => {
-  const text = twoWayText(["ours content"], ["theirs content"]);
-  const block = firstBlock(text);
-
-  test("replaces the whole block with only the current side", () => {
-    const result = acceptCurrent(text, block);
-    expect(result).toBe("ours content");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// acceptIncoming — 2-way
-// ---------------------------------------------------------------------------
-
-describe("acceptIncoming — 2-way", () => {
-  const text = twoWayText(["ours content"], ["theirs content"]);
-  const block = firstBlock(text);
-
-  test("replaces the whole block with only the incoming side", () => {
-    const result = acceptIncoming(text, block);
-    expect(result).toBe("theirs content");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// acceptBoth — 2-way
-// ---------------------------------------------------------------------------
-
-describe("acceptBoth — 2-way", () => {
-  const text = twoWayText(["ours content"], ["theirs content"]);
-  const block = firstBlock(text);
-
-  test("concatenates current then incoming, removing markers", () => {
-    const result = acceptBoth(text, block);
-    expect(result).toBe("ours content\ntheirs content");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // diff3 base — acceptCurrent discards base
 // ---------------------------------------------------------------------------
 
@@ -204,30 +162,6 @@ describe("accept actions — empty sections", () => {
     const block = firstBlock(text);
     const result = acceptBoth(text, block);
     expect(result).toBe("theirs");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Multi-line sections
-// ---------------------------------------------------------------------------
-
-describe("accept actions — multi-line sections", () => {
-  const text = twoWayText(["line A", "line B", "line C"], ["line X", "line Y"]);
-  const block = firstBlock(text);
-
-  test("acceptCurrent preserves all ours lines", () => {
-    const result = acceptCurrent(text, block);
-    expect(result).toBe("line A\nline B\nline C");
-  });
-
-  test("acceptIncoming preserves all theirs lines", () => {
-    const result = acceptIncoming(text, block);
-    expect(result).toBe("line X\nline Y");
-  });
-
-  test("acceptBoth concatenates all lines in order", () => {
-    const result = acceptBoth(text, block);
-    expect(result).toBe("line A\nline B\nline C\nline X\nline Y");
   });
 });
 

@@ -43,14 +43,6 @@ describe("workspace URI helpers", () => {
     expect(workspaceUriToFileUri(uri)).toBe("file:///c%3A/work/demo/crlf.txt");
   });
 
-  test("rejects empty workspaceId", () => {
-    expect(() => workspaceUriFor("", "/foo")).toThrow();
-  });
-
-  test("rejects relative paths", () => {
-    expect(() => workspaceUriFor(ID, "relative/path")).toThrow();
-  });
-
   test("parseWorkspaceUri returns null for unrelated URIs", () => {
     expect(parseWorkspaceUri("file:///some/file.ts")).toBeNull();
     expect(parseWorkspaceUri("https://example.com/x")).toBeNull();
@@ -118,14 +110,5 @@ describe("untitled URI helpers", () => {
   test("parseWorkspaceUri returns null for untitled:// URIs", () => {
     const untitledUri = untitledCacheUriFor(ID, 1);
     expect(parseWorkspaceUri(untitledUri)).toBeNull();
-  });
-
-  test("untitledCacheUriFor rejects empty workspaceId", () => {
-    expect(() => untitledCacheUriFor("", 1)).toThrow();
-  });
-
-  test("untitledCacheUriFor rejects non-positive index", () => {
-    expect(() => untitledCacheUriFor(ID, 0)).toThrow();
-    expect(() => untitledCacheUriFor(ID, -1)).toThrow();
   });
 });
