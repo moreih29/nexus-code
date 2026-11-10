@@ -122,7 +122,7 @@ const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 type PanelPlace = "beside" | "drawer" | "summary";
 
 /** The parts a bare command asks for that are in the side panel. */
-const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp"]);
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -284,7 +284,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       if (dropped && back?.isConnected) back.focus({ preventScroll: true });
     };
   }, [drawerOpen]);
-  // A bare /context, /usage or /mcp opens the panel; its section opens itself.
+  // A bare /context, /usage or /mcp, or /status, opens the panel; its section opens itself.
   const reveal = state.reveal;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
   useEffect(() => {

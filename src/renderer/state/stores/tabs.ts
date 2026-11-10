@@ -43,7 +43,7 @@ export interface ClaudeTabProps {
    * The session the tab's program copies, up to a message, until the copy
    * has its own id: set on a tab opened as a fork, or rewound.
    */
-  fork?: { sessionId: string; at?: string };
+  fork?: { sessionId: string; at?: string; title?: string };
   /** The agent profile its program runs with, kept for good; absent = the default. */
   profileId?: string;
 }
@@ -262,7 +262,7 @@ interface TabsState {
   setClaudeTarget: (
     workspaceId: string,
     tabId: string,
-    target: { sessionId?: string; fork?: { sessionId: string; at?: string } },
+    target: { sessionId?: string; fork?: { sessionId: string; at?: string; title?: string } },
   ) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;

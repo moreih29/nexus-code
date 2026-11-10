@@ -52,7 +52,7 @@ export interface ChatTabState {
  * side panel's context, usage and MCP servers, the composer's model and
  * effort menus.
  */
-export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort";
+export type RevealPart = "context" | "usage" | "mcp" | "model" | "effort" | "status";
 
 export interface Reveal {
   part: RevealPart;

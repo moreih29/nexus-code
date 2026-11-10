@@ -1100,7 +1100,8 @@
         "copy_session": "Copy the session ID",
         "fork_session": "Fork the whole session",
         "model": "Model",
-        "version": "Version"
+        "version": "Version",
+        "account": "Account"
       },
       "context": {
         "title": "Context",
@@ -1308,7 +1309,13 @@
         "remote-env": "Choose the cloud agents' default environment, in a terminal",
         "ultrareview": "Review the branch in a cloud session, in a terminal",
         "autofix-pr": "Watch the PR and fix what fails, in a terminal",
-        "resume": "Go on with an earlier session of this folder in this tab"
+        "resume": "Go on with an earlier session of this folder in this tab",
+        "status": "Show this session's status: version, model, account, Remote Control",
+        "plan": "Switch to plan mode, or view or open this session's plan",
+        "branch": "Branch this conversation here, in a new tab",
+        "remote-control": "Control this session from your phone or claude.ai/code (on or off)",
+        "privacy-settings": "View and change your privacy settings (opens claude.ai)",
+        "ultraplan": "Draft an editable plan in a cloud session (terminal)"
       },
       "fork_none": "Send a message first: there is no conversation to copy yet.",
       "subtask_empty": "Say what the subtask should do: /subtask <task>",
@@ -1354,7 +1361,15 @@
       "marketplace_title": "Marketplaces",
       "marketplace_hint": "Find and install plugins with Claude Code's /plugin.",
       "marketplace_open": "Open in terminal",
-      "resume_busy": "Another session can be taken up once the turn ends."
+      "resume_busy": "Another session can be taken up once the turn ends.",
+      "plan_on": "Plan mode is on.",
+      "plan_none": "No plan has been written yet.",
+      "plan_title": "This session's plan",
+      "plan_needs_version": "Viewing the plan needs Claude Code {{version}} or later.",
+      "remote_on": "Remote Control is on.",
+      "remote_off": "Remote Control is off.",
+      "remote_unavailable": "Remote Control is not available for this account.",
+      "remote_not_ready": "Remote Control can be changed once Claude has started."
     },
     "codex": {
       "tab_title": "Codex",
