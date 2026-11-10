@@ -261,8 +261,6 @@ function WorkspaceRow({
             className={cn(
               // base layout — left accent bar 예약(border-l-2 transparent)으로 폭 안정.
               "block w-full px-3 py-2.5 rounded-(--radius-control) border-l-2 border-l-transparent",
-              // reserve right space for absolute overlay buttons (Pin + X)
-              "pr-10",
               // text + interaction
               "text-left cursor-pointer select-none font-sans transition-colors",
               "text-foreground",
@@ -297,10 +295,12 @@ function WorkspaceRow({
 
               {/* 텍스트 영역 — 1~4줄 가변 높이 */}
               <span className="min-w-0">
-                {/* 1줄: workspace 이름 */}
+                {/* 1줄: workspace 이름 — Pin·X가 이 줄 끝에 떠 있어서, 보이는 만큼 이름만 비켜 준다. */}
                 <span
                   className={cn(
                     "block text-app-body-emphasis truncate min-w-0",
+                    ws.pinned && "pr-6",
+                    "group-hover:pr-10 group-has-[:focus-visible]:pr-10",
                     isActive ? "text-foreground" : "text-muted-foreground",
                     nameEmphasis && "font-semibold",
                   )}
@@ -385,12 +385,21 @@ function WorkspaceRow({
             </span>
           </button>
 
-          {/* Pin toggle — absolute right-9, hover 시 노출. */}
+          {/*
+            Pin·X는 이름 줄 오른쪽 끝에. 고정된 행은 평소 Pin만 맨 끝에 있고,
+            hover(또는 행 안의 키보드 포커스) 때 X가 그 자리에 오고 Pin은 왼쪽으로.
+          */}
           <PinToggle
             pinned={ws.pinned}
             workspaceName={ws.name}
             onToggle={() => onTogglePin(ws)}
             draggable={false}
+            className={cn(
+              "absolute top-2.5",
+              ws.pinned
+                ? "right-2 group-hover:right-7 group-has-[:focus-visible]:right-7"
+                : "right-7",
+            )}
           />
 
           {/* Remove button — hover 시 fade-in. */}
@@ -403,8 +412,8 @@ function WorkspaceRow({
               onRemoveWorkspace(ws.id);
             }}
             className={cn(
-              "absolute top-1/2 -translate-y-1/2 right-2",
-              "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
+              "absolute top-2.5 right-2",
+              "opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100",
             )}
           >
             <X className="size-3" aria-hidden="true" />
