@@ -49,6 +49,7 @@ import {
 } from "../../services/chat/composer-input";
 import { watchFileDrop } from "../../services/chat/file-drop";
 import {
+  type CommandInfo,
   currentModelInfo,
   type ImageBlock,
   isWaiting,
@@ -127,6 +128,8 @@ interface ComposerProps {
   onCommand?: (text: string) => boolean;
   /** The `/` menu lists the Claude tab's own commands too. */
   appCommands?: boolean;
+  /** The `/` menu's commands, in place of the CLI's and the app's (the Codex tab's). */
+  commands?: readonly CommandInfo[];
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -168,6 +171,7 @@ export function Composer({
   below,
   onCommand,
   appCommands = true,
+  commands: ownCommands,
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
@@ -229,12 +233,13 @@ export function Composer({
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
+    if (ownCommands) return matchCommands([...ownCommands], completion.query);
     const cli = model.init?.commands ?? [];
     const own = appCommands
       ? appCommandsBeside(cli, (name) => t(`chat.commands.describe.${name}`))
       : [];
     return matchCommands([...listedCommands(cli), ...own], completion.query);
-  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands]);
+  }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   useEffect(() => {
@@ -679,7 +684,9 @@ export function Composer({
                   : t("chat.panel.needs_version", { version: firstVersionOf("file_suggestions") })
               }
               onCommand={
-                (model.init?.commands.length ?? 0) > 0 ? () => insertTrigger("/") : undefined
+                (ownCommands?.length ?? model.init?.commands.length ?? 0) > 0
+                  ? () => insertTrigger("/")
+                  : undefined
               }
               returnFocus={() => areaRef.current?.focus()}
             />

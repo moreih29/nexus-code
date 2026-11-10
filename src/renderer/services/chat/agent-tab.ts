@@ -68,11 +68,11 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
     };
   }
   if (tab?.type === "codex") {
-    const { cwd, threadId, profileId } = tab.props;
+    const { cwd, threadId, fork, profileId } = tab.props;
     return {
       agent: "codex",
       controller: codexController(
-        { workspaceId, tabId, cwd, threadId, ...(profileId ? { profileId } : {}) },
+        { workspaceId, tabId, cwd, threadId, fork, ...(profileId ? { profileId } : {}) },
         codexTabHooks(workspaceId, tabId),
       ),
     };

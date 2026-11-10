@@ -863,7 +863,8 @@
       "exited_codex": "Codex가 종료됨",
       "restarted_codex": "Codex가 다시 시작됨",
       "not_resumed": "이전 대화를 이어갈 수 없어 새 대화로 시작함",
-      "not_resumed_codex": "이전 Codex 대화를 이어갈 수 없어 새 대화로 시작함"
+      "not_resumed_codex": "이전 Codex 대화를 이어갈 수 없어 새 대화로 시작함",
+      "review": "코드 리뷰"
     },
     "tool": {
       "denied": "거부됨",
@@ -1393,6 +1394,76 @@
         "bypass_confirm_title": "Codex에 전체 권한을 줄까요?",
         "bypass_confirm_body": "Codex가 샌드박스 밖에서 묻지 않고 어떤 파일이든 수정하고, 어떤 명령이든 실행하고, 네트워크에 접속합니다. 문제가 생겨도 괜찮은 격리된 환경에서만 사용하세요.",
         "bypass_confirm": "전체 권한 주기"
+      },
+      "commands": {
+        "describe": {
+          "model": "모델 고르기 (이 탭만)",
+          "effort": "추론 수준 고르기 (이 탭만)",
+          "config": "새 탭의 기본 모델과 추론 수준",
+          "new": "이 탭에서 새 대화 시작",
+          "resume": "이 폴더의 이전 대화를 이 탭에서 이어가기",
+          "fork": "이 대화를 새 탭으로 복사",
+          "rename": "이 대화의 이름 바꾸기",
+          "compact": "컨텍스트 한도에 닿지 않게 대화를 요약",
+          "review": "커밋하지 않은 변경을 리뷰 (지시를 주면 그대로)",
+          "init": "Codex용 지침 파일 AGENTS.md 만들기",
+          "goal": "오래 걸리는 작업의 목표 보기·정하기·멈추기·지우기",
+          "status": "이 대화의 모델, 폴더, 사용한 컨텍스트 보기",
+          "diff": "커밋하지 않은 변경 보기",
+          "copy": "Codex의 마지막 응답(또는 끝에서 N번째) 복사",
+          "export": "대화를 폴더 안 Markdown 파일로 저장",
+          "mcp": "MCP 서버와 상태 보기",
+          "skills": "이 폴더에서 쓸 수 있는 스킬 보기",
+          "logout": "Codex에서 로그아웃",
+          "help": "탭이 처리하는 Codex 명령 보기",
+          "exit": "이 탭 닫기"
+        },
+        "busy": "응답이 끝난 뒤에 실행할 수 있습니다.",
+        "rename_empty": "새 이름을 입력하세요: /rename <이름>",
+        "help_intro": "Codex 탭이 처리하는 명령입니다. 그 밖의 `/`로 시작하는 글은 Codex에 그대로 보냅니다.",
+        "goal_no_thread": "먼저 메시지를 보내세요. 아직 목표를 둘 대화가 없습니다.",
+        "goal_none": "이 대화에는 목표가 없습니다. /goal <목표>로 정하세요.",
+        "goal_set": "목표를 정했습니다. Codex가 목표를 이룰 때까지 작업을 이어갑니다.",
+        "goal_cleared": "목표를 지웠습니다.",
+        "goal_paused": "목표를 멈췄습니다.",
+        "goal_resumed": "목표를 다시 이어갑니다.",
+        "goal_tokens": "{{used}} 토큰 사용",
+        "goal_status": {
+          "active": "진행 중",
+          "paused": "멈춤",
+          "blocked": "막힘",
+          "usageLimited": "사용량 한도",
+          "budgetLimited": "토큰 예산 소진",
+          "complete": "완료"
+        },
+        "status": {
+          "model": "모델",
+          "effort": "추론",
+          "folder": "폴더",
+          "thread": "대화",
+          "version": "버전",
+          "account": "계정",
+          "signed_out": "로그인하지 않음",
+          "context": "컨텍스트"
+        },
+        "mcp_title_one": "MCP 서버 {{count}}개",
+        "mcp_title_other": "MCP 서버 {{count}}개",
+        "mcp_none": "설정된 MCP 서버가 없습니다.",
+        "mcp_tools_one": "도구 {{count}}개",
+        "mcp_tools_other": "도구 {{count}}개",
+        "mcp_status": {
+          "notStarted": "시작 전",
+          "starting": "시작 중",
+          "connected": "연결됨",
+          "authenticationRequired": "로그인 필요",
+          "failed": "실패",
+          "cancelled": "취소됨",
+          "disabled": "꺼짐",
+          "notLoggedIn": "로그인 필요"
+        },
+        "logout": "로그아웃",
+        "logout_title": "Codex에서 로그아웃할까요?",
+        "logout_body": "이 프로필의 Codex 로그인이 지워집니다. 다시 쓰려면 로그인해야 합니다."
       }
     },
     "usage": {
