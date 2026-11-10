@@ -8,7 +8,7 @@
 // maybe absent: the protocol grows across 2.1.x releases (#159).
 
 import { terminalText } from "../editor/preview/notebook";
-import { appliedEffort, settingsModel } from "./settings-defaults";
+import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
 
 export type LineDir = "out" | "in" | "sys";
 
@@ -153,15 +153,33 @@ export interface ModelInfo {
   supportedEffortLevels?: string[];
 }
 
-/** The model info the session runs, as the CLI names it either way (alias or id). */
+/**
+ * The model info the session runs, as the CLI names it either way (alias or
+ * id). A model `chosen` ("opus") goes by its own name even where the default
+ * runs the same one ("default" and "opus" both claude-opus-5-5): the default
+ * is what runs when nothing chose a model.
+ */
 export function currentModelInfo(
   models: readonly ModelInfo[],
   current: string | undefined,
+  chosen?: string,
 ): ModelInfo | undefined {
   // Before its first turn the session names no model: it runs the default.
   if (!current) return models.find((m) => m.value === "default");
-  // "claude-opus-5-5[1m]" is Opus 5.5 with its long context.
-  const base = current.replace(/\[[^\]]*\]$/, "");
+  const named =
+    chosen && longContextBase(chosen) !== "default"
+      ? models.filter((m) => m.value !== "default")
+      : models;
+  return modelInfoOf(named, current) ?? modelInfoOf(models, current);
+}
+
+/** "claude-opus-5-5[1m]" is Opus 5.5 with its long context. */
+function longContextBase(model: string): string {
+  return model.replace(/\[[^\]]*\]$/, "");
+}
+
+function modelInfoOf(models: readonly ModelInfo[], current: string): ModelInfo | undefined {
+  const base = longContextBase(current);
   return (
     models.find((m) => m.value === current) ??
     models.find((m) => m.resolvedModel === current) ??
@@ -258,6 +276,11 @@ export interface ChatModel {
   sessionId?: string;
   /** The model the session runs, as the CLI names it ("claude-haiku-5-5"). */
   model?: string;
+  /**
+   * The model the tab or the settings chose, as they name it ("opus"); none
+   * when nothing chose one and the default runs.
+   */
+  chosenModel?: string;
   permissionMode?: string;
   effort?: string;
   cwd?: string;
@@ -1070,6 +1093,7 @@ function applyControlResponse(
       return;
     case "set_model":
       m.model = str(request.model) ?? m.model;
+      m.chosenModel = str(request.model) ?? m.chosenModel;
       return;
     case "apply_flag_settings": {
       const effort = str(rec(request.settings)?.effortLevel);
@@ -1079,6 +1103,7 @@ function applyControlResponse(
     case "get_settings":
       // Before its first turn the session names no model, nor ever its effort.
       m.model ??= settingsModel(body);
+      m.chosenModel ??= settingsChoice(body);
       m.effort ??= appliedEffort(body);
       return;
     case "get_context_usage":
