@@ -2,8 +2,11 @@
 // dialog shows them: where each one's value is read, what it can be, and
 // the /config messages that set what was changed. Claude Code's headless
 // mode has no /config panel, but runs `/config key=value` sent as a
-// message, which saves the setting where its panel would. Pure, for the
-// dialog and its tests.
+// message, which saves the setting where its panel would. The keys are
+// those the CLI itself lists (a bare /config prints them), so that one
+// that comes in a new Claude Code shows without the app knowing it; the
+// table here only names where each is read and how it is grouped. Pure,
+// for the dialog and its tests.
 
 export type ConfigGroup = "conversation" | "work" | "other";
 
@@ -40,11 +43,14 @@ export const BUILT_IN_OUTPUT_STYLES = [
 ];
 
 /**
- * /config's keys, as Claude Code 2.1.319 lists them, but `model`: the
- * composer's model chip sets it. Their fallbacks are its own.
+ * The /config keys the app knows, in the dialog's order: where each is
+ * read and what it is when set nowhere (Claude Code's own fallbacks). The
+ * model set here is the default a new conversation starts with; the
+ * composer's chip sets only its tab's.
  */
 // biome-ignore format: a table, one key to a line
 export const CONFIG_KEYS: readonly ConfigKey[] = [
+  { key: "model", group: "conversation", kind: "choice", setting: "model", fallback: "default" },
   { key: "autoCompact", group: "conversation", kind: "boolean", setting: "autoCompactEnabled", global: "autoCompactEnabled", fallback: true },
   { key: "idleCompaction", group: "conversation", kind: "boolean", setting: "idleCompaction", fallback: true },
   { key: "thinking", group: "conversation", kind: "boolean", setting: "alwaysThinkingEnabled", fallback: true },
@@ -59,6 +65,9 @@ export const CONFIG_KEYS: readonly ConfigKey[] = [
   { key: "workflows", group: "work", kind: "boolean", setting: "enableWorkflows" },
   { key: "workflowKeywordTriggerEnabled", group: "work", kind: "boolean", setting: "workflowKeywordTriggerEnabled", fallback: true },
   { key: "workflowSizeGuideline", group: "work", kind: "choice", options: ["unrestricted", "small", "medium", "large"], global: "workflowSizeGuideline" },
+  { key: "remoteControl", group: "work", kind: "choice", options: ["default", "true", "false"], setting: "remoteControlAtStartup", global: "remoteControlAtStartup", fallback: "default" },
+  { key: "agentPushNotifEnabled", group: "work", kind: "boolean", setting: "agentPushNotifEnabled", global: "agentPushNotifEnabled", fallback: false },
+  { key: "inputNeededNotifEnabled", group: "work", kind: "boolean", setting: "inputNeededNotifEnabled", global: "inputNeededNotifEnabled", fallback: false },
   { key: "theme", group: "other", kind: "choice", options: ["auto", "dark", "light", "light-daltonized", "dark-daltonized", "light-ansi", "dark-ansi"], setting: "theme", global: "theme", fallback: "dark" },
   { key: "editor", group: "other", kind: "choice", options: ["normal", "vim"], setting: "editorMode", global: "editorMode", fallback: "normal" },
   { key: "timeFormat", group: "other", kind: "choice", options: ["auto", "12-hour", "24-hour", "24-hour-utc"], setting: "timeFormat", fallback: "auto" },
@@ -77,7 +86,73 @@ export const CONFIG_KEYS: readonly ConfigKey[] = [
   { key: "autoConnectIde", group: "other", kind: "boolean", global: "autoConnectIde", fallback: false },
   { key: "defaultToAgentsView", group: "other", kind: "boolean", global: "defaultToAgentsView", fallback: false },
   { key: "leftArrowOpensAgents", group: "other", kind: "boolean", global: "leftArrowOpensAgents", fallback: true },
+  { key: "promptSuggestionEnabled", group: "other", kind: "boolean", setting: "promptSuggestionEnabled", global: "promptSuggestionEnabled", fallback: true },
+  { key: "teammateMode", group: "other", kind: "choice", options: ["auto", "tmux", "iterm2", "in-process"], setting: "teammateMode", global: "teammateMode", fallback: "auto" },
 ];
+
+/** The text of a `claude -p --output-format json` run's answer: its result, else what it printed. */
+export function configUsageOf(stdout: string): string {
+  try {
+    const answer = JSON.parse(stdout) as { result?: unknown };
+    if (typeof answer?.result === "string") return answer.result;
+  } catch {
+    // Not the JSON answer.
+  }
+  return stdout;
+}
+
+/** A key as a bare /config lists it ("  theme=auto|dark|light"). */
+export interface ListedKey {
+  key: string;
+  kind: ConfigKey["kind"];
+  options?: string[];
+}
+
+/**
+ * The keys in a bare /config's answer: each line's `key=` and what it
+ * takes, `true|false` an on/off setting, `<value>` any text, else the
+ * choices named.
+ */
+export function parseConfigUsage(text: string): ListedKey[] {
+  const keys: ListedKey[] = [];
+  for (const line of text.split("\n")) {
+    const match = /^\s+([A-Za-z][\w-]*)=(\S.*)$/.exec(line);
+    if (!match) continue;
+    const [, key, takes] = match;
+    const options = takes.split("|").map((o) => o.trim());
+    if (options.length === 2 && options.includes("true") && options.includes("false")) {
+      keys.push({ key, kind: "boolean" });
+    } else if (options.length === 1 && /^<.*>$/.test(options[0])) {
+      keys.push({ key, kind: "text" });
+    } else {
+      keys.push({ key, kind: "choice", options });
+    }
+  }
+  return keys;
+}
+
+/**
+ * The keys the dialog shows: those the CLI lists, as the table has them
+ * where it knows them (with what the CLI takes), and the others at the end
+ * of the last group, read from nowhere; the table when the CLI's list is
+ * not known. A key the CLI no longer lists is left out.
+ */
+export function configKeysOf(listed: readonly ListedKey[] | null): ConfigKey[] {
+  if (!listed || listed.length === 0) return [...CONFIG_KEYS];
+  const byKey = new Map(listed.map((k) => [k.key, k]));
+  const known = CONFIG_KEYS.flatMap((key) => {
+    const from = byKey.get(key.key);
+    if (!from) return [];
+    // What the CLI takes now, where it differs from what the table knew.
+    if (from.kind !== key.kind) return [{ ...key, kind: from.kind, options: from.options }];
+    return [key.kind === "choice" && from.options ? { ...key, options: from.options } : key];
+  });
+  const knownNames = new Set(CONFIG_KEYS.map((k) => k.key));
+  const unknown = listed
+    .filter((k) => !knownNames.has(k.key))
+    .map((k): ConfigKey => ({ key: k.key, group: "other", kind: k.kind, options: k.options }));
+  return [...known, ...unknown];
+}
 
 /** The keys that /output-style and /autocompact, typed bare, show the dialog at. */
 const CONFIG_COMMAND_FOCUS: Readonly<Record<string, string>> = {
@@ -110,6 +185,8 @@ function at(record: Readonly<Record<string, unknown>>, path: string): unknown {
 
 function typedValue(key: ConfigKey, raw: unknown): ConfigValue | undefined {
   if (key.kind === "boolean") return typeof raw === "boolean" ? raw : undefined;
+  // A choice of on, off or the default (remoteControl) is kept as true or false.
+  if (key.kind === "choice" && typeof raw === "boolean") return String(raw);
   if (typeof raw !== "string") return undefined;
   // /config shows the emacs mode it no longer has as normal.
   if (key.key === "editor" && raw === "emacs") return "normal";
@@ -124,9 +201,10 @@ function typedValue(key: ConfigKey, raw: unknown): ConfigValue | undefined {
 export function configValues(
   effective: Readonly<Record<string, unknown>>,
   global: Readonly<Record<string, unknown>>,
+  keys: readonly ConfigKey[] = CONFIG_KEYS,
 ): Record<string, ConfigValue | undefined> {
   const values: Record<string, ConfigValue | undefined> = {};
-  for (const key of CONFIG_KEYS) {
+  for (const key of keys) {
     let value = key.setting ? typedValue(key, at(effective, key.setting)) : undefined;
     // Turned off by disableWorkflows, whatever enableWorkflows says.
     if (key.key === "workflows" && effective.disableWorkflows === true) value = false;
@@ -161,10 +239,13 @@ function argOf(key: string, value: ConfigValue): string {
  * one word, and one for each value with a space, which /config takes only
  * as the message's one setting.
  */
-export function configMessages(changes: Readonly<Record<string, ConfigValue>>): string[] {
+export function configMessages(
+  changes: Readonly<Record<string, ConfigValue>>,
+  keys: readonly ConfigKey[] = CONFIG_KEYS,
+): string[] {
   const words: string[] = [];
   const alone: string[] = [];
-  for (const key of CONFIG_KEYS) {
+  for (const key of keys) {
     if (!(key.key in changes)) continue;
     const arg = argOf(key.key, changes[key.key]);
     (arg.includes(" ") ? alone : words).push(`${key.key}=${arg}`);
@@ -190,4 +271,70 @@ export function changesOf(
     if (!same) changes[key] = value;
   }
   return changes;
+}
+
+/**
+ * The effort levels a default can be: the model's, but max, which Claude
+ * Code keeps for the session and does not save.
+ */
+export function defaultEffortLevels(levels: readonly string[] | undefined): string[] {
+  return (levels ?? []).filter((level) => level !== "max");
+}
+
+/**
+ * The default effort the settings give a model ("claude-opus-5-5"): its
+ * own, under modelSettings, where Claude Code saves it (and which a
+ * headless run takes), else effortLevel, which a headless run leaves out.
+ */
+export function defaultEffortOf(
+  effective: Readonly<Record<string, unknown>>,
+  modelId: string | undefined,
+): string | undefined {
+  const perModel = at(effective, "modelSettings");
+  if (modelId && typeof perModel === "object" && perModel !== null) {
+    const settings = perModel as Record<string, { effortLevel?: unknown } | undefined>;
+    // The 1M window's model keeps the model's settings.
+    const own = (settings[modelId] ?? settings[modelId.replace(/\[1m\]$/i, "")])?.effortLevel;
+    if (typeof own === "string" && own) return own;
+  }
+  const level = effective.effortLevel;
+  return typeof level === "string" && level ? level : undefined;
+}
+
+interface ModelChoice {
+  value: string;
+  displayName?: string;
+  resolvedModel?: string;
+  supportedEffortLevels?: string[];
+}
+
+/** A model /config takes ("opus[1m]") as initialize's list has it, the 1M window aside. */
+export function modelChoiceOf(
+  choice: string,
+  models: readonly ModelChoice[],
+): { info?: ModelChoice; long: boolean } {
+  const long = /\[1m\]$/i.test(choice);
+  const base = choice.replace(/\[1m\]$/i, "");
+  return { info: models.find((m) => m.value === base), long };
+}
+
+/**
+ * The model whose default effort the dialog shows and saves: the new
+ * default model when the draft changes it (the session switches to it
+ * first), else the one the session runs ("claude-opus-5-5").
+ */
+export function effortModelOf(
+  changedModel: string | undefined,
+  running: string | undefined,
+  models: readonly ModelChoice[],
+): { id: string; info?: ModelChoice } | undefined {
+  if (changedModel !== undefined) {
+    const { info } = modelChoiceOf(changedModel, models);
+    return info ? { id: info.resolvedModel ?? info.value, info } : undefined;
+  }
+  if (!running) return undefined;
+  return {
+    id: running,
+    info: models.find((m) => m.resolvedModel === running || m.value === running),
+  };
 }

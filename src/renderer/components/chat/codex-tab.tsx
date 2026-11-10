@@ -52,6 +52,7 @@ import { CodexIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
 import { type ChatLinks, ChatLinksContext } from "./chat-links";
+import { CodexConfigDialog } from "./codex-config-dialog";
 import { Composer } from "./composer";
 import { MessageList } from "./message-list";
 import { focusChatTab, PermissionCard } from "./permission-card";
@@ -155,6 +156,7 @@ export function CodexTabView({
   useEffect(() => registerTabFocusTarget(tabId, () => focusChatTab(rootRef.current)), [tabId]);
   // What the conversation links opens over the tab, or beside it.
   const [look, setLook] = useState<QuickLookList | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
   // A tab put out of sight takes its quick look with it.
   useEffect(() => {
     if (!isVisible) setLook(null);
@@ -351,12 +353,23 @@ export function CodexTabView({
           />
         }
         onCommand={(text) => {
+          // A bare /config (or /settings) opens the defaults.
+          if (/^\/(config|settings)$/i.test(text.trim())) {
+            setConfigOpen(true);
+            return true;
+          }
           // A bare /model or /effort opens its menu, as Codex's own does;
           // anything else goes to the model as typed.
           const part = revealOf(text, ["model", "effort"]);
           if (part) revealPart(controller.key, part);
           return part !== null;
         }}
+      />
+      <CodexConfigDialog
+        controller={controller}
+        state={state}
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
       />
       {look && (
         <QuickLook

@@ -17,6 +17,7 @@ const FIRST_SEEN: Record<string, string> = {
   get_usage: "2.1.238",
   stop_task: "2.1.238",
   list_permission_rules: "2.1.288",
+  update_settings: "2.1.318",
   get_hooks_listing: "2.1.288",
   // Answered from 2.1.77, but only from 2.1.160 is the drop told by a
   // command_lifecycle event, which takes the message off the list.

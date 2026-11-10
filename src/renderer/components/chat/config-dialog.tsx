@@ -1,6 +1,10 @@
 // Claude Code's own settings (/config), as a dialog: what they are now,
 // read from get_settings and the global config file, and the changes sent
 // back as /config messages, which Claude Code saves where its panel would.
+// They are the defaults a new conversation starts with: the model and the
+// effort here too, where the composer's chips set only their tab's (the
+// tab the dialog is opened in takes the new ones, as the CLI's session
+// does).
 
 import { ChevronRight } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
@@ -12,10 +16,16 @@ import {
   type ConfigValue,
   changesOf,
   choicesOf,
+  configKeysOf,
   configMessages,
   configValues,
+  defaultEffortLevels,
+  defaultEffortOf,
+  effortModelOf,
+  modelChoiceOf,
 } from "../../services/chat/claude-config";
 import type { ChatController } from "../../services/chat/controller";
+import type { ModelInfo } from "../../services/chat/model";
 import type { ChatTabState } from "../../services/chat/store";
 import { cn } from "../../utils/cn";
 import { SettingsGroup, SettingsRow, SettingsSwitch } from "../settings/section";
@@ -25,7 +35,19 @@ import { DialogHeader } from "../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
 
-type Loaded = "loading" | { failed: string } | { values: Record<string, ConfigValue | undefined> };
+type Loaded =
+  | "loading"
+  | { failed: string }
+  | {
+      keys: ConfigKey[];
+      values: Record<string, ConfigValue | undefined>;
+      effective: Record<string, unknown>;
+      /** The model the session runs, whose saved effort is the one shown. */
+      model?: string;
+    };
+
+/** The draft's key for the default effort, which is no /config key. */
+const EFFORT = "effortDefault";
 
 const GROUPS: readonly ConfigGroup[] = ["conversation", "work", "other"];
 
@@ -58,7 +80,11 @@ export function ConfigDialog({
     setBusy(false);
     setOtherOpen(CONFIG_KEYS.find((k) => k.key === focus)?.group === "other");
     controller.readConfig().then(
-      ({ effective, global }) => live && setLoaded({ values: configValues(effective, global) }),
+      ({ effective, global, model, listed }) => {
+        if (!live) return;
+        const keys = configKeysOf(listed);
+        setLoaded({ keys, values: configValues(effective, global, keys), effective, model });
+      },
       (err: Error) => live && setLoaded({ failed: err.message }),
     );
     return () => {
@@ -67,6 +93,7 @@ export function ConfigDialog({
   }, [controller, open, focus]);
 
   const values = typeof loaded === "object" && "values" in loaded ? loaded.values : null;
+  const models = state.model.init?.models ?? [];
 
   // The key the command named, in view and with the keyboard.
   useEffect(() => {
@@ -76,14 +103,34 @@ export function ConfigDialog({
     row?.querySelector<HTMLElement>("button[role], input")?.focus();
   }, [focus, values]);
 
-  const changes = values ? changesOf(draft, values) : {};
-  const changed = Object.keys(changes).length;
+  const { [EFFORT]: draftEffort, ...draftKeys } = draft;
+  const changes = values ? changesOf(draftKeys, values) : {};
+  const ready = typeof loaded === "object" && "keys" in loaded ? loaded : null;
+  const effortModel = ready
+    ? effortModelOf(
+        typeof changes.model === "string" ? changes.model : undefined,
+        ready.model,
+        models,
+      )
+    : undefined;
+  const effortLevels = controller.supports("update_settings")
+    ? defaultEffortLevels(effortModel?.info?.supportedEffortLevels)
+    : [];
+  const effortNow =
+    ready && effortModel ? defaultEffortOf(ready.effective, effortModel.id) : undefined;
+  const effortChange =
+    typeof draftEffort === "string" && draftEffort !== effortNow ? draftEffort : undefined;
+  const changed = Object.keys(changes).length + (effortChange ? 1 : 0);
   const running = state.model.running;
 
   const apply = async () => {
+    if (!ready) return;
     setBusy(true);
     try {
-      await controller.sendCommands(configMessages(changes));
+      await controller.applyConfig(configMessages(changes, ready.keys), {
+        model: typeof changes.model === "string" ? changes.model : undefined,
+        effort: effortChange,
+      });
       onClose();
     } catch (err) {
       setBusy(false);
@@ -154,26 +201,51 @@ export function ConfigDialog({
                   }
                 >
                   {!folded &&
-                    CONFIG_KEYS.filter((k) => k.group === group).map((key) => (
-                      <div
-                        key={key.key}
-                        data-config-key={key.key}
-                        className={cn(
-                          focus === key.key &&
-                            "-mx-2 rounded-(--radius-control) bg-[var(--state-hover-bg)] px-2 py-1",
-                        )}
-                      >
-                        <ConfigRow
-                          configKey={key}
-                          current={loaded.values[key.key]}
-                          value={key.key in draft ? draft[key.key] : loaded.values[key.key]}
-                          dirty={key.key in changes}
-                          outputStyles={state.model.init?.outputStyles}
-                          onChange={(value) => set(key.key, value)}
-                          onReset={() => reset(key.key)}
-                        />
-                      </div>
-                    ))}
+                    loaded.keys
+                      .filter((k) => k.group === group)
+                      .map((key) => (
+                        <div key={key.key}>
+                          <div
+                            data-config-key={key.key}
+                            className={cn(
+                              focus === key.key &&
+                                "-mx-2 rounded-(--radius-control) bg-[var(--state-hover-bg)] px-2 py-1",
+                            )}
+                          >
+                            <ConfigRow
+                              configKey={key}
+                              current={loaded.values[key.key]}
+                              value={key.key in draft ? draft[key.key] : loaded.values[key.key]}
+                              dirty={key.key in changes}
+                              outputStyles={state.model.init?.outputStyles}
+                              models={models}
+                              onChange={(value) => set(key.key, value)}
+                              onReset={() => reset(key.key)}
+                            />
+                          </div>
+                          {key.key === "model" && effortLevels.length > 0 && (
+                            <div data-config-key={EFFORT} className="mt-3">
+                              <ConfigRow
+                                configKey={{
+                                  key: EFFORT,
+                                  group: "conversation",
+                                  kind: "choice",
+                                  options: effortLevels,
+                                }}
+                                label={t("chat.config.key.effortDefault", {
+                                  model: effortModel?.info?.displayName ?? effortModel?.id,
+                                })}
+                                current={effortNow}
+                                value={draftEffort ?? effortNow}
+                                dirty={effortChange !== undefined}
+                                models={models}
+                                onChange={(value) => set(EFFORT, value)}
+                                onReset={() => reset(EFFORT)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
                 </SettingsGroup>
               );
             })}
@@ -203,25 +275,31 @@ export function ConfigDialog({
 
 function ConfigRow({
   configKey,
+  label: givenLabel,
   current,
   value,
   dirty,
   outputStyles,
+  models,
   onChange,
   onReset,
 }: {
   configKey: ConfigKey;
+  /** In place of the key's own. */
+  label?: string;
   current: ConfigValue | undefined;
   value: ConfigValue | undefined;
   dirty: boolean;
   outputStyles?: readonly string[];
+  models: readonly ModelInfo[];
   onChange: (value: ConfigValue) => void;
   onReset: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const id = useId();
   const { key, kind } = configKey;
-  const label = t(`chat.config.key.${key}`);
+  // A key a newer Claude Code lists that the app has no name for goes by its own.
+  const label = givenLabel ?? t(`chat.config.key.${key}`, { defaultValue: key });
   // Only some have a line saying what they do.
   const descKey = `chat.config.desc.${key}`;
   const description = i18n.exists(descKey) ? t(descKey) : undefined;
@@ -276,7 +354,7 @@ function ConfigRow({
         <SelectContent>
           {choices.map((choice) => (
             <SelectItem key={choice} value={choice}>
-              {optionLabel(t, key, choice)}
+              {optionLabel(t, key, choice, models)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -289,9 +367,18 @@ function optionLabel(
   t: (key: string, options?: Record<string, unknown>) => string,
   key: string,
   choice: string,
+  models: readonly ModelInfo[],
 ): string {
   if (choice === "true") return t("chat.config.on");
   if (choice === "false") return t("chat.config.off");
+  if (key === "model") {
+    // As initialize names the model, with its 1M context window.
+    const { info, long } = modelChoiceOf(choice, models);
+    const name = info?.displayName
+      ? `${info.displayName}${long ? " · 1M" : ""}`
+      : t(`chat.config.option.model.${choice}`, { defaultValue: choice });
+    return choice === "default" ? t("chat.config.option.model.default") : name;
+  }
   // The permission modes, as the composer's mode chip calls them.
   const fallback =
     key === "permissionMode" ? t(`chat.mode.${choice}`, { defaultValue: choice }) : choice;

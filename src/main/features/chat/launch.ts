@@ -190,7 +190,7 @@ export type PluginAction = "install" | "enable" | "disable" | "update" | "uninst
 
 /**
  * What a Claude tab may have `claude` do outside its session: the folder's
- * background sessions, and the plugins.
+ * background sessions, the plugins, and /config's list of settings.
  */
 export type ClaudeCommand =
   | { kind: "agents" }
@@ -198,6 +198,8 @@ export type ClaudeCommand =
   | { kind: "background"; sessionId?: string; model?: string; prompt?: string }
   | { kind: "stop"; id: string }
   | { kind: "plugins" }
+  /** What a bare /config lists: the settings it takes, for the tab's settings dialog. */
+  | { kind: "configUsage" }
   | { kind: "plugin"; action: PluginAction; plugin: string; scope?: "user" | "project" | "local" };
 
 /**
@@ -220,6 +222,18 @@ export function claudeCommandArgs(command: ClaudeCommand, cwd: string): string[]
       return ["stop", command.id];
     case "plugins":
       return ["plugin", "list", "--json"];
+    case "configUsage":
+      // Run by Claude Code alone, without the model: kept as no session,
+      // and starting none of the user's hooks.
+      return [
+        "-p",
+        "--no-session-persistence",
+        "--settings",
+        '{"disableAllHooks":true}',
+        "--output-format",
+        "json",
+        "/config",
+      ];
     case "plugin": {
       const args = ["plugin", command.action, command.plugin, "--json"];
       if (command.scope !== undefined) args.push("--scope", command.scope);
