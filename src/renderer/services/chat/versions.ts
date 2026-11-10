@@ -25,6 +25,12 @@ const FIRST_SEEN: Record<string, string> = {
   cancel_async_message: "2.1.160",
 };
 
+/**
+ * From here get_usage takes `skip_behaviors`, which spares it a scan of
+ * every transcript of the last week for a section the app does not read.
+ */
+const USAGE_SKIPS_BEHAVIORS_FROM = "2.1.318";
+
 /** -1, 0 or 1 as a is before, the same as, or after b; x.y.z only. */
 export function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map((n) => Number.parseInt(n, 10) || 0);
@@ -49,6 +55,11 @@ export function supportsControl(version: string | null | undefined, subtype: str
 /** The version a control request first answered in, for the note on a hidden control. */
 export function firstVersionOf(subtype: string): string | undefined {
   return FIRST_SEEN[subtype];
+}
+
+/** Whether get_usage may be asked for the plan's limits alone. */
+export function usageSkipsBehaviors(version: string | null | undefined): boolean {
+  return !!version && compareVersions(version, USAGE_SKIPS_BEHAVIORS_FROM) >= 0;
 }
 
 export function isSupportedClaude(version: string | null | undefined): boolean {

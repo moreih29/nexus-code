@@ -780,6 +780,35 @@ describe("codex model", () => {
     expect(other.rateLimits).toBe(rolled.rateLimits);
   });
 
+  test("a read that finds no windows leaves the last ones shown", () => {
+    const window = { usedPercent: 20, windowDurationMins: 300, resetsAt: 1_700_000_000 };
+    const m = run([
+      ...started(),
+      inn({ id: "app-r1", method: "account/rateLimits/read", params: {} }),
+      out({ id: "app-r1", result: { rateLimits: { limitId: "codex", primary: window } } }),
+      inn({ id: "app-r2", method: "account/rateLimits/read", params: {} }),
+      out({ id: "app-r2", result: { rateLimits: { limitId: "codex", primary: null } } }),
+    ]);
+    expect(m.rateLimits?.primary?.usedPercent).toBe(20);
+  });
+
+  test("a subagent's context size and compaction are not the tab's", () => {
+    const usage = (threadId: string, totalTokens: number) =>
+      note("thread/tokenUsage/updated", {
+        threadId,
+        turnId: "turn_x",
+        tokenUsage: { last: { totalTokens }, modelContextWindow: 400_000 },
+      });
+    const m = run([
+      ...started(),
+      usage(T, 12_000),
+      usage("thr_child", 90_000),
+      note("thread/compacted", { threadId: "thr_child", turnId: "turn_x" }),
+    ]);
+    expect(m.tokens).toEqual({ used: 12_000, window: 400_000 });
+    expect(m.items).toEqual([]);
+  });
+
   test("an API-key sign-in has no limits to read, and says nothing of it", () => {
     const m = run([
       ...started(),

@@ -67,6 +67,7 @@ import {
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
 import { claudeUsageLine } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
+import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -172,16 +173,22 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   );
   const state = useChatTab(workspaceId, tabId);
   const { contextUsage, usage } = state.model;
+  // A minute's clock, so a window that resets leaves the line while it shows.
+  const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(
-    () => claudeUsageLine({ contextUsage, usage }, Date.now()),
-    [contextUsage, usage],
+    () => claudeUsageLine({ contextUsage, usage }, now),
+    [contextUsage, usage, now],
   );
 
-  // The line under the composer: the context after each turn, and when the
-  // tab is shown or its program comes up; the plan's usage with it.
+  // The line under the composer: the context and the plan's usage when the
+  // tab is shown or its program comes up, and the usage again as a turn
+  // ends. The controller asks for the context after each turn by itself.
   const lineReady = state.phase === "ready" && state.model.process === "running";
   useEffect(() => {
-    if (isVisible && lineReady && !state.model.running) controller.refreshUsageLine();
+    if (isVisible && lineReady) controller.refreshUsageLine();
+  }, [controller, isVisible, lineReady]);
+  useEffect(() => {
+    if (isVisible && lineReady && !state.model.running) controller.refreshPlanUsage();
   }, [controller, isVisible, lineReady, state.model.running]);
 
   // Opened the first time the tab is shown, so restored tabs in the

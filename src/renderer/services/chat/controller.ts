@@ -39,7 +39,7 @@ import {
   type QueuedMessage,
   useChatStore,
 } from "./store";
-import { isSupportedClaude, supportsControl } from "./versions";
+import { isSupportedClaude, supportsControl, usageSkipsBehaviors } from "./versions";
 
 const log = createLogger("chat");
 
@@ -64,6 +64,9 @@ const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
 /** Least time between two asks for the plan's usage the line under the composer makes. */
 const USAGE_REFRESH_MS = 60_000;
+
+/** How long after a failed ask for the context it is asked once more. */
+const CONTEXT_RETRY_MS = 3_000;
 
 interface ReplayResult {
   found: boolean;
@@ -690,28 +693,60 @@ export class ChatController {
    * runs; the answers land in the model.
    */
   refreshPanel(parts: readonly PanelPart[]): void {
-    const { phase, model } = this.state;
-    if (phase !== "ready" || model.process !== "running") return;
+    if (!this.lineCanAsk()) return;
     for (const part of parts) {
+      if (part === "context") {
+        this.refreshContext();
+        continue;
+      }
       const subtype = PANEL_REQUESTS[part];
-      if (this.supports(subtype)) this.request(subtype, {}).catch(() => {});
+      if (this.supports(subtype)) this.request(subtype, this.panelParams(part)).catch(() => {});
     }
   }
 
   /**
-   * Asks again for what the line under the composer shows: the context each
-   * time, the plan's usage (a request to Anthropic's servers) at most once a
-   * minute.
+   * Asks again for what the line under the composer shows, as the tab is
+   * shown or its program comes up: the context, and the plan's usage (a
+   * request to Anthropic's servers) at most once a minute. After the
+   * program's initialize, which a first ask could otherwise pass.
    */
   refreshUsageLine(now: number = Date.now()): void {
-    const { phase, model } = this.state;
-    if (phase !== "ready" || model.process !== "running") return;
+    if (!this.lineCanAsk()) return;
     const parts: PanelPart[] = ["context"];
     if (now - this.usageAskedAt >= USAGE_REFRESH_MS) {
       this.usageAskedAt = now;
       parts.push("usage");
     }
-    this.refreshPanel(parts);
+    void this.initializing.catch(() => {}).then(() => this.refreshPanel(parts));
+  }
+
+  /** The plan's usage again, as a turn ends in a shown tab: at most once a minute. */
+  refreshPlanUsage(now: number = Date.now()): void {
+    if (!this.lineCanAsk() || now - this.usageAskedAt < USAGE_REFRESH_MS) return;
+    this.usageAskedAt = now;
+    this.refreshPanel(["usage"]);
+  }
+
+  private lineCanAsk(): boolean {
+    const { phase, model } = this.state;
+    return !this.disposed && phase === "ready" && model.process === "running";
+  }
+
+  /** What a part of the panel is asked with: the plan's limits alone, where the CLI can. */
+  private panelParams(part: PanelPart): Record<string, unknown> {
+    const version = this.state.version ?? this.state.model.version;
+    return part === "usage" && usageSkipsBehaviors(version) ? { skip_behaviors: true } : {};
+  }
+
+  /**
+   * The context again: after each turn, the tab shown or not, so the agents
+   * tab has it too, and after a compaction. A failed ask is made once more.
+   */
+  private refreshContext(retry = true): void {
+    if (!this.lineCanAsk() || !this.supports(PANEL_REQUESTS.context)) return;
+    this.request(PANEL_REQUESTS.context, {}).catch(() => {
+      if (retry) setTimeout(() => this.refreshContext(false), CONTEXT_RETRY_MS);
+    });
   }
 
   async mcpReconnect(serverName: string): Promise<void> {
@@ -1166,6 +1201,13 @@ export class ChatController {
       this.pending.delete(id);
       if (response?.subtype === "error") entry.reject(new Error(String(response.error ?? "error")));
       else entry.resolve((response?.response as Record<string, unknown>) ?? {});
+    } else if (
+      message.type === "result" ||
+      (message.type === "system" && message.subtype === "compact_boundary")
+    ) {
+      // Each turn's end, whoever began it: the app, a message the CLI took
+      // after the last turn, Remote Control, a background task's news.
+      this.refreshContext();
     } else if (message.type === "system" && message.subtype === "session_title_changed") {
       // Said when the name changes, and as the program starts on a session
       // that has one; the CLI has trimmed it and made it unique.

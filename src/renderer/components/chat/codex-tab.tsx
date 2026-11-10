@@ -39,6 +39,7 @@ import { revertChangedFile } from "../../services/chat/revert-file";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { codexUsageLine } from "../../services/chat/usage-line";
+import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -124,9 +125,11 @@ export function CodexTabView({
   const state = useChatTab(workspaceId, tabId);
   const model = state.model as CodexModel;
   const { tokens, rateLimits } = model;
+  // A minute's clock, so a window that resets leaves the line while it shows.
+  const now = useNow(isVisible, 60_000);
   const usageLine = useMemo(
-    () => codexUsageLine({ tokens, rateLimits }, Date.now()),
-    [tokens, rateLimits],
+    () => codexUsageLine({ tokens, rateLimits }, now),
+    [tokens, rateLimits, now],
   );
 
   // Opened the first time the tab is shown, so restored tabs in the
