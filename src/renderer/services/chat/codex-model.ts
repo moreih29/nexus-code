@@ -12,6 +12,7 @@
 // release (#159): methods and fields it does not know are left alone, and
 // every field is read as maybe absent.
 
+import { CODEX_INIT_PROMPT } from "./codex-commands";
 import { fileMention } from "./composer-input";
 import {
   type AssistantBlock,
@@ -76,6 +77,11 @@ export interface CodexModel extends ChatModel {
   /** The plan's usage limits; only a ChatGPT sign-in has them. */
   rateLimits?: CodexRateLimits;
   threadName?: string;
+  /**
+   * The turn a review (/review) runs in: the message that starts it there
+   * is Codex's own, which the review's notice tells.
+   */
+  reviewTurn?: string;
   /** Where the text an item streams goes: its message's key and the block's index. */
   blocks: Record<string, { key: string; index: number }>;
   /** The server's requests waiting for an answer, by their JSON id. */
@@ -322,6 +328,8 @@ function applyThread(draft: CodexDraft, result: Rec, seq: number): void {
     const turn = rec(raw);
     const turnId = str(turn?.id);
     if (!turn || !turnId || !Array.isArray(turn.items)) return;
+    // A review's turn, whichever of its items is listed first.
+    if (turn.items.some((item) => rec(item)?.type === "enteredReviewMode")) m.reviewTurn = turnId;
     const startedAt = num(turn.startedAt);
     inStartOrder(turn.items).forEach(({ item, i }) => {
       const at = num(item.startedAtMs) ?? (startedAt !== undefined ? startedAt * 1000 : undefined);
@@ -600,6 +608,8 @@ function applyItem(
       if (m.items.some((i) => i.kind === "user" && i.uuid === id)) return;
       const clientId = str(item.clientId);
       if (clientId && takeUser(draft, `u-${clientId}`, id)) return;
+      // The instructions a review starts with, which the app did not write.
+      if (m.reviewTurn === turnId) return;
       // A message the app sent, told without its client id: the oldest not yet told.
       const index = m.items.findIndex(
         (i) => i.kind === "user" && i.key.startsWith("u-") && i.uuid === undefined,
@@ -631,6 +641,7 @@ function applyItem(
     // A review (/review) is told as it starts; its findings come as Codex's
     // message after it ends, which tells what the review's end item does.
     case "enteredReviewMode":
+      m.reviewTurn = turnId;
       if (!m.items.some((i) => i.key === `r${id}`)) {
         draft.push({ kind: "notice", key: `r${id}`, code: "review", detail: str(item.review), at });
       }
@@ -1165,6 +1176,14 @@ function describePermissions(permissions: Rec | null): string | undefined {
 // Small readers.
 // ---------------------------------------------------------------------------
 
+/**
+ * A message's text as its bubble and the tab's title show it: the prompt
+ * /init sends reads as the command typed.
+ */
+export function shownUserText(text: string): string {
+  return text.trim() === CODEX_INIT_PROMPT.trim() ? "/init" : text;
+}
+
 /** A message's input as a bubble shows it: text, mentions as @paths, images. */
 function userInputOf(input: unknown): Pick<UserItem, "text" | "images"> {
   const texts: string[] = [];
@@ -1189,7 +1208,7 @@ function userInputOf(input: unknown): Pick<UserItem, "text" | "images"> {
       }
     }
   }
-  const text = texts.join("\n");
+  const text = shownUserText(texts.join("\n"));
   if (mentions.length === 0) return { text, images };
   return { text: text ? `${text}\n\n${mentions.join(" ")}` : mentions.join(" "), images };
 }
