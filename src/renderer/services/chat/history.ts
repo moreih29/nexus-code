@@ -10,6 +10,7 @@ import {
   type ChatModel,
   emptyModel,
   isCommandOutput,
+  SENDER_KINDS,
   typedCommand,
 } from "./model";
 
@@ -26,13 +27,21 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
   const lines: ChatLine[] = [];
   for (const raw of entries) {
     const entry = rec(raw);
-    if (!entry || entry.isSidechain === true || entry.isMeta === true) continue;
-    // What the CLI tells the model by itself, as a task's end: not the user's.
-    if (
-      entry.type === "user" &&
-      (entry.promptSource === "system" || rec(entry.origin)?.kind === "task-notification")
-    )
+    if (!entry || entry.isSidechain === true) continue;
+    // A message that came while a turn ran is kept apart from the others.
+    const queued = queuedLine(entry, lines.length + 1);
+    if (queued) {
+      lines.push(queued);
       continue;
+    }
+    const kind = rec(entry.origin)?.kind;
+    const origin = typeof kind === "string" ? kind : undefined;
+    // What the CLI tells the model by itself is not shown, but for what
+    // someone sent and a task's end, which the model tells of (notTheUsers).
+    const told =
+      origin !== undefined && (SENDER_KINDS.has(origin) || origin === "task-notification");
+    if (entry.isMeta === true && !told) continue;
+    if (entry.type === "user" && entry.promptSource === "system" && !told) continue;
     const goal = goalLine(entry, lines.length + 1);
     if (goal) {
       lines.push(goal);
@@ -79,11 +88,53 @@ export function transcriptLines(entries: readonly unknown[]): ChatLine[] {
                 uuid: entry.uuid,
                 timestamp: entry.timestamp,
                 isReplay: true,
+                isSynthetic: entry.isMeta === true,
+                origin: entry.origin,
+                fromTranscript: true,
               },
       });
     }
   }
   return lines;
+}
+
+/**
+ * A message the CLI took while a turn ran, which the transcript keeps as an
+ * attachment (queued_command) and not as a message: the user's, another
+ * session's, a task's end.
+ */
+function queuedLine(entry: Rec, seq: number): ChatLine | null {
+  if (entry.type !== "attachment") return null;
+  const attachment = rec(entry.attachment);
+  if (attachment?.type !== "queued_command") return null;
+  const mode = attachment.commandMode;
+  if (mode !== undefined && mode !== "prompt" && mode !== "task-notification") return null;
+  const prompt = attachment.prompt;
+  if (typeof prompt !== "string" && !Array.isArray(prompt)) return null;
+  return {
+    seq,
+    dir: "out",
+    replay: true,
+    message: {
+      type: "user",
+      message: { role: "user", content: prompt },
+      uuid: queuedUuid(entry),
+      timestamp: attachment.timestamp ?? entry.timestamp,
+      isReplay: true,
+      isSynthetic: attachment.isMeta === true,
+      origin: attachment.origin ?? (mode === "task-notification" ? { kind: mode } : undefined),
+      fromTranscript: true,
+      midTurn: attachment.hostsOwnTurn !== true,
+    },
+  };
+}
+
+/** The uuid a message that came during a turn was written with, which a log names it by. */
+function queuedUuid(entry: Rec): unknown {
+  const attachment = rec(entry.attachment);
+  return attachment?.type === "queued_command" && typeof attachment.source_uuid === "string"
+    ? attachment.source_uuid
+    : entry.uuid;
 }
 
 /**
@@ -149,7 +200,8 @@ export interface HistoryCut {
 export function cutEntries(entries: readonly unknown[], cut: HistoryCut = {}): unknown[] {
   const kept: unknown[] = [];
   for (const raw of entries) {
-    const uuid = rec(raw)?.uuid;
+    const entry = rec(raw);
+    const uuid = entry ? queuedUuid(entry) : undefined;
     if (cut.before && typeof uuid === "string" && cut.before.has(uuid)) break;
     kept.push(raw);
     if (cut.upTo !== undefined && uuid === cut.upTo) break;
@@ -188,7 +240,12 @@ function lastTitleOf(entries: readonly unknown[], type: string, field: string): 
 export function modelUuids(model: ChatModel): Set<string> {
   const uuids = new Set<string>();
   for (const item of model.items) {
-    if ((item.kind === "user" || item.kind === "assistant") && item.uuid) uuids.add(item.uuid);
+    if (
+      (item.kind === "user" || item.kind === "assistant" || item.kind === "received") &&
+      item.uuid
+    ) {
+      uuids.add(item.uuid);
+    }
   }
   return uuids;
 }

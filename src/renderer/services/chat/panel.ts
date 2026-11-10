@@ -5,15 +5,16 @@
 import type { AgentRun } from "../../../shared/claude/activity";
 import { imageFileOf, type ShownImage } from "./image-look";
 import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
-import type {
-  AssistantBlock,
-  AssistantItem,
-  ChatItem,
-  ChatModel,
-  ImageBlock,
-  TaskInfo,
-  ToolCall,
-  UserItem,
+import {
+  type AssistantBlock,
+  type AssistantItem,
+  type ChatItem,
+  type ChatModel,
+  type ImageBlock,
+  opensTurn,
+  type TaskInfo,
+  type ToolCall,
+  type UserItem,
 } from "./model";
 
 type Rec = Record<string, unknown>;
@@ -169,6 +170,12 @@ export function agentTranscript(model: ChatModel, agent: AgentRow): ChatItem[] {
 /** Background Bash runs, workflows and the like: the tasks that are not agents. */
 export function jobsOf(model: ChatModel): TaskInfo[] {
   return Object.values(model.tasks).filter((task) => !AGENT_TASK_TYPES.has(task.type));
+}
+
+/** The exit code a job's end tells, as "… completed (exit code 0)" does. */
+export function exitCodeOf(summary: string | undefined): number | undefined {
+  const code = summary?.match(/exit code (-?\d+)/i)?.[1];
+  return code === undefined ? undefined : Number(code);
 }
 
 /** The command a job runs, as the Bash call that started it gave it. */
@@ -623,7 +630,7 @@ export function imagesShownEarlier(
   const byPart = new Map<AssistantBlock | string, ReadonlySet<string>>();
   let seen = new Set<string>();
   for (const item of items) {
-    if (item.kind === "user") {
+    if (opensTurn(item)) {
       seen = new Set();
       continue;
     }
@@ -728,7 +735,7 @@ export function answerExtras(
     }
   };
   for (const item of items) {
-    if (item.kind === "user") {
+    if (opensTurn(item)) {
       close();
       turn = [];
     } else turn.push(item);

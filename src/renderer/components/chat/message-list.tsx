@@ -3,17 +3,23 @@
 // bottom while the user is there, and leaves them be once they scroll up.
 
 import {
+  Bot,
   Brain,
   Check,
   CheckCheck,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
+  CircleSlash,
+  CircleX,
   Copy,
   FileText,
   GitFork,
   LoaderCircle,
+  MessageSquareShare,
   Radio,
   RotateCcw,
+  SquareTerminal,
 } from "lucide-react";
 import {
   memo,
@@ -36,13 +42,17 @@ import {
   type ChatModel,
   isWaiting,
   type NoticeItem,
+  type ReceivedItem,
+  type ShellItem,
   type StreamingMessage,
+  type TaskEndItem,
   type ToolCall,
   type UserItem,
 } from "../../services/chat/model";
 import {
   type AnswerExtras,
   answerExtras,
+  exitCodeOf,
   type ImagesShownEarlier,
   imagesShownEarlier,
   SEND_FILES_TOOL,
@@ -143,6 +153,11 @@ export interface MessageActions {
   onBackground?: (toolUseId: string) => void;
   /** Tool calls that wait for the user to allow them, which have not started. */
   waiting?: ReadonlySet<string>;
+  /**
+   * What shows a task that ended (its agent's transcript, its job in the
+   * side panel), when the tab still knows the task.
+   */
+  taskShower?: (item: TaskEndItem) => (() => void) | undefined;
 }
 
 /** What sends a call to the background, unless it waits to be allowed. */
@@ -393,8 +408,167 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
       return <AssistantMessage item={item} ctx={ctx} />;
     case "notice":
       return <Notice item={item} />;
+    case "received":
+      return <ReceivedBubble item={item} />;
+    case "task_end":
+      return <TaskEndRow item={item} ctx={ctx} />;
+    case "shell":
+      return <ShellCard item={item} />;
   }
 });
+
+/** The origins the app names; another is named as the CLI names it. */
+const NAMED_SOURCES: ReadonlySet<string> = new Set(["peer", "channel", "coordinator"]);
+
+/** The lines of a received message shown before it is opened. */
+const RECEIVED_LINES = 6;
+
+/**
+ * A message someone else sent Claude (another session, a channel, the
+ * coordinator): on the left as Claude's are, since the user did not write
+ * it, and tinted, with who sent it over it.
+ */
+function ReceivedBubble({ item }: { item: ReceivedItem }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { kind, name } = item.from;
+  // Named, it reads "NAME · sent from another session"; unnamed, what it is says it all.
+  const what = NAMED_SOURCES.has(kind)
+    ? t(`chat.received.${name ? "from_" : ""}${kind}`)
+    : t("chat.received.from_other", { kind });
+  const long = item.text.split("\n").length > RECEIVED_LINES || item.text.length > 600;
+  return (
+    <div className="group/received flex flex-col items-start gap-1" data-testid="chat-received">
+      <span className="flex max-w-[85%] items-center gap-1.5 text-app-micro text-muted-foreground">
+        <MessageSquareShare
+          className="size-3.5 shrink-0 text-[var(--chat-received-fg)]"
+          aria-hidden
+        />
+        {name && (
+          <span className="min-w-0 truncate font-medium text-[var(--chat-received-fg)]">
+            {name}
+          </span>
+        )}
+        <span className="shrink-0">{what}</span>
+      </span>
+      <div className="max-w-[85%] rounded-(--radius-raised) bg-[var(--chat-received-bg)] px-3 py-2 text-app-body select-text">
+        <div
+          className={cn(
+            "whitespace-pre-wrap break-words",
+            long && !open && "line-clamp-6 max-h-[9.5em] overflow-hidden",
+          )}
+        >
+          {item.text}
+        </div>
+        {long && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="mt-1 text-app-micro text-[var(--chat-received-fg)] hover:underline"
+          >
+            {open ? t("chat.received.less") : t("chat.received.more")}
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/received:opacity-100 group-hover/received:opacity-100">
+        <MessageTime at={item.at} />
+        <CopyButton text={item.text} />
+      </div>
+    </div>
+  );
+}
+
+/** What a task was, as its end names it (`Background command "npm test" completed`). */
+function namedIn(summary: string | undefined): string | undefined {
+  return summary?.match(/"([\s\S]+)"/)?.[1];
+}
+
+const AGENT_TASKS: ReadonlySet<string> = new Set([
+  "local_agent",
+  "remote_agent",
+  "in_process_teammate",
+]);
+
+/**
+ * A task that ended while Claude did not wait for it, on one line: the news
+ * wakes Claude, and what it says next answers it. A click shows the task.
+ */
+function TaskEndRow({ item, ctx }: { item: TaskEndItem; ctx: ItemContext }) {
+  const { t } = useTranslation();
+  const show = ctx.actions?.taskShower?.(item);
+  const agent =
+    (item.taskType !== undefined && AGENT_TASKS.has(item.taskType)) ||
+    (item.taskType === undefined && /^Agent\b/.test(item.summary ?? ""));
+  const state =
+    item.status === "completed" ? "completed" : item.status === "failed" ? "failed" : "stopped";
+  const what = item.description ?? namedIn(item.summary) ?? item.summary ?? item.taskId;
+  const exitCode = exitCodeOf(item.summary);
+  const body = (
+    <>
+      {state === "completed" ? (
+        <CircleCheck className="size-3.5 shrink-0 text-[var(--git-status-added-fg)]" aria-hidden />
+      ) : state === "failed" ? (
+        <CircleX className="size-3.5 shrink-0 text-[var(--state-error-fg)]" aria-hidden />
+      ) : (
+        <CircleSlash className="size-3.5 shrink-0" aria-hidden />
+      )}
+      {agent && <Bot className="size-3.5 shrink-0" aria-hidden />}
+      <span className={cn("shrink-0", state === "failed" && "text-[var(--state-error-fg)]")}>
+        {t(`chat.task_end.${agent ? "agent" : "job"}_${state}`)}
+      </span>
+      <span className="min-w-0 truncate text-foreground/80">{what}</span>
+      {exitCode !== undefined && exitCode !== 0 && (
+        <span className="shrink-0">{t("chat.panel.jobs.exit_code", { code: exitCode })}</span>
+      )}
+      <MessageTime at={item.at} />
+    </>
+  );
+  const row = "flex max-w-full items-center gap-1.5 text-app-micro text-muted-foreground";
+  return (
+    <div className="flex" data-testid="chat-task-end" title={item.summary}>
+      {show ? (
+        <button
+          type="button"
+          onClick={show}
+          className={cn(row, "rounded-(--radius-control) text-left hover:text-foreground")}
+        >
+          {body}
+          <ChevronRight className="size-3 shrink-0" aria-hidden />
+        </button>
+      ) : (
+        <div className={row}>{body}</div>
+      )}
+    </div>
+  );
+}
+
+/** A shell command the user ran in the terminal's Claude Code, and what it printed. */
+function ShellCard({ item }: { item: ShellItem }) {
+  const { t } = useTranslation();
+  const out = [item.stdout, item.stderr].filter(Boolean).join("\n");
+  return (
+    <div className="flex flex-col items-end gap-1" data-testid="chat-shell">
+      <span className="flex items-center gap-1 text-app-micro text-muted-foreground">
+        <SquareTerminal className="size-3.5" aria-hidden />
+        {t("chat.shell.ran")}
+      </span>
+      <div className="max-w-[85%] overflow-hidden rounded-(--radius-raised) border border-border font-mono text-app-ui-sm select-text">
+        {item.command && (
+          <div className="whitespace-pre-wrap break-words bg-muted px-3 py-1.5">
+            <span className="text-muted-foreground select-none">$ </span>
+            {item.command}
+          </div>
+        )}
+        {out && (
+          <pre className="app-scrollbar max-h-48 overflow-auto whitespace-pre-wrap break-words px-3 py-1.5 text-muted-foreground">
+            {out}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const { t } = useTranslation();

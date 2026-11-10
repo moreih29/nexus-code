@@ -845,6 +845,28 @@
     "jump_to_bottom": "Scroll to the latest message",
     "thinking": "Thinking",
     "thinking_live": "Thinking…",
+    "received": {
+      "peer": "Sent from another session",
+      "channel": "From a channel",
+      "coordinator": "From the coordinator",
+      "from_peer": "sent from another session",
+      "from_channel": "from a channel",
+      "from_coordinator": "from the coordinator",
+      "from_other": "sent as {{kind}}",
+      "more": "Show all",
+      "less": "Show less"
+    },
+    "task_end": {
+      "job_completed": "Background job finished",
+      "job_failed": "Background job failed",
+      "job_stopped": "Background job stopped",
+      "agent_completed": "Agent finished",
+      "agent_failed": "Agent failed",
+      "agent_stopped": "Agent stopped"
+    },
+    "shell": {
+      "ran": "Run in the terminal"
+    },
     "message": {
       "sent": "Sent",
       "taken": "Read by Claude",

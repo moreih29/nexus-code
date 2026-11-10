@@ -92,7 +92,74 @@ export interface NoticeItem {
   at?: number;
 }
 
-export type ChatItem = UserItem | AssistantItem | NoticeItem;
+/** Who wrote a message the CLI took, when it was not the user. */
+export interface MessageSource {
+  /** peer (another session, a teammate), channel, coordinator, or as the CLI names it. */
+  kind: string;
+  /** The session's or teammate's name, the channel's server. */
+  name?: string;
+}
+
+/**
+ * A message the CLI took that the user did not write: another session's, a
+ * channel's, the coordinator's. Claude answers it as it does the user's.
+ */
+export interface ReceivedItem {
+  kind: "received";
+  key: string;
+  uuid?: string;
+  from: MessageSource;
+  text: string;
+  at?: number;
+}
+
+/** A task that ended while Claude did not wait for it: the news of it wakes Claude. */
+export interface TaskEndItem {
+  kind: "task_end";
+  key: string;
+  taskId: string;
+  /** completed, failed, killed or stopped. */
+  status: string;
+  /** What the task was, when the news or the tab's tasks tell. */
+  description?: string;
+  /** local_bash, local_agent…, when the tab's tasks tell. */
+  taskType?: string;
+  summary?: string;
+  toolUseId?: string;
+  /** It came with no turn running, and Claude's next words answer it: another turn. */
+  wakes?: boolean;
+  at?: number;
+}
+
+/** A shell command the user ran in the terminal's Claude Code (`!command`), with its output. */
+export interface ShellItem {
+  kind: "shell";
+  key: string;
+  command: string;
+  stdout?: string;
+  stderr?: string;
+  at?: number;
+}
+
+export type ChatItem =
+  | UserItem
+  | AssistantItem
+  | NoticeItem
+  | ReceivedItem
+  | TaskEndItem
+  | ShellItem;
+
+/** Whether what comes after an item is another turn: a message Claude answers, or news that wakes it. */
+export function opensTurn(item: ChatItem): boolean {
+  return (
+    item.kind === "user" ||
+    item.kind === "received" ||
+    (item.kind === "task_end" && item.wakes === true)
+  );
+}
+
+/** The origins of a message that is someone's, though not the user's: shown even when the CLI marks it its own. */
+export const SENDER_KINDS: ReadonlySet<string> = new Set(["peer", "channel", "coordinator"]);
 
 export interface ToolResult {
   text: string;
@@ -638,8 +705,11 @@ function applySystem(draft: Draft, message: Rec, seq: number, at: number | undef
     case "task_started":
     case "task_progress":
     case "task_updated":
+      applyTask(draft, message, at);
+      return;
     case "task_notification":
       applyTask(draft, message, at);
+      applyTaskEnd(draft, message, at);
       return;
     case "background_tasks_changed": {
       if (!Array.isArray(message.tasks)) return;
@@ -949,7 +1019,11 @@ function applyUserOut(
     let index = uuid
       ? m.items.findIndex((item) => sent(item) && (item as UserItem).sentUuid === uuid)
       : -1;
-    if (index < 0) index = m.items.findIndex(sent);
+    // One the app did not write may be no message of the user's at all: a
+    // shell command run in the terminal, which no turn follows.
+    if (index < 0 && applyShell(draft, said, seq, when)) return;
+    const other = index < 0 ? notTheUsers(message, said) : null;
+    if (!other && index < 0) index = m.items.findIndex(sent);
     // Taken live after a turn ended, it begins the next one: one the user
     // sent as the last turn was ending, or one the CLI was given itself
     // (Remote Control, a background task's news). A transcript's messages
@@ -957,6 +1031,24 @@ function applyUserOut(
     if (live && !m.running && m.process === "running") {
       m.running = true;
       m.turn = { startedAt: when, outputTokens: 0, thinkingTokens: 0 };
+    }
+    if (other) {
+      // A task's end is told live by the CLI's own notice of it (applyTaskEnd).
+      if (other.kind === "task") {
+        if (message.fromTranscript === true) {
+          pushTaskEnd(draft, taskNews(said), when, message.midTurn !== true);
+        }
+      } else if (other.kind === "from") {
+        draft.push({
+          kind: "received",
+          key: `r${seq}`,
+          uuid,
+          from: other.from,
+          text: other.text,
+          at: when,
+        });
+      }
+      return;
     }
     if (index >= 0) {
       const { queued, ...item } = m.items[index] as UserItem;
@@ -1091,6 +1183,141 @@ function applyGoalCommand(
   }
   if (text === "No goal set") m.goal = null;
   return false;
+}
+
+type NotTheUsers =
+  | { kind: "task" }
+  | { kind: "from"; from: MessageSource; text: string }
+  /** The CLI's own word to Claude (a reminder, a hook's, a skill's text). */
+  | { kind: "hidden" };
+
+/**
+ * What a message the CLI took is, when the user did not write it: the CLI
+ * says who did (origin) and marks what it wrote itself (isSynthetic). How
+ * the text looks tells nothing: the user can paste any tag.
+ */
+function notTheUsers(message: Rec, said: string): NotTheUsers | null {
+  const origin = rec(message.origin);
+  const kind = str(origin?.kind);
+  const own = message.isSynthetic === true;
+  if (kind === "task-notification") return { kind: "task" };
+  // Before the CLI named origins, its own notice of a task came bare.
+  if (!kind && /^\s*<task-notification>/.test(said) && /<task-id>/.test(said)) {
+    return { kind: "task" };
+  }
+  if (kind && SENDER_KINDS.has(kind)) return received(kind, origin, said);
+  if (own) return { kind: "hidden" };
+  if (!kind || USER_KINDS.has(kind)) return null;
+  return received(kind, origin, said);
+}
+
+/** The origins of a message the user wrote: here, by voice, or from another device. */
+const USER_KINDS: ReadonlySet<string> = new Set([
+  "human",
+  "composer",
+  "remote",
+  "voice-call",
+  // The CLI could not tell whose: the user's, as it was before it told.
+  "unclassified",
+]);
+
+/**
+ * A message someone else sent, without the tag the CLI wraps it in for
+ * Claude (`<cross-session-message from-name="…">`, `<agent-message from="…">`,
+ * `<channel source="…">`) or the line it leads it with.
+ */
+function received(kind: string, origin: Rec | null, said: string): NotTheUsers {
+  // The line the CLI leads it with, when it begins a turn ("Another Claude
+  // session sent a message:", "The coordinator sent a message while…:").
+  const body = said.replace(/^\s*[^\n<]{1,160}:\n(?=\s*<[a-z])/, "");
+  const wrapped = /^\s*<([a-z][\w-]*)((?:\s+[\w-]+="[^"]*")*)\s*>\n?([\s\S]*?)\n?<\/\1>\s*$/.exec(
+    body,
+  );
+  const attr = (name: string) =>
+    wrapped ? new RegExp(`\\s${name}="([^"]*)"`).exec(wrapped[2])?.[1] : undefined;
+  const name =
+    str(origin?.name) ??
+    attr("from-name") ??
+    str(origin?.server) ??
+    attr("source") ??
+    attr("from") ??
+    str(origin?.from);
+  let text = wrapped ? wrapped[3] : said;
+  if (kind === "coordinator")
+    text = text.replace(/^\s*The coordinator sent a message[^\n]*:\n/, "");
+  return { kind: "from", from: name ? { kind, name } : { kind }, text: text.trim() };
+}
+
+/** What a task's end says of it, as the CLI writes it for Claude (`<task-notification>`). */
+function taskNews(said: string): Rec {
+  const tag = (name: string) =>
+    new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(said)?.[1]?.trim() || undefined;
+  return {
+    task_id: tag("task-id"),
+    tool_use_id: tag("tool-use-id"),
+    status: tag("status"),
+    summary: tag("summary"),
+  };
+}
+
+/**
+ * The CLI's notice that a task ended. One Claude waited for (a subagent it
+ * ran in the turn) ends with its call's result, which shows it; one it did
+ * not wait for has had that result since it began, and gets a line here.
+ */
+function applyTaskEnd(draft: Draft, message: Rec, at: number | undefined): void {
+  const toolUseId = str(message.tool_use_id);
+  const call = toolUseId ? draft.next.tools[toolUseId] : undefined;
+  if (call && !call.result) return;
+  pushTaskEnd(draft, message, at, !draft.next.running);
+}
+
+function pushTaskEnd(draft: Draft, news: Rec, at: number | undefined, wakes: boolean): void {
+  const m = draft.next;
+  const taskId = str(news.task_id);
+  const status = str(news.status);
+  if (!taskId || !status) return;
+  const key = `te-${taskId}`;
+  if (m.items.some((item) => item.key === key)) return;
+  const task = m.tasks[taskId];
+  draft.push({
+    kind: "task_end",
+    key,
+    taskId,
+    status,
+    description: task?.description || undefined,
+    taskType: task?.type || undefined,
+    summary: str(news.summary),
+    toolUseId: str(news.tool_use_id) ?? task?.toolUseId,
+    ...(wakes ? { wakes } : {}),
+    at,
+  });
+}
+
+/**
+ * A shell command the user ran in the terminal's Claude Code (`!command`),
+ * as the CLI keeps it: `<bash-input>` and then `<bash-stdout>…<bash-stderr>`.
+ */
+function applyShell(draft: Draft, said: string, seq: number, at: number | undefined): boolean {
+  const m = draft.next;
+  const input = /^\s*<bash-input>([\s\S]*)<\/bash-input>\s*$/.exec(said);
+  if (input) {
+    draft.push({ kind: "shell", key: `sh${seq}`, command: input[1].trim(), at });
+    return true;
+  }
+  if (!/^\s*<bash-(stdout|stderr)>/.test(said)) return false;
+  const part = (name: string) =>
+    new RegExp(`<bash-${name}>([\\s\\S]*?)</bash-${name}>`).exec(said)?.[1]?.replace(/\s+$/, "") ||
+    undefined;
+  const last = m.items.length - 1;
+  const prev = m.items[last];
+  const out = { stdout: part("stdout"), stderr: part("stderr") };
+  if (prev?.kind === "shell" && prev.stdout === undefined && prev.stderr === undefined) {
+    draft.replaceItem(last, { ...prev, ...out });
+  } else {
+    draft.push({ kind: "shell", key: `sh${seq}`, command: "", ...out, at });
+  }
+  return true;
 }
 
 /**

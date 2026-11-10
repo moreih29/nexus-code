@@ -125,7 +125,7 @@ const PANEL_PREF_KEY = "nexus.claude-tab.panel";
 type PanelPlace = "beside" | "drawer" | "summary";
 
 /** The parts a bare command asks for that are in the side panel. */
-const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status"]);
+const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
 
 function placeFor(width: number): PanelPlace {
   if (width >= PANEL_BESIDE_PX) return "beside";
@@ -256,6 +256,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   const running = state.model.running;
   const canFork = !hooks && controller.forkPoint("", { before: false }) !== null;
   const asking = state.model.permissions;
+  // Set below, where the agents are known; read when a row renders.
+  const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
   const actions = useMemo<MessageActions>(
     () => ({
       running,
@@ -267,6 +269,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           .backgroundTool(toolUseId)
           .catch((err: Error) => showToast({ kind: "error", message: err.message })),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+      taskShower: (item) => taskShower.current(item),
     }),
     [running, canFork, hooks, controller, workspaceId, props.cwd, asking],
   );
@@ -343,6 +346,19 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     dropAgentAsk(tabId);
   };
   useAgentAsk(tabId, agents, showAgent);
+  // A task's end in the conversation shows the task: an agent's transcript,
+  // a job in the side panel. One the tab no longer knows (a conversation
+  // resumed) has nothing to show.
+  taskShower.current = (item) => {
+    const task = state.model.tasks[item.taskId];
+    const toolUseId = task?.toolUseId ?? item.toolUseId;
+    if (toolUseId && agents.some((a) => a.toolUseId === toolUseId)) {
+      return () => showAgent(toolUseId);
+    }
+    return task && jobsOf(state.model).includes(task)
+      ? () => revealPart(controller.key, "jobs", item.taskId)
+      : undefined;
+  };
   // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
   const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
   const showCall = (toolUseId: string) => {

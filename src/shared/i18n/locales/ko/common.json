@@ -845,6 +845,28 @@
     "jump_to_bottom": "최근 메시지로 이동",
     "thinking": "생각",
     "thinking_live": "생각 중…",
+    "received": {
+      "peer": "다른 세션에서 온 메시지",
+      "channel": "채널에서 온 메시지",
+      "coordinator": "코디네이터가 보낸 메시지",
+      "from_peer": "세션에서 온 메시지",
+      "from_channel": "채널에서 온 메시지",
+      "from_coordinator": "코디네이터가 보낸 메시지",
+      "from_other": "{{kind}}(으)로 온 메시지",
+      "more": "전체 보기",
+      "less": "접기"
+    },
+    "task_end": {
+      "job_completed": "백그라운드 작업 완료",
+      "job_failed": "백그라운드 작업 실패",
+      "job_stopped": "백그라운드 작업 중지",
+      "agent_completed": "에이전트 완료",
+      "agent_failed": "에이전트 실패",
+      "agent_stopped": "에이전트 중지"
+    },
+    "shell": {
+      "ran": "터미널에서 실행"
+    },
     "message": {
       "sent": "보냄",
       "taken": "Claude가 읽음",
