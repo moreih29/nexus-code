@@ -3,7 +3,8 @@
 // classifier as the Markdown preview. In a Claude tab a file opens in quick
 // look and an address where the tab sends it; elsewhere files under the
 // workspace open in the editor, allowed external schemes in the system
-// browser.
+// browser. A link to a file is one once the file is found: one to a folder,
+// or to a file that is not there, shows as its words, the path on hover.
 
 import { Check, Copy } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -11,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import { useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
@@ -66,27 +68,34 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       a({ href, children, ...rest }) {
         const safe = typeof href === "string" ? href : "";
         const kind = linkKind(safe, cwd);
-        const link = (
+        const link = (icon?: React.ReactNode) => (
           <a {...rest} href={safe} title={safe} onClick={(e) => onLink(safe, e)}>
-            {kind === "file" && (
-              <FileKindIcon
-                path={resolveFilePath(safe, cwd) ?? safe}
-                className="mr-0.5 inline size-3.5 align-[-0.15em]"
-              />
-            )}
+            {icon}
             {children}
           </a>
         );
+        if (kind === "file") {
+          const path = resolveFilePath(safe, cwd) ?? safe;
+          return (
+            <FileLink
+              path={path}
+              href={safe}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+              link={link(
+                <FileKindIcon path={path} className="mr-0.5 inline size-3.5 align-[-0.15em]" />,
+              )}
+            >
+              {children}
+            </FileLink>
+          );
+        }
         return kind ? (
-          <LinkMenu
-            target={kind === "file" ? (resolveFilePath(safe, cwd) ?? safe) : safe}
-            href={safe}
-            kind={kind}
-          >
-            {link}
+          <LinkMenu target={safe} href={safe} kind={kind}>
+            {link()}
           </LinkMenu>
         ) : (
-          link
+          link()
         );
       },
       pre: CodeBlock,
@@ -104,7 +113,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         return <FileImage path={path} workspaceId={workspaceId} alt={alt ?? ""} fallback={label} />;
       },
     }),
-    [onLink, cwd, workspaceId, shownEarlier],
+    [onLink, cwd, workspaceId, rootPath, shownEarlier],
   );
 
   return (
@@ -134,6 +143,34 @@ function keepFileUrls(url: string): string {
     /^[\w.-]+\.\w+:\d+(:\d+)?$/.test(url)
     ? url
     : defaultUrlTransform(url);
+}
+
+/**
+ * A link to a file, as a link once the file is found (`link`); until then,
+ * and for a folder or a file that is not there, its words (`children`).
+ */
+function FileLink({
+  path,
+  href,
+  workspaceId,
+  rootPath,
+  link,
+  children,
+}: {
+  path: string;
+  href: string;
+  workspaceId: string;
+  rootPath: string;
+  link: React.ReactElement;
+  children: React.ReactNode;
+}) {
+  const found = useFoundFiles(workspaceId, rootPath, [path]);
+  if (!found.has(path)) return <span title={href}>{children}</span>;
+  return (
+    <LinkMenu target={path} href={href} kind="file">
+      {link}
+    </LinkMenu>
+  );
 }
 
 /** Whether a link names a file or a web address; null for anything else. */
