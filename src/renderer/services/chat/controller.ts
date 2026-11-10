@@ -669,17 +669,42 @@ export class ChatController {
   }
 
   setPermissionMode(mode: string): Promise<unknown> {
-    return this.request("set_permission_mode", { mode });
+    return this.shownAtOnce("permissionMode", mode, () =>
+      this.request("set_permission_mode", { mode }),
+    );
   }
 
   setModel(model: string): Promise<unknown> {
-    return this.request("set_model", { model });
+    return this.shownAtOnce("model", model, () => this.request("set_model", { model }));
   }
 
   setEffort(level: string): Promise<unknown> {
     // Holds for the tab: a program started again for it takes it too.
     this.flags = { ...this.flags, effortLevel: level };
-    return this.request("apply_flag_settings", { settings: { effortLevel: level } });
+    return this.shownAtOnce("effort", level, () =>
+      this.request("apply_flag_settings", { settings: { effortLevel: level } }),
+    );
+  }
+
+  /**
+   * A setting the user picked, shown at once rather than when Claude Code
+   * answers; its answer then says what holds (it may say another mode).
+   * One that fails puts back what was shown, unless something has changed
+   * it since.
+   */
+  private shownAtOnce(
+    key: "permissionMode" | "model" | "effort",
+    value: string,
+    send: () => Promise<Record<string, unknown>>,
+  ): Promise<unknown> {
+    const before = this.state.model[key];
+    this.update((prev) => ({ ...prev, model: { ...prev.model, [key]: value } }));
+    return send().catch((err: unknown) => {
+      if (this.state.model[key] === value) {
+        this.update((prev) => ({ ...prev, model: { ...prev.model, [key]: before } }));
+      }
+      throw err;
+    });
   }
 
   /** Stops one of the CLI's tasks: a subagent, a command in the background. */
