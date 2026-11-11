@@ -62,6 +62,7 @@ import {
 } from "../../services/chat/print-runs";
 import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { withRelayed } from "../../services/chat/relayed";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
@@ -533,7 +534,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       tabId,
       cwd: props.cwd,
       rootPath,
-      items: history ? [...history.items, ...model.items] : model.items,
+      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -633,6 +634,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               items={shown ? agentTranscript(state.model, shown) : undefined}
               reveal={shown ? null : callAsk}
               moves={props.moves}
+              relayed={props.relayed}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -704,6 +706,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           <Composer
             controller={controller}
             state={state}
+            relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={

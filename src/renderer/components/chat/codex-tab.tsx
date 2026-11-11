@@ -37,6 +37,7 @@ import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { usePlanUsage } from "../../services/chat/plan-usage";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { withRelayed } from "../../services/chat/relayed";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { codexUsageLine } from "../../services/chat/usage-line";
@@ -363,6 +364,7 @@ export function CodexTabView({
           history={null}
           model={state.model}
           moves={props.moves}
+          relayed={props.relayed}
           empty={
             state.phase === "ready" || state.phase === "ended" ? (
               <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -417,6 +419,7 @@ export function CodexTabView({
       <Composer
         controller={controller}
         state={state}
+        relayed={props.relayed}
         local={isLocal}
         commands={commands}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -496,7 +499,10 @@ export function CodexTabView({
             cwd: props.cwd,
             rootPath,
             ...(props.profileId ? { profileId: props.profileId } : {}),
-            items: history ? [...history.items, ...model.items] : model.items,
+            items: withRelayed(
+              history ? [...history.items, ...model.items] : model.items,
+              props.relayed,
+            ),
             tools: history ? { ...history.tools, ...model.tools } : model.tools,
             summarize: (tool) => toolSummary(tool, props.cwd),
             openFileTab: links.openFileTab,

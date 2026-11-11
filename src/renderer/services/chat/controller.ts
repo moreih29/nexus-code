@@ -7,6 +7,7 @@
 // window reload build the same view.
 
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
@@ -146,6 +147,8 @@ export interface ChatTabHooks {
   onProfile?: (profileId: string) => void;
   /** Where the conversation went on in another profile; none for a new one. */
   onMoves?: (moves: readonly ProfileMove[]) => void;
+  /** Who sent a message another agent sent through the nexus command, by its id. */
+  onRelayed?: (record: RelayedMessage) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -773,8 +776,12 @@ export class ChatController {
   }
 
   /** Sends a message now: during a turn, Claude reads it after the current tool. */
-  send(text: string, images: ImageBlock[] = []): Promise<void> {
-    return this.sendMessage(text, images, false);
+  /**
+   * Sends a message. One another agent sends through the nexus command
+   * (`from`) is led by a line that tells Claude who sent it.
+   */
+  send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
+    return this.sendMessage(text, images, false, from);
   }
 
   /**
@@ -809,14 +816,22 @@ export class ChatController {
     return result.cancelled === true;
   }
 
-  private async sendMessage(text: string, images: ImageBlock[], now: boolean): Promise<void> {
+  private async sendMessage(
+    text: string,
+    images: ImageBlock[],
+    now: boolean,
+    from?: RelaySender,
+  ): Promise<void> {
     if (!(await this.ensureRunning())) return;
     const first = !this.titled && text.trim() ? text.trim() : undefined;
     if (first) {
       this.titled = true;
       this.hooks.onFirstMessage?.(first);
     }
-    await this.write(userMessageOf(text, images, now));
+    const message = userMessageOf(from ? relayedText(from, text) : text, images, now);
+    // Kept before Claude echoes it, so it never shows as the user's.
+    if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
+    await this.write(message);
     if (first) void this.nameSession(first);
   }
 

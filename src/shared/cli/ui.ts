@@ -4,6 +4,7 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
+import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
 
@@ -167,6 +168,8 @@ export type CliChangeKind =
   | "chatInterrupt"
   | "chatSettings"
   | "chatMode"
+  | "chatProfile"
+  | "chatProfileNew"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -233,6 +236,19 @@ export interface CliChatInfo {
   readonly since?: number;
   /** When asking to run a tool: the request, whole. */
   readonly request?: CliChatRequest;
+  /** The agent profile it runs with, by name, where the agent has more than the default. */
+  readonly profile?: string;
+  /** The goal it works toward (/goal), while it shows one. */
+  readonly goal?: CliChatGoal;
+}
+
+/** A tab's goal (/goal) as the CLI tells it. */
+export interface CliChatGoal {
+  readonly objective: string;
+  /** active, paused, blocked, usageLimited, budgetLimited, met or failed. */
+  readonly status: string;
+  /** What the last check said of it, once it ended. */
+  readonly reason?: string;
 }
 
 /** A tool's permission request a tab waits on. */
@@ -260,6 +276,8 @@ export interface CliChatEntry {
   readonly status?: string;
   /** A subagent's tool call: the id of the Agent call it runs under. */
   readonly parentToolUseId?: string;
+  /** A message another agent sent through the nexus command: who did. */
+  readonly from?: RelaySender;
 }
 
 /** A tool call whole, as chat tool prints it: what it was given and what came back. */
@@ -294,6 +312,19 @@ export interface CliSessionEvent {
   readonly phase: string;
   /** Its last answer or question, or what went wrong. */
   readonly message?: string;
+  /**
+   * A Claude or Codex tab's goal (/goal), when it was set or its status
+   * changed: `from` is its status before, null for a goal just set. Such a
+   * change alone leaves `from` and `to` the same.
+   */
+  readonly goal?: CliSessionGoal;
+}
+
+/** A goal's change, as nexus events tells it. */
+export interface CliSessionGoal {
+  readonly objective: string;
+  readonly from: string | null;
+  readonly status: string;
 }
 
 /** What a new task starts with: an agent's tab, or a terminal running a command ("" for none). */
@@ -536,6 +567,8 @@ export interface CliUiOps {
       show: boolean;
       /** The terminal whose agent asks for the task. */
       createdBy: { workspaceId: string; tabId: string };
+      /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
+      from?: RelaySender;
     };
     /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
     result: { workspaceId: string; tabId: string; start: CliTaskStart };
@@ -555,6 +588,8 @@ export interface CliUiOps {
       settings?: CliChatSettings;
       /** The agent profile to run with, by name or id; absent = the workspace's. */
       profile?: string;
+      /** The agent that sends the prompt, as the tab shows it; none for the user. */
+      from?: RelaySender;
     };
     result: { tabId: string; error?: string };
   };
@@ -571,6 +606,23 @@ export interface CliUiOps {
   "chat.settings": {
     args: { workspaceId: string; tabId: string; settings: CliChatSettings };
     result: CliChatChoices;
+  };
+  /**
+   * Has a Claude or Codex tab run with another agent profile (by name or id),
+   * as its profile chip does: its conversation goes on in that profile, or,
+   * `fresh`, a new one starts there. `dryRun` only checks that it can.
+   * Refused while it works or asks the user.
+   */
+  "chat.profile": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      profile: string;
+      fresh: boolean;
+      dryRun?: boolean;
+    };
+    /** The profiles by name: the one it ran with, the one it runs with now. */
+    result: { from: string; to: string };
   };
   /**
    * Where a Claude or Codex tab's conversation stands; its program is opened
@@ -616,7 +668,8 @@ export interface CliUiOps {
    * turn, the agent reads it after the tool it runs.
    */
   "chat.send": {
-    args: { workspaceId: string; tabId: string; text: string };
+    /** `from`: the agent that sends it, as the tab shows it; none for the user. */
+    args: { workspaceId: string; tabId: string; text: string; from?: RelaySender };
     result: Record<string, never>;
   };
   /**

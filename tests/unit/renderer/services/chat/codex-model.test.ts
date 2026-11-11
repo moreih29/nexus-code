@@ -83,6 +83,38 @@ function sendTurn(text: string, clientId = "c1", turnId = "turn_1"): ChatLine[] 
 }
 
 describe("codex model", () => {
+  test("a message keeps the turn it went into, which a resumed thread keeps too", () => {
+    const live = run([...started(), ...sendTurn("run the tests", "c1", "turn_7")]);
+    const sent = live.items.find((i) => i.kind === "user") as UserItem;
+    expect([sent.key, sent.uuid, sent.turnId]).toEqual(["u-c1", "item_u1", "turn_7"]);
+    const resumed = run([
+      sys({ event: "start", pid: 2 }),
+      inn({ id: "app-r", method: "thread/resume", params: { threadId: T } }),
+      out({
+        id: "app-r",
+        result: {
+          thread: {
+            id: T,
+            turns: [
+              {
+                id: "turn_7",
+                items: [
+                  {
+                    type: "userMessage",
+                    id: "item_9",
+                    content: [{ type: "text", text: "run the tests", text_elements: [] }],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const again = resumed.items.find((i) => i.kind === "user") as UserItem;
+    expect([again.uuid, again.turnId]).toEqual(["item_9", "turn_7"]);
+  });
+
   test("a started thread tells its settings", () => {
     const m = run(started());
     expect(m.process).toBe("running");

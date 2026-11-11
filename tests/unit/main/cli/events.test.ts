@@ -94,4 +94,21 @@ describe("events", () => {
     const ours = JSON.parse((await nexus(app, argv)).stdout);
     expect([ours.events.map((e: { seq: number }) => e.seq), ours.more]).toEqual([[1], true]);
   });
+
+  test("tells a goal set or changing, with the state or alone", async () => {
+    const app = fakeApp();
+    const goal = (from: string | null, status: string) => ({
+      objective: "All tests pass",
+      from,
+      status,
+    });
+    app.events.push(
+      event(1, { from: "idle", to: "running", phase: "running", goal: goal(null, "active") }),
+      event(2, { from: "completed", to: "completed", goal: goal("active", "met") }),
+    );
+    const result = await nexus(app, ["events"]);
+    expect(result.stdout).toContain("idle → running, goal set (active)");
+    expect(result.stdout).toContain("goal active → met");
+    expect(result.stdout).not.toContain("completed → completed");
+  });
 });

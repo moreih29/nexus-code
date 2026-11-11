@@ -132,6 +132,30 @@ describe("sessionChanges", () => {
     expect(events[1]?.message).toBeUndefined();
   });
 
+  it("tells a goal set or changing status, with the state or alone; not one that went", () => {
+    const goal = (status: string) => ({ objective: "All tests pass", status });
+    const prev = new Map([
+      ["a", mark("a", "running", "running")],
+      ["b", { ...mark("b", "completed", "done"), goal: goal("active") }],
+      ["c", { ...mark("c", "completed", "done"), goal: goal("met") }],
+    ]);
+    const next = new Map([
+      ["a", { ...mark("a", "completed", "done"), goal: goal("active") }],
+      ["b", { ...mark("b", "completed", "done"), goal: goal("met") }],
+      ["c", mark("c", "completed", "done")],
+    ]);
+    const events = sessionChanges(prev, next, AT, 1);
+    expect(events.map((e) => [e.tabId, e.from, e.to, e.goal])).toEqual([
+      ["a", "running", "completed", { objective: "All tests pass", from: null, status: "active" }],
+      [
+        "b",
+        "completed",
+        "completed",
+        { objective: "All tests pass", from: "active", status: "met" },
+      ],
+    ]);
+  });
+
   it("tells nothing when nothing changed", () => {
     const same = marks(mark("t1", "running", "running"));
     expect(sessionChanges(same, same, AT, 1)).toEqual([]);

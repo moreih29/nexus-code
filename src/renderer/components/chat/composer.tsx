@@ -36,6 +36,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
+import type { RelayedMessage } from "../../../shared/chat/relay";
 import { CHAT_MODES, type ModeSet } from "../../../shared/sessions/chat-modes";
 import { useFitStep } from "../../hooks/use-fit-step";
 import { appCommandsBeside, listedCommands } from "../../services/chat/app-commands";
@@ -54,6 +55,7 @@ import {
   isWaiting,
   type UserItem,
 } from "../../services/chat/model";
+import { withRelayed } from "../../services/chat/relayed";
 import {
   type ChatTabState,
   type QueuedMessage,
@@ -116,6 +118,8 @@ export interface ComposerController {
 interface ComposerProps {
   controller: ComposerController;
   state: ChatTabState;
+  /** The messages other agents sent through the nexus command: one waiting shows without its line. */
+  relayed?: readonly RelayedMessage[];
   /** The program runs on this machine, where an attached file's path can be read. */
   local: boolean;
   /** What the empty box says: while an agent is shown, where input goes. */
@@ -170,6 +174,7 @@ function parked(area: HTMLElement): boolean {
 export function Composer({
   controller,
   state,
+  relayed,
   local,
   placeholder,
   above,
@@ -196,7 +201,10 @@ export function Composer({
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
-  const waiting = useMemo(() => model.items.filter(isWaiting), [model.items]);
+  const waiting = useMemo(
+    () => withRelayed(model.items.filter(isWaiting), relayed).filter(isWaiting),
+    [model.items, relayed],
+  );
   const canWithdraw = !!controller.withdraw && controller.supports("cancel_async_message");
   const canTakeBack = state.queue.length > 0 || (canWithdraw && waiting.length > 0);
   const withdrawing = useRef(new Set<string>());

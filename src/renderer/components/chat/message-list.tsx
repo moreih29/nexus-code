@@ -36,6 +36,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
+import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { artifactOf } from "../../services/chat/artifact";
 
@@ -46,6 +47,7 @@ import {
   type ChatItem,
   type ChatModel,
   isWaiting,
+  type MessageSource,
   type NoticeItem,
   type ReceivedItem,
   type ShellItem,
@@ -62,12 +64,17 @@ import {
   imagesShownEarlier,
   SEND_FILES_TOOL,
 } from "../../services/chat/panel";
+import { revealTabById } from "../../services/chat/open-beside";
 import { followsMessage } from "../../services/chat/profile-moves";
+import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
+import { revealInWorkspace } from "../../services/sessions/actions";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import { isAgentViewShown } from "../../state/stores/agent-view";
 import { sentIn, useManagerStore } from "../../state/stores/manager";
+import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import {
@@ -104,6 +111,8 @@ interface MessageListProps {
   reveal?: CallReveal | null;
   /** Where the conversation went on in another profile: a line after the message. */
   moves?: readonly ProfileMove[];
+  /** The messages other agents sent through the nexus command: shown as received. */
+  relayed?: readonly RelayedMessage[];
 }
 
 /** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
@@ -187,6 +196,7 @@ export function MessageList({
   items,
   reveal,
   moves,
+  relayed,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -259,11 +269,19 @@ export function MessageList({
     toBottom();
   }, [lastUser, toBottom]);
 
-  const historyItems = items ? [] : (history?.items ?? []);
+  const historyItems = useMemo(
+    () => (items ? [] : withRelayed(history?.items ?? [], relayed)),
+    [items, history, relayed],
+  );
   // A message Claude has not read yet waits above the box, not here.
   const liveItems = useMemo(
-    () => items ?? model.items.filter((item) => !isWaiting(item)),
-    [items, model.items],
+    () =>
+      items ??
+      withRelayed(
+        model.items.filter((item) => !isWaiting(item)),
+        relayed,
+      ),
+    [items, model.items, relayed],
   );
   const streaming = items ? null : model.streaming;
   const nothing = historyItems.length === 0 && liveItems.length === 0 && !streaming;
@@ -281,10 +299,7 @@ export function MessageList({
         : answerExtras([...(history?.items ?? []), ...model.items], tools, cwd, rootPath, turnDone),
     [items, history, model.items, tools, cwd, rootPath, turnDone],
   );
-  const shownItems = useMemo(
-    () => [...(items ? [] : (history?.items ?? [])), ...liveItems],
-    [items, history, liveItems],
-  );
+  const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
   // Calls in a row fold into one line, which may take in later messages' calls.
   const shown = useMemo(() => foldToolRuns(shownItems, tools), [shownItems, tools]);
   // Each move after the last item of the message it follows; one whose
@@ -476,12 +491,18 @@ function ReceivedBubble({ item }: { item: ReceivedItem }) {
           className="size-3.5 shrink-0 text-[var(--chat-received-fg)]"
           aria-hidden
         />
-        {name && (
-          <span className="min-w-0 truncate font-medium text-[var(--chat-received-fg)]">
-            {name}
-          </span>
+        {RELAY_KINDS.has(kind) ? (
+          <RelaySenderLine from={item.from} />
+        ) : (
+          <>
+            {name && (
+              <span className="min-w-0 truncate font-medium text-[var(--chat-received-fg)]">
+                {name}
+              </span>
+            )}
+            <span className="shrink-0">{what}</span>
+          </>
         )}
-        <span className="shrink-0">{what}</span>
       </span>
       <div className="max-w-[85%] rounded-(--radius-raised) bg-[var(--chat-received-bg)] px-3 py-2 text-app-body select-text">
         <div
@@ -508,6 +529,57 @@ function ReceivedBubble({ item }: { item: ReceivedItem }) {
         <CopyButton text={item.text} />
       </div>
     </div>
+  );
+}
+
+/** Shows a tab, in its workspace or in the agent view while that is up. */
+function showTab(workspaceId: string, tabId: string): void {
+  if (isAgentViewShown()) revealTabById(workspaceId, tabId);
+  else revealInWorkspace({ workspaceId, tabId });
+}
+
+/**
+ * Who sent a message through the nexus command: the manager, or the tab or
+ * terminal its agent runs in, by the name it has now, which a click shows;
+ * by the name it had once it is closed.
+ */
+function RelaySenderLine({ from }: { from: MessageSource }) {
+  const { t } = useTranslation();
+  const { workspaceId, tabId } = from;
+  const title = useTabsStore((s) =>
+    workspaceId && tabId ? s.byWorkspace[workspaceId]?.[tabId]?.title : undefined,
+  );
+  if (from.kind === "manager") {
+    return <span className="shrink-0">{t("chat.received.manager")}</span>;
+  }
+  const name = title || from.name;
+  const closed = title === undefined && tabId !== undefined;
+  const agent = from.agent === "codex" ? "Codex" : "Claude Code";
+  const what =
+    from.kind === "terminal"
+      ? t("chat.received.from_terminal", { agent })
+      : t(name ? "chat.received.from_tab" : "chat.received.tab");
+  const nameClass = "min-w-0 truncate font-medium text-[var(--chat-received-fg)]";
+  return (
+    <>
+      {name &&
+        (workspaceId && tabId && !closed ? (
+          <button
+            type="button"
+            className={cn(nameClass, "hover:underline")}
+            title={t("chat.received.show_tab")}
+            onClick={() => showTab(workspaceId, tabId)}
+          >
+            {name}
+          </button>
+        ) : (
+          <span className={nameClass}>{name}</span>
+        ))}
+      <span className="shrink-0">
+        {what}
+        {closed && ` · ${t("chat.received.closed")}`}
+      </span>
+    </>
   );
 }
 

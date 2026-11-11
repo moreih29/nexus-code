@@ -32,7 +32,8 @@ export function lastMessageId(items: readonly ChatItem[]): string | undefined {
 
 /** Whether a line that follows the message `id` (lastMessageId) goes after this item. */
 export function followsMessage(item: ChatItem, id: string): boolean {
-  if (item.kind === "user") return item.uuid === id;
+  // A message another agent sent shows as received: it keeps its uuid.
+  if (item.kind === "user" || item.kind === "received") return item.uuid === id;
   return item.kind === "assistant" && (item.uuid === id || item.messageId === id);
 }
 

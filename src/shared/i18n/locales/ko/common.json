@@ -853,6 +853,12 @@
       "from_channel": "채널에서 온 메시지",
       "from_coordinator": "코디네이터가 보낸 메시지",
       "from_other": "{{kind}}(으)로 온 메시지",
+      "tab": "다른 탭에서 온 메시지",
+      "from_tab": "탭에서 온 메시지",
+      "from_terminal": "터미널의 {{agent}}에서 온 메시지",
+      "manager": "매니저가 보낸 메시지",
+      "closed": "닫힌 탭",
+      "show_tab": "보낸 탭으로 이동",
       "more": "전체 보기",
       "less": "접기"
     },

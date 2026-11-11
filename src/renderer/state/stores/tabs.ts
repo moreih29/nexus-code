@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
+import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   PROFILE_MOVES_KEPT,
@@ -58,6 +59,8 @@ export interface ClaudeTabProps {
   profileId?: string;
   /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed?: readonly RelayedMessage[];
 }
 
 export interface CodexTabProps {
@@ -73,6 +76,8 @@ export interface CodexTabProps {
   profileId?: string;
   /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed?: readonly RelayedMessage[];
 }
 
 interface TabBase {
@@ -291,6 +296,8 @@ interface TabsState {
    * profile; none drops them. No-op on other tab types.
    */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
+  /** Keeps who sent a message through the nexus command; one with its id is replaced. */
+  addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -774,7 +781,12 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const tab = wsRecord?.[tabId];
         if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
         if (tab.props.profileId === profileId) return state;
-        const props = { cwd: tab.props.cwd, ...(profileId ? { profileId } : {}) };
+        // The messages' senders, by id: kept for a conversation that goes on.
+        const props = {
+          cwd: tab.props.cwd,
+          ...(profileId ? { profileId } : {}),
+          ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+        };
         const next = { ...tab, props } as Tab;
         return {
           byWorkspace: {
@@ -798,6 +810,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             sessionId,
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
             ...(tab.props.moves ? { moves: tab.props.moves } : {}),
+            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
           },
         };
         return {
@@ -822,6 +835,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             ...(fork ? { fork } : {}),
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
             ...(tab.props.moves ? { moves: tab.props.moves } : {}),
+            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
           },
         };
         return {
@@ -843,6 +857,22 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const props =
           moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
         const next = { ...tab, props } as Tab;
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
+    addChatRelayed(workspaceId, tabId, record) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
+        const relayed = withRelayedMessage(tab.props.relayed, record);
+        const next = { ...tab, props: { ...tab.props, relayed } } as Tab;
         return {
           byWorkspace: {
             ...state.byWorkspace,
