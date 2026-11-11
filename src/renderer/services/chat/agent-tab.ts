@@ -142,8 +142,13 @@ export async function sendToAgentTab(
   from?: RelaySender,
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
-  unseenSends.set(key, userMessages(key));
+  // Working from now, though the program may be starting and a conversation
+  // resumed after a restart still coming in: its messages are counted only
+  // once it is in, or they would pass for the one sent.
+  unseenSends.set(key, Number.POSITIVE_INFINITY);
   try {
+    await controller.prepareSend();
+    unseenSends.set(key, userMessages(key));
     await controller.send(text, [], from);
   } catch (err) {
     unseenSends.delete(key);

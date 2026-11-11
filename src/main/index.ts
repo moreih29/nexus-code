@@ -79,6 +79,7 @@ import {
   showAppWindow,
 } from "./features/window/app-windows";
 import { registerWindowChannel } from "./features/window/ipc";
+import { logChildProcessDeaths } from "./features/window/page-health";
 import { registerWorkspaceChannel } from "./features/workspace/ipc";
 import { WorkspaceManager } from "./features/workspace/manager";
 import { registerWslChannel } from "./features/wsl/ipc";
@@ -122,6 +123,7 @@ app.on("second-instance", () => {
 // every subsequent initialisation step is covered. See error-safety-net.ts
 // for the log-only → exit phase-switch instructions.
 installErrorSafetyNet();
+logChildProcessDeaths(app);
 
 setupRouter();
 

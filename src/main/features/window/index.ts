@@ -13,6 +13,7 @@ import type { AppState } from "../../infra/storage/state-service";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
+import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from "./page-health";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
@@ -147,6 +148,32 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
 
   trackAppWindow(win);
   if (!mac && !linuxTransparent) overlayBackdrops.set(win, backdrop);
+
+  // A page whose renderer died leaves the window empty while the app runs
+  // on: load it again, and ask once it keeps dying.
+  watchPageHealth(win, {
+    askReload: async (deaths) => {
+      const t = getMainT();
+      const { response } = await dialog.showMessageBox(
+        win,
+        pageDiedQuestion(
+          {
+            message: t("dialog:pageDied.message"),
+            detail: t("dialog:pageDied.detail", {
+              count: deaths,
+              minutes: DEATH_WINDOW_MS / 60_000,
+            }),
+            reload: t("dialog:pageDied.reload"),
+            quit: t("dialog:pageDied.quit"),
+          },
+          mac,
+        ),
+      );
+      return reloadsPage(response);
+    },
+    quit: () => app.quit(),
+    appMetrics: () => app.getAppMetrics(),
+  });
 
   win.once("ready-to-show", () => {
     win.show();

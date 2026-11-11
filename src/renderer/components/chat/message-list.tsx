@@ -35,12 +35,19 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { RelayedMessage } from "../../../shared/chat/relay";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { artifactOf } from "../../services/chat/artifact";
 
 import { splitAttachments } from "../../services/chat/composer-input";
+import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
+import {
+  indexOfCall,
+  shownStart,
+  WINDOW_ITEMS,
+  windowStart,
+} from "../../services/chat/message-window";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -56,19 +63,18 @@ import {
   type ToolCall,
   type UserItem,
 } from "../../services/chat/model";
+import { revealTabById } from "../../services/chat/open-beside";
 import {
   type AnswerExtras,
   answerExtras,
   exitCodeOf,
-  type ImagesShownEarlier,
   imagesShownEarlier,
   SEND_FILES_TOOL,
 } from "../../services/chat/panel";
-import { revealTabById } from "../../services/chat/open-beside";
 import { followsMessage } from "../../services/chat/profile-moves";
 import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
-import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
+import { foldToolRuns, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
 import { revealInWorkspace } from "../../services/sessions/actions";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
@@ -209,6 +215,10 @@ export function MessageList({
   // Whether what shows before the first message is up.
   const emptyShown = useRef(false);
   const [showJump, setShowJump] = useState(false);
+  // Earlier messages asked for beyond the last WINDOW_ITEMS, and where the
+  // view was when they were, to stay on what it showed.
+  const [more, setMore] = useState(0);
+  const anchor = useRef<{ height: number; top: number } | null>(null);
 
   const toBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -300,8 +310,22 @@ export function MessageList({
     [items, history, model.items, tools, cwd, rootPath, turnDone],
   );
   const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
+  // Only the last messages render (see message-window); earlier ones when
+  // asked for. While the view is up the list, messages that come in do not
+  // take its top away from under it, up to a point (shownStart).
+  const heldStart = useRef(0);
+  const size = WINDOW_ITEMS + more;
+  const start = shownStart({
+    fresh: windowStart(shownItems, size),
+    held: heldStart.current,
+    stuck: stuck.current,
+    total: shownItems.length,
+    size,
+  });
+  heldStart.current = start;
+  const windowItems = useMemo(() => shownItems.slice(start), [shownItems, start]);
   // Calls in a row fold into one line, which may take in later messages' calls.
-  const shown = useMemo(() => foldToolRuns(shownItems, tools), [shownItems, tools]);
+  const shown = useMemo(() => foldToolRuns(windowItems, tools), [windowItems, tools]);
   // Each move after the last item of the message it follows; one whose
   // message is not shown (an agent's transcript, a conversation cleared) is not.
   const movesAfter = useMemo(() => {
@@ -315,8 +339,8 @@ export function MessageList({
   }, [items, moves, shownItems]);
   // An image a turn shows twice is in full only the first time.
   const earlier = useMemo(
-    () => imagesShownEarlier(shownItems, tools, cwd),
-    [shownItems, tools, cwd],
+    () => imagesShownEarlier(windowItems, tools, cwd),
+    [windowItems, tools, cwd],
   );
   // The calls the side panel asked to see: a folded run that holds one opens.
   const latestTools = useRef(tools);
@@ -328,9 +352,20 @@ export function MessageList({
         : undefined,
     [reveal],
   );
+  // A call asked for in a message before the rendered ones renders it first.
+  const latestItems = useRef(shownItems);
+  latestItems.current = shownItems;
+  const latestStart = useRef(start);
+  latestStart.current = start;
   useEffect(() => {
     if (!shownCall) return;
     let frames = REVEAL_FRAMES;
+    const index = indexOfCall(latestItems.current, shownCall.ids);
+    if (index >= 0 && index < latestStart.current) {
+      stuck.current = false;
+      setMore((m) => Math.max(m, latestItems.current.length - index - WINDOW_ITEMS));
+      frames += REVEAL_FRAMES;
+    }
     let frame = 0;
     const look = () => {
       if (frames-- > 0) {
@@ -347,24 +382,40 @@ export function MessageList({
     frame = requestAnimationFrame(look);
     return () => cancelAnimationFrame(frame);
   }, [shownCall]);
-  // Kept while its parts hold, so each message, memoized, renders only when
-  // it or they change: not when the list renders for a streamed chunk, or
-  // its tab is shown or hidden.
+  const showEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    stuck.current = false;
+    setMore((m) => m + WINDOW_ITEMS);
+  }, []);
+  // The messages put above keep the view on what it showed.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const was = anchor.current;
+    if (!el || !was || more === 0) return;
+    anchor.current = null;
+    el.scrollTop = was.top + (el.scrollHeight - was.height);
+    ownTop.current = el.scrollTop;
+    lastTop.current = el.scrollTop;
+  }, [more]);
+
+  // Each message, memoized, renders only when it, these or its part of the
+  // sources (item-view) change: not for a streamed chunk, a call of
+  // another message's, or its tab shown or hidden.
   const ctx = useMemo<ItemContext>(
-    () => ({
-      workspaceId,
-      tabId,
-      cwd,
-      rootPath,
-      tools,
-      actions,
-      extras,
-      shown,
-      earlier,
-      shownCall,
-    }),
-    [workspaceId, tabId, cwd, rootPath, tools, actions, extras, shown, earlier, shownCall],
+    () => ({ workspaceId, tabId, cwd, rootPath, actions }),
+    [workspaceId, tabId, cwd, rootPath, actions],
   );
+  const under = useMemo(() => callsUnder(tools), [tools]);
+  const views = useMemo(() => {
+    const sources = { tools, callsUnder: under, shown, extras, earlier, asked: shownCall };
+    const out = new Map<ChatItem, ItemView>();
+    for (const item of windowItems) {
+      const view = itemView(item, sources);
+      if (view) out.set(item, view);
+    }
+    return out;
+  }, [windowItems, tools, under, shown, extras, earlier, shownCall]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -383,23 +434,39 @@ export function MessageList({
           )}
         >
           {nothing && empty}
-          {historyItems.map((item) => (
+          {start > 0 && (
+            <button
+              type="button"
+              onClick={showEarlier}
+              className="self-center rounded-(--radius-control) border border-border px-3 py-1 text-app-micro text-muted-foreground hover:text-foreground"
+            >
+              {t("chat.show_earlier", { count: start })}
+            </button>
+          )}
+          {historyItems.slice(Math.min(start, historyItems.length)).map((item) => (
             <Fragment key={`h-${item.key}`}>
-              <Item item={item} ctx={ctx} />
+              <Item item={item} ctx={ctx} view={views.get(item)} />
               {movesAfter.get(item)?.map((move) => (
                 <MoveLine key={`m-${move.at}`} move={move} />
               ))}
             </Fragment>
           ))}
-          {liveItems.map((item) => (
+          {liveItems.slice(Math.max(0, start - historyItems.length)).map((item) => (
             <Fragment key={item.key}>
-              <Item item={item} ctx={ctx} />
+              <Item item={item} ctx={ctx} view={views.get(item)} />
               {movesAfter.get(item)?.map((move) => (
                 <MoveLine key={`m-${move.at}`} move={move} />
               ))}
             </Fragment>
           ))}
-          {streaming && <Streaming streaming={streaming} ctx={ctx} />}
+          {streaming && (
+            <Streaming
+              streaming={streaming}
+              ctx={ctx}
+              tools={tools}
+              shownEarlier={earlier.inLastTurn}
+            />
+          )}
         </div>
       </div>
       {showJump && (
@@ -427,23 +494,23 @@ function lastUserKey(items: ChatItem[]): string | undefined {
   return undefined;
 }
 
+/** What every message of a list renders with. */
 interface ItemContext {
   workspaceId: string;
   tabId: string | undefined;
   cwd: string;
   rootPath: string;
-  tools: Record<string, ToolCall>;
   actions?: MessageActions;
-  extras: Map<ChatItem, AnswerExtras>;
-  /** What each assistant message shows, its calls in a row folded together. */
-  shown: Map<AssistantItem, ShownBlock[]>;
-  /** The image files each part shows that its turn showed before, as chips. */
-  earlier: ImagesShownEarlier;
-  /** The calls the side panel asked to see. */
-  shownCall?: ShownCall;
 }
 
-const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContext }) {
+interface ItemProps {
+  item: ChatItem;
+  ctx: ItemContext;
+  /** An assistant message's part of the list's sources. */
+  view: ItemView | undefined;
+}
+
+const Item = memo(function Item({ item, ctx, view }: ItemProps) {
   switch (item.kind) {
     case "user":
       // The app's reports in the agent manager's conversation are no messages of the user's.
@@ -452,7 +519,13 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
       }
       return <UserBubble item={item} ctx={ctx} />;
     case "assistant":
-      return <AssistantMessage item={item} ctx={ctx} />;
+      return (
+        <AssistantMessage
+          item={item}
+          ctx={ctx}
+          view={view ?? { blocks: item.blocks, tools: {}, earlier: new Map() }}
+        />
+      );
     case "notice":
       return <Notice item={item} />;
     case "received":
@@ -462,7 +535,11 @@ const Item = memo(function Item({ item, ctx }: { item: ChatItem; ctx: ItemContex
     case "shell":
       return <ShellCard item={item} />;
   }
-});
+}, sameItem);
+
+function sameItem(a: ItemProps, b: ItemProps): boolean {
+  return a.item === b.item && a.ctx === b.ctx && sameView(a.view, b.view);
+}
 
 /** The origins the app names; another is named as the CLI names it. */
 const NAMED_SOURCES: ReadonlySet<string> = new Set(["peer", "channel", "coordinator"]);
@@ -763,7 +840,15 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   );
 }
 
-function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext }) {
+function AssistantMessage({
+  item,
+  ctx,
+  view,
+}: {
+  item: AssistantItem;
+  ctx: ItemContext;
+  view: ItemView;
+}) {
   const { t } = useTranslation();
   const text = item.blocks
     .filter((b) => b.type === "text")
@@ -775,15 +860,19 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
     ctx.actions.onFork !== undefined &&
     item.uuid !== undefined &&
     item.blocks.at(-1)?.type === "text";
-  const extras = ctx.extras.get(item);
-  const blocks = ctx.shown.get(item) ?? item.blocks;
+  const { blocks, extras } = view;
   // Its calls went into a run an earlier message shows.
   if (blocks.length === 0 && !extras) return null;
   return (
     <div className="group/assistant flex flex-col">
       {blocks.map((block, i) =>
         block.type === "run" ? (
-          <ToolRun key={`run-${runKey(block.blocks)}`} blocks={block.blocks} ctx={ctx} />
+          <ToolRun
+            key={`run-${runKey(block.blocks)}`}
+            blocks={block.blocks}
+            ctx={ctx}
+            view={view}
+          />
         ) : block.type === "text" ? (
           <ChatMarkdown
             // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
@@ -792,13 +881,19 @@ function AssistantMessage({ item, ctx }: { item: AssistantItem; ctx: ItemContext
             workspaceId={ctx.workspaceId}
             cwd={ctx.cwd}
             rootPath={ctx.rootPath}
-            shownEarlier={ctx.earlier.byPart.get(block)}
+            shownEarlier={view.earlier.get(block)}
           />
         ) : block.type === "thinking" ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: blocks are only appended
           <Thinking key={i} text={block.text} />
         ) : (
-          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} />
+          <CallRow
+            key={block.toolUseId}
+            toolUseId={block.toolUseId}
+            ctx={ctx}
+            tools={view.tools}
+            shownEarlier={view.earlier.get(block.toolUseId)}
+          />
         ),
       )}
       {extras && (
@@ -845,20 +940,27 @@ const RUN_KINDS = ["commands", "reads", "edits", "searches", "others"] as const;
  * each. A call still going shows under it while folded, so the turn's
  * progress stays in sight.
  */
-function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }) {
+function ToolRun({
+  blocks,
+  ctx,
+  view,
+}: {
+  blocks: AssistantBlock[];
+  ctx: ItemContext;
+  view: ItemView;
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const { tools } = view;
   // Opens when the side panel asks to see a call of the run's.
-  const asked = ctx.shownCall;
+  const asked = view.asked;
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once; a call joining the run later does not open it again
   useEffect(() => {
     if (asked && blocks.some((block) => block.type === "tool" && asked.ids.has(block.toolUseId))) {
       setOpen(true);
     }
   }, [asked]);
-  const calls = blocks.flatMap((block) =>
-    block.type === "tool" ? [ctx.tools[block.toolUseId]] : [],
-  );
+  const calls = blocks.flatMap((block) => (block.type === "tool" ? [tools[block.toolUseId]] : []));
   const running = calls.some(isLive);
   const tally = tallyRun(calls);
   const label = RUN_KINDS.filter((kind) => tally[kind] > 0)
@@ -866,7 +968,7 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
     .join(" · ");
   const rows = open
     ? blocks
-    : blocks.filter((block) => block.type === "tool" && isLive(ctx.tools[block.toolUseId]));
+    : blocks.filter((block) => block.type === "tool" && isLive(tools[block.toolUseId]));
   return (
     <div className="my-1 text-app-ui-sm" data-testid="chat-tool-run">
       <div className="flex min-w-0 items-center gap-1">
@@ -915,8 +1017,8 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
               <ToolRow
                 key={block.toolUseId}
                 toolUseId={block.toolUseId}
-                tool={ctx.tools[block.toolUseId]}
-                tools={ctx.tools}
+                tool={tools[block.toolUseId]}
+                tools={tools}
                 cwd={ctx.cwd}
                 onBackground={backgroundOf(ctx.actions, block.toolUseId)}
               />
@@ -932,8 +1034,20 @@ function ToolRun({ blocks, ctx }: { blocks: AssistantBlock[]; ctx: ItemContext }
 }
 
 /** A call as a row: one that asked the user shows what they said. */
-function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
-  const tool = ctx.tools[toolUseId];
+function CallRow({
+  toolUseId,
+  ctx,
+  tools,
+  shownEarlier,
+}: {
+  toolUseId: string;
+  ctx: ItemContext;
+  /** Its call and the calls it runs, by id; more is fine. */
+  tools: Readonly<Record<string, ToolCall>>;
+  /** The image files it sends that its turn showed before. */
+  shownEarlier?: ReadonlySet<string>;
+}) {
+  const tool = tools[toolUseId];
   // A page it published to claude.ai shows as a card; running or failed, it is a row as any call.
   const page = artifactOf(tool, ctx.cwd);
   if (page) {
@@ -947,7 +1061,7 @@ function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
         tool={tool}
         workspaceId={ctx.workspaceId}
         cwd={ctx.cwd}
-        shownEarlier={ctx.earlier.byPart.get(toolUseId)}
+        shownEarlier={shownEarlier}
       />
     );
   }
@@ -967,7 +1081,7 @@ function CallRow({ toolUseId, ctx }: { toolUseId: string; ctx: ItemContext }) {
     <ToolRow
       toolUseId={toolUseId}
       tool={tool}
-      tools={ctx.tools}
+      tools={tools}
       cwd={ctx.cwd}
       onBackground={backgroundOf(ctx.actions, toolUseId)}
     />
@@ -998,7 +1112,18 @@ function Thinking({ text, live = false }: { text: string; live?: boolean }) {
   );
 }
 
-function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemContext }) {
+function Streaming({
+  streaming,
+  ctx,
+  tools,
+  shownEarlier,
+}: {
+  streaming: StreamingMessage;
+  ctx: ItemContext;
+  tools: Record<string, ToolCall>;
+  /** What the last turn shows in full so far, which it shows as chips. */
+  shownEarlier: ReadonlySet<string>;
+}) {
   const blocks = Object.entries(streaming.blocks)
     .map(([index, block]) => ({ index: Number(index), block }))
     .sort((a, b) => a.index - b.index);
@@ -1013,12 +1138,12 @@ function Streaming({ streaming, ctx }: { streaming: StreamingMessage; ctx: ItemC
             workspaceId={ctx.workspaceId}
             cwd={ctx.cwd}
             rootPath={ctx.rootPath}
-            shownEarlier={ctx.earlier.inLastTurn}
+            shownEarlier={shownEarlier}
           />
         ) : block.type === "thinking" ? (
           <Thinking key={index} text={block.text} live />
         ) : block.toolUseId ? (
-          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} />
+          <CallRow key={block.toolUseId} toolUseId={block.toolUseId} ctx={ctx} tools={tools} />
         ) : null,
       )}
     </div>

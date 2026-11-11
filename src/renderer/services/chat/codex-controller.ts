@@ -721,6 +721,17 @@ export class CodexController {
   }
 
   /**
+   * Starts the program when it is not running and waits for its thread,
+   * with the turns a thread resumed after a restart brings: what the tab
+   * shows then is all the conversation had before one more message.
+   */
+  async prepareSend(): Promise<void> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    if (!(await this.ready)) throw new Error("Codex has no thread to send to");
+    this.flushNow();
+  }
+
+  /**
    * Sends a message now: during a turn it steers the turn, which reads it
    * next. One another agent sends through the nexus command (`from`) is led
    * by a line that tells Codex who sent it.

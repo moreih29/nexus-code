@@ -775,6 +775,16 @@ export class ChatController {
     this.update((prev) => (prev.phase === "ready" ? { ...prev, phase: "held" } : prev));
   }
 
+  /**
+   * Starts the program when it is not running and takes in what it has said
+   * so far: what the tab shows then is all the conversation had before one
+   * more message.
+   */
+  async prepareSend(): Promise<void> {
+    if (!(await this.ensureRunning())) throw new Error("Claude is not running");
+    this.flushNow();
+  }
+
   /** Sends a message now: during a turn, Claude reads it after the current tool. */
   /**
    * Sends a message. One another agent sends through the nexus command

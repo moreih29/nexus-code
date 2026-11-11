@@ -61,19 +61,31 @@ export function withRelayed(
     const record = find(item);
     if (!record) return item;
     changed = true;
-    const text = withoutRelayHeader(item.text);
-    // Waiting for the agent to read it (isWaiting): it stays where it waits.
-    if (item.state === "sent" && item.queued === true) return { ...item, text };
-    return {
-      kind: "received",
-      key: item.key,
-      ...(item.uuid ? { uuid: item.uuid } : {}),
-      from: relaySource(record.from),
-      text,
-      ...(item.at !== undefined ? { at: item.at } : {}),
-    };
+    // The same item for the same message, so the list does not render it again.
+    const was = received.get(item);
+    if (was?.record === record) return was.shown;
+    const now = asReceived(item, record);
+    received.set(item, { record, shown: now });
+    return now;
   });
   return changed ? shown : items;
+}
+
+/** Each message shown as received, by the item it was and the record that found it. */
+const received = new WeakMap<UserItem, { record: RelayedMessage; shown: ChatItem }>();
+
+function asReceived(item: UserItem, record: RelayedMessage): ChatItem {
+  const text = withoutRelayHeader(item.text);
+  // Waiting for the agent to read it (isWaiting): it stays where it waits.
+  if (item.state === "sent" && item.queued === true) return { ...item, text };
+  return {
+    kind: "received",
+    key: item.key,
+    ...(item.uuid ? { uuid: item.uuid } : {}),
+    from: relaySource(record.from),
+    text,
+    ...(item.at !== undefined ? { at: item.at } : {}),
+  };
 }
 
 /** The senders of messages sent through the nexus command, as MessageSource kinds. */

@@ -670,3 +670,35 @@ describe("initialize", () => {
     expect(initialized({ account: {} }).init?.account).toBeUndefined();
   });
 });
+
+describe("applyLines", () => {
+  const begin = applyLine(emptyModel(), { ...started, seq: 0.5 }, 1000);
+
+  /** The fixture applied a line at a time, as each line its own draft. */
+  const oneByOne = FIXTURE.reduce((model, line) => applyLine(model, line, 1000), begin);
+
+  test("lines applied in one draft make the model they make one at a time", () => {
+    for (const size of [1, 2, 7, 25, FIXTURE.length]) {
+      let model = begin;
+      for (let i = 0; i < FIXTURE.length; i += size) {
+        model = applyLines(model, FIXTURE.slice(i, i + size), 1000);
+      }
+      expect(model).toEqual(oneByOne);
+    }
+  });
+
+  test("the model they start from stays as it was", () => {
+    const half = applyLines(begin, FIXTURE.slice(0, 50), 1000);
+    const before = structuredClone(half);
+    const items = half.items;
+    const tools = half.tools;
+    applyLines(half, FIXTURE.slice(50), 1000);
+    expect(half).toEqual(before);
+    expect(half.items).toBe(items);
+    expect(half.tools).toBe(tools);
+  });
+
+  test("lines it has seen leave the model itself", () => {
+    expect(applyLines(oneByOne, FIXTURE.slice(10, 20), 1000)).toBe(oneByOne);
+  });
+});

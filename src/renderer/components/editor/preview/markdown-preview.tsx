@@ -63,7 +63,6 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeSlug from "rehype-slug";
-import remarkGfm from "remark-gfm";
 import { createLogger } from "../../../../shared/log/renderer";
 import { openOrRevealEditor } from "../../../services/editor";
 import {
@@ -72,6 +71,7 @@ import {
 } from "../../../services/editor/preview/link-router";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
 import { copyText } from "../../../utils/clipboard";
+import { REMARK_PLUGINS } from "../../../utils/remark-plugins";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
 
@@ -281,7 +281,7 @@ export function MarkdownPreview({
   const markdown = useMemo(
     () => (
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={[
           // Parse raw HTML in the source (centered <div>, sized <img>,
           // <details>, …) so the preview matches GitHub …

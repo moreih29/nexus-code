@@ -11,12 +11,12 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
-import remarkGfm from "remark-gfm";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { fileKind, resolveFilePath } from "../../services/chat/links";
 import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { copyText } from "../../utils/clipboard";
+import { REMARK_PLUGINS } from "../../utils/remark-plugins";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { FileImage, ImageChip } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
@@ -119,7 +119,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   return (
     <div className="md-preview chat-md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={REMARK_PLUGINS}
         rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
         components={components}
         urlTransform={keepFileUrls}

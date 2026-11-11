@@ -494,21 +494,35 @@ export class Draft<M extends ChatModel = ChatModel> {
 export function applyLine(prev: ChatModel, line: ChatLine, now: number = Date.now()): ChatModel {
   if (line.seq <= prev.lastSeq) return prev;
   const draft = new Draft(prev);
+  applyLineTo(draft, line, now);
+  return draft.next;
+}
+
+function applyLineTo(draft: Draft, line: ChatLine, now: number): void {
   draft.next.lastSeq = line.seq;
   const message = rec(line.message);
-  if (!message) return draft.next;
+  if (!message) return;
   // The agent stamps each line; without its stamp, a live line happens now.
   const at = line.at ?? (line.replay ? undefined : now);
   if (line.dir === "sys") applySys(draft, message, line.seq, at);
   else if (line.dir === "in") applyIn(draft, message, line.seq, at);
   else applyOut(draft, message, line.seq, at, !line.replay);
-  return draft.next;
 }
 
+/**
+ * Applies lines to the model in one draft, so what they change is copied
+ * once for them all. A draft for each line copied the tab's calls and
+ * messages, as many as the session has, for each line: a long session's
+ * transcript, or a frame's lines, took that many copies.
+ */
 export function applyLines(prev: ChatModel, lines: readonly ChatLine[], now?: number): ChatModel {
-  let model = prev;
-  for (const line of lines) model = applyLine(model, line, now);
-  return model;
+  let draft: Draft | undefined;
+  for (const line of lines) {
+    if (line.seq <= (draft?.next ?? prev).lastSeq) continue;
+    draft ??= new Draft(prev);
+    applyLineTo(draft, line, now ?? Date.now());
+  }
+  return draft?.next ?? prev;
 }
 
 /** The agent's own lines: the program started, exited, or the log dropped lines. */
