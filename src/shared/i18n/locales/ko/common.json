@@ -843,6 +843,7 @@
     "tab_title": "Claude",
     "copy": "복사",
     "jump_to_bottom": "최근 메시지로 이동",
+    "show_earlier": "이전 메시지 더 보기 ({{count}})",
     "thinking": "생각",
     "thinking_live": "생각 중…",
     "received": {

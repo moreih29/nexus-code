@@ -42,6 +42,12 @@ import { artifactOf } from "../../services/chat/artifact";
 
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
+  indexOfCall,
+  shownStart,
+  WINDOW_ITEMS,
+  windowStart,
+} from "../../services/chat/message-window";
+import {
   type AssistantBlock,
   type AssistantItem,
   type ChatItem,
@@ -209,6 +215,10 @@ export function MessageList({
   // Whether what shows before the first message is up.
   const emptyShown = useRef(false);
   const [showJump, setShowJump] = useState(false);
+  // Earlier messages asked for beyond the last WINDOW_ITEMS, and where the
+  // view was when they were, to stay on what it showed.
+  const [more, setMore] = useState(0);
+  const anchor = useRef<{ height: number; top: number } | null>(null);
 
   const toBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -300,8 +310,22 @@ export function MessageList({
     [items, history, model.items, tools, cwd, rootPath, turnDone],
   );
   const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
+  // Only the last messages render (see message-window); earlier ones when
+  // asked for. While the view is up the list, messages that come in do not
+  // take its top away from under it, up to a point (shownStart).
+  const heldStart = useRef(0);
+  const size = WINDOW_ITEMS + more;
+  const start = shownStart({
+    fresh: windowStart(shownItems, size),
+    held: heldStart.current,
+    stuck: stuck.current,
+    total: shownItems.length,
+    size,
+  });
+  heldStart.current = start;
+  const windowItems = useMemo(() => shownItems.slice(start), [shownItems, start]);
   // Calls in a row fold into one line, which may take in later messages' calls.
-  const shown = useMemo(() => foldToolRuns(shownItems, tools), [shownItems, tools]);
+  const shown = useMemo(() => foldToolRuns(windowItems, tools), [windowItems, tools]);
   // Each move after the last item of the message it follows; one whose
   // message is not shown (an agent's transcript, a conversation cleared) is not.
   const movesAfter = useMemo(() => {
@@ -315,8 +339,8 @@ export function MessageList({
   }, [items, moves, shownItems]);
   // An image a turn shows twice is in full only the first time.
   const earlier = useMemo(
-    () => imagesShownEarlier(shownItems, tools, cwd),
-    [shownItems, tools, cwd],
+    () => imagesShownEarlier(windowItems, tools, cwd),
+    [windowItems, tools, cwd],
   );
   // The calls the side panel asked to see: a folded run that holds one opens.
   const latestTools = useRef(tools);
@@ -328,9 +352,20 @@ export function MessageList({
         : undefined,
     [reveal],
   );
+  // A call asked for in a message before the rendered ones renders it first.
+  const latestItems = useRef(shownItems);
+  latestItems.current = shownItems;
+  const latestStart = useRef(start);
+  latestStart.current = start;
   useEffect(() => {
     if (!shownCall) return;
     let frames = REVEAL_FRAMES;
+    const index = indexOfCall(latestItems.current, shownCall.ids);
+    if (index >= 0 && index < latestStart.current) {
+      stuck.current = false;
+      setMore((m) => Math.max(m, latestItems.current.length - index - WINDOW_ITEMS));
+      frames += REVEAL_FRAMES;
+    }
     let frame = 0;
     const look = () => {
       if (frames-- > 0) {
@@ -347,6 +382,23 @@ export function MessageList({
     frame = requestAnimationFrame(look);
     return () => cancelAnimationFrame(frame);
   }, [shownCall]);
+  const showEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    stuck.current = false;
+    setMore((m) => m + WINDOW_ITEMS);
+  }, []);
+  // The messages put above keep the view on what it showed.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const was = anchor.current;
+    if (!el || !was || more === 0) return;
+    anchor.current = null;
+    el.scrollTop = was.top + (el.scrollHeight - was.height);
+    ownTop.current = el.scrollTop;
+    lastTop.current = el.scrollTop;
+  }, [more]);
+
   // Kept while its parts hold, so each message, memoized, renders only when
   // it or they change: not when the list renders for a streamed chunk, or
   // its tab is shown or hidden.
@@ -383,7 +435,16 @@ export function MessageList({
           )}
         >
           {nothing && empty}
-          {historyItems.map((item) => (
+          {start > 0 && (
+            <button
+              type="button"
+              onClick={showEarlier}
+              className="self-center rounded-(--radius-control) border border-border px-3 py-1 text-app-micro text-muted-foreground hover:text-foreground"
+            >
+              {t("chat.show_earlier", { count: start })}
+            </button>
+          )}
+          {historyItems.slice(Math.min(start, historyItems.length)).map((item) => (
             <Fragment key={`h-${item.key}`}>
               <Item item={item} ctx={ctx} />
               {movesAfter.get(item)?.map((move) => (
@@ -391,7 +452,7 @@ export function MessageList({
               ))}
             </Fragment>
           ))}
-          {liveItems.map((item) => (
+          {liveItems.slice(Math.max(0, start - historyItems.length)).map((item) => (
             <Fragment key={item.key}>
               <Item item={item} ctx={ctx} />
               {movesAfter.get(item)?.map((move) => (
