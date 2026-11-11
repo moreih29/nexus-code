@@ -13,5 +13,11 @@
     "detail": "Changes you have not saved will be lost.",
     "discard": "Discard and Close",
     "cancel": "Cancel"
+  },
+  "pageDied": {
+    "message": "The NexusCode window keeps stopping.",
+    "detail": "Its page has stopped {{count}} times in the last {{minutes}} minutes. Terminals and agents are still running. Load it again?",
+    "reload": "Load Again",
+    "quit": "Quit"
   }
 }

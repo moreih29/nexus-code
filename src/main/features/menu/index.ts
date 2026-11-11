@@ -28,7 +28,7 @@ import {
   type KeybindingOverride,
 } from "../../../shared/keybindings/overrides";
 import { getActiveAppWindow } from "../window/app-windows";
-import { buildMenuTemplate, type MenuItemSpec } from "./template";
+import { buildMenuTemplate, type MenuAction, type MenuItemSpec } from "./template";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set(ALL_COMMAND_IDS);
 
@@ -131,6 +131,21 @@ function toElectron(
         registerAccelerator: false,
         click: () => fireCommand(spec.command, options),
       };
+
+    case "action":
+      return { label: spec.label, click: () => runAction(spec.action) };
+  }
+}
+
+/** Runs a menu item that the main process handles itself. */
+function runAction(action: MenuAction): void {
+  switch (action) {
+    case "reloadWindow": {
+      // The page may be dead or stuck, so this cannot go through it.
+      const win = getActiveAppWindow();
+      if (win && !win.isDestroyed()) win.webContents.reload();
+      return;
+    }
   }
 }
 
