@@ -843,6 +843,7 @@
     "tab_title": "Claude",
     "copy": "Copy",
     "jump_to_bottom": "Scroll to the latest message",
+    "show_earlier": "Show earlier messages ({{count}})",
     "thinking": "Thinking",
     "thinking_live": "Thinking…",
     "received": {
