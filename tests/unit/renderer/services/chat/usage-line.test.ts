@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import {
+  resetParts,
+  shownReset,
   type UsageLine,
   type UsageView,
   usageViews,
 } from "../../../../../src/renderer/services/chat/usage-line";
 
 const AT = Date.parse("2026-11-10T12:00:00Z");
+const DAY = 24 * 60 * 60 * 1000;
 
 /** A view in a word per part: what shows of each, what is counted, and the profile. */
 function said(view: UsageView): string {
@@ -78,5 +81,17 @@ describe("the usage line, as a tab narrows", () => {
       "weekly:short reset:short | +1 | dot",
       "weekly:short | +1 | dot",
     ]);
+  });
+});
+
+describe("a reset as it is shown", () => {
+  test("is the nearest minute: a hair before the hour or after it is the hour", () => {
+    const hour = Date.parse("2026-11-12T01:00:00Z");
+    const before = resetParts(Date.parse("2026-11-12T00:59:59.973Z"), hour - DAY, "en");
+    const after = resetParts(Date.parse("2026-11-12T01:00:00.031Z"), hour - DAY, "en");
+    expect(before.time).toBe(after.time);
+    expect(before.time).toBe(resetParts(hour, hour - DAY, "en").time);
+    expect(shownReset(Date.parse("2026-11-12T01:00:29Z")).getTime()).toBe(hour);
+    expect(shownReset(Date.parse("2026-11-12T01:00:31Z")).getTime()).toBe(hour + 60_000);
   });
 });

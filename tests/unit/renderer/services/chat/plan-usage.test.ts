@@ -7,7 +7,9 @@ import {
   ingestCodexLimits,
   ingestCodexPush,
   type PlanUsageSource,
+  POLL_MS,
   planUsageKey,
+  pollPlanUsage,
   registerPlanSource,
   resetPlanUsage,
   UNAVAILABLE_MS,
@@ -237,5 +239,96 @@ describe("Codex's limits", () => {
     expect(entry(CODEX)?.unavailable).toBe(true);
     expect(entry(CODEX)?.failures).toBe(0);
     expect(entry(CODEX)?.nextAt).toBe(now + UNAVAILABLE_MS);
+  });
+});
+
+describe("every minute", () => {
+  const CODEX = "codex|local|codex-default";
+  const CODEX_LIMITS = {
+    rateLimits: {
+      limitId: "codex",
+      primary: { usedPercent: 10, windowDurationMins: 300, resetsAt: 1 },
+    },
+  };
+  const settle = () => Bun.sleep(0);
+
+  test("each profile one of whose tabs can ask is asked once, whether or not a tab has a turn", async () => {
+    const a = source(() => Promise.resolve(LIMITS));
+    const b = source(() => Promise.resolve(LIMITS));
+    const codex = source(() => Promise.resolve(CODEX_LIMITS), { key: CODEX, agent: "codex" });
+    const stopped = source(() => Promise.resolve(LIMITS), {
+      key: "claude|local|work",
+      ready: false,
+    });
+    pollPlanUsage();
+    await settle();
+    expect(a.asks + b.asks).toBe(1);
+    expect(codex.asks).toBe(1);
+    expect(stopped.asks).toBe(0);
+    expect(entry()?.claude).toEqual(LIMITS);
+    expect(entry(CODEX)?.codex?.primary?.usedPercent).toBe(10);
+  });
+
+  test("the next minute asks again: what was heard is fresh for less than one", async () => {
+    expect(FRESH_MS).toBeLessThan(POLL_MS);
+    const tab = source(() => Promise.resolve(LIMITS));
+    pollPlanUsage();
+    await settle();
+    now += POLL_MS;
+    pollPlanUsage();
+    await settle();
+    expect(tab.asks).toBe(2);
+  });
+
+  test("an answer that shows the same leaves what the profile has, so nothing is drawn again", async () => {
+    const said = (percent: number, resetsAt: string, ranMs: number) => ({
+      session: { total_duration_ms: ranMs },
+      rate_limits: { limits: [{ kind: "session", percent, resets_at: resetsAt }] },
+    });
+    let answer = said(40, "2026-11-12T01:00:00.073893+00:00", 1_000);
+    source(() => Promise.resolve(answer));
+    await wantPlanUsage(KEY);
+    const heard = entry()?.claude;
+    // How long the session ran, and a reset told a little differently, show nothing new.
+    answer = said(40, "2026-11-12T01:00:00.031681+00:00", 61_000);
+    now += POLL_MS;
+    await wantPlanUsage(KEY);
+    expect(entry()?.claude).toBe(heard as Record<string, unknown>);
+    expect(entry()?.fetchedAt).toBe(now);
+    // Another percent does.
+    answer = said(41, "2026-11-12T01:00:00.031681+00:00", 121_000);
+    now += POLL_MS;
+    await wantPlanUsage(KEY);
+    expect(entry()?.claude).toEqual(answer);
+
+    const told = () => ({
+      limitId: "codex",
+      primary: { usedPercent: 10, windowMins: 300, resetsAt: 1 },
+    });
+    ingestCodexLimits(CODEX, told(), now);
+    const limits = entry(CODEX)?.codex;
+    ingestCodexLimits(CODEX, told(), now + 1);
+    expect(entry(CODEX)?.codex).toBe(limits as NonNullable<typeof limits>);
+  });
+
+  test("none while the window is hidden; shown again, it asks at once", async () => {
+    const real = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const page = Object.assign(new EventTarget(), { visibilityState: "hidden" });
+    Object.defineProperty(globalThis, "document", { value: page, configurable: true });
+    try {
+      resetPlanUsage(() => now);
+      const tab = source(() => Promise.resolve(LIMITS));
+      pollPlanUsage();
+      await settle();
+      expect(tab.asks).toBe(0);
+      page.visibilityState = "visible";
+      page.dispatchEvent(new Event("visibilitychange"));
+      await settle();
+      expect(tab.asks).toBe(1);
+    } finally {
+      resetPlanUsage(() => now);
+      if (real) Object.defineProperty(globalThis, "document", real);
+      else delete (globalThis as { document?: unknown }).document;
+    }
   });
 });

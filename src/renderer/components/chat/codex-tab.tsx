@@ -34,14 +34,11 @@ import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
-import { usePlanUsage } from "../../services/chat/plan-usage";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { withRelayed } from "../../services/chat/relayed";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
-import { codexUsageLine } from "../../services/chat/usage-line";
-import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -70,7 +67,7 @@ import { QuickLook, type QuickLookList } from "./quick-look";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
-import { UsageLineView } from "./usage-line";
+import { CodexUsageLine } from "./usage-line";
 
 interface CodexTabViewProps {
   workspaceId: string;
@@ -128,17 +125,6 @@ export function CodexTabView({
   const state = useChatTab(workspaceId, tabId);
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
-  const { tokens } = model;
-  // The plan's limits are the profile's, one for all its tabs; the tab's
-  // own until the profile has them.
-  const plan = usePlanUsage("codex", workspaceId, props.profileId);
-  const rateLimits = plan?.codex ?? model.rateLimits;
-  // A minute's clock, so a window that resets leaves the line while it shows.
-  const now = useNow(isVisible, 60_000);
-  const usageLine = useMemo(
-    () => codexUsageLine({ tokens, rateLimits }, now),
-    [tokens, rateLimits, now],
-  );
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -447,8 +433,12 @@ export function CodexTabView({
           )
         }
         below={
-          <UsageLineView
-            line={usageLine}
+          <CodexUsageLine
+            workspaceId={workspaceId}
+            profileId={props.profileId}
+            visible={isVisible}
+            tokens={model.tokens}
+            rateLimits={model.rateLimits}
             trailing={
               hooks
                 ? undefined

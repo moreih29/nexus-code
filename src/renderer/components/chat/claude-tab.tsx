@@ -53,7 +53,6 @@ import {
   outsideLinksOf,
   todosOf,
 } from "../../services/chat/panel";
-import { usePlanUsage } from "../../services/chat/plan-usage";
 import {
   printRunRows,
   stopPrintRun,
@@ -74,9 +73,8 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
-import { claudeUsageLine } from "../../services/chat/usage-line";
+import { shownReset } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
-import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -108,7 +106,7 @@ import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
-import { UsageLineView } from "./usage-line";
+import { ClaudeUsageLine } from "./usage-line";
 
 interface ClaudeTabViewProps {
   workspaceId: string;
@@ -184,17 +182,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   );
   const state = useChatTab(workspaceId, tabId);
   const goal = useTabGoal(workspaceId, tabId);
-  const { contextUsage } = state.model;
-  // The plan's usage is the profile's, one for all its tabs; the tab's own
-  // answer until the profile has one.
-  const plan = usePlanUsage("claude", workspaceId, props.profileId);
-  const usage = plan?.claude ?? state.model.usage;
-  // A minute's clock, so a window that resets leaves the line while it shows.
-  const now = useNow(isVisible, 60_000);
-  const usageLine = useMemo(
-    () => claudeUsageLine({ contextUsage, usage }, now),
-    [contextUsage, usage, now],
-  );
 
   // The line under the composer: the context and the plan's usage when the
   // tab is shown or its program comes up. The controller asks again after
@@ -738,8 +725,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             }
             onCommand={runCommand}
             below={
-              <UsageLineView
-                line={usageLine}
+              <ClaudeUsageLine
+                workspaceId={workspaceId}
+                profileId={props.profileId}
+                visible={isVisible}
+                contextUsage={state.model.contextUsage}
+                usage={state.model.usage}
                 trailing={
                   hooks
                     ? undefined
@@ -1040,7 +1031,10 @@ function RateLimitBanner({ state }: { state: ChatTabState }) {
   const notice = rateLimitNotice(limit, { warnings, dismissed });
   if (!limit || !notice) return null;
   const resets = limit.resetsAt
-    ? new Date(limit.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    ? shownReset(limit.resetsAt * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : null;
   const rejected = notice === "rejected";
   const message = rejected
