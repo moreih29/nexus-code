@@ -742,9 +742,14 @@ export class CodexController {
         url: `data:${image.mediaType};base64,${image.data}`,
       })),
     ];
+    // The tab is called by the conversation's first message, not by the
+    // first one sent since the app started: a thread resumed after a restart
+    // (no log to replay) shows the messages it had.
     if (!this.titled && text.trim()) {
       this.titled = true;
-      this.hooks.onFirstMessage?.(shownUserText(text).trim());
+      if (!this.model.items.some((item) => item.kind === "user")) {
+        this.hooks.onFirstMessage?.(shownUserText(text).trim());
+      }
     }
     const clientUserMessageId = nextId();
     // Kept before the message is written, so it never shows as the user's;
