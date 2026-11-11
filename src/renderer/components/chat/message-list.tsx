@@ -22,8 +22,10 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import {
+  Fragment,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -32,8 +34,11 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
+import type { ProfileMove } from "../../../shared/types/layout";
 import { artifactOf } from "../../services/chat/artifact";
+
 import { splitAttachments } from "../../services/chat/composer-input";
 import {
   type AssistantBlock,
@@ -57,9 +62,11 @@ import {
   imagesShownEarlier,
   SEND_FILES_TOOL,
 } from "../../services/chat/panel";
+import { followsMessage } from "../../services/chat/profile-moves";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, type ShownBlock, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { sentIn, useManagerStore } from "../../state/stores/manager";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
@@ -69,10 +76,11 @@ import {
   dateTimeFormat,
   relativeTimeFormat,
 } from "../../utils/intl-format";
+import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ManagerIcon } from "../manager/manager-chip";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
-import { useAgentContext } from "./chat-agent";
+import { ChatAgentContext, useAgentContext } from "./chat-agent";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { ChatMarkdown } from "./chat-markdown";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
@@ -94,6 +102,8 @@ interface MessageListProps {
   items?: ChatItem[];
   /** A call to bring into view and light up, as the side panel asks. */
   reveal?: CallReveal | null;
+  /** Where the conversation went on in another profile: a line after the message. */
+  moves?: readonly ProfileMove[];
 }
 
 /** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
@@ -176,6 +186,7 @@ export function MessageList({
   actions,
   items,
   reveal,
+  moves,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -276,6 +287,17 @@ export function MessageList({
   );
   // Calls in a row fold into one line, which may take in later messages' calls.
   const shown = useMemo(() => foldToolRuns(shownItems, tools), [shownItems, tools]);
+  // Each move after the last item of the message it follows; one whose
+  // message is not shown (an agent's transcript, a conversation cleared) is not.
+  const movesAfter = useMemo(() => {
+    const after = new Map<ChatItem, ProfileMove[]>();
+    if (items || !moves) return after;
+    for (const move of moves) {
+      const item = shownItems.findLast((i) => followsMessage(i, move.after));
+      if (item) after.set(item, [...(after.get(item) ?? []), move]);
+    }
+    return after;
+  }, [items, moves, shownItems]);
   // An image a turn shows twice is in full only the first time.
   const earlier = useMemo(
     () => imagesShownEarlier(shownItems, tools, cwd),
@@ -347,10 +369,20 @@ export function MessageList({
         >
           {nothing && empty}
           {historyItems.map((item) => (
-            <Item key={`h-${item.key}`} item={item} ctx={ctx} />
+            <Fragment key={`h-${item.key}`}>
+              <Item item={item} ctx={ctx} />
+              {movesAfter.get(item)?.map((move) => (
+                <MoveLine key={`m-${move.at}`} move={move} />
+              ))}
+            </Fragment>
           ))}
           {liveItems.map((item) => (
-            <Item key={item.key} item={item} ctx={ctx} />
+            <Fragment key={item.key}>
+              <Item item={item} ctx={ctx} />
+              {movesAfter.get(item)?.map((move) => (
+                <MoveLine key={`m-${move.at}`} move={move} />
+              ))}
+            </Fragment>
           ))}
           {streaming && <Streaming streaming={streaming} ctx={ctx} />}
         </div>
@@ -968,6 +1000,30 @@ function ManagerReport({ item }: { item: UserItem }) {
           {lines.join("\n")}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Where the conversation went on in another profile: its dot, its name, and when. */
+function MoveLine({ move }: { move: ProfileMove }) {
+  const { t } = useTranslation();
+  const agent = useContext(ChatAgentContext);
+  // The default profile is made anew each time: the config is what holds still.
+  const config = useAgentProfilesStore((s) => s.config);
+  const profile = profileOf(config, agent, move.profileId);
+  return (
+    <div
+      className="flex items-center gap-2 text-app-micro text-muted-foreground"
+      role="note"
+      data-testid="chat-profile-move"
+    >
+      <div className="h-px flex-1 bg-border" />
+      <ProfileDot color={profile.color} className="size-1.5" />
+      <span className="max-w-[70%] truncate">
+        {t("chat.profile.moved", { name: profileName(profile, t) })}
+      </span>
+      <MessageTime at={move.at} />
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 }

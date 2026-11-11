@@ -175,6 +175,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           sessionId: props.sessionId,
           fork: props.fork,
           ...(props.profileId ? { profileId: props.profileId } : {}),
+          ...(props.moves ? { moves: props.moves } : {}),
         },
         hooks ?? claudeTabHooks(workspaceId, tabId),
       ),
@@ -237,7 +238,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     setResumeError(null);
     void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
   };
-  // Another profile starts the tab over; what it has going decides whether to ask.
+  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = state.model.running
     ? "running"
     : (state.history?.items.length ?? 0) > 0 || state.model.items.length > 0
@@ -247,6 +248,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     setResumeError(null);
     void controller
       .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
+  const continueInProfile = (profileId: string) => {
+    setResumeError(null);
+    void controller
+      .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   const resumeFailed = (message: string) => {
@@ -625,6 +632,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               actions={shown ? undefined : actions}
               items={shown ? agentTranscript(state.model, shown) : undefined}
               reveal={shown ? null : callAsk}
+              moves={props.moves}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -739,6 +747,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
                           profileId={props.profileId}
                           use={tabUse}
                           onSwitch={switchProfile}
+                          onContinue={continueInProfile}
                           compact={compact}
                         />
                       )

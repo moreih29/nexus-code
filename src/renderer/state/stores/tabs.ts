@@ -4,7 +4,11 @@ import type { EditorInput } from "@/services/editor/types";
 import { killSession } from "@/services/terminal/pty-client";
 import { basename } from "@/utils/path";
 import type { ShellChoice } from "../../../shared/pty/shell";
-import type { SerializedTab } from "../../../shared/types/layout";
+import {
+  PROFILE_MOVES_KEPT,
+  type ProfileMove,
+  type SerializedTab,
+} from "../../../shared/types/layout";
 import type {
   BrowserTabPayload,
   DiffTabPayload,
@@ -46,21 +50,29 @@ export interface ClaudeTabProps {
   sessionId?: string;
   /**
    * The session the tab's program copies, up to a message, until the copy
-   * has its own id: set on a tab opened as a fork, or rewound.
+   * has its own id: set on a tab opened as a fork, rewound, or gone on with
+   * in another profile (which keeps the session: `profileId`).
    */
-  fork?: { sessionId: string; at?: string; title?: string };
+  fork?: { sessionId: string; at?: string; title?: string; profileId?: string };
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
+  /** Where the conversation went on in another profile. */
+  moves?: readonly ProfileMove[];
 }
 
 export interface CodexTabProps {
   cwd: string;
   /** The thread the tab last had, to go on with once its program is gone. */
   threadId?: string;
-  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
-  fork?: { threadId: string; title?: string };
+  /**
+   * The thread a tab opened as a fork copies, until the copy has its own id
+   * (/fork); one another profile keeps names it (`profileId`).
+   */
+  fork?: { threadId: string; title?: string; profileId?: string };
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
+  /** Where the conversation went on in another profile. */
+  moves?: readonly ProfileMove[];
 }
 
 interface TabBase {
@@ -269,8 +281,16 @@ interface TabsState {
   setClaudeTarget: (
     workspaceId: string,
     tabId: string,
-    target: { sessionId?: string; fork?: { sessionId: string; at?: string; title?: string } },
+    target: {
+      sessionId?: string;
+      fork?: { sessionId: string; at?: string; title?: string; profileId?: string };
+    },
   ) => void;
+  /**
+   * Keep where a Claude or Codex tab's conversation went on in another
+   * profile; none drops them. No-op on other tab types.
+   */
+  setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
   /**
@@ -777,6 +797,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             cwd: tab.props.cwd,
             sessionId,
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
+            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
           },
         };
         return {
@@ -800,8 +821,28 @@ export const useTabsStore = create<TabsState>((set, get) => {
             ...(sessionId ? { sessionId } : {}),
             ...(fork ? { fork } : {}),
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
+            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
           },
         };
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
+    setChatMoves(workspaceId, tabId, moves) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
+        if (moves.length === 0 && !tab.props.moves) return state;
+        const { moves: _old, ...rest } = tab.props;
+        const props =
+          moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
+        const next = { ...tab, props } as Tab;
         return {
           byWorkspace: {
             ...state.byWorkspace,
