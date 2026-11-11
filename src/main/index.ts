@@ -92,6 +92,7 @@ import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { isMac, isWindows, loginShell } from "./infra/platform";
+import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
@@ -408,6 +409,9 @@ updatesHandle = installUpdatesDomain({
 
 app.whenReady().then(async () => {
   installAppSessionPermissions(session.defaultSession);
+  // On Linux, find out whether the notification service answers before the
+  // first notification has to wait on it (infra/platform/desktop-notifications).
+  startDesktopNotifications();
 
   // Sync the macOS About panel with current product metadata.
   // applicationVersion comes from package.json via app.getVersion();
