@@ -8,11 +8,17 @@
  * gone.
  */
 
-import { isDefaultProfileId, profilesOf } from "../../../shared/agent-profiles/profiles";
-import type { CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
+import {
+  type AgentProfile,
+  isDefaultProfileId,
+  profileOf,
+  profilesOf,
+} from "../../../shared/agent-profiles/profiles";
+import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
+import { useTabsStore } from "../../state/stores/tabs";
 import {
   type AgentTabController,
   agentTabController,
@@ -20,9 +26,10 @@ import {
   sendUnseen,
   startAgentTab,
 } from "../chat/agent-tab";
+import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
-import { chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
+import { type ChatTabExtras, chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
 
@@ -40,9 +47,48 @@ async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabCo
   return target;
 }
 
+/** A profile as the CLI names it: its name, or "default" for the default one unnamed. */
+function cliProfileName(profile: AgentProfile): string {
+  return profile.name.trim() || (isDefaultProfileId(profile.id) ? "default" : profile.id);
+}
+
+/** The tab's props: a Claude or Codex tab's; null when it is gone. */
+function chatPropsOf(workspaceId: string, tabId: string) {
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  return tab?.type === "claude" || tab?.type === "codex" ? tab.props : null;
+}
+
+/** The profile the tab runs with, by name, where its agent has more than the default. */
+function profileShown(workspaceId: string, tabId: string, agent: ChatAgent): string | undefined {
+  const config = useAgentProfilesStore.getState().config;
+  if (profilesOf(config, agent).length < 2) return undefined;
+  const props = chatPropsOf(workspaceId, tabId);
+  return cliProfileName(profileOf(config, agent, props?.profileId));
+}
+
 function infoOf(workspaceId: string, tabId: string, { agent }: AgentTabController) {
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  return chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId));
+  return withProfile(workspaceId, tabId, chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId)));
+}
+
+function withProfile(workspaceId: string, tabId: string, info: CliChatInfo): CliChatInfo {
+  const profile = profileShown(workspaceId, tabId, info.agent);
+  return profile ? { ...info, profile } : info;
+}
+
+/** What the tab keeps beside its conversation, as a read tells it: who sent what, where it moved. */
+function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTabExtras {
+  const props = chatPropsOf(workspaceId, tabId);
+  if (!props) return {};
+  const config = useAgentProfilesStore.getState().config;
+  const moves = props.moves?.map((move) => ({
+    after: move.after,
+    profile: cliProfileName(profileOf(config, agent, move.profileId)),
+  }));
+  return {
+    ...(props.relayed ? { relayed: props.relayed } : {}),
+    ...(moves ? { moves } : {}),
+  };
 }
 
 /** How long a tab's program may take to start and list its models. */
@@ -178,7 +224,7 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings, profile }) => {
+  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings, profile, from }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
@@ -189,7 +235,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         : ({ type: "codex", props } as const);
     const tabId = openTab(workspaceId, tab, placement);
     if (!hasSettings(settings)) {
-      startAgentTab(workspaceId, tabId, prompt);
+      startAgentTab(workspaceId, tabId, prompt, from);
       return { tabId };
     }
     // Set before the first message: its turn runs with them.
@@ -198,7 +244,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     try {
       await target.controller.open();
       await applySettings(workspaceId, tabId, target, settings);
-      if (prompt.trim() !== "") await sendToAgentTab(workspaceId, tabId, target, prompt.trim());
+      if (prompt.trim() !== "") {
+        await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
+      }
     } catch (err) {
       return { tabId, error: (err as Error).message };
     }
@@ -209,7 +257,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (peek && !opened(workspaceId, tabId)) {
       const target = agentTabController(workspaceId, tabId);
       if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
-      return chatInfoOf(target.agent, undefined, false);
+      return withProfile(workspaceId, tabId, chatInfoOf(target.agent, undefined, false));
     }
     return infoOf(workspaceId, tabId, await openedTab(workspaceId, tabId));
   },
@@ -219,25 +267,34 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     return {
       ...infoOf(workspaceId, tabId, target),
-      ...chatEntriesOf(chat, { messages, since, subagents }),
+      ...chatEntriesOf(chat, {
+        messages,
+        since,
+        subagents,
+        ...extrasOf(workspaceId, tabId, target.agent),
+      }),
     };
   },
 
   "chat.tool": async ({ workspaceId, tabId, ref }) => {
-    await openedTab(workspaceId, tabId);
-    const tool = chatToolOf(useChatStore.getState().tabs[chatKey(workspaceId, tabId)], ref);
+    const { agent } = await openedTab(workspaceId, tabId);
+    const tool = chatToolOf(
+      useChatStore.getState().tabs[chatKey(workspaceId, tabId)],
+      ref,
+      extrasOf(workspaceId, tabId, agent),
+    );
     if (!tool) throw new UiRequestError(`no tool call "${ref}" in that tab`);
     return tool;
   },
 
-  "chat.send": async ({ workspaceId, tabId, text }) => {
+  "chat.send": async ({ workspaceId, tabId, text, from }) => {
     const target = await openedTab(workspaceId, tabId);
     if (infoOf(workspaceId, tabId, target).state === "asking") {
       throw new UiRequestError(
         "it is waiting for the user to answer a request; that is for the user to answer",
       );
     }
-    await sendToAgentTab(workspaceId, tabId, target, text);
+    await sendToAgentTab(workspaceId, tabId, target, text, from);
     return {};
   },
 
@@ -257,6 +314,30 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun }) => {
+    const target = await openedTab(workspaceId, tabId);
+    const config = useAgentProfilesStore.getState().config;
+    const profileId = profileNamed(target.agent, profile);
+    const before = chatPropsOf(workspaceId, tabId)?.profileId;
+    const from = cliProfileName(profileOf(config, target.agent, before));
+    const to = cliProfileName(profileOf(config, target.agent, profileId));
+    if (sameProfile(profileId, before)) {
+      throw new UiRequestError(`it already runs with the profile "${to}"`);
+    }
+    const { state } = infoOf(workspaceId, tabId, target);
+    if (state === "working" || state === "asking") {
+      throw new UiRequestError(
+        state === "working"
+          ? "it is working; its turn would stop (wait for it: chat wait)"
+          : "it is waiting for the user to answer a request",
+      );
+    }
+    if (dryRun) return { from, to };
+    if (fresh) await target.controller.switchProfile(profileId);
+    else await target.controller.continueInProfile(profileId);
+    return { from, to };
   },
 
   "chat.answer": async ({ workspaceId, tabId, decision, message, expect }) => {

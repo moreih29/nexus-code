@@ -47,6 +47,13 @@ describe("reportable", () => {
   const endedSeen = event(5, "t1", "running", "idle", "idle");
   const closed = event(6, "t1", "idle", "closed", "closed");
 
+  it("tells nothing of a goal's change alone: the state is as it last heard", () => {
+    const goal = { objective: "All tests pass", from: "active", status: "met" };
+    expect(
+      reportable(event(7, "t1", "completed", "completed", "done", { goal }), "all", true),
+    ).toBe(false);
+  });
+
   it("tells of a task that finished, waits, failed or closed; not one at work or looked at", () => {
     const told = [done, asks, working, seen, endedSeen, closed].filter((e) =>
       reportable(e, "tasks", true),

@@ -138,6 +138,15 @@ export function goalViewOf(model: { goal?: ClaudeGoal | null; threadGoal?: Codex
 }
 
 /**
+ * The goal a tab shows: none once its bar was closed after it ended
+ * (`goalClosed`, the closed goal's key).
+ */
+export function shownGoalOf(chat: { model: object; goalClosed?: string }): GoalView | null {
+  const goal = goalViewOf(chat.model as Parameters<typeof goalViewOf>[0]);
+  return goal && !(goal.ended && chat.goalClosed === goal.key) ? goal : null;
+}
+
+/**
  * The seconds a goal has taken at `now`: a Claude goal since it was set (as
  * Claude Code's own count), a Codex goal the time Codex worked toward it,
  * counting on while a turn runs. Null when it cannot be told.

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -70,6 +71,8 @@ export const ClaudeTabPropsSchema = z.object({
   profileId: z.string().max(64).optional(),
   /** Where the conversation went on in another profile. */
   moves: ProfileMovesSchema,
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed: RelayedMessagesSchema,
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -93,6 +96,8 @@ export const CodexTabPropsSchema = z.object({
   profileId: z.string().max(64).optional(),
   /** Where the conversation went on in another profile. */
   moves: ProfileMovesSchema,
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed: RelayedMessagesSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 

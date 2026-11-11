@@ -16,9 +16,12 @@ const MESSAGE_CHARS = 600;
  * Whether the manager hears of a change: a session of its tasks that
  * finished, waits on someone, failed or closed; with "attention" also any
  * other that waits on the user or failed; with "all" any of those. Going to
- * work, or a finished session being looked at, tells nothing.
+ * work, a finished session being looked at, or a goal's change alone tells
+ * nothing.
  */
 export function reportable(event: CliSessionEvent, notify: ManagerNotify, task: boolean): boolean {
+  // A goal's change alone leaves the state as the manager last heard it.
+  if (event.from === event.to) return false;
   const ended =
     event.phase === "attention" ||
     event.phase === "done" ||

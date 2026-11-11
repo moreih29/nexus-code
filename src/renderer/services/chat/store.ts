@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { RelaySender } from "../../../shared/chat/relay";
 import { type ChatModel, emptyModel, type ImageBlock } from "./model";
 
 /**
@@ -16,6 +17,8 @@ export interface QueuedMessage {
   id: string;
   text: string;
   images: ImageBlock[];
+  /** The agent that sent it through the nexus command, when one did. */
+  from?: RelaySender;
 }
 
 /** Text the app puts in the composer: a rewound or forked message. */

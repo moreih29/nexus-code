@@ -4,6 +4,7 @@
  * its coding agent, in a Claude or Codex tab or a terminal.
  */
 
+import type { RelaySender } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import type { ChatAgent, TaskAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta, WorkspaceTask } from "../../../shared/types/workspace";
@@ -75,7 +76,8 @@ export interface StartedTask {
  * agent's tab whose program starts now and is sent `prompt`, or a terminal
  * that runs the command with `prompt` once it starts, which is when the
  * task's panel is mounted. `createdBy` is the terminal whose agent asked
- * for it, if one did.
+ * for it, if one did; `from`, who sent the prompt then, as the agent's tab
+ * shows it.
  */
 export async function startTask(
   parentId: string,
@@ -83,6 +85,7 @@ export async function startTask(
   prompt: string,
   start: TaskStart,
   createdBy?: WorkspaceTask["createdBy"],
+  from?: RelaySender,
 ): Promise<StartedTask | TaskFailure> {
   const result = await ipcCallResult("task", "create", {
     parentId,
@@ -93,13 +96,12 @@ export async function startTask(
 
   useWorkspacesStore.getState().upsert(result.value);
   const task =
-    useWorkspacesStore.getState().workspaces.find((w) => w.id === result.value.id) ??
-    result.value;
+    useWorkspacesStore.getState().workspaces.find((w) => w.id === result.value.id) ?? result.value;
 
   // A workspace that has a tab gets no terminal from its panel, so this tab
   // is the task's only one.
   if ("agent" in start) {
-    const tabId = openAgentTab(task.id, start.agent, task.rootPath, prompt);
+    const tabId = openAgentTab(task.id, start.agent, task.rootPath, prompt, undefined, from);
     return { task, tabId, start };
   }
   const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });

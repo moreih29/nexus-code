@@ -853,6 +853,12 @@
       "from_channel": "from a channel",
       "from_coordinator": "from the coordinator",
       "from_other": "sent as {{kind}}",
+      "tab": "Sent from another tab",
+      "from_tab": "sent from a tab",
+      "from_terminal": "sent from {{agent}} in a terminal",
+      "manager": "Sent by the manager",
+      "closed": "closed",
+      "show_tab": "Go to the tab that sent it",
       "more": "Show all",
       "less": "Show less"
     },

@@ -9,6 +9,7 @@
 // takes them: they hold for the thread from that turn on.
 
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import type { ProfileMove } from "../../../shared/types/layout";
@@ -132,6 +133,19 @@ export interface CodexTabHooks {
   onProfile?: (profileId: string) => void;
   /** Where the conversation went on in another profile; none for a new one. */
   onMoves?: (moves: readonly ProfileMove[]) => void;
+  /**
+   * Who sent a message another agent sent through the nexus command, by its
+   * client id; again with its turn once that is known.
+   */
+  onRelayed?: (record: RelayedMessage) => void;
+}
+
+/** The turn a message went into, as turn/start and turn/steer answer. */
+function turnIdOf(result: Record<string, unknown>): string | undefined {
+  const turn = result.turn;
+  const id =
+    turn && typeof turn === "object" ? (turn as Record<string, unknown>).id : result.turnId;
+  return typeof id === "string" ? id : undefined;
 }
 
 let counter = 0;
@@ -715,8 +729,12 @@ export class CodexController {
     this.update((prev) => (prev.phase === "ready" ? { ...prev, phase: "held" } : prev));
   }
 
-  /** Sends a message now: during a turn it steers the turn, which reads it next. */
-  async send(text: string, images: ImageBlock[] = []): Promise<void> {
+  /**
+   * Sends a message now: during a turn it steers the turn, which reads it
+   * next. One another agent sends through the nexus command (`from`) is led
+   * by a line that tells Codex who sent it.
+   */
+  async send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
     if (!(await this.ensureRunning())) return;
     if (!(await this.ready)) throw new Error("Codex has no thread to send to");
     // The thread's answer settles `ready` as it comes, a frame before its
@@ -725,8 +743,9 @@ export class CodexController {
     this.flushNow();
     const threadId = this.model.threadId;
     if (!threadId) throw new Error("Codex has no thread to send to");
+    const said = from && text ? relayedText(from, text) : text;
     const input = [
-      ...(text ? [{ type: "text", text, text_elements: [] }] : []),
+      ...(said ? [{ type: "text", text: said, text_elements: [] }] : []),
       ...images.map((image) => ({
         type: "image",
         url: `data:${image.mediaType};base64,${image.data}`,
@@ -737,21 +756,30 @@ export class CodexController {
       this.hooks.onFirstMessage?.(shownUserText(text).trim());
     }
     const clientUserMessageId = nextId();
+    // Kept before the message is written, so it never shows as the user's;
+    // with its turn too, which a resumed thread keeps (not the message's id).
+    const record = from ? { id: clientUserMessageId, from, at: Date.now() } : undefined;
+    if (record) this.hooks.onRelayed?.(record);
+    const told = (result: Record<string, unknown>, fallback?: string) => {
+      const turn = turnIdOf(result) ?? fallback;
+      if (record && turn) this.hooks.onRelayed?.({ ...record, turnId: turn });
+    };
     const { running, turnId } = this.model;
     if (running && turnId) {
       try {
-        await this.request("turn/steer", {
+        const result = await this.request("turn/steer", {
           threadId,
           clientUserMessageId,
           input,
           expectedTurnId: turnId,
         });
+        told(result, turnId);
         return;
       } catch (err) {
         log.info(`steer not taken: ${(err as Error).message}`);
         // A new turn runs: the message waits for it to end.
         if (this.model.running) {
-          this.enqueue(text, images);
+          this.enqueue(text, images, from);
           return;
         }
         // The turn ended meanwhile: the message starts the next one.
@@ -767,7 +795,9 @@ export class CodexController {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(mode ? MODE_SETTINGS[mode] : {}),
-    }).catch(() => {});
+    })
+      .then((result) => told(result))
+      .catch(() => {});
   }
 
   /** The composer took the message the app put back. */
@@ -776,8 +806,8 @@ export class CodexController {
   }
 
   /** Holds a message until the turn ends (⌘⇧↩). */
-  enqueue(text: string, images: ImageBlock[] = []): void {
-    const item: QueuedMessage = { id: nextId(), text, images };
+  enqueue(text: string, images: ImageBlock[] = [], from?: RelaySender): void {
+    const item: QueuedMessage = { id: nextId(), text, images, ...(from ? { from } : {}) };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
     if (!this.model.running) this.sendNextQueued();
   }
@@ -792,7 +822,7 @@ export class CodexController {
     const [next] = this.state.queue;
     if (!next) return;
     this.update((prev) => ({ ...prev, queue: prev.queue.slice(1) }));
-    void this.send(next.text, next.images).catch((err: Error) => log.warn(err.message));
+    void this.send(next.text, next.images, next.from).catch((err: Error) => log.warn(err.message));
   }
 
   async interrupt(): Promise<unknown> {

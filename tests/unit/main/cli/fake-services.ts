@@ -506,6 +506,12 @@ export function fakeApp(now = Date.now()): FakeApp {
     if (op === "manager.dock") {
       return { enabled: settings.managerEnabled } as CliUiOps[K]["result"];
     }
+    // Any profile but "nope" is the agent's; the tab ran with the default one.
+    if (op === "chat.profile") {
+      const { profile } = args as CliUiOps["chat.profile"]["args"];
+      if (profile === "nope") throw new CliError('claude has no profile "nope"; it has default');
+      return { from: "default", to: profile } as CliUiOps[K]["result"];
+    }
     if (op === "chat.settings") {
       const { tabId, settings: wanted } = args as CliUiOps["chat.settings"]["args"];
       const now = chatChoices.get(tabId);

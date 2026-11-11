@@ -18,6 +18,18 @@ function agentOf(event: CliSessionEvent): string {
   return event.kind === "terminal" ? (event.agent ?? "?") : `${event.kind}-tab`;
 }
 
+/** What changed: the state, the goal's status, or both. */
+function changeText(event: CliSessionEvent): string {
+  const goal = !event.goal
+    ? ""
+    : event.goal.from === null
+      ? `goal set (${event.goal.status})`
+      : `goal ${event.goal.from} → ${event.goal.status}`;
+  if (event.goal && event.from === event.to) return goal;
+  const state = `${event.from ?? "new"} → ${event.to}`;
+  return goal ? `${state}, ${goal}` : state;
+}
+
 /** The time of day a change came, as hh:mm:ss. */
 function clockTime(at: number): string {
   return new Date(at).toTimeString().slice(0, 8);
@@ -52,7 +64,8 @@ const events: CliCommand = {
   details:
     "A change is a terminal's agent or a Claude or Codex tab going from one state to another\n" +
     "(working, asking, idle, completed, error, ...), appearing at work, or closed, with its last\n" +
-    "answer or question. Each has a number (#seq): --since N prints those after #N, and --wait\n" +
+    "answer or question; or a Claude or Codex tab's goal (/goal) set or changing status (active,\n" +
+    "paused, met, ...). Each has a number (#seq): --since N prints those after #N, and --wait\n" +
     "waits for the next one when there is none yet, so a loop follows every session:\n" +
     "  nexus events --since N --wait 10m --jsonl\n" +
     "--since prints the first --limit after #N, and says when there are more; without it, the\n" +
@@ -111,7 +124,7 @@ const events: CliCommand = {
       names.get(event.workspaceId) ?? shortId(event.workspaceId),
       oneLine(event.title, 30),
       agentOf(event),
-      `${event.from ?? "new"} → ${event.to}${event.tabId === ctx.caller.tabId ? " (you)" : ""}`,
+      `${changeText(event)}${event.tabId === ctx.caller.tabId ? " (you)" : ""}`,
       event.message ? oneLine(event.message, 200) : "",
     ]);
     const none = since === undefined ? "No changes yet." : `No changes after #${since}.`;

@@ -309,11 +309,14 @@
         "permissionDeny": "deny {{detail}}",
         "chatInterrupt": "stop the turn of the tab \"{{detail}}\"",
         "chatSettings": "change the model, effort or mode of the tab \"{{detail}}\"",
-        "chatMode": "change the permission mode of the tab {{detail}}"
+        "chatMode": "change the permission mode of the tab {{detail}}",
+        "chatProfile": "change the profile of the tab {{detail}}, going on with its conversation",
+        "chatProfileNew": "change the profile of the tab {{detail}}, starting a new conversation"
       },
       "permission_title": "Answer another session's permission request?",
       "manager_description": "The agent manager asks to {{action}} in {{to}}.",
-      "mode_title": "Let an agent loosen a session's permission mode?"
+      "mode_title": "Let an agent loosen a session's permission mode?",
+      "profile_title": "Let an agent change a tab's profile?"
     },
     "heading": "nexus CLI"
   },
