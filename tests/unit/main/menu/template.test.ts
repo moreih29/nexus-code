@@ -50,6 +50,16 @@ describe("buildMenuTemplate (mac)", () => {
     expect(forceReload).toBeUndefined();
   });
 
+  it("reloads the window from the main process, with no key of its own", () => {
+    const view = specs.find((s) => s.type === "submenu" && s.label === "View");
+    if (view?.type !== "submenu") throw new Error("no View menu");
+    expect(view.submenu).toContainEqual({
+      type: "action",
+      label: "Reload Window",
+      action: "reloadWindow",
+    });
+  });
+
   it("adds no ⌘= zoom key (Cocoa would take it from Monaco's ⌘K ⌘= chord)", () => {
     const zoomIns = flatten(specs).filter((s) => s.type === "role" && s.role === "zoomIn");
     expect(zoomIns).toEqual([{ type: "role", role: "zoomIn" }]);

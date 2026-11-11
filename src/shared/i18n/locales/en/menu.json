@@ -29,7 +29,8 @@
     "openContainingFolder": "Open Containing Folder",
     "copyPath": "Copy Path",
     "copyRelativePath": "Copy Relative Path",
-    "toggleAgentView": "Toggle Agent View"
+    "toggleAgentView": "Toggle Agent View",
+    "reloadWindow": "Reload Window"
   },
   "workspace": {
     "label": "Workspace",

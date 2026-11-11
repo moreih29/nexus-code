@@ -32,7 +32,14 @@ export type MenuItemSpec =
   | { type: "separator" }
   | { type: "role"; role: ElectronRole; label?: string; accelerator?: string; visible?: boolean }
   | { type: "submenu"; label: string; submenu: MenuItemSpec[]; role?: ElectronSubmenuRole }
-  | { type: "command"; label: string; command: CommandId; accelerator?: string };
+  | { type: "command"; label: string; command: CommandId; accelerator?: string }
+  | { type: "action"; label: string; action: MenuAction };
+
+/**
+ * What a menu item does in the main process itself: what has to work while
+ * the window's page cannot take a command, such as loading that page again.
+ */
+export type MenuAction = "reloadWindow";
 
 /**
  * Subset of Electron `MenuItemConstructorOptions["role"]` we use.
@@ -235,6 +242,11 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
         COMMANDS.pathCopyRelative,
       ),
       { type: "separator" },
+      {
+        type: "action",
+        label: t != null ? t("menu:view.reloadWindow") : "Reload Window",
+        action: "reloadWindow",
+      },
       { type: "role", role: "toggleDevTools" },
       { type: "separator" },
       { type: "role", role: "resetZoom" },
