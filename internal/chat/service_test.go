@@ -727,18 +727,20 @@ func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
 	if got := rolloutPath(to, id); got != "" {
 		t.Fatalf("rolloutPath took the staged copy: %s", got)
 	}
-	if got := stage(StageThreadParams{ThreadID: id, To: to, Drop: true}); !got.Found {
-		t.Fatalf("drop = %+v", got)
+	// The copy stays once the thread is forked: the fork reads its history
+	// from it each time it resumes.
+	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
+		t.Fatalf("stage again = %+v", got)
 	}
-	if _, err := os.Stat(filepath.Dir(staged)); !os.IsNotExist(err) {
-		t.Fatalf("the staging folder stayed: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(from, "sessions", "2026", "11", "10", name)); err != nil {
-		t.Fatalf("the thread itself went: %v", err)
+	if _, err := os.Stat(staged); err != nil {
+		t.Fatalf("the staged copy went: %v", err)
 	}
 
 	// An archived thread is staged too: the fork unarchives nothing.
 	if err := os.RemoveAll(filepath.Join(from, "sessions")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(to, "sessions")); err != nil {
 		t.Fatal(err)
 	}
 	writeTestFile(t, filepath.Join(from, "archived_sessions", name), "{}\n")
@@ -749,16 +751,12 @@ func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
 		t.Fatalf("archived thread not staged: %v", err)
 	}
 
-	// A copy left behind long ago goes the next time one is staged.
-	old := filepath.Join(to, "sessions", stagedDir, "rollout-2026-01-01T00-00-00-0a0a0a0a-0000-0000-0000-000000000000.jsonl")
-	writeTestFile(t, old, "{}\n")
-	long := time.Now().Add(-2 * stagedMaxAge)
-	if err := os.Chtimes(old, long, long); err != nil {
-		t.Fatal(err)
-	}
+	// A copy longer than the thread is not cut back: a fork made from it
+	// reads it to where it was forked.
+	writeTestFile(t, staged, "{}\n{}\n")
 	stage(StageThreadParams{ThreadID: id, From: from, To: to})
-	if _, err := os.Stat(old); !os.IsNotExist(err) {
-		t.Fatalf("an old copy stayed: %v", err)
+	if body, _ := os.ReadFile(staged); string(body) != "{}\n{}\n" {
+		t.Fatalf("a longer copy was cut back: %q", body)
 	}
 
 	// Profiles of one folder need no copy; a thread not there is not found.
@@ -774,6 +772,50 @@ func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
 	raw, _ := json.Marshal(StageThreadParams{ThreadID: "../../etc", From: from, To: to})
 	if _, err := service.StageThread(context.Background(), raw); err == nil {
 		t.Fatal("StageThread took a path for a thread id")
+	}
+}
+
+func TestStageThreadBringsTheThreadsItWasForkedFrom(t *testing.T) {
+	service := New()
+	meta := func(id, parent string) string {
+		payload := map[string]string{"id": id}
+		if parent != "" {
+			payload["forked_from_id"] = parent
+		}
+		line, _ := json.Marshal(map[string]any{"type": "session_meta", "payload": payload})
+		return string(line) + "\n"
+	}
+	rollout := func(id string) string { return "rollout-2026-11-11T10-00-00-" + id + ".jsonl" }
+	first := "01a1c8c5-b25a-7e12-808a-07e9fcbe1a9e"
+	second := "01a1c8ca-8ced-7802-8567-1af7c18bc127"
+	third := "01a1c9d0-1111-7222-8333-444455556666"
+	from, to := t.TempDir(), t.TempDir()
+	// The profile keeps the first thread, a copy of the second it forked
+	// from another profile, and the third, forked from that copy in turn.
+	writeTestFile(t, filepath.Join(from, "archived_sessions", rollout(first)), meta(first, ""))
+	writeTestFile(t, filepath.Join(from, "sessions", stagedDir, rollout(second)), meta(second, first))
+	writeTestFile(t, filepath.Join(from, "sessions", "2026", "11", "11", rollout(third)), meta(third, second))
+
+	raw, _ := json.Marshal(StageThreadParams{ThreadID: third, From: from, To: to})
+	if result, err := service.StageThread(context.Background(), raw); err != nil || !result.(StageThreadResult).Found {
+		t.Fatalf("StageThread = %+v, %v", result, err)
+	}
+	for _, id := range []string{first, second, third} {
+		if _, err := os.Stat(filepath.Join(to, "sessions", stagedDir, rollout(id))); err != nil {
+			t.Fatalf("%s not staged: %v", id, err)
+		}
+	}
+
+	// A thread the profile keeps itself is not staged, nor those before it.
+	other := t.TempDir()
+	writeTestFile(t, filepath.Join(other, "sessions", "2026", "11", "11", rollout(second)), meta(second, first))
+	raw, _ = json.Marshal(StageThreadParams{ThreadID: third, From: from, To: other})
+	if _, err := service.StageThread(context.Background(), raw); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(filepath.Join(other, "sessions", stagedDir))
+	if len(entries) != 1 || entries[0].Name() != rollout(third) {
+		t.Fatalf("staged in a profile that keeps the second thread: %v", entries)
 	}
 }
 
