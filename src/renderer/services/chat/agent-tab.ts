@@ -33,6 +33,7 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
         tabId,
         isDefaultProfileId(profileId) ? undefined : profileId,
       ),
+    onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
   };
 }
 
@@ -49,6 +50,7 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
         tabId,
         isDefaultProfileId(profileId) ? undefined : profileId,
       ),
+    onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
   };
 }
 
@@ -64,21 +66,37 @@ export type AgentTabController =
 export function agentTabController(workspaceId: string, tabId: string): AgentTabController | null {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (tab?.type === "claude") {
-    const { cwd, sessionId, fork, profileId } = tab.props;
+    const { cwd, sessionId, fork, profileId, moves } = tab.props;
     return {
       agent: "claude",
       controller: chatController(
-        { workspaceId, tabId, cwd, sessionId, fork, ...(profileId ? { profileId } : {}) },
+        {
+          workspaceId,
+          tabId,
+          cwd,
+          sessionId,
+          fork,
+          ...(profileId ? { profileId } : {}),
+          ...(moves ? { moves } : {}),
+        },
         claudeTabHooks(workspaceId, tabId),
       ),
     };
   }
   if (tab?.type === "codex") {
-    const { cwd, threadId, fork, profileId } = tab.props;
+    const { cwd, threadId, fork, profileId, moves } = tab.props;
     return {
       agent: "codex",
       controller: codexController(
-        { workspaceId, tabId, cwd, threadId, fork, ...(profileId ? { profileId } : {}) },
+        {
+          workspaceId,
+          tabId,
+          cwd,
+          threadId,
+          fork,
+          ...(profileId ? { profileId } : {}),
+          ...(moves ? { moves } : {}),
+        },
         codexTabHooks(workspaceId, tabId),
       ),
     };

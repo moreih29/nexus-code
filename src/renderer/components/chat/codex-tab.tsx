@@ -197,7 +197,7 @@ export function CodexTabView({
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
   };
-  // Another profile starts the tab over; what it has going decides whether to ask.
+  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = model.running
     ? "running"
     : model.items.length > 0
@@ -208,6 +208,13 @@ export function CodexTabView({
     setResumeError(null);
     void controller
       .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
+  const continueInProfile = (profileId: string) => {
+    setResumeQuery(null);
+    setResumeError(null);
+    void controller
+      .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   // A tab put out of sight takes its quick look with it.
@@ -355,6 +362,7 @@ export function CodexTabView({
           rootPath={rootPath}
           history={null}
           model={state.model}
+          moves={props.moves}
           empty={
             state.phase === "ready" || state.phase === "ended" ? (
               <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -448,6 +456,7 @@ export function CodexTabView({
                       profileId={props.profileId}
                       use={tabUse}
                       onSwitch={switchProfile}
+                      onContinue={continueInProfile}
                       compact={compact}
                     />
                   )

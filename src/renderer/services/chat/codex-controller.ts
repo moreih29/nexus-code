@@ -11,6 +11,7 @@
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
+import type { ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import {
   applyCodexLines,
@@ -32,6 +33,7 @@ import {
   registerPlanSource,
   wantPlanUsage,
 } from "./plan-usage";
+import { lastMessageId, sameProfile, withMove } from "./profile-moves";
 import type { ListedSession } from "./sessions";
 import {
   type ChatTabState,
@@ -99,8 +101,12 @@ export interface CodexTabTarget {
   cwd: string;
   /** The thread the tab had, to go on with when its program is gone. */
   threadId?: string;
-  /** The thread a tab opened as a fork copies, until the copy has its own id (/fork). */
-  fork?: { threadId: string; title?: string };
+  /**
+   * The thread a tab opened as a fork copies, until the copy has its own id
+   * (/fork); `profileId` is the profile that keeps it, where it is not the
+   * tab's (a thread gone on with in another profile).
+   */
+  fork?: { threadId: string; title?: string; profileId?: string };
   /** What the thread is told beside Codex's own instructions (the agent manager's). */
   developerInstructions?: string;
   /**
@@ -111,6 +117,8 @@ export interface CodexTabTarget {
   trusted?: boolean;
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
+  /** Where the conversation went on in another profile. */
+  moves?: readonly ProfileMove[];
 }
 
 export interface CodexTabHooks {
@@ -122,6 +130,8 @@ export interface CodexTabHooks {
   onTitle?: (title: string) => void;
   /** The profile the tab runs with now, the user having switched it. */
   onProfile?: (profileId: string) => void;
+  /** Where the conversation went on in another profile; none for a new one. */
+  onMoves?: (moves: readonly ProfileMove[]) => void;
 }
 
 let counter = 0;
@@ -307,20 +317,32 @@ export class CodexController {
     const threadId = this.model.threadId ?? this.target.threadId;
     const fork = this.target.fork;
     if (!threadId && fork) {
+      const staged = await this.stage(fork);
       try {
         const forked = await this.request("thread/fork", {
           threadId: fork.threadId,
           cwd,
           ...settings,
         });
-        const copy = (forked.thread as { id?: unknown } | undefined)?.id;
-        this.readGoal(typeof copy === "string" ? copy : undefined);
-        // The copy is called as the tab it came from was.
+        const id = (forked.thread as { id?: unknown } | undefined)?.id;
+        const copy = typeof id === "string" ? id : undefined;
+        this.readGoal(copy);
+        // The copy is called as the tab it came from was; one from another
+        // profile keeps the name it had there, which Codex does not copy.
         this.titled = true;
-        if (fork.title) this.hooks.onTitle?.(fork.title);
+        if (fork.title) {
+          this.hooks.onTitle?.(fork.title);
+          if (staged && copy) {
+            void this.request("thread/name/set", { threadId: copy, name: fork.title }).catch(
+              () => {},
+            );
+          }
+        }
         return true;
       } catch (err) {
         log.warn(`thread ${fork.threadId} not forked: ${(err as Error).message}`);
+      } finally {
+        if (staged) void this.stageCall(fork, true);
       }
     }
     if (threadId) {
@@ -343,6 +365,38 @@ export class CodexController {
       return true;
     } catch (err) {
       log.warn(`thread/start failed: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Puts a copy of the thread the tab's fork copies where this profile's
+   * program finds it, when another profile keeps it: thread/fork finds a
+   * thread only in the program's own folder. Whether a copy was put there,
+   * to take away once the fork is made.
+   */
+  private async stage(fork: NonNullable<CodexTabTarget["fork"]>): Promise<boolean> {
+    if (!fork.profileId || sameProfile(fork.profileId, this.target.profileId)) return false;
+    return this.stageCall(fork, false);
+  }
+
+  private async stageCall(
+    fork: NonNullable<CodexTabTarget["fork"]>,
+    drop: boolean,
+  ): Promise<boolean> {
+    try {
+      const result = unwrapIpcResult(
+        await ipcCallResult("chat", "stageThread", {
+          workspaceId: this.target.workspaceId,
+          threadId: fork.threadId,
+          ...(fork.profileId ? { fromProfileId: fork.profileId } : {}),
+          ...(this.target.profileId ? { toProfileId: this.target.profileId } : {}),
+          ...(drop ? { drop } : {}),
+        }),
+      );
+      return result.found;
+    } catch (err) {
+      log.warn(`thread ${fork.threadId} not staged: ${(err as Error).message}`);
       return false;
     }
   }
@@ -405,8 +459,9 @@ export class CodexController {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
     }
     this.flushNow();
-    this.target = { ...this.target, threadId };
+    this.target = { ...this.target, threadId, moves: undefined };
     this.hooks.onThread?.(threadId);
+    this.hooks.onMoves?.([]);
     this.hooks.onTitle?.(title);
     this.titled = true;
     // A command's card told of the thread the tab had.
@@ -435,7 +490,8 @@ export class CodexController {
     // CLI's /new keeps its session's; a pick not sent yet still wins.
     const picks = { ...picksOf(this.model), ...this.next };
     this.next = picks;
-    this.target = { ...this.target, threadId: undefined, fork: undefined };
+    this.target = { ...this.target, threadId: undefined, fork: undefined, moves: undefined };
+    this.hooks.onMoves?.([]);
     this.hooks.onTitle?.("");
     this.titled = false;
     // The chips show the picks at once, not the defaults until the thread
@@ -462,7 +518,7 @@ export class CodexController {
    * starts with its own; the permission preset goes on.
    */
   async switchProfile(profileId: string): Promise<void> {
-    if (profileId === (this.target.profileId ?? defaultProfileId("codex"))) return;
+    if (sameProfile(profileId, this.target.profileId)) return;
     const { workspaceId, tabId } = this.target;
     if (this.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
@@ -475,6 +531,7 @@ export class CodexController {
       threadId: undefined,
       fork: undefined,
       profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      moves: undefined,
     };
     this.hooks.onProfile?.(profileId);
     this.hooks.onTitle?.("");
@@ -484,6 +541,59 @@ export class CodexController {
       ...prev,
       history: null,
       queue: [],
+      card: undefined,
+      model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq, permissionMode: mode },
+    }));
+    await this.start({ resetLog: true });
+  }
+
+  /**
+   * Goes on with this tab's thread in another profile: its program stops, a
+   * turn under way with it, and one of the new profile's forks the thread
+   * from its file, its name too. The thread is left as it was, for the old
+   * profile to go on with. The model and effort are the new profile's, the
+   * permission preset goes on. A tab with no thread yet just switches.
+   */
+  async continueInProfile(profileId: string): Promise<void> {
+    if (sameProfile(profileId, this.target.profileId)) return;
+    const threadId = this.currentThread();
+    if (!threadId) {
+      await this.switchProfile(profileId);
+      return;
+    }
+    const { workspaceId, tabId } = this.target;
+    // Messages held for the turn's end would go to the program that stops.
+    this.update((prev) => (prev.queue.length > 0 ? { ...prev, queue: [] } : prev));
+    if (this.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    // Codex numbers a thread's items anew as it reads it; its turns keep their ids.
+    const after = lastMessageId(this.model.items.filter((item) => item.kind === "assistant"));
+    const moves = after
+      ? withMove(this.target.moves, { profileId, after, at: Date.now() })
+      : [...(this.target.moves ?? [])];
+    const mode = this.next.mode ?? picksOf(this.model).mode;
+    this.next = mode ? { mode } : {};
+    const title = this.model.threadName;
+    this.target = {
+      ...this.target,
+      threadId: undefined,
+      fork: {
+        threadId,
+        ...(title ? { title } : {}),
+        profileId: this.target.profileId ?? defaultProfileId("codex"),
+      },
+      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      moves,
+    };
+    this.hooks.onProfile?.(profileId);
+    this.hooks.onMoves?.(moves);
+    // The fork's answer brings the turns back; the account and its limits
+    // are the old profile's.
+    this.update((prev) => ({
+      ...prev,
+      history: null,
       card: undefined,
       model: { ...emptyCodexModel(), lastSeq: this.model.lastSeq, permissionMode: mode },
     }));

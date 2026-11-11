@@ -663,6 +663,120 @@ func TestTranscriptFindsSessionInAnyProject(t *testing.T) {
 	}
 }
 
+func writeTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionFileFindsClaudeSessions(t *testing.T) {
+	service := New()
+	find := func(params SessionFileParams) SessionFileResult {
+		t.Helper()
+		raw, _ := json.Marshal(params)
+		result, err := service.SessionFile(context.Background(), raw)
+		if err != nil {
+			t.Fatalf("SessionFile(%+v): %v", params, err)
+		}
+		return result.(SessionFileResult)
+	}
+	id := "0b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90"
+	claude := t.TempDir()
+	transcript := filepath.Join(claude, "projects", "-w", id+".jsonl")
+	writeTestFile(t, transcript, "{}\n")
+	if got := find(SessionFileParams{SessionID: id, ConfigDir: claude}); !got.Found || got.Path != transcript {
+		t.Fatalf("claude = %+v", got)
+	}
+	if got := find(SessionFileParams{SessionID: "1b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90", ConfigDir: claude}); got.Found {
+		t.Fatalf("a session not there = %+v", got)
+	}
+	raw, _ := json.Marshal(SessionFileParams{SessionID: "../../etc/passwd", ConfigDir: claude})
+	if _, err := service.SessionFile(context.Background(), raw); err == nil {
+		t.Fatal("SessionFile took a path for a session id")
+	}
+}
+
+func TestStageThreadPutsACopyWhereTheProfileFindsIt(t *testing.T) {
+	service := New()
+	stage := func(params StageThreadParams) StageThreadResult {
+		t.Helper()
+		raw, _ := json.Marshal(params)
+		result, err := service.StageThread(context.Background(), raw)
+		if err != nil {
+			t.Fatalf("StageThread(%+v): %v", params, err)
+		}
+		return result.(StageThreadResult)
+	}
+	id := "01a1c494-518d-7651-938d-00031c0ec9fb"
+	name := "rollout-2026-11-10T17-30-17-" + id + ".jsonl"
+	from, to := t.TempDir(), t.TempDir()
+	writeTestFile(t, filepath.Join(from, "sessions", "2026", "11", "10", name), `{"type":"session_meta"}`+"\n")
+	staged := filepath.Join(to, "sessions", stagedDir, name)
+
+	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
+		t.Fatalf("stage = %+v", got)
+	}
+	if body, err := os.ReadFile(staged); err != nil || string(body) != `{"type":"session_meta"}`+"\n" {
+		t.Fatalf("staged copy = %q, %v", body, err)
+	}
+	// The copy is not one of the profile's own threads.
+	if got := rolloutPath(to, id); got != "" {
+		t.Fatalf("rolloutPath took the staged copy: %s", got)
+	}
+	if got := stage(StageThreadParams{ThreadID: id, To: to, Drop: true}); !got.Found {
+		t.Fatalf("drop = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Dir(staged)); !os.IsNotExist(err) {
+		t.Fatalf("the staging folder stayed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(from, "sessions", "2026", "11", "10", name)); err != nil {
+		t.Fatalf("the thread itself went: %v", err)
+	}
+
+	// An archived thread is staged too: the fork unarchives nothing.
+	if err := os.RemoveAll(filepath.Join(from, "sessions")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(from, "archived_sessions", name), "{}\n")
+	if got := stage(StageThreadParams{ThreadID: id, From: from, To: to}); !got.Found {
+		t.Fatalf("archived stage = %+v", got)
+	}
+	if _, err := os.Stat(staged); err != nil {
+		t.Fatalf("archived thread not staged: %v", err)
+	}
+
+	// A copy left behind long ago goes the next time one is staged.
+	old := filepath.Join(to, "sessions", stagedDir, "rollout-2026-01-01T00-00-00-0a0a0a0a-0000-0000-0000-000000000000.jsonl")
+	writeTestFile(t, old, "{}\n")
+	long := time.Now().Add(-2 * stagedMaxAge)
+	if err := os.Chtimes(old, long, long); err != nil {
+		t.Fatal(err)
+	}
+	stage(StageThreadParams{ThreadID: id, From: from, To: to})
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("an old copy stayed: %v", err)
+	}
+
+	// Profiles of one folder need no copy; a thread not there is not found.
+	if got := stage(StageThreadParams{ThreadID: id, From: from, To: from}); !got.Found {
+		t.Fatalf("same folder = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(from, "sessions", stagedDir)); !os.IsNotExist(err) {
+		t.Fatalf("a copy was staged in the folder that keeps the thread: %v", err)
+	}
+	if got := stage(StageThreadParams{ThreadID: "1b6a3c2e-6f1e-4a59-9d0e-2f6d7c1a8b90", From: from, To: to}); got.Found {
+		t.Fatalf("a thread not there = %+v", got)
+	}
+	raw, _ := json.Marshal(StageThreadParams{ThreadID: "../../etc", From: from, To: to})
+	if _, err := service.StageThread(context.Background(), raw); err == nil {
+		t.Fatal("StageThread took a path for a thread id")
+	}
+}
+
 func TestReadJSONLinesKeepsTheEnd(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "t.jsonl")
 	var b strings.Builder

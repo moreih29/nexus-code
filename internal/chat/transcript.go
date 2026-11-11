@@ -28,29 +28,60 @@ func (s *Service) Transcript(_ context.Context, raw json.RawMessage) (any, error
 	if !sessionIDPattern.MatchString(p.SessionID) {
 		return nil, protocolError("chat.transcript sessionId is not a session id")
 	}
-	dir := configDir(p.ConfigDir)
-	if dir == "" {
+	path := transcriptPath(configDir(p.ConfigDir), p.SessionID)
+	if path == "" {
 		return TranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
-	}
-	matches, _ := filepath.Glob(filepath.Join(dir, "projects", "*", p.SessionID+".jsonl"))
-	if len(matches) == 0 {
-		return TranscriptResult{Found: false, Lines: []json.RawMessage{}}, nil
-	}
-	// The newest one when several projects have it: a session moved with
-	// its folder.
-	path := matches[0]
-	var newest int64
-	for _, match := range matches {
-		if info, err := os.Stat(match); err == nil && info.ModTime().UnixNano() > newest {
-			newest = info.ModTime().UnixNano()
-			path = match
-		}
 	}
 	lines, truncated, err := readJSONLines(path, transcriptCapBytes)
 	if err != nil {
 		return nil, requestFailed("chat.transcript: %s", err)
 	}
 	return TranscriptResult{Found: true, Lines: lines, Truncated: truncated}, nil
+}
+
+// SessionFile tells where a session's file is, for a program of another
+// profile to copy it: `claude --resume <file> --fork-session`. Claude Code
+// keeps a session as <config>/projects/<project>/<session id>.jsonl.
+func (s *Service) SessionFile(_ context.Context, raw json.RawMessage) (any, error) {
+	var p SessionFileParams
+	if err := decodeParams(raw, &p, "chat.sessionFile params must include sessionId"); err != nil {
+		return nil, err
+	}
+	if !sessionIDPattern.MatchString(p.SessionID) {
+		return nil, protocolError("chat.sessionFile sessionId is not a session id")
+	}
+	path := transcriptPath(configDir(p.ConfigDir), p.SessionID)
+	if path == "" {
+		return SessionFileResult{Found: false}, nil
+	}
+	return SessionFileResult{Found: true, Path: path}, nil
+}
+
+// transcriptPath is the file Claude Code keeps a session in, "" when none
+// is found. The newest one when several projects have it: a session moved
+// with its folder.
+func transcriptPath(dir, sessionID string) string {
+	if dir == "" {
+		return ""
+	}
+	matches, _ := filepath.Glob(filepath.Join(dir, "projects", "*", sessionID+".jsonl"))
+	return newestFile(matches)
+}
+
+func newestFile(paths []string) string {
+	found := ""
+	var newest int64 = -1
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		if t := info.ModTime().UnixNano(); t > newest {
+			newest = t
+			found = path
+		}
+	}
+	return found
 }
 
 // configDir resolves Claude Code's config directory on this host.

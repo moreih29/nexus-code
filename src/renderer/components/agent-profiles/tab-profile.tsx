@@ -1,10 +1,12 @@
 // What a chat tab shows of its profile: its dot and name after the tab's
 // title, and under the composer a chip that tells the account, the folder
-// and the rule that gave it, and switches the tab to another profile, in a
-// new conversation; in a narrow tab the chip is the dot alone, its name
+// and the rule that gave it, and moves the tab to another profile: its
+// conversation goes on there (a copy; the old profile keeps the session),
+// or a new one starts. In a narrow tab the chip is the dot alone, its name
 // told on hover.
 // Neither shows while the agent has only its default profile.
 
+import { Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -22,7 +24,6 @@ import {
   useAgentProfilesStore,
 } from "../../state/stores/agent-profiles";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { showConfirmDialog } from "../ui/confirm-dialog";
 import { Popover } from "../ui/popover";
 import { tooltipProps } from "../ui/tooltip";
 import { hasProfileChoice, ProfileDot, profileName } from "./profile-badge";
@@ -45,8 +46,9 @@ export function TabProfileMark({ agent, profileId }: { agent: ChatAgent; profile
 }
 
 /**
- * What a chat tab has going, for switching its profile: a conversation,
- * one with a turn under way, or none yet (the recent sessions show).
+ * What a chat tab has going, for moving it to another profile: a
+ * conversation, one with a turn under way, or none yet (the recent
+ * sessions show).
  */
 export type TabUse = "empty" | "conversation" | "running";
 
@@ -56,6 +58,7 @@ export function ProfileUsageChip({
   profileId,
   use,
   onSwitch,
+  onContinue,
   compact = false,
 }: {
   agent: ChatAgent;
@@ -64,6 +67,8 @@ export function ProfileUsageChip({
   use: TabUse;
   /** Starts the tab over in a new conversation with another profile. */
   onSwitch: (profileId: string) => void;
+  /** Goes on with the tab's conversation in another profile. */
+  onContinue: (profileId: string) => void;
   compact?: boolean;
 }) {
   const { t } = useTranslation();
@@ -105,22 +110,13 @@ export function ProfileUsageChip({
   const others = profilesOf(config, agent).filter((p) => p.id !== profile.id);
   const name = profileName(profile, t);
 
-  // A tab with nothing in it yet switches at once; one with a conversation
-  // asks first, as the conversation leaves the tab.
-  const switchTo = async (id: string, otherName: string) => {
+  // Nothing asks first: picking a profile here is the user's mind made up,
+  // and neither way loses the conversation, which the old profile keeps.
+  const conversation = use !== "empty";
+  const pick = (id: string, fresh: boolean) => {
     setOpen(false);
-    if (use !== "empty") {
-      const ok = await showConfirmDialog({
-        title: t("chat.profile.switch.title", { name: otherName }),
-        description: t(
-          use === "running" ? "chat.profile.switch.running" : "chat.profile.switch.description",
-          { name: otherName },
-        ),
-        confirmLabel: t("chat.profile.switch.confirm"),
-      });
-      if (!ok) return;
-    }
-    onSwitch(id);
+    if (conversation && !fresh) onContinue(id);
+    else onSwitch(id);
   };
 
   return (
@@ -169,18 +165,42 @@ export function ProfileUsageChip({
         {others.length > 0 && (
           <div className="flex flex-col border-t border-border pt-1.5">
             <span className="pb-0.5 text-app-micro text-muted-foreground">
-              {t("chat.profile.switchTo")}
+              {t(conversation ? "chat.profile.continueIn" : "chat.profile.switchTo")}
             </span>
-            {others.map((other) => (
-              <button
-                key={other.id}
-                type="button"
-                onClick={() => void switchTo(other.id, profileName(other, t))}
-                className="-mx-1 flex items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left hover:bg-[var(--state-hover-bg)]"
+            {use === "running" && (
+              <span
+                className="flex items-center gap-1 pb-0.5 text-app-micro text-(--state-warning-fg)"
+                data-testid="chat-profile-stops"
               >
-                <ProfileDot color={other.color} />
-                <span className="truncate">{profileName(other, t)}</span>
-              </button>
+                <Square className="size-2.5 fill-current" aria-hidden="true" />
+                {t("chat.profile.stops")}
+              </span>
+            )}
+            {others.map((other) => (
+              <div
+                key={other.id}
+                className="-mx-1 flex items-center rounded-(--radius-control) hover:bg-[var(--state-hover-bg)]"
+              >
+                <button
+                  type="button"
+                  onClick={() => pick(other.id, false)}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left"
+                  data-testid="chat-profile-pick"
+                >
+                  <ProfileDot color={other.color} />
+                  <span className="truncate">{profileName(other, t)}</span>
+                </button>
+                {conversation && (
+                  <button
+                    type="button"
+                    onClick={() => pick(other.id, true)}
+                    className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+                    data-testid="chat-profile-new"
+                  >
+                    {t("chat.profile.newChat")}
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}
