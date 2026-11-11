@@ -115,6 +115,17 @@ describe("withRelayed", () => {
     expect(withRelayed(items, undefined)).toBe(items);
   });
 
+  it("shows the same item for the same message each time, so the list does not render it again", () => {
+    const items: ChatItem[] = [user("u1", said, { uuid: "uuid-1" })];
+    const records = [record("uuid-1")];
+    const first = withRelayed(items, records)[0];
+    expect(withRelayed([...items, user("u2", "mine")], [...records])[0]).toBe(first as ChatItem);
+    // Another record for it shows it anew.
+    const other = withRelayed(items, [record("uuid-1", { from: { kind: "manager" } })])[0];
+    expect(other).not.toBe(first as ChatItem);
+    expect(other?.kind === "received" && other.from).toEqual({ kind: "manager" });
+  });
+
   it("keeps one still waiting for the agent where it waits, without the line", () => {
     const waiting = user("u1", said, { state: "sent", queued: true, sentUuid: "uuid-1" });
     const [shown] = withRelayed([waiting], [record("uuid-1")]);
