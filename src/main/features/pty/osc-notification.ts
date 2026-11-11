@@ -18,6 +18,7 @@
 import { createLogger } from "../../../shared/log/main";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
+import { showDesktopNotification } from "../../infra/platform/desktop-notifications";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -178,21 +179,23 @@ export class OscNotificationDispatcher {
       ? `[${workspaceName}] ${notification.title}`
       : `[${workspaceName}]`;
 
-    const n = new NotificationCtor({ title, body: notification.body });
+    showDesktopNotification(() => {
+      const n = new NotificationCtor({ title, body: notification.body });
 
-    n.on("click", () => {
-      // 1. Bring the app window to the foreground.
-      this.deps.focusMainWindow?.();
+      n.on("click", () => {
+        // 1. Bring the app window to the foreground.
+        this.deps.focusMainWindow?.();
 
-      // 2. Activate the workspace in main (fire-and-forget).
-      this.deps.activateWorkspace?.(workspaceId)?.catch((err) => {
-        log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+        // 2. Activate the workspace in main (fire-and-forget).
+        this.deps.activateWorkspace?.(workspaceId)?.catch((err) => {
+          log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+        });
+
+        // 3. Tell the renderer to reveal the workspace + tab.
+        broadcastFn("pty", "notificationClick", { workspaceId, tabId });
       });
 
-      // 3. Tell the renderer to reveal the workspace + tab.
-      broadcastFn("pty", "notificationClick", { workspaceId, tabId });
+      n.show();
     });
-
-    n.show();
   }
 }

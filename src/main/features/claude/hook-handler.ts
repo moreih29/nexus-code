@@ -47,6 +47,7 @@ import { createLogger } from "../../../shared/log/main";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
+import { showDesktopNotification } from "../../infra/platform/desktop-notifications";
 import type { ActiveContextStore } from "./active-context";
 import type { ChatAnswers } from "./chat-answers";
 import { handlePermissionRequest } from "./permission";
@@ -364,16 +365,18 @@ function fireOsNotification(
     deps.electronNotificationCtor ??
     (require("electron") as typeof import("electron")).Notification;
 
-  const n = new NotificationCtor({ title, body });
-  n.on("click", () => {
-    deps.focusMainWindow?.();
-    deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
-      log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+  showDesktopNotification(() => {
+    const n = new NotificationCtor({ title, body });
+    n.on("click", () => {
+      deps.focusMainWindow?.();
+      deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
+        log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+      });
+      broadcastFn("pty", "notificationClick", { workspaceId, tabId });
     });
-    broadcastFn("pty", "notificationClick", { workspaceId, tabId });
+    trackNotification(n);
+    n.show();
   });
-  trackNotification(n);
-  n.show();
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import { MANAGER_TAB_ID } from "../../../shared/manager/manager";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { ensureDir, root } from "../../infra/agent/runtimeDirs";
 import { register, validateArgs } from "../../infra/ipc-router";
+import { showDesktopNotification } from "../../infra/platform/desktop-notifications";
 import { writeManagerCodexRules } from "./codex-rules";
 
 const log = createLogger("manager");
@@ -61,20 +62,21 @@ export function notifyReport(options: ManagerFeatureOptions, title: string, body
   if (!options.shouldNotify()) return false;
   const Ctor =
     options.notificationCtor ?? (require("electron") as typeof import("electron")).Notification;
-  const n = new Ctor({ title, body });
-  const release = () => live.delete(n);
-  n.on("click", () => {
-    release();
-    try {
-      options.focusWindow();
-      options.broadcast("manager", "reveal", {});
-    } catch (error) {
-      log.warn(`showing the manager failed: ${(error as Error).message}`);
-    }
+  return showDesktopNotification(() => {
+    const n = new Ctor({ title, body });
+    const release = () => live.delete(n);
+    n.on("click", () => {
+      release();
+      try {
+        options.focusWindow();
+        options.broadcast("manager", "reveal", {});
+      } catch (error) {
+        log.warn(`showing the manager failed: ${(error as Error).message}`);
+      }
+    });
+    n.on("close", release);
+    live.add(n);
+    setTimeout(release, 5 * 60 * 1000).unref?.();
+    n.show();
   });
-  n.on("close", release);
-  live.add(n);
-  setTimeout(release, 5 * 60 * 1000).unref?.();
-  n.show();
-  return true;
 }
