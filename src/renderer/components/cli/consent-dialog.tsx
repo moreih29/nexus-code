@@ -59,11 +59,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  // An answer to a permission request, and a mode that lets more run
-  // unasked, are asked about each time.
+  // An answer to a permission request, a mode that lets more run unasked,
+  // and another profile (another account) for a tab are asked about each time.
   const kind = prompt?.change.kind;
   const permission = kind === "permissionAllow" || kind === "permissionDeny";
-  const eachTime = permission || kind === "chatMode";
+  const profile = kind === "chatProfile" || kind === "chatProfileNew";
+  const eachTime = permission || kind === "chatMode" || profile;
   const description = !prompt
     ? ""
     : prompt.fromManager
@@ -89,7 +90,9 @@ export function CliConsentDialogRoot(): React.JSX.Element {
             ? "agentCli.consent.permission_title"
             : kind === "chatMode"
               ? "agentCli.consent.mode_title"
-              : "agentCli.consent.title",
+              : profile
+                ? "agentCli.consent.profile_title"
+                : "agentCli.consent.title",
         )}
         description={description}
       />

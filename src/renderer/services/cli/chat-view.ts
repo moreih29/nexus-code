@@ -6,12 +6,17 @@
 
 import type {
   CliChatEntry,
+  CliChatGoal,
   CliChatInfo,
   CliChatRequest,
   CliChatTool,
 } from "../../../shared/cli/ui";
+import { type RelayedMessage, RelaySenderSchema } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { shownGoalOf } from "../chat/goal";
 import { type ChatItem, type ChatModel, opensTurn, type ToolCall } from "../chat/model";
+import { followsMessage } from "../chat/profile-moves";
+import { relaySenderText, withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
 import { lastAnswer } from "../sessions/codex-state";
 import { chatRowFacts, inputTarget } from "../sessions/rows";
@@ -72,6 +77,17 @@ function sinceOf(model: ChatModel): number | undefined {
   return undefined;
 }
 
+/** The goal a tab shows (/goal): none once its bar was closed after it ended. */
+function goalOf(chat: ChatTabState): CliChatGoal | undefined {
+  const goal = shownGoalOf(chat);
+  if (!goal) return undefined;
+  return {
+    objective: goal.objective,
+    status: goal.status,
+    ...(goal.ended && goal.reason ? { reason: goal.reason } : {}),
+  };
+}
+
 /**
  * Where a tab stands. `unseen`: a message was sent that its conversation
  * does not show yet, so it counts as working before any turn begins.
@@ -84,7 +100,8 @@ export function chatInfoOf(
   if (!chat) return { agent, state: unseen ? "working" : "idle" };
   const { model } = chat;
   const since = sinceOf(model);
-  const at = since === undefined ? {} : { since };
+  const goal = goalOf(chat);
+  const at = { ...(since === undefined ? {} : { since }), ...(goal ? { goal } : {}) };
   if (chat.phase === "failed" || chat.phase === "not-found") {
     const message =
       chat.phase === "not-found" ? `${agent} was not found where the workspace runs` : chat.error;
@@ -150,6 +167,18 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
     case "notice":
       return [{ role: "notice", text: item.detail ? `${item.code}: ${item.detail}` : item.code }];
     case "received": {
+      const relayed = relaySenderText(item.from);
+      if (relayed) {
+        const { kind, agent, name, workspaceId, tabId } = item.from;
+        const from = RelaySenderSchema.safeParse({ kind, agent, name, workspaceId, tabId });
+        return [
+          {
+            role: "notice",
+            text: `from ${relayed}: ${item.text}`,
+            ...(from.success ? { from: from.data } : {}),
+          },
+        ];
+      }
       const from = item.from.name ? `${item.from.kind} ${item.from.name}` : item.from.kind;
       return [{ role: "notice", text: `from ${from}: ${item.text}` }];
     }
@@ -164,25 +193,57 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
   }
 }
 
+/** What the tab keeps beside its conversation, which a read tells in it. */
+export interface ChatTabExtras {
+  /** The messages other agents sent it through the nexus command: told as theirs. */
+  readonly relayed?: readonly RelayedMessage[];
+  /** Where it went on in another profile, by the profile's name: a notice after the message. */
+  readonly moves?: readonly { readonly after: string; readonly profile: string }[];
+}
+
 /**
  * Every entry of a tab's conversation, its history before the program's log
  * included, each with its place: what the user and the agent said, the tools
  * the agent and its subagents ran, and what the app noted.
  */
-function allEntries(chat: ChatTabState): {
+function allEntries(
+  chat: ChatTabState,
+  extras: ChatTabExtras = {},
+): {
   entries: CliChatEntry[];
   tools: ChatModel["tools"];
 } {
   const { history, model } = chat;
-  const items = history ? [...history.items, ...model.items] : model.items;
+  const items = withRelayed(
+    history ? [...history.items, ...model.items] : model.items,
+    extras.relayed,
+  );
   const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+  // Each move after the last item of the message it follows, as the tab shows it.
+  const movesAfter = new Map<ChatItem, string[]>();
+  for (const move of extras.moves ?? []) {
+    const item = items.findLast((i) => followsMessage(i, move.after));
+    if (item) movesAfter.set(item, [...(movesAfter.get(item) ?? []), move.profile]);
+  }
   const entries = items
-    .flatMap((item) => entriesOfItem(item, tools))
+    .flatMap((item): Entry[] => {
+      const own = entriesOfItem(item, tools);
+      const moved = movesAfter.get(item) ?? [];
+      return [
+        ...own,
+        ...moved.map(
+          (profile): Entry => ({
+            role: "notice",
+            text: `went on in profile ${JSON.stringify(profile)}`,
+          }),
+        ),
+      ];
+    })
     .map((entry, i) => ({ i, ...entry }));
   return { entries, tools };
 }
 
-export interface ChatEntriesQuery {
+export interface ChatEntriesQuery extends ChatTabExtras {
   /** Only those after the entry with this i. */
   readonly since?: number;
   /** Only the last this many of them. */
@@ -203,7 +264,7 @@ export function chatEntriesOf(
   query: ChatEntriesQuery = {},
 ): { entries: CliChatEntry[]; end: number } {
   if (!chat) return { entries: [], end: -1 };
-  const all = allEntries(chat).entries;
+  const all = allEntries(chat, query).entries;
   const end = all.length - 1;
   const since = query.since !== undefined && query.since <= end ? query.since : -1;
   const entries = all.filter(
@@ -217,12 +278,17 @@ export function chatEntriesOf(
 }
 
 /**
- * A tool call of a tab's conversation whole: `ref` is its entry's i, or its
- * id. Null when it names no tool call.
+ * A tool call of a tab's conversation whole: `ref` is its entry's i (as a
+ * read with the same `extras` counts it), or its id. Null when it names no
+ * tool call.
  */
-export function chatToolOf(chat: ChatTabState | undefined, ref: string): CliChatTool | null {
+export function chatToolOf(
+  chat: ChatTabState | undefined,
+  ref: string,
+  extras: ChatTabExtras = {},
+): CliChatTool | null {
   if (!chat) return null;
-  const { entries, tools } = allEntries(chat);
+  const { entries, tools } = allEntries(chat, extras);
   const entry = /^\d+$/.test(ref)
     ? entries.find((e) => e.i === Number(ref))
     : entries.find((e) => e.toolUseId === ref);

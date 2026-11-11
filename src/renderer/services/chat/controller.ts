@@ -7,7 +7,9 @@
 // window reload build the same view.
 
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
+import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
+import type { ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
 import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
@@ -33,6 +35,7 @@ import {
   type UserItem,
 } from "./model";
 import { planUsageKeyFor, registerPlanSource, wantPlanUsage } from "./plan-usage";
+import { lastMessageId, sameProfile, withMove } from "./profile-moves";
 import { effortToApply, remoteAtStartup } from "./settings-defaults";
 import {
   type ChatTabState,
@@ -102,6 +105,11 @@ export interface ForkPoint {
   at?: string;
   /** The name the copy takes once it is a session of its own (/branch). */
   title?: string;
+  /**
+   * The profile that keeps the session, where it is not the tab's: one the
+   * tab went on with in another profile, or took up from another's list.
+   */
+  profileId?: string;
 }
 
 export interface ChatTabTarget {
@@ -114,6 +122,8 @@ export interface ChatTabTarget {
   fork?: ForkPoint;
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
+  /** Where the conversation went on in another profile. */
+  moves?: readonly ProfileMove[];
 }
 
 export interface ChatTabHooks {
@@ -130,8 +140,15 @@ export interface ChatTabHooks {
    * tab, or one it had when it was taken up again. The tab is called by it.
    */
   onRename?: (title: string) => void;
-  /** The tab runs with another profile now: it took up a session that one keeps. */
+  /**
+   * The tab runs with another profile now: the user switched it, or went on
+   * with its conversation in that one.
+   */
   onProfile?: (profileId: string) => void;
+  /** Where the conversation went on in another profile; none for a new one. */
+  onMoves?: (moves: readonly ProfileMove[]) => void;
+  /** Who sent a message another agent sent through the nexus command, by its id. */
+  onRelayed?: (record: RelayedMessage) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -277,7 +294,8 @@ export class ChatController {
     }
     // The agent has no log: a new tab, or one whose agent restarted.
     if (this.target.fork) {
-      await this.loadTranscript(this.target.fork.sessionId, forkCut(this.target.fork));
+      const fork = this.target.fork;
+      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
     } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
     }
@@ -298,19 +316,33 @@ export class ChatController {
       // A fork's transcript copies the messages it starts from, uuids and all.
       await this.loadTranscript(model.sessionId, { before: modelUuids(model) });
     } else if (this.target.fork) {
-      await this.loadTranscript(this.target.fork.sessionId, forkCut(this.target.fork));
+      const fork = this.target.fork;
+      await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
     } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
     }
   }
 
-  private async loadTranscript(sessionId: string, cut?: HistoryCut): Promise<void> {
+  /**
+   * The profile that keeps the session the tab's fork copies, where it is
+   * not the tab's own; undefined when it is.
+   */
+  private forkProfile(): string | undefined {
+    const from = this.target.fork?.profileId;
+    return from && !sameProfile(from, this.target.profileId) ? from : undefined;
+  }
+
+  private async loadTranscript(
+    sessionId: string,
+    cut?: HistoryCut,
+    profileId = this.target.profileId,
+  ): Promise<void> {
     try {
       const result = unwrapIpcResult(
         await ipcCallResult("chat", "transcript", {
           workspaceId: this.target.workspaceId,
           sessionId,
-          ...profileArg(this.target.profileId),
+          ...profileArg(profileId),
         }),
       );
       if (!result.found) return;
@@ -357,7 +389,7 @@ export class ChatController {
         workspaceId,
         tabId,
         cwd,
-        ...resume,
+        ...(await this.fromAnotherProfile(resume)),
         ...profileArg(this.target.profileId),
       });
     } catch (err) {
@@ -415,6 +447,28 @@ export class ChatController {
         });
     }
     return true;
+  }
+
+  /**
+   * A fork of a session another profile keeps starts from its file there:
+   * `claude --resume <file> --fork-session` copies it into the tab's
+   * profile, name and all, and leaves it as it was. Remote Control's record
+   * of the old session stays behind, so the copy gets its own.
+   */
+  private async fromAnotherProfile(resume: StartArgs): Promise<StartArgs> {
+    const from = this.forkProfile();
+    if (!resume.fork || !resume.resume || from === undefined) return resume;
+    const file = unwrapIpcResult(
+      await ipcCallResult("chat", "sessionFile", {
+        workspaceId: this.target.workspaceId,
+        sessionId: resume.resume,
+        ...profileArg(from),
+      }),
+    );
+    if (!file.found || !file.path) {
+      throw new Error(`session ${resume.resume} is not in the profile that kept it`);
+    }
+    return { ...resume, resume: file.path };
   }
 
   /**
@@ -497,7 +551,9 @@ export class ChatController {
 
   /**
    * Goes on with another session of the folder in this tab, which has no
-   * conversation yet: its program starts over on that session.
+   * conversation yet: its program starts over on that session. One another
+   * profile keeps is copied into the tab's (`--fork-session`), name and all,
+   * and left as it was there.
    */
   async resumeSession(sessionId: string, profileId?: string): Promise<void> {
     if (this.state.model.running) throw new Error("a turn is running");
@@ -506,17 +562,15 @@ export class ChatController {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
     }
     this.flushNow();
-    this.sessionId = sessionId;
-    this.target = { ...this.target, sessionId, fork: undefined };
-    // The session goes on in the profile that keeps it.
-    if (profileId && profileId !== this.profileId) {
-      this.target = {
-        ...this.target,
-        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
-      };
-      this.hooks.onProfile?.(profileId);
-    }
-    this.hooks.onTarget?.({ sessionId });
+    const from =
+      profileId !== undefined && !sameProfile(profileId, this.target.profileId)
+        ? profileId
+        : undefined;
+    const fork: ForkPoint | undefined = from ? { sessionId, profileId: from } : undefined;
+    this.sessionId = fork ? undefined : sessionId;
+    this.target = { ...this.target, sessionId: this.sessionId, fork, moves: undefined };
+    this.hooks.onTarget?.(fork ? { fork } : { sessionId });
+    this.hooks.onMoves?.([]);
     this.titled = false;
     // A command's card told of the session the tab had.
     this.update((prev) => ({
@@ -525,8 +579,8 @@ export class ChatController {
       card: undefined,
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
     }));
-    await this.loadTranscript(sessionId);
-    if (await this.start({ resume: sessionId, resetLog: true })) await this.rebuild();
+    await this.loadTranscript(sessionId, undefined, from);
+    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }
 
   /**
@@ -535,7 +589,7 @@ export class ChatController {
    * left as it was, for the old profile to go on with.
    */
   async switchProfile(profileId: string): Promise<void> {
-    if (profileId === this.profileId) return;
+    if (sameProfile(profileId, this.target.profileId)) return;
     const { workspaceId, tabId } = this.target;
     if (this.state.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
@@ -548,6 +602,7 @@ export class ChatController {
       sessionId: undefined,
       fork: undefined,
       profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      moves: undefined,
     };
     this.hooks.onProfile?.(profileId);
     this.hooks.onTitle?.("");
@@ -560,6 +615,68 @@ export class ChatController {
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
     }));
     if (await this.start({ resetLog: true })) await this.rebuild();
+  }
+
+  /**
+   * Goes on with this tab's conversation in another profile: its program
+   * stops, a turn under way with it, and one of the new profile's copies the
+   * session, its name too (`--resume <file> --fork-session`). The session is
+   * left as it was, for the old profile to go on with. A tab with no
+   * conversation yet just switches.
+   */
+  async continueInProfile(profileId: string): Promise<void> {
+    if (sameProfile(profileId, this.target.profileId)) return;
+    const pending = this.target.fork;
+    const sessionId = this.sessionId ?? pending?.sessionId;
+    if (!sessionId) {
+      await this.switchProfile(profileId);
+      return;
+    }
+    const { workspaceId, tabId } = this.target;
+    // Messages held for the turn's end would go to the program that stops.
+    this.update((prev) => (prev.queue.length > 0 ? { ...prev, queue: [] } : prev));
+    this.flushNow();
+    const shown = this.state.model.items.length;
+    if (this.state.model.process === "running") {
+      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+    }
+    this.flushNow();
+    // The program stopped here told of its exit; the conversation goes on.
+    const model = this.state.model;
+    const items = model.items.filter(
+      (item, i) => i < shown || !(item.kind === "notice" && item.code === "exited"),
+    );
+    const joined = joinHistory(this.state.history, { ...model, items });
+    const all = { ...emptyModel(), items: joined.items, tools: joined.tools };
+    // A copy that has no id of its own yet is copied from where it copies.
+    const fork: ForkPoint =
+      this.sessionId === undefined && pending
+        ? { ...pending, profileId: pending.profileId ?? this.profileId }
+        : { sessionId, profileId: this.profileId };
+    const after = lastMessageId(all.items);
+    const moves = after
+      ? withMove(this.target.moves, { profileId, after, at: Date.now() })
+      : [...(this.target.moves ?? [])];
+    this.sessionId = undefined;
+    this.sessionName = undefined;
+    this.target = {
+      ...this.target,
+      sessionId: undefined,
+      fork,
+      profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      moves,
+    };
+    this.hooks.onProfile?.(profileId);
+    this.hooks.onTarget?.({ fork });
+    this.hooks.onMoves?.(moves);
+    // The conversation stays in sight; the new program's log starts empty.
+    this.update((prev) => ({
+      ...prev,
+      history: all.items.length > 0 ? all : null,
+      card: undefined,
+      model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
+    }));
+    if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }
 
   /**
@@ -659,8 +776,12 @@ export class ChatController {
   }
 
   /** Sends a message now: during a turn, Claude reads it after the current tool. */
-  send(text: string, images: ImageBlock[] = []): Promise<void> {
-    return this.sendMessage(text, images, false);
+  /**
+   * Sends a message. One another agent sends through the nexus command
+   * (`from`) is led by a line that tells Claude who sent it.
+   */
+  send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
+    return this.sendMessage(text, images, false, from);
   }
 
   /**
@@ -695,14 +816,22 @@ export class ChatController {
     return result.cancelled === true;
   }
 
-  private async sendMessage(text: string, images: ImageBlock[], now: boolean): Promise<void> {
+  private async sendMessage(
+    text: string,
+    images: ImageBlock[],
+    now: boolean,
+    from?: RelaySender,
+  ): Promise<void> {
     if (!(await this.ensureRunning())) return;
     const first = !this.titled && text.trim() ? text.trim() : undefined;
     if (first) {
       this.titled = true;
       this.hooks.onFirstMessage?.(first);
     }
-    await this.write(userMessageOf(text, images, now));
+    const message = userMessageOf(from ? relayedText(from, text) : text, images, now);
+    // Kept before Claude echoes it, so it never shows as the user's.
+    if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
+    await this.write(message);
     if (first) void this.nameSession(first);
   }
 

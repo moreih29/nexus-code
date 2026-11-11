@@ -53,7 +53,6 @@ import {
   outsideLinksOf,
   todosOf,
 } from "../../services/chat/panel";
-import { usePlanUsage } from "../../services/chat/plan-usage";
 import {
   printRunRows,
   stopPrintRun,
@@ -62,6 +61,7 @@ import {
 } from "../../services/chat/print-runs";
 import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { withRelayed } from "../../services/chat/relayed";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
@@ -73,9 +73,8 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
-import { claudeUsageLine } from "../../services/chat/usage-line";
+import { shownReset } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
-import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
@@ -107,7 +106,7 @@ import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
-import { UsageLineView } from "./usage-line";
+import { ClaudeUsageLine } from "./usage-line";
 
 interface ClaudeTabViewProps {
   workspaceId: string;
@@ -175,6 +174,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           sessionId: props.sessionId,
           fork: props.fork,
           ...(props.profileId ? { profileId: props.profileId } : {}),
+          ...(props.moves ? { moves: props.moves } : {}),
         },
         hooks ?? claudeTabHooks(workspaceId, tabId),
       ),
@@ -182,17 +182,6 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   );
   const state = useChatTab(workspaceId, tabId);
   const goal = useTabGoal(workspaceId, tabId);
-  const { contextUsage } = state.model;
-  // The plan's usage is the profile's, one for all its tabs; the tab's own
-  // answer until the profile has one.
-  const plan = usePlanUsage("claude", workspaceId, props.profileId);
-  const usage = plan?.claude ?? state.model.usage;
-  // A minute's clock, so a window that resets leaves the line while it shows.
-  const now = useNow(isVisible, 60_000);
-  const usageLine = useMemo(
-    () => claudeUsageLine({ contextUsage, usage }, now),
-    [contextUsage, usage, now],
-  );
 
   // The line under the composer: the context and the plan's usage when the
   // tab is shown or its program comes up. The controller asks again after
@@ -237,7 +226,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     setResumeError(null);
     void controller.resumeSession(sessionId, profileId).catch((err: Error) => fail(err.message));
   };
-  // Another profile starts the tab over; what it has going decides whether to ask.
+  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = state.model.running
     ? "running"
     : (state.history?.items.length ?? 0) > 0 || state.model.items.length > 0
@@ -247,6 +236,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     setResumeError(null);
     void controller
       .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
+  const continueInProfile = (profileId: string) => {
+    setResumeError(null);
+    void controller
+      .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   const resumeFailed = (message: string) => {
@@ -526,7 +521,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       tabId,
       cwd: props.cwd,
       rootPath,
-      items: history ? [...history.items, ...model.items] : model.items,
+      items: withRelayed(history ? [...history.items, ...model.items] : model.items, props.relayed),
       tools: history ? { ...history.tools, ...model.tools } : model.tools,
       summarize: (tool) => toolSummary(tool, props.cwd),
       openFileTab: links.openFileTab,
@@ -625,6 +620,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               actions={shown ? undefined : actions}
               items={shown ? agentTranscript(state.model, shown) : undefined}
               reveal={shown ? null : callAsk}
+              moves={props.moves}
+              relayed={props.relayed}
               empty={
                 state.phase === "ready" || state.phase === "ended" ? (
                   <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -696,6 +693,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           <Composer
             controller={controller}
             state={state}
+            relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
             above={
@@ -727,8 +725,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
             }
             onCommand={runCommand}
             below={
-              <UsageLineView
-                line={usageLine}
+              <ClaudeUsageLine
+                workspaceId={workspaceId}
+                profileId={props.profileId}
+                visible={isVisible}
+                contextUsage={state.model.contextUsage}
+                usage={state.model.usage}
                 trailing={
                   hooks
                     ? undefined
@@ -739,6 +741,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
                           profileId={props.profileId}
                           use={tabUse}
                           onSwitch={switchProfile}
+                          onContinue={continueInProfile}
                           compact={compact}
                         />
                       )
@@ -1028,7 +1031,10 @@ function RateLimitBanner({ state }: { state: ChatTabState }) {
   const notice = rateLimitNotice(limit, { warnings, dismissed });
   if (!limit || !notice) return null;
   const resets = limit.resetsAt
-    ? new Date(limit.resetsAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    ? shownReset(limit.resetsAt * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : null;
   const rejected = notice === "rejected";
   const message = rejected

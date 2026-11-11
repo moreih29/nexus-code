@@ -28,6 +28,7 @@ import {
 import { oneLine } from "../format";
 import { absolutePath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
 import { WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
@@ -75,6 +76,18 @@ export function chatStateText(tab: CliTabInfo, info: CliChatInfo): string {
   }
 }
 
+/** What a tab runs with and works toward, a line each: its profile, its goal. */
+export function chatAboutText(info: CliChatInfo): string {
+  const lines: string[] = [];
+  if (info.profile) lines.push(`Profile: ${info.profile}.`);
+  if (info.goal) {
+    const { objective, status, reason } = info.goal;
+    const why = reason ? ` (${oneLine(reason, 300)})` : "";
+    lines.push(`Goal, ${status}: ${oneLine(objective, 300)}${why}`);
+  }
+  return lines.join("\n");
+}
+
 const ROLE_LABELS: Readonly<Record<CliChatEntry["role"], string>> = {
   user: "user",
   agent: "agent",
@@ -117,6 +130,8 @@ function infoJson(tab: CliTabInfo, workspace: WorkspaceMeta, info: CliChatInfo) 
     state: info.state,
     ...(info.message ? { message: info.message } : {}),
     ...(info.since !== undefined ? { since: info.since } : {}),
+    ...(info.profile ? { profile: info.profile } : {}),
+    ...(info.goal ? { goal: info.goal } : {}),
   };
 }
 
@@ -370,6 +385,7 @@ const chatNew: CliCommand = {
       await mayLoosen(ctx, workspace, agent, tab, CHAT_MODES[agent].fallback, settings.mode);
     }
     const setting = Object.keys(settings).length > 0;
+    const from = prompt !== "" ? await senderOf(ctx) : undefined;
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
@@ -377,6 +393,7 @@ const chatNew: CliCommand = {
         agent,
         cwd,
         prompt,
+        ...(from ? { from } : {}),
         placement: placementFor(ctx, workspace, flags.show !== true),
         ...(setting ? { settings } : {}),
         ...(typeof flags.profile === "string" && flags.profile.trim() !== ""
@@ -436,15 +453,23 @@ const chatInterrupt: CliCommand = {
 
 const chatSet: CliCommand = {
   path: ["chat", "set"],
-  summary: "Set a Claude or Codex tab's model, effort or permission mode, or list them",
+  summary: "Set a Claude or Codex tab's model, effort, permission mode or profile, or list them",
   args: "<tab>",
   details:
     "As its composer's menus set them, for its next turn on. With no flag, prints what it runs\n" +
     "with and what it takes: the models its program lists, its model's efforts, the modes.\n" +
     "Its program must run: a tab whose program ended starts it again with a message. A mode\n" +
     "that lets more run without asking is the user's to allow, each time; the one that lets\n" +
-    "everything run, only the user picks.",
-  flags: { ...SETTING_FLAGS, workspace: WORKSPACE_FLAG },
+    "everything run, only the user picks.\n" +
+    "--profile runs it with another agent profile (another account or settings), as its\n" +
+    "profile chip does: its conversation goes on there, or a new one starts with --new. The\n" +
+    "user allows it each time; not while it works or asks the user.",
+  flags: {
+    ...SETTING_FLAGS,
+    profile: { type: "string", value: "NAME", description: "Run it with that agent profile" },
+    new: { type: "boolean", description: "With --profile: start a new conversation there" },
+    workspace: WORKSPACE_FLAG,
+  },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
@@ -452,6 +477,17 @@ const chatSet: CliCommand = {
     const agent: ChatAgent = tab.type === "codex" ? "codex" : "claude";
     const settings = settingsFlags(agent, flags);
     const target = { workspaceId: workspace.id, tabId: tab.id };
+    const profile = typeof flags.profile === "string" ? flags.profile.trim() : undefined;
+    if (flags.new === true && profile === undefined) {
+      throw new CliUsageError("--new goes with --profile");
+    }
+    if (profile !== undefined) {
+      if (profile === "") throw new CliUsageError("--profile takes a profile's name");
+      if (Object.keys(settings).length > 0) {
+        throw new CliUsageError("--profile goes alone; set the model, effort or mode after it");
+      }
+      return setProfile(ctx, workspace, tab, profile, flags.new === true);
+    }
     if (Object.keys(settings).length === 0) {
       const choices = await ctx.services.ui(
         "chat.settings",
@@ -489,6 +525,49 @@ const chatSet: CliCommand = {
     });
   },
 };
+
+/**
+ * Has a tab run with another profile, the user allowing it each time: its
+ * conversation goes on there, or a new one starts (`fresh`).
+ */
+async function setProfile(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  tab: CliTabInfo,
+  profile: string,
+  fresh: boolean,
+): Promise<CliOutput> {
+  if (tab.id === ctx.caller.tabId) {
+    throw new CliError("that is this tab; its profile is the user's to change");
+  }
+  await mayChange(ctx, workspace, { kind: "chatSettings", detail: tab.title });
+  const target = { workspaceId: workspace.id, tabId: tab.id };
+  // Named and checked first: the user is asked about what would happen.
+  const names = await ctx.services.ui("chat.profile", {
+    ...target,
+    profile,
+    fresh,
+    dryRun: true,
+  });
+  await ctx.services.askUser({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change: {
+      kind: fresh ? "chatProfileNew" : "chatProfile",
+      detail: `"${tab.title}" (${names.from} → ${names.to})`,
+    },
+  });
+  const { from, to } = await ctx.services.ui(
+    "chat.profile",
+    { ...target, profile, fresh },
+    SEND_TIMEOUT_MS,
+  );
+  const text = fresh
+    ? `${tab.title} (${shortId(tab.id)}) now runs with the profile "${to}", in a new conversation.`
+    : `${tab.title} (${shortId(tab.id)}) now runs with the profile "${to}"; its conversation goes on there.`;
+  return output(text, { ...target, from, profile: to, fresh });
+}
 
 const chatRead: CliCommand = {
   path: ["chat", "read"],
@@ -543,10 +622,12 @@ const chatRead: CliCommand = {
         ? entries
         : entries.map((entry) => ({ ...entry, text: cut(entry.text, maxChars) }));
     const transcript = chatTranscript(info, entries, maxChars);
-    const state =
+    const about = chatAboutText(info);
+    const state = `${
       info.state === "idle"
         ? `${AGENT_NAMES[info.agent]} in ${tab.title} is idle.`
-        : chatStateText(tab, info);
+        : chatStateText(tab, info)
+    }${about ? `\n${about}` : ""}`;
     // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
     const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
@@ -633,10 +714,12 @@ const chatSend: CliCommand = {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
     await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
+    // An agent's message shows as its, and the tab's agent is told who sent it.
+    const from = await senderOf(ctx);
     // Starting a program that is gone comes before the message.
     await ctx.services.ui(
       "chat.send",
-      { workspaceId: workspace.id, tabId: tab.id, text },
+      { workspaceId: workspace.id, tabId: tab.id, text, ...(from ? { from } : {}) },
       SEND_TIMEOUT_MS,
     );
     await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);

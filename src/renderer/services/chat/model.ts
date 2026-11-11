@@ -44,6 +44,8 @@ export interface UserItem {
    * then it waits above the box, where it can still be taken back.
    */
   queued?: boolean;
+  /** Codex: the turn it went into, which a resumed thread keeps (not `uuid`). */
+  turnId?: string;
   at?: number;
 }
 
@@ -94,10 +96,19 @@ export interface NoticeItem {
 
 /** Who wrote a message the CLI took, when it was not the user. */
 export interface MessageSource {
-  /** peer (another session, a teammate), channel, coordinator, or as the CLI names it. */
+  /**
+   * peer (another session, a teammate), channel, coordinator, or as the CLI
+   * names it; tab, terminal or manager for an agent that sent it through
+   * the nexus command.
+   */
   kind: string;
-  /** The session's or teammate's name, the channel's server. */
+  /** The session's or teammate's name, the channel's server; the tab's title. */
   name?: string;
+  /** The agent that sent it through the nexus command: claude or codex. */
+  agent?: string;
+  /** The tab it was sent from through the nexus command. */
+  workspaceId?: string;
+  tabId?: string;
 }
 
 /**

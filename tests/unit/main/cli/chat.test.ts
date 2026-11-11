@@ -5,8 +5,19 @@
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
+import { senderOf } from "../../../../src/main/features/cli/sender";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
-import { API, APP, contextFor, type FakeApp, fakeApp, NEW_TAB, SHELL_TAB } from "./fake-services";
+import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
+import {
+  API,
+  APP,
+  CLAUDE_TAB,
+  contextFor,
+  type FakeApp,
+  fakeApp,
+  NEW_TAB,
+  SHELL_TAB,
+} from "./fake-services";
 
 const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
 const DOCS_TAB = "ffffffff-0000-4000-8000-000000000009";
@@ -254,5 +265,115 @@ describe("chat new with settings", () => {
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
     expect(app.dispatched).toEqual([]);
+  });
+});
+
+describe("who sends a message", () => {
+  test("a tab's agent, Claude Code in a terminal and the manager are named; the user at a shell is not", async () => {
+    const app = withChat();
+    app.tabs[APP]?.push({
+      id: DOCS_TAB,
+      type: "codex",
+      title: "Plan the refactor",
+      groupId: "g1",
+      shown: false,
+    });
+    const at = (tabId: string) => contextFor(app, [], { workspaceId: APP, tabId });
+    expect(await senderOf(at(DOCS_TAB))).toEqual({
+      kind: "tab",
+      agent: "codex",
+      name: "Plan the refactor",
+      workspaceId: APP,
+      tabId: DOCS_TAB,
+    });
+    expect(await senderOf(at(CLAUDE_TAB))).toEqual({
+      kind: "terminal",
+      agent: "claude",
+      name: "✳ Claude Code",
+      workspaceId: APP,
+      tabId: CLAUDE_TAB,
+    });
+    expect(await senderOf(at(SHELL_TAB))).toBeUndefined();
+    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
+    expect(await senderOf(contextFor(app, [], manager))).toEqual({ kind: "manager" });
+  });
+
+  test("chat send and chat new --prompt tell the tab who sent it, when an agent did", async () => {
+    const app = withChat();
+    const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
+    expect((await nexus(app, ["chat", "send", "eeee", "run the tests"], claude)).exitCode).toBe(0);
+    expect(uiArgs(app, "chat.send")).toMatchObject({
+      text: "run the tests",
+      from: { kind: "terminal", agent: "claude", tabId: CLAUDE_TAB },
+    });
+    await nexus(app, ["chat", "new", "--prompt", "look at the docs"], claude);
+    expect(uiArgs(app, "chat.open")).toMatchObject({ from: { kind: "terminal" } });
+    const user = withChat();
+    await nexus(user, ["chat", "send", "eeee", "run the tests"]);
+    expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
+  });
+});
+
+describe("chat set --profile", () => {
+  test("asks the user each time, then has the tab go on in that profile, or start anew with --new", async () => {
+    const app = withChat();
+    app.answers.push("once", "once");
+    const result = await nexus(app, ["chat", "set", "eeee", "--profile", "Work"]);
+    expect(result.stdout).toBe(
+      'Fix the login (eeeeeeee) now runs with the profile "Work"; its conversation goes on there.\n',
+    );
+    const fresh = await nexus(app, ["chat", "set", "eeee", "--profile", "Work", "--new"]);
+    expect(fresh.stdout).toContain('"Work", in a new conversation.');
+    expect(app.asked.map((r) => r.change)).toEqual([
+      { kind: "chatProfile", detail: '"Fix the login" (default → Work)' },
+      { kind: "chatProfileNew", detail: '"Fix the login" (default → Work)' },
+    ]);
+    const calls = app.uiCalls.filter((c) => c.op === "chat.profile").map((c) => c.args);
+    expect(calls).toEqual([
+      { workspaceId: APP, tabId: CHAT_TAB, profile: "Work", fresh: false, dryRun: true },
+      { workspaceId: APP, tabId: CHAT_TAB, profile: "Work", fresh: false },
+      { workspaceId: APP, tabId: CHAT_TAB, profile: "Work", fresh: true, dryRun: true },
+      { workspaceId: APP, tabId: CHAT_TAB, profile: "Work", fresh: true },
+    ]);
+  });
+
+  test("changes nothing the user did not allow, a profile the agent lacks, or its own tab's", async () => {
+    const denied = withChat();
+    expect((await nexus(denied, ["chat", "set", "eeee", "--profile", "Work"])).stderr).toBe(
+      "nexus: the user did not allow it\n",
+    );
+    expect(denied.uiCalls.filter((c) => c.op === "chat.profile")).toHaveLength(1);
+    const lacking = withChat();
+    const none = await nexus(lacking, ["chat", "set", "eeee", "--profile", "nope"]);
+    expect(none.stderr).toContain('claude has no profile "nope"');
+    expect(lacking.asked).toEqual([]);
+    const own = { workspaceId: APP, tabId: CHAT_TAB };
+    const self = await nexus(withChat(), ["chat", "set", "eeee", "--profile", "Work"], own);
+    expect(self.stderr).toContain("its profile is the user's to change");
+    const app = withChat();
+    expect((await nexus(app, ["chat", "set", "eeee", "--new"])).stderr).toContain(
+      "--new goes with --profile",
+    );
+    const both = await nexus(app, ["chat", "set", "eeee", "--profile", "Work", "--model", "x"]);
+    expect(both.stderr).toContain("--profile goes alone");
+  });
+});
+
+describe("a tab's profile and goal", () => {
+  test("chat read and session list tell them", async () => {
+    const app = withChat({
+      profile: "Work",
+      goal: { objective: "All tests pass", status: "met", reason: "bun test is green" },
+    });
+    const read = await nexus(app, ["chat", "read", "eeee"]);
+    expect(read.stdout).toEndWith(
+      "Claude in Fix the login is idle.\nProfile: Work.\nGoal, met: All tests pass (bun test is green)\n",
+    );
+    const json = JSON.parse((await nexus(app, ["chat", "read", "eeee", "--json"])).stdout);
+    expect([json.profile, json.goal.status]).toEqual(["Work", "met"]);
+    const list = await nexus(app, ["session", "list"]);
+    const row = list.stdout.split("\n").find((line) => line.includes("Fix the login")) ?? "";
+    expect(row).toContain("claude-tab (Work)");
+    expect(row).toContain("idle · goal met");
   });
 });

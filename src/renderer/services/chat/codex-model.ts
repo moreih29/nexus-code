@@ -297,7 +297,7 @@ function applyResponse(
       const turnId = str(rec(result.turn)?.id) ?? str(result.turnId);
       if (sent.subtype === "turn/start" && turnId && m.running) enterTurn(m, turnId);
       const clientId = str(sent.request.clientUserMessageId);
-      if (clientId) takeUser(draft, `u-${clientId}`, undefined);
+      if (clientId) takeUser(draft, `u-${clientId}`, undefined, turnId);
       return;
     }
     case "model/list":
@@ -663,7 +663,7 @@ function applyItem(
     case "userMessage": {
       if (m.items.some((i) => i.kind === "user" && i.uuid === id)) return;
       const clientId = str(item.clientId);
-      if (clientId && takeUser(draft, `u-${clientId}`, id)) return;
+      if (clientId && takeUser(draft, `u-${clientId}`, id, turnId)) return;
       // The instructions a review starts with, which the app did not write.
       if (m.reviewTurn === turnId) return;
       // A message the app sent, told without its client id: the oldest not yet told.
@@ -672,12 +672,26 @@ function applyItem(
       );
       if (!clientId && index >= 0) {
         const sent = m.items[index] as UserItem;
-        draft.replaceItem(index, { ...sent, state: "taken", uuid: id });
+        draft.replaceItem(index, {
+          ...sent,
+          state: "taken",
+          uuid: id,
+          ...(turnId ? { turnId } : {}),
+        });
         return;
       }
       // Not one the app sent: an earlier turn's, another client's.
       const { text, images } = userInputOf(item.content);
-      draft.push({ kind: "user", key: `u${tag}`, uuid: id, text, images, state: "taken", at });
+      draft.push({
+        kind: "user",
+        key: `u${tag}`,
+        uuid: id,
+        text,
+        images,
+        state: "taken",
+        ...(turnId ? { turnId } : {}),
+        at,
+      });
       return;
     }
     case "agentMessage":
@@ -729,13 +743,23 @@ function enterTurn(m: CodexModel, turnId: string): void {
   m.turnId = turnId;
 }
 
-/** Marks a message the app sent as taken by the server; false when there is none. */
-function takeUser(draft: CodexDraft, key: string, uuid: string | undefined): boolean {
+/** Marks a message the app sent as taken by the server, in its turn; false when there is none. */
+function takeUser(
+  draft: CodexDraft,
+  key: string,
+  uuid: string | undefined,
+  turnId: string | undefined,
+): boolean {
   const items = draft.next.items;
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item.kind !== "user" || item.key !== key) continue;
-    draft.replaceItem(i, { ...item, state: "taken", ...(uuid ? { uuid } : {}) });
+    draft.replaceItem(i, {
+      ...item,
+      state: "taken",
+      ...(uuid ? { uuid } : {}),
+      ...(turnId ? { turnId } : {}),
+    });
     return true;
   }
   return false;

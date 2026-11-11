@@ -835,8 +835,11 @@ export const ipcContract = {
       start: call(
         PtyWorkspaceTabSchema.extend({
           cwd: z.string(),
-          /** A session to go on with (`--resume`). */
-          resume: z.string().max(128).optional(),
+          /**
+           * A session to go on with (`--resume`): its id, or, to fork one
+           * another profile keeps, its file there (chat.sessionFile).
+           */
+          resume: z.string().max(4096).optional(),
           /** Go on with a copy of `resume` (`--fork-session`). */
           fork: z.boolean().optional(),
           /** With fork: the message to copy the session up to (`--resume-session-at`). */
@@ -921,6 +924,33 @@ export const ipcContract = {
           keepTabIds: z.array(z.string().max(128)).max(10_000),
         }),
         z.void(),
+      ),
+      /**
+       * Where a Claude session is kept on the workspace's host, for a program
+       * of another profile to copy it (`--resume <file> --fork-session`).
+       */
+      sessionFile: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          sessionId: z.string().max(128),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({ found: z.boolean(), path: z.string().optional() }),
+      ),
+      /**
+       * Puts a copy of a Codex thread another profile keeps where the tab's
+       * profile's program finds it, for thread/fork, which finds a thread
+       * only there, with the threads it was forked from; the copies stay,
+       * as the fork reads its history from them.
+       */
+      stageThread: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          threadId: z.string().max(128),
+          fromProfileId: z.string().max(64).optional(),
+          toProfileId: z.string().max(64).optional(),
+        }),
+        z.object({ found: z.boolean() }),
       ),
       /** A session's transcript, to show a conversation resumed after the agent restarted. */
       transcript: call(

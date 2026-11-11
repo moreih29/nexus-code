@@ -48,7 +48,7 @@ import {
 } from "../../services/chat/panel";
 import { usePlanUsageStore } from "../../services/chat/plan-usage";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
-import { formatTokens } from "../../services/chat/usage-line";
+import { formatTokens, shownReset } from "../../services/chat/usage-line";
 import { firstVersionOf } from "../../services/chat/versions";
 import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
@@ -1180,8 +1180,8 @@ function ChangedRow({ file, cwd, onOpen }: { file: ChangedFile; cwd: string; onO
 function UsageSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
   const { t, i18n } = useTranslation();
   // The profile's, one for all its tabs; the tab's own until it has one.
-  const plan = usePlanUsageStore((s) => s.byKey[controller.usageKey()]);
-  const limits = usageLimitsOf(plan?.claude ?? state.model.usage);
+  const plan = usePlanUsageStore((s) => s.byKey[controller.usageKey()]?.claude);
+  const limits = usageLimitsOf(plan ?? state.model.usage);
   const supported = controller.supports("get_usage");
   const cost = state.model.costUsd;
   return (
@@ -1222,7 +1222,7 @@ function UsageSection({ controller, state }: { controller: ChatController; state
             {limit.resetsAt && (
               <div className="text-app-micro text-muted-foreground">
                 {t("chat.panel.usage.resets", {
-                  time: new Date(limit.resetsAt).toLocaleString(i18n.language, {
+                  time: shownReset(Date.parse(limit.resetsAt)).toLocaleString(i18n.language, {
                     month: "short",
                     day: "numeric",
                     hour: "2-digit",

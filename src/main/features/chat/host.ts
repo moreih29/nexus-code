@@ -257,6 +257,26 @@ export class ChatHost {
     return channel.call("chat.transcript", { sessionId, ...this.configDir(profileId) });
   }
 
+  async sessionFile(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.sessionFile", { sessionId, ...this.configDir(profileId) });
+  }
+
+  async stageThread(
+    workspaceId: string,
+    threadId: string,
+    options: { fromProfileId?: string; toProfileId?: string },
+  ): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    const from = this.codexDir(options.fromProfileId);
+    const to = this.codexDir(options.toProfileId);
+    return channel.call("chat.stageThread", {
+      threadId,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    });
+  }
+
   async claudeConfig(workspaceId: string, profileId?: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
     return channel.call("chat.claudeConfig", this.configDir(profileId));
@@ -297,6 +317,12 @@ export class ChatHost {
     const profile = profileId ? this.options.profile?.(profileId) : null;
     if (!profile || profile.agent !== "claude" || profile.dir.trim() === "") return {};
     return { configDir: profile.dir.trim() };
+  }
+
+  /** A Codex profile's folder; "" for the default profile, or one gone. */
+  private codexDir(profileId: string | undefined): string {
+    const profile = profileId ? this.options.profile?.(profileId) : null;
+    return profile?.agent === "codex" ? profile.dir.trim() : "";
   }
 
   /**

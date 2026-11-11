@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
 import { WorkspaceIdSchema } from "./workspace-id";
@@ -30,11 +31,28 @@ export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
 export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
 export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
 
+/** The most profile moves a chat tab keeps: the latest. */
+export const PROFILE_MOVES_KEPT = 20;
+
+/**
+ * Where a chat tab's conversation went on in another profile, for a line
+ * that says so: after the message whose id is `after`, at `at` (epoch ms).
+ */
+export const ProfileMoveSchema = z.object({
+  profileId: z.string().max(64),
+  after: z.string().max(128),
+  at: z.number(),
+});
+export type ProfileMove = z.infer<typeof ProfileMoveSchema>;
+
+const ProfileMovesSchema = z.array(ProfileMoveSchema).max(PROFILE_MOVES_KEPT).optional();
+
 /**
  * A Claude tab: a conversation with `claude -p` run in `cwd`. `sessionId` is
  * the session it last had, to go on with once its program is gone. `fork`
  * is the session its program copies, up to a message, until the copy has
- * its own id: a tab opened as a fork or a branch, or one rewound.
+ * its own id: a tab opened as a fork or a branch, one rewound, or one that
+ * went on in another profile.
  */
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
@@ -45,10 +63,16 @@ export const ClaudeTabPropsSchema = z.object({
       at: z.string().max(128).optional(),
       /** The name the copy takes (/branch). */
       title: z.string().max(200).optional(),
+      /** The profile that keeps the session, where it is not the tab's. */
+      profileId: z.string().max(64).optional(),
     })
     .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
+  /** Where the conversation went on in another profile. */
+  moves: ProfileMovesSchema,
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed: RelayedMessagesSchema,
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -61,10 +85,19 @@ export const CodexTabPropsSchema = z.object({
   threadId: z.string().max(128).optional(),
   /** The thread it copies until the copy has its own id (/fork). */
   fork: z
-    .object({ threadId: z.string().max(128), title: z.string().max(200).optional() })
+    .object({
+      threadId: z.string().max(128),
+      title: z.string().max(200).optional(),
+      /** The profile that keeps the thread, where it is not the tab's. */
+      profileId: z.string().max(64).optional(),
+    })
     .optional(),
   /** The agent profile it runs with; absent = the default one. */
   profileId: z.string().max(64).optional(),
+  /** Where the conversation went on in another profile. */
+  moves: ProfileMovesSchema,
+  /** Who sent the messages other agents sent it through the nexus command. */
+  relayed: RelayedMessagesSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 

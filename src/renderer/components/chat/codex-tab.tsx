@@ -34,13 +34,11 @@ import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
-import { usePlanUsage } from "../../services/chat/plan-usage";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { revertChangedFile } from "../../services/chat/revert-file";
+import { withRelayed } from "../../services/chat/relayed";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
-import { codexUsageLine } from "../../services/chat/usage-line";
-import { useNow } from "../../services/sessions/use-family";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { openTerminal } from "../../services/terminal/open-terminal";
 import { queueStartupInput } from "../../services/terminal/pty-client";
@@ -69,7 +67,7 @@ import { QuickLook, type QuickLookList } from "./quick-look";
 import { CodexSessionList } from "./session-list";
 import { StatusLine } from "./status-line";
 import { toolSummary } from "./tool-row";
-import { UsageLineView } from "./usage-line";
+import { CodexUsageLine } from "./usage-line";
 
 interface CodexTabViewProps {
   workspaceId: string;
@@ -127,17 +125,6 @@ export function CodexTabView({
   const state = useChatTab(workspaceId, tabId);
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
-  const { tokens } = model;
-  // The plan's limits are the profile's, one for all its tabs; the tab's
-  // own until the profile has them.
-  const plan = usePlanUsage("codex", workspaceId, props.profileId);
-  const rateLimits = plan?.codex ?? model.rateLimits;
-  // A minute's clock, so a window that resets leaves the line while it shows.
-  const now = useNow(isVisible, 60_000);
-  const usageLine = useMemo(
-    () => codexUsageLine({ tokens, rateLimits }, now),
-    [tokens, rateLimits, now],
-  );
 
   // Opened the first time the tab is shown, so restored tabs in the
   // background start nothing until they are looked at.
@@ -197,7 +184,7 @@ export function CodexTabView({
   const resumeFailed = (message: string) => {
     showToast({ kind: "error", message: t("chat.sessions.resume_failed", { message }) });
   };
-  // Another profile starts the tab over; what it has going decides whether to ask.
+  // What the tab has going decides what another profile offers.
   const tabUse: TabUse = model.running
     ? "running"
     : model.items.length > 0
@@ -208,6 +195,13 @@ export function CodexTabView({
     setResumeError(null);
     void controller
       .switchProfile(profileId)
+      .catch((err: Error) => showToast({ kind: "error", message: err.message }));
+  };
+  const continueInProfile = (profileId: string) => {
+    setResumeQuery(null);
+    setResumeError(null);
+    void controller
+      .continueInProfile(profileId)
       .catch((err: Error) => showToast({ kind: "error", message: err.message }));
   };
   // A tab put out of sight takes its quick look with it.
@@ -355,6 +349,8 @@ export function CodexTabView({
           rootPath={rootPath}
           history={null}
           model={state.model}
+          moves={props.moves}
+          relayed={props.relayed}
           empty={
             state.phase === "ready" || state.phase === "ended" ? (
               <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
@@ -409,6 +405,7 @@ export function CodexTabView({
       <Composer
         controller={controller}
         state={state}
+        relayed={props.relayed}
         local={isLocal}
         commands={commands}
         placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -436,8 +433,12 @@ export function CodexTabView({
           )
         }
         below={
-          <UsageLineView
-            line={usageLine}
+          <CodexUsageLine
+            workspaceId={workspaceId}
+            profileId={props.profileId}
+            visible={isVisible}
+            tokens={model.tokens}
+            rateLimits={model.rateLimits}
             trailing={
               hooks
                 ? undefined
@@ -448,6 +449,7 @@ export function CodexTabView({
                       profileId={props.profileId}
                       use={tabUse}
                       onSwitch={switchProfile}
+                      onContinue={continueInProfile}
                       compact={compact}
                     />
                   )
@@ -487,7 +489,10 @@ export function CodexTabView({
             cwd: props.cwd,
             rootPath,
             ...(props.profileId ? { profileId: props.profileId } : {}),
-            items: history ? [...history.items, ...model.items] : model.items,
+            items: withRelayed(
+              history ? [...history.items, ...model.items] : model.items,
+              props.relayed,
+            ),
             tools: history ? { ...history.tools, ...model.tools } : model.tools,
             summarize: (tool) => toolSummary(tool, props.cwd),
             openFileTab: links.openFileTab,

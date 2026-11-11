@@ -192,6 +192,36 @@ type TranscriptResult struct {
 	Truncated bool              `json:"truncated,omitempty"`
 }
 
+// SessionFileParams is the wire shape for chat.sessionFile.
+type SessionFileParams struct {
+	SessionID string `json:"sessionId"`
+	// ConfigDir is the Claude profile's folder, "~" for the home; empty
+	// means CLAUDE_CONFIG_DIR or ~/.claude.
+	ConfigDir string `json:"configDir,omitempty"`
+}
+
+// SessionFileResult is returned by chat.sessionFile.
+type SessionFileResult struct {
+	Found bool   `json:"found"`
+	Path  string `json:"path,omitempty"`
+}
+
+// StageThreadParams is the wire shape for chat.stageThread.
+type StageThreadParams struct {
+	ThreadID string `json:"threadId"`
+	// From is the folder of the Codex profile that keeps the thread, To the
+	// one whose program forks it; "~" for the home, empty for CODEX_HOME or
+	// ~/.codex.
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+}
+
+// StageThreadResult is returned by chat.stageThread: whether the thread was
+// found.
+type StageThreadResult struct {
+	Found bool `json:"found"`
+}
+
 // ClaudeConfigParams is the wire shape for chat.claudeConfig.
 type ClaudeConfigParams struct {
 	// ConfigDir is the program's config directory, as CLAUDE_CONFIG_DIR;

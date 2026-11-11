@@ -215,3 +215,55 @@ describe("chatToolOf", () => {
     expect(chatToolOf(undefined, "2")).toBeNull();
   });
 });
+
+describe("what the tab keeps beside its conversation", () => {
+  const relayed = {
+    items: [
+      {
+        kind: "user",
+        key: "u1",
+        uuid: "uuid-1",
+        text: '[nexus] The "Plan" tab (Claude) sent this, not the user. Your answer here is what it reads.\n\nRun the tests.',
+        images: [],
+        state: "taken",
+      },
+      { kind: "assistant", key: "a1", uuid: "uuid-2", blocks: [{ type: "text", text: "Green." }] },
+      { kind: "user", key: "u2", uuid: "uuid-3", text: "Thanks", images: [], state: "taken" },
+    ],
+  } as Partial<ChatModel>;
+  const from = {
+    kind: "tab",
+    agent: "claude",
+    name: "Plan",
+    workspaceId: "ws",
+    tabId: "t1",
+  } as const;
+
+  it("tells a message another agent sent as its, and where the conversation moved", () => {
+    const { entries } = chatEntriesOf(chat(relayed), {
+      relayed: [{ id: "uuid-1", from, at: 1 }],
+      moves: [{ after: "uuid-2", profile: "Work" }],
+    });
+    expect(entries).toEqual([
+      { i: 0, role: "notice", text: 'from tab "Plan": Run the tests.', from },
+      { i: 1, role: "agent", text: "Green." },
+      { i: 2, role: "notice", text: 'went on in profile "Work"' },
+      { i: 3, role: "user", text: "Thanks" },
+    ]);
+  });
+
+  it("tells the goal the tab shows, and none once its bar was closed", () => {
+    const goal = {
+      condition: "All tests pass",
+      status: "met",
+      checks: [],
+      reason: "green",
+      setAt: 1,
+      endedLive: true,
+    } as const;
+    const shown = chatInfoOf("claude", chat({ goal } as Partial<ChatModel>), false);
+    expect(shown.goal).toEqual({ objective: "All tests pass", status: "met", reason: "green" });
+    const closed = chat({ goal } as Partial<ChatModel>, { goalClosed: "claude|1|All tests pass" });
+    expect(chatInfoOf("claude", closed, false).goal).toBeUndefined();
+  });
+});

@@ -16,6 +16,7 @@ import {
 import { table } from "../format";
 import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
+import { senderOf } from "../sender";
 import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
 import { groupsOf } from "./layout";
@@ -287,6 +288,8 @@ const worktreeNew: CliCommand = {
       resolveWorkspace(ctx, flags.workspace as string | undefined),
     ) as [WorkspaceMeta];
     await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
+    // An agent's prompt shows as its in the task's tab, and the agent there is told.
+    const from = prompt.trim() !== "" ? await senderOf(ctx) : undefined;
     const created = await ctx.services.ui(
       "task.create",
       {
@@ -296,6 +299,7 @@ const worktreeNew: CliCommand = {
         ...(start ? { start } : {}),
         show: flags.show === true,
         createdBy: ctx.caller,
+        ...(from ? { from } : {}),
       },
       TASK_TIMEOUT_MS,
     );
@@ -455,7 +459,10 @@ const worktreeRemove: CliCommand = {
     "files. The branch stays unless --delete-branch. The user is asked first, as for other\n" +
     "changes outside this terminal's workspace.",
   flags: {
-    force: { type: "boolean", description: "Delete it with its uncommitted changes, which are lost" },
+    force: {
+      type: "boolean",
+      description: "Delete it with its uncommitted changes, which are lost",
+    },
     "delete-branch": { type: "boolean", description: "Delete its branch too" },
     workspace: WORKSPACE_FLAG,
   },

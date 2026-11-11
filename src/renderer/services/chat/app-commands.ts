@@ -10,6 +10,7 @@ import {
   opensTurn,
   type ToolCall,
 } from "./model";
+import { relaySenderText } from "./relayed";
 import type { RevealPart } from "./store";
 
 export interface AppCommand {
@@ -170,7 +171,12 @@ export function conversationMarkdown(
   for (const item of items) {
     if (item.kind === "received") {
       if (!item.text.trim()) continue;
-      const from = item.from.name ? `${item.from.kind}: ${item.from.name}` : item.from.kind;
+      const relayed = relaySenderText(item.from);
+      const from = relayed
+        ? `from ${relayed}`
+        : item.from.name
+          ? `${item.from.kind}: ${item.from.name}`
+          : item.from.kind;
       parts.push(`## ${from}\n\n${item.text.trim()}`);
       speaker = "user";
       continue;

@@ -718,6 +718,8 @@ const sessionList: CliCommand = {
     "terminals are told by their title and the notifications they raise; their state is busy\n" +
     "while they print and quiet after. The app's Claude and Codex tabs (AGENT claude-tab or\n" +
     "codex-tab) are working, asking (the user), idle or error; chat read/send/wait reach them.\n" +
+    "Such a tab's AGENT names its profile when its agent has more than one; its STATE, the\n" +
+    "goal it works toward (/goal) and how that stands.\n" +
     "LAST is cut to a line; --json and --jsonl carry it whole, with a task's branch.\n" +
     'To follow the changes as they come, see "nexus events".',
   flags: {
@@ -754,8 +756,8 @@ const sessionList: CliCommand = {
           shortId(c.tab.id),
           c.workspace.name,
           oneLine(c.tab.title, 30),
-          `${c.info.agent}-tab`,
-          you(c.tab, c.info.state),
+          `${c.info.agent}-tab${c.info.profile ? ` (${oneLine(c.info.profile, 20)})` : ""}`,
+          `${you(c.tab, c.info.state)}${c.info.goal ? ` · goal ${c.info.goal.status}` : ""}`,
           c.info.since ? ago(c.info.since, now) : "",
           c.info.message ? oneLine(c.info.message, 60) : "",
         ],
@@ -771,6 +773,8 @@ const sessionList: CliCommand = {
           state: c.info.state,
           ...(c.info.message ? { message: c.info.message } : {}),
           ...(c.info.since !== undefined ? { since: c.info.since } : {}),
+          ...(c.info.profile ? { profile: c.info.profile } : {}),
+          ...(c.info.goal ? { goal: c.info.goal } : {}),
         },
       })),
     ];

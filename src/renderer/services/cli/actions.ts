@@ -343,9 +343,9 @@ export const actionHandlers: {
     return {};
   },
 
-  "task.create": async ({ parentId, name, prompt, start, show, createdBy }) => {
+  "task.create": async ({ parentId, name, prompt, start, show, createdBy, from }) => {
     const how = start ?? taskStartOf(resolvedTaskAgent());
-    const started = await startTask(parentId, name, prompt, how, createdBy);
+    const started = await startTask(parentId, name, prompt, how, createdBy, from);
     if (!("task" in started)) throw new UiRequestError(started.message);
     // A terminal starts once its panel is mounted, shown or not. Shown while
     // the agent view is up, its agent shows there, beside the one asking.
