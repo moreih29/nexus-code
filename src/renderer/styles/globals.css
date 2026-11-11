@@ -93,6 +93,35 @@
   }
 
   /*
+   * Every scrollbar is the app's (@utility app-scrollbar), so a scroll box
+   * or a textarea that does not ask for it shows no Chromium scrollbar: an
+   * opaque light strip on Windows and Linux, and on macOS whenever its
+   * scrollbars are set to show always. In this layer it is only the
+   * default: app-scrollbar, a box that hides its scrollbar, and the
+   * terminal's and the markdown preview's own rules all win over it.
+   */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb-bg);
+    border-radius: var(--radius-control);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover-bg);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /*
    * Hide Chromium's native search-cancel button (the blue X) so search
    * inputs render with the app's own clear control only. We keep
    * type="search" for semantic role="searchbox" + virtual-keyboard
