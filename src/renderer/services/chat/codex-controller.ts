@@ -341,8 +341,6 @@ export class CodexController {
         return true;
       } catch (err) {
         log.warn(`thread ${fork.threadId} not forked: ${(err as Error).message}`);
-      } finally {
-        if (staged) void this.stageCall(fork, true);
       }
     }
     if (threadId) {
@@ -372,26 +370,19 @@ export class CodexController {
   /**
    * Puts a copy of the thread the tab's fork copies where this profile's
    * program finds it, when another profile keeps it: thread/fork finds a
-   * thread only in the program's own folder. Whether a copy was put there,
-   * to take away once the fork is made.
+   * thread only in the program's own folder. The copy stays, as do those of
+   * the threads it was forked from: the fork reads its history from them
+   * each time it resumes. Whether a copy was put there.
    */
   private async stage(fork: NonNullable<CodexTabTarget["fork"]>): Promise<boolean> {
     if (!fork.profileId || sameProfile(fork.profileId, this.target.profileId)) return false;
-    return this.stageCall(fork, false);
-  }
-
-  private async stageCall(
-    fork: NonNullable<CodexTabTarget["fork"]>,
-    drop: boolean,
-  ): Promise<boolean> {
     try {
       const result = unwrapIpcResult(
         await ipcCallResult("chat", "stageThread", {
           workspaceId: this.target.workspaceId,
           threadId: fork.threadId,
-          ...(fork.profileId ? { fromProfileId: fork.profileId } : {}),
+          fromProfileId: fork.profileId,
           ...(this.target.profileId ? { toProfileId: this.target.profileId } : {}),
-          ...(drop ? { drop } : {}),
         }),
       );
       return result.found;

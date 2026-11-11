@@ -6,8 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 )
 
 // stagedDir is where a thread another Codex profile keeps is put for this
@@ -15,16 +13,19 @@ import (
 // the program's own sessions folder only, whatever path it is given. The
 // date folders there are three deep and this one is one, so a staged copy is
 // never taken for one of the profile's own threads (rolloutPath).
+//
+// A copy stays: the fork keeps only what it adds, and Codex reads the rest
+// from the thread it was forked from each time it resumes the fork.
 const stagedDir = "nexus-staged"
 
-// stagedMaxAge is how long a copy may stay that was never taken away: the
-// app quit between staging and forking it.
-const stagedMaxAge = time.Hour
+// stagedLineage is how many threads back a staged thread's forks are
+// followed, so a lineage that loops ends.
+const stagedLineage = 64
 
 // StageThread puts a copy of a Codex thread another profile keeps where the
-// tab's profile's program finds it, for thread/fork; with Drop, it takes
-// the copy away again once the fork is made. Profiles that share a folder
-// need no copy.
+// tab's profile's program finds it, for thread/fork, with the threads it was
+// forked from that the profile does not keep: Codex reads a fork's history
+// from them. Profiles that share a folder need no copy.
 func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, error) {
 	var p StageThreadParams
 	if err := decodeParams(raw, &p, "chat.stageThread params must include threadId"); err != nil {
@@ -37,14 +38,6 @@ func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, erro
 	if to == "" {
 		return StageThreadResult{Found: false}, nil
 	}
-	dir := filepath.Join(to, "sessions", stagedDir)
-	if p.Drop {
-		suffix := "-" + p.ThreadID + ".jsonl"
-		dropped := dropStaged(dir, func(entry os.DirEntry) bool {
-			return strings.HasSuffix(entry.Name(), suffix)
-		})
-		return StageThreadResult{Found: dropped > 0}, nil
-	}
 	from := codexHome(p.From)
 	source := rolloutPath(from, p.ThreadID)
 	if source == "" {
@@ -53,35 +46,70 @@ func (s *Service) StageThread(_ context.Context, raw json.RawMessage) (any, erro
 	if filepath.Clean(from) == filepath.Clean(to) {
 		return StageThreadResult{Found: true}, nil
 	}
-	cutoff := time.Now().Add(-stagedMaxAge)
-	dropStaged(dir, func(entry os.DirEntry) bool {
-		info, err := entry.Info()
-		return err == nil && info.ModTime().Before(cutoff)
-	})
+	dir := filepath.Join(to, "sessions", stagedDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, requestFailed("chat.stageThread: %s", err)
 	}
-	if err := copyFile(source, filepath.Join(dir, filepath.Base(source))); err != nil {
-		return nil, requestFailed("chat.stageThread: %s", err)
+	seen := map[string]bool{p.ThreadID: true}
+	for path := source; path != ""; {
+		if err := copyGrown(path, filepath.Join(dir, filepath.Base(path))); err != nil {
+			return nil, requestFailed("chat.stageThread: %s", err)
+		}
+		parent := forkedFrom(path)
+		if parent == "" || seen[parent] || len(seen) >= stagedLineage || rolloutPath(to, parent) != "" {
+			break
+		}
+		seen[parent] = true
+		path = keptRollout(from, parent)
 	}
 	return StageThreadResult{Found: true}, nil
 }
 
-// dropStaged takes away the staged copies that match, and the folder once it
-// is empty; it tells how many it took.
-func dropStaged(dir string, match func(os.DirEntry) bool) int {
-	entries, err := os.ReadDir(dir)
+// forkedFrom is the thread a Codex thread was forked from, as its first
+// line (session_meta) names it; "" for none.
+func forkedFrom(path string) string {
+	file, err := os.Open(path)
 	if err != nil {
-		return 0
+		return ""
 	}
-	dropped := 0
-	for _, entry := range entries {
-		if entry.Type().IsRegular() && match(entry) && os.Remove(filepath.Join(dir, entry.Name())) == nil {
-			dropped++
-		}
+	defer file.Close()
+	var line struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ForkedFromID string `json:"forked_from_id"`
+		} `json:"payload"`
 	}
-	_ = os.Remove(dir)
-	return dropped
+	if json.NewDecoder(file).Decode(&line) != nil || line.Type != "session_meta" {
+		return ""
+	}
+	if id := line.Payload.ForkedFromID; sessionIDPattern.MatchString(id) {
+		return id
+	}
+	return ""
+}
+
+// keptRollout is the file a profile keeps a thread in, its own or one
+// staged there for it; "" when it keeps none.
+func keptRollout(home, threadID string) string {
+	if path := rolloutPath(home, threadID); path != "" {
+		return path
+	}
+	matches, _ := filepath.Glob(filepath.Join(home, "sessions", stagedDir, "rollout-*-"+threadID+".jsonl"))
+	return newestFile(matches)
+}
+
+// copyGrown copies a thread over its copy unless the copy is as long: a
+// thread only grows, and a fork reads the thread it came from only as far
+// as it went when forked, which a longer copy holds too.
+func copyGrown(from, to string) error {
+	source, err := os.Stat(from)
+	if err != nil {
+		return err
+	}
+	if copied, err := os.Stat(to); err == nil && copied.Size() >= source.Size() {
+		return nil
+	}
+	return copyFile(from, to)
 }
 
 func copyFile(from, to string) error {

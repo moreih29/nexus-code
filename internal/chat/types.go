@@ -214,12 +214,10 @@ type StageThreadParams struct {
 	// ~/.codex.
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
-	// Drop takes away the copy staged before, once the thread is forked.
-	Drop bool `json:"drop,omitempty"`
 }
 
 // StageThreadResult is returned by chat.stageThread: whether the thread was
-// found (or, with Drop, a copy taken away).
+// found.
 type StageThreadResult struct {
 	Found bool `json:"found"`
 }

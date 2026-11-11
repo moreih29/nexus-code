@@ -940,7 +940,8 @@ export const ipcContract = {
       /**
        * Puts a copy of a Codex thread another profile keeps where the tab's
        * profile's program finds it, for thread/fork, which finds a thread
-       * only there; `drop` takes the copy away once the fork is made.
+       * only there, with the threads it was forked from; the copies stay,
+       * as the fork reads its history from them.
        */
       stageThread: call(
         z.object({
@@ -948,7 +949,6 @@ export const ipcContract = {
           threadId: z.string().max(128),
           fromProfileId: z.string().max(64).optional(),
           toProfileId: z.string().max(64).optional(),
-          drop: z.boolean().optional(),
         }),
         z.object({ found: z.boolean() }),
       ),

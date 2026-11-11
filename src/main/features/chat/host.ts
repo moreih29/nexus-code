@@ -265,7 +265,7 @@ export class ChatHost {
   async stageThread(
     workspaceId: string,
     threadId: string,
-    options: { fromProfileId?: string; toProfileId?: string; drop?: boolean },
+    options: { fromProfileId?: string; toProfileId?: string },
   ): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
     const from = this.codexDir(options.fromProfileId);
@@ -274,7 +274,6 @@ export class ChatHost {
       threadId,
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
-      ...(options.drop ? { drop: true } : {}),
     });
   }
 

@@ -435,18 +435,11 @@ describe("a Codex tab's thread gone on with in another profile", () => {
       .map((call) =>
         call.method === "send"
           ? String((call.args.message as { method?: string }).method)
-          : `stage${call.args.drop ? ":drop" : ""}`,
+          : "stage",
       )
       .filter((step) => !/^(account|model)\/|^thread\/goal/.test(step));
     // Introduced first, as ever: what the tab asks meanwhile is not refused.
-    expect(order).toEqual([
-      "initialize",
-      "initialized",
-      "stage",
-      "thread/fork",
-      "thread/name/set",
-      "stage:drop",
-    ]);
+    expect(order).toEqual(["initialize", "initialized", "stage", "thread/fork", "thread/name/set"]);
     const stage = calls.find((call) => call.method === "stageThread")?.args;
     expect(stage).toMatchObject({
       threadId: "old",
