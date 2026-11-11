@@ -14,7 +14,7 @@
  * The page's memory goes into the log every few minutes, so a page that
  * grows toward its limit shows in the log before it dies.
  */
-import type { App, BrowserWindow, RenderProcessGoneDetails } from "electron";
+import type { App, BrowserWindow, MessageBoxOptions, RenderProcessGoneDetails } from "electron";
 import { createLogger } from "../../../shared/log/main";
 
 const logger = createLogger("window");
@@ -29,6 +29,31 @@ export const MEMORY_LOG_MS = 10 * 60_000;
 export const HEAP_WARN_SHARE = 0.75;
 /** How long the page has to say how big its heap is. */
 const HEAP_ANSWER_MS = 5_000;
+
+/** What the question asked about a page that keeps dying says. */
+export interface PageDiedText {
+  message: string;
+  detail: string;
+  reload: string;
+  quit: string;
+}
+
+/**
+ * The question asked about a page that keeps dying: load it again, or quit.
+ * Closing it (Esc, or the X on its title bar on Windows and Linux) loads the
+ * page again, as its default does: quitting ends every terminal and agent,
+ * so only its own button does that.
+ */
+export function pageDiedQuestion(text: PageDiedText): MessageBoxOptions & { buttons: string[] } {
+  return {
+    type: "warning",
+    message: text.message,
+    detail: text.detail,
+    buttons: [text.reload, text.quit],
+    defaultId: 0,
+    cancelId: 0,
+  };
+}
 
 /** The window the page lives in: the parts of a BrowserWindow used here. */
 export type PageWindow = Pick<BrowserWindow, "isDestroyed" | "on" | "webContents">;
