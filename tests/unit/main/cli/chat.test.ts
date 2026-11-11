@@ -298,6 +298,23 @@ describe("who sends a message", () => {
     expect(await senderOf(contextFor(app, [], manager))).toEqual({ kind: "manager" });
   });
 
+  test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {
+    const app = withChat();
+    const at = contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB });
+    // codex exec runs its first command before any output: the terminal's
+    // state still has the shell, the foreground has codex.
+    app.foreground.set(SHELL_TAB, "codex");
+    expect(await senderOf(at)).toEqual({
+      kind: "terminal",
+      agent: "codex",
+      name: expect.any(String),
+      workspaceId: APP,
+      tabId: SHELL_TAB,
+    });
+    app.foreground.set(SHELL_TAB, "zsh");
+    expect(await senderOf(at)).toBeUndefined();
+  });
+
   test("chat send and chat new --prompt tell the tab who sent it, when an agent did", async () => {
     const app = withChat();
     const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
