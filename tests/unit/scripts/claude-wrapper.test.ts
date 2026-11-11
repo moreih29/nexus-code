@@ -571,19 +571,21 @@ describeInGitBash("claude-wrapper.sh — Git Bash on Windows", () => {
     return { exitCode: result.status, injected: fs.existsSync(capturePath) };
   }
 
-  // Git Bash sees the agent's AF_UNIX socket as a plain file.
+  // Git Bash sees the agent's AF_UNIX socket as a plain file. Its first start
+  // on a runner may take longer than a test's 5 seconds: the test waits as
+  // long as the run may take, and more.
   test("takes the agent's socket, a plain file to it, for the app's", () => {
     const socket = path.join(tmpDir, "h-test.sock");
     fs.writeFileSync(socket, "");
     expect(runInGitBash(socket)).toEqual({ exitCode: 0, injected: true });
-  });
+  }, 20_000);
 
   test("passes claude through without the socket", () => {
     expect(runInGitBash(path.join(tmpDir, "missing.sock"))).toEqual({
       exitCode: 0,
       injected: false,
     });
-  });
+  }, 20_000);
 });
 
 /**
