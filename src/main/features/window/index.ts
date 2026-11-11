@@ -13,7 +13,7 @@ import type { AppState } from "../../infra/storage/state-service";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
-import { DEATH_WINDOW_MS, watchPageHealth } from "./page-health";
+import { DEATH_WINDOW_MS, pageDiedQuestion, watchPageHealth } from "./page-health";
 
 // Custom titlebar height (px) — must match TitleBar component's h-9 (36px)
 // and titleBarOverlay.height on Win/Linux for visual alignment.
@@ -154,14 +154,15 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   watchPageHealth(win, {
     askReload: async (deaths) => {
       const t = getMainT();
-      const { response } = await dialog.showMessageBox(win, {
-        type: "warning",
-        message: t("dialog:pageDied.message"),
-        detail: t("dialog:pageDied.detail", { count: deaths, minutes: DEATH_WINDOW_MS / 60_000 }),
-        buttons: [t("dialog:pageDied.reload"), t("dialog:pageDied.quit")],
-        defaultId: 0,
-        cancelId: 1,
-      });
+      const { response } = await dialog.showMessageBox(
+        win,
+        pageDiedQuestion({
+          message: t("dialog:pageDied.message"),
+          detail: t("dialog:pageDied.detail", { count: deaths, minutes: DEATH_WINDOW_MS / 60_000 }),
+          reload: t("dialog:pageDied.reload"),
+          quit: t("dialog:pageDied.quit"),
+        }),
+      );
       return response === 0;
     },
     quit: () => app.quit(),

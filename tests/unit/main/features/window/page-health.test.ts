@@ -5,6 +5,7 @@ import {
   DEATHS_BEFORE_ASKING,
   logPageMemory,
   MEMORY_LOG_MS,
+  pageDiedQuestion,
   type PageHealthDeps,
   type PageWindow,
   watchPageHealth,
@@ -217,5 +218,23 @@ describe("logPageMemory", () => {
   test("a page whose process is not among the metrics logs nothing", async () => {
     await logPageMemory(fakeWindow().win, deps({ appMetrics: () => [] }).d);
     expect(logged(mainInfoMock)).toEqual([]);
+  });
+});
+
+describe("pageDiedQuestion", () => {
+  const question = pageDiedQuestion({
+    message: "The window keeps stopping.",
+    detail: "Load it again?",
+    reload: "Load Again",
+    quit: "Quit",
+  });
+
+  test("its default loads the page again", () => {
+    expect(question.buttons[question.defaultId ?? -1]).toBe("Load Again");
+  });
+
+  test("closing it loads the page again: only its own button quits", () => {
+    expect(question.buttons[question.cancelId ?? -1]).toBe("Load Again");
+    expect(question.buttons).toEqual(["Load Again", "Quit"]);
   });
 });
