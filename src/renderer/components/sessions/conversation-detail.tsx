@@ -38,7 +38,12 @@ import type { SessionActivity } from "../../../shared/claude/activity";
 import { existingCodexController } from "../../services/chat/codex-controller";
 import type { CodexModel } from "../../services/chat/codex-model";
 import { existingChatController } from "../../services/chat/controller";
-import { planUsageKeyFor, usePlanUsage, wantPlanUsage } from "../../services/chat/plan-usage";
+import {
+  planUsageKeyFor,
+  usePlanClaudeUsage,
+  usePlanCodexLimits,
+  wantPlanUsage,
+} from "../../services/chat/plan-usage";
 import { type ChatTabState, chatKey, useChatStore, useChatTab } from "../../services/chat/store";
 import { claudeUsageLine, codexUsageLine, type UsageLine } from "../../services/chat/usage-line";
 import { interrupt, sendLine, showChanges, showTerminal } from "../../services/sessions/actions";
@@ -134,7 +139,8 @@ export function ConversationDetail({
   // clock, so a window that resets leaves.
   const agent = session.kind === "codex" ? "codex" : "claude";
   const profileId = useTabProfileId(session);
-  const plan = usePlanUsage(agent, session.workspaceId, profileId);
+  const claudePlan = usePlanClaudeUsage(session.workspaceId, profileId);
+  const codexPlan = usePlanCodexLimits(session.workspaceId, profileId);
   useEffect(() => {
     if (visible && !terminal)
       void wantPlanUsage(planUsageKeyFor(agent, session.workspaceId, profileId));
@@ -145,15 +151,15 @@ export function ConversationDetail({
     if (session.kind === "codex") {
       const model = chat.model as CodexModel;
       return codexUsageLine(
-        { tokens: model.tokens, rateLimits: plan?.codex ?? model.rateLimits },
+        { tokens: model.tokens, rateLimits: codexPlan ?? model.rateLimits },
         now,
       );
     }
     return claudeUsageLine(
-      { contextUsage: chat.model.contextUsage, usage: plan?.claude ?? chat.model.usage },
+      { contextUsage: chat.model.contextUsage, usage: claudePlan ?? chat.model.usage },
       now,
     );
-  }, [terminal, session.kind, chat.model, plan, now]);
+  }, [terminal, session.kind, chat.model, claudePlan, codexPlan, now]);
   const footer = (
     <>
       {!held && session.state !== "exited" && (terminal || loaded) && (

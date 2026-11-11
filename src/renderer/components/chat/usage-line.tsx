@@ -11,7 +11,12 @@ import { type ReactNode, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { useFitStep } from "../../hooks/use-fit-step";
+import type { ChatModel } from "../../services/chat/model";
+import type { CodexModel } from "../../services/chat/codex-model";
+import { usePlanClaudeUsage, usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {
+  claudeUsageLine,
+  codexUsageLine,
   formatTokens,
   resetParts,
   type UsageLine,
@@ -19,6 +24,7 @@ import {
   usageViews,
   WARN_AT,
 } from "../../services/chat/usage-line";
+import { useNow } from "../../services/sessions/use-family";
 import { ContextRing } from "../ui/context-ring";
 import { tooltipProps } from "../ui/tooltip";
 
@@ -116,7 +122,7 @@ export function UsageLineView({
 }: {
   line: UsageLine | null;
   /** What ends the line on its right: the tab's profile, its dot alone when `compact`. */
-  trailing?: (compact: boolean) => ReactNode;
+  trailing?: ((compact: boolean) => ReactNode) | undefined;
 }) {
   if (!line) {
     if (!trailing) return null;
@@ -129,6 +135,59 @@ export function UsageLineView({
     );
   }
   return <Line line={line} trailing={trailing} />;
+}
+
+interface TabUsageLineProps {
+  workspaceId: string;
+  profileId: string | undefined;
+  /** Whether the tab is shown: the minute's clock runs only then. */
+  visible: boolean;
+  /** What ends the line on its right, as UsageLineView's. */
+  trailing?: ((compact: boolean) => ReactNode) | undefined;
+}
+
+/**
+ * The line under a Claude tab's composer. It reads the profile's plan usage
+ * (the tab's own answer until the profile has one) and keeps the minute's
+ * clock itself, so the asks every minute draw this line again, and only
+ * when the numbers change: not the tab.
+ */
+export function ClaudeUsageLine({
+  workspaceId,
+  profileId,
+  visible,
+  trailing,
+  contextUsage,
+  usage,
+}: TabUsageLineProps & Pick<ChatModel, "contextUsage" | "usage">) {
+  const plan = usePlanClaudeUsage(workspaceId, profileId);
+  const told = plan ?? usage;
+  // A minute's clock, so a window that resets leaves the line while it shows.
+  const now = useNow(visible, 60_000);
+  const line = useMemo(
+    () => claudeUsageLine({ contextUsage, usage: told }, now),
+    [contextUsage, told, now],
+  );
+  return <UsageLineView line={line} trailing={trailing} />;
+}
+
+/** The line under a Codex tab's composer, as ClaudeUsageLine. */
+export function CodexUsageLine({
+  workspaceId,
+  profileId,
+  visible,
+  trailing,
+  tokens,
+  rateLimits,
+}: TabUsageLineProps & Pick<CodexModel, "tokens" | "rateLimits">) {
+  const plan = usePlanCodexLimits(workspaceId, profileId);
+  const limits = plan ?? rateLimits;
+  const now = useNow(visible, 60_000);
+  const line = useMemo(
+    () => codexUsageLine({ tokens, rateLimits: limits }, now),
+    [tokens, limits, now],
+  );
+  return <UsageLineView line={line} trailing={trailing} />;
 }
 
 function Line({ line, trailing }: { line: UsageLine; trailing?: (compact: boolean) => ReactNode }) {

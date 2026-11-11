@@ -152,8 +152,17 @@ const RESET_TIME: Intl.DateTimeFormatOptions = {
 };
 const RESET_WEEKDAY: Intl.DateTimeFormatOptions = { weekday: "short" };
 
+/**
+ * A reset as it is shown, to the nearest minute: Claude tells one to the
+ * microsecond, now a hair before the hour and now after, and either is the
+ * hour ("10:00", not "09:59").
+ */
+export function shownReset(resetsAt: number): Date {
+  return new Date(Math.round(resetsAt / 60_000) * 60_000);
+}
+
 export function resetParts(resetsAt: number, now: number, locale: string): ResetParts {
-  const date = new Date(resetsAt);
+  const date = shownReset(resetsAt);
   return {
     soon: resetsAt - now < DAY_MS,
     time: dateTimeFormat(locale, RESET_TIME).format(date),
