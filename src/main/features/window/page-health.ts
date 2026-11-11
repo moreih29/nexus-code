@@ -40,19 +40,29 @@ export interface PageDiedText {
 
 /**
  * The question asked about a page that keeps dying: load it again, or quit.
- * Closing it (Esc, or the X on its title bar on Windows and Linux) loads the
- * page again, as its default does: quitting ends every terminal and agent,
- * so only its own button does that.
+ * Quitting ends every terminal and agent, so only its own button does that.
+ * Enter loads the page again, and so does closing the question on Windows
+ * and Linux (Esc, or the X on its title bar). On macOS, where Enter and Esc
+ * are each a button's key and one button holds only one, Esc does nothing:
+ * Enter stays on Load Again.
  */
-export function pageDiedQuestion(text: PageDiedText): MessageBoxOptions & { buttons: string[] } {
+export function pageDiedQuestion(
+  text: PageDiedText,
+  mac: boolean,
+): MessageBoxOptions & { buttons: string[] } {
   return {
     type: "warning",
     message: text.message,
     detail: text.detail,
     buttons: [text.reload, text.quit],
     defaultId: 0,
-    cancelId: 0,
+    cancelId: mac ? -1 : 0,
   };
+}
+
+/** Whether an answer to pageDiedQuestion is to load the page again: all but Quit. */
+export function reloadsPage(response: number): boolean {
+  return response !== 1;
 }
 
 /** The window the page lives in: the parts of a BrowserWindow used here. */

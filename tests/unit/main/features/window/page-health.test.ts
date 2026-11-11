@@ -5,9 +5,10 @@ import {
   DEATHS_BEFORE_ASKING,
   logPageMemory,
   MEMORY_LOG_MS,
-  pageDiedQuestion,
   type PageHealthDeps,
   type PageWindow,
+  pageDiedQuestion,
+  reloadsPage,
   watchPageHealth,
 } from "../../../../../src/main/features/window/page-health";
 import { mainErrorMock, mainInfoMock, mainWarnMock } from "../../../../log-test-spies";
@@ -222,19 +223,44 @@ describe("logPageMemory", () => {
 });
 
 describe("pageDiedQuestion", () => {
-  const question = pageDiedQuestion({
+  const text = {
     message: "The window keeps stopping.",
     detail: "Load it again?",
     reload: "Load Again",
     quit: "Quit",
-  });
+  };
 
-  test("its default loads the page again", () => {
-    expect(question.buttons[question.defaultId ?? -1]).toBe("Load Again");
-  });
+  for (const mac of [false, true]) {
+    const question = pageDiedQuestion(text, mac);
 
-  test("closing it loads the page again: only its own button quits", () => {
+    test(`its default, Enter, loads the page again (mac: ${mac})`, () => {
+      expect(question.buttons).toEqual(["Load Again", "Quit"]);
+      expect(question.buttons[question.defaultId ?? -1]).toBe("Load Again");
+    });
+
+    test(`closing it never quits (mac: ${mac})`, () => {
+      // Without a cancelId, Electron would make Quit, the button after the default, the cancel.
+      expect(question.cancelId).toBeDefined();
+      expect(question.cancelId).not.toBe(1);
+    });
+  }
+
+  test("on Windows and Linux, closing it answers Load Again", () => {
+    const question = pageDiedQuestion(text, false);
     expect(question.buttons[question.cancelId ?? -1]).toBe("Load Again");
-    expect(question.buttons).toEqual(["Load Again", "Quit"]);
+  });
+
+  test("on macOS, Esc is no button's key: Enter keeps Load Again", () => {
+    // Electron gives the cancel button Esc after the default one Enter, and
+    // a button holds one key: a cancelId on Load Again would take its Enter.
+    expect(pageDiedQuestion(text, true).cancelId).toBe(-1);
+  });
+});
+
+describe("reloadsPage", () => {
+  test("only Quit quits", () => {
+    expect(reloadsPage(0)).toBe(true);
+    expect(reloadsPage(-1)).toBe(true);
+    expect(reloadsPage(1)).toBe(false);
   });
 });
