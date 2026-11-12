@@ -32,26 +32,26 @@ export interface PtyChannelOptions {
   recorder?: PtyRecorderSink;
   /**
    * Provides workspace display names, activation for OS notifications, and
-   * pull 기반 hookserver 접속 정보 조회(getHookInfo).
+   * Pull-based hookserver connection info lookup (getHookInfo).
    *
-   * `getAgentChannel`은 hookInfo가 fresh함을 보장하기 위해 사용된다 —
-   * spawn 핸들러가 env를 캡처하기 전에 await하여 channel.ready / hook.getInfo
-   * pull 완료 시점이 hookInfo 조회보다 앞서도록 강제한다. 반환 채널 객체
-   * 자체는 사용하지 않고 ready 동기화 목적으로만 호출한다.
+   * `getAgentChannel` is used to guarantee that hookInfo is fresh —
+   * the spawn handler awaits it before capturing the env, which forces channel.ready / the hook.getInfo
+   * pull to complete before the hookInfo lookup. The returned channel object
+   * itself is not used; the call exists only for ready synchronization.
    *
-   * `getWrapperBinDir` / `getWrapperAgentBin` — 워크스페이스 종류에 따라
-   * 래퍼 bin 디렉터리와 agent 바이너리 절대 경로를 반환한다. null 반환 시
-   * wrapper 관련 env 주입을 skip한다.
+   * `getWrapperBinDir` / `getWrapperAgentBin` — return, by workspace kind,
+   * the absolute paths of the wrapper bin directory and the agent binary. When null is returned,
+   * the wrapper-related env injection is skipped.
    *
-   * `getWrapperShell` — 해당 워크스페이스의 PTY가 사용할 로그인 셸의 절대 경로.
-   * 로컬은 main process의 `$SHELL`, SSH는 부트스트랩 시 remote에서 조회한 값을
-   * 돌려준다. null 반환 시 ZDOTDIR/--rcfile 셤 적용을 skip한다(PATH prepend는
-   * wrapperBinDir 경로로 그대로 적용됨).
+   * `getWrapperShell` — absolute path of the login shell the workspace's PTY will use.
+   * Local returns the main process's `$SHELL`; SSH returns the value looked up on the remote
+   * during bootstrap. When null is returned, the ZDOTDIR/--rcfile shim is skipped (the PATH prepend
+   * still applies through the wrapperBinDir path).
    *
-   * `getWrapperShimDir` — 그 워크스페이스의 PTY가 source할 끼움 rc 파일들이
-   * 놓인 디렉터리의 절대 경로. 로컬이면 로컬 fs 경로, SSH면 부트스트랩이 원격에
-   * 업로드해둔 원격 절대 경로. null이면 셤 디렉터리 자체를 결정할 수 없음을
-   * 뜻하며 셤 적용을 skip한다.
+   * `getWrapperShimDir` — absolute path of the directory holding the shim rc files that the
+   * workspace's PTY will source. For local it is a local fs path; for SSH it is the remote absolute
+   * path the bootstrap uploaded. Null means the shim directory itself cannot be determined,
+   * so the shim is skipped.
    */
   workspaceManager?: WorkspaceNameLookup & {
     activate(id: string): Promise<void>;
@@ -176,19 +176,19 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
           shell: tabShell,
         } = validateArgs(c.spawn.args, args);
         recorder.start(workspaceId, tabId, cols, rows);
-        // hookInfo는 반드시 channel.ready 이후에 읽어야 fresh가 보장된다.
-        // channel reconnect 직후 호출 시 stale 캐시(이전 boot의 socket path)가
-        // env에 박혀 죽은 소켓으로 향하는 hook 클라이언트가 생성될 수 있다.
-        // wm.getAgentChannel은 ensureProviderReady를 트리거하며 그 끝에 hook.getInfo
-        // 결과가 hookInfoByWorkspace에 셋팅되므로, 이 await 이후의 getHookInfo는
-        // 최신 값임을 구조적으로 보장한다. 반환 채널 객체는 사용하지 않는다.
+        // hookInfo must be read after channel.ready for it to be guaranteed fresh.
+        // Called right after a channel reconnect, a stale cache (the previous boot's socket path)
+        // could be baked into the env, creating a hook client that points at a dead socket.
+        // wm.getAgentChannel triggers ensureProviderReady, and at its end the hook.getInfo
+        // result is set in hookInfoByWorkspace, so a getHookInfo after this await is
+        // structurally guaranteed to be the latest. The returned channel object is not used.
         if (wm) {
           await wm.getAgentChannel(workspaceId);
         }
-        // workspaceManager.getHookInfo로 pull 기반 소켓/토큰 조회 후 env에 주입한다.
+        // Look up the socket/token by pull with workspaceManager.getHookInfo and inject them into the env.
         const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
-        // wrapper bin 디렉터리와 agent 바이너리 경로를 워크스페이스 종류에 따라 결정한다.
-        // null이면 wrapper 관련 env 주입을 skip (graceful 패턴 유지).
+        // Decide the wrapper bin directory and agent binary path by workspace kind.
+        // When null, skip the wrapper-related env injection (keeps the graceful pattern).
         const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
         const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
         let enrichedEnv =
@@ -350,8 +350,8 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
 
       foregroundProcess: async (args: unknown) => {
         const { workspaceId, tabId } = validateArgs(c.foregroundProcess.args, args);
-        // agentHost.call이 워크스페이스 race로 undefined를 반환할 수 있어 빈 이름으로 fallback.
-        // renderer는 빈 이름을 "정보 없음"으로 해석해 기존 title을 유지한다.
+        // agentHost.call can return undefined because of a workspace race, so fall back to an empty name.
+        // The renderer reads an empty name as "no info" and keeps the existing title.
         const result = (await agentHost.call("foregroundProcess", { workspaceId, tabId })) as
           | { name: string }
           | undefined;

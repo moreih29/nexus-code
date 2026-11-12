@@ -91,15 +91,15 @@ function defaultSpawn(
   args: readonly string[],
   options: { cwd?: string; env?: NodeJS.ProcessEnv },
 ): ChildProcessWithoutNullStreams {
-  // 패키징 단계(electron-builder extraResources 복사)에서 번들 바이너리의 실행
-  // 비트가 떨어지는 회귀에 대비한 자가 치유. 절대 경로 바이너리에만 적용한다.
-  // dev 폴백(`go run`)은 binaryPath="go" 처럼 상대값이라 건너뛴다. 권한이 이미
-  // 맞거나 경로가 읽기 전용이면 best-effort 로 무시한다.
+  // Self-healing against a regression where the packaging step (electron-builder extraResources copy)
+  // drops the executable bit of the bundled binary. Applies only to absolute-path binaries.
+  // The dev fallback (`go run`) has a relative binaryPath such as "go", so it is skipped. If the
+  // permission is already right or the path is read-only, it is ignored as best-effort.
   if (path.isAbsolute(binaryPath)) {
     try {
       fs.chmodSync(binaryPath, 0o755);
     } catch {
-      // best-effort: afterPack 이 이미 +x 를 보장했거나, Resources 가 읽기 전용일 수 있다.
+      // best-effort: afterPack may already have ensured +x, or Resources may be read-only.
     }
   }
   return spawn(binaryPath, args, {

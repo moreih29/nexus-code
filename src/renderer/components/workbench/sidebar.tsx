@@ -64,7 +64,7 @@ interface SidebarProps {
 }
 
 // ---------------------------------------------------------------------------
-// WorkspaceRow 컴포넌트 — hooks 사용을 위해 별도 컴포넌트로 분리
+// WorkspaceRow component — split into its own component so it can use hooks
 // ---------------------------------------------------------------------------
 
 interface WorkspaceRowProps {
@@ -81,17 +81,18 @@ interface WorkspaceRowProps {
 }
 
 /**
- * 워크스페이스 사이드바 행 컴포넌트.
+ * Workspace sidebar row component.
  *
- * 4~5줄 그리드 카드 구조 (SSH는 사이에 user@host 한 줄이 추가됨):
- * 1줄: [Icon 16] ws.name
- * (SSH 전용) user@host
- * 2줄: path — 로컬: rootPath의 마지막 2 세그먼트, SSH: remotePath의 마지막 2 세그먼트
- * 3줄: [GitBranch 아이콘] branch (있을 때만)
- * 4줄: [Glyph] message preview (둘 다 없으면 미렌더, 50자 컷)
+ * 4-5 line grid card (SSH adds a user@host line in between):
+ * line 1: [Icon 16] ws.name
+ * (SSH only) user@host
+ * line 2: path — local: last 2 segments of rootPath, SSH: last 2 segments of remotePath
+ * line 3: [GitBranch icon] branch (only when present)
+ * line 4: [Glyph] message preview (not rendered when both are missing, cut at 50 chars)
  *
- * SSH 카드는 로컬 카드와 동일한 정보 구조를 따르되, user@host가 워크스페이스
- * 이름 바로 아래 한 줄로 추가된다. primary는 ws.name으로 통일한다(로컬과 동일).
+ * The SSH card follows the same information structure as the local card, except that
+ * user@host is added as one line right below the workspace name. The primary text is
+ * ws.name for both (same as local).
  */
 function WorkspaceRow({
   ws,
@@ -109,9 +110,9 @@ function WorkspaceRow({
   const isWsl = ws.location.kind === "wsl";
   const Icon = isSsh ? Server : isWsl ? SquareTerminal : Folder;
 
-  // primary는 로컬/SSH 모두 ws.name으로 통일한다. SSH 카드는 별도의 user@host
-  // 라인이 워크스페이스 이름 바로 아래에 추가된다. tooltip은 정보량이 많은
-  // 쪽이 풀 컨텍스트(SSH 연결 정보 + 원격 경로, 로컬은 절대 경로).
+  // The primary text is ws.name for both local and SSH. The SSH card adds a separate
+  // user@host line right below the workspace name. The tooltip is the richer one, with the
+  // full context (SSH connection info + remote path; the absolute path for local).
   const sshLocation = ws.location.kind === "ssh" ? ws.location : null;
   const wslDistro = ws.location.kind === "wsl" ? ws.location.distro : null;
   const primaryText = ws.name;
@@ -125,7 +126,7 @@ function WorkspaceRow({
     : wslDistro
       ? `${t("wsl.identity", { distro: wslDistro })}\n${ws.rootPath}`
       : ws.rootPath;
-  // 카드 이름 아래에 노출되는 한 줄: SSH는 user@host, WSL은 배포판. 로컬은 null.
+  // One line shown under the card name: user@host for SSH, the distribution for WSL. null for local.
   const hostLine = sshLocation
     ? formatSshSecondaryLine({
         user: sshLocation.user,
@@ -135,7 +136,8 @@ function WorkspaceRow({
       ? t("wsl.identity", { distro: wslDistro })
       : null;
 
-  // Claude 세션 집계 상태 구독 — 워크스페이스와 그 작업들의 slice만 구독해 thrashing 방지.
+  // Subscribe to the Claude session aggregate status — only the workspace and its tasks
+  // slice, to avoid thrashing.
   const statusSlices = useClaudeStatusStore(
     useShallow((s) => [s.byWorkspace[ws.id], ...taskIds.map((id) => s.byWorkspace[id])]),
   );
@@ -148,21 +150,21 @@ function WorkspaceRow({
     );
   }, [wsTabs, ws.id]);
 
-  // 글리프에 표시할 상태 — WORKSPACE_VISIBLE_STATUSES에 포함된 경우에만 표시.
-  // wsTabs가 undefined(StatusEntry가 한 번도 없었던 워크스페이스)이면 aggregate가 null이라
-  // 글리프가 렌더되지 않는다. 한 번이라도 세션을 시작한 워크스페이스만 글리프가 노출된다.
+  // Status shown in the glyph — only when it is in WORKSPACE_VISIBLE_STATUSES.
+  // If wsTabs is undefined (a workspace that never had a StatusEntry), the aggregate is null
+  // so no glyph is rendered. Only workspaces that have started a session at least once show a glyph.
   const glyphStatus =
     aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status) ? aggregate.status : null;
 
-  // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태와 Codex 탭의 상태 —
-  // 더 강하면 글리프에 대신 보인다.
+  // Inferred status of agent terminals with no Claude status (Codex etc.) and the status of
+  // Codex tabs — shown in the glyph instead when it is stronger.
   const estimatedStatus = useEstimatedWorkspaceGlyph([ws.id, ...taskIds]);
   const codexStatus = useCodexWorkspaceStatus([ws.id, ...taskIds]);
   const shownGlyph = cardGlyph(glyphStatus, estimatedStatus, codexStatus);
 
-  // 카드 4번째 줄에 표시할 메시지 — 가장 최신 StatusEntry의 message를 마크다운
-  // 기호 없는 한 줄 평문으로 바꿔 50자로 컷하고, 50자 초과 시 말줄임 기호를
-  // 붙인다. 여러 탭이 있을 경우 가장 마지막에 변경된 entry의 message를 사용한다.
+  // Message shown on the card's 4th line — the latest StatusEntry's message turned into a
+  // one-line plain text with no markdown symbols, cut at 50 chars, with an ellipsis added
+  // when it exceeds 50. With several tabs, the message of the most recently changed entry is used.
   const previewMessage = useMemo(() => {
     if (!wsTabs) return null;
     const entries = Object.values(wsTabs);
@@ -176,18 +178,18 @@ function WorkspaceRow({
     return line.length > 50 ? `${line.slice(0, 50)}…` : line;
   }, [wsTabs]);
 
-  // git 세션에서 현재 브랜치 이름을 가져온다.
+  // Get the current branch name from the git session.
   const branchName = useGitStore((s) => {
     const session = s.sessions.get(ws.id);
     return session?.branchInfo?.current ?? session?.status?.branch?.current ?? null;
   });
 
-  // 경로 한 줄 — 로컬/SSH 모두 마지막 2 세그먼트만 표시(로컬과 SSH 모두
-  // secondaryWorkspaceText가 처리).
+  // One path line — only the last 2 segments for both local and SSH (secondaryWorkspaceText
+  // handles both).
   const pathLine = useMemo(() => secondaryWorkspaceText(ws), [ws]);
 
-  // permissionPending/error 상태이면 카드 좌측에 2px 색 border-l 표시.
-  // 활성 카드의 --state-selected-indicator border-l과 배타적으로 처리한다.
+  // For permissionPending/error, show a 2px colored border-l on the card's left.
+  // Handled exclusively with the active card's --state-selected-indicator border-l.
   const attentionBorderClass =
     !isActive && glyphStatus === "permissionPending"
       ? "border-l-[var(--state-warning-fg)]"
@@ -195,17 +197,18 @@ function WorkspaceRow({
         ? "border-l-[var(--state-error-fg)]"
         : null;
 
-  // needsInput 상태이면 1줄 name을 font-semibold로 강조한다.
+  // For needsInput, line 1 (the name) is emphasized with font-semibold.
   const nameEmphasis = glyphStatus === "needsInput";
 
-  // "알림 초기화" 액션 — Claude wrapper hook이 모든 상황을 완벽히 컨트롤하지 못해
-  // 인디케이터가 stale 상태로 굳었을 때 사용자가 수동 복구하는 경로.
-  // main broker(권위 상태)를 비워야 snapshot·재broadcast로 되살아나지 않으며,
-  // 로컬 store도 즉시 비워 IPC 왕복을 기다리지 않고 글리프가 곧바로 사라지게 한다.
+  // "Clear notifications" action — the Claude wrapper hook cannot control every situation
+  // perfectly, so this is the path for users to recover manually when an indicator gets stuck
+  // in a stale state. The main broker (the authoritative state) must be cleared, otherwise a
+  // snapshot or rebroadcast revives it; the local store is cleared immediately too, so the glyph
+  // disappears right away without waiting for the IPC round trip.
   const { run: runResetStatus } = useIpcAction<void>({});
   function resetStatus() {
     const workspaceIds = [ws.id, ...taskIds];
-    // 즉시 로컬 인디케이터 제거 — main의 cleared broadcast와 멱등(idempotent).
+    // Remove the local indicator immediately — idempotent with main's cleared broadcast.
     for (const workspaceId of workspaceIds) {
       useClaudeStatusStore.getState().clearWorkspace(workspaceId);
     }
@@ -224,7 +227,7 @@ function WorkspaceRow({
     });
   }
 
-  // 글리프나 미리보기 메시지가 있을 때만 "초기화"가 의미가 있다.
+  // "Clear" only makes sense when there is a glyph or a preview message.
   const hasStatusToReset = glyphStatus !== null || previewMessage !== null;
 
   return (
@@ -250,40 +253,41 @@ function WorkspaceRow({
             aria-current={isActive ? "page" : undefined}
             onClick={() => onSelectWorkspace(ws.id)}
             className={cn(
-              // base layout — left accent bar 예약(border-l-2 transparent)으로 폭 안정.
+              // base layout — reserves a left accent bar (border-l-2 transparent) so the width stays stable.
               "block w-full px-3 py-2.5 rounded-(--radius-control) border-l-2 border-l-transparent",
               // text + interaction
               "text-left cursor-pointer select-none font-sans transition-colors",
               "text-foreground",
-              // 선택 상태: sidebar.item.selected.bg + state.selected.indicator 2px 좌측 accent.
+              // selected: sidebar.item.selected.bg + a 2px left accent in state.selected.indicator.
               isActive
                 ? "bg-[var(--sidebar-item-selected-bg)] border-l-[var(--state-selected-indicator)]"
                 : cn(
-                    // 비활성: transparent bg + hover
+                    // inactive: transparent bg + hover
                     "bg-transparent hover:bg-[var(--state-hover-bg)]",
-                    // attention 상태 좌측 2px border (활성과 배타)
+                    // 2px left border for attention states (exclusive with active)
                     attentionBorderClass,
                   ),
             )}
           >
             {/*
-              2열 그리드:
-              - col 1: 16px (ssh/local 아이콘만 — 글리프는 메시지 줄로 이동)
-              - col 2: 가변 폭 텍스트(이름 / path / branch / glyph+message)
+              2-column grid:
+              - col 1: 16px (ssh/local icon only — the glyph moved to the message line)
+              - col 2: variable-width text (name / path / branch / glyph+message)
 
-              글리프는 더 이상 좌측 컬럼에 세로 배치하지 않는다 — 메시지와 의미적으로
-              한 줄에 묶이므로 4번째 줄 인라인으로 옮긴다.
+              The glyph is no longer stacked vertically in the left column — it belongs with the message
+              semantically, so it moves inline onto the 4th line.
             */}
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
-              {/* col 1: ssh/wsl/local 아이콘 + (SSH·WSL일 때) 연결 상태 인디케이터 */}
+              {/* col 1: ssh/wsl/local icon + (for SSH·WSL) connection status indicator */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
                 <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
-              {/* 텍스트 영역 — 1~4줄 가변 높이 */}
+              {/* Text area — variable height, 1 to 4 lines */}
               <span className="min-w-0">
-                {/* 1줄: workspace 이름 — Pin·X가 이 줄 끝에 떠 있어서, 보이는 만큼 이름만 비켜 준다. */}
+                {/* Line 1: workspace name — Pin·X float at the end of this line, so the name only
+                    makes room for what is visible. */}
                 <span
                   className={cn(
                     "block text-app-body-emphasis truncate min-w-0",
@@ -296,7 +300,8 @@ function WorkspaceRow({
                   {primaryText}
                 </span>
 
-                {/* SSH·WSL 전용: user@host 또는 배포판 한 줄(이름 바로 아래). 로컬에서는 미렌더. */}
+                {/* SSH·WSL only: user@host or the distribution on one line (right below the name).
+                    Not rendered for local. */}
                 {hostLine && (
                   <span
                     className={cn(
@@ -308,7 +313,7 @@ function WorkspaceRow({
                   </span>
                 )}
 
-                {/* 2줄: path */}
+                {/* Line 2: path */}
                 <span
                   className={cn(
                     "block text-app-micro mt-0.5 line-clamp-1 truncate",
@@ -319,7 +324,8 @@ function WorkspaceRow({
                   {pathLine}
                 </span>
 
-                {/* 3줄: branch + 작업 수 — 있을 때만. GitBranch 아이콘으로 시각적 affordance. */}
+                {/* Line 3: branch + task count — only when present. The GitBranch icon is a visual
+                    affordance. */}
                 {(branchName || taskIds.length > 0) && (
                   <span
                     className={cn(
@@ -348,7 +354,7 @@ function WorkspaceRow({
                   </span>
                 )}
 
-                {/* 4줄: glyph + message — 둘 중 하나라도 있을 때만 */}
+                {/* Line 4: glyph + message — only when at least one of them is present */}
                 {(shownGlyph || previewMessage) && (
                   <span
                     className={cn(
@@ -371,8 +377,8 @@ function WorkspaceRow({
           </button>
 
           {/*
-            Pin·X는 이름 줄 오른쪽 끝에. 고정된 행은 평소 Pin만 맨 끝에 있고,
-            hover(또는 행 안의 키보드 포커스) 때 X가 그 자리에 오고 Pin은 왼쪽으로.
+            Pin·X sit at the right end of the name line. A pinned row normally has only the Pin at the
+            very end; on hover (or keyboard focus inside the row) the X takes that spot and the Pin moves left.
           */}
           <PinToggle
             pinned={ws.pinned}
@@ -387,7 +393,7 @@ function WorkspaceRow({
             )}
           />
 
-          {/* Remove button — hover 시 fade-in. */}
+          {/* Remove button — fades in on hover. */}
           <IconButton
             label={t("sidebar.remove_workspace", { name: ws.name })}
             size="xs"
@@ -674,11 +680,11 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
       aria-label={label}
       title={label}
       className={cn(
-        // SSH 아이콘 바로 아래 인라인 배치. ring-background로 hover/active
-        // 배경색과의 대비를 유지한다.
+        // Placed inline right below the SSH icon. ring-background keeps contrast with the
+        // hover/active background color.
         "size-2 rounded-full ring-1 ring-background",
         connectionStatusClassName(status),
-        // connecting/reconnecting/unstable 중에는 subtle pulse로 진행 중임을 표시한다.
+        // While connecting/reconnecting/unstable, a subtle pulse shows that it is in progress.
         isTransient && "motion-safe:animate-pulse",
       )}
     />
@@ -709,9 +715,9 @@ export function connectionStatusClassName(status: WorkspaceConnectionStatus): st
 }
 
 /**
- * 카드의 경로 한 줄을 만든다. 로컬/SSH 모두 동일한 규칙: 절대경로의 마지막 두
- * 세그먼트만 노출(breadcrumb context). SSH의 user@host는 카드 상단 별도 줄로
- * 분리되었으므로 여기서는 처리하지 않는다.
+ * Builds the card's single path line. Same rule for local and SSH: only the last two
+ * segments of the absolute path are shown (breadcrumb context). SSH's user@host is a separate
+ * line at the top of the card, so it is not handled here.
  */
 function secondaryWorkspaceText(workspace: WorkspaceMeta): string {
   const path =

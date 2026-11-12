@@ -174,13 +174,13 @@ export function GroupView({
   );
   useEffect(() => {
     if (!outerEl) return;
-    // focusin: 키보드/마우스로 focusable 자식(Monaco textarea, terminal 등)에
-    //   focus 이동 시 group 활성화.
-    // mousedown: focusable 자식이 없는 컨텐츠(MarkdownPreview/HtmlPreview/SvgPreview)
-    //   에서는 click 해도 focus 이벤트가 발생하지 않는다. ContentHost 가 createPortal
-    //   로 mount 되어 React onClick(handleGroupClick)도 portal 분리로 catch 안 됨.
-    //   native mousedown 은 DOM tree bubble 을 따라 outer wrapper 까지 도달하므로
-    //   preview 패널 click 도 그룹 활성화에 잡힌다.
+    // focusin: activates the group when focus moves to a focusable child (Monaco textarea,
+    //   terminal, etc.) by keyboard or mouse.
+    // mousedown: content with no focusable child (MarkdownPreview/HtmlPreview/SvgPreview)
+    //   fires no focus event on click. ContentHost is mounted through createPortal, so the
+    //   React onClick (handleGroupClick) is not caught either because of the portal split.
+    //   A native mousedown bubbles up the DOM tree to the outer wrapper, so a click on a
+    //   preview panel also activates the group.
     const activate = () => {
       const layout = useLayoutStore.getState().byWorkspace[workspaceId];
       if (!layout || layout.activeGroupId === leaf.id) return;

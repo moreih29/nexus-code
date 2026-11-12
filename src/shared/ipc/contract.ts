@@ -730,16 +730,16 @@ export const ipcContract = {
       ack: call(PtyWorkspaceTabSchema.extend({ bytesConsumed: z.number().int() }), z.void()),
       kill: call(PtyWorkspaceTabSchema, z.void()),
       /**
-       * 현재 PTY foreground process group leader의 program basename을 조회한다.
+       * Looks up the program basename of the current PTY foreground process group leader.
        *
-       * 사용처: renderer가 xterm.js의 alt-screen ENTER CSI(`\x1b[?47h` / `?1047h`
-       * / `?1049h`)를 감지하면 이 RPC를 1회 호출해 결과를 탭의 processTitle로
-       * 적용. lazygit / lazydocker / vim / less / htop 같이 OSC를 발사하지 않는
-       * TUI도 이름이 잡힌다. claude처럼 OSC를 발사하는 프로그램은 OSC 경로가
-       * 병행으로 적용되며 두 경로의 결과가 일치(둘 다 "claude")한다.
+       * Used when the renderer detects xterm.js's alt-screen ENTER CSI (`\x1b[?47h` / `?1047h`
+       * / `?1049h`): it calls this RPC once and applies the result as the tab's processTitle.
+       * TUIs that fire no OSC, such as lazygit / lazydocker / vim / less / htop, also get
+       * their name captured. Programs like claude that fire OSC get the OSC path
+       * applied in parallel, and the two paths agree (both "claude").
        *
-       * 실패 시 (세션 없음 / ioctl 실패 / ps 실패) `name`은 빈 문자열. 호출자는
-       * 빈 결과를 "정보 없음"으로 해석해 기존 title을 덮어쓰지 않는다.
+       * On failure (no session / ioctl failure / ps failure) `name` is an empty string. Callers
+       * read an empty result as "no info" and do not overwrite the existing title.
        */
       foregroundProcess: call(PtyWorkspaceTabSchema, z.object({ name: z.string() })),
       /** The shells installed on this machine, and the one a terminal runs by default. */
@@ -1858,10 +1858,10 @@ export const ipcContract = {
       /**
        * Emitted when the page advertises favicon(s).
        *
-       * `favicons` 는 페이지가 link rel="icon"으로 선언한 URL 후보 배열. Chromium은
-       * 가장 적절한 후보를 골라 첫 번째 entry로 넘긴다 (apple-touch-icon, png 등).
-       * `null`은 favicon이 없거나 페이지가 명시적으로 비웠음을 의미.
-       * 사용자가 보는 탭 아이콘 표시에 사용한다 (renderer가 첫 후보로 표시).
+       * `favicons` is the array of URL candidates the page declares with link rel="icon". Chromium
+       * picks the most suitable candidate and passes it as the first entry (apple-touch-icon, png, etc.).
+       * `null` means there is no favicon or the page explicitly cleared it.
+       * Used to show the tab icon the user sees (the renderer shows the first candidate).
        */
       faviconUpdated: listen(
         z.object({
@@ -1947,27 +1947,27 @@ export const ipcContract = {
     listen: {},
   },
 
-  // Claude Code 세션 상태 채널.
+  // Claude Code session status channels.
   //
-  // 탭별 Claude 세션 상태(running / needsInput / permissionPending 등)를
-  // main→renderer로 broadcast하고, renderer init 시 전체 snapshot을 제공한다.
-  // hook 요청(HookRequest/HookResponse)은 main↔agent NDJSON 전용이므로
-  // 이 채널에 등록하지 않는다 — shared/claude/status.ts를 공통 출처로 참조한다.
+  // Broadcasts the per-tab Claude session status (running / needsInput / permissionPending, etc.)
+  // from main→renderer, and provides a full snapshot at renderer init.
+  // Hook requests (HookRequest/HookResponse) are for main↔agent NDJSON only, so they are
+  // not registered on this channel — shared/claude/status.ts is the common source to reference.
   claude: {
     call: {
       /**
-       * 현재 모든 (workspaceId, tabId) 쌍의 Claude 세션 상태를 반환한다.
-       * renderer가 store 초기화 시 1회 호출하며, 이후에는 status 이벤트로
-       * incremental 업데이트를 받는다.
+       * Returns the Claude session status of every current (workspaceId, tabId) pair.
+       * The renderer calls it once when initializing the store, and afterwards
+       * receives incremental updates through status events.
        */
       snapshot: call(z.object({}), z.array(StatusEntrySchema)),
       /**
-       * renderer가 현재 사용자가 보고 있는 (workspaceId, tabId) 컨텍스트를
-       * main에 push한다. main은 Stop hook 처리 시 이 캐시를 참조해 알림
-       * 발사 여부를 결정한다 (사용자가 그 탭을 보고 있으면 알림 생략).
+       * The renderer pushes the (workspaceId, tabId) context the user is currently viewing to
+       * main. On a Stop hook, main consults this cache to decide whether to fire a
+       * notification (skipped if the user is looking at that tab).
        *
-       * 둘 다 null이면 "활성 탭 없음"으로 처리되어 모든 Stop이 알림을 발사한다.
-       * 활성 탭 변경 시마다 push한다 (디바운스 없음 — 변경 빈도 낮음).
+       * If both are null it is treated as "no active tab" and every Stop fires a notification.
+       * Pushed on every active-tab change (no debounce — changes are infrequent).
        */
       setActiveContext: call(
         z.object({
@@ -1977,15 +1977,15 @@ export const ipcContract = {
         z.void(),
       ),
       /**
-       * 사용자가 (workspaceId, tabId) 탭을 활성화했음을 main에 알린다.
-       * 해당 탭이 completed 상태였다면 idle로 전이시킨다.
-       * renderer는 setActiveContext와 함께 호출한다.
+       * Tells main that the user activated the (workspaceId, tabId) tab.
+       * If that tab was in the completed state, it transitions to idle.
+       * The renderer calls it together with setActiveContext.
        */
       markSeen: call(z.object({ workspaceId: z.string(), tabId: z.string() }), z.void()),
       /**
-       * 워크스페이스의 모든 (workspaceId, tabId) Claude 세션 상태를 초기화한다.
-       * 사용자가 사이드바 컨텍스트 메뉴에서 "알림 초기화"를 누르면 호출된다.
-       * broker에서 항목을 제거하고 각 tab에 대해 cleared 이벤트를 broadcast한다.
+       * Resets the Claude session status of every (workspaceId, tabId) of a workspace.
+       * Called when the user chooses "Clear notifications" in the sidebar context menu.
+       * Removes the entries from the broker and broadcasts a cleared event for each tab.
        */
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
       /**
@@ -2034,19 +2034,19 @@ export const ipcContract = {
     },
     listen: {
       /**
-       * 특정 (workspaceId, tabId)의 상태가 변경될 때마다 main이 broadcast한다.
-       * 변경이 없는 동일 상태 재설정은 발사하지 않는다.
+       * Broadcast by main whenever the status of a specific (workspaceId, tabId) changes.
+       * Re-setting an identical status (no change) does not fire.
        */
       status: listen(StatusEntrySchema),
       /**
-       * 특정 (workspaceId, tabId) entry가 broker에서 제거되었음을 알린다.
-       * `pty.exit` 또는 `session-end` hook 처리 시 발사된다.
+       * Announces that a specific (workspaceId, tabId) entry was removed from the broker.
+       * Fired when `pty.exit` or a `session-end` hook is handled.
        *
-       * status broadcast만으로는 "삭제"를 표현할 수 없어 별도 이벤트로 분리했다
-       * (StatusEntry는 status enum이 항상 set이라 sentinel을 만들 수 없다).
-       * Renderer는 이 이벤트를 받으면 useClaudeStatusStore.clearTab을 호출해
-       * 자기 사본에서 entry를 제거한다 — 그렇지 않으면 마지막 broadcast된 running
-       * 상태가 사이드바·탭 인디케이터에 그대로 남는다.
+       * Split into a separate event because the status broadcast alone cannot express "delete"
+       * (StatusEntry's status enum is always set, so no sentinel can be made).
+       * On this event the renderer calls useClaudeStatusStore.clearTab to
+       * remove the entry from its own copy — otherwise the last broadcast running
+       * status stays in the sidebar and tab indicators.
        */
       cleared: listen(z.object({ workspaceId: z.string(), tabId: z.string() })),
     },

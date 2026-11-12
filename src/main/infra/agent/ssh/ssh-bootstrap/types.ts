@@ -18,15 +18,15 @@ export const REMOTE_AGENT_PROTOCOL_MAJOR = AGENT_PROTOCOL_VERSION;
 export const REMOTE_AGENT_VERSION = "0.1.0";
 
 /**
- * 원격 호스트에서 에이전트가 설치되는 루트 경로.
+ * Root path on the remote host where the agent is installed.
  *
- * Build-time `define`으로 stable/beta 채널에 따라 분리 (`~/.nexus-code` vs
- * `~/.nexus-code-beta`). 디버깅 시 `NEXUS_REMOTE_AGENT_ROOT` env로 강제
- * 가능 (escape hatch).
+ * Split by stable/beta channel through the build-time `define` (`~/.nexus-code` vs
+ * `~/.nexus-code-beta`). For debugging it can be forced with the `NEXUS_REMOTE_AGENT_ROOT` env
+ * (escape hatch).
  *
- * `__NEXUS_REMOTE_AGENT_ROOT__` 글로벌은 `electron.vite.config.ts`의 main
- * config `define`이 빌드 시점에 문자열로 치환한다. 테스트 환경에서는
- * `tests/setup-globals.ts`가 globalThis에 기본값을 박는다.
+ * The `__NEXUS_REMOTE_AGENT_ROOT__` global is replaced by a string at build time by the `define` in the main
+ * config of `electron.vite.config.ts`. In the test environment,
+ * `tests/setup-globals.ts` sets a default on globalThis.
  */
 export const REMOTE_AGENT_ROOT: string =
   process.env.NEXUS_REMOTE_AGENT_ROOT ?? __NEXUS_REMOTE_AGENT_ROOT__;

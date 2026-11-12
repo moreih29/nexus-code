@@ -16,40 +16,40 @@ import { codexStatusLabel, estimatedLabel } from "../agent-list/session-status";
 // ---------------------------------------------------------------------------
 
 export interface WorkspaceStatusGlyphProps {
-  /** 표시할 Claude 세션 집계 상태. */
+  /** Aggregated Claude session status to display. */
   status: ClaudeStatus;
-  /** Codex 등 출력으로 추정한 상태 — 레이블에 "(추정)"을 붙이고 hover로도 보인다. */
+  /** Status inferred from output (Codex etc.) — "(추정)" is added to the label, also shown on hover. */
   estimated?: boolean;
-  /** Codex 탭의 상태 — 레이블이 Claude가 아니라 Codex를 말한다. */
+  /** Status of a Codex tab — the label names Codex, not Claude. */
   codex?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// 상태 매트릭스
+// State matrix
 // ---------------------------------------------------------------------------
 
 /**
- * 상태별 글리프·색 매핑.
+ * Glyph and color mapping per status.
  *
- * 사이드바 워크스페이스 카드의 메시지 줄 인라인에 표시되는 작은 인디케이터.
- * 레이블·배경 없이 글리프만 렌더한다(시각 노이즈 최소화).
+ * A small indicator shown inline on the message line of the sidebar workspace card.
+ * Renders only the glyph, with no label or background (minimizes visual noise).
  *
- * | 상태             | 글리프                | 색 토큰                      | 비고                          |
+ * | status           | glyph                 | color token                  | note                          |
  * |------------------|-----------------------|------------------------------|-------------------------------|
- * | idle             | (없음)                | —                            | 글리프 자체 미렌더            |
- * | running          | Loader (spin)         | text-emerald-500             | 동작 중                       |
- * | completed        | CircleCheck           | --tab-claude-attention-fg    | 응답 종료(미확인)             |
- * | needsInput       | MessageCircleQuestion | --tab-claude-attention-fg    | 입력 필요 — pulse 애니메이션  |
- * | permissionPending| CircleAlert           | --state-warning-fg           | 권한 승인 필요                |
- * | error            | TriangleAlert         | --state-error-fg             | 에러                          |
+ * | idle             | (none)                | —                            | glyph itself is not rendered  |
+ * | running          | Loader (spin)         | text-emerald-500             | in progress                   |
+ * | completed        | CircleCheck           | --tab-claude-attention-fg    | response ended (unseen)       |
+ * | needsInput       | MessageCircleQuestion | --tab-claude-attention-fg    | input needed — pulse animation|
+ * | permissionPending| CircleAlert           | --state-warning-fg           | permission approval needed    |
+ * | error            | TriangleAlert         | --state-error-fg             | error                         |
  *
- * idle은 시각 노이즈 줄이기 위해 글리프를 그리지 않는다. running 초록·completed
- * 파랑은 사용자 직접 지정. needsInput은 completed와 같은 색이지만 pulse로 구분.
+ * idle draws no glyph to reduce visual noise. Green for running and blue for completed
+ * were specified directly. needsInput has the same color as completed but is told apart by the pulse.
  */
 
 interface GlyphConfig {
   ariaLabel: string;
-  /** Tailwind 클래스로 표현하는 글리프 색 */
+  /** Glyph color as Tailwind classes */
   colorClass: string;
   Icon: React.ComponentType<{
     width?: number;
@@ -59,7 +59,7 @@ interface GlyphConfig {
     className?: string;
   }>;
   spin?: boolean;
-  /** attention을 끌기 위한 pulse 애니메이션 적용 여부 */
+  /** Whether to apply a pulse animation to draw attention */
   pulse?: boolean;
 }
 
@@ -105,10 +105,10 @@ function getGlyphConfig(status: Exclude<ClaudeStatus, "idle">): GlyphConfig {
 // ---------------------------------------------------------------------------
 
 /**
- * 워크스페이스 카드의 작은 상태 글리프.
+ * Small status glyph for a workspace card.
  *
- * 메시지 줄 인라인에 12px 글리프로 렌더한다. idle 상태는 글리프 자체를 그리지
- * 않는다(null 반환). 배경·패딩·레이블 없이 색과 형태로만 상태를 전달한다.
+ * Renders as a 12px glyph inline on the message line. The idle status draws no glyph at all
+ * (returns null). With no background, padding or label, it conveys the status by color and shape only.
  */
 export function WorkspaceStatusGlyph({
   status,

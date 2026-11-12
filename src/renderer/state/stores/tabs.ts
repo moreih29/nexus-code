@@ -82,31 +82,31 @@ export interface CodexTabProps {
 interface TabBase {
   id: string;
   /**
-   * 표시용 타이틀 — derived: customTitle ?? processTitle ?? defaultTitle.
-   * 모든 set 경로(rename / setProcessTitle / createTab)가 이 invariant를 유지한다.
-   * 호출자는 항상 tab.title을 그대로 읽으면 된다.
+   * Display title — derived: customTitle ?? processTitle ?? defaultTitle.
+   * Every set path (rename / setProcessTitle / createTab) maintains this invariant.
+   * Callers can always read tab.title as is.
    */
   title: string;
   /**
-   * 탭 생성 시점에 계산된 기본 타이틀. customTitle / processTitle 둘 다 비어있을 때
-   * fallback. createTab 이후 변경되지 않는다.
+   * Default title computed when the tab is created. Fallback when customTitle and
+   * processTitle are both empty. Does not change after createTab.
    */
   defaultTitle: string;
   /**
-   * 사용자가 수동으로 설정한 타이틀. 설정되면 processTitle을 가리고 title을 고정.
-   * undefined로 비우면 자동(processTitle/defaultTitle)으로 복귀.
+   * Title the user set manually. When set it hides processTitle and pins the title.
+   * Clearing it to undefined returns to automatic (processTitle/defaultTitle).
    */
   customTitle?: string;
   /**
-   * 자동 감지된 타이틀. 터미널은 OSC 0/1/2(xterm.js onTitleChange), 브라우저는
-   * page-title-updated로 갱신. customTitle이 있으면 표시에는 영향 없음.
+   * Auto-detected title. Updated from OSC 0/1/2 (xterm.js onTitleChange) for terminals and
+   * page-title-updated for browsers. Has no effect on the display when customTitle is set.
    */
   processTitle?: string;
   isPreview: boolean;
   isPinned: boolean;
 }
 
-/** title invariant 계산: customTitle ?? processTitle ?? defaultTitle. */
+/** Title invariant computation: customTitle ?? processTitle ?? defaultTitle. */
 function computeDisplayTitle(parts: {
   defaultTitle: string;
   customTitle?: string;
@@ -200,17 +200,17 @@ interface TabsState {
   createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
   /**
-   * 사용자 수동 rename. title === "" (또는 trim 후 빈 문자열)이면 customTitle을
-   * clear해 processTitle/defaultTitle로 자동 복귀시킨다.
-   * 외부 호출자(commit detail fetch 등)는 setProcessTitle을 써야 의미가 맞다 —
-   * renameTab은 사용자 의지의 의미를 가진다.
+   * Manual rename by the user. If title === "" (or empty after trim), customTitle is
+   * cleared, automatically returning to processTitle/defaultTitle.
+   * External callers (commit detail fetch etc.) should use setProcessTitle for the meaning to fit —
+   * renameTab carries the meaning of user intent.
    */
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   /**
-   * 자동 감지 타이틀 갱신. terminal OSC 0/1/2, browser page-title-updated 등에서
-   * 호출. title === null 또는 빈 문자열이면 processTitle을 clear. customTitle이
-   * 설정되어 있으면 표시 title은 바뀌지 않지만 processTitle 값은 갱신된다 —
-   * 사용자가 나중에 customTitle을 clear할 때 최신 processTitle로 복귀하기 위함.
+   * Updates the auto-detected title. Called from terminal OSC 0/1/2, browser page-title-updated, etc.
+   * If title === null or an empty string, processTitle is cleared. If customTitle is
+   * set the displayed title does not change but the processTitle value is still updated —
+   * so that clearing customTitle later returns to the latest processTitle.
    */
   setProcessTitle: (workspaceId: string, tabId: string, title: string | null) => void;
   setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
@@ -411,7 +411,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
           : defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
-        // 초기 customTitle / processTitle 둘 다 없으므로 derived title = defaultTitle.
+        // Initially there is neither customTitle nor processTitle, so the derived title = defaultTitle.
         title: dt,
         defaultTitle: dt,
         isPreview,
@@ -476,7 +476,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
 
-        // trim 후 빈 문자열은 customTitle clear로 해석 — processTitle/defaultTitle로 복귀.
+        // An empty string after trim is read as clearing customTitle — return to processTitle/defaultTitle.
         const trimmed = title.trim();
         const nextCustom = trimmed === "" ? undefined : trimmed;
         const nextDisplay = computeDisplayTitle({
@@ -505,7 +505,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
 
-        // 빈 문자열 / null → processTitle clear.
+        // Empty string / null → clear processTitle.
         const trimmed = title === null ? "" : title.trim();
         const nextProcess = trimmed === "" ? undefined : trimmed;
         const nextDisplay = computeDisplayTitle({
@@ -589,8 +589,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const tab = wsRecord[tabId];
         // Only editor tabs have a preview slot; replace is otherwise a no-op.
         if (tab.type !== "editor") return state;
-        // 탭이 가리키는 파일이 바뀌므로 defaultTitle을 새 파일 이름으로 갱신하고
-        // 기존 customTitle / processTitle은 의미가 없어 clear.
+        // The file the tab points to changes, so update defaultTitle to the new file name and
+        // clear the old customTitle / processTitle, which no longer mean anything.
         const next: EditorTab = {
           ...tab,
           props,
@@ -642,10 +642,10 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const wsRecord = state.byWorkspace[workspaceId];
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
-        // editor.diff 슬롯만 대상 — editor / git.commit preview는 자기 액션이 책임.
+        // Targets only the editor.diff slot — editor / git.commit previews are owned by their own actions.
         if (tab.type !== "editor.diff") return state;
-        // path / refs가 바뀌므로 defaultTitle을 새 값으로 갱신하고
-        // 이전 custom/process title은 의미가 없어 clear (이전 파일/ref의 잔재 제거).
+        // path / refs change, so update defaultTitle to the new value and
+        // clear the previous custom/process title, which no longer means anything (removes leftovers from the old file/ref).
         const next: DiffTab = {
           ...tab,
           props,
@@ -675,8 +675,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         // Commit preview has its own slot; editor previews are intentionally
         // left untouched by this replacement path.
         if (tab.type !== "git.commit") return state;
-        // SHA가 바뀌므로 defaultTitle을 새 placeholder("commit XXXXXXX")로 갱신하고
-        // 기존 custom/process는 clear (이전 commit의 subject 등이 남으면 안 됨).
+        // The SHA changes, so update defaultTitle to the new placeholder ("commit XXXXXXX") and
+        // clear the old custom/process title (the previous commit's subject etc. must not remain).
         const next: GitCommitTab = {
           ...tab,
           props: { workspaceId, sha },
@@ -721,8 +721,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         if (!wsRecord || !(tabId in wsRecord)) return state;
         const tab = wsRecord[tabId];
         if (tab.type !== "untitled") return state;
-        // Untitled → 저장된 editor 전이. 새 파일명을 defaultTitle로 잡고
-        // custom/process는 비운 상태로 시작.
+        // Untitled → saved editor transition. Take the new file name as defaultTitle and
+        // start with custom/process cleared.
         const next: EditorTab = {
           id: tab.id,
           title,

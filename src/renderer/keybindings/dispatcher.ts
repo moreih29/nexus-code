@@ -84,17 +84,17 @@ export function __resetChordStateForTests(): void {
  */
 export function handleGlobalKeyDown(e: KeyboardEvent): boolean {
   // ── 0a. IME composition guard.
-  //   한국어/일본어 IME가 helper textarea에서 합성(composition) 중일 때,
-  //   modifier+letter 단축키(`Cmd+C`, `Cmd+V`, …)도 `e.code`로 매칭되므로
-  //   `matchesEvent`가 그대로 hit한다. 매치 후 `preventDefault` +
-  //   `stopImmediatePropagation`이 호출되면 textarea의 IME state가
-  //   desync되어 한글 입력이 중복되거나 같은 글자가 stuck되는 버그가
-  //   발생한다. 합성 중에는 어떤 단축키도 dispatch하지 않고 그대로
-  //   xterm.js / Monaco / 기타 텍스트 input에 흘려보낸다.
+  //   While a Korean/Japanese IME is composing (composition) in the helper textarea,
+  //   modifier+letter shortcuts (`Cmd+C`, `Cmd+V`, …) are also matched by `e.code`, so
+  //   `matchesEvent` hits as is. If `preventDefault` +
+  //   `stopImmediatePropagation` are called after a match, the textarea's IME state
+  //   desyncs and Hangul input gets duplicated or the same character gets stuck.
+  //   During composition no shortcut is dispatched; events are passed straight through to
+  //   xterm.js / Monaco / other text inputs.
   //
-  //   `e.keyCode === 229`는 옛 Chromium에서 `isComposing` 플래그가 일부
-  //   keydown에 늦게 세팅되는 케이스를 잡는 fallback — xterm.js 내부도
-  //   동일한 dual-guard 패턴을 쓴다.
+  //   `e.keyCode === 229` is a fallback that catches the case where, in older Chromium, the `isComposing` flag is
+  //   set late on some keydowns — xterm.js internally
+  //   uses the same dual-guard pattern.
   if (e.isComposing || e.keyCode === 229) return false;
 
   // ── 0b. Lazy expiry sweep so a stale chord can't mis-route.

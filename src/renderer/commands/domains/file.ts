@@ -148,11 +148,11 @@ export function registerFileCommands(): Array<() => void> {
       );
     }),
 
-    // F2 — 파일트리 포커스 상태에서 현재 행의 인라인 rename 진입.
-    // activeAbsPath가 루트이거나 없으면 no-op. rename 입력창이 열린 상태에서는
-    // when:"!inputFocus" 조건이 막아 이 핸들러까지 도달하지 않는다.
+    // F2 — enter inline rename of the current row while the file tree has focus.
+    // No-op if activeAbsPath is the root or missing. While the rename input is open, the
+    // when:"!inputFocus" condition blocks it, so it never reaches this handler.
     registerCommand(COMMANDS.fileRename, () => {
-      // 워크스페이스 루트는 rename 불가 (startRename 내부와 동일한 guard)
+      // The workspace root cannot be renamed (same guard as inside startRename)
       withFocusedSinglePath(({ path }) => {
         useFilesStore.getState().requestRename(path);
       });
@@ -231,11 +231,11 @@ export function registerFileCommands(): Array<() => void> {
       });
     }),
 
-    // Cmd+Backspace — 파일트리 포커스 상태에서 현재 행(들) 삭제 (macOS Finder parity).
-    //   local 워크스페이스: 휴지통으로 이동(복구 가능).
-    //   SSH 워크스페이스: 원격 휴지통이 없으므로 영구 삭제(confirm-delete가 자체 분기).
-    // when:"fileTreeFocus && !inputFocus" 조건이 dispatcher 레벨에서 edit-row
-    // 입력 중 발화를 막는다. 핸들러에서도 root / missing-node guard를 유지한다.
+    // Cmd+Backspace — delete the current row(s) while the file tree has focus (macOS Finder parity).
+    //   local workspace: move to the trash (recoverable).
+    //   SSH workspace: there is no remote trash, so delete permanently (confirm-delete branches itself).
+    // The when:"fileTreeFocus && !inputFocus" condition blocks firing at the dispatcher level
+    // while typing in an edit-row input. The handler also keeps the root / missing-node guard.
     registerCommand(COMMANDS.fileDelete, () => {
       withFocusedTreePaths(({ wsId, tree, absPaths }) => {
         confirmAndDeleteBatch(wsId, tree.rootAbsPath, absPaths).catch(() => {});

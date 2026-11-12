@@ -1,8 +1,8 @@
 // Diff ref display formatter.
 //
-// 탭 칩과 헤더 등에서 (leftRef, rightRef) 쌍을 짧게 표시할 때 쓰는 순수
-// 포맷터. 출력 컨벤션은 git CLI의 `A..B`(예: `git diff HEAD..WORKING`)에
-// 맞춰 사용자가 이미 가지고 있는 멘탈 모델을 재활용한다.
+// A pure formatter for showing a (leftRef, rightRef) pair briefly in tab chips, headers,
+// etc. The output convention follows the git CLI's `A..B` (e.g. `git diff HEAD..WORKING`),
+// reusing the mental model users already have.
 
 import { EMPTY_TREE } from "./diff-refs";
 

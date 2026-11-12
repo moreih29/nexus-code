@@ -64,11 +64,11 @@ export function GroupTabBar({
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
 
-  // Focus handoff guard — Radix ContextMenu가 close 후 기본적으로 trigger로 focus를
-  // 복귀시키는데, Rename Tab… 클릭으로 inline input이 막 mount된 직후 그 focus
-  // 복귀가 input의 blur를 즉시 트리거해 commit→cancel→사라짐 깜빡임을 만든다.
-  // file-tree inline-edit가 이미 동일 문제에 같은 패턴으로 해결되어 있다 —
-  // 핸드오프가 발생할 때만 onCloseAutoFocus.preventDefault()로 Radix가 비켜서게 한다.
+  // Focus handoff guard — after closing, Radix ContextMenu returns focus to the trigger by
+  // default, and right after clicking Rename Tab… mounts the inline input, that focus return
+  // triggers the input's blur at once, causing a commit→cancel→vanish flicker.
+  // The file-tree inline edit already solves the same problem with the same pattern —
+  // only when a handoff happens, onCloseAutoFocus.preventDefault() makes Radix step aside.
   const renameHandoffInFlight = useRef(false);
 
   const contextTab = contextTabId
@@ -112,9 +112,9 @@ export function GroupTabBar({
 
   function renameTab() {
     if (!contextTabId) return;
-    // Radix가 곧 close 시점에 trigger로 focus를 복귀시키는데, 그게 input의 blur로
-    // 이어져 commit→cancel→사라짐을 유발. close 직전 flag를 세워 onCloseAutoFocus
-    // 가드에서 prevent하도록 한다. 한 번 쓰고 reset.
+    // Radix returns focus to the trigger right when it closes, which leads to the input's blur
+    // and causes commit→cancel→vanish. A flag is set just before closing so the
+    // onCloseAutoFocus guard prevents it. Used once, then reset.
     renameHandoffInFlight.current = true;
     useTabEditingStore.getState().startEditing(contextTabId);
   }

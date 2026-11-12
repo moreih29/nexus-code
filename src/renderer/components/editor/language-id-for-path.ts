@@ -1,23 +1,23 @@
 // Language-id resolver used by the diff editor.
 //
-// `@monaco-editor/react`의 `DiffEditor`는 `originalLanguage` / `modifiedLanguage`
-// / `language` prop이 모두 없을 때 항상 `'text'`로 하드코딩한 채
-// `monaco.editor.createModel(value, 'text', uri)`를 호출한다
-// (suren-atoyan/monaco-react `src/utils/index.ts` 의 `getOrCreateModel`).
-// 그 결과 Monaco의 `createTextModel`이 `!languageId` 분기로 들어가지 못해
-// URI 기반 자동 감지(`languagesAssociations.ts`)가 전혀 동작하지 않는다.
+// Without any of the `originalLanguage` / `modifiedLanguage` / `language` props,
+// `@monaco-editor/react`'s `DiffEditor` always hardcodes `'text'` and calls
+// `monaco.editor.createModel(value, 'text', uri)`
+// (`getOrCreateModel` in suren-atoyan/monaco-react `src/utils/index.ts`).
+// As a result Monaco's `createTextModel` never enters the `!languageId` branch, so
+// URI-based auto-detection (`languagesAssociations.ts`) does not run at all.
 //
-// 그래서 우리가 직접 path → languageId를 풀어주고 prop으로 흘려야 한다.
-// 일반 `Editor`(`editor-view.tsx`)는 우리 쪽 `entry.ts`에서 `createModel(value,
-// undefined, monacoUri)`로 만들기 때문에 자동 감지가 정상 동작하므로 동일
-// 경로가 필요하지 않다.
+// So path → languageId has to be resolved here and passed down as a prop.
+// The regular `Editor` (`editor-view.tsx`) creates its model in `entry.ts` with
+// `createModel(value, undefined, monacoUri)`, so auto-detection works and the same
+// path is not needed.
 //
-// 매칭 우선순위는 Monaco 내부 `getAssociationByPath`와 같다:
-//   1. 정확한 filename 일치 (대소문자 무시)
-//   2. 가장 긴 extension 일치 (대소문자 무시, `endsWith`)
-// `filenamePatterns`(glob) 매칭은 의도적으로 생략한다 — basic-languages가
-// 등록하는 어떤 언어도 glob에만 의존하지 않으며, glob 매칭을 정확히 모사하려면
-// vscode의 `match.ts`를 끌어와야 한다.
+// Match priority is the same as Monaco's internal `getAssociationByPath`:
+//   1. exact filename match (case-insensitive)
+//   2. longest extension match (case-insensitive, `endsWith`)
+// `filenamePatterns` (glob) matching is left out on purpose — no language registered by
+// basic-languages depends on a glob alone, and mimicking glob matching exactly would mean
+// pulling in vscode's `match.ts`.
 
 import type * as Monaco from "monaco-editor";
 

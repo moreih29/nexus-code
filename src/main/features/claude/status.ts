@@ -1,10 +1,10 @@
-// Claude 세션 상태 broker — (workspaceId, tabId) 쌍별 상태를 메모리로 관리하고
-// 변경 시 renderer로 broadcast한다.
+// Claude session status broker — keeps the status of each (workspaceId, tabId) pair in memory and
+// broadcasts changes to the renderer.
 
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
 import { broadcast } from "../../infra/ipc-router";
 
-/** 내부 저장 단위 */
+/** Internal storage unit */
 interface StateEntry {
   status: ClaudeStatus;
   /** What the session shows: the notice while it waits on the user, else the answer. */
@@ -23,7 +23,7 @@ interface StateEntry {
 /** States the session waits on the user in; their message is about that wait. */
 const WAITING: ReadonlySet<ClaudeStatus> = new Set(["needsInput", "permissionPending", "error"]);
 
-/** 상태 변경 listener — clear 시 entry는 null. */
+/** Status change listener — the entry is null on clear. */
 export type ClaudeStatusListener = (
   workspaceId: string,
   tabId: string,
@@ -31,18 +31,18 @@ export type ClaudeStatusListener = (
 ) => void;
 
 /**
- * (workspaceId, tabId) 쌍별 Claude 세션 상태를 관리하는 broker.
+ * Broker that manages the Claude session status of each (workspaceId, tabId) pair.
  *
- * - set: 상태를 갱신한다. 이전 값과 동일하면 broadcast를 생략한다.
- * - get: 현재 상태를 반환한다. 없으면 null.
- * - clear: 해당 (ws, tab) 항목을 맵에서 제거한다.
- * - snapshot: 현재 모든 항목을 StatusEntry 배열로 반환한다.
+ * - set: updates the status. Skips the broadcast when the value equals the previous one.
+ * - get: returns the current status, or null if none.
+ * - clear: removes that (ws, tab) entry from the map.
+ * - snapshot: returns all current entries as a StatusEntry array.
  */
 export class ClaudeStatusBroker {
-  /** 내부 상태 맵 — "workspaceId:tabId" → StateEntry */
+  /** Internal status map — "workspaceId:tabId" → StateEntry */
   private readonly map = new Map<string, StateEntry>();
 
-  /** 테스트에서 broadcast 함수를 주입할 때 사용한다. */
+  /** Used to inject a broadcast function in tests. */
   private readonly broadcastFn: (channel: string, event: string, args: unknown) => void;
 
   private readonly listeners = new Set<ClaudeStatusListener>();
@@ -52,15 +52,15 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 특정 (workspaceId, tabId) 의 상태를 설정한다.
-   * 이전 상태와 동일하면 broadcast를 발사하지 않는다.
+   * Sets the status of a given (workspaceId, tabId).
+   * Does not broadcast when the status equals the previous one.
    *
    * message: for a state that waits on the user (needsInput,
    * permissionPending, error), what it says; it goes with that state. For any
    * other state, Claude's answer to the turn that ended ("" when it gave
    * none), which stays once the turn is seen. Undefined keeps the answer.
    *
-   * prompt: undefined면 이전 프롬프트를 유지하고, null이면 지운다(새 세션).
+   * prompt: undefined keeps the previous prompt, null clears it (new session).
    * The answer goes with the prompt it answers: a new prompt or a new
    * session has none yet. A turn Claude Code starts itself keeps both.
    */
@@ -80,7 +80,7 @@ export class ClaudeStatusBroker {
     const notice = waiting ? message : undefined;
     const shown = notice ?? answer;
 
-    // 상태·메시지·프롬프트가 모두 동일하면 broadcast 생략.
+    // Skip the broadcast when status, message and prompt are all unchanged.
     if (
       prev &&
       prev.status === status &&
@@ -119,22 +119,22 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 특정 (workspaceId, tabId) 의 현재 상태를 반환한다. 없으면 null.
+   * Returns the current status of a given (workspaceId, tabId), or null if none.
    */
   get(workspaceId: string, tabId: string): StateEntry | null {
     return this.map.get(`${workspaceId}:${tabId}`) ?? null;
   }
 
   /**
-   * 특정 (workspaceId, tabId) 항목을 맵에서 제거하고 renderer에 cleared 이벤트를
-   * broadcast한다.
+   * Removes a given (workspaceId, tabId) entry from the map and broadcasts a cleared event to the
+   * renderer.
    *
-   * PTY 세션 종료 / `session-end` hook 시 호출된다. broadcast가 빠지면 renderer
-   * 의 useClaudeStatusStore에 마지막 status가 그대로 남아 사이드바 워크스페이스
-   * 인디케이터와 탭 인디케이터가 stale running으로 보이는 버그가 발생한다.
+   * Called when a PTY session ends or on the `session-end` hook. Without the broadcast, the renderer's
+   * useClaudeStatusStore keeps the last status, so the sidebar workspace indicator and the tab
+   * indicator show a stale running state.
    *
-   * 존재하지 않는 entry를 clear하는 경우엔 broadcast를 생략한다 (set의 dedupe와
-   * 동일한 noise 억제 정책).
+   * Clearing a nonexistent entry skips the broadcast (the same noise-suppression policy as the
+   * dedupe in set).
    */
   clear(workspaceId: string, tabId: string): void {
     const key = `${workspaceId}:${tabId}`;
@@ -145,15 +145,15 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 특정 workspaceId에 속한 모든 (workspaceId, tabId) 항목을 맵에서 제거하고
-   * 각 tab에 대해 cleared 이벤트를 broadcast한다.
+   * Removes every (workspaceId, tabId) entry that belongs to a given workspaceId from the map and
+   * broadcasts a cleared event for each tab.
    *
-   * 사용자가 사이드바 컨텍스트 메뉴에서 "알림 초기화"를 눌렀을 때 호출된다.
-   * Claude wrapper hook이 모든 상황을 완벽히 컨트롤하지 못해 인디케이터가 stale
-   * 상태(예: 끝났는데 running으로 남음)로 굳는 경우를 사용자가 수동 복구하는 경로다.
+   * Called when the user picks "reset notifications" in the sidebar context menu.
+   * The Claude wrapper hook cannot control every situation, so an indicator can get stuck in a stale
+   * state (e.g. still running after it finished); this is the path for the user to recover manually.
    *
-   * broker(권위 상태)에서 항목을 지워야 다음 snapshot·재broadcast로 stale 상태가
-   * 되살아나지 않는다. 제거할 항목이 없으면 broadcast를 생략한다.
+   * The entries must be removed from the broker (the authoritative state), or the next snapshot or
+   * re-broadcast would revive the stale state. With nothing to remove, the broadcast is skipped.
    */
   clearWorkspace(workspaceId: string): void {
     const prefix = `${workspaceId}:`;
@@ -167,8 +167,8 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 상태가 바뀌거나 지워질 때마다 listener를 부른다(세션 이력 기록용).
-   * 반환 함수로 해제한다.
+   * Calls the listener whenever a status changes or is cleared (for recording session history).
+   * Unsubscribe with the returned function.
    */
   onChange(listener: ClaudeStatusListener): () => void {
     this.listeners.add(listener);
@@ -178,8 +178,8 @@ export class ClaudeStatusBroker {
   }
 
   /**
-   * 현재 모든 (workspaceId, tabId) 상태를 StatusEntry 배열로 반환한다.
-   * renderer 초기화 시 1회 snapshot 동기화에 사용한다.
+   * Returns all current (workspaceId, tabId) statuses as a StatusEntry array.
+   * Used for the one-time snapshot sync when the renderer initializes.
    */
   snapshot(): StatusEntry[] {
     const result: StatusEntry[] = [];

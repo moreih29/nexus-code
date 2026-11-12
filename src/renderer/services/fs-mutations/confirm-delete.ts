@@ -1,5 +1,5 @@
 /**
- * confirmAndDeletePath — 파일/디렉터리 삭제 공통 helper.
+ * confirmAndDeletePath — shared helper for deleting a file/directory.
  *
  * Branches on workspace kind so the user sees a confirm message that
  * matches what's actually about to happen — VSCode parity:
@@ -14,9 +14,9 @@
  * removeDir (which calls fs.removeAll). For files/symlinks on the SSH
  * path, falls through to unlinkPath.
  *
- * CRITICAL — 이 함수는 루트 경로 guard 를 포함하지 않는다.
- * 호출 측(use-file-tree-actions: isRoot check, 글로벌 핸들러: rootAbsPath 비교)
- * 에서 isRoot / 루트 판별 후 호출해야 한다.
+ * CRITICAL — this function contains no root-path guard.
+ * Callers (use-file-tree-actions: isRoot check, global handler: rootAbsPath comparison)
+ * must identify the root with isRoot or equivalent before calling.
  */
 
 import i18next from "i18next";
@@ -43,12 +43,12 @@ import { trashPath } from "./trash";
 import { unlinkPath } from "./unlink";
 
 /**
- * @param workspaceId    현재 워크스페이스 ID.
- * @param workspaceRootPath   워크스페이스 루트 절대 경로.
- * @param absPath        삭제 대상 절대 경로.
+ * @param workspaceId    Current workspace ID.
+ * @param workspaceRootPath   Absolute path of the workspace root.
+ * @param absPath        Absolute path of the deletion target.
  * @param nodeType       "file" | "dir" | "symlink"
- * @param name           confirm 다이얼로그용 이름 (기본값: basename(absPath)).
- * @returns              삭제 성공 시 true, confirm 취소 또는 IPC 실패 시 false.
+ * @param name           Name for the confirm dialog (default: basename(absPath)).
+ * @returns              true on successful deletion, false on confirm cancel or IPC failure.
  */
 export async function confirmAndDeletePath(
   workspaceId: string,

@@ -363,30 +363,30 @@ export async function bootstrapWorkspaces(
 }
 
 /**
- * Claude 세션 상태 store를 초기화하고 status broadcast 구독을 설정한다.
+ * Initializes the Claude session status store and sets up the status broadcast subscription.
  *
- * 1. snapshot call로 현재 모든 (workspaceId, tabId) 상태를 store에 로드한다.
- * 2. claude:status 이벤트를 구독해 incremental 갱신을 처리한다.
+ * 1. A snapshot call loads the current status of every (workspaceId, tabId) into the store.
+ * 2. Subscribes to claude:status events and handles incremental updates.
  *
- * 워크스페이스 제거 정리는 workspace-cleanup registry(registerWorkspaceCleanup)가
- * 담당하므로 여기서 별도로 구독하지 않는다.
+ * Workspace-removal cleanup is handled by the workspace-cleanup registry
+ * (registerWorkspaceCleanup), so it is not subscribed to separately here.
  */
 export async function bootstrapClaudeStatus(): Promise<void> {
-  // 현재 모든 탭의 Claude 상태를 snapshot으로 로드한다.
+  // Load the Claude status of every tab as a snapshot.
   const result = await ipcCallResult("claude", "snapshot", {});
   if (result.ok) {
     useClaudeStatusStore.getState().setMany(result.value);
   }
 
-  // 이후 상태 변경은 status broadcast로 incremental 갱신된다.
+  // Later status changes are applied incrementally through the status broadcast.
   ipcListen("claude", "status", (entry) => {
     useClaudeStatusStore.getState().set(entry);
   });
 
-  // PTY exit / session-end 시 main이 broker entry를 제거하며 cleared를 발사한다.
-  // 받는 즉시 renderer 사본에서 해당 (workspaceId, tabId) 항목을 제거해야 한다 —
-  // 그러지 않으면 마지막 broadcast된 running 상태가 사이드바·탭 인디케이터에
-  // 그대로 남는다.
+  // On PTY exit / session-end, main removes the broker entry and fires cleared.
+  // On receipt the renderer must immediately remove that (workspaceId, tabId) entry from its copy —
+  // otherwise the last broadcast running status
+  // stays in the sidebar and tab indicators.
   ipcListen("claude", "cleared", ({ workspaceId, tabId }) => {
     useClaudeStatusStore.getState().clearTab(workspaceId, tabId);
   });
@@ -395,8 +395,8 @@ export async function bootstrapClaudeStatus(): Promise<void> {
   // count the active tab as looked at only while it is.
   startAppFocusTracking();
 
-  // active workspace/tab을 main에 push하는 구독 시작 + 사용자가 탭을 활성화하면
-  // markSeen IPC로 completed→idle 자동 전이.
+  // Start the subscription that pushes the active workspace/tab to main + when the user activates a tab,
+  // automatic completed→idle transition through the markSeen IPC.
   startClaudeActiveContextSync();
 
   // Codex and other agents' output activity, for the tab bar, the sidebar

@@ -17,7 +17,7 @@ export const useFilesStore = create<FilesState>((set, get) => {
     get().closeAllForWorkspace(id);
   });
 
-  // requestRename용 단조 증가 카운터. 클로저에 보관하여 set/get 없이 접근.
+  // Monotonic counter for requestRename. Held in a closure so it is accessed without set/get.
   let renameRequestCounter = 0;
 
   return {
