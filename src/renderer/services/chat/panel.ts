@@ -168,7 +168,7 @@ export function agentTranscript(model: ChatModel, agent: AgentRow): ChatItem[] {
 }
 
 /** Background Bash runs, workflows and the like: the tasks that are not agents. */
-export function jobsOf(model: ChatModel): TaskInfo[] {
+export function jobsOf(model: Pick<ChatModel, "tasks">): TaskInfo[] {
   return Object.values(model.tasks).filter((task) => !AGENT_TASK_TYPES.has(task.type));
 }
 
@@ -196,7 +196,10 @@ export function jobOutputFile(job: TaskInfo, tools: Record<string, ToolCall>): s
 }
 
 /** The output files of the session's jobs, which its tab lets the side panel read. */
-export function jobOutputFiles(model: ChatModel, tools: Record<string, ToolCall>): string[] {
+export function jobOutputFiles(
+  model: Pick<ChatModel, "tasks">,
+  tools: Record<string, ToolCall>,
+): string[] {
   return jobsOf(model).flatMap((job) => {
     const path = jobOutputFile(job, tools);
     return path ? [path] : [];
