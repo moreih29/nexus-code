@@ -1,14 +1,15 @@
 /**
- * hook-handler 단위 테스트.
+ * Unit tests for hook-handler.
  *
- * - 7종 subcommand × 상태 전이 매핑 검증.
- * - notification/permission-request의 OS 알림 발사 검증(focus 분기).
- * - 모든 subcommand가 즉시 respondHook { exitCode: 0 } 호출하는지(hook 프로세스 해제).
+ * - Verifies the mapping of the 7 subcommands to state transitions.
+ * - Verifies OS notifications for notification/permission-request (focus branching).
+ * - Verifies every subcommand immediately calls respondHook { exitCode: 0 }
+ *   (which releases the hook process).
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-// electron mock — dynamic import 전에 선언 필요.
+// electron mock — must be declared before the dynamic import.
 mock.module("electron", () => ({
   app: { isPackaged: false },
   BrowserWindow: {
@@ -31,18 +32,12 @@ mock.module("electron", () => ({
   },
 }));
 
-const { registerHookHandler } = await import(
-  "../../../../src/main/features/claude/hook-handler"
-);
+const { registerHookHandler } = await import("../../../../src/main/features/claude/hook-handler");
 const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
   "../../../../src/shared/manager/manager"
 );
-const { ClaudeStatusBroker } = await import(
-  "../../../../src/main/features/claude/status"
-);
-const { ActiveContextStore } = await import(
-  "../../../../src/main/features/claude/active-context"
-);
+const { ClaudeStatusBroker } = await import("../../../../src/main/features/claude/status");
+const { ActiveContextStore } = await import("../../../../src/main/features/claude/active-context");
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
 const { SessionActivityLog } = await import(
   "../../../../src/main/features/claude/session-activity"
@@ -51,7 +46,7 @@ const { PermissionAsks } = await import("../../../../src/main/features/claude/pe
 const { ChatAnswers } = await import("../../../../src/main/features/claude/chat-answers");
 
 // ---------------------------------------------------------------------------
-// 헬퍼
+// Helpers
 // ---------------------------------------------------------------------------
 
 function makeNotificationCtor() {
@@ -133,7 +128,7 @@ function makeHookAgentHost() {
 }
 
 // ---------------------------------------------------------------------------
-// 테스트 harness
+// Test harness
 // ---------------------------------------------------------------------------
 
 interface Harness {
@@ -146,15 +141,20 @@ interface Harness {
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
   notifInstances: Array<{ title: string; body: string; shown: boolean }>;
-  FakeNotification: new (opts: { title: string; body: string }) => InstanceType<typeof FakeNotification>;
+  FakeNotification: new (opts: {
+    title: string;
+    body: string;
+  }) => InstanceType<typeof FakeNotification>;
   broadcastCalls: Array<{ channel: string; event: string; args: unknown }>;
   emit: (payload: unknown) => void;
 }
 
-// FakeNotification 타입을 위한 placeholder — 실제로는 makeNotificationCtor에서 반환
+// Placeholder for the FakeNotification type — actually returned from makeNotificationCtor
 class FakeNotification {
   constructor(_opts: { title: string; body: string }) {}
-  on(_: string, _cb: () => void) { return this; }
+  on(_: string, _cb: () => void) {
+    return this;
+  }
   show() {}
 }
 
@@ -185,7 +185,7 @@ function makeHarness(
   const chatAnswers = new ChatAnswers();
 
   const getFocusedWindow = focused
-    ? () => ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow)
+    ? () => ({ isMinimized: () => false }) as unknown as import("electron").BrowserWindow
     : () => null;
 
   registerHookHandler({
@@ -196,7 +196,8 @@ function makeHarness(
     chatAnswers,
     agentHost,
     channelProvider: {
-      tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
+      tryGetAgentChannel: async () =>
+        channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
     },
     workspaceManager: { getName: () => "TestWorkspace" },
     getFocusedWindow,
@@ -222,7 +223,7 @@ function makeHarness(
 }
 
 // ---------------------------------------------------------------------------
-// 테스트
+// Tests
 // ---------------------------------------------------------------------------
 
 describe("hook-handler — subcommand 상태 전이", () => {
@@ -230,8 +231,8 @@ describe("hook-handler — subcommand 상태 전이", () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("session-start"));
     await new Promise((r) => setTimeout(r, 0));
-    // session-start는 idle — Claude가 사용자 입력 대기 상태로 들어간다.
-    // running은 user-prompt-submit/pre-tool-use부터 실제 작업이 시작될 때.
+    // session-start is idle — Claude enters the state of waiting for user input.
+    // running begins when real work starts at user-prompt-submit/pre-tool-use.
     expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
   });
 
@@ -273,10 +274,14 @@ describe("hook-handler — subcommand 상태 전이", () => {
       'see this:\n<pasted_content id="edf0">\n1. first\n2. second\n</pasted_content id="edf0">\nthanks';
     emit(makeHookPayload("user-prompt-submit", { prompt }));
     await new Promise((r) => setTimeout(r, 0));
-    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("see this:\n1. first\n2. second\nthanks");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(
+      "see this:\n1. first\n2. second\nthanks",
+    );
 
     // Only a pair with the same id is a paste; a lone mark is the user's text.
-    emit(makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }));
+    emit(
+      makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }),
+    );
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe('why is <pasted_content id="a"> shown?');
   });
@@ -332,18 +337,19 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe("refactor the parser");
   });
 
-  test.each(["startup", "resume", "clear"])(
-    "session-start from %s goes idle without the old prompt",
-    async (source) => {
-      const { broker, emit } = makeHarness();
-      emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
-      await new Promise((r) => setTimeout(r, 0));
-      emit(makeHookPayload("session-start", { source }));
-      await new Promise((r) => setTimeout(r, 0));
-      expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
-      expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
-    },
-  );
+  test.each([
+    "startup",
+    "resume",
+    "clear",
+  ])("session-start from %s goes idle without the old prompt", async (source) => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("session-start", { source }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
+  });
 
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
@@ -356,7 +362,7 @@ describe("hook-handler — subcommand 상태 전이", () => {
 
   test("stop — 다른 탭을 보고 있으면 completed로 전이", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab"); // 다른 탭
+    activeContext.set("ws-test", "other-tab"); // another tab
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
@@ -365,19 +371,19 @@ describe("hook-handler — subcommand 상태 전이", () => {
 
   test("stop — 앱 비포커스 상태이면 active 일치해도 completed로 전이", async () => {
     const { broker, activeContext, emit } = makeHarness(false /* unfocused */);
-    activeContext.set("ws-test", "tab-test"); // 동일 탭이지만
+    activeContext.set("ws-test", "tab-test"); // the same tab, but
     broker.set("ws-test", "tab-test", "running");
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
-    // 앱이 백그라운드면 사용자가 보고 있지 않다고 본다.
+    // If the app is in the background, the user is considered not to be looking.
     expect(broker.get("ws-test", "tab-test")?.status).toBe("completed");
   });
 
   test("stop — 비-active 탭 + assistantText 있음 → completed + message에 텍스트", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
-    activeContext.set("ws-test", "other-tab"); // 다른 탭
+    activeContext.set("ws-test", "other-tab"); // another tab
     broker.set("ws-test", "tab-test", "running");
-    // hookclient가 transcript를 읽어 채워서 보낸 payload를 시뮬레이션.
+    // Simulates the payload hookclient sends after reading the transcript.
     emit({
       ...makeHookPayload("stop"),
       assistantText: "Here is the answer to your question.",
@@ -389,11 +395,12 @@ describe("hook-handler — subcommand 상태 전이", () => {
   });
 
   test("stop — 비-active 탭 + assistantText 미포함 → completed + message undefined", async () => {
-    // transcript가 없거나 파싱 실패 등 silent fallback 경로. 글리프만 표시되어야.
+    // Silent fallback path such as a missing transcript or a parse failure. Only the glyph
+    // should be shown.
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
     activeContext.set("ws-test", "other-tab");
     broker.set("ws-test", "tab-test", "running");
-    emit(makeHookPayload("stop")); // assistantText 미포함
+    emit(makeHookPayload("stop")); // without assistantText
     await new Promise((r) => setTimeout(r, 0));
     const entry = broker.get("ws-test", "tab-test");
     expect(entry?.status).toBe("completed");
@@ -937,7 +944,7 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
 describe("hook-handler — Stop 알림 발사(active context 분기)", () => {
   test("active context 미설정 시 Stop OS 알림 발사", async () => {
     const { notifInstances, emit } = makeHarness(true /* focused */);
-    // activeContext.set 호출 안 함 → null
+    // activeContext.set is not called → null
     emit(makeHookPayload("stop"));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBeGreaterThanOrEqual(1);
@@ -956,17 +963,17 @@ describe("hook-handler — 유효하지 않은 payload 무시", () => {
     const { broker, emit } = makeHarness();
     emit(makeHookPayload("unknown-future-subcommand"));
     await new Promise((r) => setTimeout(r, 0));
-    // 상태 변화 없어야 함.
+    // No state change expected.
     expect(broker.snapshot()).toHaveLength(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// notificationsEnabled 마스터 토글
+// notificationsEnabled master toggle
 //
-// 가드는 fireOsNotification 진입 직전에 위치한다. OS 알림 발사만 차단되고
-// broker/active-context/응답 처리는 그대로 진행되어야 한다 — in-app 인디케이터
-// (사이드바 attention 등)가 토글 영향을 받지 않는 게 의도된 동작이다.
+// The guard sits right before fireOsNotification. Only the OS notification is blocked;
+// broker/active-context/response handling must proceed as before — the in-app indicators
+// (sidebar attention etc.) are intentionally unaffected by the toggle.
 // ---------------------------------------------------------------------------
 
 describe("hook-handler — notificationsEnabled 마스터 토글", () => {
@@ -974,12 +981,10 @@ describe("hook-handler — notificationsEnabled 마스터 토글", () => {
     const { notifInstances, broker, emit } = makeHarness(false, {
       notificationsEnabled: () => false,
     });
-    emit(
-      makeHookPayload("notification", { message: "ping" }),
-    );
+    emit(makeHookPayload("notification", { message: "ping" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBe(0);
-    // broker는 정상 갱신 — 사이드바 인디케이터는 토글 영향 없음.
+    // The broker updates normally — the sidebar indicator is unaffected by the toggle.
     expect(broker.snapshot().length).toBeGreaterThan(0);
   });
 });

@@ -5,8 +5,9 @@
  * its own responsibility — binary detection, BOM stripping, UTF-8 decode,
  * and the size envelope — that is independent of repository state.
  */
-import { BINARY_DETECTION_BYTES } from "../../../../shared/fs/defaults";
+
 import { isBinaryProbe } from "../../../../shared/fs/binary-detect";
+import { BINARY_DETECTION_BYTES } from "../../../../shared/fs/defaults";
 import type { GitOpenFileAtHeadResult } from "../../../../shared/git/types";
 import type { GitExecutor } from "../bridge/types";
 import { GitError } from "./error";

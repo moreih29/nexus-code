@@ -70,8 +70,18 @@ export function buildGitCommitMenuModel(input: {
   if (input.mode === "none") return [];
   if (input.mode === "sync") {
     return [
-      { kind: "item", id: "push-only", label: t("files:git.commit.button.menu.pushOnly"), disabled: !input.enablement.canPush },
-      { kind: "item", id: "pull-only", label: t("files:git.commit.button.menu.pullOnly"), disabled: !input.enablement.canPull },
+      {
+        kind: "item",
+        id: "push-only",
+        label: t("files:git.commit.button.menu.pushOnly"),
+        disabled: !input.enablement.canPush,
+      },
+      {
+        kind: "item",
+        id: "pull-only",
+        label: t("files:git.commit.button.menu.pullOnly"),
+        disabled: !input.enablement.canPull,
+      },
     ];
   }
 
@@ -97,16 +107,33 @@ export function buildGitCommitMenuModel(input: {
     },
     { kind: "item", id: "commit-empty", label: t("files:git.commit.button.menu.commitEmpty") },
     { kind: "separator" },
-    { kind: "item", id: "undo-last-commit", label: t("files:git.commit.button.menu.undoLastCommit"), destructive: true },
+    {
+      kind: "item",
+      id: "undo-last-commit",
+      label: t("files:git.commit.button.menu.undoLastCommit"),
+      destructive: true,
+    },
     { kind: "separator" },
     {
       kind: "submenu",
       id: "commit-options",
       label: t("files:git.commit.button.menu.commitOptions"),
       items: [
-        { id: "sign", label: t("files:git.commit.button.menu.sign"), checked: input.commitOptions.sign },
-        { id: "signoff", label: t("files:git.commit.button.menu.signoff"), checked: input.commitOptions.signoff },
-        { id: "noVerify", label: t("files:git.commit.button.menu.skipHooks"), checked: input.commitOptions.noVerify },
+        {
+          id: "sign",
+          label: t("files:git.commit.button.menu.sign"),
+          checked: input.commitOptions.sign,
+        },
+        {
+          id: "signoff",
+          label: t("files:git.commit.button.menu.signoff"),
+          checked: input.commitOptions.signoff,
+        },
+        {
+          id: "noVerify",
+          label: t("files:git.commit.button.menu.skipHooks"),
+          checked: input.commitOptions.noVerify,
+        },
       ],
     },
   ];
@@ -172,9 +199,7 @@ export function GitCommitButton({
         <DropdownMenuContent align="end">
           {menu.map((item, index) => {
             if (item.kind === "separator") {
-              return (
-                <DropdownMenuSeparator key={`separator-${previousMenuItemId(menu, index)}`} />
-              );
+              return <DropdownMenuSeparator key={`separator-${previousMenuItemId(menu, index)}`} />;
             }
             if (item.kind === "submenu") {
               return (

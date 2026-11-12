@@ -1,6 +1,6 @@
 /**
  * Curated catalog of user-rebindable Monaco editor commands (Stage 3,
- * "B안 큐레이션").
+ * "Option B curation").
  *
  * Why a curated list instead of mirroring Monaco's full ~600-command
  * registry: Monaco exposes no clean enumeration API, its when-clause

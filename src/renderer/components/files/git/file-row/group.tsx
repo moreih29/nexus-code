@@ -18,8 +18,8 @@ import {
 import type { TreeKeyboardRow } from "../../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../../file-tree/use-tree-keyboard";
 import { collectGitEntryPaths } from "../utils/status-utils";
-import { GitFileRow } from "./row";
 import { GitGroupHeader } from "./group-header";
+import { GitFileRow } from "./row";
 import { GitTreeRow } from "./tree-row";
 
 // ---------------------------------------------------------------------------
@@ -156,7 +156,9 @@ export function GitGroup({
       count={entries.length}
       expanded={expanded}
       onToggle={onToggle}
-      stageActionLabel={canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined}
+      stageActionLabel={
+        canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined
+      }
       unstageActionLabel={canUnstage ? t("git.groups.unstageAll") : undefined}
       discardActionLabel={canDiscardHeader ? discardLabel : undefined}
       onStageAll={canStageHeader ? () => onStagePaths(paths) : undefined}
@@ -204,6 +206,7 @@ export function GitGroup({
       {header}
       <GitGroupTree
         groupKey={groupKey}
+        label={label}
         entries={entries}
         expandedTreeNodes={expandedTreeNodes}
         onToggleTreeNode={onToggleTreeNode}
@@ -230,6 +233,8 @@ export function GitGroup({
 
 interface GitGroupTreeProps {
   groupKey: GitExpandedGroupKey;
+  /** The group's name, which names its tree. */
+  label: string;
   entries: GitStatusEntry[];
   expandedTreeNodes: string[];
   onToggleTreeNode?: (relPath: string) => void;
@@ -253,6 +258,7 @@ interface GitGroupTreeProps {
 
 function GitGroupTree({
   groupKey,
+  label,
   entries,
   expandedTreeNodes,
   onToggleTreeNode,
@@ -352,7 +358,7 @@ function GitGroupTree({
     <div
       ref={containerRef}
       role="tree"
-      aria-label={groupKey}
+      aria-label={label}
       onKeyDown={(e) => onKeyDown(e.nativeEvent)}
     >
       {flatRows.map((row, idx) => {

@@ -28,10 +28,11 @@ export function useFileTreePendingRename({
     [rootAbsPath],
   );
 
-  // 글로벌 F2 keybinding → store bridge 연결.
-  // pendingRenameRequest.requestId가 바뀔 때마다 startRename을 호출한다.
-  // requestId 인디렉션 덕분에 같은 absPath를 Esc 취소 후 다시 F2로 진입해도
-  // useEffect가 재발화한다(absPath만 dep이면 같은 값으로 재발화 안 됨).
+  // Connects the global F2 keybinding → store bridge.
+  // Calls startRename whenever pendingRenameRequest.requestId changes.
+  // Thanks to the requestId indirection, the useEffect fires again even when the same absPath
+  // is entered through F2 after an Esc cancel (with absPath alone as the dep, the same value
+  // would not fire again).
   const lastHandledRequestId = useRef<number | null>(null);
   const pendingRenameRequest = useFilesStore((s) => s.pendingRenameRequest);
   useEffect(() => {

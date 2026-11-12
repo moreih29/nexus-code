@@ -81,7 +81,10 @@ export interface UseWorkspaceRowDndResult {
    * Returns drag-source props (dragstart/dragend) to spread on a row.
    * Rows DO NOT receive dragover/drop — those live on slots.
    */
-  getRowDragSourceProps: (rowId: string, pinned: boolean) => {
+  getRowDragSourceProps: (
+    rowId: string,
+    pinned: boolean,
+  ) => {
     draggable: true;
     onDragStart: (e: React.DragEvent<HTMLElement>) => void;
     onDragEnd: (e: React.DragEvent<HTMLElement>) => void;
@@ -153,10 +156,7 @@ export function buildSlotsForGroup(
  * direct neighbours (above or below). Cross-group slots always represent a
  * pin-flag flip, so they are never no-ops.
  */
-export function isSlotNoOp(args: {
-  source: WorkspaceMeta;
-  slot: SlotInfo;
-}): boolean {
+export function isSlotNoOp(args: { source: WorkspaceMeta; slot: SlotInfo }): boolean {
   const { source, slot } = args;
   const sourceGroup: "pinned" | "unpinned" = source.pinned ? "pinned" : "unpinned";
 
@@ -217,38 +217,35 @@ export function useWorkspaceRowDnd({
     return isSlotNoOp({ source, slot });
   }, []);
 
-  const getRowDragSourceProps = useCallback(
-    (rowId: string, pinned: boolean) => {
-      function onDragStart(e: React.DragEvent<HTMLElement>) {
-        if (!e.dataTransfer) return;
+  const getRowDragSourceProps = useCallback((rowId: string, pinned: boolean) => {
+    function onDragStart(e: React.DragEvent<HTMLElement>) {
+      if (!e.dataTransfer) return;
 
-        const payload: WorkspaceRowDragPayload = { workspaceId: rowId, pinned };
+      const payload: WorkspaceRowDragPayload = { workspaceId: rowId, pinned };
 
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData(MIME_WORKSPACE_ROW, JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(MIME_WORKSPACE_ROW, JSON.stringify(payload));
 
-        // Use the row element itself as the drag ghost so the cursor stays
-        // anchored to the row content the user is moving.
-        e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
+      // Use the row element itself as the drag ghost so the cursor stays
+      // anchored to the row content the user is moving.
+      e.dataTransfer.setDragImage(e.currentTarget, 0, 0);
 
-        sourcePayloadRef.current = payload;
-        setDragSourceId(rowId);
-      }
+      sourcePayloadRef.current = payload;
+      setDragSourceId(rowId);
+    }
 
-      function onDragEnd(_e: React.DragEvent<HTMLElement>) {
-        setDragSourceId(null);
-        setActiveSlotKey(null);
-        sourcePayloadRef.current = null;
-      }
+    function onDragEnd(_e: React.DragEvent<HTMLElement>) {
+      setDragSourceId(null);
+      setActiveSlotKey(null);
+      sourcePayloadRef.current = null;
+    }
 
-      return {
-        draggable: true as const,
-        onDragStart,
-        onDragEnd,
-      };
-    },
-    [],
-  );
+    return {
+      draggable: true as const,
+      onDragStart,
+      onDragEnd,
+    };
+  }, []);
 
   const getSlotDropProps = useCallback(
     (slot: SlotInfo) => {

@@ -22,8 +22,8 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 const MAJOR = AGENT_PROTOCOL_VERSION.split(".", 1)[0];
 const OTHER_MAJOR = String(Number(MAJOR) + 1);
@@ -93,7 +93,7 @@ function readyFrameWith(protocolVersion: string | undefined): Buffer {
   if (protocolVersion !== undefined) {
     obj.protocolVersion = protocolVersion;
   }
-  return Buffer.from(JSON.stringify(obj) + "\n", "utf8");
+  return Buffer.from(`${JSON.stringify(obj)}\n`, "utf8");
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@ describe("createNdjsonPipe — protocolVersion validation", () => {
   });
 
   // Case F: `OTHER.0` → different major → selfFail("server.protocol-version-mismatch")
-  test("Case F: protocolVersion `OTHER.0` → terminal error \"server.protocol-version-mismatch\"", async () => {
+  test('Case F: protocolVersion `OTHER.0` → terminal error "server.protocol-version-mismatch"', async () => {
     const { stdout, pipe, getTerminalError } = buildPipe();
 
     stdout.emitData(readyFrameWith(`${OTHER_MAJOR}.0`));

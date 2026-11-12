@@ -18,7 +18,10 @@ import {
 } from "../../../../src/main/features/git/domain/helpers/launcher";
 import type { GitEditorPrompt } from "../../../../src/shared/git/types";
 
-const EDITOR_HELPER = path.join(process.cwd(), "src/main/features/git/domain/helpers/editor-helper.cjs");
+const EDITOR_HELPER = path.join(
+  process.cwd(),
+  "src/main/features/git/domain/helpers/editor-helper.cjs",
+);
 
 const tmpRoots: string[] = [];
 
@@ -58,9 +61,7 @@ describe("helpers-launcher", () => {
     ).toBe(
       "C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\moreih29.NexusCode_tqd5rv6sm4r06\\nexuscode-agent.exe",
     );
-    expect(
-      agentAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData),
-    ).toBeNull();
+    expect(agentAliasPath("C:\\Program Files\\NexusCode\\NexusCode.exe", localAppData)).toBeNull();
   });
 });
 

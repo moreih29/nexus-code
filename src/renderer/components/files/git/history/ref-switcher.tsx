@@ -48,7 +48,9 @@ export function HistoryRefSwitcher({
           aria-atomic="true"
         >
           {t("git.history.refSwitcher.viewingHistory", { ref: refName })}
-          {trimmedQuery.length > 0 ? <>{t("git.history.refSwitcher.filteredBy", { query: trimmedQuery })}</> : null}
+          {trimmedQuery.length > 0 ? (
+            <>{t("git.history.refSwitcher.filteredBy", { query: trimmedQuery })}</>
+          ) : null}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1">

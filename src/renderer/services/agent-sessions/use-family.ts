@@ -27,18 +27,6 @@ const CLAUDE_ACTIVITY_POLL_MS = 1_000;
 const WAITS_POLL_MS = 1_000;
 const CHANGES_POLL_MS = 5_000;
 
-/** The current time, ticking every `everyMs` while `enabled`. */
-export function useNow(enabled: boolean, everyMs = 1_000): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!enabled) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), everyMs);
-    return () => clearInterval(timer);
-  }, [enabled, everyMs]);
-  return now;
-}
-
 /**
  * Runs `read` now and every `everyMs` until stopped, one read at a time: a
  * tick while a read is still out is skipped, so a slow answer never lands

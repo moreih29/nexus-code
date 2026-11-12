@@ -4,6 +4,7 @@
 
 import { MoreHorizontal } from "lucide-react";
 import type React from "react";
+import { useTranslation } from "react-i18next";
 import type { LogEntry } from "../../../../../shared/git/types";
 import type { DropdownMenuPoint } from "../../../ui/dropdown-menu";
 import { IconButton } from "../../../ui/icon-button";
@@ -63,6 +64,7 @@ export function HistoryRow({
   onOpen,
   onOpenMenu,
 }: HistoryRowProps) {
+  const { t } = useTranslation("files");
   const shortSha = entry.shortSha ?? entry.sha.slice(0, 7);
   const subject = entry.subject || "(no subject)";
   const showRefs = breakpoint === "medium" || breakpoint === "wide";
@@ -151,7 +153,7 @@ export function HistoryRow({
         </span>
       ) : null}
       <IconButton
-        label={`Open commit actions for ${shortSha}`}
+        label={t("git.history.menu.open", { sha: shortSha })}
         className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
         onClick={(event) => {
           event.stopPropagation();

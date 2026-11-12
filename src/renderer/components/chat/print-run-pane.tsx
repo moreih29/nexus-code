@@ -7,7 +7,7 @@ import { Square, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
-import { useNow } from "../../services/agent-sessions/use-family";
+import { useNow } from "../../hooks/use-now";
 import { stopPrintRun } from "../../services/chat/print-runs";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { AgentFlow, toolCount } from "../agent-list/agent-flow";

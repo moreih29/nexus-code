@@ -1,6 +1,6 @@
 # CI workflow — runs on PRs into main or develop, pushes to main, and by hand.
-# electron-builder는 실행하지 않는다. PR 피드백 시간 최소화가 목적.
-# build dry-run은 electron-vite build(out/ 산출)까지만 수행.
+# Does not run electron-builder. The goal is to minimize PR feedback time.
+# The build dry-run only goes as far as electron-vite build (producing out/).
 #
 # What can differ between operating systems runs on each desktop OS the app
 # targets: the tests and the native modules' build. What can't — the
@@ -38,15 +38,15 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Install JS dependencies
-        # --frozen-lockfile: lockfile 변경을 CI에서 허용하지 않는다.
+        # --frozen-lockfile: CI does not allow lockfile changes.
         # --ignore-scripts: nothing here runs Electron or a native module.
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Lint
-        run: bun run lint
+      - name: Lint and format check
+        run: bun run check:ci
 
   build-agent:
     name: Build agent (dry-run)
@@ -105,7 +105,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Build renderer (dry-run)
-        # electron-vite build — out/ 디렉터리 산출.
+        # electron-vite build — produces the out/ directory.
         run: bun run build
 
   test:

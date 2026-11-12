@@ -189,7 +189,9 @@ describe("applyWindowsShellShim", () => {
       settingsPath: SETTINGS,
       codex: { cmd: false },
     });
-    expect(decode(both.args)).toMatch(/^function global:claude \{[\s\S]*\nfunction global:codex \{/);
+    expect(decode(both.args)).toMatch(
+      /^function global:claude \{[\s\S]*\nfunction global:codex \{/,
+    );
     const alone = applyWindowsShellShim({ shell: "pwsh.exe", env: ENV, codex: { cmd: false } });
     expect(alone.args?.slice(0, 2)).toEqual(["-NoExit", "-EncodedCommand"]);
     expect(decode(alone.args)).toStartWith("function global:codex {");

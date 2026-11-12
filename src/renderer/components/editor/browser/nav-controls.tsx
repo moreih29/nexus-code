@@ -47,7 +47,12 @@ function NavButton({
   );
 }
 
-export function NavControls({ tabId, canGoBack, canGoForward, disabled = false }: NavControlsProps) {
+export function NavControls({
+  tabId,
+  canGoBack,
+  canGoForward,
+  disabled = false,
+}: NavControlsProps) {
   const { t } = useTranslation();
   function handleBack() {
     void ipcCallResult("browser", "goBack", { tabId });

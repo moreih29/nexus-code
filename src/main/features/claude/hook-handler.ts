@@ -1,35 +1,34 @@
-// Claude Code hook 이벤트 핸들러.
+// Claude Code hook event handler.
 //
-// Go agent의 hookserver가 "claude.hook" 이벤트를 push하면 이 모듈이 수신해
-// subcommand별 상태 전이 + OS 알림 발사 + agentHost respondHook 호출을 처리한다.
+// When the Go agent's hookserver pushes a "claude.hook" event, this module receives it and, per
+// subcommand, handles the state transition, the OS notification and the agentHost respondHook call.
 //
-// 설계 원칙:
-//  1. 모든 subcommand에서 broker 처리 직후 즉시 respondHook을 호출해 hook
-//     프로세스를 해제한다. wrapper의 settings JSON이 6개 훅을 async:true로
-//     잡아 claude는 응답을 기다리지 않지만, hookclient 프로세스 자체를 빨리
-//     종료시키기 위해 응답을 보낸다(자원 정리). PermissionRequest만 sync 유지.
-//  2. OS 알림 발사 기준은 **사용자가 그 탭을 보고 있는지**로 통일한다
-//     (앱 포커스 + ActiveContextStore.isActive). 멀티 워크스페이스/멀티 탭
-//     환경에서는 앱 포커스만으로는 부족하다 — 사용자가 워크스페이스 A에 있을
-//     때 워크스페이스 B의 알림은 받아야 한다.
+// Design principles:
+//  1. Every subcommand calls respondHook right after the broker has handled it, so the hook
+//     process is released. The wrapper's settings JSON marks six hooks async:true, so claude
+//     does not wait for a reply, but the reply is still sent so the hookclient process exits
+//     quickly (resource cleanup). Only PermissionRequest stays sync.
+//  2. An OS notification fires based on **whether the user is looking at that tab**
+//     (app focus + ActiveContextStore.isActive). With several workspaces and tabs, app focus
+//     alone is not enough: a user in workspace A must still get workspace B's notifications.
 //
-// subcommand 매핑:
-//   session-start      → broker.set(idle) + respondHook — 입력 대기, 글리프 없음 (not after compaction)
+// subcommand mapping:
+//   session-start      → broker.set(idle) + respondHook — waits for input, no glyph (not after compaction)
 //   user-prompt-submit → broker.set(running) + respondHook
 //   pre-tool-use       → broker.set(running) + respondHook
 //                        (a subagent's tool leaves the session's state; see permission-dialogs.ts)
-//   notification       → broker.set(needsInput) + (그 탭 안 보면) OS 알림 + respondHook
+//   notification       → broker.set(needsInput) + (if the tab is not in view) OS notification + respondHook
 //                        (a permission dialog's notification keeps or sets permissionPending;
 //                        one that only tells something, as a login or a push, only notifies)
-//   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림; held for an
+//   permission-request → broker.set(permissionPending) + (if the tab is not in view) OS notification; held for an
 //                        answer from the agent list (permission-asks.ts) beside Claude Code's
 //                        own dialog, or, for a `claude -p` run, respondHook at once (native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
 //   subagent-start     → respondHook (the agent list's record only)
 //   subagent-stop      → the subagent's permission dialogs are over + respondHook
-//   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
-//   stop-failure       → an API error ended the turn instead: error + (그 탭 안 보면) OS 알림 + respondHook
+//   stop               → straight to idle if the tab is in view / else completed + OS notification + respondHook
+//   stop-failure       → an API error ended the turn instead: error + (if the tab is not in view) OS notification + respondHook
 //   session-end        → broker.clear + respondHook
 //
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
@@ -60,22 +59,22 @@ import { TurnOrder } from "./turn-order";
 const log = createLogger("claude-hook");
 
 // ---------------------------------------------------------------------------
-// 의존성 주입 인터페이스
+// Dependency injection interfaces
 // ---------------------------------------------------------------------------
 
-/** 워크스페이스 이름 조회 인터페이스 (osc-notification.ts의 WorkspaceNameLookup과 동일 형태) */
+/** Workspace name lookup interface (same shape as WorkspaceNameLookup in osc-notification.ts) */
 export interface WorkspaceNameLookup {
   getName(id: string): string | null;
 }
 
-/** agentHost에서 필요한 메서드만 추출 */
+/** Only the agentHost methods this module needs */
 export interface HookAgentHost {
   on(event: string, cb: (args: unknown) => void): () => void;
 }
 
 /**
- * claude.respondHook 을 호출하기 위해 workspaceId별 AgentChannel을 제공하는 인터페이스.
- * WorkspaceManager.tryGetAgentChannel 을 wrapping한다.
+ * Provides the per-workspaceId AgentChannel needed to call claude.respondHook.
+ * Wraps WorkspaceManager.tryGetAgentChannel.
  */
 export interface HookChannelProvider {
   tryGetAgentChannel(
@@ -91,40 +90,40 @@ export interface HookHandlerDeps {
   asks?: PermissionAsks;
   /** Tells of the permission requests a Claude tab's user answered there. */
   chatAnswers?: ChatAnswers;
-  /** 사용자가 현재 보고 있는 (workspaceId, tabId) 컨텍스트 — Stop 알림 발사 결정에 사용. */
+  /** The (workspaceId, tabId) context the user is looking at — decides whether a Stop notification fires. */
   activeContext: ActiveContextStore;
   agentHost: HookAgentHost;
   channelProvider: HookChannelProvider;
   workspaceManager: WorkspaceNameLookup;
-  /** 앱이 포커스 상태인지 확인 — 비포커스 시 OS 알림 발사. */
+  /** Whether the app has focus — when it does not, an OS notification fires. */
   getFocusedWindow: () => import("electron").BrowserWindow | null;
-  /** OS 알림 생성자 — 테스트 주입용. 미제공 시 lazy require로 Electron Notification 사용. */
+  /** OS notification constructor — for test injection. When omitted, Electron's Notification is loaded lazily via require. */
   electronNotificationCtor?: typeof import("electron").Notification;
   /**
-   * broadcast 함수 주입 — 테스트용. 미제공 시 ipc-router의 broadcast 사용.
+   * broadcast function injection — for tests. When omitted, the ipc-router broadcast is used.
    */
   broadcastFn?: (channel: string, event: string, args: unknown) => void;
   /**
-   * 워크스페이스 활성화 콜백 — 알림 클릭 시 호출.
+   * Workspace activation callback — called when a notification is clicked.
    */
   activateWorkspace?: (workspaceId: string) => Promise<void>;
-  /** 앱 창 포커스 콜백 — 알림 클릭 시 호출. */
+  /** App window focus callback — called when a notification is clicked. */
   focusMainWindow?: () => void;
   /**
-   * OS 알림 마스터 토글 getter — 사용자가 Settings에서 끈 경우 false.
-   * 매 호출마다 평가하므로 토글 변경이 즉시 반영된다. 미제공 시(기본) 항상 true.
-   * 발사 직전에 검사하므로 in-app status broker(사이드바 인디케이터)는 영향받지 않는다.
+   * Getter for the OS notification master toggle — false when the user turned it off in Settings.
+   * Evaluated on every call, so a toggle change takes effect at once. When omitted (default), always true.
+   * Checked just before firing, so the in-app status broker (sidebar indicator) is unaffected.
    */
   notificationsEnabled?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Notification payload 헬퍼
+// Notification payload helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Claude Code Notification hook payload에서 message 필드를 추출한다.
- * spec상 message 필드만 신뢰한다(T1 확정).
+ * Extracts the message field from a Claude Code Notification hook payload.
+ * Only the message field is trusted, per the spec (confirmed in T1).
  */
 function extractNotificationMessage(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
@@ -196,8 +195,8 @@ const SYSTEM_TURN = new RegExp(
 const PASTED = /<pasted_content id="([^"]*)">\n?([\s\S]*?)\n?<\/pasted_content id="\1">/g;
 
 /**
- * Claude Code UserPromptSubmit hook payload에서 prompt를 추출한다.
- * 붙여넣은 파일 전체가 들어올 수 있어 PROMPT_MAX_CHARS로 자른다(사용자가 쓴 글은 다 남는다).
+ * Extracts the prompt from a Claude Code UserPromptSubmit hook payload.
+ * A whole pasted file can arrive, so it is cut at PROMPT_MAX_CHARS (text the user typed is kept in full).
  * What the user wrote only: pasted text without Claude Code's marks around
  * it, and nothing for a turn Claude Code started itself, which keeps the
  * user's last prompt.
@@ -255,7 +254,7 @@ function extractAgentId(payload: unknown): string {
 }
 
 /**
- * Claude Code PermissionRequest hook payload에서 tool_name을 추출한다.
+ * Extracts tool_name from a Claude Code PermissionRequest hook payload.
  */
 function extractToolName(payload: unknown): string | undefined {
   if (typeof payload !== "object" || payload === null) return undefined;
@@ -301,45 +300,45 @@ const TURN_HOOKS = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
-// OS 알림 발사 헬퍼
+// OS notification helpers
 // ---------------------------------------------------------------------------
 
 /**
- * 발사된 Electron Notification 객체에 대한 strong reference 유지용 Set.
+ * Set that keeps strong references to fired Electron Notification objects.
  *
- * Electron Notification은 main 프로세스 객체로, show() 직후 reference가
- * 끊기면 GC가 회수해 OS 알림이 즉시 dropped되는 케이스가 있다 (특히 macOS).
- * close/click 이벤트가 발사될 때까지 Set에 보관해 GC를 막는다.
+ * An Electron Notification is a main-process object; if its reference is dropped right after
+ * show(), GC can collect it and the OS notification is dropped at once (notably on macOS).
+ * Holding it in the Set until the close/click event fires prevents that.
  *
- * 사용 패턴: 알림 생성 직후 add → close 이벤트에서 delete.
+ * Usage: add right after creating the notification, delete on the close event.
  */
 const pendingNotifications = new Set<import("electron").Notification>();
 
 /**
- * Notification 객체를 pendingNotifications에 등록하고 close 시 자동 제거한다.
- * 테스트 환경에서 close 이벤트를 발사하지 않는 fake에 대비해 fail-safe로
- * 5분 후 강제 제거 timeout도 함께 설정한다.
+ * Registers a Notification object in pendingNotifications and removes it automatically on close.
+ * As a fail-safe for test fakes that never fire a close event, it also sets a
+ * timeout that force-removes the entry after 5 minutes.
  */
 function trackNotification(n: import("electron").Notification): void {
   pendingNotifications.add(n);
   const cleanup = () => {
     pendingNotifications.delete(n);
   };
-  // close — OS가 알림을 dismiss하거나 사용자가 닫았을 때.
-  // ts: Notification은 EventEmitter라 on 호출 시그니처가 유연하다.
+  // close — when the OS dismisses the notification or the user closes it.
+  // ts: Notification is an EventEmitter, so the `on` call signature is loose.
   (n as unknown as { on(event: string, cb: () => void): void }).on("close", cleanup);
-  // click도 발사되면 close 직전에 함께 cleanup해 둔다 (이벤트 순서 무관).
+  // When click fires, clean up together just before close (event order does not matter).
   (n as unknown as { on(event: string, cb: () => void): void }).on("click", cleanup);
-  // 안전 timeout — 위 두 이벤트가 모두 안 와도 5분 후 reference 해제.
+  // Safety timeout — release the reference after 5 minutes even if neither event arrives.
   setTimeout(cleanup, 5 * 60 * 1000).unref?.();
 }
 
 /**
- * OS 알림을 무조건 발사한다. 호출자가 미리 "사용자가 그 탭을 보고 있지 않다"는
- * 조건을 확인한 뒤 호출해야 한다 (isViewingThisTab === false).
+ * Fires an OS notification unconditionally. The caller must first check the condition
+ * "the user is not looking at that tab" (isViewingThisTab === false) before calling.
  *
- * 클릭 시: 메인 창 포커스 + 워크스페이스 활성화 + 그 탭으로 점프
- * (notificationClick broadcast — OS 알림 클릭의 정당한 용도).
+ * On click: focus the main window + activate the workspace + jump to that tab
+ * (notificationClick broadcast — the legitimate use of an OS notification click).
  */
 function fireOsNotification(
   workspaceId: string,
@@ -348,9 +347,9 @@ function fireOsNotification(
   body: string,
   deps: HookHandlerDeps,
 ): void {
-  // 사용자 마스터 토글 가드. in-app status broker(글리프/카드)는 이미 호출자에서
-  // 처리되었으므로, 여기서만 막아도 sidebar attention 등 시각 피드백은 정상.
-  // 사이드바·탭 인디케이터 ↔ OS 알림이 분리 제어되는 의도된 설계다.
+  // User master toggle guard. The in-app status broker (glyph/card) was already handled by the
+  // caller, so blocking only here leaves visual feedback such as sidebar attention intact.
+  // Sidebar/tab indicators and OS notifications are deliberately controlled separately.
   if (deps.notificationsEnabled !== undefined && !deps.notificationsEnabled()) {
     return;
   }
@@ -380,11 +379,11 @@ function fireOsNotification(
 }
 
 // ---------------------------------------------------------------------------
-// hook 이벤트 처리
+// hook event handling
 // ---------------------------------------------------------------------------
 
 /**
- * 단일 "claude.hook" 이벤트 페이로드를 처리한다.
+ * Handles a single "claude.hook" event payload.
  */
 async function handleHookEvent(
   payload: unknown,
@@ -430,9 +429,9 @@ async function handleHookEvent(
 
   deps.activity?.noteHook(workspaceId, tabId, subcommand, hookPayload, parsed.data.agentMessages);
 
-  // 공통 — 사용자가 현재 이 탭을 보고 있는지.
-  // 알림 발사가 필요한 모든 훅(Notification/PermissionRequest/Stop)이 동일 기준을 쓴다.
-  // 멀티 워크스페이스 + 멀티 탭 환경이므로 앱 포커스만으로는 부족하다.
+  // Common — whether the user is currently looking at this tab.
+  // Every hook that may fire a notification (Notification/PermissionRequest/Stop) uses the same criterion.
+  // With several workspaces and tabs, app focus alone is not enough.
   const focused = deps.getFocusedWindow();
   const isAppFocused = focused !== null && !focused.isMinimized();
   const isViewingThisTab = isAppFocused && deps.activeContext.isActive(workspaceId, tabId);
@@ -482,11 +481,11 @@ async function handleHookEvent(
 
   switch (subcommand) {
     case "session-start": {
-      // 세션 시작 — Claude가 사용자 입력 대기 상태로 들어간다. 실제 동작이
-      // 시작되는 시점은 user-prompt-submit이므로 SessionStart는 running이
-      // 아니다. broker에 entry는 만들어 두되 idle로 두면 글리프는 안 보이고
-      // (idle 글리프는 null), 첫 프롬프트 제출 시 running으로 자연 전이된다.
-      // 새 세션이라 이전 세션의 프롬프트는 지운다.
+      // Session start — Claude enters the waiting-for-input state. Real work begins at
+      // user-prompt-submit, so SessionStart is not running. The broker entry is created but left
+      // idle, so no glyph shows (the idle glyph is null) and the first prompt submit moves it
+      // to running naturally.
+      // It is a new session, so the previous session's prompt is cleared.
       // Compaction starts no session: it can run in the middle of a turn,
       // which goes on after it with the same prompt.
       if (sessionStartSource(hookPayload) !== "compact") {
@@ -498,10 +497,10 @@ async function handleHookEvent(
     }
 
     case "user-prompt-submit": {
-      // 사용자 프롬프트 제출 — running 전환 후 즉시 응답(async hook).
-      // (이전에 있던 notificationClick broadcast는 yank back 버그 원인이라 제거.
-      // attention indicator 해제는 broker.set의 status 변경이 처리한다.)
-      // 프롬프트는 세션 보기가 "무엇을 하고 있는지" 보여주도록 함께 둔다.
+      // User prompt submitted — switch to running and reply at once (async hook).
+      // (A notificationClick broadcast used to be sent here; it caused a yank-back bug and was removed.
+      // The broker.set status change clears the attention indicator.)
+      // The prompt is stored too, so the session view can show what the session is doing.
       // A new turn: the session's own dialogs are over, a subagent's may not be.
       dialogs.closeAgent(key, MAIN_AGENT);
       setState("running", undefined, extractPrompt(hookPayload));
@@ -510,7 +509,7 @@ async function handleHookEvent(
     }
 
     case "pre-tool-use": {
-      // 도구 실행 직전 — running 전환 후 즉시 응답(async hook).
+      // Just before a tool runs — switch to running and reply at once (async hook).
       // An agent that starts another tool is past its dialogs for other calls,
       // answered or denied. Its dialog for this call may still be open: this
       // hook runs async, and can come after the PermissionRequest it led to.
@@ -525,8 +524,8 @@ async function handleHookEvent(
     }
 
     case "notification": {
-      // Claude Code 알림 — needsInput + message 전환.
-      // 사용자가 그 탭을 보고 있지 않으면 OS 알림 발사.
+      // Claude Code notification — switch to needsInput + message.
+      // Fire an OS notification if the user is not looking at that tab.
       const message = extractNotificationMessage(hookPayload);
       if (isPermissionNotification(hookPayload)) {
         // The dialog's own notification: PermissionRequest usually came first
@@ -557,9 +556,9 @@ async function handleHookEvent(
         await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
         break;
       }
-      // 사용자가 그 탭을 보고 있으면 Stop처럼 idle로 둔다 — 이미 보고 있으니
-      // 글리프와 inbox 항목이 남을 이유가 없다 (보지 않을 때 생긴 needsInput은
-      // 탭을 보면 markSeen이 idle로 돌린다).
+      // If the user is looking at that tab, leave it idle as Stop does — they are already
+      // looking, so there is no reason for a glyph or inbox entry (a needsInput that arose while
+      // not looking is turned back to idle by markSeen once the tab is viewed).
       // The dialog on the screen now, if any, is not a permission's.
       dialogs.clear(key);
       if (isViewingThisTab) {
@@ -576,7 +575,7 @@ async function handleHookEvent(
     }
 
     case "permission-request": {
-      // 권한 요청 — permissionPending + 사용자가 그 탭을 보고 있지 않으면 OS 알림.
+      // Permission request — permissionPending, plus an OS notification if the user is not looking at that tab.
       const toolName = extractToolName(hookPayload);
       const message = toolName
         ? t
@@ -608,15 +607,14 @@ async function handleHookEvent(
     }
 
     case "stop": {
-      // Claude 응답 완료 — 분기:
-      //  - 사용자가 그 탭을 보고 있으면: idle로 직행 (이미 보고 있으니 알림/인디케이터 모두 불필요).
-      //  - 그렇지 않으면: completed 전이 + OS 알림 발사. 사용자가 탭을 활성화하면
-      //    markSeen IPC로 idle 전이된다.
+      // Claude finished responding — branches:
+      //  - User is looking at that tab: go straight to idle (already looking, so no notification or indicator is needed).
+      //  - Otherwise: transition to completed + fire an OS notification. When the user activates
+      //    the tab, the markSeen IPC moves it to idle.
       //
-      // assistantText는 hookclient가 같은 호스트에서 transcript_path를 직접 읽어
-      // 추출해 둔 마지막 assistant 메시지(단일 줄, 최대 500자). 비어있을 수 있다
-      // (transcript 없음/파싱 실패 등 silent fallback) — 그 경우 사이드바는
-      // 글리프만 표시된다.
+      // assistantText is the last assistant message (single line, at most 500 chars) that hookclient
+      // read directly from transcript_path on the same host. It may be empty (no transcript, parse
+      // failure, etc. — silent fallback); then the sidebar shows only the glyph.
       const assistantText = parsed.data.assistantText;
       // The answer replaces the last turn's, even when this turn gave none,
       // and stays once the user has seen it.
@@ -629,8 +627,8 @@ async function handleHookEvent(
       } else {
         setState("completed", answer);
         const title = `[${workspaceName}] Claude`;
-        // OS 알림은 짧은 본문이 적합 — 응답 미리보기가 있으면 그것을, 없으면
-        // 정적 텍스트를 보낸다. 사이드바 카드는 카드 자체 컷(50자)으로 다시 자른다.
+        // An OS notification suits a short body — send the response preview if there is one,
+        // otherwise static text. The sidebar card trims it again with its own cut (50 chars).
         const body =
           assistantText !== undefined && assistantText !== ""
             ? assistantText
@@ -685,7 +683,7 @@ async function handleHookEvent(
     }
 
     case "session-end": {
-      // 세션 종료 — 항목 제거 후 즉시 응답(async hook).
+      // Session end — remove the entry and reply at once (async hook).
       turns.end(workspaceId, tabId);
       dialogs.clear(key);
       broker.clear(workspaceId, tabId);
@@ -694,7 +692,7 @@ async function handleHookEvent(
     }
 
     default:
-      // 알 수 없는 subcommand — 무시(Claude Code 업데이트로 새 이벤트가 추가될 수 있음).
+      // Unknown subcommand — ignore (a Claude Code update may add new events).
       break;
   }
 
@@ -778,8 +776,8 @@ function afterChatAnswer(
 }
 
 /**
- * workspaceId의 AgentChannel을 통해 claude.respondHook dispatch 메서드를 호출한다.
- * 실패 시 경고 로그만 남기고 진행한다 — Claude Code의 timeout fallback에 맡긴다.
+ * Calls the claude.respondHook dispatch method through the workspaceId's AgentChannel.
+ * On failure it only logs a warning and moves on — leaving it to Claude Code's timeout fallback.
  */
 async function respondHook(
   channelProvider: HookChannelProvider,
@@ -815,14 +813,14 @@ export async function answerHook(
 }
 
 // ---------------------------------------------------------------------------
-// 공개 wiring 함수
+// Public wiring function
 // ---------------------------------------------------------------------------
 
 /**
- * agentHost에 "claude.hook" 이벤트 구독을 등록한다.
+ * Registers the "claude.hook" event subscription on agentHost.
  *
- * setupClaudeFeature에서 1회 호출한다.
- * 반환값은 구독 해제 함수다.
+ * Called once from setupClaudeFeature.
+ * The return value is the unsubscribe function.
  */
 export function registerHookHandler(deps: HookHandlerDeps): () => void {
   const turns = new TurnOrder();

@@ -9,11 +9,7 @@ import type { CompletionItem } from "../../../../shared/lsp";
 import { resolveLspPresetLanguageId } from "../../../../shared/lsp/config";
 import { CANONICAL_TOKEN_TYPES } from "../../../../shared/lsp/semantic-tokens";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
-import {
-  isLspServerBusy,
-  lspStatusKey,
-  useLspStatusStore,
-} from "../../../state/stores/lsp-status";
+import { isLspServerBusy, lspStatusKey, useLspStatusStore } from "../../../state/stores/lsp-status";
 import { isLspLanguage } from "./language";
 import {
   hoverContentsToMarkdown,
@@ -45,7 +41,9 @@ const SIGNATURE_HELP_RETRIGGER_CHARACTERS = [")"];
  * skip the LSP call in that case (Monaco's built-in providers may still
  * fire, but our IPC routing requires the workspace context to exist).
  */
-function modelLspContext(model: Monaco.editor.ITextModel): { workspaceId: string; lspUri: string } | null {
+function modelLspContext(
+  model: Monaco.editor.ITextModel,
+): { workspaceId: string; lspUri: string } | null {
   const parsed = parseWorkspaceUri(model.uri.toString());
   if (!parsed) return null;
   return {

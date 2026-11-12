@@ -15,12 +15,12 @@
  */
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
+import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../../src/main/infra/agent/channel";
-import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 
 const WORKSPACE_ID = "44444444-4444-4444-8444-444444444444";
 

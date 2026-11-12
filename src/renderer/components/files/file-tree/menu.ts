@@ -80,15 +80,27 @@ export function buildFileTreeMenuItems(
   // the parent folder instead. The synthetic root target also counts as a
   // dir, so empty-area right-click still gets these.
   if (isDir) {
-    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.newFile"), onSelect: actions.newFile });
-    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.newFolder"), onSelect: actions.newFolder });
+    items.push({
+      kind: "item",
+      label: i18next.t("files:fileTree.menu.newFile"),
+      onSelect: actions.newFile,
+    });
+    items.push({
+      kind: "item",
+      label: i18next.t("files:fileTree.menu.newFolder"),
+      onSelect: actions.newFolder,
+    });
     items.push({ kind: "separator" });
   }
 
   // Inverse rule (VSCode `ExplorerFolderContext.toNegated()`): Open /
   // Open to the Side are file-only.
   if (!isDir) {
-    items.push({ kind: "item", label: i18next.t("files:fileTree.menu.open"), onSelect: actions.open });
+    items.push({
+      kind: "item",
+      label: i18next.t("files:fileTree.menu.open"),
+      onSelect: actions.open,
+    });
     items.push({
       kind: "item",
       label: i18next.t("files:fileTree.menu.openToSide"),

@@ -99,9 +99,11 @@ function makeWindowStub(): {
 }
 
 /** Build a minimal PromiseRejectionEvent-like object for testing. */
-function makeRejectionEvent(
-  reason: unknown,
-): { reason: unknown; defaultPrevented: boolean; preventDefault(): void } {
+function makeRejectionEvent(reason: unknown): {
+  reason: unknown;
+  defaultPrevented: boolean;
+  preventDefault(): void;
+} {
   let prevented = false;
   return {
     reason,
@@ -115,9 +117,11 @@ function makeRejectionEvent(
 }
 
 /** Build a minimal ErrorEvent-like object for testing. */
-function makeErrorEvent(
-  error: unknown,
-): { error: unknown; defaultPrevented: boolean; preventDefault(): void } {
+function makeErrorEvent(error: unknown): {
+  error: unknown;
+  defaultPrevented: boolean;
+  preventDefault(): void;
+} {
   let prevented = false;
   return {
     error,

@@ -4,12 +4,12 @@
  * narrowing filter and accept behavior for rename/delete flows.
  */
 
+import i18next from "i18next";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import type React from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import i18next from "i18next";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
 import { Button } from "../../../ui/button";
@@ -92,7 +92,9 @@ export function BranchPicker({
             branch: item.action.ref,
             prompt: {
               title: t("git.branch.picker.renameDialog.title"),
-              description: t("git.branch.picker.renameDialog.description", { branch: item.action.ref }),
+              description: t("git.branch.picker.renameDialog.description", {
+                branch: item.action.ref,
+              }),
               label: t("git.branch.picker.renameDialog.label"),
               defaultValue: item.action.ref,
               confirmLabel: t("git.branch.picker.renameDialog.confirmLabel"),
@@ -107,7 +109,9 @@ export function BranchPicker({
             branch: item.action.ref,
             prompt: {
               title: t("git.branch.picker.upstreamDialog.title"),
-              description: t("git.branch.picker.upstreamDialog.description", { branch: item.action.ref }),
+              description: t("git.branch.picker.upstreamDialog.description", {
+                branch: item.action.ref,
+              }),
               label: t("git.branch.picker.upstreamDialog.label"),
               placeholder: t("git.branch.picker.upstreamDialog.placeholder"),
               confirmLabel: t("git.branch.picker.upstreamDialog.confirmLabel"),
@@ -126,6 +130,7 @@ export function BranchPicker({
       placeholder,
       normalizedMode,
       onSelectRef,
+      t,
     ],
   );
   const footerText = footer ?? defaultFooterForMode(normalizedMode);
@@ -350,7 +355,10 @@ export function buildBranchDeleteDialogView(
   const t = i18next.t.bind(i18next);
   if (request?.kind === "remote") {
     return {
-      title: t("files:git.branch.picker.deleteConfirm.titleRemote", { remote: request.remote, name: request.name }),
+      title: t("files:git.branch.picker.deleteConfirm.titleRemote", {
+        remote: request.remote,
+        name: request.name,
+      }),
       description: [t("files:git.branch.picker.deleteConfirm.descriptionRemote")],
       confirmLabel: t("files:git.branch.picker.deleteConfirm.confirmLabel"),
       forceWarning: false,
@@ -392,7 +400,10 @@ function gitStoreErrorFromUnknown(error: unknown): Pick<GitStoreError, "kind" | 
     const record = error as { kind?: unknown; message?: unknown };
     return {
       kind: typeof record.kind === "string" ? record.kind : "unknown",
-      message: typeof record.message === "string" ? record.message : i18next.t("files:git.gitOperationFailed"),
+      message:
+        typeof record.message === "string"
+          ? record.message
+          : i18next.t("files:git.gitOperationFailed"),
     };
   }
   return { kind: "unknown", message: String(error) };

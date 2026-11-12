@@ -10,7 +10,7 @@
  * tsconfig.shared.json, so this declaration is picked up everywhere.
  */
 
-import type { resources, I18N_DEFAULT_NS } from "./index";
+import type { I18N_DEFAULT_NS, resources } from "./index";
 
 declare module "i18next" {
   interface CustomTypeOptions {

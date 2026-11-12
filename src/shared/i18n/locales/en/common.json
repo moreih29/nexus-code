@@ -31,7 +31,8 @@
     "open_connection_settings": "Open connection settings",
     "dismiss": "Dismiss",
     "increase": "Increase",
-    "decrease": "Decrease"
+    "decrease": "Decrease",
+    "clear_search": "Clear search"
   },
   "palette": {
     "close_aria": "Close command palette",
@@ -684,7 +685,8 @@
   "preview": {
     "truncated": "Preview truncated at {{kb}} KB. Switch to Raw to see the full file.",
     "table_empty": "No rows.",
-    "html_title": "HTML preview"
+    "html_title": "HTML preview",
+    "svg_alt": "SVG preview"
   },
   "jsonPreview": {
     "label": "{{format}} tree",
@@ -706,7 +708,8 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image."
+    "load_failed": "Could not load image.",
+    "resolution": "Image resolution: {{size}} pixels"
   },
   "fontPreview": {
     "outside_workspace": "This font is outside the workspace and cannot be previewed.",
@@ -756,7 +759,9 @@
     "copy_link": "Copy link to this section",
     "mermaid_alt": "Mermaid diagram",
     "mermaid_error": "This diagram could not be drawn: {{message}}",
-    "mermaid_unshown": "This diagram was drawn but cannot be shown."
+    "mermaid_unshown": "This diagram was drawn but cannot be shown.",
+    "image": "image",
+    "image_not_loaded": "Image not loaded: {{src}}"
   },
   "resize": {
     "sidebar": "Resize sidebar",
@@ -1054,6 +1059,7 @@
       "mention_file": "Mention a file",
       "command": "Command",
       "commands": "Commands",
+      "no_commands": "No matching commands",
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
@@ -1710,19 +1716,17 @@
     "toggle": {
       "aria": "View",
       "workspaces": "Workspaces",
-      "agents": "Agents"
+      "agents": "Agents",
+      "waiting_one": "{{count}} agent waiting on you",
+      "waiting_other": "{{count}} agents waiting on you"
     },
     "list": {
       "title": "Agents",
-      "filter_aria": "Filter agents",
-      "filter": {
-        "all": "All",
-        "running": "Running",
-        "attention": "Needs you",
-        "done": "New result",
-        "idle": "Idle"
+      "group_by": "Group by",
+      "grouping": {
+        "status": "Status",
+        "workspace": "Workspace"
       },
-      "none_filtered": "No matching agents",
       "no_agents": "No agents",
       "worktree": "Worktree",
       "new_agent": "New agent in {{name}}",

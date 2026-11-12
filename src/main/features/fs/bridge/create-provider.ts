@@ -2,8 +2,8 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import type { AgentChannel } from "../../../infra/agent/channel";
 import { AgentFsProvider } from "./agent-provider";
 import { LocalFsProvider } from "./local-provider";
-import { SshFsProvider } from "./ssh-provider";
 import type { FsProvider } from "./provider";
+import { SshFsProvider } from "./ssh-provider";
 
 /**
  * Creates the filesystem provider that matches a workspace location.

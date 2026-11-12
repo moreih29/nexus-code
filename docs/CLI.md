@@ -19,7 +19,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | 명령 | 하는 일 |
 |---|---|
 | `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 화면(에이전트 뷰 · 워크스페이스)과 탭 |
-| `nexus workspace list` · `worktree list` | 워크스페이스와 워크트리 목록 |
+| `nexus workspace list` · `worktree list` · `workspace current` | 워크스페이스와 워크트리 목록, 이 터미널의 워크스페이스 |
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code, Codex, ... 와 앱의 Claude · Codex 탭)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
@@ -106,7 +106,7 @@ nexus chat new --profile 개인 --prompt "README 요약해줘"   # 그 에이전
 - `chat wait` 에 탭을 여러 개 주면 먼저 끝나는 탭에서 끝나고, 어느 탭인지 알려줍니다.
 - `chat answer <탭> allow|deny` 는 탭이 기다리는 도구 허용 요청에 답합니다. `--message` 는 거절할 때 에이전트에게 전할 이유입니다. 질문 답변과 계획 승인은 사용자만 합니다. 다른 에이전트가 답하려 하면 매번 사용자에게 먼저 묻고, 에이전트 매니저는 아래 설정대로 합니다.
 - `chat interrupt` 는 탭의 멈춤 버튼과 같습니다. 대기열의 메시지는 그대로 남습니다.
-- `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다.
+- `chat set` 은 입력창의 모델 · 강도 · 모드 메뉴와 같고, 다음 턴부터 적용됩니다. 플래그 없이 쓰면 지금 값과 고를 수 있는 모델 · 강도 · 모드를 보여줍니다. 모델은 메뉴에 보이는 값이나 이름, 강도는 그 모델이 받는 값 중 하나입니다. 프로그램이 꺼진 탭은 메시지를 보내 다시 켠 뒤에 바꿉니다. 고른 모델 · 강도는 탭에 남아 앱을 다시 켜도, 포크한 탭에도 이어집니다(Codex 탭은 그 값으로 턴을 보내기 전까지만 남고, 그 뒤로는 스레드가 기억합니다). 권한 모드는 남기지 않습니다.
 - `chat new` 의 `--profile` 은 설정 › 에이전트 › Claude · Codex 의 프로필을 이름(대소문자 무시)이나 id 로 고릅니다. 이름을 붙이지 않은 기본 프로필은 `default` 입니다. 주지 않으면 워크스페이스별 프로필 규칙대로 열고, 없는 이름이면 탭을 열지 않고 있는 프로필을 알려줍니다.
 - `chat new` 의 `--model` · `--effort` · `--mode` 는 첫 프롬프트를 보내기 전에 적용됩니다. 적용하지 못하면 탭만 열고 프롬프트는 보내지 않은 채 이유를 알려줍니다(종료 코드 1).
 - 권한 모드는 Claude 가 `default` · `acceptEdits` · `plan` · `auto`, Codex 가 `readOnly` · `auto` 입니다. 묻지 않고 더 많이 실행하게 바꾸는 모드(예: `plan` → `acceptEdits`)는 매번 사용자에게 확인 창으로 묻고, 에이전트 매니저는 "권한 요청 응답" 설정대로 합니다. 모두 허용하는 모드(`bypassPermissions`, `fullAccess`)는 사용자만 탭에서 고릅니다. 자기 탭의 설정은 바꾸지 않습니다.
@@ -197,6 +197,7 @@ nexus worktree new "로그인 수정" --prompt "로그인 후 원래 보던 페�
 nexus chat wait <탭 id> --workspace <작업 id>         # 출력된 명령 그대로. 그 에이전트가 끝날 때까지
 nexus worktree new 환불 --agent codex --prompt "환불 API 추가해줘"                  # Codex 탭으로
 nexus worktree new 실험 --command "gemini" --prompt "벤치마크 돌려줘"                 # 터미널에서 다른 명령으로
+nexus worktree switch 환불                                                          # 사용자 화면을 그 작업으로
 nexus worktree remove "로그인 수정" --delete-branch
 ```
 
@@ -220,6 +221,7 @@ nexus worktree remove "로그인 수정" --delete-branch
 nexus browser open localhost:5173/login
 nexus browser snapshot            # 페이지 구조와 요소 ref (e1, e2, ...)
 nexus browser fill e3 me@example.com
+nexus browser type " 추가" --into e3  # 있던 글 뒤에 이어 입력 (--into 없으면 포커스된 곳)
 nexus browser click e6
 nexus browser press Enter
 nexus browser hover e4             # 마우스를 올려 둠 (메뉴 · 툴팁)
@@ -236,6 +238,8 @@ nexus browser network --failed    # 페이지가 보낸 요청 (실패 · 4xx ·
 nexus browser network 12          # 요청 12 의 헤더 · 보낸 내용 · 응답
 nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
+nexus browser back                # 뒤로 (browser forward 로 앞으로, browser reload 로 새로고침)
+nexus browser list                # 이 워크스페이스의 브라우저 탭
 ```
 
 - `browser open /login` · `browser goto /login` 처럼 경로만 주면, 이 워크스페이스(작업이면 그 워크트리) 터미널의 프로그램이 연 포트로 엽니다. 포트를 미리 정해 둘 필요 없이 작업마다 따로 띄운 개발 서버를 찾아갑니다.
@@ -294,6 +298,7 @@ nexus tab close --saved              # 저장 안 한 변경이 없는 편집기
 nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭이 없으면 모든 그룹)
 nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
 nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
+nexus panel list                     # 왼쪽 패널이 보이는지, 너비, 파일 패널의 보기
 nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git · agents)
 nexus panel show agents              # 파일 패널을 에이전트 목록으로
 nexus panel hide sidebar
@@ -324,6 +329,7 @@ nexus view close 2                   # 패널 닫기 (든 세션은 빠지고 �
 nexus view resize 1 30%              # 패널 1 이 30% 차지 (--width · --height)
 nexus view even                      # 패널 크기 균등하게
 nexus view focus 2                   # 패널 2 를 활성 패널로 (에이전트 뷰가 보이면 키보드도)
+nexus view group workspace           # 에이전트 뷰 목록을 워크스페이스별로 묶기 (status 로 상태별, 인자 없으면 지금 묶기)
 ```
 
 - 패널은 `view layout` 의 번호, id, `.`(이 세션이 든 패널, 없으면 활성 패널), 또는 그 안의 세션 이름으로 고릅니다.

@@ -32,7 +32,9 @@ export function createRebaseTargetPickerSource(
   const current = input.currentBranch?.trim() || null;
   return {
     id: "git.rebase-target-picker",
-    title: current ? t("files:git.rebasePicker.titleWithBranch", { current }) : t("files:git.rebasePicker.title"),
+    title: current
+      ? t("files:git.rebasePicker.titleWithBranch", { current })
+      : t("files:git.rebasePicker.title"),
     placeholder: t("files:git.rebasePicker.placeholder"),
     emptyQueryMessage: t("files:git.rebasePicker.loadingBranches"),
     noResultsMessage: t("files:git.rebasePicker.noMatchingBranches"),

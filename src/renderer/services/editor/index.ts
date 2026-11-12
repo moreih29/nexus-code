@@ -36,8 +36,8 @@ export function initializeEditorServices(monaco: typeof Monaco): void {
   initializeLspServerUxRouter();
   startPromoteOnDirtyPolicy();
   initializeDiagnosticsStore(monaco);
-  // Monaco basic-languages가 커버하지 못하는 TOML / Makefile / .env / Nix /
-  // Justfile / go.mod / go.sum 을 보강 등록 (TextMate + Monarch).
+  // Register TOML / Makefile / .env / Nix /
+  // Justfile / go.mod / go.sum, which Monaco basic-languages does not cover (TextMate + Monarch).
   registerExtraLanguages(monaco);
 
   // Apply persisted editor keybinding overrides now that the Monaco

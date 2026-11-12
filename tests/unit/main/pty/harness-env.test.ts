@@ -1,8 +1,8 @@
 /**
- * injectHarnessTerminalEnv() 단위 테스트.
+ * Unit tests for injectHarnessTerminalEnv().
  *
- * T5 시그니처 변경: binDir은 HarnessTerminalEnvContext의 필수 필드로 이동.
- * getAgentBinDir() 직접 호출이 제거되었으므로 electron mock 없이 테스트 가능하다.
+ * T5 signature change: binDir moved into a required field of HarnessTerminalEnvContext.
+ * Direct calls to getAgentBinDir() were removed, so this can be tested without an electron mock.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -21,10 +21,11 @@ describe("injectHarnessTerminalEnv — PATH (left to the agent's host)", () => {
   });
 
   test("does not send this process's PATH, which an SSH host does not share", () => {
-    const result = injectHarnessTerminalEnv(
-      undefined,
-      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
-    );
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+    });
     expect(result.PATH).toBeUndefined();
   });
 });

@@ -10,7 +10,9 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+
 export { createAbortError, isAbortError, throwIfAborted } from "../../../../shared/abort";
+
 import type {
   BranchInfo,
   BranchList,
@@ -126,7 +128,6 @@ export function gitSyncErrorFromGitError(error: GitError): GitSyncError {
     ...(error.stderr ? { details: error.stderr } : {}),
   };
 }
-
 
 /**
  * Computes the git commands needed to discard selected status entries.

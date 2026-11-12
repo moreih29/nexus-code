@@ -54,13 +54,13 @@ function reportMissingShell(name: string): void {
 
 type OscHandlerCallback = (data: string) => boolean | Promise<boolean>;
 /**
- * xterm.js v5의 registerCsiHandler public API는 callback에 IParams 객체가 아닌
- * `(number | number[])[]` 형태의 직접 배열을 넘긴다. 각 entry는 단일 number
- * (보통의 CSI param) 또는 number[] (sub-params; `:` separator가 있는 경우).
+ * xterm.js v5's public registerCsiHandler API passes the callback a direct array of
+ * `(number | number[])[]` rather than an IParams object. Each entry is a single number
+ * (an ordinary CSI param) or a number[] (sub-params; when a `:` separator is present).
  *
- * 우리는 alt-screen 진입/종료(`\x1b[?47h/l`, `?1047h/l`, `?1049h/l`)만 감지하면
- * 되며 sub-params는 사용하지 않는다 — entry가 number일 때만 검사하고 array는
- * skip한다.
+ * We only need to detect alt-screen enter/exit (`\x1b[?47h/l`, `?1047h/l`, `?1049h/l`) and
+ * never use sub-params — so only entries that are numbers are checked and arrays are
+ * skipped.
  */
 type CsiParamsLike = ReadonlyArray<number | number[]>;
 interface ParserLike {
@@ -76,7 +76,9 @@ interface BufferLike {
   readonly type: "normal" | "alternate";
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
-  getLine?(y: number): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+  getLine?(
+    y: number,
+  ): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
 }
 
 interface TerminalLike {
@@ -86,10 +88,10 @@ interface TerminalLike {
   readonly rows: number;
   readonly parser: ParserLike;
   /**
-   * xterm.js의 buffer.active.type. "normal" 또는 "alternate".
-   * TUI(claude/lazygit/lazydocker/vim/less/htop)는 시작 시 alternate screen으로
-   * 진입한다(\\x1b[?1049h). ls/grep/cat 같은 단발 명령은 normal screen에서 출력.
-   * onTitleChange 콜백 시점에 이 값을 확인해 alternate 상태일 때만 title을 수용한다.
+   * xterm.js buffer.active.type: "normal" or "alternate".
+   * TUIs (claude/lazygit/lazydocker/vim/less/htop) enter the alternate screen at start
+   * (\\x1b[?1049h). One-shot commands like ls/grep/cat print on the normal screen.
+   * The onTitleChange callback checks this value and accepts a title only in alternate state.
    */
   readonly buffer: { active: BufferLike };
   /**
@@ -108,8 +110,8 @@ interface TerminalLike {
   onData: (callback: (data: string) => void) => Disposable;
   onSelectionChange: (callback: () => void) => Disposable;
   /**
-   * xterm.js의 OSC 0/1/2(window title) 시퀀스 수신 콜백. claude/lazygit/lazydocker
-   * 같은 TUI가 자신의 이름/상태를 title 시퀀스로 보내면 여기로 도착한다.
+   * Callback for xterm.js OSC 0/1/2 (window title) sequences. When a TUI such as
+   * claude/lazygit/lazydocker sends its name/status as a title sequence, it arrives here.
    */
   onTitleChange: (callback: (title: string) => void) => Disposable;
   getSelection: () => string;
@@ -136,24 +138,24 @@ type ResizeObserverLike = Pick<ResizeObserver, "disconnect" | "observe">;
 export const TERMINAL_REOPENED_SEPARATOR = "─────────────  reopened  ─────────────";
 
 /**
- * shell prompt가 OSC 2로 발사하는 title인지 판정한다.
+ * Decides whether a title is one a shell prompt fires through OSC 2.
  *
- * bash `PROMPT_COMMAND`, zsh `precmd_functions` 등이 매 prompt마다 OSC 2를 발사하는데
- * 형태가 거의 항상 `user@host:cwd` 또는 cwd 단독(절대/홈 경로) — 그 패턴을 거른다.
+ * bash `PROMPT_COMMAND`, zsh `precmd_functions` and the like fire OSC 2 on every prompt, and
+ * the form is almost always `user@host:cwd` or a bare cwd (absolute/home path) — that pattern is filtered out.
  *
- * 규칙 (어느 하나라도 충족 시 prompt-like로 판정):
- *  - 문자열에 `/`가 포함 → cwd 또는 path-like (lazygit/claude 같은 TUI는 슬래시 없음)
- *  - 문자열이 `~`로 시작 → 홈 경로 prompt
- *  - `@`와 `:`가 동시에 포함 → `user@host:` 패턴
+ * Rules (judged prompt-like if any one holds):
+ *  - the string contains `/` → cwd or path-like (TUIs like lazygit/claude have no slash)
+ *  - the string starts with `~` → home-path prompt
+ *  - it contains both `@` and `:` → `user@host:` pattern
  *  - A backslash: a Windows path. cmd and PowerShell title the console with
  *    their own path, cmd adding the command it runs.
  *
- * lazygit / lazydocker / claude / less 같은 TUI는 단일 단어이거나 `:` / `@`를 함께
- * 갖지 않으므로 통과한다. vim의 경우 일부 setting에서 "filename (path) - VIM" 같은
- * 형태가 가능하지만 그런 경우 `/`가 들어가 거부될 가능성 — 사용자가 customTitle로
- * 직접 지정하는 경로로 대체 가능.
+ * TUIs like lazygit / lazydocker / claude / less are a single word or lack both `:` and `@`,
+ * so they pass. With some settings vim can produce titles like "filename (path) - VIM", but
+ * such a title likely contains `/` and gets rejected — the user can work around it by
+ * setting customTitle directly.
  *
- * exported는 단위 테스트용. production 호출 경로는 controller 내부.
+ * exported for unit tests. In production the call path stays inside the controller.
  */
 export function isShellPromptLikeTitle(title: string): boolean {
   if (title.includes("/") || title.includes("\\")) return true;
@@ -673,22 +675,22 @@ class XtermTerminalController implements TerminalController {
     this.installFileDrop(term);
     this.installHeldPaste(term);
 
-    // OSC 0/1/2(window title) — xterm.js 내부 파서가 시퀀스를 수신해 onTitleChange로
-    // 노출한다. lazygit/yazi/vim 같은 alternate-screen TUI, 그리고 Claude Code처럼
-    // alternate에 들어가지 않고 일반 화면에서 OSC로 제목을 쏘는 프로그램의 이름/상태를
-    // 탭의 processTitle로 반영한다. customTitle이 설정돼 있으면 표시 title은 유지된다.
+    // OSC 0/1/2 (window title) — xterm.js's internal parser receives the sequence and
+    // exposes it through onTitleChange. The name/status of programs that set the title via
+    // OSC — alternate-screen TUIs like lazygit/yazi/vim, and programs like Claude Code that
+    // stay on the normal screen — is reflected in the tab's processTitle. If customTitle is set, the displayed title is kept.
     //
-    // 노이즈(셸 프롬프트의 `user@host:cwd`, starship 등 preexec hook의 명령 에코)와
-    // 실제 프로그램 제목을 구분해야 한다. classifyOscTitle이 (title, buffer type)으로
-    // 1차 분류한다:
-    //   - "ignore"  : 버림
+    // Noise (the shell prompt's `user@host:cwd`, command echoes from preexec hooks such as
+    // starship) must be told apart from real program titles. classifyOscTitle makes a first
+    // classification from (title, buffer type):
+    //   - "ignore"  : discard
     //   - "apply"   : processTitle = title
-    //   - "clear"   : processTitle = null → defaultTitle/customTitle 복귀.
-    //                 normal screen의 셸 프롬프트가 여기 해당하며, inline TUI(claude)가
-    //                 종료돼 프롬프트가 돌아올 때 탭 이름을 자연스럽게 되돌리는 역할도 한다.
-    //   - "confirm" : normal screen의 비셸틱 제목(claude 등). foreground process가 실제
-    //                 프로그램인지 RPC로 확인한 뒤에만 적용 → preexec 명령 에코가 탭을
-    //                 가로채지 못한다.
+    //   - "clear"   : processTitle = null → fall back to defaultTitle/customTitle.
+    //                 Shell prompts on the normal screen land here; it also restores the
+    //                 tab name naturally when an inline TUI (claude) exits and the prompt returns.
+    //   - "confirm" : non-shell-like title on the normal screen (claude etc.). Applied only after
+    //                 an RPC confirms the foreground process is the real program → a preexec
+    //                 command echo cannot hijack the tab.
     this.titleDisposable = term.onTitleChange((title) => {
       if (this.disposed) return;
       const count = ++this.titleCount;
@@ -704,7 +706,7 @@ class XtermTerminalController implements TerminalController {
           .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
         return;
       }
-      // action === "confirm": normal-screen 비셸틱 제목. foreground 확인 후 적용.
+      // action === "confirm": non-shell-like title on the normal screen. Apply after the foreground check.
       // A title that came after it while the check ran wins: a command that
       // ends at once has its prompt's title clear the tab before the check
       // returns, and its echo must not come back after that.
@@ -719,27 +721,27 @@ class XtermTerminalController implements TerminalController {
           .getState()
           .setProcessTitle(this.options.workspaceId, this.options.tabId, title);
       })().catch(() => {
-        // RPC 실패는 silent — 제목 미적용(기존 title 유지).
+        // RPC failure is silent — the title is not applied (the existing title stays).
       });
     });
 
-    // alt → ENTER 전이 시 PTY의 foreground process 이름을 IPC로 가져와 processTitle로
-    // 적용한다. lazygit / lazydocker / vim / less / htop처럼 OSC를 발사하지 않는 TUI도
-    // 이 경로로 잡힌다. claude처럼 OSC도 발사하는 프로그램은 OSC 경로가 병행 적용되며
-    // 두 결과가 일치(둘 다 "claude")하므로 충돌 없음.
+    // On the alt → ENTER transition, fetch the PTY's foreground process name over IPC and
+    // apply it as processTitle. TUIs that fire no OSC, such as lazygit / lazydocker / vim /
+    // less / htop, are caught this way. Programs like claude that also fire OSC get the OSC path in
+    // parallel, and the two results agree (both "claude"), so there is no conflict.
     //
-    // ls/grep/cat 같은 단발 명령은 normal screen에서 실행되므로 이 핸들러 자체가
-    // 호출되지 않아 자연스럽게 가드.
+    // One-shot commands like ls/grep/cat run on the normal screen, so this handler is never
+    // invoked for them, which guards them naturally.
     //
-    // 빈 이름은 RPC 실패 fallback이므로 기존 title 유지 — setProcessTitle 호출 안 함.
+    // An empty name is the RPC-failure fallback, so the existing title stays — setProcessTitle is not called.
     this.altEnterDisposable = term.parser.registerCsiHandler(
       { prefix: "?", final: "h" },
       (params) => {
         for (const entry of params) {
           if (typeof entry !== "number") continue;
           if (entry === 47 || entry === 1047 || entry === 1049) {
-            // fire-and-forget — CSI handler는 동기 반환해야 xterm.js의 parser
-            // pipeline이 블록되지 않는다. 응답은 비동기로 store에 반영.
+            // fire-and-forget — the CSI handler must return synchronously so xterm.js's parser
+            // pipeline is not blocked. The response is applied to the store asynchronously.
             void (async () => {
               if (this.disposed) return;
               const result = await ipcCallResult("pty", "foregroundProcess", {
@@ -749,33 +751,33 @@ class XtermTerminalController implements TerminalController {
               if (this.disposed) return;
               if (!result.ok) return;
               const name = result.value.name.trim();
-              if (name === "") return; // 정보 없음 — 기존 title 유지
+              if (name === "") return; // no info — keep the existing title
               useTabsStore
                 .getState()
                 .setProcessTitle(this.options.workspaceId, this.options.tabId, name);
             })().catch(() => {
-              // ipc 실패는 silent — Claude Code의 OSC 경로가 대안으로 작동하거나
-              // 사용자가 customTitle로 직접 지정 가능.
+              // IPC failure is silent — Claude Code's OSC path can serve as the alternative, or
+              // the user can set customTitle directly.
             });
             break;
           }
         }
-        return false; // xterm.js 기본 buffer swap에 위임
+        return false; // defer to xterm.js's default buffer swap
       },
     );
 
-    // alt → normal 전이 시 processTitle을 clear해 defaultTitle / customTitle로
-    // 자연 복귀. TUI(claude/lazygit/vim/less)는 종료 시 `\x1b[?47l` / `\x1b[?1047l`
-    // / `\x1b[?1049l` 중 하나를 발사한다. 세 변형 모두 prefix="?", final="l"이며
-    // params[0]가 47/1047/1049. handler는 return false로 xterm.js 기본 buffer
-    // swap 동작에 위임한다 — 우리는 부수효과(processTitle clear)만 추가.
+    // On the alt → normal transition, clear processTitle so the tab falls back naturally to
+    // defaultTitle / customTitle. TUIs (claude/lazygit/vim/less) fire one of `\x1b[?47l` /
+    // `\x1b[?1047l` / `\x1b[?1049l` on exit. All three variants have prefix="?", final="l",
+    // and params[0] of 47/1047/1049. The handler returns false to defer to xterm.js's default
+    // buffer swap — we only add a side effect (clearing processTitle).
     //
-    // customTitle은 보존된다 (setProcessTitle(null)은 processTitle만 clear).
+    // customTitle is preserved (setProcessTitle(null) clears only processTitle).
     this.altExitDisposable = term.parser.registerCsiHandler(
       { prefix: "?", final: "l" },
       (params) => {
         for (const entry of params) {
-          // sub-params(`:` separator) array는 alt-screen 변형에서 사용되지 않음 — skip.
+          // Sub-param (`:` separator) arrays are not used by alt-screen variants — skip.
           if (typeof entry !== "number") continue;
           if (entry === 47 || entry === 1047 || entry === 1049) {
             if (!this.disposed) {
@@ -786,7 +788,7 @@ class XtermTerminalController implements TerminalController {
             break;
           }
         }
-        return false; // 기본 xterm.js 동작(buffer swap) 그대로 진행
+        return false; // proceed with the default xterm.js behavior (buffer swap)
       },
     );
 
@@ -819,16 +821,16 @@ class XtermTerminalController implements TerminalController {
 
     this.registerOscHandlers(term);
 
-    // 드래그/키보드 셀렉션 → 시스템 클립보드 (iTerm2 "Copy on selection" 기본 동작).
+    // Drag/keyboard selection → system clipboard (iTerm2 "Copy on selection" default behavior).
     //
-    // IPC 경로로 보냄: renderer 의 `navigator.clipboard.writeText` 는 user
-    // activation 없이 호출하면 Chromium Async Clipboard API 가 silent reject.
-    // PTY 콜백/selection 이벤트는 클릭 컨텍스트가 없어서 거의 항상 거부됨.
-    // main process `electron.clipboard.writeText` (IPC) 는 게이트 없음.
+    // Sent over the IPC path: the renderer's `navigator.clipboard.writeText` is silently
+    // rejected by the Chromium Async Clipboard API when called without user activation.
+    // PTY callbacks/selection events have no click context, so they are almost always denied.
+    // The main process `electron.clipboard.writeText` (IPC) has no such gate.
     //
-    // Debounce: drag 중 mousemove 마다 onSelectionChange 가 발사되어 IPC 가
-    // flooding. trailing-edge timer 로 합쳐 한 번만 쓰도록 한다. 타이머는
-    // 인스턴스 필드로 보관해 dispose() 에서 정리 가능.
+    // Debounce: onSelectionChange fires on every mousemove during a drag, flooding IPC.
+    // A trailing-edge timer coalesces them into a single write. The timer is kept as an
+    // instance field so dispose() can clean it up.
     this.selectionDisposable = term.onSelectionChange(() => {
       if (this.selectionWriteTimer !== null) clearTimeout(this.selectionWriteTimer);
       this.selectionWriteTimer = setTimeout(() => {
@@ -839,64 +841,64 @@ class XtermTerminalController implements TerminalController {
       }, 50);
     });
 
-    // Shift+Enter → ESC + CR ("\x1b\r"). Option/Alt+Enter 표준 시퀀스.
+    // Shift+Enter → ESC + CR ("\x1b\r"). The standard Option/Alt+Enter sequence.
     //
-    // 이유: xterm.js 의 기본 동작은 Shift+Enter 를 일반 Enter (CR) 와 동일하게
-    // 보내 Claude Code 등 TUI 가 multi-line 으로 인식 못한다.
+    // Reason: xterm.js's default sends Shift+Enter the same as a plain Enter (CR), so TUIs
+    // such as Claude Code do not recognize it as multi-line.
     //
-    // 후보 시퀀스 중 ESC+CR 을 선택:
-    //   - "\\\r" (backslash+CR): 빈 input 에서는 작동하나, 텍스트 buffer 가
-    //     있는 상태에서 Claude Code 가 마지막 "\" 패턴을 인식하지 못하고 그대로
-    //     submit 처리. char-by-char 단계 결합에서 race.
-    //   - "\x1b\r" (ESC+CR): macOS 의 Option+Enter 표준 시퀀스. Claude Code 가
-    //     "Option as Meta" 설정 환경에서 multi-line 신호로 인식 (공식 docs).
-    //     bash/zsh readline 에서도 ESC+CR 은 "self-insert-newline" 으로 동작.
+    // ESC+CR was chosen among the candidate sequences:
+    //   - "\\\r" (backslash+CR): works on an empty input, but when the text buffer has
+    //     content Claude Code fails to recognize the trailing "\" pattern and just
+    //     submits. A race in the char-by-char combining step.
+    //   - "\x1b\r" (ESC+CR): the standard Option+Enter sequence on macOS. Claude Code
+    //     recognizes it as a multi-line signal in an "Option as Meta" setup (official docs).
+    //     It also acts as "self-insert-newline" in bash/zsh readline.
     //
-    // preventDefault + stopPropagation: xterm.js 의 textInput 보조 listener 가
-    // Enter 의 "\r" 를 추가로 onData 에 흘려보내 race 가 발생하는 케이스 대응.
-    // return false 만으론 textarea 의 native input 경로를 완전히 차단하지 못함.
+    // preventDefault + stopPropagation: handles the case where xterm.js's auxiliary textInput
+    // listener additionally leaks Enter's "\r" into onData, causing a race.
+    // return false alone does not fully block the textarea's native input path.
     // Cmd+C / Ctrl+C copy-when-selected. iTerm2 / Terminal.app parity.
     //
-    // 경로:
-    //   menu/index.ts 에서 role:copy 의 OS-level accelerator 등록을 해제했으므로
-    //   ⌘C 가 Cocoa 에 가로채이지 않고 keydown 으로 이 핸들러까지 도달한다.
+    // Path:
+    //   menu/index.ts unregisters the OS-level accelerator for role:copy, so
+    //   ⌘C is not intercepted by Cocoa and reaches this handler as a keydown.
     //
-    // 분기:
-    //   - 셀렉션 있으면: IPC 클립보드로 쓰고 return false (xterm 의 기본 SIGINT
-    //     송신을 차단). 셀렉션 → 복사 한 동작으로 완결.
-    //   - 셀렉션 없으면: fall through (return true) — xterm 이 평소대로 ^C 를
-    //     PTY 로 보내서 실행 중 프로세스에 SIGINT 전달.
+    // Branches:
+    //   - With a selection: write to the clipboard over IPC and return false (blocking
+    //     xterm's default SIGINT send). Selection → copy completes as one action.
+    //   - Without a selection: fall through (return true) — xterm sends ^C to the
+    //     PTY as usual, delivering SIGINT to the running process.
     //
-    // macOS 의 Cmd, Linux/Windows 의 Ctrl 둘 다 인정. Linux/Windows 에서 Ctrl+C
-    // 는 보통 SIGINT 만 기대하지만, 셀렉션이 있을 때 복사 우선은 모든 모던
-    // 터미널(iTerm2, WezTerm, Windows Terminal) 공통 동작.
+    // Both Cmd on macOS and Ctrl on Linux/Windows are accepted. On Linux/Windows Ctrl+C
+    // normally expects only SIGINT, but copy taking priority when a selection exists is
+    // common behavior across all modern terminals (iTerm2, WezTerm, Windows Terminal).
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type !== "keydown") return true;
 
       // IME composition guard.
-      //   한국어/일본어 IME가 xterm.js의 helper textarea에서 합성 중일 때,
-      //   본 핸들러가 Shift+Enter / Cmd+C / Home / End / Cmd+arrow 등에 대해
-      //   `preventDefault + stopPropagation`을 호출하면 textarea의 composition
-      //   state가 desync되어 한글 입력이 중복되거나 같은 글자가 stuck된다.
-      //   합성 중에는 모든 사용자 정의 매핑을 우회하고 xterm.js의 기본
-      //   composition 처리에 위임한다. dispatcher.ts에 동일한 가드가 capture
-      //   phase에서 먼저 동작하지만, customKeyEventHandler는 xterm.js 내부에서
-      //   별도 경로로 호출되므로 여기서도 가드해야 안전하다.
+      //   While a Korean/Japanese IME is composing in xterm.js's helper textarea,
+      //   if this handler calls `preventDefault + stopPropagation` for Shift+Enter /
+      //   Cmd+C / Home / End / Cmd+arrow etc., the textarea's composition
+      //   state desyncs and Hangul input is duplicated or the same character gets stuck.
+      //   During composition every custom mapping is bypassed and xterm.js's default
+      //   composition handling takes over. dispatcher.ts has the same guard, running first in
+      //   the capture phase, but customKeyEventHandler is called from inside xterm.js through
+      //   a separate path, so it must be guarded here too.
       //
-      //   `event.keyCode === 229` fallback은 옛 Chromium에서 `isComposing`이
-      //   일부 keydown에 늦게 세팅되는 케이스 대응.
+      //   The `event.keyCode === 229` fallback covers older Chromium, where `isComposing` is
+      //   set late on some keydowns.
       //
-      //   Mac Cmd+←/→ 중복 방지: macOS에 물리 Home/End가 없어 사용자는 Cmd+←/→
-      //   로 줄 시작/끝을 이동한다. 그런데 xterm.js의 CompositionHelper.keydown은
-      //   keyCode 16/17/18/20/229만 예외로 두고 Cmd(Meta=91)를 "조합 종료 키"로
-      //   취급해 조합 중 Cmd를 누르는 순간 조합 글자를 확정(전송)한다. 이후
-      //   compositionend가 다시 finalize를 걸어 `_compositionPosition`이 전진하지
-      //   않은 채 같은 글자를 setTimeout으로 재전송 → 마지막 글자가 두 번 입력된다
-      //   ("안녕하세요" + Cmd+← → "요안녕하세요"). 조합 중 bare Meta keydown을
-      //   여기서 가로채 xterm의 조기 finalize를 막으면, 조합 글자는 compositionend
-      //   경로로 한 번만 전송된다. preventDefault는 호출하지 않는다 — textarea
-      //   기본 동작(커서 이동)을 건드리면 offset이 desync되어 stuck 버그가 재발하기
-      //   때문. (실제 xterm 6.0.0 재생 하네스로 4개 nav 케이스 중복 제거 확인.)
+      //   Avoiding Mac Cmd+←/→ duplication: macOS has no physical Home/End, so users move to
+      //   line start/end with Cmd+←/→. But xterm.js's CompositionHelper.keydown excepts only
+      //   keyCode 16/17/18/20/229 and treats Cmd (Meta=91) as a "composition end key",
+      //   so pressing Cmd mid-composition commits (sends) the composing character. Then
+      //   compositionend finalizes again, and without `_compositionPosition` advancing the
+      //   same character is re-sent via setTimeout → the last character is entered twice
+      //   ("안녕하세요" + Cmd+← → "요안녕하세요"). Intercepting a bare Meta keydown during
+      //   composition here prevents xterm's early finalize, so the composing character is
+      //   sent only once through the compositionend path. preventDefault is not called —
+      //   touching the textarea's default behavior (cursor movement) would desync the offset
+      //   and bring the stuck bug back. (Duplicates in the 4 nav cases were removed, confirmed with a real xterm 6.0.0 replay harness.)
       if (event.isComposing && event.keyCode === 91) return false;
       if (event.isComposing || event.keyCode === 229) return true;
 
@@ -912,7 +914,7 @@ class XtermTerminalController implements TerminalController {
           event.stopPropagation();
           return false;
         }
-        // 셀렉션 없으면 SIGINT 경로로 보내기 위해 xterm 기본 처리에 위임.
+        // Without a selection, defer to xterm's default handling so it goes down the SIGINT path.
       }
 
       // Ctrl+V pastes on Windows, as in Windows Terminal. xterm would send ^V
@@ -952,33 +954,33 @@ class XtermTerminalController implements TerminalController {
         return false;
       }
 
-      // Line-begin / line-end → Ctrl+A / Ctrl+E 치환.
+      // Line-begin / line-end → Ctrl+A / Ctrl+E substitution.
       //
-      // 배경: Claude Code TUI(Ink 기반)의 입력 박스는 `\x1b[H`/`\x1b[F`(Home/End
-      //   normal sequence)를 line-begin/end로 매핑하지 않아 외부 터미널(iTerm2 등)
-      //   에서도 Home/End가 안 먹는다. 우리 환경에선 추가로 xterm.js가 Electron
-      //   textarea를 거치며 Cocoa 키바인딩에 가로채여 PTY로 시퀀스 자체를 전송하지
-      //   않는 케이스가 관찰됐다 (`cat -v` 후 무반응으로 확인).
+      // Background: the input box of the Claude Code TUI (Ink-based) does not map `\x1b[H`/`\x1b[F`
+      //   (Home/End normal sequences) to line-begin/end, so Home/End does not work in external
+      //   terminals (iTerm2 etc.) either. In our environment, xterm.js additionally goes through the Electron
+      //   textarea and Cocoa key bindings intercept the key, so the sequence itself is never sent
+      //   to the PTY in some cases (confirmed as no response after `cat -v`).
       //
-      // cmux가 동일 문제를 우회하는 방식을 실측해 채택: cmux에서 `cat -v`를 실행하면
-      //   line-begin은 `^A`(0x01), line-end는 `^E`(0x05)로 송신된다. Claude Code /
-      //   bash / zsh의 readline 표준 키바인딩이 모두 Ctrl+A/E를 line-begin/end로
-      //   인식하므로 호환성이 가장 넓다.
+      // Adopted after measuring how cmux works around the same problem: running `cat -v` in cmux shows
+      //   line-begin sent as `^A`(0x01) and line-end as `^E`(0x05). The standard readline key
+      //   bindings of Claude Code / bash / zsh all recognize Ctrl+A/E as line-begin/end,
+      //   so compatibility is widest.
       //
-      // macOS 컨벤션:
-      //   - 풀사이즈 외장 키보드: Home / End 키 단독 → line-begin / line-end
-      //   - 내장 키보드(Home/End 키 없음): Cmd+← / Cmd+→ → line-begin / line-end
-      //   브라우저(Chromium)는 Cmd+arrow를 별도 변환 없이 KeyboardEvent로 그대로
-      //   전달하므로 양쪽 모두 직접 잡아 ^A/^E로 치환한다.
+      // macOS convention:
+      //   - Full-size external keyboard: Home / End alone → line-begin / line-end
+      //   - Built-in keyboard (no Home/End keys): Cmd+← / Cmd+→ → line-begin / line-end
+      //   The browser (Chromium) passes Cmd+arrow through as a KeyboardEvent without any
+      //   translation, so both are caught directly and replaced with ^A/^E.
       //
-      // modifier 가드:
-      //   - Shift+Home/End, Shift+Cmd+arrow: selection 확장 — 통과.
-      //   - Ctrl+Home/End: 스크롤백 buffer top/bottom 의도 — 통과.
-      //   - Alt/Option+arrow: word-jump 의도 — 통과 (Claude Code도 자체 word-jump 사용).
+      // Modifier guard:
+      //   - Shift+Home/End, Shift+Cmd+arrow: extend selection — pass through.
+      //   - Ctrl+Home/End: scrollback buffer top/bottom intent — pass through.
+      //   - Alt/Option+arrow: word-jump intent — pass through (Claude Code has its own word-jump).
       //
-      // Trade-off: vim normal mode에서 Ctrl+A는 increment number 의미라
-      //   부작용 가능. vim 사용자는 0/$/g/G를 쓰는 것이 일반적이라 드문 케이스로
-      //   간주한다. 향후 호환성 이슈 보고 시 setting 토글 도입.
+      // Trade-off: in vim normal mode Ctrl+A means increment number, so there may be
+      //   side effects. vim users generally use 0/$/g/G, so this is considered a rare case.
+      //   If a compatibility issue is reported, introduce a setting toggle.
       //
       // PowerShell and cmd keep the keys: PowerShell selects the whole line on
       // Ctrl+A and cmd types ^A, while both, and Claude Code under them, move
@@ -1162,18 +1164,18 @@ class XtermTerminalController implements TerminalController {
   }
 
   // ---------------------------------------------------------------------------
-  // OSC handlers — iTerm2 가 지원하는 시퀀스 중 자주 쓰이는 항목 등록.
+  // OSC handlers — registers commonly used sequences among those iTerm2 supports.
   //
-  // xterm.js 기본: 0/1/2 (창 제목), 4 (팔레트 set), 8 (하이퍼링크), 10/11/12
-  //   (fg/bg/cursor color), 104/110/111/112 (리셋). 추가 등록 불필요.
-  // 본 앱 등록: 52, 7, 22, 133, 1337.
-  // 알림용 9/777/99 는 main process(`osc-notification.ts`)에서 PTY chunk 레벨로
-  //   인터셉트되므로 여기서 다시 등록하지 않는다.
+  // xterm.js defaults: 0/1/2 (window title), 4 (palette set), 8 (hyperlink), 10/11/12
+  //   (fg/bg/cursor color), 104/110/111/112 (reset). No extra registration needed.
+  // Registered by this app: 52, 7, 22, 133, 1337.
+  // The notification sequences 9/777/99 are intercepted at PTY chunk level in the main process
+  //   (`osc-notification.ts`), so they are not registered again here.
   //
-  // 핸들러는 `term.parser.registerOscHandler(ident, cb)` 로 등록. cb 인자 data 는
-  // `ESC ] <ident> ;` 와 종결자(BEL 또는 ST) 사이의 본문. 반환 true=흡수, false=
-  // 다음 핸들러로 패스. 미지원 시퀀스는 raw escape 가 화면에 새어 깨질 수 있어,
-  // 등록 핸들러는 항상 true 반환.
+  // Handlers register via `term.parser.registerOscHandler(ident, cb)`. The cb argument data is
+  // the body between `ESC ] <ident> ;` and the terminator (BEL or ST). Return true = absorbed, false =
+  // pass to the next handler. Unsupported sequences can leak raw escapes onto the screen and corrupt it,
+  // so registered handlers always return true.
   // ---------------------------------------------------------------------------
   private registerOscHandlers(term: TerminalLike): void {
     const dispatchCwd = (path: string): void => {
@@ -1186,27 +1188,27 @@ class XtermTerminalController implements TerminalController {
 
     const writeClipboardFromBase64 = (b64: string): void => {
       try {
-        // IPC 경로 사용: OSC 52 는 PTY 데이터 콜백에서 도달하므로 user
-        // activation 이 없어 `navigator.clipboard.writeText` 가 거부된다.
+        // Uses the IPC path: OSC 52 arrives from the PTY data callback, so there is no user
+        // activation and `navigator.clipboard.writeText` is rejected.
         //
-        // `atob` 는 바이트당 1문자(Latin-1) binary string 을 반환하므로 그대로
-        // 클립보드에 쓰면 멀티바이트 텍스트(한글 등)가 mojibake 가 된다
-        // ("저" EC A0 80 → "ì \x80"). OSC 52 payload 는 UTF-8 바이트의
-        // base64 인코딩이므로 바이트 배열로 복원 후 UTF-8 디코드한다.
+        // `atob` returns a binary string with one Latin-1 char per byte, so writing it to the
+        // clipboard as is turns multi-byte text (Korean etc.) into mojibake
+        // ("저" EC A0 80 → "ì \x80"). The OSC 52 payload is the base64 encoding of UTF-8 bytes,
+        // so restore a byte array and then UTF-8 decode it.
         const bin = atob(b64);
         const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
         copyTextViaIpc(new TextDecoder().decode(bytes));
       } catch {
-        // base64 디코드 실패는 silently drop. 셸이 잘못된 시퀀스를 보낸 경우라
-        // 사용자에게 피드백 줄 가치 없음.
+        // A base64 decode failure is silently dropped. The shell sent a malformed sequence, so
+        // it is not worth giving the user feedback.
       }
     };
 
-    // OSC 52 — set/get clipboard (xterm 표준).
+    // OSC 52 — set/get clipboard (xterm standard).
     //   `ESC ] 52 ; <targets> ; <base64|?> ST`
-    //   targets: c|p|q|s|0..7. payload "?" 는 read 요청 — 보안상 응답 안 함
-    //   (시스템 클립보드를 임의 TUI 가 읽도록 허용하면 비밀번호 등 탈취 위험).
-    //   Claude Code, neovim "+register, tmux set-clipboard, lazygit 등이 사용.
+    //   targets: c|p|q|s|0..7. A payload of "?" is a read request — not answered for security
+    //   (letting an arbitrary TUI read the system clipboard risks leaking passwords etc.).
+    //   Used by Claude Code, neovim "+register, tmux set-clipboard, lazygit, etc.
     this.oscDisposables.push(
       term.parser.registerOscHandler(52, (data) => {
         const semi = data.indexOf(";");
@@ -1218,25 +1220,25 @@ class XtermTerminalController implements TerminalController {
       }),
     );
 
-    // OSC 7 — current working directory 보고.
+    // OSC 7 — current working directory report.
     //   `ESC ] 7 ; file://<host>/<path> ST`
-    //   zsh chpwd_functions / fish 가 자동 emit. 본 앱은 CustomEvent 로 디스패치
-    //   해 새 터미널 "Open here" 등 후속 기능이 구독 가능하도록.
+    //   Emitted automatically by zsh chpwd_functions / fish. This app dispatches it as a CustomEvent
+    //   so follow-up features such as a new terminal's "Open here" can subscribe.
     this.oscDisposables.push(
       term.parser.registerOscHandler(7, (data) => {
         try {
           const url = new URL(data);
           dispatchCwd(decodeURIComponent(url.pathname));
         } catch {
-          // 잘못된 URL 형식 무시.
+          // Ignore a malformed URL.
         }
         return true;
       }),
     );
 
-    // OSC 22 — 마우스 커서 모양 변경.
+    // OSC 22 — change the mouse cursor shape.
     //   `ESC ] 22 ; <css-cursor-name> ST`  (e.g. "pointer", "text", "default")
-    //   빈 문자열은 기본값으로 리셋.
+    //   An empty string resets to the default.
     this.oscDisposables.push(
       term.parser.registerOscHandler(22, (data) => {
         const el = term.element;
@@ -1246,18 +1248,18 @@ class XtermTerminalController implements TerminalController {
     );
 
     // OSC 133 — FinalTerm semantic prompt marks (A=prompt-start, B=command-start,
-    //   C=output-start, D=command-end). 셸 통합 — Starship/Powerlevel10k 가 자동
-    //   emit. 본 앱은 흡수만 — raw escape 가 화면에 새는 것 방지. 후속 UX(명령
-    //   단위 점프/마지막 출력 선택)에서 이 hook 을 확장.
+    //   C=output-start, D=command-end). Shell integration — emitted automatically by Starship/Powerlevel10k.
+    //   This app only absorbs it — to keep raw escapes from leaking onto the screen. Extend this hook in
+    //   follow-up UX (per-command jumps / selecting the last output).
     this.oscDisposables.push(term.parser.registerOscHandler(133, () => true));
 
-    // OSC 1337 — iTerm2 proprietary. 본 앱은 SetMark/CurrentDir/Copy 3개만 동작.
-    //   나머지(File=, SetUserVar, Anchor, Badge, AttentionRequested, Cursor*…)
-    //   는 흡수만 — 본 앱에 대응 기능 없거나 스코프 밖.
+    // OSC 1337 — iTerm2 proprietary. This app handles only SetMark/CurrentDir/Copy.
+    //   The rest (File=, SetUserVar, Anchor, Badge, AttentionRequested, Cursor*…)
+    //   are only absorbed — the app has no matching feature or they are out of scope.
     this.oscDisposables.push(
       term.parser.registerOscHandler(1337, (data) => {
         if (data === "SetMark") {
-          // TODO: 셸 통합 마크 저장. 현재는 흡수만.
+          // TODO: store shell-integration marks. Currently only absorbed.
           return true;
         }
         if (data.startsWith("CurrentDir=")) {
@@ -1265,13 +1267,13 @@ class XtermTerminalController implements TerminalController {
           return true;
         }
         if (data.startsWith("Copy=")) {
-          // `Copy=<targets>:<base64>` — targets 는 무시(시스템 클립보드만 사용).
+          // `Copy=<targets>:<base64>` — targets is ignored (only the system clipboard is used).
           const rest = data.slice("Copy=".length);
           const colon = rest.indexOf(":");
           if (colon >= 0) writeClipboardFromBase64(rest.slice(colon + 1));
           return true;
         }
-        return true; // 미지원 1337 서브커맨드 흡수.
+        return true; // absorb unsupported 1337 subcommands.
       }),
     );
   }

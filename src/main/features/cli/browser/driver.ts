@@ -22,8 +22,8 @@ import { DESCRIBE_COMPONENT, type PickedComponent } from "./component";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
 import { dialogText, type PageDialog } from "./dialog";
 import { DrivenTabs, saveCommandDownload } from "./downloads";
-import { type NetworkEntry, NetworkLog } from "./network-log";
 import { type KeyPress, parseBrowserKey } from "./keys";
+import { type NetworkEntry, NetworkLog } from "./network-log";
 import {
   type Box,
   cleanPicked,
@@ -1550,7 +1550,11 @@ export class CdpBrowserDriver implements BrowserDriver {
   }
 
   /** Waits until the tab is shown and its page has loaded, as a pick needs. */
-  private async pickable(tabId: string, contents: WebContents, control: PickControl): Promise<void> {
+  private async pickable(
+    tabId: string,
+    contents: WebContents,
+    control: PickControl,
+  ): Promise<void> {
     const deadline = Date.now() + SHOW_MS;
     while (!this.pageOf(tabId)?.active) {
       if (control.reason !== null) return;
@@ -1745,7 +1749,9 @@ class PickControl {
 function endInspect(contents: WebContents): void {
   const debug = contents.debugger;
   if (contents.isDestroyed() || !debug.isAttached()) return;
-  debug.sendCommand("Overlay.setInspectMode", { mode: "none", highlightConfig: {} }).catch(() => {});
+  debug
+    .sendCommand("Overlay.setInspectMode", { mode: "none", highlightConfig: {} })
+    .catch(() => {});
   debug.sendCommand("Overlay.hideHighlight").catch(() => {});
 }
 

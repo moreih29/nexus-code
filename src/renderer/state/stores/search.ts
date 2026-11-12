@@ -334,7 +334,5 @@ export function useSearchSession(workspaceId: string): SearchSession | undefined
 const EMPTY_EXPANDED_DIRS: ReadonlySet<string> = Object.freeze(new Set<string>());
 
 export function useSearchExpandedDirs(workspaceId: string): ReadonlySet<string> {
-  return useSearchStore(
-    (s) => s.expandedDirsByWorkspace.get(workspaceId) ?? EMPTY_EXPANDED_DIRS,
-  );
+  return useSearchStore((s) => s.expandedDirsByWorkspace.get(workspaceId) ?? EMPTY_EXPANDED_DIRS);
 }

@@ -5,13 +5,13 @@
  */
 
 import { describe, expect, mock, test } from "bun:test";
+import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
+import type { ShellHost } from "../../../../src/main/features/pty/shells";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../../src/main/infra/agent/channel";
-import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
-import type { ShellHost } from "../../../../src/main/features/pty/shells";
 import type { CustomShell, ShellChoice } from "../../../../src/shared/pty/shell";
 
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
@@ -283,7 +283,11 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
   test("cmd's codex is left as it is when the codex on PATH lacks --no-daemon", async () => {
     const { call, agent } = setup({
       wrapper,
-      windowsAgentFiles: async () => ({ binDir: BIN, settingsPath: SETTINGS, cmdCodexNoDaemon: false }),
+      windowsAgentFiles: async () => ({
+        binDir: BIN,
+        settingsPath: SETTINGS,
+        cmdCodexNoDaemon: false,
+      }),
       defaultShell: { kind: "detected", id: "cmd" },
     });
     await call("spawn", spawnArgs());

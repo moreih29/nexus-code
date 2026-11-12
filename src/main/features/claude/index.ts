@@ -1,54 +1,54 @@
-// Claude feature 진입점 — broker / IPC / hook-handler wiring.
+// Claude feature entry point — broker / IPC / hook-handler wiring.
 //
-// setupClaudeFeature()를 src/main/index.ts의 app.whenReady() 이후에 호출한다.
+// setupClaudeFeature() is called after app.whenReady() in src/main/index.ts.
 
 import { broadcast } from "../../infra/ipc-router";
-import { ClaudeStatusBroker } from "./status";
+import type { PtyHostHandle } from "../pty/types";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 import { ActiveContextStore } from "./active-context";
 import { ChatAnswers } from "./chat-answers";
-import { registerClaudeChannel } from "./ipc";
-import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
-import { answersDialog, PermissionAsks } from "./permission-asks";
-import { SessionActivityLog } from "./session-activity";
-import { ClaudeInterruptWatcher } from "./interrupt";
-import { ClaudeReconnectCheck } from "./reconnect";
-import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
-import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
+import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
+import { ClaudeInterruptWatcher } from "./interrupt";
+import { registerClaudeChannel } from "./ipc";
+import { answersDialog, PermissionAsks } from "./permission-asks";
+import { ClaudeReconnectCheck } from "./reconnect";
+import { SessionActivityLog } from "./session-activity";
+import { ClaudeStatusBroker } from "./status";
 
 // ---------------------------------------------------------------------------
-// 의존성 타입
+// Dependency types
 // ---------------------------------------------------------------------------
 
 export interface SetupClaudeFeatureOptions {
-  /** PTY 이벤트(exit / claude.hook) 구독에 사용한다. */
+  /** Used to subscribe to PTY events (exit / claude.hook). */
   agentHost: PtyHostHandle;
-  /** 워크스페이스 이름 조회 + tryGetAgentChannel 용도. */
+  /** For workspace name lookup + tryGetAgentChannel. */
   workspaceManager: WorkspaceNameLookup & {
     tryGetAgentChannel(
       id: string,
     ): Promise<import("../../infra/agent/channel").AgentChannel | null>;
     activate(id: string): Promise<void>;
   };
-  /** BrowserWindow.getFocusedWindow — 테스트 주입용. */
+  /** BrowserWindow.getFocusedWindow — for test injection. */
   getFocusedWindow?: () => import("electron").BrowserWindow | null;
-  /** OS 알림 생성자 — 테스트 주입용. */
+  /** OS notification constructor — for test injection. */
   electronNotificationCtor?: typeof import("electron").Notification;
-  /** broadcast 함수 주입 — 테스트용. */
+  /** broadcast function injection — for tests. */
   broadcastFn?: (channel: string, event: string, args: unknown) => void;
   /**
-   * OS 알림 마스터 토글 getter — Settings에서 끈 경우 false 반환.
-   * hook-handler에 forward한다. 매 발사 직전 평가되므로 즉시 반영.
+   * OS notification master toggle getter — returns false when turned off in Settings.
+   * Forwarded to hook-handler. Evaluated just before each fire, so it takes effect at once.
    */
   notificationsEnabled?: () => boolean;
 }
 
 // ---------------------------------------------------------------------------
-// 주 setup 함수
+// Main setup function
 // ---------------------------------------------------------------------------
 
 export interface SetupClaudeFeatureResult {
-  /** renderer가 마지막으로 알린 활성 탭인지 — 다른 프로그램의 알림도 같은 기준을 쓴다. */
+  /** Whether this is the active tab the renderer last reported — other programs' notifications use the same criterion. */
   isActiveTab: (workspaceId: string, tabId: string) => boolean;
   /** Input typed into a terminal, which can interrupt Claude's turn or answer its dialog. */
   noteInput: (workspaceId: string, tabId: string, data: string) => void;
@@ -59,7 +59,7 @@ export interface SetupClaudeFeatureResult {
   noteTurnStopped: (workspaceId: string, tabId: string) => void;
   /** A Claude tab's program exited, maybe without its SessionEnd hook. */
   noteProgramExit: (workspaceId: string, tabId: string) => void;
-  /** 모든 구독을 해제하는 함수. */
+  /** Function that releases every subscription. */
   dispose: () => void;
   /** Each tab's Claude state, which the nexus CLI reports too. */
   broker: ClaudeStatusBroker;
@@ -75,14 +75,14 @@ export interface SetupClaudeFeatureResult {
 }
 
 /**
- * Claude feature를 초기화하고 모든 wiring을 연결한다.
+ * Initializes the Claude feature and connects all wiring.
  *
- * 1. ClaudeStatusBroker 생성.
- * 2. IPC 채널 등록.
- * 3. hook-handler 등록 + agentHost.on("claude.hook") 구독.
- * 4. PTY exit 시 broker.clear 구독.
+ * 1. Create the ClaudeStatusBroker.
+ * 2. Register the IPC channels.
+ * 3. Register hook-handler + subscribe to agentHost.on("claude.hook").
+ * 4. Subscribe to broker.clear on PTY exit.
  *
- * hookserver 접속 정보는 pull 기반으로 WorkspaceManager.getHookInfo()에서 조회한다.
+ * The hookserver connection info is looked up by pull from WorkspaceManager.getHookInfo().
  *
  * @returns { dispose }
  */
@@ -91,7 +91,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
 
   const broadcastFn = options.broadcastFn ?? broadcast;
 
-  // 1. Status broker + active context store 생성.
+  // 1. Create the status broker + active context store.
   const broker = new ClaudeStatusBroker(broadcastFn);
   const activeContext = new ActiveContextStore();
   const activity = new SessionActivityLog();
@@ -110,10 +110,10 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     });
   };
 
-  // 2. IPC 채널 등록 (setupRouter() 이후에 호출되어야 함).
+  // 2. Register the IPC channels (must be called after setupRouter()).
   registerClaudeChannel(broker, activeContext, activity, asks, chatAnswers, stopPrintRun);
 
-  // 3. hook-handler 등록.
+  // 3. Register hook-handler.
   const getFocusedWindow = options.getFocusedWindow ?? getFocusedAppWindow;
 
   const offHook = registerHookHandler({
@@ -164,7 +164,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     return name === "" ? null : name;
   });
 
-  // 4. PTY exit 시 broker.clear — 탭 종료 시 상태 항목 제거(메모리 누수 방지).
+  // 4. broker.clear on PTY exit — remove the status entry when a tab closes (prevents a memory leak).
   const offExit = agentHost.on("exit", (args) => {
     const a = args as Record<string, unknown>;
     const workspaceId = typeof a?.workspaceId === "string" ? a.workspaceId : null;

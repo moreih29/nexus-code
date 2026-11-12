@@ -7,11 +7,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import fsSync from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process";
 import {
   ensureDir,
   HOME_ENV,
@@ -204,7 +204,7 @@ describe("writeShimFiles", () => {
   );
 
   modeTest("acceptance 5 — dir mode 0700, file mode 0644", async () => {
-    const id = "test-ws-mode-" + Date.now();
+    const id = `test-ws-mode-${Date.now()}`;
     const result = await writeShimFiles(id);
     createdShimDir = result.dir;
 
@@ -218,7 +218,7 @@ describe("writeShimFiles", () => {
   });
 
   test("acceptance 6 — generated files pass bash -n syntax check", async () => {
-    const id = "test-ws-syntax-" + Date.now();
+    const id = `test-ws-syntax-${Date.now()}`;
     const result = await writeShimFiles(id);
     createdShimDir = result.dir;
 

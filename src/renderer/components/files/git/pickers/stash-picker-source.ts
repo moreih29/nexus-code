@@ -37,8 +37,14 @@ export function createStashPickerSource(
 
   return {
     id: "git.stash-picker",
-    title: mode === "drop" ? t("files:git.stashPicker.dropTitle") : t("files:git.stashPicker.applyTitle"),
-    placeholder: mode === "drop" ? t("files:git.stashPicker.dropPlaceholder") : t("files:git.stashPicker.applyPlaceholder"),
+    title:
+      mode === "drop"
+        ? t("files:git.stashPicker.dropTitle")
+        : t("files:git.stashPicker.applyTitle"),
+    placeholder:
+      mode === "drop"
+        ? t("files:git.stashPicker.dropPlaceholder")
+        : t("files:git.stashPicker.applyPlaceholder"),
     emptyQueryMessage: t("files:git.stashPicker.loading"),
     noResultsMessage: t("files:git.stashPicker.noResults"),
     searchOnEmptyQuery: true,
@@ -87,4 +93,3 @@ function matchesStashQuery(item: StashPickItem, lowerQuery: string): boolean {
     value.toLowerCase().includes(lowerQuery),
   );
 }
-

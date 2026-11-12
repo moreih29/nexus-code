@@ -1,9 +1,9 @@
 import {
+  SshAuthCancelArgsSchema,
   type SshAuthPrompt,
   SshAuthPromptSchema,
-  type SshAuthResponse,
-  SshAuthCancelArgsSchema,
   SshAuthRespondArgsSchema,
+  type SshAuthResponse,
 } from "../../../../shared/ssh/auth-prompt";
 import { register, validateArgs } from "../../ipc-router";
 

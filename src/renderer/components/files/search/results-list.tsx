@@ -67,21 +67,6 @@ function buildListRows(results: FileGroup[]): FlatRow[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Accumulate match counts from the search results onto each dir node so that
- * dirs show "dirName (N)" without a separate traversal at render time.
- */
-function accumulateMatchCounts(node: PathTreeNode, matchMap: Map<string, number>): number {
-  if (node.kind === "file") {
-    return matchMap.get(node.relPath) ?? 0;
-  }
-  let total = 0;
-  for (const child of node.children ?? []) {
-    total += accumulateMatchCounts(child, matchMap);
-  }
-  return total;
-}
-
-/**
  * Walk the tree depth-first and emit rows in display order. Collapsed dirs
  * skip their subtrees. `matchCountMap` is pre-populated by callers.
  */
@@ -91,14 +76,13 @@ function walkTreeRows(
   matchCountMap: Map<string, number>,
   rows: FlatRow[],
   groupByPath: Map<string, FileGroup>,
-  parentRelPath: string,
 ): void {
   for (const child of node.children ?? []) {
     if (child.kind === "dir") {
       const mc = matchCountMap.get(child.relPath) ?? 0;
       rows.push({ kind: "dir", node: child, matchCount: mc });
       if (expandedDirs.has(child.relPath)) {
-        walkTreeRows(child, expandedDirs, matchCountMap, rows, groupByPath, child.relPath);
+        walkTreeRows(child, expandedDirs, matchCountMap, rows, groupByPath);
       }
     } else {
       // File leaf node.
@@ -114,10 +98,7 @@ function walkTreeRows(
   }
 }
 
-function buildTreeRows(
-  results: FileGroup[],
-  expandedDirs: ReadonlySet<string>,
-): FlatRow[] {
+function buildTreeRows(results: FileGroup[], expandedDirs: ReadonlySet<string>): FlatRow[] {
   if (results.length === 0) return [];
 
   const relPaths = results.map((g) => g.relPath);
@@ -145,7 +126,7 @@ function buildTreeRows(
   fillCounts(tree);
 
   const rows: FlatRow[] = [];
-  walkTreeRows(tree, expandedDirs, dirMatchCountMap, rows, groupByPath, "");
+  walkTreeRows(tree, expandedDirs, dirMatchCountMap, rows, groupByPath);
   return rows;
 }
 
@@ -264,7 +245,7 @@ export function SearchResultsList({
   });
 
   const handleToggle = useCallback(
-    (relPath: string, expanded: boolean) => {
+    (relPath: string, _expanded: boolean) => {
       // Determine whether this is a dir or a file row.
       const row = flatRows.find(
         (r) =>

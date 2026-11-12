@@ -14,9 +14,7 @@ export function ReadOnlyBanner({ onRevealInFinder }: ReadOnlyBannerProps) {
       display="bar"
       variant="info"
       message={t("editor.read_only_message")}
-      actions={
-        onRevealInFinder ? [{ label: revealInOSLabel(), onAction: onRevealInFinder }] : []
-      }
+      actions={onRevealInFinder ? [{ label: revealInOSLabel(), onAction: onRevealInFinder }] : []}
       role="status"
     />
   );

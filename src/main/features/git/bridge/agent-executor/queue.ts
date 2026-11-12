@@ -5,10 +5,7 @@
  * on the IPC method surface and its parameter wiring.
  */
 import { createAbortError, throwIfAborted } from "../../../../../shared/abort";
-import {
-  gitMissingError,
-  unknownGitError,
-} from "../../domain/error";
+import { gitMissingError, unknownGitError } from "../../domain/error";
 
 type QueueResult<T> = { done: false; value: T } | { done: true };
 

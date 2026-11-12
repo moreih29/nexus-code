@@ -1,21 +1,21 @@
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError, isAbortError, throwIfAborted } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/ssh/errors";
-import {
-  type EnsureRemoteAgentOptions,
-  type EnsureRemoteAgentResult,
-  ensureRemoteAgent,
-} from "../../infra/agent/ssh/ssh-bootstrap/index";
+import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
 import {
   type CreateSshChannelOptions,
   createSshChannel,
   type SshChannel,
 } from "../../infra/agent/ssh/channel";
-import type { WorkspaceManager } from "./manager";
-import type { SshBrowseSessionRegistry } from "../ssh/browse-session-registry";
+import {
+  type EnsureRemoteAgentOptions,
+  type EnsureRemoteAgentResult,
+  ensureRemoteAgent,
+} from "../../infra/agent/ssh/ssh-bootstrap/index";
 import { type CallContext, register, validateArgs } from "../../infra/ipc-router";
-import { ipcErr, ipcOk } from "../../../shared/ipc/result";
-import { AuthCancelledError } from "../../infra/agent/ssh/auth-prompt";
+import type { SshBrowseSessionRegistry } from "../ssh/browse-session-registry";
+import type { WorkspaceManager } from "./manager";
 
 const c = ipcContract.workspace.call;
 
@@ -69,7 +69,7 @@ export function registerWorkspaceChannel(
         }
         return meta;
       },
-      createAndConnect: async (args: unknown, ctx?: CallContext) => {
+      createAndConnect: async (args: unknown, _ctx?: CallContext) => {
         const createArgs = validateArgs(c.createAndConnect.args, args);
         const browseSessionId =
           "sshBrowseSessionId" in createArgs ? createArgs.sshBrowseSessionId : undefined;
@@ -273,16 +273,6 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "transport.timeout":
       return "Agent request timed out";
   }
-}
-
-/**
- * Throws the router-compatible AbortError when a call signal is canceled.
- */
-function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) {
-    return;
-  }
-  throw createAbortError();
 }
 
 /**

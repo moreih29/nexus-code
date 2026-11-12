@@ -38,8 +38,7 @@ const NATIVE_EXTERNALS = ["node-pty", "better-sqlite3"];
 // as an escape hatch for debugging.
 // ---------------------------------------------------------------------------
 const NEXUS_CHANNEL = process.env.NEXUS_CHANNEL === "beta" ? "beta" : "stable";
-const NEXUS_REMOTE_AGENT_ROOT =
-  NEXUS_CHANNEL === "beta" ? "~/.nexus-code-beta" : "~/.nexus-code";
+const NEXUS_REMOTE_AGENT_ROOT = NEXUS_CHANNEL === "beta" ? "~/.nexus-code-beta" : "~/.nexus-code";
 const NEXUS_REMOTE_AGENT_MANIFEST = `${NEXUS_REMOTE_AGENT_ROOT}/manifest.json`;
 
 const CHANNEL_DEFINES = {

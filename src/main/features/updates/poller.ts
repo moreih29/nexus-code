@@ -163,8 +163,7 @@ export async function pollGithubReleases(options: PollGithubReleasesOptions): Pr
       return httpError(response.status);
     } else {
       const text = await response.text();
-      resolved =
-        channel === "stable" ? parseLatestYml(text, REPO_BASE) : parseAtomFeed(text);
+      resolved = channel === "stable" ? parseLatestYml(text, REPO_BASE) : parseAtomFeed(text);
 
       if (cache !== undefined) {
         cache.etag = response.headers.get("etag");

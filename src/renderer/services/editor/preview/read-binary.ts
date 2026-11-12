@@ -5,6 +5,7 @@
 
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";
+import { bytesFromBase64 } from "../encoding/text-encoding";
 
 export type BinaryRead =
   | { readonly kind: "ok"; readonly bytes: Uint8Array }
@@ -22,12 +23,4 @@ export async function readWorkspaceBinary(
   const read = await ipcCallResult("fs", "readBinary", { workspaceId, relPath });
   if (!read.ok || read.value.kind !== "ok") return { kind: "failed" };
   return { kind: "ok", bytes: bytesFromBase64(read.value.base64) };
-}
-
-/** Bytes from base64, as fs.readBinary gives a file. */
-export function bytesFromBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }

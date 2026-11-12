@@ -35,8 +35,8 @@ import type { PermissionRequest } from "../../services/chat/model";
 import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
-import { revertChangedFile } from "../../services/chat/revert-file";
 import { withRelayed } from "../../services/chat/relayed";
+import { revertChangedFile } from "../../services/chat/revert-file";
 import { runCodexCommand } from "../../services/chat/run-codex-command";
 import { type ChatTabState, revealPart, useChatTab } from "../../services/chat/store";
 import { registerTabFocusTarget } from "../../services/tab-focus";
@@ -115,6 +115,7 @@ export function CodexTabView({
           threadId: props.threadId,
           ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
+          ...(props.chosen ? { chosen: props.chosen } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
         },
@@ -209,9 +210,12 @@ export function CodexTabView({
     if (!isVisible) setLook(null);
   }, [isVisible]);
   const [looked, setLooked] = useState<readonly string[]>([]);
+  // Taken from the parts it reads, so a line that changes neither does not
+  // walk the whole session again.
+  const { items: liveItems, tools: liveTools } = state.model;
   const outside = useMemo(
-    () => outsideLinksOf(state.model.items, state.model.tools, props.cwd, rootPath, looked),
-    [state.model, props.cwd, rootPath, looked],
+    () => outsideLinksOf(liveItems, liveTools, props.cwd, rootPath, looked),
+    [liveItems, liveTools, props.cwd, rootPath, looked],
   );
   useEffect(() => {
     grantOutside(workspaceId, tabId, outside);

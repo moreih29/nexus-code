@@ -6,6 +6,7 @@
 import {
   Bot,
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   FileDiff,
@@ -53,6 +54,7 @@ import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
+import { IconButton } from "../ui/icon-button";
 import { showToast } from "../ui/toast";
 import { AgentRows } from "./agent-rows";
 import { type AgentListSelection, isSessionSelected } from "./selection";
@@ -60,7 +62,7 @@ import { SessionProfileMark } from "./session-profile";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
 
 /** The state whose glyph stands for a group. */
-const GROUP_STATE: Record<RowGroup, string> = {
+export const GROUP_STATE: Record<RowGroup, string> = {
   attention: "permissionPending",
   running: "running",
   done: "completed",
@@ -68,7 +70,7 @@ const GROUP_STATE: Record<RowGroup, string> = {
   ended: "exited",
 };
 
-const GROUP_TINT: Record<RowGroup, string> = {
+export const GROUP_TINT: Record<RowGroup, string> = {
   attention: "text-(--state-warning-fg)",
   running: "text-emerald-500",
   done: "text-(--tab-claude-attention-fg)",
@@ -137,24 +139,42 @@ export function StatusView({
         const folded = !searching && folds.has(group);
         return (
           <section key={group} aria-label={label} className="flex flex-col gap-1">
-            <button
-              type="button"
-              aria-expanded={!folded}
-              onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
-              className={cn(
-                "flex items-center gap-1.5 self-start rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
-                GROUP_TINT[group],
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-expanded={!folded}
+                onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
+                  GROUP_TINT[group],
+                )}
+              >
+                <StateGlyph state={GROUP_STATE[group]} />
+                <span>{label}</span>
+                <span className="tabular-nums">{rows.length}</span>
+                {folded ? (
+                  <ChevronRight aria-hidden className="size-3.5" />
+                ) : (
+                  <ChevronDown aria-hidden className="size-3.5" />
+                )}
+              </button>
+              {group === "done" && rows.length > 1 && (
+                <IconButton
+                  label={t("inbox.mark_read")}
+                  onClick={() =>
+                    markRead(
+                      rows.flatMap((session) => {
+                        const workspace = worktreeOf(session)?.workspace;
+                        return workspace ? [{ workspace, session }] : [];
+                      }),
+                    )
+                  }
+                  data-testid="agent-list-mark-read"
+                >
+                  <CheckCheck aria-hidden className="size-3.5" />
+                </IconButton>
               )}
-            >
-              <StateGlyph state={GROUP_STATE[group]} />
-              <span>{label}</span>
-              <span className="tabular-nums">{rows.length}</span>
-              {folded ? (
-                <ChevronRight aria-hidden className="size-3.5" />
-              ) : (
-                <ChevronDown aria-hidden className="size-3.5" />
-              )}
-            </button>
+            </div>
             {!folded &&
               rows.map((session) => {
                 const worktree = worktreeOf(session);

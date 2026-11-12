@@ -120,9 +120,7 @@ describe("pollGithubReleases — stable channel", () => {
     expect(result.kind).toBe("newer");
     if (result.kind === "newer") {
       expect(result.latest).toBe("0.2.0");
-      expect(result.releaseUrl).toBe(
-        "https://github.com/moreih29/nexus-code/releases/tag/v0.2.0",
-      );
+      expect(result.releaseUrl).toBe("https://github.com/moreih29/nexus-code/releases/tag/v0.2.0");
     }
   });
 
@@ -366,7 +364,8 @@ describe("pollGithubReleases — ETag conditional requests", () => {
   test("304 with no cached resolution is reported as a protocol error", async () => {
     const cache = createConditionalCache();
     cache.etag = '"v1"';
-    cache.sourceUrl = "https://github.com/moreih29/nexus-code/releases/latest/download/latest-mac.yml";
+    cache.sourceUrl =
+      "https://github.com/moreih29/nexus-code/releases/latest/download/latest-mac.yml";
     // resolved intentionally left null — synthetic invariant violation.
     const fetchImpl: typeof fetch = async () =>
       ({

@@ -118,37 +118,66 @@ export function buildGitFileContextMenuItems(
         onSelect: actions.markResolved ?? noop,
       },
       { kind: "separator" },
-      { kind: "item", label: t("files:git.contextMenu.discard"), destructive: true, onSelect: actions.discard ?? noop },
+      {
+        kind: "item",
+        label: t("files:git.contextMenu.discard"),
+        destructive: true,
+        onSelect: actions.discard ?? noop,
+      },
     ]);
   }
 
-  const items: GitMenuSpec[] = [{ kind: "item", label: t("files:git.contextMenu.openFile"), onSelect: actions.openFile }];
+  const items: GitMenuSpec[] = [
+    { kind: "item", label: t("files:git.contextMenu.openFile"), onSelect: actions.openFile },
+  ];
 
   if (groupKey !== "untracked") {
-    items.push({ kind: "item", label: t("files:git.contextMenu.openChanges"), onSelect: actions.openChanges });
+    items.push({
+      kind: "item",
+      label: t("files:git.contextMenu.openChanges"),
+      onSelect: actions.openChanges,
+    });
   }
 
   items.push({ kind: "separator" });
   if (groupKey === "staged") {
-    if (actions.unstage) items.push({ kind: "item", label: t("files:git.contextMenu.unstage"), onSelect: actions.unstage });
+    if (actions.unstage)
+      items.push({
+        kind: "item",
+        label: t("files:git.contextMenu.unstage"),
+        onSelect: actions.unstage,
+      });
   } else if (actions.stage) {
     items.push({ kind: "item", label: t("files:git.contextMenu.stage"), onSelect: actions.stage });
   }
 
   if (groupKey !== "staged" && actions.discard) {
-    items.push({ kind: "item", label: t("files:git.contextMenu.discard"), destructive: true, onSelect: actions.discard });
+    items.push({
+      kind: "item",
+      label: t("files:git.contextMenu.discard"),
+      destructive: true,
+      onSelect: actions.discard,
+    });
   }
 
   items.push(
     { kind: "separator" },
     { kind: "item", label: revealInOSLabel(), onSelect: actions.revealInOS },
     { kind: "item", label: t("files:git.contextMenu.copyPath"), onSelect: actions.copyPath },
-    { kind: "item", label: t("files:git.contextMenu.copyRelativePath"), onSelect: actions.copyRelativePath },
+    {
+      kind: "item",
+      label: t("files:git.contextMenu.copyRelativePath"),
+      onSelect: actions.copyRelativePath,
+    },
   );
 
   items.push(
     { kind: "separator" },
-    { kind: "item", label: t("files:git.contextMenu.addToGitignore"), onSelect: actions.addToGitignore },
+    {
+      kind: "item",
+      label: t("files:git.contextMenu.addToGitignore"),
+      onSelect: actions.addToGitignore,
+    },
   );
 
   return collapseGitMenuSeparators(items);
@@ -180,10 +209,18 @@ export function buildGitGroupContextMenuItems(
 
   const items: GitMenuSpec[] = [];
   if (groupKey === "staged" && actions.unstageAll) {
-    items.push({ kind: "item", label: t("files:git.contextMenu.unstageAll"), onSelect: actions.unstageAll });
+    items.push({
+      kind: "item",
+      label: t("files:git.contextMenu.unstageAll"),
+      onSelect: actions.unstageAll,
+    });
   }
   if (groupKey !== "staged" && actions.stageAll) {
-    items.push({ kind: "item", label: t("files:git.contextMenu.stageAll"), onSelect: actions.stageAll });
+    items.push({
+      kind: "item",
+      label: t("files:git.contextMenu.stageAll"),
+      onSelect: actions.stageAll,
+    });
   }
   if (groupKey !== "staged" && actions.discardAll) {
     items.push({
@@ -207,7 +244,11 @@ export function buildGitGroupContextMenuItems(
   if (actions.addToGitignore) {
     items.push(
       { kind: "separator" },
-      { kind: "item", label: t("files:git.contextMenu.addToGitignore"), onSelect: actions.addToGitignore },
+      {
+        kind: "item",
+        label: t("files:git.contextMenu.addToGitignore"),
+        onSelect: actions.addToGitignore,
+      },
     );
   }
 
@@ -230,7 +271,9 @@ function GitContextMenuPopover({ point, items, onClose }: GitContextMenuPopoverP
     <DropdownMenuAtPoint point={point} onClose={onClose}>
       {items.map((item, index) =>
         item.kind === "separator" ? (
-          <DropdownMenuSeparator key={`separator-${previousMenuLabel(items, index) ?? "leading"}`} />
+          <DropdownMenuSeparator
+            key={`separator-${previousMenuLabel(items, index) ?? "leading"}`}
+          />
         ) : (
           <DropdownMenuItem
             key={item.label}

@@ -66,6 +66,12 @@ type DbFactory = (dbPath: string) => SqliteDb;
 
 export class WorkspaceStorage {
   private readonly entries = new Map<string, PerWorkspaceEntry>();
+  /**
+   * Each open workspace's Source Control panel state as last read. Autofetch
+   * reads it every second for every workspace; setGitPanelState, the only
+   * writer, and closing the workspace drop it.
+   */
+  private readonly gitPanelStates = new Map<string, GitPanelState>();
   private readonly baseDir: string;
   private readonly dbFactory: DbFactory;
 
@@ -135,6 +141,7 @@ export class WorkspaceStorage {
     }
     entry.db.close();
     this.entries.delete(workspaceId);
+    this.gitPanelStates.delete(workspaceId);
   }
 
   getMeta(workspaceId: string): WorkspaceMeta | undefined {
@@ -231,7 +238,14 @@ export class WorkspaceStorage {
     if (!entry) {
       throw new Error(`workspace storage not open: ${workspaceId}`);
     }
+    const known = this.gitPanelStates.get(workspaceId);
+    if (known) return known;
+    const state = this.readGitPanelState(workspaceId, entry);
+    this.gitPanelStates.set(workspaceId, state);
+    return state;
+  }
 
+  private readGitPanelState(workspaceId: string, entry: PerWorkspaceEntry): GitPanelState {
     const rows = entry.db.prepare("SELECT * FROM git_panel_state").all() as GitPanelStateRow[];
     const values = new Map(rows.map((row) => [row.key, row.value]));
     const rowsByKey = new Map(rows.map((row) => [row.key, row]));
@@ -300,6 +314,7 @@ export class WorkspaceStorage {
     }
 
     const parsed = GitPanelStateSchema.partial().parse(state);
+    this.gitPanelStates.delete(workspaceId);
     const ins = entry.db.prepare(
       "INSERT OR REPLACE INTO git_panel_state (key, value) VALUES (?, ?)",
     );

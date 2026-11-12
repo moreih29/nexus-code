@@ -14,8 +14,8 @@
 
 import {
   buildEditorPalette,
-  THEME_SOURCES,
   type EditorPalette,
+  THEME_SOURCES,
   type ThemeId,
 } from "../design-tokens";
 

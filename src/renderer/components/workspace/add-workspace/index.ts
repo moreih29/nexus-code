@@ -1,6 +1,7 @@
 // Public surface for add-workspace modal split-file structure.
-export { AddWorkspaceDialog } from "./add-workspace-dialog";
+
 export type { AddWorkspaceDialogProps } from "./add-workspace-dialog";
+export { AddWorkspaceDialog } from "./add-workspace-dialog";
 // Pure SSH utility exports (used by tests)
 export {
   filterSshConfigHosts,

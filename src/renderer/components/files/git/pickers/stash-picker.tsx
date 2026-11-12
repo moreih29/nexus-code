@@ -53,10 +53,11 @@ export function StashPicker({ workspaceId, open, onClose, mode = "apply" }: Stas
           });
         },
       }),
-    [workspaceId, mode, listStashes, applyStash],
+    [workspaceId, mode, listStashes, applyStash, t],
   );
 
-  const footer = mode === "drop" ? t("git.stashPicker.footerDrop") : t("git.stashPicker.footerApply");
+  const footer =
+    mode === "drop" ? t("git.stashPicker.footerDrop") : t("git.stashPicker.footerApply");
 
   return (
     <>

@@ -4,12 +4,6 @@
  */
 
 import type { TabActivity } from "../../../../src/main/features/cli/activity";
-import {
-  askEachTime,
-  type ChangeRequest,
-  CrossWorkspaceConsent,
-  type CrossWorkspacePolicy,
-} from "../../../../src/main/features/cli/consent";
 import type { ConsoleEntry } from "../../../../src/main/features/cli/browser/console-log";
 import type {
   BrowserDriver,
@@ -19,6 +13,12 @@ import type {
 } from "../../../../src/main/features/cli/browser/driver";
 import type { NetworkEntry } from "../../../../src/main/features/cli/browser/network-log";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
+import {
+  askEachTime,
+  type ChangeRequest,
+  CrossWorkspaceConsent,
+  type CrossWorkspacePolicy,
+} from "../../../../src/main/features/cli/consent";
 import {
   type CliContext,
   CliError,
@@ -414,6 +414,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   /** The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's codex), p1 active. */
   const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
+    grouping: "status",
     activePanelId: "p1",
     root: {
       kind: "split",

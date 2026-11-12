@@ -11,8 +11,8 @@
  */
 
 import type { GitSyncError } from "../../../../shared/git/types";
-import { gitStoreErrorFromUnknown, isAbortError } from "./store-helpers";
 import { createDefaultSession, isStatusFetchingOperation } from "./session-defaults";
+import { gitStoreErrorFromUnknown, isAbortError } from "./store-helpers";
 import type { GitInFlightOp, GitOperationKind, GitSession } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -21,8 +21,9 @@ import type { GitInFlightOp, GitOperationKind, GitSession } from "./types";
 // the full GitState interface that is only defined in git.ts (the assembly).
 // ---------------------------------------------------------------------------
 
-// biome-ignore lint/suspicious/noExplicitAny: zustand setState is typed via the store, not here
-type SetState = (updater: (state: { sessions: Map<string, GitSession> }) => { sessions: Map<string, GitSession> }) => void;
+type SetState = (
+  updater: (state: { sessions: Map<string, GitSession> }) => { sessions: Map<string, GitSession> },
+) => void;
 type GetState = () => { sessions: Map<string, GitSession> };
 
 // ---------------------------------------------------------------------------
@@ -36,14 +37,30 @@ export interface GitStoreContext {
   controllers: Map<string, Map<AbortController, GitInFlightOp>>;
   /** True while `ctrl`'s operation is still running and was not cleaned up. */
   isOperationLive: (workspaceId: string, ctrl: AbortController) => boolean;
-  updateExistingSession: (workspaceId: string, updater: (session: GitSession) => GitSession) => void;
+  updateExistingSession: (
+    workspaceId: string,
+    updater: (session: GitSession) => GitSession,
+  ) => void;
   upsertSession: (workspaceId: string, updater: (session: GitSession) => GitSession) => void;
   beginOperation: (workspaceId: string, kind: GitOperationKind) => AbortController;
   finishOperation: (workspaceId: string, kind: GitOperationKind, ctrl: AbortController) => void;
-  failOperation: (workspaceId: string, kind: GitOperationKind, ctrl: AbortController, error: unknown) => void;
+  failOperation: (
+    workspaceId: string,
+    kind: GitOperationKind,
+    ctrl: AbortController,
+    error: unknown,
+  ) => void;
   recordEnvelopeError: (workspaceId: string, kind: GitOperationKind, error: GitSyncError) => void;
-  runOperation: <T>(workspaceId: string, kind: GitOperationKind, run: (signal: AbortSignal) => Promise<T>) => Promise<T | undefined>;
-  runOperationStrict: <T>(workspaceId: string, kind: GitOperationKind, run: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+  runOperation: <T>(
+    workspaceId: string,
+    kind: GitOperationKind,
+    run: (signal: AbortSignal) => Promise<T>,
+  ) => Promise<T | undefined>;
+  runOperationStrict: <T>(
+    workspaceId: string,
+    kind: GitOperationKind,
+    run: (signal: AbortSignal) => Promise<T>,
+  ) => Promise<T>;
 }
 
 // ---------------------------------------------------------------------------

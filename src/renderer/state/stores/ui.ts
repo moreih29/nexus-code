@@ -40,10 +40,28 @@ interface HydrateOpts {
   filesPanelHidden?: boolean;
   agentListFoldedGroups?: readonly string[];
   agentListUnfoldedTasks?: readonly string[];
+  filesPanelModeByWorkspace?: Readonly<Record<string, string>>;
 }
 
 /** What the files panel shows: the file tree, search, source control, or the agent list. */
 export type FilesPanelMode = "tree" | "search" | "git" | "agents";
+
+const FILES_PANEL_MODES: readonly FilesPanelMode[] = ["tree", "search", "git", "agents"];
+
+function isFilesPanelMode(value: string): value is FilesPanelMode {
+  return (FILES_PANEL_MODES as readonly string[]).includes(value);
+}
+
+/** The stored views, but for one this version lacks: that workspace shows the tree. */
+function restoredModes(
+  stored: Readonly<Record<string, string>> | undefined,
+): Map<string, FilesPanelMode> {
+  const modes = new Map<string, FilesPanelMode>();
+  for (const [workspaceId, mode] of Object.entries(stored ?? {})) {
+    if (isFilesPanelMode(mode)) modes.set(workspaceId, mode);
+  }
+  return modes;
+}
 
 export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 
@@ -61,7 +79,7 @@ interface UIState {
   agentListFoldedGroups: ReadonlySet<string>;
   /** The worktrees (workspace ids) the task view shows unfolded; the others are folded. */
   agentListUnfoldedTasks: ReadonlySet<string>;
-  /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
+  /** Per-workspace files-panel view mode, kept across restarts; missing → the default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
@@ -117,6 +135,7 @@ export const useUIStore = create<UIState>((set, get) => {
       filesPanelHidden,
       agentListFoldedGroups,
       agentListUnfoldedTasks,
+      filesPanelModeByWorkspace,
     }) {
       set({
         sidebarWidth:
@@ -129,6 +148,7 @@ export const useUIStore = create<UIState>((set, get) => {
         filesPanelHidden: filesPanelHidden ?? false,
         agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
         agentListUnfoldedTasks: new Set(agentListUnfoldedTasks ?? []),
+        filesPanelModes: restoredModes(filesPanelModeByWorkspace),
       });
     },
 
@@ -177,12 +197,16 @@ export const useUIStore = create<UIState>((set, get) => {
     },
 
     setFilesPanelMode(workspaceId, mode) {
-      set((state) => {
-        const cur = state.filesPanelModes.get(workspaceId) ?? FILES_PANEL_MODE_DEFAULT;
-        if (cur === mode) return state;
-        const next = new Map(state.filesPanelModes);
-        next.set(workspaceId, mode);
-        return { filesPanelModes: next };
+      const modes = get().filesPanelModes;
+      if ((modes.get(workspaceId) ?? FILES_PANEL_MODE_DEFAULT) === mode) return;
+      const next = new Map(modes);
+      next.set(workspaceId, mode);
+      set({ filesPanelModes: next });
+      // Kept across restarts, as the agent list's view is.
+      void ipcCallResult("appState", "set", {
+        filesPanelModeByWorkspace: Object.fromEntries(next),
+      }).then((result) => {
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
     },
 

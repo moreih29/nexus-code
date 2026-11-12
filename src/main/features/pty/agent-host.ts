@@ -303,7 +303,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
     const offData = channel.on("pty.data", (payload) => this.handleData(payload));
     const offExit = channel.on("pty.exit", (payload) => this.handleExit(payload));
-    // claude.hook 이벤트를 PtyHostHandle.on 구독자에게 relay한다.
+    // Relays claude.hook events to the PtyHostHandle.on subscribers.
     // A hook speaks only for the workspace whose agent it arrived through.
     // On an SSH host the hook server is reachable by anything running there,
     // which must not be able to set another workspace's status, raise
@@ -311,7 +311,9 @@ class AgentPtyHostHandle implements PtyHostHandle {
     const offClaudeHook = channel.on("claude.hook", (payload) => {
       const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
       if (claimed !== workspaceId) {
-        log.warn(`Dropped claude.hook for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        log.warn(
+          `Dropped claude.hook for workspace ${String(claimed)} from ${workspaceId}'s agent`,
+        );
         return;
       }
       this.emit("claude.hook", payload);
@@ -331,7 +333,9 @@ class AgentPtyHostHandle implements PtyHostHandle {
     const offCliRequest = channel.on("cli.request", (payload) => {
       const claimed = (payload as { workspaceId?: unknown } | null)?.workspaceId;
       if (claimed !== workspaceId) {
-        log.warn(`Dropped cli.request for workspace ${String(claimed)} from ${workspaceId}'s agent`);
+        log.warn(
+          `Dropped cli.request for workspace ${String(claimed)} from ${workspaceId}'s agent`,
+        );
         return;
       }
       this.emit("cli.request", payload);
@@ -524,14 +528,11 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
     let aliveTabs: Set<string>;
     try {
-      const result = await channel.call<{ sessions: Array<{ workspaceId: string; tabId: string }> }>(
-        "session.list",
-        { workspaceId },
-      );
+      const result = await channel.call<{
+        sessions: Array<{ workspaceId: string; tabId: string }>;
+      }>("session.list", { workspaceId });
       aliveTabs = new Set(
-        (result.sessions ?? [])
-          .filter((s) => s.workspaceId === workspaceId)
-          .map((s) => s.tabId),
+        (result.sessions ?? []).filter((s) => s.workspaceId === workspaceId).map((s) => s.tabId),
       );
     } catch (err) {
       log.warn(

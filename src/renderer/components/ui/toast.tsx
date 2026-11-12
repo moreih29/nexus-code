@@ -27,7 +27,7 @@
  * code paths (services, IPC error handlers).
  */
 
-import { TriangleAlert } from "lucide-react";
+import { TriangleAlert, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -286,8 +286,9 @@ export function ToastRoot(): React.JSX.Element | null {
                 className="size-5 shrink-0 -mr-1 -mt-0.5 hover:bg-foreground/10"
                 onClick={() => dismiss(toast.id)}
                 aria-label={t("action.dismiss")}
+                title={t("action.dismiss")}
               >
-                ×
+                <X className="size-3.5" aria-hidden="true" />
               </Button>
             </div>
 

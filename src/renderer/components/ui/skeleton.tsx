@@ -40,6 +40,9 @@ export function SkeletonLine({
   style?: React.CSSProperties;
 }) {
   return (
-    <div className={cn("animate-pulse rounded-(--radius-control) bg-muted", className)} style={style} />
+    <div
+      className={cn("animate-pulse rounded-(--radius-control) bg-muted", className)}
+      style={style}
+    />
   );
 }

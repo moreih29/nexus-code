@@ -6,6 +6,7 @@ import { basename } from "@/utils/path";
 import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
+  type ChatChosen,
   PROFILE_MOVES_KEPT,
   type ProfileMove,
   type SerializedTab,
@@ -60,6 +61,8 @@ export interface ClaudeTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The model and effort the user picked in the tab, for its next program to take. */
+  chosen?: ChatChosen;
 }
 
 export interface CodexTabProps {
@@ -77,36 +80,38 @@ export interface CodexTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The model and effort the user picked in the tab, for its next turn to take. */
+  chosen?: ChatChosen;
 }
 
 interface TabBase {
   id: string;
   /**
-   * 표시용 타이틀 — derived: customTitle ?? processTitle ?? defaultTitle.
-   * 모든 set 경로(rename / setProcessTitle / createTab)가 이 invariant를 유지한다.
-   * 호출자는 항상 tab.title을 그대로 읽으면 된다.
+   * Display title — derived: customTitle ?? processTitle ?? defaultTitle.
+   * Every set path (rename / setProcessTitle / createTab) maintains this invariant.
+   * Callers can always read tab.title as is.
    */
   title: string;
   /**
-   * 탭 생성 시점에 계산된 기본 타이틀. customTitle / processTitle 둘 다 비어있을 때
-   * fallback. createTab 이후 변경되지 않는다.
+   * Default title computed when the tab is created. Fallback when customTitle and
+   * processTitle are both empty. Does not change after createTab.
    */
   defaultTitle: string;
   /**
-   * 사용자가 수동으로 설정한 타이틀. 설정되면 processTitle을 가리고 title을 고정.
-   * undefined로 비우면 자동(processTitle/defaultTitle)으로 복귀.
+   * Title the user set manually. When set it hides processTitle and pins the title.
+   * Clearing it to undefined returns to automatic (processTitle/defaultTitle).
    */
   customTitle?: string;
   /**
-   * 자동 감지된 타이틀. 터미널은 OSC 0/1/2(xterm.js onTitleChange), 브라우저는
-   * page-title-updated로 갱신. customTitle이 있으면 표시에는 영향 없음.
+   * Auto-detected title. Updated from OSC 0/1/2 (xterm.js onTitleChange) for terminals and
+   * page-title-updated for browsers. Has no effect on the display when customTitle is set.
    */
   processTitle?: string;
   isPreview: boolean;
   isPinned: boolean;
 }
 
-/** title invariant 계산: customTitle ?? processTitle ?? defaultTitle. */
+/** Title invariant computation: customTitle ?? processTitle ?? defaultTitle. */
 function computeDisplayTitle(parts: {
   defaultTitle: string;
   customTitle?: string;
@@ -200,17 +205,17 @@ interface TabsState {
   createTab: (workspaceId: string, args: CreateTabArgs, isPreview?: boolean) => Tab;
   removeTab: (workspaceId: string, tabId: string) => void;
   /**
-   * 사용자 수동 rename. title === "" (또는 trim 후 빈 문자열)이면 customTitle을
-   * clear해 processTitle/defaultTitle로 자동 복귀시킨다.
-   * 외부 호출자(commit detail fetch 등)는 setProcessTitle을 써야 의미가 맞다 —
-   * renameTab은 사용자 의지의 의미를 가진다.
+   * Manual rename by the user. If title === "" (or empty after trim), customTitle is
+   * cleared, automatically returning to processTitle/defaultTitle.
+   * External callers (commit detail fetch etc.) should use setProcessTitle for the meaning to fit —
+   * renameTab carries the meaning of user intent.
    */
   renameTab: (workspaceId: string, tabId: string, title: string) => void;
   /**
-   * 자동 감지 타이틀 갱신. terminal OSC 0/1/2, browser page-title-updated 등에서
-   * 호출. title === null 또는 빈 문자열이면 processTitle을 clear. customTitle이
-   * 설정되어 있으면 표시 title은 바뀌지 않지만 processTitle 값은 갱신된다 —
-   * 사용자가 나중에 customTitle을 clear할 때 최신 processTitle로 복귀하기 위함.
+   * Updates the auto-detected title. Called from terminal OSC 0/1/2, browser page-title-updated, etc.
+   * If title === null or an empty string, processTitle is cleared. If customTitle is
+   * set the displayed title does not change but the processTitle value is still updated —
+   * so that clearing customTitle later returns to the latest processTitle.
    */
   setProcessTitle: (workspaceId: string, tabId: string, title: string | null) => void;
   setTerminalDead: (workspaceId: string, tabId: string, dead: boolean) => void;
@@ -287,6 +292,12 @@ interface TabsState {
    * profile; none drops them. No-op on other tab types.
    */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
+  /**
+   * Keep the model or effort the user picked in a Claude or Codex tab, over
+   * what it had picked before; an empty pick forgets them (a Codex turn
+   * took them). No-op on other tab types.
+   */
+  setChatChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
   /** Keeps who sent a message through the nexus command; one with its id is replaced. */
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
@@ -389,6 +400,24 @@ function nextTerminalTitle(tabs: Record<string, Tab> | undefined): string {
   }
 }
 
+/**
+ * The state with one tab changed by `change`; the same state, so nothing
+ * re-renders, when the tab is not there or `change` returns it as it was.
+ */
+function withTab(
+  state: TabsState,
+  workspaceId: string,
+  tabId: string,
+  change: (tab: Tab) => Tab,
+): Pick<TabsState, "byWorkspace"> {
+  const wsRecord = state.byWorkspace[workspaceId];
+  const tab = wsRecord?.[tabId];
+  if (!wsRecord || !tab) return state;
+  const next = change(tab);
+  if (next === tab) return state;
+  return { byWorkspace: { ...state.byWorkspace, [workspaceId]: { ...wsRecord, [tabId]: next } } };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -411,7 +440,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
           : defaultTitle(args);
       const base = {
         id: crypto.randomUUID(),
-        // 초기 customTitle / processTitle 둘 다 없으므로 derived title = defaultTitle.
+        // Initially there is neither customTitle nor processTitle, so the derived title = defaultTitle.
         title: dt,
         defaultTitle: dt,
         isPreview,
@@ -471,61 +500,37 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     renameTab(workspaceId, tabId, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-
-        // trim 후 빈 문자열은 customTitle clear로 해석 — processTitle/defaultTitle로 복귀.
-        const trimmed = title.trim();
-        const nextCustom = trimmed === "" ? undefined : trimmed;
-        const nextDisplay = computeDisplayTitle({
-          defaultTitle: tab.defaultTitle,
-          customTitle: nextCustom,
-          processTitle: tab.processTitle,
-        });
-
-        if (nextCustom === tab.customTitle && nextDisplay === tab.title) return state;
-
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, customTitle: nextCustom, title: nextDisplay },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // An empty string after trim is read as clearing customTitle — return to processTitle/defaultTitle.
+          const trimmed = title.trim();
+          const nextCustom = trimmed === "" ? undefined : trimmed;
+          const nextDisplay = computeDisplayTitle({
+            defaultTitle: tab.defaultTitle,
+            customTitle: nextCustom,
+            processTitle: tab.processTitle,
+          });
+          if (nextCustom === tab.customTitle && nextDisplay === tab.title) return tab;
+          return { ...tab, customTitle: nextCustom, title: nextDisplay };
+        }),
+      );
     },
 
     setProcessTitle(workspaceId, tabId, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-
-        // 빈 문자열 / null → processTitle clear.
-        const trimmed = title === null ? "" : title.trim();
-        const nextProcess = trimmed === "" ? undefined : trimmed;
-        const nextDisplay = computeDisplayTitle({
-          defaultTitle: tab.defaultTitle,
-          customTitle: tab.customTitle,
-          processTitle: nextProcess,
-        });
-
-        if (nextProcess === tab.processTitle && nextDisplay === tab.title) return state;
-
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, processTitle: nextProcess, title: nextDisplay },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Empty string / null → clear processTitle.
+          const trimmed = title === null ? "" : title.trim();
+          const nextProcess = trimmed === "" ? undefined : trimmed;
+          const nextDisplay = computeDisplayTitle({
+            defaultTitle: tab.defaultTitle,
+            customTitle: tab.customTitle,
+            processTitle: nextProcess,
+          });
+          if (nextProcess === tab.processTitle && nextDisplay === tab.title) return tab;
+          return { ...tab, processTitle: nextProcess, title: nextDisplay };
+        }),
+      );
     },
 
     setTerminalDead(workspaceId, tabId, dead) {
@@ -534,22 +539,13 @@ export const useTabsStore = create<TabsState>((set, get) => {
       const shouldReleaseDeath =
         existingTab?.type === "terminal" && Boolean(existingTab.props.dead) && !dead;
 
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "terminal" || Boolean(tab.props.dead) === dead) {
-          return state;
-        }
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, props: { ...tab.props, dead } },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type !== "terminal" || Boolean(tab.props.dead) === dead
+            ? tab
+            : { ...tab, props: { ...tab.props, dead } },
+        ),
+      );
 
       if (shouldRecordDeath) {
         recordTerminalDeathForAggregate(workspaceId, tabId, () =>
@@ -565,352 +561,235 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     promoteFromPreview(workspaceId, tabId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (!tab.isPreview) return state;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, isPreview: false },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.isPreview ? { ...tab, isPreview: false } : tab,
+        ),
+      );
     },
 
     replacePreviewTab(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // Only editor tabs have a preview slot; replace is otherwise a no-op.
-        if (tab.type !== "editor") return state;
-        // 탭이 가리키는 파일이 바뀌므로 defaultTitle을 새 파일 이름으로 갱신하고
-        // 기존 customTitle / processTitle은 의미가 없어 clear.
-        const next: EditorTab = {
-          ...tab,
-          props,
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Only editor tabs have a preview slot; replace is otherwise a no-op.
+          if (tab.type !== "editor") return tab;
+          // The file the tab points to changes, so update defaultTitle to the new file name and
+          // clear the old customTitle / processTitle, which no longer mean anything.
+          return {
+            ...tab,
+            props,
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     retargetEditorTab(workspaceId, tabId, filePath) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "editor" || tab.props.filePath === filePath) return state;
-        const nextDefault = defaultTitle({ type: "editor", props: { ...tab.props, filePath } });
-        const next: EditorTab = {
-          ...tab,
-          props: { ...tab.props, filePath },
-          defaultTitle: nextDefault,
-          title: computeDisplayTitle({
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "editor" || tab.props.filePath === filePath) return tab;
+          const nextDefault = defaultTitle({ type: "editor", props: { ...tab.props, filePath } });
+          return {
+            ...tab,
+            props: { ...tab.props, filePath },
             defaultTitle: nextDefault,
-            customTitle: tab.customTitle,
-            processTitle: tab.processTitle,
-          }),
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+            title: computeDisplayTitle({
+              defaultTitle: nextDefault,
+              customTitle: tab.customTitle,
+              processTitle: tab.processTitle,
+            }),
+          };
+        }),
+      );
     },
 
     replaceDiffPreviewTab(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // editor.diff 슬롯만 대상 — editor / git.commit preview는 자기 액션이 책임.
-        if (tab.type !== "editor.diff") return state;
-        // path / refs가 바뀌므로 defaultTitle을 새 값으로 갱신하고
-        // 이전 custom/process title은 의미가 없어 clear (이전 파일/ref의 잔재 제거).
-        const next: DiffTab = {
-          ...tab,
-          props,
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Targets only the editor.diff slot — editor / git.commit previews are owned by their own actions.
+          if (tab.type !== "editor.diff") return tab;
+          // path / refs change, so update defaultTitle to the new value and
+          // clear the previous custom/process title, which no longer means anything (removes leftovers from the old file/ref).
+          return {
+            ...tab,
+            props,
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     replaceCommitPreviewTab(workspaceId, tabId, sha, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // Commit preview has its own slot; editor previews are intentionally
-        // left untouched by this replacement path.
-        if (tab.type !== "git.commit") return state;
-        // SHA가 바뀌므로 defaultTitle을 새 placeholder("commit XXXXXXX")로 갱신하고
-        // 기존 custom/process는 clear (이전 commit의 subject 등이 남으면 안 됨).
-        const next: GitCommitTab = {
-          ...tab,
-          props: { workspaceId, sha },
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Commit preview has its own slot; editor previews are intentionally
+          // left untouched by this replacement path.
+          if (tab.type !== "git.commit") return tab;
+          // The SHA changes, so update defaultTitle to the new placeholder ("commit XXXXXXX") and
+          // clear the old custom/process title (the previous commit's subject etc. must not remain).
+          return {
+            ...tab,
+            props: { workspaceId, sha },
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     setViewMode(workspaceId, tabId, mode) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "editor") return state;
-        if (tab.viewMode === mode) return state;
-        const next: EditorTab = { ...tab, viewMode: mode };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type !== "editor" || tab.viewMode === mode ? tab : { ...tab, viewMode: mode },
+        ),
+      );
     },
 
     replaceUntitledWithEditor(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "untitled") return state;
-        // Untitled → 저장된 editor 전이. 새 파일명을 defaultTitle로 잡고
-        // custom/process는 비운 상태로 시작.
-        const next: EditorTab = {
-          id: tab.id,
-          title,
-          defaultTitle: title,
-          isPreview: tab.isPreview,
-          isPinned: tab.isPinned,
-          type: "editor",
-          props,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "untitled") return tab;
+          // Untitled → saved editor transition. Take the new file name as defaultTitle and
+          // start with custom/process cleared.
+          return {
+            id: tab.id,
+            title,
+            defaultTitle: title,
+            isPreview: tab.isPreview,
+            isPinned: tab.isPinned,
+            type: "editor",
+            props,
+          };
+        }),
+      );
     },
 
     setCodexThread(workspaceId, tabId, threadId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "codex") return state;
-        if (tab.props.threadId === threadId && !tab.props.fork) return state;
-        // A fork's copy has its own id now: the tab goes on with it.
-        const { fork: _copied, ...props } = tab.props;
-        const next: CodexTab = { ...tab, props: { ...props, threadId } };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "codex") return tab;
+          if (tab.props.threadId === threadId && !tab.props.fork) return tab;
+          // A fork's copy has its own id now: the tab goes on with it.
+          const { fork: _copied, ...props } = tab.props;
+          return { ...tab, props: { ...props, threadId } };
+        }),
+      );
     },
 
     setChatProfile(workspaceId, tabId, profileId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        if (tab.props.profileId === profileId) return state;
-        // The messages' senders, by id: kept for a conversation that goes on.
-        const props = {
-          cwd: tab.props.cwd,
-          ...(profileId ? { profileId } : {}),
-          ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-        };
-        const next = { ...tab, props } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.profileId === profileId) return tab;
+          // Only what holds whichever profile runs the tab: its session or
+          // thread, fork and moves were the old profile's. The messages'
+          // senders, by id, are kept for a conversation that goes on. The
+          // model and effort picked in a Claude tab are the tab's; a Codex
+          // tab takes the new profile's own, as its controller does.
+          const props = {
+            cwd: tab.props.cwd,
+            ...(profileId ? { profileId } : {}),
+            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
+          };
+          return { ...tab, props } as Tab;
+        }),
+      );
     },
 
     setClaudeSession(workspaceId, tabId, sessionId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "claude") return state;
-        if (tab.props.sessionId === sessionId && !tab.props.fork) return state;
-        const next: ClaudeTab = {
-          ...tab,
-          props: {
-            cwd: tab.props.cwd,
-            sessionId,
-            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
-            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
-            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-          },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude") return tab;
+          if (tab.props.sessionId === sessionId && !tab.props.fork) return tab;
+          // The copy has its own id now: the fork it was made from goes.
+          const { fork: _copied, ...kept } = tab.props;
+          return { ...tab, props: { ...kept, sessionId } };
+        }),
+      );
     },
 
     setClaudeTarget(workspaceId, tabId, { sessionId, fork }) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "claude") return state;
-        const next: ClaudeTab = {
-          ...tab,
-          props: {
-            cwd: tab.props.cwd,
-            ...(sessionId ? { sessionId } : {}),
-            ...(fork ? { fork } : {}),
-            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
-            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
-            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-          },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude") return tab;
+          const { sessionId: _oldSession, fork: _oldFork, ...kept } = tab.props;
+          return {
+            ...tab,
+            props: { ...kept, ...(sessionId ? { sessionId } : {}), ...(fork ? { fork } : {}) },
+          };
+        }),
+      );
     },
 
     setChatMoves(workspaceId, tabId, moves) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        if (moves.length === 0 && !tab.props.moves) return state;
-        const { moves: _old, ...rest } = tab.props;
-        const props =
-          moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
-        const next = { ...tab, props } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (moves.length === 0 && !tab.props.moves) return tab;
+          const { moves: _old, ...rest } = tab.props;
+          const props =
+            moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
+          return { ...tab, props } as Tab;
+        }),
+      );
+    },
+
+    setChatChosen(workspaceId, tabId, chosen) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          const before = tab.props.chosen;
+          const empty = !chosen.model && !chosen.effort;
+          if (empty) {
+            if (!before) return tab;
+            const { chosen: _forgotten, ...props } = tab.props;
+            return { ...tab, props } as Tab;
+          }
+          const merged = { ...before, ...chosen };
+          const same = merged.model === before?.model && merged.effort === before?.effort;
+          return same ? tab : ({ ...tab, props: { ...tab.props, chosen: merged } } as Tab);
+        }),
+      );
     },
 
     addChatRelayed(workspaceId, tabId, record) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        const relayed = withRelayedMessage(tab.props.relayed, record);
-        const next = { ...tab, props: { ...tab.props, relayed } } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          const relayed = withRelayedMessage(tab.props.relayed, record);
+          return { ...tab, props: { ...tab.props, relayed } } as Tab;
+        }),
+      );
     },
 
     setBrowserLastUrl(workspaceId, tabId, lastUrl) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "browser") return state;
-        const next: BrowserTab = {
-          ...tab,
-          props: { ...tab.props, lastUrl },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type === "browser" ? { ...tab, props: { ...tab.props, lastUrl } } : tab,
+        ),
+      );
     },
 
     togglePin(workspaceId, tabId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        const nextPinned = !tab.isPinned;
-        // Pin implies permanent: clear preview flag when pinning. Reconstruct
-        // each branch so the union narrowing survives the spread.
-        const updatedTab: Tab =
-          tab.type === "editor"
-            ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-            : tab.type === "editor.diff"
-              ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-              : tab.type === "git.commit"
-                ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-                : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: updatedTab },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          const isPinned = !tab.isPinned;
+          // Pin implies permanent: clear preview flag when pinning.
+          return { ...tab, isPinned, isPreview: isPinned ? false : tab.isPreview };
+        }),
+      );
     },
 
     closeAllForWorkspace(workspaceId) {

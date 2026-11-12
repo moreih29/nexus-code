@@ -8,7 +8,7 @@
 import type { HookResponse } from "../../../shared/claude/status";
 
 export interface HandlePermissionRequestOptions {
-  /** true이면 OS 알림 발사(notification hook과 공통 헬퍼 사용). 현재 미사용 placeholder. */
+  /** When true, fires an OS notification (uses the helper shared with the notification hook). Currently an unused placeholder. */
   notify?: boolean;
 }
 
@@ -16,7 +16,7 @@ export interface HandlePermissionRequestOptions {
  * The fallback answer: no output, exit 0, so Claude Code decides as it would
  * with no hook (its dialog, or a `claude -p` run's denial).
  *
- * @returns HookResponse — stdout 없음, exitCode 0.
+ * @returns HookResponse — no stdout, exitCode 0.
  */
 export function handlePermissionRequest(
   _options: HandlePermissionRequestOptions = {},

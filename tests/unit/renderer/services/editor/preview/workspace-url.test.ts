@@ -18,9 +18,7 @@ const WS = "a1b2c3d4-e5f6-7890-abcd-ef0123456789";
 
 describe("buildWorkspaceDirUrl — base href for relative resource resolution", () => {
   test("nested directory keeps a trailing slash", () => {
-    expect(buildWorkspaceDirUrl(WS, "reports/out")).toBe(
-      `nexus-workspace://${WS}/reports/out/`,
-    );
+    expect(buildWorkspaceDirUrl(WS, "reports/out")).toBe(`nexus-workspace://${WS}/reports/out/`);
   });
 
   test("workspace root (empty relDir) yields host + slash", () => {
@@ -28,15 +26,11 @@ describe("buildWorkspaceDirUrl — base href for relative resource resolution", 
   });
 
   test("strips redundant leading/trailing slashes before re-appending one", () => {
-    expect(buildWorkspaceDirUrl(WS, "/reports/out/")).toBe(
-      `nexus-workspace://${WS}/reports/out/`,
-    );
+    expect(buildWorkspaceDirUrl(WS, "/reports/out/")).toBe(`nexus-workspace://${WS}/reports/out/`);
   });
 
   test("normalises Windows backslashes", () => {
-    expect(buildWorkspaceDirUrl(WS, "reports\\out")).toBe(
-      `nexus-workspace://${WS}/reports/out/`,
-    );
+    expect(buildWorkspaceDirUrl(WS, "reports\\out")).toBe(`nexus-workspace://${WS}/reports/out/`);
   });
 
   test("percent-encodes spaces and special chars per segment", () => {

@@ -13,9 +13,9 @@
 // Design source: src/shared/design-tokens/theme-sources.ts (each ThemeSource
 // supplies a `selectionSolid` hex; the rest is derived from semantic tokens).
 
-import { formatHex, parse } from "culori";
 import type { ITheme } from "@xterm/xterm";
-import { THEMES, THEME_SOURCES, type ThemeId } from "../design-tokens";
+import { formatHex, parse } from "culori";
+import { THEME_SOURCES, THEMES, type ThemeId } from "../design-tokens";
 import type { SemanticTokenSet } from "../design-tokens/semantic";
 
 // ---------------------------------------------------------------------------

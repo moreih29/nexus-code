@@ -5,6 +5,7 @@
 // opens and after each turn.
 
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -24,6 +25,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
@@ -54,7 +56,9 @@ import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
+import { elapsedLabel } from "../agent-list/agent-status";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { IconButton } from "../ui/icon-button";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { StatusDot } from "./agent-strip";
@@ -147,7 +151,7 @@ export function SidePanel({
   }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
-  const now = useTicker(anyRunning);
+  const now = useNow(anyRunning);
 
   const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
@@ -432,36 +436,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function IconButton({
-  label,
-  onClick,
-  disabled = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      title={label}
-      aria-label={label}
-      aria-disabled={disabled || undefined}
-      className={cn(
-        "shrink-0 rounded-(--radius-control) p-1 text-muted-foreground",
-        disabled
-          ? "cursor-not-allowed opacity-40"
-          : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
 function CopyIcon({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -473,7 +447,7 @@ function CopyIcon({ text, label }: { text: string; label: string }) {
         setTimeout(() => setCopied(false), 1200);
       }}
     >
-      {copied ? <CircleCheck className="size-3.5" /> : <Copy className="size-3.5" />}
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
     </IconButton>
   );
 }
@@ -837,7 +811,7 @@ function JobEntry({
         {running && (
           <IconButton
             label={stopNote ?? t("chat.panel.stop")}
-            disabled={stopNote !== undefined}
+            blocked={stopNote !== undefined}
             onClick={onStop}
           >
             <Square className="size-3" />
@@ -1038,7 +1012,7 @@ function AgentEntry({
         {onStop && (
           <IconButton
             label={stopNote ?? t("chat.panel.stop")}
-            disabled={stopNote !== undefined}
+            blocked={stopNote !== undefined}
             onClick={onStop}
           >
             <Square className="size-3" />
@@ -1336,18 +1310,7 @@ function Elapsed({ from, to, now }: { from?: number; to?: number; now: number })
   const seconds = Math.max(0, Math.floor(((to ?? now) - from) / 1000));
   return (
     <span className="shrink-0 text-app-micro text-muted-foreground tabular-nums">
-      {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
+      {elapsedLabel(seconds * 1_000)}
     </span>
   );
-}
-
-function useTicker(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [ticking]);
-  return now;
 }

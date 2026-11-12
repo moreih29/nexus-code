@@ -80,18 +80,16 @@ export function ImagePreview({ workspaceId, filePath, onNaturalSize, fill }: Ima
   // but guard against teardown races where the tab survives past the
   // workspace removal for one render.
   if (file.kind === "no-workspace") {
-    return <EmptyState title={t("imagePreview.workspace_not_found")} tone="status" className="min-h-0" />;
+    return (
+      <EmptyState title={t("imagePreview.workspace_not_found")} tone="status" className="min-h-0" />
+    );
   }
 
   // The protocol won't serve files outside the workspace root, so surface a
   // status row rather than a broken image.
   if (file.kind === "outside") {
     return (
-      <EmptyState
-        title={t("imagePreview.outside_workspace")}
-        tone="status"
-        className="min-h-0"
-      />
+      <EmptyState title={t("imagePreview.outside_workspace")} tone="status" className="min-h-0" />
     );
   }
 

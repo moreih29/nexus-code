@@ -2,7 +2,7 @@ import { z } from "zod";
 import { FsChangeSchema } from "../../../../shared/fs/types";
 import { createLogger } from "../../../../shared/log/main";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
-import { isAgentBackedProvider, type AgentBackedProvider } from "./provider";
+import { type AgentBackedProvider, isAgentBackedProvider } from "./provider";
 
 const log = createLogger("fs");
 

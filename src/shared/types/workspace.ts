@@ -101,8 +101,8 @@ export const WorkspaceConnectionChangedEventSchema = z.object({
 export type WorkspaceConnectionEventStatus = z.infer<typeof WorkspaceConnectionEventStatusSchema>;
 
 /**
- * 워크스페이스 SSH 에이전트 부트스트랩 진행 이벤트.
- * LSP 부트스트랩의 LspBootstrapProgressPhaseSchema와 동일한 phase enum을 재사용한다.
+ * Progress event for the workspace SSH agent bootstrap.
+ * Reuses the same phase enum as LspBootstrapProgressPhaseSchema of the LSP bootstrap.
  */
 export const WorkspaceConnectionProgressEventSchema = z.object({
   workspaceId: z.string(),
@@ -117,13 +117,13 @@ export type WorkspaceConnectionProgressEvent = z.infer<
 >;
 
 /**
- * SSH 브라우즈 세션(워크스페이스 추가 플로우) 부트스트랩 진행 이벤트.
+ * Progress event for the SSH browse session (add-workspace flow) bootstrap.
  *
- * 등록된 워크스페이스는 workspaceId로 진행률을 키잉하지만, "워크스페이스 추가"
- * 플로우에서는 openBrowseSession이 끝나기 전까지 workspaceId도 sessionId도
- * 존재하지 않는다. 그래서 렌더러가 호출 직전에 만든 progressId(클라이언트 생성
- * correlation id)로 키잉한다 — 그 외 필드는 WorkspaceConnectionProgressEvent와
- * 동일한 phase enum/바이트 진행을 재사용한다.
+ * Registered workspaces key progress by workspaceId, but in the "add workspace"
+ * flow neither a workspaceId nor a sessionId exists until openBrowseSession finishes.
+ * So progress is keyed by a progressId (a client-generated correlation id) the renderer
+ * creates right before the call — the other fields reuse the same phase enum/byte progress
+ * as WorkspaceConnectionProgressEvent.
  */
 export const SshBrowseProgressEventSchema = z.object({
   progressId: z.string(),

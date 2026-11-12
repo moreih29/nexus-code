@@ -62,9 +62,9 @@ import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { windowsCliLauncherDir } from "../cli/launchers";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
-import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import type { FsProvider } from "../fs/bridge/provider";
+import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { WorkspaceContext } from "./context";
 
 const log = createLogger("workspace");
@@ -136,15 +136,14 @@ function normalizeCreateLocation(opts: WorkspaceCreateOptions): WorkspaceLocatio
 /**
  * Derives the default display name for local and SSH workspace locations.
  *
- * SSH 의 경우 remotePath 의 마지막 폴더 이름을 사용한다. 사이드바 primary
- * 라인이 host 가 아니라 "프로젝트 폴더"로 읽혀야 워크스페이스 식별이 자연
- * 스럽다 — user@host 정보는 sidebar 의 sub-line 에서 별도로 노출된다.
- * remotePath 가 root("/") 이거나 비어있는 fallback 케이스에서만 alias/host
- * 를 사용한다.
+ * For SSH, uses the last folder name of remotePath. The sidebar's primary
+ * line should read as the "project folder" rather than the host, so the workspace is easy
+ * to identify — the user@host info is shown separately on the sidebar's sub-line.
+ * Alias/host is used only in the fallback case where remotePath is root ("/") or empty.
  */
 function defaultWorkspaceName(location: WorkspaceLocation): string {
   if (location.kind === "ssh") {
-    // remotePath 는 항상 POSIX 형식 — path.posix.basename 사용.
+    // remotePath is always POSIX — use path.posix.basename.
     const folder = path.posix.basename(location.remotePath ?? "");
     if (folder && folder !== "~") return folder;
     return location.configAlias || location.host;
@@ -172,18 +171,18 @@ function normalizeWorkspaceUpdate(
 }
 
 // ---------------------------------------------------------------------------
-// hook.getInfo 응답 타입 — pull 기반으로 워크스페이스별 hookserver 접속 정보를 보관한다.
+// hook.getInfo response type — holds each workspace's hookserver connection info, obtained by pull.
 // ---------------------------------------------------------------------------
 
-/** agent가 hook.getInfo RPC로 반환하는 hookserver 접속 정보. */
+/** hookserver connection info the agent returns from the hook.getInfo RPC. */
 export interface HookInfo {
   readonly socketPath: string;
   readonly token: string;
 }
 
 /**
- * hook.getInfo 응답 타입 가드.
- * socketPath / token 둘 다 문자열이어야 유효 응답으로 간주한다.
+ * Type guard for the hook.getInfo response.
+ * A response is valid only when both socketPath and token are strings.
  */
 function isHookInfo(value: unknown): value is HookInfo {
   if (typeof value !== "object" || value === null) return false;
@@ -236,11 +235,11 @@ function createWorkspaceRemovedError(id: string): Error {
 }
 
 /**
- * `hook.getInfo` 응답이 `server.unavailable` 코드인지 판정한다.
- * agent 쪽에서 hookserver 생성에 실패한 graceful degrade 신호이며,
- * 워크스페이스 전체 boot를 죽이지 않고 Claude hook 기능만 비활성으로
- * 운영해야 한다. CodedError와 errorFromServerFrame이 `code` 속성을
- * Error에 attach하므로 그 값을 검사한다.
+ * Decides whether a `hook.getInfo` response carries the `server.unavailable` code.
+ * It is a graceful-degrade signal that the agent failed to create the hookserver; the workspace
+ * must keep booting and run with only the Claude hook feature disabled.
+ * CodedError and errorFromServerFrame attach a `code` property to the
+ * Error, so that value is checked.
  */
 function isHookUnavailable(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
@@ -324,7 +323,7 @@ export class WorkspaceManager {
   // id, awaiting their first provider boot. Consumed by startRemoteProvider.
   private readonly adoptedSshMasters = new Map<string, SshControlMaster>();
   private readonly connectionStatuses = new Map<string, WorkspaceConnectionEventStatus>();
-  // pull 기반 hookserver 접속 정보 캐시 — channel.ready 직후 hook.getInfo RPC로 채워진다.
+  // Cache of pull-based hookserver connection info — filled by the hook.getInfo RPC right after channel.ready.
   private readonly hookInfoByWorkspace = new Map<string, HookInfo>();
   /**
    * Tracks workspaces with an in-flight automatic re-authentication attempt so
@@ -562,22 +561,22 @@ export class WorkspaceManager {
   }
 
   /**
-   * pull 기반으로 조회되어 메모리에 저장된 hookserver 접속 정보를 반환한다.
-   * ensureProviderReady 완료 전이거나 RPC 실패 시 null을 반환한다.
+   * Returns the hookserver connection info that was fetched by pull and stored in memory.
+   * Returns null before ensureProviderReady completes or when the RPC failed.
    */
   getHookInfo(workspaceId: string): HookInfo | null {
     return this.hookInfoByWorkspace.get(workspaceId) ?? null;
   }
 
   /**
-   * 워크스페이스 종류에 따라 래퍼 바이너리가 위치하는 bin 디렉터리의 절대 경로를 반환한다.
+   * Returns the absolute path of the bin directory that holds the wrapper binaries, by workspace kind.
    *
-   * - 로컬 워크스페이스: 로컬 배포 bin 디렉터리 (`getAgentBinDir()`).
+   * - Local workspace: the local deployment bin directory (`getAgentBinDir()`).
    *   On Windows, the directory of the nexus launchers alone: PowerShell
    *   and cmd cannot run the bash claude wrapper. Git Bash, which can, gets
    *   the wrapper's copy instead (pty/windows-shell-shim.ts).
-   * - SSH 워크스페이스:  bootstrap 결과의 `remoteBinDir` (절대 경로)
-   * - 워크스페이스 없음 / 채널 없음: null
+   * - SSH workspace:  `remoteBinDir` from the bootstrap result (absolute path)
+   * - No workspace / no channel: null
    */
   getWrapperBinDir(workspaceId: string): string | null {
     const ctx = this.contexts.get(workspaceId);
@@ -595,13 +594,13 @@ export class WorkspaceManager {
   }
 
   /**
-   * 워크스페이스 종류에 따라 에이전트 바이너리의 절대 경로를 반환한다.
+   * Returns the absolute path of the agent binary, by workspace kind.
    *
-   * - 로컬 워크스페이스: 로컬 배포 agent 바이너리 경로 (`getAgentBinaryPath()`).
+   * - Local workspace: the local deployment agent binary path (`getAgentBinaryPath()`).
    *   From the Microsoft Store, the package's alias for the agent: claude
    *   runs the hooks outside the package, and only the alias may start it.
-   * - SSH 워크스페이스:  `${remoteBinDir}/agent-<version>-<os>-<arch>` (bootstrap 결과에서 조립)
-   * - 워크스페이스 없음 / bootstrap 없음: null
+   * - SSH workspace:  `${remoteBinDir}/agent-<version>-<os>-<arch>` (assembled from the bootstrap result)
+   * - No workspace / no bootstrap: null
    */
   getWrapperAgentBin(workspaceId: string): string | null {
     const ctx = this.contexts.get(workspaceId);
@@ -624,17 +623,16 @@ export class WorkspaceManager {
   }
 
   /**
-   * 워크스페이스의 PTY 셸-셤 디렉터리(=`.zshrc`/`.zshenv`/`bashrc` 끼움 파일이
-   * 놓인 위치)의 절대 경로를 반환한다. `ipc.ts`의 spawn 핸들러가 이 값을
-   * ZDOTDIR(zsh) 또는 `--rcfile`(bash) 인자로 사용한다.
+   * Returns the absolute path of the workspace's PTY shell-shim directory (where the
+   * `.zshrc`/`.zshenv`/`bashrc` shim files live). The spawn handler in `ipc.ts` uses this value
+   * as the ZDOTDIR (zsh) or `--rcfile` (bash) argument.
    *
-   * - 로컬 워크스페이스: 로컬 `~/.nexus-code/shim/<workspaceId>` (=`shimDir()`).
-   *   끼움 파일들은 워크스페이스 부팅 시 `writeShimFiles()`로 이미 작성돼 있다.
-   * - SSH 워크스페이스:  bootstrap이 부트스트랩 시점에 원격에 업로드한
-   *   `<remoteHome>/.nexus-code/shim/<workspaceId>` 절대 경로
-   *   (`bootstrap.remoteShimDir`). 부트스트랩 결과에 없으면 null —
-   *   workspaceId 누락 또는 업로드 실패 케이스로, 셤 적용을 skip해야 함.
-   * - 워크스페이스 없음: null
+   * - Local workspace: local `~/.nexus-code/shim/<workspaceId>` (= `shimDir()`).
+   *   The shim files were already written by `writeShimFiles()` when the workspace booted.
+   * - SSH workspace:  the absolute path `<remoteHome>/.nexus-code/shim/<workspaceId>` that
+   *   bootstrap uploaded to the remote (`bootstrap.remoteShimDir`). Null when the bootstrap
+   *   result lacks it (a missing workspaceId or a failed upload); applying the shim must be skipped.
+   * - No workspace: null
    */
   getWrapperShimDir(workspaceId: string): string | null {
     const ctx = this.contexts.get(workspaceId);
@@ -1109,7 +1107,7 @@ export class WorkspaceManager {
     // leak its ssh process.
     this.adoptedSshMasters.get(id)?.dispose();
     this.adoptedSshMasters.delete(id);
-    // hookserver 접속 정보는 워크스페이스 제거 시 함께 삭제한다.
+    // The hookserver connection info is deleted together with the workspace.
     this.hookInfoByWorkspace.delete(id);
     this.removeShimDirQuietly(id);
     this.globalStorage.removeWorkspace(id);
@@ -1302,12 +1300,12 @@ export class WorkspaceManager {
       throw error;
     }
 
-    // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
-    // agent 내부에서 최대 5s 대기하므로 30s default timeout 안에 반드시 응답이 온다.
+    // Right after channel.ready, pull hook.getInfo and cache the hookserver connection info.
+    // The agent waits at most 5s internally, so a response always arrives within the 30s default timeout.
     //
-    // server.unavailable 코드는 agent가 hookserver 생성에 실패한 graceful degrade
-    // 신호다 — 워크스페이스 전체 boot를 죽이지 않고 hookInfo만 비운 채로 계속 진행한다.
-    // (push 시절 동작과 동등: hookserver 없으면 Claude hook 기능만 꺼지고 워크스페이스는 정상)
+    // The server.unavailable code is a graceful-degrade signal that the agent failed to create the
+    // hookserver — boot continues with hookInfo left empty instead of killing the whole workspace.
+    // (Same as the push-era behavior: without a hookserver only the Claude hook feature is off and the workspace is fine.)
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
@@ -1332,9 +1330,9 @@ export class WorkspaceManager {
       }
     }
 
-    // PTY shim 파일을 workspace-specific 디렉터리에 기록한다.
-    // 실패해도 PATH 우선순위가 깨질 뿐 hook 자체는 settings.json 절대경로로 동작하므로
-    // graceful warn 후 boot를 계속 진행한다.
+    // Write the PTY shim files into the workspace-specific directory.
+    // On failure only the PATH priority breaks (the hook itself works via the absolute path in settings.json),
+    // so warn gracefully and continue booting.
     try {
       await this.writeShimFiles(meta.id);
     } catch (shimErr) {
@@ -1515,12 +1513,12 @@ export class WorkspaceManager {
       throw error;
     }
 
-    // channel.ready 완료 직후 hook.getInfo를 pull해서 hookserver 접속 정보를 캐싱한다.
-    // SSH 환경에서 latency가 더 클 수 있으나 30s default timeout이 충분하다.
+    // Right after channel.ready, pull hook.getInfo and cache the hookserver connection info.
+    // Latency may be higher over SSH, but the 30s default timeout is enough.
     //
-    // server.unavailable 코드는 agent가 hookserver 생성에 실패한 graceful degrade
-    // 신호다. SSH 원격에서는 socket 경로 길이 제한(macOS 104자)에 걸릴 가능성이
-    // 로컬보다 높으므로 graceful 처리가 특히 중요하다.
+    // The server.unavailable code is a graceful-degrade signal that the agent failed to create the
+    // hookserver. On an SSH remote the socket path is more likely than locally to hit the length
+    // limit (104 chars on macOS), so graceful handling matters especially.
     try {
       const raw = await channel.call("hook.getInfo", {});
       if (!isHookInfo(raw)) {
@@ -1548,9 +1546,9 @@ export class WorkspaceManager {
       }
     }
 
-    // PTY shim 파일을 workspace-specific 디렉터리에 기록한다.
-    // SSH 워크스페이스의 shim은 로컬 프로세스용 — 원격 PATH 제어가 목적이 아니라
-    // 로컬 PTY spawn 시 env/args 주입을 위한 것이다. 실패는 graceful warn.
+    // Write the PTY shim files into the workspace-specific directory.
+    // An SSH workspace's shim serves local processes — its purpose is not remote PATH control but
+    // injecting env/args when a local PTY spawns. On failure, warn gracefully.
     try {
       await this.writeShimFiles(meta.id);
     } catch (shimErr) {
@@ -1635,13 +1633,10 @@ export class WorkspaceManager {
   }
 
   /**
-   * 에이전트 부트스트랩 진행 이벤트를 렌더러로 전달한다.
-   * workspaceId 범위로 scoped되므로 "새 워크스페이스 추가"와 "앱 시작 시 재연결" 양쪽 흐름 모두 커버한다.
+   * Forwards agent bootstrap progress events to the renderer.
+   * Scoped by workspaceId, so it covers both the "add new workspace" and "reconnect at app start" flows.
    */
-  private broadcastConnectionProgress(
-    workspaceId: string,
-    event: LspBootstrapProgressEvent,
-  ): void {
+  private broadcastConnectionProgress(workspaceId: string, event: LspBootstrapProgressEvent): void {
     this.broadcastFn("workspace", "connectionProgress", {
       workspaceId,
       name: event.name,
@@ -1733,8 +1728,7 @@ export class WorkspaceManager {
 
     // ── Terminal events: failure / exit ───────────────────────────────────
     const isAuthFailure =
-      event.type === "failure" &&
-      (event.error as { code?: string }).code === "ssh.auth-failed";
+      event.type === "failure" && (event.error as { code?: string }).code === "ssh.auth-failed";
     const meta = ctx.getMeta();
     const isInteractive = meta.location.kind === "ssh" && meta.location.authMode === "interactive";
 
@@ -1773,10 +1767,10 @@ export class WorkspaceManager {
       clearTimeout(pendingTimer);
       this.degradedRecoveryTimers.delete(workspaceId);
     }
-    // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
+    // Stale hookInfo is invalid once the channel dies — the next boot fills it again.
     this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-    // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
+    // Clean up the PTY shim directory — fire-and-forget, errors are swallowed as a warn.
     this.removeShimDir(workspaceId).catch((err: unknown) => {
       log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });
@@ -1856,7 +1850,9 @@ export class WorkspaceManager {
           // Other failures (connect error, etc.) handled by the new lifecycle
           // event from the fresh channel — don't double-broadcast here. Hold
           // state is preserved so the next channel's lifecycle can restore it.
-          log.warn(`reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`);
+          log.warn(
+            `reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`,
+          );
         }
       } finally {
         this.reauthInFlight.delete(workspaceId);
@@ -1911,11 +1907,11 @@ export class WorkspaceManager {
 
     this.localChannels.delete(workspaceId);
     this.localProviderReady.delete(workspaceId);
-    // Stale hookInfo는 채널이 죽은 시점에 무효 — 다음 boot가 다시 채운다.
-    // 보존해두면 reconnect 직후 spawn이 죽은 소켓 경로를 env에 박을 수 있다.
+    // Stale hookInfo is invalid once the channel dies — the next boot fills it again.
+    // Keeping it could let a spawn right after reconnect put a dead socket path in the env.
     this.hookInfoByWorkspace.delete(workspaceId);
     ctx.setFsProvider(createInitialFsProvider(ctx.getMeta()));
-    // PTY shim 디렉터리 정리 — fire-and-forget, error swallow는 warn으로.
+    // Clean up the PTY shim directory — fire-and-forget, errors are swallowed as a warn.
     this.removeShimDir(workspaceId).catch((err: unknown) => {
       log.warn(`shim dir removal failed for ${workspaceId}: ${(err as Error).message}`);
     });

@@ -22,8 +22,8 @@ const c = ipcContract.fs.call;
 
 export function watchHandler(
   watcher: AgentFsWatcher,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.watch.args, args);
     try {
       await watcher.watch(workspaceId, relPath);
@@ -36,8 +36,8 @@ export function watchHandler(
 
 export function unwatchHandler(
   watcher: AgentFsWatcher,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.unwatch.args, args);
     try {
       await watcher.unwatch(workspaceId, relPath);

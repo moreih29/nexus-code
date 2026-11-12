@@ -419,38 +419,38 @@ export class GlobalStorage {
     let pinnedSortOrder = 0;
 
     const db = this.db;
-    const txn = (
-      db as unknown as { transaction: (fn: () => void) => () => void }
-    ).transaction(() => {
-      let positionResult = this.computeInsertPosition({
-        groupKind: targetGroup,
-        beforeId,
-        afterId,
-      });
-
-      if ("rebalance" in positionResult) {
-        rebalancedRows = this.rebalanceGroup(targetGroup);
-        // After rebalance, positions are step-1024 so the gap will be ≥ 1024.
-        positionResult = this.computeInsertPosition({
+    const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
+      () => {
+        let positionResult = this.computeInsertPosition({
           groupKind: targetGroup,
           beforeId,
           afterId,
         });
+
         if ("rebalance" in positionResult) {
-          throw new Error(`rebalance did not open a gap for workspace reorder: ${id}`);
+          rebalancedRows = this.rebalanceGroup(targetGroup);
+          // After rebalance, positions are step-1024 so the gap will be ≥ 1024.
+          positionResult = this.computeInsertPosition({
+            groupKind: targetGroup,
+            beforeId,
+            afterId,
+          });
+          if ("rebalance" in positionResult) {
+            throw new Error(`rebalance did not open a gap for workspace reorder: ${id}`);
+          }
         }
-      }
 
-      const position = positionResult.position;
-      sortOrder = targetGroup === "unpinned" ? position : 0;
-      pinnedSortOrder = targetGroup === "pinned" ? position : 0;
+        const position = positionResult.position;
+        sortOrder = targetGroup === "unpinned" ? position : 0;
+        pinnedSortOrder = targetGroup === "pinned" ? position : 0;
 
-      this.updateSortOrder(id, {
-        sortOrder,
-        pinnedSortOrder,
-        pinned: pinnedChanged ? newPinned : undefined,
-      });
-    });
+        this.updateSortOrder(id, {
+          sortOrder,
+          pinnedSortOrder,
+          pinned: pinnedChanged ? newPinned : undefined,
+        });
+      },
+    );
 
     txn();
     return { sortOrder, pinnedSortOrder, rebalancedRows };
@@ -510,31 +510,20 @@ export class GlobalStorage {
     const { groupKind, beforeId, afterId } = params;
 
     if (beforeId !== undefined && afterId !== undefined) {
-      throw new Error(
-        "computeInsertPosition: beforeId and afterId are mutually exclusive",
-      );
+      throw new Error("computeInsertPosition: beforeId and afterId are mutually exclusive");
     }
 
     const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
     const pinnedFilter = groupKind === "pinned" ? 1 : 0;
 
-    // No reference → tail insertion.
-    if (beforeId === undefined && afterId === undefined) {
-      return { position: this.nextTailSortOrder(groupKind) };
-    }
-
     // Insert BEFORE `beforeId`: midpoint between beforeId's predecessor and beforeId.
     if (beforeId !== undefined) {
       const refRow = this.db
-        .prepare(
-          `SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`,
-        )
+        .prepare(`SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`)
         .get(beforeId, pinnedFilter) as { pos: number } | undefined;
 
       if (!refRow) {
-        throw new Error(
-          `computeInsertPosition: beforeId row not found in ${groupKind} group`,
-        );
+        throw new Error(`computeInsertPosition: beforeId row not found in ${groupKind} group`);
       }
 
       const prevRow = this.db
@@ -567,17 +556,18 @@ export class GlobalStorage {
       return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
     }
 
+    // No reference → tail insertion.
+    if (afterId === undefined) {
+      return { position: this.nextTailSortOrder(groupKind) };
+    }
+
     // Insert AFTER `afterId`: midpoint between afterId and afterId's successor.
     const refRow = this.db
-      .prepare(
-        `SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`,
-      )
-      .get(afterId!, pinnedFilter) as { pos: number } | undefined;
+      .prepare(`SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`)
+      .get(afterId, pinnedFilter) as { pos: number } | undefined;
 
     if (!refRow) {
-      throw new Error(
-        `computeInsertPosition: afterId row not found in ${groupKind} group`,
-      );
+      throw new Error(`computeInsertPosition: afterId row not found in ${groupKind} group`);
     }
 
     const nextRow = this.db
@@ -626,9 +616,7 @@ export class GlobalStorage {
       )
       .all(pinnedFilter) as { id: string; sort_order: number; pinned_sort_order: number }[];
 
-    const updateUnpinned = this.db.prepare(
-      "UPDATE workspaces SET sort_order = ? WHERE id = ?",
-    );
+    const updateUnpinned = this.db.prepare("UPDATE workspaces SET sort_order = ? WHERE id = ?");
     const updatePinned = this.db.prepare(
       "UPDATE workspaces SET pinned_sort_order = ? WHERE id = ?",
     );
@@ -636,28 +624,28 @@ export class GlobalStorage {
     const results: Array<{ id: string; sortOrder: number; pinnedSortOrder: number }> = [];
 
     const db = this.db;
-    const txn = (
-      db as unknown as { transaction: (fn: () => void) => () => void }
-    ).transaction(() => {
-      rows.forEach((row, index) => {
-        const newPos = (index + 1) * 1024;
-        if (groupKind === "pinned") {
-          updatePinned.run(newPos, row.id);
-          results.push({
-            id: row.id,
-            sortOrder: row.sort_order,
-            pinnedSortOrder: newPos,
-          });
-        } else {
-          updateUnpinned.run(newPos, row.id);
-          results.push({
-            id: row.id,
-            sortOrder: newPos,
-            pinnedSortOrder: row.pinned_sort_order,
-          });
-        }
-      });
-    });
+    const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
+      () => {
+        rows.forEach((row, index) => {
+          const newPos = (index + 1) * 1024;
+          if (groupKind === "pinned") {
+            updatePinned.run(newPos, row.id);
+            results.push({
+              id: row.id,
+              sortOrder: row.sort_order,
+              pinnedSortOrder: newPos,
+            });
+          } else {
+            updateUnpinned.run(newPos, row.id);
+            results.push({
+              id: row.id,
+              sortOrder: newPos,
+              pinnedSortOrder: row.pinned_sort_order,
+            });
+          }
+        });
+      },
+    );
 
     txn();
     return results;
@@ -773,9 +761,7 @@ export class GlobalStorage {
 
   listConnectionProfiles(): ConnectionProfile[] {
     const rows = this.db
-      .prepare(
-        `SELECT * FROM connection_profiles ORDER BY favorite DESC, last_used_at DESC`,
-      )
+      .prepare(`SELECT * FROM connection_profiles ORDER BY favorite DESC, last_used_at DESC`)
       .all() as ConnectionProfileRow[];
     return rows.map(rowToConnectionProfile);
   }

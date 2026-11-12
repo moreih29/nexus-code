@@ -33,9 +33,9 @@ import {
   acceptBoth,
   acceptCurrent,
   acceptIncoming,
+  type ConflictBlock,
   hasConflictMarkers,
   parseConflictBlocks,
-  type ConflictBlock,
 } from "./conflict-parser";
 
 // ---------------------------------------------------------------------------
@@ -387,10 +387,7 @@ function buildDecorationsForBlock(
  */
 function injectConflictStyles(_monaco: typeof Monaco): void {
   const styleId = "nexus-conflict-decorations";
-  if (
-    typeof document !== "undefined" &&
-    !document.getElementById(styleId)
-  ) {
+  if (typeof document !== "undefined" && !document.getElementById(styleId)) {
     const style = document.createElement("style");
     style.id = styleId;
     style.textContent = [

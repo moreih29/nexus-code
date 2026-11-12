@@ -57,7 +57,6 @@ function render(node: Node, index: number): ReactNode {
   const names = node.properties?.className;
   const className = Array.isArray(names) ? names.join(" ") : undefined;
   return (
-    // biome-ignore lint/suspicious/noArrayIndexKey: tokens have no identity but their place
     <span key={index} className={className}>
       {(node.children ?? []).map(render)}
     </span>

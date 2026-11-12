@@ -20,7 +20,10 @@ import i18next from "i18next";
  *   "1y ago"    — years
  *   "unknown time" — unparseable input
  */
-export function relativeTime(isoDateOrTimestampMs: string | number, now: number = Date.now()): string {
+export function relativeTime(
+  isoDateOrTimestampMs: string | number,
+  now: number = Date.now(),
+): string {
   const t = i18next.t.bind(i18next);
   const then =
     typeof isoDateOrTimestampMs === "number"

@@ -17,8 +17,8 @@
  *     next getAgentChannel boots a fresh channel).
  */
 
-import { describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,13 +29,9 @@ mock.module("electron", () => ({
 }));
 
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import(
-  "../../../../src/main/infra/storage/workspace-storage"
-);
+const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import(
-  "../../../../src/main/features/workspace/manager"
-);
+const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
 
 type ChannelLifecycleCallback = (event: { type: string }) => void;
 

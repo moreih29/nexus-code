@@ -88,8 +88,10 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
       const nodeRelPath = parentRelPath === "" ? seg : `${parentRelPath}/${seg}`;
       const depth = i + 1;
 
-      // Find existing child with this relPath.
-      let child = current.children!.find((c) => c.relPath === nodeRelPath);
+      // Find existing child with this relPath. `current` is the root or a dir,
+      // which always has a children array.
+      current.children ??= [];
+      let child = current.children.find((c) => c.relPath === nodeRelPath);
 
       if (!child) {
         child = {
@@ -100,7 +102,7 @@ export function buildPathTree(paths: readonly string[]): PathTreeNode {
           displayName: seg,
           children: isLast ? undefined : [],
         };
-        current.children!.push(child);
+        current.children.push(child);
       } else if (!isLast && child.kind === "file") {
         // A segment that was previously a file is now also a directory prefix.
         // Promote it to dir.

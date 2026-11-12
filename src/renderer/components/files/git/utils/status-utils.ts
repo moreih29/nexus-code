@@ -16,10 +16,14 @@ const GIT_GROUP_KEYS: readonly GitExpandedGroupKey[] = ["merge", "staged", "work
 function getGitGroupLabel(key: GitExpandedGroupKey): string {
   const t = i18next.t.bind(i18next);
   switch (key) {
-    case "merge": return t("files:git.statusGroups.merge");
-    case "staged": return t("files:git.statusGroups.staged");
-    case "working": return t("files:git.statusGroups.working");
-    case "untracked": return t("files:git.statusGroups.untracked");
+    case "merge":
+      return t("files:git.statusGroups.merge");
+    case "staged":
+      return t("files:git.statusGroups.staged");
+    case "working":
+      return t("files:git.statusGroups.working");
+    case "untracked":
+      return t("files:git.statusGroups.untracked");
   }
 }
 
@@ -28,9 +32,11 @@ function getGitGroupLabel(key: GitExpandedGroupKey): string {
  */
 export function buildGitGroups(status: GitStatus | null | undefined): GitGroupDescriptor[] {
   if (!status) return [];
-  return GIT_GROUP_KEYS
-    .map((key) => ({ key, label: getGitGroupLabel(key), entries: status[key] }))
-    .filter((group) => group.entries.length > 0);
+  return GIT_GROUP_KEYS.map((key) => ({
+    key,
+    label: getGitGroupLabel(key),
+    entries: status[key],
+  })).filter((group) => group.entries.length > 0);
 }
 
 /**

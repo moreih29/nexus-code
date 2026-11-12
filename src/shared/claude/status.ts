@@ -1,20 +1,20 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
-// Claude 세션 상태 enum
+// Claude session status enum
 // ---------------------------------------------------------------------------
 
 /**
- * Claude Code 세션의 6가지 실행 상태.
+ * The 6 execution states of a Claude Code session.
  *
- * - idle            : 세션 미시작 또는 사용자가 completed를 확인한 후 — 조용한 기본 상태.
- * - running         : SessionStart / UserPromptSubmit / PreToolUse 진행 중.
- * - completed       : Stop hook 직후 — 응답이 끝나 사용자가 확인해야 함을 표시. 다음
- *                     SessionStart/UserPromptSubmit/PreToolUse로 자동 running 전이되거나,
- *                     사용자가 해당 탭을 활성화하면 (markSeen IPC) idle로 전이된다.
- * - needsInput      : Notification hook 수신 — 일반 사용자 입력 대기 (60s idle 등).
- * - permissionPending: PermissionRequest hook 진행 중 — 사용자 결정 대기 (sync).
- * - error           : Claude Code 비정상 종료 또는 hook 처리 실패.
+ * - idle            : session not started, or after the user acknowledged completed — the quiet default.
+ * - running         : SessionStart / UserPromptSubmit / PreToolUse in progress.
+ * - completed       : right after the Stop hook — the response ended and the user should check it. The next
+ *                     SessionStart/UserPromptSubmit/PreToolUse moves it to running automatically, or
+ *                     the user activating that tab (markSeen IPC) moves it to idle.
+ * - needsInput      : Notification hook received — waiting for ordinary user input (60s idle etc.).
+ * - permissionPending: PermissionRequest hook in progress — waiting for a user decision (sync).
+ * - error           : Claude Code exited abnormally or hook handling failed.
  */
 export const ClaudeStatusSchema = z.enum([
   "idle",
@@ -28,14 +28,14 @@ export const ClaudeStatusSchema = z.enum([
 export type ClaudeStatus = z.infer<typeof ClaudeStatusSchema>;
 
 // ---------------------------------------------------------------------------
-// StatusEntry — 워크스페이스·탭 단위 상태 페이로드
+// StatusEntry — status payload per workspace and tab
 // ---------------------------------------------------------------------------
 
 /**
- * 특정 (workspaceId, tabId) 쌍의 현재 Claude 세션 상태를 나타내는 페이로드.
+ * Payload for the current Claude session status of a specific (workspaceId, tabId) pair.
  *
- * since 는 상태가 마지막으로 변경된 시각을 Date.now() ms 단위로 기록한다.
- * main → renderer broadcast 및 snapshot 응답에서 공통으로 사용된다.
+ * since records when the status last changed, in Date.now() ms.
+ * Shared by the main → renderer broadcast and the snapshot response.
  */
 export const StatusEntrySchema = z.object({
   workspaceId: z.string().min(1),
@@ -61,24 +61,24 @@ export type StatusEntry = z.infer<typeof StatusEntrySchema>;
 export const PROMPT_MAX_CHARS = 100_000;
 
 // ---------------------------------------------------------------------------
-// HookRequest — agent→main NDJSON hook 요청 (IPC contract에는 등록하지 않음)
+// HookRequest — agent→main NDJSON hook request (not registered in the IPC contract)
 // ---------------------------------------------------------------------------
 
 /**
- * Go agent의 hookserver 가 main 으로 전달하는 hook 요청 프레임.
+ * The hook request frame the Go agent's hookserver forwards to main.
  *
- * hookId는 agent가 발급한 UUID로, main이 respondHook을 통해 응답을 돌려줄 때
- * 어느 in-flight 연결에 응답할지 식별하는 correlationId 역할을 한다.
+ * hookId is a UUID issued by the agent; it acts as the correlationId that identifies
+ * which in-flight connection to answer when main replies through respondHook.
  *
- * payload는 Claude Code가 hook 프로세스 stdin에 쓴 원본 JSON을 그대로 담는다.
- * subcommand별 payload 구조가 다르므로 z.unknown()으로 받아 각 handler에서 구체화한다.
+ * payload carries, as is, the raw JSON Claude Code wrote to the hook process's stdin.
+ * The payload shape differs per subcommand, so it is accepted as z.unknown() and narrowed in each handler.
  *
- * assistantText는 Stop hook subcommand에서만 채워지는 옵션 필드다. payload의
- * last_assistant_message를, 그것이 없는 Claude Code 버전에서는 hookclient가
- * transcript_path를 직접 읽은 마지막 assistant 메시지 텍스트를 단일 줄로
- * 정규화 + truncate한 값. transcript가 없거나 파싱 실패 시 undefined.
- * Hook 실행 호스트(로컬 또는 SSH 원격)와 transcript_path가 동일 fs이므로 main이
- * 호스트별 fs 라우팅을 알 필요 없다.
+ * assistantText is an optional field filled only for the Stop hook subcommand. It is the payload's
+ * last_assistant_message or, on Claude Code versions without it, the text of the last assistant
+ * message that hookclient read directly from transcript_path, normalized to a single line
+ * and truncated. undefined when there is no transcript or parsing fails.
+ * The hook execution host (local or SSH remote) and transcript_path are on the same fs, so main does not need to
+ * know the per-host fs routing.
  */
 export const HookRequestSchema = z.object({
   hookId: z.string().min(1),
@@ -117,14 +117,14 @@ export const HookGoneSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// HookResponse — main→agent 응답 (hook 프로세스 stdout 으로 write)
+// HookResponse — main→agent response (written to the hook process's stdout)
 // ---------------------------------------------------------------------------
 
 /**
- * main이 agent에게 돌려주는 hook 응답.
+ * The hook response main returns to the agent.
  *
- * stdout이 있으면 hook 프로세스가 그 내용을 stdout에 write 후 exit한다.
- * exitCode 를 지정하지 않으면 agent는 0으로 처리한다.
+ * If stdout is present, the hook process writes that content to stdout and then exits.
+ * If exitCode is not specified, the agent treats it as 0.
  */
 export const HookResponseSchema = z.object({
   stdout: z.string().optional(),

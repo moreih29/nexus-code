@@ -283,6 +283,7 @@
 .xterm,
 .xterm .xterm-viewport,
 .xterm .xterm-screen {
+  /* biome-ignore lint/complexity/noImportantStyles: xterm sets the viewport's background inline, from its theme. */
   background-color: transparent !important;
 }
 
@@ -568,7 +569,9 @@
   position: absolute;
   left: -1.1em;
   top: 0.2em;
-  transition: opacity 0.1s ease, transform 0.12s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.12s ease;
 }
 .md-preview .md-heading[data-collapsed] .md-heading-fold {
   transform: rotate(-90deg);
@@ -582,9 +585,10 @@
 .md-preview .md-heading[data-collapsed] .md-heading-fold {
   opacity: 0.65;
 }
-.md-preview .md-heading-fold:hover,
-.md-preview .md-heading-anchor:hover {
-  opacity: 1 !important;
+/* Inside a heading, to outrank the rules above (same specificity, later). */
+.md-preview .md-heading .md-heading-fold:hover,
+.md-preview .md-heading .md-heading-anchor:hover {
+  opacity: 1;
 }
 
 /* Collapsed sections — siblings hidden imperatively after each render. */
@@ -716,15 +720,12 @@
   opacity: 1;
 }
 
-/* A ```mermaid block's diagram: its own width, shrunk to the column. */
+/* A ```mermaid block's diagram: its own width, shrunk to the column as
+   every image is (see "Images and inline media" below). */
 .md-preview .md-mermaid {
   display: flex;
   justify-content: center;
   min-height: 2em;
-}
-.md-preview .md-mermaid > img {
-  max-width: 100%;
-  height: auto;
 }
 /* mermaid's message points at the error with a caret under the line. */
 .md-preview .md-mermaid-failed > p {

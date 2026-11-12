@@ -38,9 +38,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
     if (result.ok) return result.value as T;
     throw new Error(result.message ?? "git ipc error");
   },
-  isIpcResult: (v: unknown): boolean => v !== null && typeof v === "object" && "ok" in (v as object),
-  isIpcOkResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
-  isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  isIpcResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
   ipcStream: () => ({ promise: Promise.resolve(undefined), onProgress: () => () => {} }),
 }));
 

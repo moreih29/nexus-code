@@ -33,14 +33,16 @@ export type WorkspaceConnectionStatus =
 export interface WorkspacesState {
   workspaces: WorkspaceMeta[];
   connectionStatusByWorkspaceId: Record<string, WorkspaceConnectionStatus>;
-  /** 워크스페이스 ID별 마지막 부트스트랩 진행 이벤트. 연결 완료/오류 시 undefined로 클리어된다. */
+  /** Last bootstrap progress event per workspace ID. Cleared to undefined on connection complete/error. */
   connectionProgressByWorkspaceId: Record<string, WorkspaceConnectionProgressEvent | undefined>;
   setAll: (workspaces: WorkspaceMeta[]) => void;
   upsert: (meta: WorkspaceMeta) => void;
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
   /** Bulk-update sort positions after a server-side group rebalance. */
-  reorder: (orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>) => void;
+  reorder: (
+    orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>,
+  ) => void;
 }
 
 interface WorkspacesStoreDeps {
@@ -175,8 +177,8 @@ function workspaceIsOnline(
 }
 
 /**
- * 워크스페이스의 마지막 부트스트랩 진행 이벤트를 반환한다.
- * 연결이 terminal 상태에 도달하면 undefined를 반환한다.
+ * Returns the last bootstrap progress event of a workspace.
+ * Returns undefined once the connection reaches a terminal state.
  */
 export function selectWorkspaceConnectionProgress(
   state: WorkspacesState,
@@ -322,8 +324,8 @@ export function createWorkspacesStore(deps: WorkspacesStoreDeps = defaultWorkspa
       deps.listen("workspace", "connectionChanged", ({ workspaceId, status }) => {
         set((state) => {
           const displayStatus = statusFromConnectionEvent(status);
-          // 연결이 terminal 상태(connected/error/idle/disconnected)에 도달하면
-          // 진행 표시줄이 남아있지 않도록 progress 항목을 클리어한다.
+          // When the connection reaches a terminal state (connected/error/idle/disconnected),
+          // clear the progress entry so no progress bar remains.
           const isTerminal = displayStatus !== "connecting" && displayStatus !== "reconnecting";
           const nextProgress = isTerminal
             ? { ...state.connectionProgressByWorkspaceId, [workspaceId]: undefined }

@@ -33,9 +33,7 @@ function throughSnapshot(tabId: string): SerializedTab {
 describe("a tab's titles across a restart", () => {
   it("a renamed chat tab stays the user's name, its conversation's title under it", () => {
     useTabsStore.setState({ byWorkspace: {} });
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS, { type: "claude", props: { cwd: CWD } });
+    const tab = useTabsStore.getState().createTab(WS, { type: "claude", props: { cwd: CWD } });
     useTabsStore.getState().setProcessTitle(WS, tab.id, "Fix the login bug");
     useTabsStore.getState().renameTab(WS, tab.id, "Login");
 

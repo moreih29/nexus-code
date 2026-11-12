@@ -100,9 +100,7 @@ describe("AC-1: v5 migration on DB with pre-existing local bookmarks", () => {
 
     applyMigrations(db);
 
-    const row = db
-      .prepare("SELECT * FROM folder_bookmarks WHERE id = ?")
-      .get(uuid(1)) as {
+    const row = db.prepare("SELECT * FROM folder_bookmarks WHERE id = ?").get(uuid(1)) as {
       id: string;
       abs_path: string;
       label: string;
@@ -234,7 +232,12 @@ describe("AC-2: orphan ssh bookmark — excluded from list and eviction cap", ()
     });
 
     // Orphan profile + ssh bookmark that will be deleted
-    storage.recordConnectionProfile({ id: uuid(300), host: "deleted-server", user: "alice", port: 22 });
+    storage.recordConnectionProfile({
+      id: uuid(300),
+      host: "deleted-server",
+      user: "alice",
+      port: 22,
+    });
     storage.recordFolderBookmark({
       id: uuid(20),
       absPath: "/remote/deleted",
@@ -360,9 +363,9 @@ describe("AC-3: ssh upsert via partial UNIQUE and local backward compat", () => 
       }),
     ).not.toThrow();
 
-    const rows = db
-      .prepare("SELECT kind FROM folder_bookmarks ORDER BY kind")
-      .all() as { kind: string }[];
+    const rows = db.prepare("SELECT kind FROM folder_bookmarks ORDER BY kind").all() as {
+      kind: string;
+    }[];
     expect(rows.length).toBe(2);
     expect(rows.map((r) => r.kind).sort()).toEqual(["local", "ssh"]);
   });

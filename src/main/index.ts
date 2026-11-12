@@ -150,11 +150,11 @@ if (!isWindows()) {
   process.env.SHELL = loginShell();
 }
 
-// macOS / Linux GUI 앱은 launchd 기본 PATH(`/usr/bin:/bin:/usr/sbin:/sbin`)만
-// 받기 때문에 자식 프로세스(PTY shell, ssh, sftp)가 사용자 `~/.local/bin`,
-// `/opt/homebrew/bin`, `~/.cargo/bin` 등을 못 본다. packaged 모드에서만
-// 사용자 login+interactive shell의 `$PATH`를 한 번 동기화한다. dev 모드는
-// 부모 shell PATH가 이미 살아 있어서 동기화 불필요(또한 부팅 지연 회피).
+// A macOS / Linux GUI app only gets the launchd default PATH (`/usr/bin:/bin:/usr/sbin:/sbin`),
+// so child processes (PTY shell, ssh, sftp) cannot see the user's `~/.local/bin`,
+// `/opt/homebrew/bin`, `~/.cargo/bin`, etc. Only in packaged mode,
+// the user's login+interactive shell `$PATH` is synced once. Dev mode already has
+// the parent shell PATH, so syncing is unnecessary (and it avoids a boot delay).
 if (app.isPackaged) {
   syncUserShellPath();
 }
@@ -231,6 +231,12 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
     if (currentViews[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
       stateService.setState({ agentListViewByWorkspace: restViews });
+    }
+    // And the view its files panel was left on.
+    const currentModes = currentState.filesPanelModeByWorkspace ?? {};
+    if (currentModes[removedWorkspaceId] !== undefined) {
+      const { [removedWorkspaceId]: _removedMode, ...restModes } = currentModes;
+      stateService.setState({ filesPanelModeByWorkspace: restModes });
     }
     // And whether its task view showed its facts unfolded.
     const unfoldedTasks = currentState.agentListUnfoldedTasks ?? [];
@@ -530,9 +536,9 @@ app.whenReady().then(async () => {
     (workspaceId) => agentPtyHost?.releaseHeld(workspaceId),
   );
 
-  // Claude feature 초기화 — broker / hook-handler wiring.
-  // notificationsEnabled getter는 Settings의 OS 알림 토글을 실시간 반영한다.
-  // 매 발사 직전 stateService를 조회하므로 토글 변경이 즉시 효력.
+  // Initialize the Claude feature — broker / hook-handler wiring.
+  // The notificationsEnabled getter reflects the Settings OS notification toggle live.
+  // It queries stateService just before each fire, so a toggle change takes effect at once.
   const notificationsEnabled = () => stateService.getState().osNotificationsEnabled ?? true;
   const claudeSetup = setupClaudeFeature({
     agentHost: agentPtyHost,
@@ -622,7 +628,7 @@ app.whenReady().then(async () => {
     forwards,
   });
 
-  // hookserver 접속 정보는 pull 기반으로 workspaceManager.getHookInfo()에서 조회한다.
+  // The hookserver connection info is looked up by pull from workspaceManager.getHookInfo().
   // A program's own OS notifications (OSC 9/777/99) follow Claude's rules.
   registerPtyChannel({
     agentHost: agentPtyHost,

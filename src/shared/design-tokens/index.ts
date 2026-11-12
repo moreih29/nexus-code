@@ -11,7 +11,7 @@
 //
 // NOTE: ./marketing.ts exists and is NOT re-exported here.
 //   The marketing 18-role type scale is removed from the in-app token surface
-//   per design.md §5 ("마케팅 18-role 타입스케일은 in-app UI에 사용할 수 없다").
+//   per design.md §5 ("the marketing 18-role type scale cannot be used in in-app UI").
 //   Existing CSS output for marketing text roles is preserved in
 //   generate-theme-css.ts via direct import during the transition period.
 
@@ -20,14 +20,14 @@
 // ---------------------------------------------------------------------------
 
 export {
-  color,
-  fontFamily,
-  spacing,
-  spacingInApp,
-  radiusScale,
-  islandGeometry,
   borderRadius,
   breakpoint,
+  color,
+  fontFamily,
+  islandGeometry,
+  radiusScale,
+  spacing,
+  spacingInApp,
 } from "./primitive";
 
 // ---------------------------------------------------------------------------
@@ -47,15 +47,15 @@ export { buildShadcnVars, SEALED } from "./component";
 // ---------------------------------------------------------------------------
 
 export type { ThemeId } from "./themes";
-export { THEMES, DEFAULT_THEME, THEME_SOURCES, THEME_SOURCE_BY_ID } from "./themes";
+export { DEFAULT_THEME, THEME_SOURCE_BY_ID, THEME_SOURCES, THEMES } from "./themes";
 
 // ---------------------------------------------------------------------------
 // theme-adapter — exposes buildSemanticTokens / buildEditorPalette to
 // downstream consumers (palette.ts, tests, scripts).
 // ---------------------------------------------------------------------------
 
-export { buildSemanticTokens, buildEditorPalette } from "./theme-adapter";
 export type { EditorPalette } from "./theme-adapter";
+export { buildEditorPalette, buildSemanticTokens } from "./theme-adapter";
 export type { ThemeSource } from "./theme-sources";
 
 // ---------------------------------------------------------------------------

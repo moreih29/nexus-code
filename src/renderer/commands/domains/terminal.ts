@@ -16,9 +16,7 @@ export function registerTerminalCommands(): Array<() => void> {
     registerCommand(COMMANDS.terminalNew, () => {
       const workspaceId = useActiveStore.getState().activeWorkspaceId;
       if (!workspaceId) return;
-      const workspace = useWorkspacesStore
-        .getState()
-        .workspaces.find((w) => w.id === workspaceId);
+      const workspace = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
       if (!workspace) return;
       openTerminal({ workspaceId, cwd: workspace.rootPath });
     }),

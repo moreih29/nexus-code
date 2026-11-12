@@ -49,9 +49,10 @@ export function CredentialPromptDialogContent({
 }: CredentialPromptDialogContentProps): React.JSX.Element {
   const { t } = useTranslation("files");
   const inputId = `git-credential-${prompt.promptId}`;
-  const title = prompt.field === "passphrase"
-    ? t("git.credentials.sshPassphraseTitle")
-    : t("git.credentials.title");
+  const title =
+    prompt.field === "passphrase"
+      ? t("git.credentials.sshPassphraseTitle")
+      : t("git.credentials.title");
   const label =
     prompt.field === "username"
       ? t("git.credentials.usernameLabel")

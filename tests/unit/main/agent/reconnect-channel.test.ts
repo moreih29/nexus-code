@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from "bun:test";
 import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
 import type { ChannelLifecycleEvent } from "../../../../src/main/infra/agent/channel/index";
+import { createLocalChannel } from "../../../../src/main/infra/agent/channel/local-channel";
 import { createSshChannel } from "../../../../src/main/infra/agent/ssh/channel";
 
 class FakeStream extends EventEmitter {
@@ -327,9 +327,7 @@ describe("agentEpoch reattach handshake", () => {
       channel.onLifecycle((e) => lifecycle.push(e));
 
       const EPOCH = 12345;
-      children[0]?.stdout.emitData(
-        `${JSON.stringify({ type: "ready", agentEpoch: EPOCH })}\n`,
-      );
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: EPOCH })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
       children[0]?.emit("close", 137, "SIGKILL");
@@ -339,9 +337,7 @@ describe("agentEpoch reattach handshake", () => {
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
       // Reconnect with same epoch → reattach OK
-      child1.stdout.emitData(
-        `${JSON.stringify({ type: "ready", agentEpoch: EPOCH })}\n`,
-      );
+      child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: EPOCH })}\n`);
       await flushMicrotasks();
 
       expect(lifecycle.map((e) => e.type)).not.toContain("held-then-expired");
@@ -363,9 +359,7 @@ describe("agentEpoch reattach handshake", () => {
 
       const OLD_EPOCH = 11111;
       const NEW_EPOCH = 99999;
-      children[0]?.stdout.emitData(
-        `${JSON.stringify({ type: "ready", agentEpoch: OLD_EPOCH })}\n`,
-      );
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: OLD_EPOCH })}\n`);
       await expect(channel.ready).resolves.toBeUndefined();
 
       children[0]?.emit("close", 137, "SIGKILL");
@@ -377,9 +371,7 @@ describe("agentEpoch reattach handshake", () => {
       await flushMicrotasks();
       const child1 = children[1] as FakeAgentChild;
       // New daemon with different epoch
-      child1.stdout.emitData(
-        `${JSON.stringify({ type: "ready", agentEpoch: NEW_EPOCH })}\n`,
-      );
+      child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: NEW_EPOCH })}\n`);
       await flushMicrotasks();
 
       // held-then-expired emitted with correct epoch fields
@@ -460,9 +452,7 @@ describe("heartbeat degraded signal", () => {
       expect(lifecycle.map((e) => e.type)).not.toContain("degraded-recovered");
 
       // Heartbeat arrives — degraded-recovered should fire
-      children[0]?.stdout.emitData(
-        `${JSON.stringify({ event: "agent.heartbeat" })}\n`,
-      );
+      children[0]?.stdout.emitData(`${JSON.stringify({ event: "agent.heartbeat" })}\n`);
       await flushMicrotasks();
 
       expect(lifecycle.map((e) => e.type)).toContain("degraded-recovered");

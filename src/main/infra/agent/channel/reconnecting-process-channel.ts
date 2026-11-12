@@ -1,5 +1,8 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createLogger } from "../../../../shared/log/main";
+import type { StderrClassifier } from "../pipe";
+import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
+import { ChannelEventRegistry } from "./event-registry";
 import type {
   AgentCallOptions,
   AgentChannel,
@@ -7,9 +10,6 @@ import type {
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "./index";
-import { ChannelEventRegistry } from "./event-registry";
-import type { StderrClassifier } from "../pipe";
-import { createNdjsonPipe, type NdjsonPipe, type SshError } from "../pipe";
 
 /**
  * Lazy logger bound to source "agent-channel". Created on first use so the

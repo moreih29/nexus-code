@@ -94,8 +94,7 @@ describe("workspace.testSsh handler", () => {
       port: 2222,
       identityFile: "/tmp/key",
       authMode: "key-only",
-      remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
+      remoteCommand: "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
     });
     expect(calls).toEqual([{ method: "fs.readdir", params: { relPath: "." } }]);
     expect(channel.dispose).toHaveBeenCalledTimes(1);
@@ -165,8 +164,7 @@ describe("workspace.testSsh handler", () => {
   it("reuses the bootstrap ControlMaster for interactive validation and disposes it", async () => {
     const bootstrapDispose = mock(() => {});
     const sshBootstrap = mock(async () => ({
-      remoteCommand:
-        "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
+      remoteCommand: "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
       platform: { os: "linux" as const, arch: "amd64" as const },
       uploaded: true,
       controlPath: "/tmp/nexus-ssh/control.sock",
@@ -201,8 +199,7 @@ describe("workspace.testSsh handler", () => {
     expect(createChannel).toHaveBeenCalledWith(
       expect.objectContaining({
         authMode: "interactive",
-        remoteCommand:
-          "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
+        remoteCommand: "bash -lc 'exec ~/.nexus-code/bin/agent-0.1.0-linux-amd64 /srv/project'",
         controlPath: "/tmp/nexus-ssh/control.sock",
       }),
     );

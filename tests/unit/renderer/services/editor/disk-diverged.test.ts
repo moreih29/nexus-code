@@ -7,11 +7,14 @@
 // or Monaco singleton — keeping this test self-contained and fast.
 
 import { describe, expect, test } from "bun:test";
+import type {
+  ModelEntry,
+  ModelEntryDeps,
+} from "../../../../../src/renderer/services/editor/model/entry";
 import {
   reconcileExternalChange,
   reloadEntryFromDisk,
 } from "../../../../../src/renderer/services/editor/model/entry";
-import type { ModelEntry, ModelEntryDeps } from "../../../../../src/renderer/services/editor/model/entry";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,11 +78,7 @@ function makeDeps(overrides: Partial<ModelEntryDeps> = {}): ModelEntryDeps {
  * Build a minimal ModelEntry that is already in the "ready" phase so
  * reconcileExternalChange / reloadEntryFromDisk can run their full body.
  */
-function makeEntry(
-  modelValue: string,
-  lastLoadedValue: string,
-  deps: ModelEntryDeps,
-): ModelEntry {
+function makeEntry(modelValue: string, lastLoadedValue: string, deps: ModelEntryDeps): ModelEntry {
   const model = makeModel(modelValue);
   return {
     input: { workspaceId: "ws-1", filePath: "/workspace/src/a.ts" },

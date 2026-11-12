@@ -1,18 +1,19 @@
 /**
  * Content handlers — Git object reads used by diff tabs.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
+import type { FileReadResult } from "../../../../shared/fs/types";
 import {
   AgentGitGetFileContentResultSchema,
   GIT_GET_FILE_CONTENT_METHOD,
 } from "../../../../shared/git/protocol";
-import type { FileReadResult } from "../../../../shared/fs/types";
-import { GitError } from "../domain/error";
-import type { GitRegistry } from "../domain/registry";
-import { isAgentBackedProvider } from "../../fs/bridge/provider";
-import type { WorkspaceManager } from "../../workspace/manager";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
+import { isAgentBackedProvider } from "../../fs/bridge/provider";
+import type { WorkspaceManager } from "../../workspace/manager";
+import { GitError } from "../domain/error";
+import type { GitRegistry } from "../domain/registry";
 import { handleGitHandlerError } from "./git-result";
 
 const c = ipcContract.git.call;
@@ -31,10 +32,10 @@ const c = ipcContract.git.call;
  * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function getFileContentHandler(
-  registry: GitRegistry,
+  _registry: GitRegistry,
   manager?: WorkspaceManager,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+  return async (args: unknown, _ctx?: CallContext): Promise<unknown> => {
     try {
       const { workspaceId, ref, relPath } = validateArgs(c.getFileContent.args, args);
 

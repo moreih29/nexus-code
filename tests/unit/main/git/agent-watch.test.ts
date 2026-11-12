@@ -93,9 +93,7 @@ describe("AgentGitWatcher", () => {
     emitLifecycle({ type: "ready" });
     await settle();
 
-    expect(provider.callAgentMethod.mock.calls).toEqual([
-      ["git.watch", { gitDir: "/repo/.git" }],
-    ]);
+    expect(provider.callAgentMethod.mock.calls).toEqual([["git.watch", { gitDir: "/repo/.git" }]]);
   });
 
   it("does not replay on non-ready lifecycle events or after dispose", async () => {

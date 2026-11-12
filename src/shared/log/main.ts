@@ -59,7 +59,11 @@ function configureFileTransport(
   fileTransport.resolvePathFn = () => nodePath.join(logsDir, "main.log");
   fileTransport.level = "debug";
 
-  fileTransport.format = ({ message }: { message: { date: Date; level: string; data: unknown[]; variables?: Record<string, string> } }) => {
+  fileTransport.format = ({
+    message,
+  }: {
+    message: { date: Date; level: string; data: unknown[]; variables?: Record<string, string> };
+  }) => {
     const [head, ...rest] = message.data;
 
     let source: string = message.variables?.processType ?? "main";
@@ -117,7 +121,11 @@ function configureConsoleTransport(log: {
     });
   }
 
-  consoleTransport.format = ({ message }: { message: { date: Date; level: string; data: unknown[]; variables?: Record<string, string> } }) => {
+  consoleTransport.format = ({
+    message,
+  }: {
+    message: { date: Date; level: string; data: unknown[]; variables?: Record<string, string> };
+  }) => {
     const [head, ...rest] = message.data;
 
     let source: string = message.variables?.processType ?? "main";
@@ -229,4 +237,3 @@ export function createLogger(source: LogSource | string): Logger {
     },
   };
 }
-

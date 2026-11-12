@@ -11,6 +11,7 @@
  */
 
 import { afterAll, describe, expect, mock, test } from "bun:test";
+import type { EffectCallback } from "react";
 
 // ---------------------------------------------------------------------------
 // Minimal document stub — bun:test has no jsdom by default.  We only need
@@ -82,7 +83,7 @@ mock.module("react", () => ({
   ...realReact,
   useCallback: <T extends (...args: never[]) => unknown>(callback: T) => callback,
   useRef: <T>(initial: T) => ({ current: initial }),
-  useEffect: (cb: () => void | (() => void)) => {
+  useEffect: (cb: EffectCallback) => {
     const ret = cb();
     if (typeof ret === "function") pendingCleanups.push(ret);
   },
@@ -112,9 +113,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 // Re-import after the mock has been registered so the store binds to it.
-const { useDragSource } = await import(
-  "../../../../../src/renderer/components/ui/use-drag-source"
-);
+const { useDragSource } = await import("../../../../../src/renderer/components/ui/use-drag-source");
 const { useBrowserSuspendStore } = await import(
   "../../../../../src/renderer/state/stores/browser-suspend"
 );
@@ -191,7 +190,9 @@ describe("useDragSource — browser-suspend integration", () => {
 
     // After dragstart: count=1, suspendAll IPC fired exactly once.
     expect(useBrowserSuspendStore.getState().count).toBe(1);
-    expect(ipcCalls).toEqual([{ channel: "browser", method: "suspendAll", args: { captureSnapshot: false } }]);
+    expect(ipcCalls).toEqual([
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: false } },
+    ]);
 
     // Simulate dragend on document — our one-shot listener should fire.
     docStub.dispatchEvent(new Event("dragend"));

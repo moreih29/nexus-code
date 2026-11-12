@@ -6,20 +6,20 @@ import type {
   ChannelLifecycleEvent,
 } from "../channel";
 import { ChannelEventRegistry } from "../channel/event-registry";
-import { createDisposedError, createSshError } from "../pipe";
 import {
   type AgentReconnectOptions,
   type ChannelCloseContext,
   createReconnectingProcessChannel,
 } from "../channel/reconnecting-process-channel";
+import { createDisposedError, createSshError } from "../pipe";
 import { classifyAuthLine } from "./auth";
 import {
   type AuthenticateSshControlMasterDependencies,
   authenticateSshControlMaster,
   type SshAuthPromptHandler,
 } from "./auth-pty";
-import { REMOTE_AGENT_PROTOCOL_MAJOR } from "./ssh-bootstrap/index";
 import { type SpawnSshProcess, type SshMasterOptions, spawnSshMaster } from "./master";
+import { REMOTE_AGENT_PROTOCOL_MAJOR } from "./ssh-bootstrap/index";
 
 /**
  * Back-compat aliases. The SSH channel was the original concrete channel
@@ -151,9 +151,7 @@ function createAuthenticatedSshChannel(
       );
       disposeInnerLifecycle = inner.onLifecycle((event) => emitLifecycle(event));
       const liveInner = inner;
-      events.rebind((event) =>
-        liveInner.on(event, (payload) => events.emit(event, payload)),
-      );
+      events.rebind((event) => liveInner.on(event, (payload) => events.emit(event, payload)));
       for (const call of pendingCalls.splice(0)) {
         inner.call(call.method, call.params, call.options).then(call.resolve, call.reject);
       }

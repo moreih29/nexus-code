@@ -9,7 +9,7 @@
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
-import type { ProfileMove } from "../../../shared/types/layout";
+import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
 import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
@@ -124,6 +124,8 @@ export interface ChatTabTarget {
   profileId?: string;
   /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
+  /** The model and effort the user picked in the tab before. */
+  chosen?: ChatChosen;
 }
 
 export interface ChatTabHooks {
@@ -149,6 +151,8 @@ export interface ChatTabHooks {
   onMoves?: (moves: readonly ProfileMove[]) => void;
   /** Who sent a message another agent sent through the nexus command, by its id. */
   onRelayed?: (record: RelayedMessage) => void;
+  /** The model or effort the user picked, for the tab to keep. */
+  onChosen?: (chosen: ChatChosen) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -202,8 +206,10 @@ export class ChatController {
   readonly key: string;
   private target: ChatTabTarget;
   private hooks: ChatTabHooks;
-  /** The flag settings the tab's commands set (/add-dir, /sandbox). */
+  /** The flag settings the tab's commands set (/add-dir, /sandbox, the effort picked). */
   private flags: Record<string, unknown> = {};
+  /** The model picked in the tab, which a program started again for it takes too. */
+  private chosenModel: string | undefined;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
   private buffered: ChatLine[] = [];
@@ -227,11 +233,29 @@ export class ChatController {
     return this.target.profileId ?? defaultProfileId("claude");
   }
 
+  /**
+   * What a tab made from this one (a fork, /branch) starts with: its
+   * profile, and the model and effort picked in it.
+   */
+  inherited(): { profileId: string; chosen?: ChatChosen } {
+    const effort = typeof this.flags.effortLevel === "string" ? this.flags.effortLevel : undefined;
+    const chosen: ChatChosen = {
+      ...(this.chosenModel ? { model: this.chosenModel } : {}),
+      ...(effort ? { effort } : {}),
+    };
+    return {
+      profileId: this.profileId,
+      ...(chosen.model || chosen.effort ? { chosen } : {}),
+    };
+  }
+
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
     this.sessionId = target.sessionId;
+    this.chosenModel = target.chosen?.model;
+    if (target.chosen?.effort) this.flags = { effortLevel: target.chosen.effort };
     this.leavePlanUsage = registerPlanSource({
       agent: "claude",
       usageKey: () => this.usageKey(),
@@ -421,12 +445,28 @@ export class ChatController {
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
-          // What /add-dir and /sandbox set holds for the tab, not one program.
-          if (Object.keys(this.flags).length > 0) {
-            return this.request("apply_flag_settings", { settings: this.flags });
-          }
+          // The settings' effort failing leaves the tab's own flags and pick to apply.
+          return this.followSettings().catch((err: Error) =>
+            log.warn(`settings' effort not applied: ${err.message}`),
+          );
         })
-        .then(() => this.followSettings())
+        // What /add-dir, /sandbox and the tab's chips set holds for the tab,
+        // not one program: after the settings' defaults, which it overrides.
+        // One refused leaves the rest, Remote Control included, to go on.
+        .then(() => {
+          if (Object.keys(this.flags).length === 0) return;
+          return this.request("apply_flag_settings", { settings: this.flags }).then(
+            () => {},
+            (err: Error) => log.warn(`tab settings not applied: ${err.message}`),
+          );
+        })
+        .then(() => {
+          if (!this.chosenModel) return;
+          return this.request("set_model", { model: this.chosenModel }).then(
+            () => {},
+            (err: Error) => log.warn(`picked model not applied: ${err.message}`),
+          );
+        })
         .then(() => {
           // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
           if (remote) {
@@ -833,6 +873,9 @@ export class ChatController {
     from?: RelaySender,
   ): Promise<void> {
     if (!(await this.ensureRunning())) return;
+    // A program just started takes the tab's flags and pick first, so its
+    // first turn runs with them. The chain settles on its own failures.
+    await this.initializing;
     const first = !this.titled && text.trim() ? text.trim() : undefined;
     if (first) {
       this.titled = true;
@@ -893,16 +936,26 @@ export class ChatController {
     );
   }
 
+  // A pick Claude Code takes holds for the tab: a program started again for
+  // it takes it too. One it refuses is not kept, so no start gives it again.
   setModel(model: string): Promise<unknown> {
-    return this.shownAtOnce("model", model, () => this.request("set_model", { model }));
+    return this.shownAtOnce("model", model, () => this.request("set_model", { model })).then(
+      (answer) => {
+        this.chosenModel = model;
+        this.hooks.onChosen?.({ model });
+        return answer;
+      },
+    );
   }
 
   setEffort(level: string): Promise<unknown> {
-    // Holds for the tab: a program started again for it takes it too.
-    this.flags = { ...this.flags, effortLevel: level };
     return this.shownAtOnce("effort", level, () =>
       this.request("apply_flag_settings", { settings: { effortLevel: level } }),
-    );
+    ).then((answer) => {
+      this.flags = { ...this.flags, effortLevel: level };
+      this.hooks.onChosen?.({ effort: level });
+      return answer;
+    });
   }
 
   /**

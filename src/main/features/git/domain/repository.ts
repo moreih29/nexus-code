@@ -3,7 +3,7 @@
  * toplevel, which may be above the opened workspace when a subdirectory is open.
  */
 
-import { Buffer } from "node:buffer";
+import { isAllowedGitRemoteUrl } from "../../../../shared/git/remote-validation";
 import type {
   BranchList,
   CommitDetail,
@@ -46,7 +46,7 @@ import type {
 } from "../bridge/types";
 import { readHeadBlobAsText } from "./blob-text-decode";
 import { GitError } from "./error";
-import { isAllowedGitRemoteUrl } from "../../../../shared/git/remote-validation";
+import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers/launcher";
 import {
   assertHasHead,
   buildCommitArgs,
@@ -58,8 +58,6 @@ import {
   resolveCheckoutTarget,
   throwIfAborted,
 } from "./repository-helpers";
-import { type BuildHelperEnvOptions, buildHelperEnv } from "./helpers/launcher";
-
 
 export interface GitLogArgs {
   readonly ref?: string;

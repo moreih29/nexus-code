@@ -49,7 +49,10 @@ export function tagHistoryRef(tag: Pick<Tag, "name">): string {
  * Builds the banner shown after a tag reveal retargets History.
  */
 export function buildTagHistoryRevealMessage(tag: Pick<Tag, "name" | "sha">): string {
-  return i18next.t("files:git.panelActions.tagReveal", { name: tag.name, sha: tag.sha.slice(0, 7) });
+  return i18next.t("files:git.panelActions.tagReveal", {
+    name: tag.name,
+    sha: tag.sha.slice(0, 7),
+  });
 }
 
 /**

@@ -18,11 +18,11 @@ export interface TabContextInfo {
   isPinned: boolean;
   isEditor: boolean;
   /**
-   * 터미널 탭과 Claude 탭일 때만 "Rename Tab" 항목을 노출하기 위한 플래그.
-   * 사용자 요구: 자동 이름 갱신(OSC)이 있는 터미널 탭에서만 사용자 customTitle을
-   * 덮어쓸 수 있게 한다. Claude 탭의 이름은 그 세션의 이름이 된다(/rename).
-   * editor/browser/diff 탭은 시스템이 결정한 이름이 옳다고 보고 rename UI를
-   * 노출하지 않는다.
+   * Flag to show the "Rename Tab" item only for terminal tabs and Claude tabs.
+   * Only terminal tabs have automatic renaming (OSC), so only there can the user override
+   * customTitle. A Claude tab's name becomes the name of that session (/rename).
+   * For editor/browser/diff tabs the system-decided name is considered right, so no rename
+   * UI is shown.
    */
   canRename: boolean;
 }
@@ -35,7 +35,7 @@ interface BuildOptions {
   copyRelativePath: () => void;
   /** Absent in a remote workspace, where the system file manager cannot help. */
   revealInFinder?: () => void;
-  /** "Rename Tab" 메뉴 항목 클릭 시 — inline 편집 모드 진입. */
+  /** When the "Rename Tab" menu item is clicked — enters inline edit mode. */
   renameTab: () => void;
 }
 
@@ -61,8 +61,8 @@ export function buildGroupTabBarMenuItems({
     onSelect: togglePin,
   });
 
-  // 터미널 · Claude 탭에 한해서 Rename 항목을 노출. 더블클릭 진입 경로와 동일한
-  // 편집 모드(useTabEditingStore.startEditing)를 활성화한다.
+  // The Rename item is shown only for terminal and Claude tabs. It activates the same edit
+  // mode (useTabEditingStore.startEditing) as the double-click entry path.
   if (context.canRename) {
     items.push({
       kind: "item",

@@ -9,9 +9,9 @@
 // approximation (handled in src/renderer/i18n.ts, not here).
 
 import { create } from "zustand";
-import { createLogger } from "../../../shared/log/renderer";
 import type { SupportedLanguage } from "../../../shared/i18n";
 import { SUPPORTED_LANGUAGES } from "../../../shared/i18n";
+import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
@@ -106,24 +106,30 @@ export const useLanguageStore = create<LanguageState>((set) => {
       // Import lazily to avoid a circular dependency at module evaluation time
       // (i18n.ts imports this store; this store must not import i18n.ts at
       // the top level).
-      import("../../i18n").then(({ rendererI18n }) => {
-        void rendererI18n.changeLanguage(next);
-        document.documentElement.lang = next;
-      }).catch((err: unknown) => {
-        log.warn(`hydrate: changeLanguage failed: ${String(err)}`, { correlationId: next });
-      });
+      import("../../i18n")
+        .then(({ rendererI18n }) => {
+          void rendererI18n.changeLanguage(next);
+          document.documentElement.lang = next;
+        })
+        .catch((err: unknown) => {
+          log.warn(`hydrate: changeLanguage failed: ${String(err)}`, { correlationId: next });
+        });
     },
 
     setPreference(language) {
       set({ preference: language });
 
       // Synchronise the live i18next instance and html[lang] attribute.
-      import("../../i18n").then(({ rendererI18n }) => {
-        void rendererI18n.changeLanguage(language);
-        document.documentElement.lang = language;
-      }).catch((err: unknown) => {
-        log.warn(`setPreference: changeLanguage failed: ${String(err)}`, { correlationId: language });
-      });
+      import("../../i18n")
+        .then(({ rendererI18n }) => {
+          void rendererI18n.changeLanguage(language);
+          document.documentElement.lang = language;
+        })
+        .catch((err: unknown) => {
+          log.warn(`setPreference: changeLanguage failed: ${String(err)}`, {
+            correlationId: language,
+          });
+        });
 
       // Triple-write: localStorage (boot cache) + appState (authoritative).
       if (typeof localStorage !== "undefined") {

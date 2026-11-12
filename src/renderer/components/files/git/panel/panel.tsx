@@ -20,7 +20,6 @@ import {
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
-import { useWorkspacesStore } from "../../../../state/stores/workspaces";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
 import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
 import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
@@ -28,6 +27,7 @@ import {
   usePanelViewOptionsStore,
   useViewOptions,
 } from "../../../../state/stores/panel-view-options";
+import { useWorkspacesStore } from "../../../../state/stores/workspaces";
 import { EmptyState } from "../../../ui/empty-state";
 import type { FormDialogField } from "../../../ui/form-dialog";
 import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
@@ -384,6 +384,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       workspaceId,
       setCommitPickerRef,
       setCommitPickerOpen,
+      t,
     ],
   );
   const addRemoteFields = useMemo<FormDialogField[]>(

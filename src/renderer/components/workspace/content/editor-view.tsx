@@ -421,11 +421,12 @@ export function ImageEditorView({ filePath, workspaceId }: ImageEditorViewProps)
  * tabular-nums so digits don't shift as the value lands.
  */
 function ImageResolutionChip({ size }: { size: { w: number; h: number } }) {
+  const { t } = useTranslation();
   const label = `${size.w} × ${size.h}`;
   return (
     <span
       className="text-app-ui-sm tabular-nums text-muted-foreground px-1 select-none"
-      title={`Image resolution: ${label} pixels`}
+      title={t("imagePreview.resolution", { size: label })}
     >
       {label}
     </span>

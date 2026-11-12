@@ -134,9 +134,7 @@ describe("createCachingAuthPromptHandler — auto-invalidation on retry", () => 
 
     // Next non-retry: should hit "new" from cache without calling inner.
     const result = await handler(passwordPrompt({ host: "srv.example", username: "carol" }));
-    expect(result).toEqual(
-      passwordResponse(`srv.example:password`, "new"),
-    );
+    expect(result).toEqual(passwordResponse(`srv.example:password`, "new"));
     expect(innerCalls).toHaveLength(2);
   });
 });
@@ -193,8 +191,9 @@ describe("createCachingAuthPromptHandler — key isolation", () => {
   });
 
   it("keeps a key's passphrase apart from the password", async () => {
-    const inner = mock(async (prompt: SshAuthPrompt): Promise<SshAuthResponse> =>
-      passwordResponse(prompt.promptId, prompt.kind === "password" ? prompt.field : ""),
+    const inner = mock(
+      async (prompt: SshAuthPrompt): Promise<SshAuthResponse> =>
+        passwordResponse(prompt.promptId, prompt.kind === "password" ? prompt.field : ""),
     );
     const handler = createCachingAuthPromptHandler(inner);
     const passphrase: SshAuthPrompt = {

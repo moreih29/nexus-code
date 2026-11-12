@@ -10,6 +10,7 @@ import {
   isIpcOkResult,
   isIpcResult,
 } from "../../shared/ipc/result";
+import { unwrapRemoteError } from "./remote-error";
 import type {
   CallArgs,
   CallChannels,
@@ -25,7 +26,6 @@ import type {
   StreamMethods,
   StreamProgress,
 } from "./types";
-import { unwrapRemoteError } from "./remote-error";
 
 export interface IpcCallOptions {
   signal?: AbortSignal;
@@ -203,8 +203,8 @@ export function unwrapGitResult<T>(result: IpcResult<T>): T {
 
 // Re-export result type utilities so renderer code only needs to import from
 // this module rather than reaching into shared/ directly.
-export type { IpcResult, IpcOkResult, IpcErrResult, IpcResultKind };
-export { isIpcResult, isIpcOkResult, isIpcErrResult };
+export type { IpcErrResult, IpcOkResult, IpcResult, IpcResultKind };
+export { isIpcErrResult, isIpcOkResult, isIpcResult };
 
 /**
  * Subscribe to a broadcast event on the given channel. Returns the
@@ -427,9 +427,7 @@ function isAppErrorLike(
  * Returns true when `data` has the legacy `{ name?, message, cause? }` shape
  * emitted by pre-migration routers or test harnesses dispatching old payloads.
  */
-function isErrorLike(
-  data: unknown,
-): data is { name?: string; message: string; cause?: unknown } {
+function isErrorLike(data: unknown): data is { name?: string; message: string; cause?: unknown } {
   return (
     typeof data === "object" &&
     data !== null &&

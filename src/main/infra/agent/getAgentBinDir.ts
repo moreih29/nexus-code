@@ -8,10 +8,10 @@ import {
 import { LOCAL_AGENT_DIST_DIR } from "./ssh/ssh-bootstrap/types";
 
 /**
- * Electron `app`을 lazy require로 가져온다. 테스트 환경(bun test)은 electron
- * 모듈을 평가하지 않아서 top-level import가 `Export named 'app' not found`
- * 오류를 일으킨다. 호출 시점에만 require하면 테스트 코드가 이 함수를 거치지
- * 않는 한 electron 로드가 발생하지 않는다.
+ * Gets Electron `app` by lazy require. The test environment (bun test) does not evaluate the electron
+ * module, so a top-level import raises the error `Export named 'app' not found`.
+ * Requiring only at call time means electron is not loaded unless test code goes
+ * through this function.
  */
 function getElectronApp(): typeof import("electron").app {
   const electron = require("electron") as typeof import("electron");
@@ -19,14 +19,14 @@ function getElectronApp(): typeof import("electron").app {
 }
 
 /**
- * 에이전트 배포 디렉터리(dist/agent)의 절대 경로를 반환한다.
+ * Returns the absolute path of the agent distribution directory (dist/agent).
  *
- * - 패키징된 앱: process.resourcesPath/agent
- * - 개발 환경:   LOCAL_AGENT_DIST_DIR  (cwd/dist/agent)
+ * - Packaged app: process.resourcesPath/agent
+ * - Dev environment:   LOCAL_AGENT_DIST_DIR  (cwd/dist/agent)
  *
- * `LOCAL_AGENT_DIST_DIR` 상수는 `process.cwd()` 기준의 dev 기본값이라 패키지
- * 앱(`process.cwd()`가 보통 `/`)에서는 절대 직접 쓰지 말 것. 분기가 필요한
- * 모든 소비자는 이 함수를 거쳐야 한다.
+ * The `LOCAL_AGENT_DIST_DIR` constant is a dev default based on `process.cwd()`, so never use it
+ * directly in a packaged app (where `process.cwd()` is usually `/`). Every consumer that needs
+ * the branch must go through this function.
  */
 export function getAgentDistDir(): string {
   return getElectronApp().isPackaged
@@ -35,11 +35,11 @@ export function getAgentDistDir(): string {
 }
 
 /**
- * 에이전트 배포 디렉터리 안에서 바이너리(래퍼 포함)가 위치하는 bin/ 디렉터리의
- * 절대 경로를 반환한다.
+ * Returns the absolute path of the bin/ directory, inside the agent distribution directory,
+ * where the binaries (including the wrappers) live.
  *
- * - 패키징된 앱: process.resourcesPath/agent/bin
- * - 개발 환경:   LOCAL_AGENT_DIST_DIR/bin  (dist/agent/bin)
+ * - Packaged app: process.resourcesPath/agent/bin
+ * - Dev environment:   LOCAL_AGENT_DIST_DIR/bin  (dist/agent/bin)
  */
 export function getAgentBinDir(): string {
   return path.join(getAgentDistDir(), "bin");
@@ -63,13 +63,13 @@ export function localAgentPlatform(): AgentArtifactPlatform | null {
 }
 
 /**
- * 현재 플랫폼에 맞는 agent 바이너리의 절대 경로를 반환한다.
+ * Returns the absolute path of the agent binary for the current platform.
  *
- * manifest.json에서 현재 os/arch 항목을 찾아 경로를 결정한다.
- * manifest를 파싱할 수 없거나 현재 플랫폼 항목이 없으면 undefined를 반환한다.
+ * Finds the current os/arch entry in manifest.json to decide the path.
+ * Returns undefined if the manifest cannot be parsed or has no entry for the current platform.
  *
- * - 패키징된 앱: process.resourcesPath/agent/<name>
- * - 개발 환경:   LOCAL_AGENT_DIST_DIR/<name>
+ * - Packaged app: process.resourcesPath/agent/<name>
+ * - Dev environment:   LOCAL_AGENT_DIST_DIR/<name>
  */
 export function getAgentBinaryPath(): string | undefined {
   const distDir = getAgentDistDir();
@@ -78,9 +78,7 @@ export function getAgentBinaryPath(): string | undefined {
   if (!fs.existsSync(manifestPath)) return undefined;
 
   try {
-    const manifest = AgentManifestSchema.parse(
-      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
-    );
+    const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
     const platform = localAgentPlatform();
     if (!platform) return undefined;
 

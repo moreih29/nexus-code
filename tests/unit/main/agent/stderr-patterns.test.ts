@@ -21,9 +21,9 @@ describe("classifyStderrLine — agent loader failures", () => {
   });
 
   test("architecture mismatch", () => {
-    expect(classifyStderrLine("bash: /x/agent: cannot execute binary file: Exec format error")).toBe(
-      "server.spawn-failed",
-    );
+    expect(
+      classifyStderrLine("bash: /x/agent: cannot execute binary file: Exec format error"),
+    ).toBe("server.spawn-failed");
   });
 
   test("benign login banner is not misclassified", () => {

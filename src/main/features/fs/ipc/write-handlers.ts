@@ -42,8 +42,8 @@ export function writeFileHandler(
 
 export function createFileHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.createFile.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -57,8 +57,8 @@ export function createFileHandler(
 
 export function mkdirHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath, recursive } = validateArgs(c.mkdir.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -72,8 +72,8 @@ export function mkdirHandler(
 
 export function unlinkHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.unlink.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -87,8 +87,8 @@ export function unlinkHandler(
 
 export function rmdirHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.rmdir.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -102,8 +102,8 @@ export function rmdirHandler(
 
 export function renameHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.rename.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -117,8 +117,8 @@ export function renameHandler(
 
 export function copyFileHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, fromRelPath, toRelPath, overwrite } = validateArgs(c.copyFile.args, args);
     const fs = await manager.getFs(workspaceId);
     try {
@@ -132,8 +132,8 @@ export function copyFileHandler(
 
 export function removeAllHandler(
   manager: WorkspaceManager,
-): (args: unknown) => Promise<void | FsIpcErrorResult> {
-  return async (args: unknown): Promise<void | FsIpcErrorResult> => {
+): (args: unknown) => Promise<undefined | FsIpcErrorResult> {
+  return async (args: unknown): Promise<undefined | FsIpcErrorResult> => {
     const { workspaceId, relPath } = validateArgs(c.removeAll.args, args);
     const fs = await manager.getFs(workspaceId);
     try {

@@ -11,12 +11,12 @@ import {
   SshHostOsSchema,
 } from "../../../../../shared/agent/manifest";
 import { createSshError } from "../../pipe";
-import { runSsh, quoteShellArg } from "./transport";
+import { runSsh } from "./transport";
 import {
+  type EnsureRemoteAgentOptions,
   KEEP_REMOTE_VERSIONS,
   REMOTE_AGENT_MANIFEST,
   REMOTE_AGENT_ROOT,
-  type EnsureRemoteAgentOptions,
   type RemoteAgentPlatform,
   type SshBootstrapRunner,
 } from "./types";

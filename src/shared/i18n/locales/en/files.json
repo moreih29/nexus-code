@@ -297,7 +297,9 @@
       "renamed": "Renamed",
       "untracked": "Untracked",
       "conflict": "Conflict",
-      "ignored": "Ignored"
+      "ignored": "Ignored",
+      "copied": "Copied",
+      "typeChanged": "Type changed"
     },
     "groups": {
       "stageAll": "Stage all {{label}}",
@@ -310,7 +312,10 @@
       "markResolved": "Mark {{path}} resolved",
       "stageChanges": "Stage changes",
       "unstageChanges": "Unstage changes",
-      "discardChanges": "Discard changes"
+      "discardChanges": "Discard changes",
+      "stageFolder": "Stage folder {{name}}",
+      "unstageFolder": "Unstage folder {{name}}",
+      "discardFolder": "Discard changes in folder {{name}}"
     },
     "contextMenu": {
       "openFile": "Open File",
@@ -434,8 +439,7 @@
     "history": {
       "search": {
         "label": "Search commit history",
-        "placeholder": "Search SHA or commit message…",
-        "clear": "Clear"
+        "placeholder": "Search SHA or commit message…"
       },
       "refSwitcher": {
         "viewingHistory": "Viewing history of {{ref}}",
@@ -472,7 +476,8 @@
           "description": "Soft reset keeps changes staged so you can recommit them.",
           "confirmLabel": "Reset Soft",
           "cancel": "Cancel"
-        }
+        },
+        "open": "Commit actions for {{sha}}"
       },
       "cherryPickStarted": "Cherry-pick started."
     },

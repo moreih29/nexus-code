@@ -9,9 +9,9 @@ import fs from "node:fs";
 import { FS_ERROR, fsCodeFromErrno, fsErrorMessage } from "../../../shared/fs/errors";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { validateArgs } from "../../infra/ipc-router";
-import { resolveLocalWorkspacePath } from "../workspace/path-safety";
-import type { WorkspaceManager } from "../workspace/manager";
 import { UnsupportedSshWorkspaceError } from "../workspace/guards";
+import type { WorkspaceManager } from "../workspace/manager";
+import { resolveLocalWorkspacePath } from "../workspace/path-safety";
 import { getElectronSystemShell, type SystemShell } from "./open-path";
 
 const c = ipcContract.fs.call;

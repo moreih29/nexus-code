@@ -8,11 +8,12 @@
  *   3. Heartbeat watchdog emits a log.warn once when heartbeats are missed,
  *      resets after a heartbeat is received, and stops after dispose().
  */
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+
 import { afterEach, beforeEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // Spy imported from the preload — the log-test-spies.ts preload wraps
 // src/shared/log/main's createLogger so that every call to log.warn()
@@ -54,14 +55,14 @@ class FakeWritable {
 
 function readyFrame(extra: Record<string, unknown> = {}): Buffer {
   return Buffer.from(
-    JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra }) + "\n",
+    `${JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra })}\n`,
     "utf8",
   );
 }
 
 function heartbeatFrame(seq: number, uptimeMs: number): Buffer {
   return Buffer.from(
-    JSON.stringify({ event: "agent.heartbeat", payload: { seq, uptimeMs } }) + "\n",
+    `${JSON.stringify({ event: "agent.heartbeat", payload: { seq, uptimeMs } })}\n`,
     "utf8",
   );
 }

@@ -50,11 +50,7 @@ export class ChannelEventRegistry {
    * function removes this callback and, when it was the last one, releases
    * the upstream subscription.
    */
-  subscribe(
-    event: string,
-    callback: ChannelEventCallback,
-    attach: UpstreamAttacher,
-  ): () => void {
+  subscribe(event: string, callback: ChannelEventCallback, attach: UpstreamAttacher): () => void {
     let bucket = this.buckets.get(event);
     if (!bucket) {
       bucket = { callbacks: new Set<ChannelEventCallback>(), upstreamDispose: null };

@@ -21,13 +21,13 @@ export function useGlobalSearchHotkey(inputRef: React.RefObject<HTMLInputElement
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "f") {
         e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
+        const input = inputRef.current;
+        input?.focus();
+        input?.select();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-    // inputRef is a stable ref object — the identity never changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // A ref object keeps its identity, so this runs once per mount.
+  }, [inputRef]);
 }

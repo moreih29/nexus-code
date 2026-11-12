@@ -18,13 +18,13 @@
  *             touching the diagnostics timer.
  */
 
-import { describe, expect, jest, test, afterEach } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../../src/main/infra/agent/channel";
-import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 
@@ -163,9 +163,9 @@ describe("AC 2a: didClose lifecycle", () => {
 
     // Flush must have happened immediately (no timer advance needed).
     expect(emitted).toHaveLength(2);
-    expect(
-      (emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
-    ).toBe("v2");
+    expect((emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
+      "v2",
+    );
 
     // Timer should be cancelled — advancing past the debounce window must
     // NOT produce a third emit.
@@ -207,9 +207,9 @@ describe("AC 2a: didClose lifecycle", () => {
     // emit (state was cleaned up, not still referencing the old server's payload).
     channel.emitDiagnostics(URI, 3);
     expect(emitted).toHaveLength(3);
-    expect(
-      (emitted[2] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
-    ).toBe("v3");
+    expect((emitted[2] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
+      "v3",
+    );
 
     jest.advanceTimersByTime(200);
     // No extra emit — no stale timer from before close should fire.
@@ -232,7 +232,7 @@ describe("AC 2b: handleServerExited deeper coverage", () => {
     const survivingChannel = new MinimalChannel("srv-surviving");
     let callCount = 0;
     const manager = {
-      getAgentChannel: async (wsId: string) => {
+      getAgentChannel: async (_wsId: string) => {
         callCount++;
         return callCount === 1 ? exitedChannel : survivingChannel;
       },
@@ -285,12 +285,8 @@ describe("AC 2b: handleServerExited deeper coverage", () => {
     jest.advanceTimersByTime(200);
 
     // EXIT server URI: no extra emit. SURVIVE server URI: trailing-edge fires.
-    const surviveEmits = (emitted as Array<{ uri: string }>).filter(
-      (e) => e.uri === URI_SURVIVE,
-    );
-    const exitEmits = (emitted as Array<{ uri: string }>).filter(
-      (e) => e.uri === URI_EXIT,
-    );
+    const surviveEmits = (emitted as Array<{ uri: string }>).filter((e) => e.uri === URI_SURVIVE);
+    const exitEmits = (emitted as Array<{ uri: string }>).filter((e) => e.uri === URI_EXIT);
     expect(exitEmits).toHaveLength(1); // only leading-edge
     expect(surviveEmits).toHaveLength(2); // leading-edge + trailing-edge
 

@@ -12,12 +12,7 @@
 
 import type { SemanticTokenSet } from "../semantic";
 import { buildSemanticTokens } from "../theme-adapter";
-import {
-  THEME_SOURCES,
-  THEME_SOURCE_BY_ID,
-  DEFAULT_THEME,
-  type ThemeId,
-} from "../theme-sources";
+import { DEFAULT_THEME, THEME_SOURCE_BY_ID, THEME_SOURCES, type ThemeId } from "../theme-sources";
 
 // ---------------------------------------------------------------------------
 // THEMES — runtime registry: ThemeId → SemanticTokenSet (built via adapter).
@@ -32,5 +27,5 @@ export const THEMES: Record<ThemeId, SemanticTokenSet> = Object.fromEntries(
 // Public surface — id types + default + source lookup re-exports.
 // ---------------------------------------------------------------------------
 
-export { DEFAULT_THEME, THEME_SOURCES, THEME_SOURCE_BY_ID };
 export type { ThemeId };
+export { DEFAULT_THEME, THEME_SOURCE_BY_ID, THEME_SOURCES };

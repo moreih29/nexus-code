@@ -33,6 +33,7 @@
 import { RadioGroup, Slider } from "radix-ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import {
   DEFAULT_THEME,
   THEME_SOURCES,
@@ -40,15 +41,14 @@ import {
   type ThemeSource,
 } from "../../../../shared/design-tokens";
 import type { SupportedLanguage } from "../../../../shared/i18n";
-import { cn } from "@/utils/cn";
 import { type IconTheme, useIconThemeStore } from "../../../state/stores/icon-theme";
-import { useLanguageStore } from "../../../state/stores/language";
 import {
   INACTIVE_PANEL_DIM_DEFAULT,
   INACTIVE_PANEL_DIM_MAX,
   INACTIVE_PANEL_DIM_MIN,
   useInactivePanelDimStore,
 } from "../../../state/stores/inactive-panel-dim";
+import { useLanguageStore } from "../../../state/stores/language";
 import { useThemeStore } from "../../../state/stores/theme";
 import { useWindowOpacityStore } from "../../../state/stores/window-opacity";
 import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
@@ -193,11 +193,7 @@ export function AppearancePanel() {
           className="grid grid-cols-1 gap-2 sm:grid-cols-2"
         >
           {THEME_SOURCES.map((source) => (
-            <ThemeCard
-              key={source.id}
-              source={source}
-              selected={themePreference === source.id}
-            />
+            <ThemeCard key={source.id} source={source} selected={themePreference === source.id} />
           ))}
         </RadioGroup.Root>
       </SettingsGroup>

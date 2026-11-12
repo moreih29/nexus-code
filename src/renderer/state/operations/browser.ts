@@ -107,8 +107,8 @@ export function initBrowserRuntimeSubscriptions(): void {
   activeUnsubs.push(
     ipcListen("browser", "titleUpdated", ({ tabId, title }) => {
       useBrowserRuntimeStore.getState().setRuntime(tabId, { title });
-      // 탭 자체에도 processTitle을 sync — Chrome처럼 탭 이름이 페이지 title을 따라가게.
-      // 사용자가 직접 renameTab으로 customTitle을 설정해두면 표시는 그대로 유지된다.
+      // Sync processTitle onto the tab too — so the tab name follows the page title like Chrome.
+      // If the user set customTitle via renameTab, the display stays as is.
       const workspaceId = findWorkspaceForTab(tabId);
       if (workspaceId) {
         useTabsStore.getState().setProcessTitle(workspaceId, tabId, title);
@@ -116,8 +116,8 @@ export function initBrowserRuntimeSubscriptions(): void {
     }),
   );
 
-  // page-favicon-updated → browser-runtime store. 후보 배열의 첫 entry만 사용.
-  // null이거나 빈 배열이면 faviconUrl을 비워 TabItem이 기본 Globe 아이콘으로 복귀.
+  // page-favicon-updated → browser-runtime store. Uses only the first entry of the candidate array.
+  // If null or an empty array, faviconUrl is cleared so TabItem returns to the default Globe icon.
   activeUnsubs.push(
     ipcListen("browser", "faviconUpdated", ({ tabId, favicons }) => {
       const next = favicons && favicons.length > 0 ? favicons[0] : null;

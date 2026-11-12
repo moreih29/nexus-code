@@ -51,7 +51,8 @@ const listeners: ListenerRecord[] = [];
   activeElement: null,
 };
 
-// foregroundProcess RPC가 반환할 mock 응답 — 테스트별로 setForegroundProcessName으로 변경.
+// Mock response the foregroundProcess RPC returns — changed per test via
+// setForegroundProcessName.
 let mockForegroundProcessName = "lazygit";
 
 mock.module("../../../../src/renderer/ipc/client", () => ({
@@ -98,9 +99,12 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
     const err = new Error(result.message ?? "git ipc error");
     throw err;
   },
-  isIpcResult: (v: unknown): boolean => v !== null && typeof v === "object" && "ok" in (v as object),
-  isIpcOkResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
-  isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  isIpcResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
 // Spread over the real module so later files keep its other exports.
@@ -182,9 +186,9 @@ function makeTerminalControllerDeps(
   let focusCalls = 0;
   let capturedDataHandler: ((data: string) => void) | null = null;
   let ptyOptions: PtyClientOptions | null = null;
-  // 가변 buffer state — 테스트에서 setBufferType("alternate" | "normal")로 전환해
-  // alternate screen 가드 동작을 검증한다. 기본값은 "alternate"로 두어 기존 OSC
-  // title sync 테스트들이 별도 setup 없이 통과하도록 한다(TUI 시나리오 가정).
+  // Mutable buffer state — tests switch it with setBufferType("alternate" | "normal") to
+  // verify the alternate screen guard. The default is "alternate" so the existing OSC
+  // title sync tests pass without extra setup (assuming a TUI scenario).
   const bufferState: { active: { type: "normal" | "alternate" } } = {
     active: { type: "alternate" },
   };
@@ -192,22 +196,20 @@ function makeTerminalControllerDeps(
   const modes = { bracketedPasteMode: false, sendFocusMode: false };
   // The text selected in the terminal; tests set it.
   let selection = "";
-  // controller.ts:317에서 attachCustomKeyEventHandler를 호출해 keydown 가로채기
-  // 핸들러를 등록한다. 테스트에서 합성 KeyboardEvent로 호출해 분기를 검증하기
-  // 위해 핸들러를 capture한다.
+  // controller.ts:317 calls attachCustomKeyEventHandler to register a handler that
+  // intercepts keydown. The handler is captured so tests can call it with synthetic
+  // KeyboardEvents and verify the branches.
   let capturedKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
-  // onTitleChange callback도 동일하게 capture — OSC 0/1/2 시나리오 검증용.
+  // The onTitleChange callback is captured the same way — for verifying OSC 0/1/2 scenarios.
   let capturedTitleHandler: ((title: string) => void) | null = null;
-  // alt screen exit CSI handler. params로 47/1047/1049 중 하나가 들어오면 alt→normal
-  // 전이로 해석되어 processTitle clear가 발사된다. xterm.js v5 API의 params는
-  // (number | number[])[] 직접 배열 형태.
-  let capturedAltExitHandler:
-    | ((params: ReadonlyArray<number | number[]>) => boolean)
-    | null = null;
-  // alt screen ENTER CSI handler — TUI 시작 시 fg process 이름 IPC로 가져와 processTitle.
-  let capturedAltEnterHandler:
-    | ((params: ReadonlyArray<number | number[]>) => boolean)
-    | null = null;
+  // alt screen exit CSI handler. If params contains one of 47/1047/1049 it is interpreted as an
+  // alt→normal transition and a processTitle clear fires. In the xterm.js v5 API, params is
+  // a plain (number | number[])[] array.
+  let capturedAltExitHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null = null;
+  // alt screen ENTER CSI handler — on TUI start, fetches the fg process name over IPC and
+  // sets processTitle.
+  let capturedAltEnterHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null =
+    null;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
     createTerminal: () => ({
@@ -219,7 +221,8 @@ function makeTerminalControllerDeps(
           id: { prefix?: string; intermediates?: string; final: string },
           cb: (params: ReadonlyArray<number | number[]>) => boolean,
         ) => {
-          // controller가 prefix:"?", final:"l"(exit) / final:"h"(enter) 두 핸들러 등록.
+          // The controller registers two handlers: prefix:"?", final:"l" (exit) /
+          // final:"h" (enter).
           if (id.prefix === "?" && id.final === "l") {
             capturedAltExitHandler = cb;
           } else if (id.prefix === "?" && id.final === "h") {
@@ -928,16 +931,17 @@ describe("services/terminal controller reopen", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Custom key handler — line-begin/line-end → Ctrl+A/Ctrl+E 치환.
+// Custom key handler — line-begin/line-end → substituted with Ctrl+A/Ctrl+E.
 //
-// 배경: Claude Code TUI(Ink)가 `\x1b[H`/`\x1b[F`를 line-begin/end로 인식하지
-//   않고, 우리 환경의 xterm.js도 Home/End를 PTY로 보내지 않는 합산 이슈로 인해
-//   라인 단축키가 무반응이었다. cmux 실측에서 `^A`/`^E`로 치환해 보냄을 확인.
-//   readline 표준이라 Claude Code / bash / zsh 모두 호환.
+// Background: the Claude Code TUI (Ink) does not recognize `\x1b[H`/`\x1b[F` as line-begin/end,
+//   and in our environment xterm.js does not send Home/End to the PTY either, so the
+//   combined issue left the line shortcuts unresponsive. Measuring cmux confirmed that it
+//   substitutes and sends `^A`/`^E`.
+//   These are readline standard, so they work with Claude Code / bash / zsh alike.
 //
-// macOS 컨벤션 양쪽 모두 매핑:
-//   - 외장 풀사이즈 키보드: 단독 Home / End
-//   - 내장 키보드(Home/End 키 없음): Cmd+← / Cmd+→
+// Both macOS conventions are mapped:
+//   - external full-size keyboard: bare Home / End
+//   - built-in keyboard (no Home/End keys): Cmd+← / Cmd+→
 // ---------------------------------------------------------------------------
 describe("services/terminal controller — 라인 단축키 치환", () => {
   beforeEach(() => {
@@ -963,8 +967,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     return { harness, controller, handler };
   }
 
-  // 이 파일은 globalThis.window를 plain stub으로 덮어써 happy-dom의 KeyboardEvent
-  // 가 사용 불가능하다. 핸들러가 참조하는 필드만 갖는 fake로 충분.
+  // This file overwrites globalThis.window with a plain stub, so happy-dom's KeyboardEvent
+  // is unusable. A fake with only the fields the handler reads is enough.
   interface FakeKeyEvent {
     type: string;
     key: string;
@@ -1111,39 +1115,40 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   it("modifier 동반 Home/End / 추가 modifier 동반 Cmd+arrow는 통과", async () => {
     const { harness, controller, handler } = await setupHandler();
 
-    // Shift+Home: selection 확장 — 통과
-    expect(
-      handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    // Cmd+End (Home/End 키와 modifier 조합): 통과 — 정의되지 않은 시퀀스라 보존
-    expect(
-      handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    // Ctrl+Home: buffer-top 의도: 통과
-    expect(
-      handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    // Alt+End: word-level 의도: 통과
-    expect(
-      handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    // Shift+Cmd+ArrowLeft: macOS selection 확장 의도: 통과
+    // Shift+Home: extends the selection — passes through
+    expect(handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
+    // Cmd+End (Home/End key combined with a modifier): passes through — undefined sequence,
+    // so preserved
+    expect(handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
+    // Ctrl+Home: buffer-top intent: passes through
+    expect(handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
+    // Alt+End: word-level intent: passes through
+    expect(handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
+    // Shift+Cmd+ArrowLeft: macOS selection-extend intent: passes through
     expect(
       handler(
-        fakeKeyEvent({ key: "ArrowLeft", metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
+        fakeKeyEvent({
+          key: "ArrowLeft",
+          metaKey: true,
+          shiftKey: true,
+        }) as unknown as KeyboardEvent,
       ),
     ).toBe(true);
-    // Option+ArrowRight: word-jump 의도: 통과 (meta 없이 alt 단독)
+    // Option+ArrowRight: word-jump intent: passes through (alt alone, without meta)
     expect(
       handler(fakeKeyEvent({ key: "ArrowRight", altKey: true }) as unknown as KeyboardEvent),
     ).toBe(true);
-    // 단독 ArrowLeft/ArrowRight (modifier 없음): cursor 이동 — 통과
-    expect(
-      handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    expect(
-      handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    // Bare ArrowLeft/ArrowRight (no modifier): cursor movement — passes through
+    expect(handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent)).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent)).toBe(true);
 
     expect(harness.ptyWrites).toEqual([]);
 
@@ -1153,9 +1158,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   it("keyup은 통과 — keydown만 인터셉트", async () => {
     const { harness, controller, handler } = await setupHandler();
 
-    expect(
-      handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     expect(harness.ptyWrites).toEqual([]);
 
     controller.dispose();
@@ -1389,7 +1394,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 // escapeDroppedPath — a dropped file's path, quoted for the terminal's shell
 describe("escapeDroppedPath", () => {
   it("backslash-escapes for a POSIX or remote shell, leaving Unicode letters", () => {
-    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe("/Users/me/my\\ file\\ \\(1\\).png");
+    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe(
+      "/Users/me/my\\ file\\ \\(1\\).png",
+    );
     expect(escapeDroppedPath("/tmp/한글 파일.txt", "/bin/zsh")).toBe("/tmp/한글\\ 파일.txt");
     expect(escapeDroppedPath("/tmp/plain.txt", "/bin/bash")).toBe("/tmp/plain.txt");
   });
@@ -1430,7 +1437,7 @@ describe("oscCursorStyle", () => {
   });
 });
 
-// isShellPromptLikeTitle — shell prompt OSC 필터 휴리스틱
+// isShellPromptLikeTitle — shell prompt OSC filter heuristic
 // ---------------------------------------------------------------------------
 describe("isShellPromptLikeTitle", () => {
   it("path / cwd 포함 → prompt-like로 판정", () => {
@@ -1468,7 +1475,7 @@ describe("isShellPromptLikeTitle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// isLoginShell — foreground comm이 로그인 셸인지 판정 (명령 에코 노이즈 거름)
+// isLoginShell — decides whether the foreground comm is a login shell (filters command echo noise)
 // ---------------------------------------------------------------------------
 describe("isLoginShell", () => {
   it("알려진 셸 이름 → true", () => {
@@ -1497,7 +1504,7 @@ describe("isLoginShell", () => {
 });
 
 // ---------------------------------------------------------------------------
-// classifyOscTitle — (title, buffer type) 1차 분류
+// classifyOscTitle — first-pass classification by (title, buffer type)
 // ---------------------------------------------------------------------------
 describe("classifyOscTitle", () => {
   it("alternate + 비셸틱 → apply (lazygit/yazi/vim)", () => {
@@ -1522,7 +1529,7 @@ describe("classifyOscTitle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// foregroundConfirmsTitle — confirm 경로에서 foreground 이름으로 적용 여부 결정
+// foregroundConfirmsTitle — on the confirm path, decides from the foreground name whether to apply
 // ---------------------------------------------------------------------------
 describe("foregroundConfirmsTitle", () => {
   it("실제 프로그램이 foreground → 적용", () => {
@@ -1544,8 +1551,8 @@ describe("foregroundConfirmsTitle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// OSC 0/1/2 title sync — claude / lazygit / lazydocker가 자신의 이름/상태를
-// 보내면 탭의 processTitle이 갱신되어야 한다.
+// OSC 0/1/2 title sync — when claude / lazygit / lazydocker send their own name/state,
+// the tab's processTitle must be updated.
 // ---------------------------------------------------------------------------
 describe("services/terminal controller — OSC title sync", () => {
   beforeEach(() => {
@@ -1585,8 +1592,9 @@ describe("services/terminal controller — OSC title sync", () => {
   });
 
   it("normal screen 명령 에코는 foreground가 셸이면 무시 — starship preexec 가드", async () => {
-    // zsh preexec hook이 "ls -G" 같은 현재 명령을 OSC 2로 발사하는 케이스. 이때
-    // foreground는 아직 셸(명령 exec 전)이라 foregroundProcess 확인에서 거부된다.
+    // The case where the zsh preexec hook fires the current command such as "ls -G" as OSC 2.
+    // At that point the foreground is still the shell (before the command's exec), so the
+    // foregroundProcess check rejects it.
     mockForegroundProcessName = "zsh";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
@@ -1606,7 +1614,7 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler) throw new Error("title handler missing");
 
     titleHandler("ls -G");
-    // confirm 경로의 async foregroundProcess 응답 대기
+    // Wait for the async foregroundProcess response on the confirm path
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1651,8 +1659,8 @@ describe("services/terminal controller — OSC title sync", () => {
   });
 
   it("normal screen inline TUI(claude)는 foreground가 실제 프로그램이면 적용", async () => {
-    // Claude Code는 alternate screen에 들어가지 않고 normal screen에서 OSC 2로
-    // 제목을 발사한다. foreground가 셸이 아닌 실제 프로그램이면 적용되어야 한다.
+    // Claude Code does not enter the alternate screen; it fires its title via OSC 2 on the
+    // normal screen. It must be applied if the foreground is a real program, not a shell.
     mockForegroundProcessName = "node";
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
@@ -1683,7 +1691,7 @@ describe("services/terminal controller — OSC title sync", () => {
 
   it("normal screen 셸 프롬프트는 processTitle을 clear — inline TUI 종료 시 복귀", async () => {
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
-    // 직전에 claude가 적용해둔 processTitle을 시뮬레이션
+    // Simulates the processTitle that claude applied just before
     useTabsStore.getState().setProcessTitle(WS, tab.id, "✳ Claude Code");
     const harness = makeTerminalControllerDeps();
     harness.setBufferType("normal");
@@ -1701,7 +1709,7 @@ describe("services/terminal controller — OSC title sync", () => {
     const titleHandler = harness.getTitleHandler();
     if (!titleHandler) throw new Error("title handler missing");
 
-    // claude 종료 → 셸 프롬프트가 OSC 2로 user@host:cwd 발사 (shellLike) → clear
+    // claude exits → the shell prompt fires user@host:cwd as OSC 2 (shellLike) → clear
     titleHandler("kih@monolith:~/workspaces/img_intern");
 
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
@@ -1714,7 +1722,7 @@ describe("services/terminal controller — OSC title sync", () => {
   it("alternate ↔ normal 전이를 거치는 시나리오 — TUI title만 적용 + 종료 시 자동 복귀", async () => {
     const tab = useTabsStore.getState().createTab(WS, { type: "terminal", props: { cwd: "/" } });
     const harness = makeTerminalControllerDeps();
-    harness.setBufferType("normal"); // 처음 shell은 normal screen
+    harness.setBufferType("normal"); // the initial shell is on the normal screen
     const controller = createTerminalController(
       {
         workspaceId: WS,
@@ -1731,23 +1739,23 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler) throw new Error("title handler missing");
     if (!altExitHandler) throw new Error("alt-exit handler missing");
 
-    // shell preexec — foreground가 셸이라 무시되어야 함
+    // shell preexec — the foreground is the shell, so it must be ignored
     mockForegroundProcessName = "zsh";
     titleHandler("ls -G");
     await Promise.resolve();
     await Promise.resolve();
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].processTitle).toBeUndefined();
 
-    // 사용자가 lazygit 실행 → alternate 진입 → "lazygit" 발사 (alternate는 RPC 불필요)
+    // The user runs lazygit → enters alternate → fires "lazygit" (alternate needs no RPC)
     mockForegroundProcessName = "lazygit"; // restore default
     harness.setBufferType("alternate");
     titleHandler("lazygit");
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("lazygit");
 
-    // lazygit 종료 → alt screen exit CSI 발사(`\x1b[?1049l`) → processTitle clear → defaultTitle 복귀
+    // lazygit exits → alt screen exit CSI fires (`\x1b[?1049l`) → processTitle clear → back to defaultTitle
     harness.setBufferType("normal");
     const ret = altExitHandler([1049]);
-    expect(ret).toBe(false); // xterm.js 기본 buffer swap에 위임
+    expect(ret).toBe(false); // delegated to xterm.js's default buffer swap
     const updated = useTabsStore.getState().byWorkspace[WS][tab.id];
     expect(updated.processTitle).toBeUndefined();
     expect(updated.title).toBe("Terminal");
@@ -1805,7 +1813,7 @@ describe("services/terminal controller — OSC title sync", () => {
     if (!titleHandler || !altExit) throw new Error("handlers missing");
 
     titleHandler("claude");
-    // 25 = DECTCEM(cursor hide), 우리 alt 가드 대상이 아님
+    // 25 = DECTCEM (cursor hide), not a target of our alt guard
     altExit([25]);
     expect(useTabsStore.getState().byWorkspace[WS][tab.id].title).toBe("claude");
 
@@ -1830,11 +1838,11 @@ describe("services/terminal controller — OSC title sync", () => {
     const altEnter = harness.getAltEnterHandler();
     if (!altEnter) throw new Error("alt-enter handler missing");
 
-    // alt-screen ENTER — fire-and-forget RPC 호출 후 즉시 false 반환
+    // alt-screen ENTER — returns false immediately after a fire-and-forget RPC call
     const ret = altEnter([1049]);
     expect(ret).toBe(false);
 
-    // 비동기 IPC 응답 처리 대기
+    // Wait for the async IPC response to be handled
     await Promise.resolve();
     await Promise.resolve();
 
@@ -1895,15 +1903,14 @@ describe("services/terminal controller — OSC title sync", () => {
     const altEnter = harness.getAltEnterHandler();
     if (!altEnter) throw new Error("alt-enter handler missing");
 
-    altEnter([25]); // DECTCEM cursor show — 우리 대상 아님
+    altEnter([25]); // DECTCEM cursor show — not our target
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(
-      ipcCalls.some((c) => c.channel === "pty" && c.method === "foregroundProcess"),
-    ).toBe(false);
+    expect(ipcCalls.some((c) => c.channel === "pty" && c.method === "foregroundProcess")).toBe(
+      false,
+    );
 
     controller.dispose();
   });
 });
-

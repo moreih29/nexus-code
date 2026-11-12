@@ -42,10 +42,9 @@ const ICONS_OUT_DIR = path.join(ROOT_DIR, "src/renderer/assets/icons/material");
 //   light, highContrast, file, hidesExplorerArrows, folder, folderExpanded,
 //   rootFolder, rootFolderExpanded
 // ---------------------------------------------------------------------------
-// biome-ignore lint/suspicious/noExplicitAny: external module has no types
 const { generateManifest } = (await import(
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-  // @ts-ignore – no types for material-icon-theme module
+  // @ts-expect-error – no types for material-icon-theme module
   "material-icon-theme"
 )) as { generateManifest: () => MaterialIconManifest };
 

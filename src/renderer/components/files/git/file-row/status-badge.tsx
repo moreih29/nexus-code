@@ -8,6 +8,7 @@
  * destructive (D) and conflict (!) draw on Git's readable destructive text, with
  * conflict adding a subtle bg tint to differentiate at a glance.
  */
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 
 interface GitStatusBadgeProps {
@@ -33,8 +34,22 @@ function statusBadgeClass(code: string): string {
   }
 }
 
+/** The decoration each letter stands for, which names it. */
+const CODE_KIND: Record<string, string> = {
+  M: "modified",
+  T: "typeChanged",
+  A: "added",
+  "?": "untracked",
+  D: "deleted",
+  R: "renamed",
+  C: "copied",
+  "!": "conflict",
+};
+
 export function GitStatusBadge({ code }: GitStatusBadgeProps) {
-  const label = code === "!" ? "conflict" : code;
+  const { t } = useTranslation("files");
+  const kind = CODE_KIND[code.slice(0, 1)];
+  const label = kind ? t(`git.decorations.${kind}` as "git.decorations.modified") : code;
   return (
     <span
       className={cn(
@@ -42,8 +57,8 @@ export function GitStatusBadge({ code }: GitStatusBadgeProps) {
         statusBadgeClass(code),
       )}
       role="img"
-      aria-label={`Git status ${label}`}
-      title={`Git status ${label}`}
+      aria-label={label}
+      title={label}
     >
       {code.slice(0, 1)}
     </span>

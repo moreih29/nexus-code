@@ -17,14 +17,14 @@ export interface BootstrapProgressBarProps {
 }
 
 /**
- * SSH 에이전트 부트스트랩 진행 표시줄 (공유 프레젠테이션 컴포넌트).
+ * SSH agent bootstrap progress bar (shared presentational component).
  *
- * 정직한 진행률 표시 규칙:
- * - bytesTotal>0 이고 0<bytesDone<bytesTotal 인 경우에만 determinate 바 렌더.
- * - 나머지 모든 경우는 indeterminate(animated) 바 렌더.
+ * Rules for honest progress display:
+ * - A determinate bar is rendered only when bytesTotal>0 and 0<bytesDone<bytesTotal.
+ * - Every other case renders an indeterminate (animated) bar.
  *
- * workspaceId(패널)와 progressId(추가 다이얼로그) 양쪽 진행 이벤트가 같은
- * phase/바이트 필드를 쓰므로 키와 무관하게 이 컴포넌트를 재사용한다.
+ * Progress events keyed by workspaceId (panel) and by progressId (add dialog) use the same
+ * phase/byte fields, so this component is reused regardless of the key.
  */
 export function BootstrapProgressBar({
   phase,
@@ -35,13 +35,13 @@ export function BootstrapProgressBar({
 }: BootstrapProgressBarProps): React.JSX.Element {
   const { t } = useTranslation();
 
-  // phase 레이블: 이름이 필요한 phase("uploading", "extracting")에는 name을 보간한다.
+  // Phase label: for phases that need a name ("uploading", "extracting"), name is interpolated.
   const phaseLabel = t(`panel.bootstrap_phase.${phase}`, { name });
 
-  // 사이즈 문자열: bytesTotal이 있을 때만 표시한다.
+  // Size string: shown only when bytesTotal is present.
   const sizeLabel = bytesTotal && bytesTotal > 0 ? formatBytes(bytesTotal) : undefined;
 
-  // Determinate 여부: bytesDone이 존재하고 0<bytesDone<bytesTotal인 경우에만.
+  // Whether it is determinate: only when bytesDone exists and 0<bytesDone<bytesTotal.
   const isDeterminate =
     bytesTotal !== undefined &&
     bytesTotal > 0 &&
@@ -70,7 +70,7 @@ export function BootstrapProgressBar({
             style={{ width: `${percent}%` }}
           />
         ) : (
-          // indeterminate: pulse 애니메이션으로 진행 중임을 표시
+          // indeterminate: a pulse animation shows that it is in progress
           <div className="h-full w-full rounded-full bg-muted-foreground/50 motion-safe:animate-pulse" />
         )}
       </div>

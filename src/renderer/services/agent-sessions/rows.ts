@@ -128,12 +128,25 @@ function firstLine(text: string): string {
   return line.replace(/^#+\s*/, "").trim();
 }
 
+// The facts last worked out for each conversation. The lists show every
+// tab's row again when any tab's conversation moves; the tabs whose own
+// conversation did not move give the same facts without walking it again.
+const factsOf = new WeakMap<ChatModel, { activity?: SessionActivity; facts: RowFacts }>();
+
 /**
  * What a Claude or Codex tab's session waits on and does, from its
  * conversation; its running agents from its hooks (`activity`) once they
  * report any, which count its `claude -p` and `codex exec` runs too.
  */
 export function chatRowFacts(model: ChatModel, activity?: SessionActivity): RowFacts {
+  const known = factsOf.get(model);
+  if (known && known.activity === activity) return known.facts;
+  const facts = workOutChatRowFacts(model, activity);
+  factsOf.set(model, { activity, facts });
+  return facts;
+}
+
+function workOutChatRowFacts(model: ChatModel, activity?: SessionActivity): RowFacts {
   const request = model.permissions[0];
   let wait: RowWait | undefined;
   if (request?.toolName === "AskUserQuestion") {
