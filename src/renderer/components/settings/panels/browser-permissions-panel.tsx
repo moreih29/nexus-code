@@ -172,7 +172,7 @@ export function BrowserPermissionsPanel() {
       return;
     }
     setEntries(result.value as RememberedEntry[]);
-  }, [scopeTab, activeWorkspaceId]);
+  }, [scopeTab, activeWorkspaceId, t]);
 
   useEffect(() => {
     void loadEntries();
@@ -200,7 +200,7 @@ export function BrowserPermissionsPanel() {
       }
       void loadEntries();
     },
-    [loadEntries],
+    [loadEntries, t],
   );
 
   // Tier A toggles — always visible.

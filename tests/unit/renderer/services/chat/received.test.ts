@@ -39,13 +39,6 @@ function typed(text: string, uuid: string): ChatLine {
     message: { type: "user", uuid, message: { role: "user", content: text } },
   };
 }
-function said(text: string): ChatLine {
-  return out({
-    type: "assistant",
-    uuid: `a${seq + 1}`,
-    message: { id: `m${seq + 1}`, role: "assistant", content: [{ type: "text", text }] },
-  });
-}
 const INIT = () =>
   out({ type: "system", subtype: "init", session_id: "s1", model: "m", tools: [] });
 const RESULT = () => out({ type: "result", subtype: "success", is_error: false });

@@ -12,7 +12,7 @@ import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-prof
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
-import type { ProfileMove } from "../../../shared/types/layout";
+import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import {
   applyCodexLines,
@@ -120,6 +120,8 @@ export interface CodexTabTarget {
   profileId?: string;
   /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
+  /** The model and effort the user picked in the tab before. */
+  chosen?: ChatChosen;
 }
 
 export interface CodexTabHooks {
@@ -138,6 +140,11 @@ export interface CodexTabHooks {
    * client id; again with its turn once that is known.
    */
   onRelayed?: (record: RelayedMessage) => void;
+  /**
+   * The model or effort the user picked, for the tab to keep until a turn
+   * takes it; none once one has.
+   */
+  onChosen?: (chosen: ChatChosen) => void;
 }
 
 /** The turn a message went into, as turn/start and turn/steer answer. */
@@ -186,6 +193,9 @@ export class CodexController {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
+    // What the user picked before and no turn has sent yet: the next turn
+    // takes it, as one picked now would.
+    this.next = picksFrom(target.chosen);
     this.removeReceiver = addLineReceiver(this.key, this);
     this.leavePlanUsage = registerPlanSource({
       agent: "codex",
@@ -251,6 +261,7 @@ export class CodexController {
         phase: replay.running ? "ready" : "ended",
         truncated: replay.truncated,
       }));
+      this.showPicks();
       if (replay.running) {
         this.ready = Promise.resolve(this.model.threadId !== undefined);
         // The limits may have moved while no window watched, or never been read.
@@ -301,11 +312,17 @@ export class CodexController {
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
       this.readRateLimits();
+      this.showPicks();
       return true;
     }
-    const handshake = this.handshake().finally(() => {
-      if (this.handshaking === handshake) this.handshaking = null;
-    });
+    const handshake = this.handshake()
+      .then((ok) => {
+        if (ok) this.showPicks();
+        return ok;
+      })
+      .finally(() => {
+        if (this.handshaking === handshake) this.handshaking = null;
+      });
     this.handshaking = handshake;
     this.ready = handshake;
     return true;
@@ -804,6 +821,9 @@ export class CodexController {
     }
     const { model, effort, mode } = this.next;
     this.next = {};
+    // The thread holds them from this turn on: the tab keeps a pick only
+    // until it is sent, so a thread changed since is not overridden.
+    if (model || effort) this.hooks.onChosen?.({});
     // Its answer, or its error as a notice, comes in the log.
     void this.request("turn/start", {
       threadId,
@@ -859,13 +879,38 @@ export class CodexController {
   async setModel(model: string): Promise<unknown> {
     this.next = { ...this.next, model };
     this.patchModel({ model });
+    this.hooks.onChosen?.({ model });
     return undefined;
   }
 
   async setEffort(level: string): Promise<unknown> {
     this.next = { ...this.next, effort: level };
     this.patchModel({ effort: level });
+    this.hooks.onChosen?.({ effort: level });
     return undefined;
+  }
+
+  /**
+   * The model and effort a tab made from this one (/fork) starts with: the
+   * ones the chips show, picked or the thread's.
+   */
+  inheritedChoice(): ChatChosen | undefined {
+    const { model, effort } = { ...picksOf(this.model), ...this.next };
+    return model || effort
+      ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
+      : undefined;
+  }
+
+  /**
+   * Shows the picks the next turn takes over what the thread or its log
+   * says it ran with; the log's lines in hand are applied first, so they
+   * do not put the thread's back.
+   */
+  private showPicks(): void {
+    const { model, effort } = this.next;
+    if (!model && !effort) return;
+    this.flushNow();
+    this.patchModel({ ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
   }
 
   /**
@@ -1114,6 +1159,14 @@ export interface CodexPicks {
   model?: string;
   effort?: string;
   mode?: CodexMode;
+}
+
+/** A tab's kept model and effort as picks for its next turn. */
+function picksFrom(chosen: ChatChosen | undefined): CodexPicks {
+  return {
+    ...(chosen?.model ? { model: chosen.model } : {}),
+    ...(chosen?.effort ? { effort: chosen.effort } : {}),
+  };
 }
 
 /** What a thread runs with, as picks: for a new thread to start as it did. */

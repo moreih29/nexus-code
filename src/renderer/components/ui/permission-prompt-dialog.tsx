@@ -200,6 +200,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
   }, []);
 
   // Re-arm grace window on every new prompt.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new prompt is the trigger; it is not read.
   useEffect(() => {
     mountAtRef.current = performance.now();
   }, [prompt]);

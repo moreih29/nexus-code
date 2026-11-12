@@ -122,6 +122,7 @@ export function MarkdownPreview({
   onToggleTask,
   images,
 }: MarkdownPreviewProps) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Strip a leading YAML frontmatter block before truncation so the cap
@@ -253,9 +254,9 @@ export function MarkdownPreview({
           return (
             <span
               className="inline-flex items-center px-1.5 py-0.5 text-app-ui-sm text-muted-foreground border border-border rounded-(--radius-control)"
-              title={`image not loaded: ${rawSrc}`}
+              title={t("markdown.image_not_loaded", { src: rawSrc })}
             >
-              [image]
+              [{t("markdown.image")}]
             </span>
           );
         }
@@ -271,7 +272,7 @@ export function MarkdownPreview({
       h5: MdHeading,
       h6: MdHeading,
     }),
-    [imageCtx, images, onLinkClick, workspaceId],
+    [imageCtx, images, onLinkClick, workspaceId, t],
   );
 
   // Parsing and highlighting happen while <ReactMarkdown> renders. Reusing the

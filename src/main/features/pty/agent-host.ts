@@ -303,7 +303,7 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
     const offData = channel.on("pty.data", (payload) => this.handleData(payload));
     const offExit = channel.on("pty.exit", (payload) => this.handleExit(payload));
-    // claude.hook 이벤트를 PtyHostHandle.on 구독자에게 relay한다.
+    // Relays claude.hook events to the PtyHostHandle.on subscribers.
     // A hook speaks only for the workspace whose agent it arrived through.
     // On an SSH host the hook server is reachable by anything running there,
     // which must not be able to set another workspace's status, raise

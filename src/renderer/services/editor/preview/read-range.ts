@@ -5,7 +5,7 @@
 
 import { READ_RANGE_MAX_BYTES } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";
-import { bytesFromBase64 } from "./read-binary";
+import { bytesFromBase64 } from "../encoding/text-encoding";
 
 /** A part of a file, and what the file was when it was read. */
 export interface FilePart {

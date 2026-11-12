@@ -3,7 +3,6 @@
  * toplevel, which may be above the opened workspace when a subdirectory is open.
  */
 
-import { Buffer } from "node:buffer";
 import { isAllowedGitRemoteUrl } from "../../../../shared/git/remote-validation";
 import type {
   BranchList,

@@ -255,16 +255,16 @@ export function quoteShellArg(value: string): string {
 }
 
 /**
- * sftp 명령 파서는 공백을 인자 구분자로 처리하므로, 공백·특수문자가 들어 있는
- * 경로는 반드시 따옴표로 감싸야 한다 (shell quoting과는 별개의 sftp 자체
- * 파서). 공백 경로가 unquoted로 sftp `put`에 전달되면 첫 토큰만 인자로
- * 인식되어 엉뚱한 파일이 업로드되거나 sha256 검증이 실패한다 — `productName`이
- * `Nexus Code`이던 시절 `/Applications/Nexus Code.app/...` 경로에서 발현됐던
- * 회귀를 안전망으로 잡는다.
+ * The sftp command parser treats whitespace as an argument separator, so a path that contains
+ * whitespace or special characters must be wrapped in quotes (this is sftp's own parser,
+ * separate from shell quoting). If a path with spaces is passed unquoted to sftp `put`, only the first token is
+ * taken as the argument, so the wrong file is uploaded or the sha256 check fails — a regression that appeared at
+ * `/Applications/Nexus Code.app/...` when `productName` was
+ * `Nexus Code`, caught here as a safety net.
  *
- * OpenSSH sftp는 double-quote(`"`)로 감싼 인자를 단일 token으로 처리한다.
- * 경로 안의 `"` 문자는 안전하게 escape할 표준이 없으므로 거부한다 — 실무에서
- * 일반적인 macOS/Linux 경로에 `"`가 들어가는 일은 거의 없다.
+ * OpenSSH sftp treats an argument wrapped in double quotes (`"`) as a single token.
+ * A `"` inside the path is rejected because there is no standard way to escape it safely — in practice
+ * a `"` almost never appears in an ordinary macOS/Linux path.
  */
 export function sftpQuotePath(value: string): string {
   if (value.includes('"')) {

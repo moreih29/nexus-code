@@ -170,11 +170,11 @@ export async function buildAgentDistribution(
 ): Promise<void> {
   const rootDir = options.rootDir ?? path.resolve(import.meta.dir, "..");
   const outDir = options.outDir ?? path.join(rootDir, "dist", "agent");
-  // 에이전트 바이너리 버전은 앱 버전(package.json)에서 파생한다. 이 값이
-  // manifest.version → 원격 설치 경로(agent-<version>-os-arch)와 Ready 핸드셰이크의
-  // serverVersion을 결정한다. 고정값(DEFAULT_VERSION)으로 두면 릴리스마다 동일한
-  // 원격 경로를 in-place 덮어쓰게 되고 KEEP_REMOTE_VERSIONS 프루닝이 무의미해진다.
-  // 호환성 계약 자체는 별개의 protocolVersion이 담당한다.
+  // The agent binary version is derived from the app version (package.json). This value
+  // determines manifest.version → the remote install path (agent-<version>-os-arch) and the
+  // serverVersion in the Ready handshake. With a fixed value (DEFAULT_VERSION), every release
+  // would overwrite the same remote path in place and KEEP_REMOTE_VERSIONS pruning would be
+  // meaningless. The compatibility contract itself is handled by the separate protocolVersion.
   const version = options.version ?? (await readAppVersion(rootDir)) ?? DEFAULT_VERSION;
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
   const run = dependencies.run ?? runCommand;
@@ -188,7 +188,7 @@ export async function buildAgentDistribution(
   const nodeArtifacts = await downloadNodeRuntimes({ outDir, nodeVersion }, dependencies.fetch);
   const lspArtifacts = await buildLspBundles({ rootDir, outDir, run });
 
-  // claude 래퍼 스크립트를 bin/claude로 배치.
+  // Place the claude wrapper script at bin/claude.
   const wrapperArtifact = await copyClaudeWrapper({ rootDir, outDir });
   await writeCliLauncher(outDir);
   await writeCodexWrapper(outDir);
@@ -206,8 +206,8 @@ export async function buildAgentDistribution(
 }
 
 /**
- * scripts/assets/claude-wrapper.sh 를 <outDir>/bin/claude 로 복사하고
- * 실행 권한(0o755)을 설정한다. 파일이 없으면 에러를 던진다.
+ * Copies scripts/assets/claude-wrapper.sh to <outDir>/bin/claude and
+ * sets its execute permission (0o755). Throws an error if the file is missing.
  */
 export async function copyClaudeWrapper(args: {
   readonly rootDir: string;
@@ -651,8 +651,8 @@ function nodeDistPlatform(target: AgentArtifactPlatform): string {
 }
 
 /**
- * package.json의 version을 읽어 에이전트 버전 기본값으로 쓴다. 읽거나 파싱에
- * 실패하면 undefined를 돌려 호출부가 DEFAULT_VERSION으로 폴백하게 한다.
+ * Reads the version from package.json and uses it as the default agent version. If reading
+ * or parsing fails, returns undefined so the caller falls back to DEFAULT_VERSION.
  */
 async function readAppVersion(rootDir: string): Promise<string | undefined> {
   try {

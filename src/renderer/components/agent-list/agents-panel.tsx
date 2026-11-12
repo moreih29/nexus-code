@@ -8,7 +8,7 @@
 // from Settings (state/stores/agent-list-view.ts). The header takes two
 // lines; narrow, its buttons and the rows drop what can be told on hover.
 
-import { ChevronDown, GitBranch, GitBranchPlus, List, Plus, Search } from "lucide-react";
+import { ChevronDown, GitBranch, GitBranchPlus, List, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -41,6 +41,7 @@ import { hasProfileChoice, ProfileDot, profileName } from "../agent-profiles/pro
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
+import { SearchInput } from "../ui/search-input";
 import { AgentPeek } from "./agent-peek";
 import type { AgentListSelection } from "./selection";
 import { StatusView } from "./status-view";
@@ -93,7 +94,7 @@ export function AgentsPanel({ workspace }: { workspace: WorkspaceMeta }) {
   return (
     <div className="@container/agents flex min-h-0 flex-1 flex-col" data-testid="agent-list-panel">
       <div className="flex flex-col gap-2 border-b border-border/50 px-2 py-2">
-        <SearchBox query={query} onQuery={setQuery} />
+        <SearchInput value={query} onChange={setQuery} label={t("agentList.list.search")} />
         <div className="flex items-center gap-1">
           <ViewSwitch view={view} rootId={rootId} />
           <NewChat workspace={family.root} />
@@ -165,30 +166,6 @@ function findPeeked(family: SessionFamily, peek: Peek) {
     if (session) return { worktree, session };
   }
   return undefined;
-}
-
-/** Finds conversations by their title, last prompt or last answer; Esc clears it. */
-function SearchBox({ query, onQuery }: { query: string; onQuery: (query: string) => void }) {
-  const { t } = useTranslation();
-  return (
-    <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-(--radius-control) border border-border bg-background px-2 focus-within:border-ring">
-      <Search aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      <input
-        type="search"
-        value={query}
-        onChange={(event) => onQuery(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && query !== "") {
-            event.preventDefault();
-            onQuery("");
-          }
-        }}
-        aria-label={t("agentList.list.search")}
-        placeholder={t("agentList.list.search")}
-        className="min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none placeholder:text-muted-foreground"
-      />
-    </label>
-  );
 }
 
 const VIEW_ICONS: Record<AgentListView, typeof List> = { status: List, task: GitBranch };

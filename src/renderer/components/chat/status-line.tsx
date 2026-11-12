@@ -2,11 +2,12 @@
 // much it has written. Shown only while a turn runs.
 
 import { LoaderCircle } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNow } from "../../hooks/use-now";
 import type { ChatModel } from "../../services/chat/model";
 import { agentsOf } from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
+import { elapsedLabel } from "../agent-list/agent-status";
 
 export function StatusLine({ model }: { model: ChatModel }) {
   const { t } = useTranslation();
@@ -32,7 +33,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
         <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
       </span>
       <span className="text-foreground">{activity}</span>
-      {elapsed !== null && <span>{formatElapsed(elapsed)}</span>}
+      {elapsed !== null && <span>{elapsedLabel(elapsed * 1_000)}</span>}
       {tokens > 0 && <span>{t("chat.status.tokens", { count: formatTokens(tokens) })}</span>}
       {agents > 0 && <span>{t("chat.status.agents", { count: agents })}</span>}
     </div>
@@ -61,22 +62,4 @@ function activityOf(model: ChatModel, t: Translate): string {
   if (tool) return t("chat.status.running_tool", { tool: tool.displayName || tool.name });
   if (turn?.status === "requesting") return t("chat.status.requesting");
   return t("chat.status.working");
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s.toString().padStart(2, "0")}s`;
-}
-
-function useNow(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [ticking]);
-  return now;
 }

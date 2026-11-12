@@ -1,22 +1,22 @@
 // Extra language registration for Monaco editor.
 //
-// Monaco basic-languages 80종은 이미 통째로 들어와 있고, 우리는 그중 매핑이
-// 없는 흔한 파일들을 보강한다.
+// All 80 Monaco basic-languages are already bundled; this module fills in common files
+// that have no mapping there.
 //
-// 전략: TextMate grammar(JSON) + vscode-textmate + vscode-oniguruma 스택을
-// 인라인 브리지로 monaco.languages.setTokensProvider에 연결한다.
+// Strategy: connect a TextMate grammar (JSON) + vscode-textmate + vscode-oniguruma stack
+// to monaco.languages.setTokensProvider through an inline bridge.
 //
-//   - VSCode 호환 grammar 5종 (TOML / Makefile / .env / Nix / Justfile)은
-//     tm-grammars(shikijs)에서 발췌.
-//   - go.mod / go.sum 은 tm-grammars에도 없어 자체 Monarch로 작성. DSL이
-//     단순(module / require / replace / exclude / retract / go / toolchain
-//     + semver) 해서 ~30줄로 충분.
+//   - 5 VSCode-compatible grammars (TOML / Makefile / .env / Nix / Justfile) are
+//     excerpted from tm-grammars (shikijs).
+//   - go.mod / go.sum are not in tm-grammars either, so they use a hand-written Monarch.
+//     The DSL is simple (module / require / replace / exclude / retract / go / toolchain
+//     + semver), so ~30 lines are enough.
 //
-// monaco-editor-textmate 패키지는 Snyk에서 inactive로 분류되어 직접 의존하지
-// 않고, 브리지 ~30줄을 여기에 인라인한다. tokensProvider는 TextMate scope의
-// 첫 segment만 잘라 Monaco의 기본 토큰 클래스(string/comment/keyword/number/
-// variable/...)에 매핑한다. 풀-스코프 테마 매칭은 우리 Monaco 테마 시스템과
-// 무관하므로 의도적으로 생략.
+// The monaco-editor-textmate package is classified inactive by Snyk, so it is not a
+// direct dependency; the ~30-line bridge is inlined here. The tokensProvider cuts the
+// first segment off each TextMate scope and maps it to Monaco's default token classes
+// (string/comment/keyword/number/variable/...). Full-scope theme matching is
+// unrelated to our Monaco theme system, so it is omitted on purpose.
 
 import type * as Monaco from "monaco-editor";
 import dotenvGrammar from "tm-grammars/grammars/dotenv.json";
@@ -63,9 +63,9 @@ const TM_LANGUAGES: readonly TmLangSpec[] = [
     filenames: ["Makefile", "makefile", "GNUmakefile", "BSDmakefile"],
   },
   {
-    // Monaco "ini"가 .env에 매핑되어 있지 않으므로 별도 id로 등록한다.
-    // 색칠 수준은 ini와 유사하지만 dotenv grammar는 export 접두사·따옴표 escape
-    // 등 dotenv 특화 토큰을 추가로 잡는다.
+    // Monaco "ini" is not mapped to .env, so it is registered under a separate id.
+    // Highlighting is close to ini, but the dotenv grammar also picks up dotenv-specific
+    // tokens such as the export prefix and quote escapes.
     id: "dotenv",
     scopeName: "source.dotenv",
     grammar: dotenvGrammar as unknown as IRawGrammar,
@@ -102,14 +102,14 @@ const TM_LANGUAGES: readonly TmLangSpec[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * TextMate scopes는 "string.quoted.double.toml" 처럼 점-구분 계층 문자열이다.
- * Monaco의 기본 테마 룰은 첫 segment(`string`, `comment`, `keyword`, `number`,
- * `variable` 등)를 알아본다. 첫 segment만 잘라 매핑하면 우리 Monaco 테마
- * 시스템과 자연스럽게 어울린다.
+ * TextMate scopes are dot-separated hierarchical strings like "string.quoted.double.toml".
+ * Monaco's default theme rules recognize the first segment (`string`, `comment`,
+ * `keyword`, `number`, `variable`, ...). Cutting off only the first segment fits our Monaco
+ * theme system naturally.
  *
- * 일부 outlier segment(`punctuation`/`support`/`entity`/`constant`/`meta`)는
- * Monaco의 익숙한 이름으로 정규화한다. `meta`는 의미 없는 grouping scope라
- * 빈 문자열로 매핑해 default text 처리.
+ * A few outlier segments (`punctuation`/`support`/`entity`/`constant`/`meta`) are
+ * normalized to Monaco's familiar names. `meta` is a meaningless grouping scope, so it
+ * maps to an empty string and gets default text treatment.
  */
 function scopeToToken(scope: string | undefined): string {
   if (!scope) return "";
@@ -146,7 +146,7 @@ function buildTokensProvider(
       return {
         tokens: result.tokens.map((t) => ({
           startIndex: t.startIndex,
-          // 가장 깊이 들어간(=가장 구체적인) scope를 선택해 매핑한다.
+          // Pick the deepest (= most specific) scope and map it.
           scopes: scopeToToken(t.scopes[t.scopes.length - 1]),
         })),
         endState: result.ruleStack as unknown as Monaco.languages.IState,
@@ -164,8 +164,8 @@ let _registryPromise: Promise<Registry> | null = null;
 function getRegistry(): Promise<Registry> {
   if (_registryPromise) return _registryPromise;
   _registryPromise = (async () => {
-    // WASM은 첫 호출에서 한 번만 로드. fetch + arrayBuffer 경로는 Electron
-    // 렌더러에서 표준적으로 동작한다.
+    // The WASM is loaded only once, on the first call. The fetch + arrayBuffer path is the
+    // standard approach in the Electron renderer.
     const response = await fetch(onigWasmUrl);
     await loadWASM(await response.arrayBuffer());
 
@@ -176,9 +176,9 @@ function getRegistry(): Promise<Registry> {
       }),
       loadGrammar: async (scopeName) => {
         const spec = TM_LANGUAGES.find((l) => l.scopeName === scopeName);
-        // 미등록 scope(주로 just가 embed하는 source.shell/js/ts 등)는 null을
-        // 반환 → 해당 블록은 plaintext로 fallback. 후속 작업으로 embed grammar
-        // 까지 묶을 수 있으나 1차 범위 밖.
+        // Unregistered scopes (mainly source.shell/js/ts etc. that just embeds) return null,
+        // so that block falls back to plaintext. The embedded grammars could be bundled in
+        // follow-up work, but that is outside the first scope.
         return spec ? spec.grammar : null;
       },
     });
@@ -187,12 +187,12 @@ function getRegistry(): Promise<Registry> {
 }
 
 // ---------------------------------------------------------------------------
-// go.mod / go.sum — 자체 Monarch (tm-grammars에 없음)
+// go.mod / go.sum — hand-written Monarch (not in tm-grammars)
 // ---------------------------------------------------------------------------
 
 /**
  * go.mod DSL: module / require / replace / exclude / retract / go / toolchain
- * 디렉티브 + semver(v1.2.3, v1.2.3-pre.1+meta) + 경로 인용 문자열 + 주석.
+ * Directives + semver (v1.2.3, v1.2.3-pre.1+meta) + quoted path strings + comments.
  */
 const GOMOD_MONARCH: Monaco.languages.IMonarchLanguage = {
   defaultToken: "",
@@ -202,11 +202,11 @@ const GOMOD_MONARCH: Monaco.languages.IMonarchLanguage = {
       [/\/\/.*$/, "comment"],
       [/"([^"\\]|\\.)*"/, "string"],
       [/\b(module|require|replace|exclude|retract|go|toolchain)\b/, "keyword"],
-      // semver — required after `require` / `replace`. /go.mod 접미사도 매칭.
+      // semver — required after `require` / `replace`. Also matches the /go.mod suffix.
       [/\bv\d+\.\d+\.\d+(?:-[\w.+-]+)?(?:\+[\w.+-]+)?(?:\/go\.mod)?\b/, "number"],
       [/=>/, "operator"],
       [/[()]/, "@brackets"],
-      // 모듈 경로 (github.com/foo/bar 형태). identifier 토큰으로 처리.
+      // Module path (github.com/foo/bar form). Handled as an identifier token.
       [/[a-zA-Z0-9_./~-]+/, "identifier"],
       [/[ \t]+/, ""],
     ],
@@ -214,9 +214,9 @@ const GOMOD_MONARCH: Monaco.languages.IMonarchLanguage = {
 };
 
 /**
- * go.sum: 한 줄 = `<module-path> <version> h1:<base64>=`. 또는 `/go.mod`
- * 접미사가 붙은 라인. 매우 단순 — 모듈 경로(identifier), 버전(number),
- * 해시(string).
+ * go.sum: one line = `<module-path> <version> h1:<base64>=`, or a line with a `/go.mod`
+ * suffix. Very simple — module path (identifier), version (number),
+ * hash (string).
  */
 const GOSUM_MONARCH: Monaco.languages.IMonarchLanguage = {
   defaultToken: "",
@@ -235,26 +235,26 @@ const GOSUM_MONARCH: Monaco.languages.IMonarchLanguage = {
 // ---------------------------------------------------------------------------
 
 /**
- * Monaco에 우리 보강 언어들을 등록한다. initializeEditorServices()에서 호출.
+ * Registers our supplementary languages with Monaco. Called from initializeEditorServices().
  *
- * - TextMate 5종: WASM + grammar 비동기 로드 후 setTokensProvider. 등록 자체는
- *   사용자가 첫 .toml/.nix/... 파일을 열기 전에 끝나야 깜빡임이 없다. fire-and
- *   -forget이지만 WASM 로드 ~수십 ms 안에 완료되므로 실사용 영향 없음.
- * - go.mod / go.sum: 동기 Monarch 등록.
+ * - 5 TextMate languages: setTokensProvider after the WASM + grammar load asynchronously.
+ *   Registration itself must finish before the user opens the first .toml/.nix/... file
+ *   to avoid flicker. It is fire-and-forget, but the WASM loads within tens of ms, so
+ *   there is no practical impact. go.mod / go.sum use synchronous Monarch registration.
  *
- * 오류는 console.error로만 보고하고 throw하지 않는다 — 보강 언어 등록 실패가
- * 전체 에디터 부팅을 막아선 안 됨(타 언어들은 모두 정상 동작).
+ * Errors are only reported through console.error and never thrown — a failure to register
+ * the supplementary languages must not block the whole editor boot (the other languages work).
  */
 export function registerExtraLanguages(monaco: typeof Monaco): void {
-  // ---- go.mod / go.sum: 동기 ----
+  // ---- go.mod / go.sum: synchronous ----
   monaco.languages.register({ id: "gomod", filenames: ["go.mod"] });
   monaco.languages.setMonarchTokensProvider("gomod", GOMOD_MONARCH);
   monaco.languages.register({ id: "gosum", filenames: ["go.sum"] });
   monaco.languages.setMonarchTokensProvider("gosum", GOSUM_MONARCH);
 
-  // ---- TextMate 5종: 비동기. 등록만 먼저 동기로 해두면 파일 매핑은 즉시
-  // 작동하고, grammar 도착 전 토큰은 plaintext로 그려졌다가 grammar 도착 후
-  // re-tokenize 된다(Monaco 표준 동작). ----
+  // ---- 5 TextMate languages: asynchronous. Registering synchronously first makes the file
+  // mapping work immediately; tokens are drawn as plaintext until the grammar arrives and
+  // are then re-tokenized (standard Monaco behavior). ----
   for (const spec of TM_LANGUAGES) {
     monaco.languages.register({
       id: spec.id,

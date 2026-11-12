@@ -12,7 +12,7 @@
  *   5. disposeByWebContents: removes only matching waiters, denies them.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { BrowserPermissionPromptManager } from "../../../../../src/main/features/browser/permission-prompt-manager";
 
 // ---------------------------------------------------------------------------

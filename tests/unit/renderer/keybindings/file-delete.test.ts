@@ -1,20 +1,20 @@
 /**
- * Delete / Backspace fileDelete 키바인딩 단위 테스트.
+ * Unit tests for the Delete / Backspace fileDelete keybinding.
  *
- * 커버 범위:
- *   1. 글로벌 핸들러: wsId 없으면 no-op.
- *   2. 글로벌 핸들러: activeAbsPath 없으면 no-op.
- *   3. 글로벌 핸들러: root absPath이면 no-op.
- *   4. helper: confirm cancel 시 unlink/rmdir 호출 안 함.
- *   5. helper: file vs dir에 따라 unlinkPath vs rmdirPath 분기.
- *   6. dispatcher: tree 안에서 Delete/Backspace 발화, input 안에서는 발화 안 함.
- *   7. 컨텍스트 메뉴 deleteTarget 회귀 없음 — isRoot 대상 삭제 시도 no-op.
+ * Coverage:
+ *   1. global handler: no-op without a wsId.
+ *   2. global handler: no-op without an activeAbsPath.
+ *   3. global handler: no-op for the root absPath.
+ *   4. helper: no unlink/rmdir call when the confirm is cancelled.
+ *   5. helper: unlinkPath vs rmdirPath branch depending on file vs dir.
+ *   6. dispatcher: fires Delete/Backspace inside the tree, not inside an input.
+ *   7. no regression in the context menu deleteTarget — deleting an isRoot target is a no-op.
  */
 
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Renderer IPC shim — 스토어 임포트 전에 설치
+// Renderer IPC shim — installed before the store import
 // ---------------------------------------------------------------------------
 
 (globalThis as Record<string, unknown>).window = {
@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 };
 
 // ---------------------------------------------------------------------------
-// IPC call spy — confirm-delete helper 내부의 unlinkPath / rmdirPath 추적용
+// IPC call spy — tracks unlinkPath / rmdirPath inside the confirm-delete helper
 // ---------------------------------------------------------------------------
 
 type IpcCall = { channel: string; method: string; args: unknown };
@@ -55,7 +55,7 @@ mock.module("../../../../src/renderer/components/ui/confirm-dialog", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// 임포트 (shim 설치 후)
+// Imports (after the shim is installed)
 // ---------------------------------------------------------------------------
 
 import { registerFileCommands } from "../../../../src/renderer/commands/domains/file";
@@ -75,7 +75,7 @@ import { setPlatformForTests } from "../../../../src/renderer/utils/platform";
 import { COMMANDS } from "../../../../src/shared/keybindings/commands";
 
 // ---------------------------------------------------------------------------
-// 헬퍼
+// Helpers
 // ---------------------------------------------------------------------------
 
 function makeEvent(
@@ -107,7 +107,7 @@ function makeEvent(
   } as unknown as KeyboardEvent;
 }
 
-/** [role="tree"] 안의 DOM 요소 시뮬레이션 — fileTreeFocus=true, inputFocus=false */
+/** Simulates a DOM element inside [role="tree"] — fileTreeFocus=true, inputFocus=false */
 function treeTarget(): HTMLElement {
   return {
     tagName: "DIV",
@@ -116,7 +116,7 @@ function treeTarget(): HTMLElement {
   } as unknown as HTMLElement;
 }
 
-/** tree 안의 INPUT 요소 — inputFocus=true, fileTreeFocus=true */
+/** An INPUT element inside the tree — inputFocus=true, fileTreeFocus=true */
 function treeInputTarget(): HTMLElement {
   return {
     tagName: "INPUT",
@@ -125,7 +125,7 @@ function treeInputTarget(): HTMLElement {
   } as unknown as HTMLElement;
 }
 
-/** 트리 바깥 div — fileTreeFocus=false */
+/** A div outside the tree — fileTreeFocus=false */
 function outsideTarget(): HTMLElement {
   return {
     tagName: "DIV",
@@ -214,14 +214,14 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. 글로벌 핸들러: root absPath이면 no-op
+// 3. global handler: no-op for the root absPath
 // ---------------------------------------------------------------------------
 
 describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
   it("activeAbsPath가 rootAbsPath와 같으면 IPC 호출 없음", async () => {
     const unregisters = registerFileCommands();
     try {
-      initWorkspace(ROOT); // 활성 경로 = 루트 (setSingleSelection(ROOT))
+      initWorkspace(ROOT); // active path = root (setSingleSelection(ROOT))
 
       const e = makeEvent("Backspace", {
         code: "Backspace",
@@ -249,7 +249,7 @@ describe("fileDelete 핸들러 — root 경로이면 no-op", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. helper: confirm cancel 시 unlink/rmdir 호출 안 함
+// 4. helper: no unlink/rmdir call when the confirm is cancelled
 // ---------------------------------------------------------------------------
 
 describe("confirmAndDeletePath helper — confirm cancel", () => {
@@ -273,7 +273,7 @@ describe("confirmAndDeletePath helper — confirm cancel", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. helper: file vs dir 분기
+// 5. helper: file vs dir branch
 // ---------------------------------------------------------------------------
 
 describe("confirmAndDeletePath helper — workspace kind branching", () => {
@@ -336,7 +336,7 @@ describe("confirmAndDeletePath helper — workspace kind branching", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. dispatcher: when 조건에 의한 scoping
+// 6. dispatcher: scoping by the when condition
 // ---------------------------------------------------------------------------
 
 describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
@@ -430,7 +430,7 @@ describe("dispatcher — Cmd+Backspace when 조건 scoping", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. 컨텍스트 메뉴 deleteTarget 회귀 검증 — isRoot이면 no-op
+// 7. context menu deleteTarget regression check — no-op for isRoot
 // ---------------------------------------------------------------------------
 
 describe("use-file-tree-actions 회귀 — isRoot 대상 no-op", () => {

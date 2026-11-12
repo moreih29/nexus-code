@@ -130,6 +130,7 @@ export function BranchPicker({
       placeholder,
       normalizedMode,
       onSelectRef,
+      t,
     ],
   );
   const footerText = footer ?? defaultFooterForMode(normalizedMode);

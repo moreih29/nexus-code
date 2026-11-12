@@ -1,20 +1,20 @@
-// 사용자가 현재 보고 있는 (workspaceId, tabId)를 main에 push한다.
+// Pushes the (workspaceId, tabId) the user is currently viewing to main.
 //
-// main은 이 컨텍스트를 Stop hook 처리 시 참조해 알림 발사 여부를 결정한다
-// (사용자가 그 탭을 보고 있으면 알림 생략). 또한 사용자가 탭을 활성화하면
-// markSeen IPC를 통해 completed 상태를 idle로 자동 전이시킨다. 탭을 보고
-// 떠난 시각은 session-seen store에 남겨 inbox가 읽음 여부를 판단한다.
+// main consults this context when handling a Stop hook to decide whether to fire a notification
+// (skipped if the user is looking at that tab). When the user activates a tab it also
+// moves the completed status to idle automatically through the markSeen IPC. The time a tab
+// was seen and left is kept in the session-seen store so the inbox can judge read state.
 //
-// 탭을 본다는 것은 앱 창에 포커스가 있다는 뜻이기도 하다 (main의 hook-handler도
-// 같은 기준). 다른 앱에 가 있는 동안은 아무 탭도 보고 있지 않고, 돌아오면 그때
-// 활성 탭을 다시 보기 시작한다.
+// Viewing a tab also implies the app window has focus (main's hook-handler uses the
+// same criterion). While the user is in another app no tab is being viewed, and on return
+// the active tab starts being viewed again.
 //
-// active context는 두 store의 조합으로 결정된다:
-//  - useActiveStore.activeWorkspaceId : 현재 보고 있는 워크스페이스
-//  - useLayoutStore.byWorkspace[ws].activeGroupId → 그 그룹의 leaf.activeTabId
-// 에이전트 뷰가 떠 있는 동안은 그 활성 패널 앞의 에이전트가 대신한다.
+// The active context is determined by a combination of two stores:
+//  - useActiveStore.activeWorkspaceId : the workspace currently being viewed
+//  - useLayoutStore.byWorkspace[ws].activeGroupId → that group's leaf.activeTabId
+// While the agent view is open, the agent in front of the active panel stands in.
 //
-// 둘 중 하나라도 변경되면 새 (workspaceId, tabId)를 계산해 main에 push한다.
+// If either changes, the new (workspaceId, tabId) is computed and pushed to main.
 
 import { createLogger } from "../../shared/log/renderer";
 import { ipcCallResult } from "../ipc/client";
@@ -30,14 +30,14 @@ import { useSessionSeenStore } from "./stores/session-seen";
 const log = createLogger("claude-active-context");
 
 // ---------------------------------------------------------------------------
-// 헬퍼
+// Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * 주어진 워크스페이스의 layout에서 현재 active tabId를 계산한다.
+ * Computes the current active tabId from a given workspace's layout.
  *
- * activeGroupId로 leaf를 찾고 그 leaf의 activeTabId를 반환한다.
- * leaf를 못 찾거나 activeTabId가 null이면 null.
+ * Finds the leaf by activeGroupId and returns that leaf's activeTabId.
+ * null if the leaf is not found or activeTabId is null.
  */
 function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): string | null {
   if (!activeGroupId) return null;
@@ -50,11 +50,11 @@ function resolveActiveTabId(root: LayoutNode, activeGroupId: string | null): str
 }
 
 /**
- * 현재 active (workspaceId, tabId) 쌍을 두 store에서 계산한다.
- * workspace 또는 tab이 없으면 둘 다 null로 보고한다.
+ * Computes the current active (workspaceId, tabId) pair from the two stores.
+ * If the workspace or tab is missing, both are reported as null.
  */
 export function computeActiveContext(): { workspaceId: string | null; tabId: string | null } {
-  // 에이전트 뷰가 떠 있으면 활성 패널 앞의 에이전트가 사용자 앞에 있다.
+  // While the agent view is open, the agent in front of the active panel is in front of the user.
   const agentView = useAgentViewStore.getState();
   if (agentView.mode === "agents") {
     const key = activeKey(agentView);
@@ -73,15 +73,15 @@ export function computeActiveContext(): { workspaceId: string | null; tabId: str
 }
 
 // ---------------------------------------------------------------------------
-// 공개 API
+// Public API
 // ---------------------------------------------------------------------------
 
 /**
- * active store와 layout store 변경을 구독해 main에 setActiveContext IPC를 push한다.
+ * Subscribes to active store and layout store changes and pushes setActiveContext IPC to main.
  *
- * bootstrap에서 1회 호출한다. 반환값은 구독 해제 함수.
+ * Called once from bootstrap. The return value is the unsubscribe function.
  *
- * 직전 값과 동일하면 IPC를 발사하지 않아 불필요한 round-trip을 피한다.
+ * An identical value to the previous one fires no IPC, avoiding unnecessary round-trips.
  */
 export function startClaudeActiveContextSync(): () => void {
   let lastWorkspaceId: string | null = null;
@@ -93,9 +93,9 @@ export function startClaudeActiveContextSync(): () => void {
     if (initialPushed && workspaceId === lastWorkspaceId && tabId === lastTabId) {
       return;
     }
-    // 떠나는 탭은 지금까지, 새로 보는 탭은 지금부터 사용자 앞에 있었다.
-    // inbox는 그 전에 끝난 세션을 뺀다 (markSeen이 없는 Codex 등도 같은 기준).
-    // 창에 포커스가 없을 때 바뀐 탭(nexus CLI 등)은 아직 아무도 보지 않았다.
+    // The tab being left was in front of the user until now; the newly viewed tab, from now on.
+    // The inbox excludes sessions that ended before that (same criterion for Codex etc. with no markSeen).
+    // A tab changed while the window had no focus (nexus CLI etc.) has not been seen by anyone yet.
     const viewing = useAppFocusStore.getState().focused;
     if (viewing) {
       const seen = useSessionSeenStore.getState();
@@ -105,19 +105,19 @@ export function startClaudeActiveContextSync(): () => void {
     lastWorkspaceId = workspaceId;
     lastTabId = tabId;
     initialPushed = true;
-    // fire-and-forget — main 측 실패는 알림 발사 결정에만 영향 (치명적 아님).
+    // fire-and-forget — a main-side failure only affects the notification decision (not fatal).
     ipcCallResult("claude", "setActiveContext", { workspaceId, tabId }).catch((err: unknown) => {
       log.warn(`setActiveContext IPC failed: ${(err as Error).message}`);
     });
 
-    // 실제 탭이 활성화된 경우, 그 탭의 completed 상태를 자동 해제하기 위해 markSeen.
-    // main의 markSeen 핸들러는 completed 상태일 때만 idle로 전이한다 (idempotent).
+    // When a real tab is activated, markSeen to automatically release that tab's completed status.
+    // main's markSeen handler moves to idle only when in the completed state (idempotent).
     if (viewing && workspaceId !== null && tabId !== null) markClaudeSeen(workspaceId, tabId);
   };
 
-  // 창을 떠나고 돌아오는 것도 탭을 바꾸는 것과 같다: 떠날 때까지, 돌아온 뒤부터
-  // 활성 탭이 사용자 앞에 있었다. 그 사이에 그 탭에서 끝난 세션만 inbox에 남고,
-  // 돌아와 보면 읽은 것이 된다.
+  // Leaving and returning to the window is the same as switching tabs: the active tab was
+  // in front of the user until they left and from when they came back. Only sessions that
+  // ended in that tab in between stay in the inbox, and they count as read once the user returns and sees them.
   const onFocusChange = (focused: boolean): void => {
     const { workspaceId, tabId } = computeActiveContext();
     if (workspaceId === null || tabId === null) return;
@@ -125,10 +125,10 @@ export function startClaudeActiveContextSync(): () => void {
     if (focused) markClaudeSeen(workspaceId, tabId);
   };
 
-  // 초기 1회 push (현재 값 동기화).
+  // Initial one-time push (syncs the current value).
   push();
 
-  // 두 store 변경을 모두 구독.
+  // Subscribe to both store changes.
   const unsubActive = useActiveStore.subscribe(push);
   const unsubLayout = useLayoutStore.subscribe(push);
   const unsubAgentView = useAgentViewStore.subscribe(push);

@@ -47,13 +47,13 @@ const MODE_BUTTONS: ModeButton[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * SSH 워크스페이스 재연결을 시도한다.
- * - 성공: main 프로세스가 connectionChanged 이벤트를 broadcast해 store가 업데이트됨.
- * - 실패: 사용자에게 토스트로 안내.
+ * Attempts to reconnect the SSH workspace.
+ * - Success: the main process broadcasts a connectionChanged event and the store updates.
+ * - Failure: the user is told with a toast.
  *
- * `workspace.activate` IPC는 내부적으로 `ensureProviderReady`를 호출하므로,
- * 이전 연결이 실패(sshProviderReady 캐시 제거됨)한 상태에서 다시 호출하면
- * 새 SSH 부트스트랩을 시작한다.
+ * The `workspace.activate` IPC calls `ensureProviderReady` internally, so calling it again
+ * after the previous connection failed (the sshProviderReady cache was removed) starts a
+ * new SSH bootstrap.
  */
 export async function reconnectWorkspace(
   workspaceId: string,
@@ -94,7 +94,7 @@ export const FilesPanel = memo(function FilesPanel() {
   const showOffline =
     activeWorkspace !== null && activeWorkspace.location.kind !== "local" && !workspaceOnline;
 
-  // 재연결 진행 중 여부 — Reconnect 버튼을 disabled 처리하고 라벨을 변경하는 데 사용.
+  // Whether a reconnect is in progress — used to disable the Reconnect button and change its label.
   const [isReconnecting, setIsReconnecting] = useState(false);
   // Bumped by each click on the Search button so the panel focuses its input,
   // whether the click mounts it or it is already showing.
@@ -240,9 +240,9 @@ function openGitDiffFromRow({
   const isUnborn =
     useGitStore.getState().sessions.get(workspaceId)?.status?.branch?.isUnborn ?? false;
   const refs = refsForGitGroup(groupKey, isUnborn);
-  // preview 미지정 시 openDiffTab의 default(preview=true)에 위임 — 파일트리
-  // single-click과 동일한 임시 슬롯 재사용 흐름. 더블클릭은 `preview=false`로
-  // permanent 승격.
+  // When preview is unspecified, defer to openDiffTab's default (preview=true) — the same
+  // temporary-slot reuse flow as a file tree single-click. A double-click promotes it to
+  // permanent with `preview=false`.
   openDiffTab(workspaceId, entry.relPath, refs.leftRef, refs.rightRef, entry.oldRelPath, {
     ...(preview === false ? { preview: false } : {}),
   });

@@ -2,10 +2,10 @@
  * Unit tests for the browser workspace closer installed by registerBrowserCloser.
  *
  * Acceptance criteria:
- *   1. closer 호출 시 해당 workspaceId의 view들과 popup들이 destroy됨
- *   2. clearStorageData가 해당 partition에 1회 호출됨
- *   3. destroy 완료 후 clearStorageData 순서 보장
- *   4. WorkspaceManager.remove()가 등록된 closer를 실행함
+ *   1. when the closer is called, the views and popups of that workspaceId are destroyed
+ *   2. clearStorageData is called once for that partition
+ *   3. clearStorageData is guaranteed to run after destroy completes
+ *   4. WorkspaceManager.remove() runs the registered closer
  *
  * Drives the real registerBrowserCloser against the real BrowserTabRegistry
  * created by initBrowserFeature. Only electron's WebContentsView and session

@@ -11,7 +11,6 @@
 
 import i18next from "i18next";
 import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import type { GitOperationState } from "../../../../../shared/git/types";
 import type { GitStoreError } from "../../../../state/stores/git";
 import { cn } from "../../../../utils/cn";

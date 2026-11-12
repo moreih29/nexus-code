@@ -11,7 +11,7 @@ import {
   SshHostOsSchema,
 } from "../../../../../shared/agent/manifest";
 import { createSshError } from "../../pipe";
-import { quoteShellArg, runSsh } from "./transport";
+import { runSsh } from "./transport";
 import {
   type EnsureRemoteAgentOptions,
   KEEP_REMOTE_VERSIONS,

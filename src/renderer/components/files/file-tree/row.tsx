@@ -299,7 +299,7 @@ function GitDecorationChip({ kind }: { kind: GitDecorationKind }) {
       className="ml-auto pl-1 pr-2 inline-flex shrink-0 items-center justify-center font-mono text-app-ui-sm leading-none"
       style={{ color: kindToColorVar(kind) }}
       role="img"
-      aria-label={`Git ${tooltip}`}
+      aria-label={tooltip}
       title={tooltip}
     >
       {letter}

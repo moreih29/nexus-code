@@ -774,10 +774,10 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
   const error = new Error(messageForSshErrorCode(code), { cause }) as SshError;
   error.name = "SshError";
   (error as Error & { code: SshErrorCode }).code = code;
-  // 진단 로그: 모든 SshError 생성 시점을 main.log에 남긴다. packaged 앱에서
-  // SSH 흐름이 logger를 거의 안 거치는 구조라 protocol-error의 throw 위치를
-  // 추적하려면 이 한 줄이 결정적 단서가 된다. cause는 message + stack을 잘라
-  // 남기고, 호출 stack은 별도 field에.
+  // Diagnostic log: record every SshError construction in main.log. In a packaged app
+  // the SSH flow barely goes through the logger, so this one line is the decisive clue for
+  // tracing where a protocol-error was thrown. The cause is logged with message + stack truncated,
+  // and the call stack goes in a separate field.
   try {
     const causeMsg =
       cause instanceof Error ? cause.message : cause === undefined ? "" : String(cause);
@@ -789,7 +789,7 @@ export function createSshError(code: SshErrorCode, cause?: unknown): SshError {
       `SshError throw: code=${code} cause=${causeSnippet} stack=${stack}`,
     );
   } catch {
-    // 로깅 실패는 무시.
+    // Ignore logging failures.
   }
   return error;
 }
@@ -858,10 +858,10 @@ function logMalformedStdoutLine(line: string, ready: boolean, error: unknown): v
   const preview = escapeControlChars(line.slice(0, MALFORMED_LINE_PREVIEW_CHARS));
   const truncated = line.length > MALFORMED_LINE_PREVIEW_CHARS ? "…" : "";
   const reason = error instanceof Error ? error.message : String(error);
-  // `createLogger`를 거쳐 electron-log file transport에 남도록 한다. 이전엔
-  // `console.warn`을 직접 호출해 packaged 앱의 main.log에 남지 않았는데,
-  // SSH 원격 agent stdout pollution 진단의 1순위 단서가 이 줄이라 파일
-  // 가시성이 중요하다.
+  // Route this through `createLogger` so it reaches the electron-log file transport. It used to
+  // call `console.warn` directly, so it never reached main.log in a packaged app, but
+  // this line is the top clue when diagnosing stdout pollution from a remote SSH agent, so file
+  // visibility matters.
   getMalformedStdoutLogger().warn(
     `stdout NDJSON parse failed (ready=${ready}, len=${line.length}, reason=${reason}): ${preview}${truncated}`,
   );

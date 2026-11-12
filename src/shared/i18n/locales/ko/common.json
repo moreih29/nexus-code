@@ -31,7 +31,8 @@
     "open_connection_settings": "연결 설정 열기",
     "dismiss": "닫기",
     "increase": "증가",
-    "decrease": "감소"
+    "decrease": "감소",
+    "clear_search": "검색어 지우기"
   },
   "palette": {
     "close_aria": "커맨드 팔레트 닫기",
@@ -684,7 +685,8 @@
   "preview": {
     "truncated": "미리보기가 {{kb}} KB에서 잘렸습니다. 전체 파일을 보려면 원본으로 전환하세요.",
     "table_empty": "행이 없습니다.",
-    "html_title": "HTML 미리보기"
+    "html_title": "HTML 미리보기",
+    "svg_alt": "SVG 미리보기"
   },
   "jsonPreview": {
     "label": "{{format}} 트리",
@@ -706,7 +708,8 @@
   "imagePreview": {
     "workspace_not_found": "워크스페이스를 찾을 수 없습니다.",
     "outside_workspace": "이미지가 워크스페이스 외부에 있어 미리볼 수 없습니다.",
-    "load_failed": "이미지를 불러올 수 없습니다."
+    "load_failed": "이미지를 불러올 수 없습니다.",
+    "resolution": "이미지 해상도: {{size}} 픽셀"
   },
   "fontPreview": {
     "outside_workspace": "워크스페이스 밖의 폰트라 미리 볼 수 없습니다.",
@@ -756,7 +759,9 @@
     "copy_link": "이 섹션 링크 복사",
     "mermaid_alt": "Mermaid 다이어그램",
     "mermaid_error": "다이어그램을 그릴 수 없습니다: {{message}}",
-    "mermaid_unshown": "다이어그램을 그렸지만 표시할 수 없습니다."
+    "mermaid_unshown": "다이어그램을 그렸지만 표시할 수 없습니다.",
+    "image": "이미지",
+    "image_not_loaded": "이미지를 불러오지 못했습니다: {{src}}"
   },
   "resize": {
     "sidebar": "사이드바 크기 조정",
@@ -1054,6 +1059,7 @@
       "mention_file": "파일 참조",
       "command": "명령",
       "commands": "명령",
+      "no_commands": "일치하는 명령이 없습니다",
       "files": "파일",
       "remove_file": "파일 제거",
       "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다.",

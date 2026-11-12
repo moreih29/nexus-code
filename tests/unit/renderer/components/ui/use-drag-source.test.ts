@@ -11,6 +11,7 @@
  */
 
 import { afterAll, describe, expect, mock, test } from "bun:test";
+import type { EffectCallback } from "react";
 
 // ---------------------------------------------------------------------------
 // Minimal document stub — bun:test has no jsdom by default.  We only need
@@ -82,7 +83,7 @@ mock.module("react", () => ({
   ...realReact,
   useCallback: <T extends (...args: never[]) => unknown>(callback: T) => callback,
   useRef: <T>(initial: T) => ({ current: initial }),
-  useEffect: (cb: () => void | (() => void)) => {
+  useEffect: (cb: EffectCallback) => {
     const ret = cb();
     if (typeof ret === "function") pendingCleanups.push(ret);
   },

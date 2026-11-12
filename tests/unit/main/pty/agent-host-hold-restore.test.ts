@@ -10,7 +10,7 @@
  * Legacy / local path (hadEpoch=false) on `reconnecting` still emits pty.exit
  * immediately (invariant preserved).
  */
-import { describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import type { AgentPtyWorkspaceManager } from "../../../../src/main/features/pty/agent-host";
 import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type {

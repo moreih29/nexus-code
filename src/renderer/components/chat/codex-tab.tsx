@@ -115,6 +115,7 @@ export function CodexTabView({
           threadId: props.threadId,
           ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
+          ...(props.chosen ? { chosen: props.chosen } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
         },
@@ -209,9 +210,12 @@ export function CodexTabView({
     if (!isVisible) setLook(null);
   }, [isVisible]);
   const [looked, setLooked] = useState<readonly string[]>([]);
+  // Taken from the parts it reads, so a line that changes neither does not
+  // walk the whole session again.
+  const { items: liveItems, tools: liveTools } = state.model;
   const outside = useMemo(
-    () => outsideLinksOf(state.model.items, state.model.tools, props.cwd, rootPath, looked),
-    [state.model, props.cwd, rootPath, looked],
+    () => outsideLinksOf(liveItems, liveTools, props.cwd, rootPath, looked),
+    [liveItems, liveTools, props.cwd, rootPath, looked],
   );
   useEffect(() => {
     grantOutside(workspaceId, tabId, outside);

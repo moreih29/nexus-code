@@ -54,6 +54,15 @@ const ProfileMovesSchema = z.array(ProfileMoveSchema).max(PROFILE_MOVES_KEPT).op
  * its own id: a tab opened as a fork or a branch, one rewound, or one that
  * went on in another profile.
  */
+/** The model and effort picked in a chat tab, which its settings' defaults do not override. */
+export const ChatChosenSchema = z
+  .object({
+    model: z.string().max(128).optional(),
+    effort: z.string().max(32).optional(),
+  })
+  .optional();
+export type ChatChosen = NonNullable<z.infer<typeof ChatChosenSchema>>;
+
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   sessionId: z.string().max(128).optional(),
@@ -73,6 +82,8 @@ export const ClaudeTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The model and effort the user picked in the tab, for its next program to take. */
+  chosen: ChatChosenSchema,
 });
 export type ClaudeTabProps = z.infer<typeof ClaudeTabPropsSchema>;
 
@@ -98,6 +109,8 @@ export const CodexTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The model and effort the user picked in the tab, for its next turn to take. */
+  chosen: ChatChosenSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 

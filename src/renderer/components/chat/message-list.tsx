@@ -31,13 +31,13 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { ProfileMove } from "../../../shared/types/layout";
+import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
 import { splitAttachments } from "../../services/chat/composer-input";
@@ -90,6 +90,7 @@ import {
 } from "../../utils/intl-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ManagerIcon } from "../manager/manager-chip";
+import { IconButton } from "../ui/icon-button";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
 import { ChatAgentContext, useAgentContext } from "./chat-agent";
@@ -807,18 +808,18 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
           <MessageTime at={item.at} />
           <CopyButton text={item.text} />
           {actions && taken && (
-            <ActionButton
+            <IconButton
               label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
               blocked={actions.running}
               onClick={() => actions.onRewind(item)}
             >
               <RotateCcw className="size-3.5" />
-            </ActionButton>
+            </IconButton>
           )}
           {actions?.onFork && taken && (
-            <ActionButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
+            <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
               <GitFork className="size-3.5" />
-            </ActionButton>
+            </IconButton>
           )}
         </div>
         <span
@@ -907,12 +908,12 @@ function AssistantMessage({
         <div className="mt-1 flex items-center gap-1 text-app-micro text-muted-foreground opacity-0 group-focus-within/assistant:opacity-100 group-hover/assistant:opacity-100">
           <CopyButton text={text} />
           {forkable && ctx.actions && (
-            <ActionButton
+            <IconButton
               label={t("chat.fork.from_assistant")}
               onClick={() => ctx.actions?.onFork?.(item)}
             >
               <GitFork className="size-3.5" />
-            </ActionButton>
+            </IconButton>
           )}
           <MessageTime at={item.at} />
         </div>
@@ -1247,7 +1248,7 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   if (!text) return null;
   return (
-    <ActionButton
+    <IconButton
       label={t("chat.copy")}
       onClick={() => {
         copyText(text);
@@ -1256,48 +1257,14 @@ function CopyButton({ text }: { text: string }) {
       }}
     >
       {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </ActionButton>
-  );
-}
-
-/**
- * An icon button with its label as the tooltip. A blocked one keeps its
- * tooltip, which says why, and does nothing.
- */
-function ActionButton({
-  label,
-  onClick,
-  blocked = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  blocked?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={blocked ? undefined : onClick}
-      title={label}
-      aria-label={label}
-      aria-disabled={blocked || undefined}
-      className={cn(
-        "rounded-(--radius-control) p-1 text-muted-foreground",
-        blocked
-          ? "cursor-not-allowed opacity-40"
-          : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
+    </IconButton>
   );
 }
 
 /** When a message was sent: relative, exact on hover. */
 function MessageTime({ at }: { at?: number }) {
   const { t, i18n } = useTranslation();
-  const now = useSyncExternalStore(subscribeClock, clockNow);
+  const now = useSharedClock(messageClock);
   if (at === undefined) return null;
   const exact = dateTimeFormat(i18n.language, DATE_AND_TIME).format(at);
   return (
@@ -1325,28 +1292,4 @@ export function relativeTime(at: number, now: number, locale: string, justNow: s
 const RELATIVE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
 // One clock for every message's time, ticking while any is shown.
-const clockListeners = new Set<() => void>();
-let clockTimer: ReturnType<typeof setInterval> | null = null;
-let clockValue = Date.now();
-
-function subscribeClock(listener: () => void): () => void {
-  clockListeners.add(listener);
-  if (clockTimer === null) {
-    clockValue = Date.now();
-    clockTimer = setInterval(() => {
-      clockValue = Date.now();
-      for (const l of clockListeners) l();
-    }, 30_000);
-  }
-  return () => {
-    clockListeners.delete(listener);
-    if (clockListeners.size === 0 && clockTimer !== null) {
-      clearInterval(clockTimer);
-      clockTimer = null;
-    }
-  };
-}
-
-function clockNow(): number {
-  return clockValue;
-}
+const messageClock = sharedClock(30_000);

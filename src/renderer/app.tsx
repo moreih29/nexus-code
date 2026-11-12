@@ -1,6 +1,5 @@
 import { useMonaco } from "@monaco-editor/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useCallback, useEffect, useRef } from "react";
 import { createLogger } from "../shared/log/renderer";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { bootstrapAppState, bootstrapClaudeStatus, bootstrapWorkspaces } from "./bootstrap";
@@ -23,7 +22,6 @@ import { NotificationsPanel } from "./components/settings/panels/notifications-p
 import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
-import { PROFILE_KEYWORDS, type SettingsNavItem } from "./components/settings/types";
 import { ErrorBoundary } from "./components/ui/error-boundary";
 import { KeptMounted } from "./components/ui/kept-mounted";
 import { ReleaseNotesView } from "./components/workbench/release-notes";
@@ -45,15 +43,9 @@ import { countUnsavedBuffers } from "./services/editor/save/unsaved-guard";
 import { useActiveStore } from "./state/stores/active";
 import { useAddWorkspaceUIStore } from "./state/stores/add-workspace-ui";
 import { useAgentViewStore } from "./state/stores/agent-view";
-import { useEditorFontStore } from "./state/stores/editor-font";
-import { useIconThemeStore } from "./state/stores/icon-theme";
-import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useMountedWorkspacesStore } from "./state/stores/mounted-workspaces";
 import { useSettingsUIStore } from "./state/stores/settings-ui";
-import { useTerminalStore } from "./state/stores/terminal";
-import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
-import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import {
   rootWorkspaceId,
   tasksOf,
@@ -64,7 +56,6 @@ import {
 const log = createLogger("app");
 
 export function App() {
-  const { t } = useTranslation("settings");
   const monaco = useMonaco();
   // Picked one by one: the whole store would render the app, every
   // workspace's tabs below it, for each connection status and progress.
@@ -84,210 +75,6 @@ export function App() {
   // The agent view takes the place of the workspaces: its list for the
   // sidebar and the files, its panels for the workspace's.
   const agentView = useAgentViewStore((s) => s.mode === "agents");
-
-  // Settings nav — each row carries an optional `dirty` dot. Dirty is
-  // **session-scoped**: it means "this value changed while the current
-  // Settings dialog session was open", not "this value diverges from the
-  // built-in default". Settings auto-persist on every setter call, so once
-  // the user closes the dialog we treat the new values as the new baseline.
-  //
-  // Implementation: when settingsOpen flips false → true we snapshot every
-  // tracked field. While the dialog is open, dirty = current !== snapshot.
-  // When the dialog closes, the snapshot is wiped so the next open starts
-  // clean.
-  const iconThemePreference = useIconThemeStore((s) => s.preference);
-  const themePreference = useThemeStore((s) => s.preference);
-  const opacity = useWindowOpacityStore((s) => s.opacity);
-  const inactivePanelDim = useInactivePanelDimStore((s) => s.dim);
-  const editorFontSize = useEditorFontStore((s) => s.size);
-  const editorFontFamily = useEditorFontStore((s) => s.family);
-  const editorFontLigatures = useEditorFontStore((s) => s.ligatures);
-  const editorFontLineHeight = useEditorFontStore((s) => s.lineHeight);
-  const terminalFontSize = useTerminalStore((s) => s.fontSize);
-  const terminalCursorStyle = useTerminalStore((s) => s.cursorStyle);
-  const terminalFontFamily = useTerminalStore((s) => s.fontFamily);
-  const terminalFontLigatures = useTerminalStore((s) => s.fontLigatures);
-
-  interface SettingsSnapshot {
-    iconThemePreference: typeof iconThemePreference;
-    themePreference: typeof themePreference;
-    opacity: number;
-    inactivePanelDim: number;
-    editorFontSize: typeof editorFontSize;
-    editorFontFamily: typeof editorFontFamily;
-    editorFontLigatures: typeof editorFontLigatures;
-    editorFontLineHeight: typeof editorFontLineHeight;
-    terminalFontSize: typeof terminalFontSize;
-    terminalCursorStyle: typeof terminalCursorStyle;
-    terminalFontFamily: typeof terminalFontFamily;
-    terminalFontLigatures: typeof terminalFontLigatures;
-  }
-  const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsSnapshot | null>(null);
-
-  // Capture on open, clear on close. We deliberately depend only on
-  // settingsOpen so the snapshot is taken exactly once per session and never
-  // updated mid-session (otherwise dirty would always be false).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: snapshot is captured at the moment of opening; mid-session reads must not refresh it
-  useEffect(() => {
-    if (settingsOpen) {
-      setSettingsSnapshot({
-        iconThemePreference,
-        themePreference,
-        opacity,
-        inactivePanelDim,
-        editorFontSize,
-        editorFontFamily,
-        editorFontLigatures,
-        editorFontLineHeight,
-        terminalFontSize,
-        terminalCursorStyle,
-        terminalFontFamily,
-        terminalFontLigatures,
-      });
-    } else {
-      setSettingsSnapshot(null);
-    }
-  }, [settingsOpen]);
-
-  const settingsNav = useMemo<SettingsNavItem[]>(() => {
-    const snap = settingsSnapshot;
-    const appearanceDirty =
-      snap !== null &&
-      (iconThemePreference !== snap.iconThemePreference ||
-        themePreference !== snap.themePreference ||
-        opacity !== snap.opacity ||
-        inactivePanelDim !== snap.inactivePanelDim);
-    const editorDirty =
-      snap !== null &&
-      (editorFontSize !== snap.editorFontSize ||
-        editorFontFamily !== snap.editorFontFamily ||
-        editorFontLigatures !== snap.editorFontLigatures ||
-        editorFontLineHeight !== snap.editorFontLineHeight);
-    const terminalDirty =
-      snap !== null &&
-      (terminalFontSize !== snap.terminalFontSize ||
-        terminalCursorStyle !== snap.terminalCursorStyle ||
-        terminalFontFamily !== snap.terminalFontFamily ||
-        terminalFontLigatures !== snap.terminalFontLigatures);
-    return [
-      {
-        id: "appearance",
-        label: t("nav.appearance"),
-        keywords: ["theme", "opacity", "language", "dim", "inactive", "panel", "언어", "흐림"],
-        dirty: appearanceDirty,
-      },
-      {
-        id: "editor",
-        label: t("nav.editor"),
-        keywords: ["font", "size", "family", "ligatures", "line height"],
-        dirty: editorDirty,
-      },
-      {
-        id: "language-servers",
-        label: t("nav.languageServers"),
-        parent: "editor",
-        keywords: [
-          "lsp",
-          "language server",
-          "completion",
-          "diagnostics",
-          "typescript",
-          "python",
-          "go",
-          "rust",
-          "yaml",
-          "bash",
-          "dockerfile",
-          "자동 완성",
-          "진단",
-        ],
-      },
-      {
-        id: "terminal",
-        label: t("nav.terminal"),
-        keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
-        dirty: terminalDirty,
-      },
-      {
-        id: "notifications",
-        label: t("nav.notifications"),
-        keywords: ["alert", "desktop", "os", "notification", "claude"],
-      },
-      {
-        id: "browser-permissions",
-        label: t("nav.browserPermissions"),
-        keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
-      },
-      {
-        id: "keybindings",
-        label: t("nav.keybindings"),
-        keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
-      },
-      {
-        id: "agent",
-        label: t("nav.agent"),
-        keywords: [
-          "nexus",
-          "cli",
-          "agent",
-          "claude",
-          "codex",
-          "task",
-          "chat",
-          "font",
-          "에이전트",
-          "작업",
-          "채팅",
-          "글꼴",
-        ],
-      },
-      {
-        id: "claude",
-        label: t("nav.claude"),
-        parent: "agent",
-        keywords: PROFILE_KEYWORDS,
-      },
-      {
-        id: "codex",
-        label: t("nav.codex"),
-        parent: "agent",
-        keywords: PROFILE_KEYWORDS,
-      },
-      {
-        id: "profile-rules",
-        label: t("nav.profileRules"),
-        parent: "agent",
-        keywords: [...PROFILE_KEYWORDS, "workspace", "ssh", "rule", "워크스페이스", "규칙"],
-      },
-      {
-        id: "manager",
-        label: t("nav.manager"),
-        parent: "agent",
-        keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
-      },
-      {
-        id: "about",
-        label: t("nav.about"),
-        footer: true,
-        keywords: ["version", "update", "info"],
-      },
-    ];
-  }, [
-    t,
-    settingsSnapshot,
-    iconThemePreference,
-    themePreference,
-    opacity,
-    inactivePanelDim,
-    editorFontSize,
-    editorFontFamily,
-    editorFontLigatures,
-    editorFontLineHeight,
-    terminalFontSize,
-    terminalCursorStyle,
-    terminalFontFamily,
-    terminalFontLigatures,
-  ]);
 
   // Workspaces that have been activated at least once in this session, and
   // tasks nexus started behind the user's view. Their <WorkspacePanel> stays
@@ -480,7 +267,6 @@ export function App() {
           onOpenChange={(open) => {
             if (!open) closeSettings();
           }}
-          nav={settingsNav}
           defaultActiveId={settingsInitialActiveId}
         >
           {(activeId, go) => {

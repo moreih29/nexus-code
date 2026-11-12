@@ -65,6 +65,7 @@ import {
 import { firstVersionOf } from "../../services/chat/versions";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
+import { formatBytes } from "../../utils/format-bytes";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
@@ -261,6 +262,11 @@ export function Composer({
     return matchCommands([...listedCommands(cli), ...own], completion.query);
   }, [menuOpen, completion?.kind, completion?.query, model.init, t, appCommands, ownCommands]);
   const [suggested, setSuggested] = useState<string[]>([]);
+  // The program has not listed its commands yet: the list waits, rather
+  // than say that none match.
+  const listing = !ownCommands && !model.init;
+  // The command box shows "no matching commands" when it has none to offer.
+  const noneMatch = menuOpen && completion?.kind === "command" && commands.length === 0 && !listing;
   const fileQuery = menuOpen && completion?.kind === "file" ? completion.query : null;
   useEffect(() => {
     if (fileQuery === null) return;
@@ -433,6 +439,13 @@ export function Composer({
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     // A request's card has the keys, which the box passes on to it.
     if (e.currentTarget.dataset.cardKeys !== undefined) return;
+    // Escape closes the "no matching commands" box as it closes the list,
+    // rather than stop a running turn behind it.
+    if (noneMatch && e.key === "Escape") {
+      e.preventDefault();
+      setDismissed(completionKey);
+      return;
+    }
     if (menuOpen && items.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -618,6 +631,7 @@ export function Composer({
             <CompletionMenu
               kind={completion.kind}
               items={items}
+              listing={listing}
               active={active}
               onPick={pick}
               onHover={setActive}
@@ -658,7 +672,7 @@ export function Composer({
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{attachment.file.name}</div>
                     <div className="text-app-micro text-muted-foreground">
-                      {formatSize(attachment.file.size)}
+                      {formatBytes(attachment.file.size)}
                     </div>
                   </div>
                   <IconButton
@@ -803,12 +817,6 @@ function useRevealedMenu(
     else setOpen(true);
   }, [reveal]);
   return [open, setOpen];
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
 }
 
 /** The + menu: attach a file, mention one, or start a command. */

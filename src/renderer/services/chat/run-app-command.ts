@@ -280,7 +280,7 @@ export async function runAppCommand(
       const tab = openClaudeTab(ctx.workspaceId, {
         cwd: ctx.cwd,
         fork: { sessionId },
-        profileId: ctx.controller.profileId,
+        ...ctx.controller.inherited(),
       });
       if (command.args) {
         const draft = { text: command.args, images: [], nonce: Date.now() };
@@ -303,7 +303,7 @@ export async function runAppCommand(
       openClaudeTab(ctx.workspaceId, {
         cwd: ctx.cwd,
         fork: { sessionId, ...(name ? { title: name } : {}) },
-        profileId: controller.profileId,
+        ...controller.inherited(),
       });
       return;
     }

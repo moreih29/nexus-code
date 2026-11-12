@@ -16,9 +16,9 @@ import {
   MessageCircleQuestion,
   TriangleAlert,
 } from "lucide-react";
-import { useSyncExternalStore } from "react";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
+import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import type { AgentSession } from "../../services/agent-sessions/model";
 
 interface StateLook {
@@ -122,41 +122,15 @@ export function StateGlyph({
   );
 }
 
-/**
- * The clock the durations read, one for all of them: it ticks while any is
- * shown, often enough for the minutes they count.
- */
-const CLOCK_TICK_MS = 10_000;
-const clockListeners = new Set<() => void>();
-let clockNow = Date.now();
-let clockTimer: ReturnType<typeof setInterval> | undefined;
-
-function subscribeClock(onTick: () => void): () => void {
-  clockListeners.add(onTick);
-  if (clockTimer === undefined) {
-    clockNow = Date.now();
-    clockTimer = setInterval(() => {
-      clockNow = Date.now();
-      for (const listener of clockListeners) listener();
-    }, CLOCK_TICK_MS);
-  }
-  return () => {
-    clockListeners.delete(onTick);
-    if (clockListeners.size === 0 && clockTimer !== undefined) {
-      clearInterval(clockTimer);
-      clockTimer = undefined;
-    }
-  };
-}
-
-const readClock = (): number => clockNow;
+/** The clock the durations read, often enough for the minutes they count. */
+const durationClock = sharedClock(10_000);
 
 /**
  * How long ago `since` was, kept current by the shared clock, so a duration
  * re-renders itself rather than the view it is in.
  */
 export function useDurationLabel(since: number | undefined): string | null {
-  const now = useSyncExternalStore(subscribeClock, readClock, readClock);
+  const now = useSharedClock(durationClock);
   // A state that began after the last tick has lasted no time yet.
   return durationLabel(since, Math.max(now, since ?? 0));
 }

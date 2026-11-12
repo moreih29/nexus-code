@@ -1,16 +1,16 @@
 /**
- * WorkspaceManager.getWrapperBinDir / getWrapperAgentBin / getWrapperShell 단위 테스트.
+ * Unit tests for WorkspaceManager.getWrapperBinDir / getWrapperAgentBin / getWrapperShell.
  *
- * 이 테스트는 WorkspaceManager의 getter 메서드가
- * 워크스페이스 종류(local / ssh)와 OS에 따라 올바른 경로를 반환하는지 검증한다.
+ * These tests verify that the WorkspaceManager getter methods return the correct path
+ * depending on the workspace kind (local / ssh) and the OS.
  *
- * - acceptance #1w: getWrapperBinDir(Windows localWs) → nexus 런처 디렉터리
- * - acceptance #5: getWrapperAgentBin(sshWs)  → remoteBinDir/agent-<...> 형식
- * - acceptance #6: getWrapperShell(localWs)   → $SHELL이 없거나 비면 계정의 login shell,
- *                                                Windows에서는 null
+ * - acceptance #1w: getWrapperBinDir(Windows localWs) → directory holding the nexus launcher
+ * - acceptance #5: getWrapperAgentBin(sshWs)  → remoteBinDir/agent-<...> format
+ * - acceptance #6: getWrapperShell(localWs)   → the account's login shell if $SHELL is unset or
+ *                                                empty, null on Windows
  *
- * electron mock이 필요하므로 mock.module()을 import보다 먼저 선언하고
- * dynamic import로 대상 모듈을 로드한다.
+ * An electron mock is required, so mock.module() is declared before the imports and
+ * the target module is loaded with a dynamic import.
  */
 
 import { Database } from "bun:sqlite";
@@ -21,7 +21,7 @@ import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
-// electron mock — isPackaged=false (dev 모드). #5 switches it to packaged for
+// electron mock — isPackaged=false (dev mode). #5 switches it to packaged for
 // one test so the manifest is read from a temp process.resourcesPath.
 // ---------------------------------------------------------------------------
 
@@ -40,7 +40,7 @@ mock.module("../../../../src/main/features/cli/launchers", () => ({
   windowsCliLauncherDir: () => WINDOWS_LAUNCHER_DIR,
 }));
 
-// dynamic import — mock.module 이후
+// dynamic import — after mock.module
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
 const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
@@ -54,7 +54,7 @@ const { loginShell } = await import("../../../../src/main/infra/platform");
 const REMOTE_HOME = "/home/testuser";
 const REMOTE_BIN_DIR = `${REMOTE_HOME}/.nexus-code/bin`;
 
-/** 최소 EnsureRemoteAgentResult stub */
+/** Minimal EnsureRemoteAgentResult stub */
 function makeSshBootstrap(
   overrides: Partial<{
     remoteBinDir: string;
@@ -127,8 +127,8 @@ function writeAgentManifest(dir: string, version: string): void {
 }
 
 /**
- * WorkspaceManager의 private sshBootstraps 맵에 직접 접근하기 위한 타입 캐스트.
- * 테스트 전용 — 프로덕션 코드에서는 startRemoteProvider 내부에서만 설정된다.
+ * Type cast for direct access to WorkspaceManager's private sshBootstraps map.
+ * Test only — in production code it is set only inside startRemoteProvider.
  */
 function injectSshBootstrap(
   manager: InstanceType<typeof WorkspaceManager>,
@@ -145,8 +145,8 @@ function injectSshBootstrap(
 // Tests
 // ---------------------------------------------------------------------------
 
-// Windows 로컬 워크스페이스에는 셸 래퍼가 없어 셸 getter는 null을, bin 디렉터리
-// getter는 nexus 런처만 든 디렉터리를 돌려준다.
+// A Windows local workspace has no shell wrapper, so the shell getter returns null, and
+// the bin directory getter returns a directory holding only the nexus launcher.
 const isWindows = process.platform === "win32";
 const posixTest = test.skipIf(isWindows);
 const windowsTest = test.skipIf(!isWindows);
@@ -214,8 +214,8 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
 });
 
 describe("WorkspaceManager.getWrapperShell — acceptance #6, #7, #8", () => {
-  // process.env.SHELL은 테스트 실행 환경에 따라 달라질 수 있으므로,
-  // 각 테스트에서 명시적으로 set/unset 한 뒤 원복한다.
+  // process.env.SHELL can differ by test environment, so
+  // each test explicitly sets/unsets it and then restores it.
   let savedShell: string | undefined;
   beforeEach(() => {
     savedShell = process.env.SHELL;

@@ -53,7 +53,7 @@ export function StashPicker({ workspaceId, open, onClose, mode = "apply" }: Stas
           });
         },
       }),
-    [workspaceId, mode, listStashes, applyStash],
+    [workspaceId, mode, listStashes, applyStash, t],
   );
 
   const footer =

@@ -165,9 +165,9 @@ export function registerBrowserChannel(
           broadcast("browser", "titleUpdated", { tabId, title });
         });
 
-        // page-favicon-updated: Chromium이 favicon URL 후보를 발견할 때 발사한다.
-        // 페이지가 link rel="icon"을 선언하지 않으면 fallback `/favicon.ico` 시도.
-        // renderer는 첫 번째 후보를 탭 아이콘으로 표시한다 (없으면 기본 Globe).
+        // page-favicon-updated: fires when Chromium finds favicon URL candidates.
+        // If the page does not declare link rel="icon", the fallback `/favicon.ico` is tried.
+        // The renderer shows the first candidate as the tab icon (the default Globe if none).
         wc.on("page-favicon-updated", (_event, favicons: string[]) => {
           broadcast("browser", "faviconUpdated", {
             tabId,

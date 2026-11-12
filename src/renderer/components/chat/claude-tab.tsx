@@ -175,6 +175,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           fork: props.fork,
           ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(props.moves ? { moves: props.moves } : {}),
+          ...(props.chosen ? { chosen: props.chosen } : {}),
         },
         hooks ?? claudeTabHooks(workspaceId, tabId),
       ),
@@ -386,16 +387,19 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
   }, [isVisible]);
   // The previews may read what the tab links outside the workspace, while it is open.
   const [looked, setLooked] = useState<readonly string[]>([]);
+  // Taken from the parts it reads, so a line that changes none of them (a
+  // usage report, a turn's end) does not walk the whole session again.
+  const history = state.history;
+  const { items: liveItems, tools: liveTools, tasks } = state.model;
   const outside = useMemo(() => {
-    const { history, model } = state;
-    const items = history ? [...history.items, ...model.items] : model.items;
-    const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+    const items = history ? [...history.items, ...liveItems] : liveItems;
+    const tools = history ? { ...history.tools, ...liveTools } : liveTools;
     // The side panel shows the end of each job's output, from where the CLI writes it.
     return outsideLinksOf(items, tools, props.cwd, rootPath, [
       ...looked,
-      ...jobOutputFiles(model, tools),
+      ...jobOutputFiles({ tasks }, tools),
     ]);
-  }, [state, props.cwd, rootPath, looked]);
+  }, [history, liveItems, liveTools, tasks, props.cwd, rootPath, looked]);
   useEffect(() => {
     grantOutside(workspaceId, tabId, outside);
   }, [workspaceId, tabId, outside]);
@@ -537,7 +541,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       openClaudeTab(workspaceId, {
         cwd: props.cwd,
         fork: { sessionId: point.sessionId },
-        profileId: controller.profileId,
+        ...controller.inherited(),
       });
     }
   };
@@ -836,7 +840,7 @@ function forkFrom(
   const tab = openClaudeTab(workspaceId, {
     cwd,
     ...(fork ? { fork } : {}),
-    profileId: controller.profileId,
+    ...controller.inherited(),
   });
   if (user) {
     const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };

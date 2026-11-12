@@ -72,10 +72,13 @@ export async function runCodexCommand(
         return;
       }
       const shown = useTabsStore.getState().byWorkspace[ctx.workspaceId]?.[ctx.tabId]?.title;
+      // The fork runs with the model and effort the tab shows.
+      const chosen = controller.inheritedChoice();
       openCodexTab(ctx.workspaceId, {
         cwd: ctx.cwd,
         fork: { threadId, ...(shown ? { title: shown } : {}) },
         ...(ctx.profileId ? { profileId: ctx.profileId } : {}),
+        ...(chosen ? { chosen } : {}),
       });
       return;
     }

@@ -55,17 +55,15 @@ import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
 /**
- * 브라우저 탭 favicon 표시 — 페이지가 advertise한 URL이 있으면 그것, 없으면 Globe
- * 기본 아이콘. URL 로드 실패(404 / 차단 / 잘못된 URL)는 onError로 Globe fallback.
+ * Browser tab favicon: the page-advertised URL if there is one, otherwise the default
+ * Globe icon. A URL that fails to load (404 / blocked / malformed) falls back to Globe
+ * through onError.
  *
- * faviconUrl이 바뀌면 errored 상태를 reset해 새 URL을 다시 시도한다.
- * 사이즈 12px(size-3), shrink-0으로 탭 chip 내부에서 텍스트와 정렬.
+ * Keyed by faviconUrl where it is drawn, so a new URL starts it over and is tried again.
+ * 12px (size-3) with shrink-0 so it lines up with the text inside the tab chip.
  */
 function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
   const [errored, setErrored] = useState(false);
-  useEffect(() => {
-    setErrored(false);
-  }, [faviconUrl]);
 
   if (!faviconUrl || errored) {
     return (
@@ -79,7 +77,6 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
     );
   }
   return (
-    // biome-ignore lint/a11y/useAltText: decorative tab favicon; aria-hidden hides from AT
     <img
       aria-hidden
       src={faviconUrl}
@@ -92,14 +89,14 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
 }
 
 /**
- * 탭 type별 아이콘 결정. browser 탭과 editor 탭은 null을 반환한다.
+ * Picks the icon for each tab type. Browser and editor tabs return null.
  *
- *  - terminal: SquareTerminal (일관 아이콘)
- *  - editor: null — 아래 렌더 경로에서 <FileIcon>으로 처리 (테마 인지형)
- *  - editor.diff: FileDiff (좌우 비교 의미)
+ *  - terminal: SquareTerminal (one icon for all terminals)
+ *  - editor: null — rendered as <FileIcon> in the render path below (theme-aware)
+ *  - editor.diff: FileDiff (stands for side-by-side comparison)
  *  - git.commit: GitCommit
- *  - untitled: File (저장 전 빈 파일)
- *  - browser: null — favicon 컴포넌트가 별도 슬롯에서 처리
+ *  - untitled: File (an empty file that has not been saved)
+ *  - browser: null — the favicon component handles it in a separate slot
  */
 function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "terminal") return SquareTerminal;
@@ -123,7 +120,7 @@ export function TabIcon({ tab }: { tab: Tab }) {
   if (tab.type === "browser") {
     return (
       <span data-tab-icon className="inline-flex" aria-hidden>
-        <BrowserFaviconIcon faviconUrl={faviconUrl} />
+        <BrowserFaviconIcon key={faviconUrl ?? ""} faviconUrl={faviconUrl} />
       </span>
     );
   }
@@ -196,8 +193,8 @@ function useTabDirty(tab: Tab): boolean {
 }
 
 /**
- * Claude 상태에 대응하는 aria-label 텍스트를 반환한다.
- * 스크린리더가 "Claude: permission request" 등 명시적 레이블을 읽는다.
+ * Returns the aria-label text for a Claude status.
+ * Screen readers read an explicit label such as "Claude: permission request".
  */
 function claudeAriaLabel(status: ClaudeStatus): string {
   switch (status) {
@@ -217,10 +214,10 @@ function claudeAriaLabel(status: ClaudeStatus): string {
 }
 
 /**
- * Claude 상태 글리프 컴포넌트. idle이면 null을 반환해 슬롯 자체를 렌더하지 않는다.
+ * Claude status glyph component. Returns null when idle so the slot is not rendered at all.
  *
- * 글리프 크기는 design.md §14 기준 12px(size-3). 색 토큰은 semantic CSS 변수 참조.
- * Redundant encoding을 위해 글리프 형태 + 색을 조합한다.
+ * Glyph size is 12px (size-3) per design.md §14. Colors reference semantic CSS variables.
+ * The glyph shape and the color are combined for redundant encoding.
  */
 function ClaudeGlyph({
   status,
@@ -234,9 +231,9 @@ function ClaudeGlyph({
 }) {
   if (status === "idle") return null;
 
-  // aria-label은 부모가 tabindex가 없는 span에 붙으므로, role="img" + aria-label로
-  // 스크린리더가 내용을 읽을 수 있게 한다. Codex 등 출력으로 추정한 상태는
-  // 세션 탭처럼 "(추정)"이라고 밝히고, hover로도 보이게 한다.
+  // The parent attaches the aria-label to a span without tabindex, so role="img" +
+  // aria-label lets screen readers read the content. A status inferred from output (Codex
+  // etc.) is marked "(추정)" like session tabs, and is also shown on hover.
   const label = estimated
     ? estimatedLabel(status)
     : codex
@@ -269,8 +266,8 @@ function ClaudeGlyph({
     );
   }
   if (status === "needsInput") {
-    // completed(정적 체크)와 같은 attention 색 토큰을 공유하므로, pulse 모션과
-    // 아이콘(MessageCircleQuestion) 형태로 시각적 구분을 추가한다.
+    // It shares the attention color token with completed (static check), so the pulse motion
+    // and the icon shape (MessageCircleQuestion) add the visual distinction.
     return (
       <span role="img" aria-label={label} className="motion-safe:animate-pulse">
         <MessageCircleQuestion
@@ -315,9 +312,9 @@ export interface TabItemProps {
   tab: Tab;
   displayTitle: string;
   /**
-   * 라벨 뒤에 `· {suffix}` 형태로 붙는 muted 보조 텍스트. 호출 측이 결정한다:
-   *   - 같은 basename의 external 에디터 탭 ≥2개 → 부모 디렉토리 이름.
-   *   - diff 탭(editor.diff) → `leftRef..rightRef` ref 쌍.
+   * Muted secondary text appended after the label as `· {suffix}`. The caller decides it:
+   *   - two or more external editor tabs with the same basename → parent directory name.
+   *   - diff tab (editor.diff) → the `leftRef..rightRef` ref pair.
    */
   parentDirSuffix?: string;
   onCloseTab: (id: string) => void;
@@ -343,27 +340,27 @@ export const TabItem = memo(function TabItem({
   const dirty = useTabDirty(tab);
   const terminalEnded = tab.type === "terminal" && Boolean(tab.props.dead);
 
-  // Claude 세션 상태 구독 — status string primitive만 추출해 identity 안정.
+  // Subscribe to the Claude session status — extract only the status string primitive
   const claudeStatus: ClaudeStatus | undefined = useClaudeStatusStore(
     (state) => selectStatusForTab(state, workspaceId, tab.id)?.status,
   );
 
-  // Codex 등 Claude 상태가 없는 에이전트 터미널은 출력으로 추정한 상태를 보인다.
+  // Agent terminals with no Claude status (Codex etc.) show a status inferred from output.
   const estimatedStatus = useEstimatedTabGlyph(workspaceId, tab, claudeStatus === undefined);
 
-  // Codex 탭은 대화에서 읽은 상태를 보인다.
+  // Codex tabs show the status read from the conversation.
   const codexStatus = useCodexTabStatus(workspaceId, tab);
 
-  // permissionPending 배경 tint — 탭 배경에 6% warning 색 오버레이.
+  // permissionPending background tint — a 6% warning color overlay on the tab background.
   const isPermissionPending =
     claudeStatus === "permissionPending" || codexStatus === "permissionPending";
 
-  // 브라우저 탭 favicon — type === "browser"일 때만 runtime store에서 lookup.
-  // 다른 type이면 항상 null (조건부 hook 회피를 위해 selector 자체는 항상 호출).
+  // Browser tab favicon — looked up in the runtime store only when type === "browser".
+  // Always null for other types (the selector is always called to avoid a conditional hook).
 
-  // Git decoration — 파일트리 row와 동일한 시맨틱: editor 탭의 작업트리 상태
-  // (modified / added / deleted / untracked / conflict / renamed)를 라벨 색으로,
-  // .gitignore 매칭 파일은 opacity-50로 dim한다. editor 외 탭은 hook이 빈 결과 반환.
+  // Git decoration — same semantics as file tree rows: the editor tab's working-tree state
+  // (modified / added / deleted / untracked / conflict / renamed) colors the label, and
+  // files matching .gitignore are dimmed with opacity-50. Non-editor tabs get an empty result.
   const { decoration: gitDecoration, isIgnored: gitIgnored } = useTabGitDecoration(tab);
   const labelColor =
     gitDecoration !== undefined
@@ -373,29 +370,30 @@ export const TabItem = memo(function TabItem({
         : undefined;
 
   // ---------------------------------------------------------------------
-  // Inline rename — 터미널 · Claude 탭만. 더블클릭 또는 컨텍스트 메뉴 "Rename Tab" 진입.
+  // Inline rename — terminal and Claude tabs only. Entered by double-click or "Rename Tab".
   //
-  // 진입 트리거 2개를 동일 store(useTabEditingStore.editingTabId)로 묶어 어느
-  // 경로든 같은 모드로 들어간다. 한 번에 한 탭만 편집 가능(store 단일성 보장).
+  // Both entry triggers go through the same store (useTabEditingStore.editingTabId), so
+  // either path enters the same mode. Only one tab can be edited at a time (the store
+  // holds a single id).
   //
-  // 키 핸들링:
+  // Key handling:
   //   - Enter / blur: commit — renameTab(workspaceId, tabId, value)
-  //     * 빈 문자열은 store가 customTitle clear로 해석 → processTitle / defaultTitle로 복귀
-  //   - Escape: cancel — 값 적용 안 함
+  //     * An empty string is read by the store as clearing customTitle → back to processTitle / defaultTitle
+  //   - Escape: cancel — the value is not applied
   // ---------------------------------------------------------------------
   const isEditing = useTabEditingStore((s) => s.editingTabId === tab.id);
-  // 초기 입력값: 사용자가 이전에 지은 customTitle이 있으면 그것, 없으면 표시 title.
-  // displayTitle에는 parent-dir suffix 등이 포함될 수 있는데 그건 호출 측 가공이므로
-  // 편집 input에는 tab.customTitle ?? tab.title을 사용한다.
+  // Initial input value: the customTitle the user set earlier if any, otherwise the display
+  // title. displayTitle may include a parent-dir suffix etc., which the caller adds, so the
+  // edit input uses tab.customTitle ?? tab.title.
   const [editValue, setEditValue] = useState(tab.customTitle ?? tab.title);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // 편집 모드 진입 시: 최신 customTitle/title을 input value로 초기화 + focus/select.
-  // (이전 편집 세션의 stale value를 들고 들어가지 않도록 진입 시점에 reset.)
+  // On entering edit mode: reset the input value to the latest customTitle/title, then
+  // focus/select. (Reset at entry so no stale value from an earlier edit session is kept.)
   useEffect(() => {
     if (!isEditing) return;
     setEditValue(tab.customTitle ?? tab.title);
-    // focus는 다음 paint에 — input mount 이후 보장.
+    // Focus on the next paint — guaranteed to be after the input mounts.
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -430,10 +428,10 @@ export const TabItem = memo(function TabItem({
       draggable
       onDragStart={onDragStart}
       onContextMenu={(e) => onTabContextMenu?.(tab.id, e)}
-      // 더블클릭 동작은 탭 type별로 분기:
-      //  - terminal, claude: inline rename 진입 (사용자 요구 — 컨텍스트 메뉴 Rename과 동일 경로)
-      //  - 그 외 isPreview 탭: VSCode parity로 promote-from-preview
-      // terminal · claude 탭은 isPreview일 일이 없으므로 두 분기가 mutually exclusive.
+      // Double-click behavior depends on the tab type:
+      //  - terminal, claude: enter inline rename (same path as the context menu Rename)
+      //  - other isPreview tabs: promote-from-preview, as in VSCode
+      // terminal and claude tabs are never isPreview, so the two branches are mutually exclusive.
       onDoubleClick={() => {
         if (tab.type === "terminal" || tab.type === "claude" || tab.type === "codex") {
           useTabEditingStore.getState().startEditing(tab.id);
@@ -476,24 +474,24 @@ export const TabItem = memo(function TabItem({
           "data-[state=active]:bg-[var(--tab-active-bg)] data-[state=active]:text-foreground",
           // active accent underline — JetBrains Islands canon (EditorTabs.underline*):
           // 2px tall bottom-edge line, inset 8px on each side, fully rounded ends.
-          // 사이드바와 동일한 --state-selected-indicator 토큰 공유 → "이 파랑은
-          // 활성 의미"라는 색 어휘를 유지하면서 위치만 변주(세로 리스트=좌측 2px,
-          // 가로 탭=하단 2px). 그레이스케일에서도 위치 단서가 잔존해 접근성 OK.
+          // Shares the --state-selected-indicator token with the sidebar, keeping the color
+          // vocabulary "this blue means active" while only the position varies (vertical list =
+          // left 2px, horizontal tabs = bottom 2px). The position cue survives in grayscale.
           "data-[state=active]:after:content-['']",
           "data-[state=active]:after:absolute data-[state=active]:after:left-2 data-[state=active]:after:right-2",
           "data-[state=active]:after:bottom-0 data-[state=active]:after:h-0.5",
           "data-[state=active]:after:rounded-full",
           "data-[state=active]:after:bg-[var(--state-selected-indicator)]",
-          // preview tab + active: italic 라벨이 "임시 활성"을 이미 신호하므로
-          // underline alpha를 60%로 낮춰 "정착되지 않은 선택"임을 보조 표현.
-          // dirty가 발생해 promoteFromPreview되면 isPreview=false가 되어 자동 복원.
+          // preview tab + active: the italic label already signals "temporarily active", so the
+          // underline alpha is lowered to 60% as a secondary cue for "selection not settled".
+          // When it turns dirty and promoteFromPreview runs, isPreview=false restores it.
           tab.isPreview && "data-[state=active]:after:opacity-60",
-          // inactive tab의 보조 아이콘(Pin/Lock/Claude 글리프)을 65% alpha로
-          // 감쇠 — JB canon `EditorTabs.unselectedAlpha` 대응. 활성 탭은 풀톤
-          // 유지로 시각적 우선순위를 명확히 한다. 텍스트는 이미 text-muted-foreground
-          // 로 dim 처리되어 있으므로 추가 opacity 안 적용(이중 dim 방지).
+          // The secondary icons of an inactive tab (Pin/Lock/Claude glyph) are attenuated to 65%
+          // alpha — matches JB canon `EditorTabs.unselectedAlpha`. The active tab keeps full tone
+          // so visual priority is clear. The text is already dimmed with text-muted-foreground, so
+          // no extra opacity is applied (avoids double dimming).
           "data-[state=inactive]:[&_[data-tab-icon]]:opacity-65",
-          // permissionPending 탭 배경 warning tint — 6% opacity, redundant encoding 보조.
+          // permissionPending tab background warning tint — 6% opacity, a secondary redundant encoding.
           isPermissionPending && "bg-(--state-warning-bg)/[0.06]",
           // focus
           "outline-none focus-visible:ring-[2px] focus-visible:ring-ring/50",
@@ -504,7 +502,7 @@ export const TabItem = memo(function TabItem({
             <PinIcon />
           </span>
         )}
-        {/* Type 아이콘 — 가장 앞쪽(pin 다음)에 두어 탭 타입을 즉각 식별 가능. */}
+        {/* Type icon — placed first (after the pin) so the tab type is recognizable at a glance. */}
         <TabIcon tab={tab} />
         {tab.type === "editor" && (tab.props.readOnly || tab.props.origin === "external") && (
           <span data-tab-icon role="img" aria-label={t("tabBar.read_only_aria")}>
@@ -517,8 +515,8 @@ export const TabItem = memo(function TabItem({
             />
           </span>
         )}
-        {/* Claude 상태 글리프 슬롯 — idle이면 미렌더. data-tab-icon 마커로
-            비활성 탭에서는 65% alpha로 감쇠된다(활성 탭은 풀톤 유지). */}
+        {/* Claude status glyph slot — not rendered when idle. The data-tab-icon marker
+                   attenuates it to 65% alpha on inactive tabs (the active tab keeps full tone). */}
         {claudeStatus && claudeStatus !== "idle" && (
           <span data-tab-icon className="inline-flex">
             <ClaudeGlyph status={claudeStatus} />
@@ -535,9 +533,9 @@ export const TabItem = memo(function TabItem({
           </span>
         )}
         {isEditing ? (
-          // Inline rename input — 트리거 내부에 위치하므로 클릭/키보드 이벤트가
-          // RadixTabs.Trigger로 bubble하지 않도록 stopPropagation. Enter commit,
-          // Escape cancel, blur는 commit으로 처리(macOS 텍스트 필드 컨벤션).
+          // Inline rename input — it sits inside the trigger, so stopPropagation keeps click/keyboard
+          // events from bubbling to RadixTabs.Trigger. Enter commits, Escape cancels, and blur
+          // commits (macOS text field convention).
           <input
             ref={inputRef}
             value={editValue}
@@ -555,8 +553,8 @@ export const TabItem = memo(function TabItem({
                 e.stopPropagation();
                 cancelEdit();
               } else {
-                // 다른 키는 input 내부 처리에 위임하되 트리거로 bubble은 막는다
-                // (예: ArrowLeft/Right로 탭 전환되는 등 키바인딩 충돌 방지).
+                // Other keys are left to the input but not allowed to bubble to the trigger
+                // (avoids keybinding conflicts such as ArrowLeft/Right switching tabs).
                 e.stopPropagation();
               }
             }}
@@ -568,8 +566,8 @@ export const TabItem = memo(function TabItem({
             }}
             onBlur={() => commitEdit(editValue)}
             onClick={(e) => e.stopPropagation()}
-            // 입력 모드에서는 부모 트리거가 active state로 잡혀 있어도 input이
-            // 시각적으로 자연스럽게 노출되도록 transparent 배경 + 인라인 폭.
+            // In input mode the input should show naturally even when the parent trigger is in the
+            // active state, so it uses a transparent background + inline width.
             className="bg-transparent outline-none border-0 px-0 m-0 w-32 text-app-ui-sm text-foreground"
             aria-label={t("tabBar.rename_tab")}
             spellCheck={false}
@@ -582,12 +580,12 @@ export const TabItem = memo(function TabItem({
             className={cn(
               "min-w-0 max-w-64 truncate",
               tab.isPreview && "italic",
-              // Ignored 파일 탭은 라벨이 receded — 파일트리 row와 동일한 신호.
+              // The label of an ignored file's tab recedes — the same signal as file tree rows.
               gitIgnored && "opacity-50",
             )}
-            // Inline color는 active 탭의 text-foreground / inactive 의 text-muted-foreground
-            // cascade를 모두 이긴다 (선택 상태에서도 git 색이 살아남). undefined일 땐
-            // 기존 색 그대로 상속.
+            // The inline color beats both the active tab's text-foreground and the inactive tab's
+            // text-muted-foreground cascade (the git color survives in the selected state too). When
+            // undefined, the existing color is inherited.
             style={labelColor ? { color: labelColor } : undefined}
           >
             {displayTitle}

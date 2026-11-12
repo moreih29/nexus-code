@@ -11,7 +11,6 @@
  */
 import { create } from "zustand";
 import type {
-  BranchInfo,
   BranchList,
   CommitResult,
   GitAutofetchIntervalMin,
@@ -26,7 +25,6 @@ import type {
   GitMergeResult,
   GitPanelSegment,
   GitRebaseResult,
-  GitStatus,
   GitSyncResult,
   LogEntry,
   PullResult,

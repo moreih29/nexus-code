@@ -8,8 +8,8 @@
 
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { ipcCallResult } from "../../ipc/client";
+import { bytesFromBase64 } from "../editor/encoding/text-encoding";
 import { terminalText } from "../editor/preview/notebook";
-import { bytesFromBase64 } from "../editor/preview/read-binary";
 import { lookupPath } from "./file-presence";
 
 /** How much of the file's end is read. */

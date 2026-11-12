@@ -126,12 +126,12 @@ export function TabBar({
     return suffixMap;
   }, [tabs]);
 
-  // Diff 탭은 항상 `leftRef..rightRef` 보조 텍스트를 달아 같은 파일의 일반
-  // 에디터 탭과 구분되게 한다. 아이콘(FileDiff vs 확장자 아이콘)으로도
-  // 구분되지만 텍스트 단서가 있으면 ref가 다른 두 diff(예: HEAD..WORKING vs
-  // INDEX..WORKING)도 한눈에 갈린다. external 탭의 parent-dir suffix와는
-  // 슬롯(`parentDirSuffix`)을 공유하지만 diff 탭은 `editor` 타입이 아니어서
-  // 두 맵의 키가 겹치지 않으므로 우선순위 충돌은 발생하지 않는다.
+  // A diff tab always gets `leftRef..rightRef` secondary text so it can be told apart from a
+  // regular editor tab of the same file. The icon (FileDiff vs extension icon) also tells
+  // them apart, but with the text cue two diffs with different refs (e.g. HEAD..WORKING vs
+  // INDEX..WORKING) are distinguishable at a glance. It shares the slot (`parentDirSuffix`)
+  // with the parent-dir suffix of external tabs, but a diff tab is not of type `editor`, so
+  // the keys of the two maps never overlap and no priority conflict can happen.
   const diffTabRefSuffix = useMemo(() => {
     const map = new Map<string, string>();
     for (const t of tabs) {
@@ -147,8 +147,8 @@ export function TabBar({
   // beyond the last tab and around the "+" button — is treated as a tab-bar
   // drop zone. The inner List is used for measurement so the "|" insertion
   // line is positioned relative to the actual tab strip.
-  // role="status" aria-live="polite" — Claude 상태 변경 시 스크린리더에 안내.
-  // 탭 글리프 aria-label이 변경되면 live region이 polite하게 알린다.
+  // role="status" aria-live="polite" — announces Claude status changes to screen readers.
+  // When a tab glyph's aria-label changes, the live region announces it politely.
   return (
     <div
       ref={barRef}

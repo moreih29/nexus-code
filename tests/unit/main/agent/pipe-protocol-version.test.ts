@@ -93,7 +93,7 @@ function readyFrameWith(protocolVersion: string | undefined): Buffer {
   if (protocolVersion !== undefined) {
     obj.protocolVersion = protocolVersion;
   }
-  return Buffer.from(JSON.stringify(obj) + "\n", "utf8");
+  return Buffer.from(`${JSON.stringify(obj)}\n`, "utf8");
 }
 
 // ---------------------------------------------------------------------------

@@ -105,9 +105,9 @@ export function createSshControlMaster(
   options: Omit<SshMasterOptions, "remoteCommand"> & { readonly controlPath?: string },
   dependencies: SshMasterDependencies = {},
 ): SshControlMaster {
-  // ownsTempDir: controlPath 를 우리가 createControlPath() 로 만들었으면 그
-  // 부모 nexus-ssh-XXXX/ 임시 디렉토리도 우리 소유 — dispose 때 디렉토리째
-  // 제거한다. 호출자가 controlPath 를 넘긴 경우엔 소켓 파일만 지운다.
+  // ownsTempDir: if we made controlPath with createControlPath(), its
+  // parent nexus-ssh-XXXX/ temp directory is ours too — dispose removes the whole directory.
+  // When the caller passed controlPath, only the socket file is removed.
   const ownsTempDir = options.controlPath === undefined;
   const controlPath = options.controlPath ?? createControlPath();
   let disposed = false;
@@ -301,9 +301,9 @@ function tryUnlink(
       return;
     }
     if (ownsTempDir) {
-      // createControlPath() 가 이 소켓 하나를 담으려고 만든 일회용
-      // nexus-ssh-XXXX/ 디렉토리 — 소켓만 unlink 하면 빈 디렉토리가
-      // os.tmpdir() 에 연결마다 하나씩 누적되므로 디렉토리째 제거한다.
+      // The nexus-ssh-XXXX/ directory is a throwaway that createControlPath() made to hold
+      // this one socket — unlinking only the socket would leave an empty directory
+      // in os.tmpdir() for every connection, so remove the whole directory.
       fs.rmSync(path.dirname(controlPath), { recursive: true, force: true });
       return;
     }

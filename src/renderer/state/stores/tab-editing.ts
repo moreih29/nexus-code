@@ -2,24 +2,24 @@ import { create } from "zustand";
 import { cancelTabFocus } from "../../services/tab-focus";
 
 /**
- * 탭 이름 inline 편집 모드의 활성 tab id를 관리하는 store.
+ * Store that manages the active tab id of the tab-name inline edit mode.
  *
- * 의도된 단일성: 한 번에 한 탭만 편집 중. 다른 탭의 편집을 startEditing으로
- * 시작하면 이전 탭은 자동으로 cancel된다 (시각적으로도 한 탭의 input만 활성).
+ * Intended singleness: only one tab is edited at a time. Starting an edit on another tab with
+ * startEditing automatically cancels the previous one (visually only one tab's input is active too).
  *
- * 이 store를 별도 모듈로 분리한 이유:
- *   - 컨텍스트 메뉴(GroupTabBar)와 더블클릭(TabItem) 두 진입점이 동일한 상태를
- *     공유해야 한다. props로 흘리려면 TabBar까지 drilling이 깊고 contextTabId와
- *     editingTabId가 mix되어 부모 컴포넌트 책임이 늘어난다.
- *   - useTabsStore 안에 두지 않은 이유는 편집 상태가 데이터 모델이 아니라
- *     UI 인터랙션 상태이기 때문. 워크스페이스 정리 시점에도 별도 관리 불필요.
+ * Why this store is a separate module:
+ *   - The two entry points, the context menu (GroupTabBar) and double-click (TabItem), must
+ *     share the same state. Passing it via props means deep drilling down to TabBar, and contextTabId and
+ *     editingTabId get mixed, adding to the parent component's responsibility.
+ *   - It is not inside useTabsStore because editing state is UI interaction
+ *     state, not data model. It needs no separate management at workspace cleanup either.
  */
 interface TabEditingState {
-  /** 현재 inline 편집 중인 tab id. 없으면 null. */
+  /** The tab id currently being edited inline. null if none. */
   editingTabId: string | null;
-  /** 해당 tab의 inline input을 활성화한다. */
+  /** Activates the inline input of that tab. */
   startEditing(tabId: string): void;
-  /** 편집 모드를 종료한다. commit / cancel 모두 이 함수로 정리한다. */
+  /** Ends edit mode. Both commit and cancel clean up through this function. */
   cancelEditing(): void;
 }
 

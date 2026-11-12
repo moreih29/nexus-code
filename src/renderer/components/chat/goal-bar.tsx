@@ -21,6 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
+import { useNow } from "../../hooks/use-now";
 import type { CodexModel } from "../../services/chat/codex-model";
 import {
   clockLabel,
@@ -75,18 +76,6 @@ export function closeGoalBar(workspaceId: string, tabId: string, goal: GoalView)
   useChatStore
     .getState()
     .update(chatKey(workspaceId, tabId), (prev) => ({ ...prev, goalClosed: goal.key }));
-}
-
-/** The time now, every `ms` while `on`. */
-function useNow(on: boolean, ms: number): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!on) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(timer);
-  }, [on, ms]);
-  return now;
 }
 
 /** Whether the goal's time counts on: a Claude goal always, a Codex goal while it works. */

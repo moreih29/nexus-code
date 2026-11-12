@@ -103,9 +103,9 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     }
   };
 
-  // Active 에디터 탭이 가리키는 파일의 절대경로. editor / editor.diff 만 대상.
-  // 터미널·git.commit 등 파일을 가지지 않는 탭이 활성일 때는 null이고, 그러는
-  // 동안에는 트리 하이라이트를 건드리지 않는다(기존 상태 유지).
+  // Absolute path of the file the active editor tab points to. Only editor / editor.diff count.
+  // It is null while a tab with no file (terminal, git.commit, etc.) is active, and the tree
+  // highlight is left alone then (the existing state is kept).
   const layoutForWs = useLayoutStore((s) => s.byWorkspace[workspaceId]);
   const tabsForWs = useTabsStore((s) => s.byWorkspace[workspaceId]);
   const activeEditorAbsPath = useMemo<string | null>(() => {
@@ -221,31 +221,30 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
   });
 
   // ---------------------------------------------------------------------------
-  // Auto-reveal: 활성 에디터 탭이 가리키는 파일을 트리에서 하이라이트
+  // Auto-reveal: highlight in the tree the file the active editor tab points to
   // ---------------------------------------------------------------------------
-  // 탭 클릭/키보드 이동/외부 reveal 모두 같은 effect로 처리된다.
+  // Tab clicks, keyboard navigation and external reveals are all handled by the same effect.
   //
-  // VSCode parity (explorerView.ts `selectActiveFile`): auto-reveal은
-  // *active editor가 바뀔 때만* 트리거된다. 트리 mutation(폴더 접기/펼치기)
-  // 에는 반응하지 않는다. 즉 사용자가 활성 파일의 부모를 접으면 접힌 상태가
-  // 유지되고, 다른 탭으로 갔다가 돌아오는 순간(=activeEditor가 다시 바뀜)
-  // 부모가 재펼쳐진다.
+  // VSCode parity (explorerView.ts `selectActiveFile`): auto-reveal triggers
+  // *only when the active editor changes*. It does not react to tree mutations (folding or
+  // expanding folders). So if the user collapses the active file's parent, it stays
+  // collapsed, and the parent is expanded again the moment they go to another tab and come
+  // back (= activeEditor changes again).
   //
-  // lastRevealedRef는 Phase 2가 reveal에 성공한 activeEditorAbsPath를 기록.
-  // Phase 1·2 둘 다 이 ref로 "이미 다룬 경로"를 가드해서, flat이 바뀌어도
-  // 같은 에디터 경로에 대해 reveal/focus-sync를 다시 실행하지 않는다.
-  // activeEditorAbsPath가 다른 값으로 바뀌면 ref ≠ 새 값이라 가드가 풀린다.
+  // lastRevealedRef records the activeEditorAbsPath that Phase 2 revealed successfully.
+  // Both Phase 1 and 2 guard "already handled paths" with this ref, so even if flat changes,
+  // reveal/focus-sync is not run again for the same editor path. When activeEditorAbsPath
+  // changes to another value, ref != new value and the guard is released.
   const lastRevealedRef = useRef<string | null>(null);
 
-  // Phase 1: 부모 디렉터리를 펼친다. reveal()이 ancestors를 expanded에 추가하고
-  // 필요한 children을 IPC로 로드한다. 워크스페이스 루트 바깥의 경로는 무시.
+  // Phase 1: expand the parent directories. reveal() adds the ancestors to expanded and
+  // loads the needed children over IPC. Paths outside the workspace root are ignored.
   //
-  // flat을 deps에 두는 이유: 트리 init / 자식 로드가 비동기여서 처음 effect
-  // 실행 시점에 tree가 아직 없을 수 있다. Phase 2가 ref를 set하기 전까지는
-  // flat 변경마다 재시도된다.
+  // Why flat is in deps: tree init / child loading is async, so the tree may not exist yet
+  // when the effect first runs. Until Phase 2 sets the ref, it retries on every flat change.
   //
-  // lastRevealedRef 가드: Phase 2가 한 번 reveal 완료 후에는, 사용자가 부모를
-  // 접어 flat이 다시 leaf를 잃어도 reveal을 재호출하지 않는다 — VSCode parity.
+  // lastRevealedRef guard: once Phase 2 has finished a reveal, reveal is not called again
+  // even if the user collapses the parent and flat loses the leaf again — VSCode parity.
   useEffect(() => {
     if (!activeEditorAbsPath) return;
     if (activeEditorAbsPath !== rootAbsPath && !activeEditorAbsPath.startsWith(`${rootAbsPath}/`)) {
@@ -256,18 +255,18 @@ export function FileTree({ workspaceId, rootAbsPath }: FileTreeProps) {
     void reveal(workspaceId, activeEditorAbsPath);
   }, [activeEditorAbsPath, workspaceId, rootAbsPath, flat]);
 
-  // Phase 2: flat 리스트가 해당 경로를 포함하게 되면 activeIndex 갱신 + 스크롤.
-  // reveal()이 비동기로 children을 로드하면 flat이 변하면서 이 effect가 다시
-  // 돌아 인덱스를 찾는다. flat에 아직 없는 경우 no-op이 되고, 다음 store
-  // 업데이트(자식 로드 완료) 후 재시도된다.
+  // Phase 2: once the flat list contains the path, update activeIndex + scroll.
+  // When reveal() loads children asynchronously, flat changes and this effect runs again to
+  // find the index. If it is not in flat yet this is a no-op, and it retries after the next
+  // store update (child load finished).
   //
-  // lastRevealedRef 가드: 이미 reveal한 에디터 경로는 다시 reveal하지 않는다.
-  // 가드가 없으면 사용자가 폴더를 클릭(→ toggleExpand로 flat 변경)하는 순간
-  // 이 effect가 재실행되어 activeIndex를 "열려 있는 에디터 파일"로 되돌리고,
-  // 동기화 effect가 store의 activeAbsPath까지 덮어써 수동 선택을 잃는다 —
-  // 복사/붙여넣기 타깃이 선택한 폴더가 아니라 에디터 파일의 부모(루트)로
-  // 잡히던 버그의 원인. idx<0(아직 flat에 없음)이면 ref를 갱신하지 않아
-  // 자식 로드 후 재시도된다.
+  // lastRevealedRef guard: an editor path that was already revealed is not revealed again.
+  // Without the guard, the moment the user clicks a folder (flat changes via toggleExpand)
+  // this effect would rerun and reset activeIndex to the "open editor file", and the sync
+  // effect would overwrite the store's activeAbsPath too, losing the manual selection — the
+  // cause of the bug where the copy/paste target became the editor file's parent (root)
+  // instead of the selected folder. If idx<0 (not in flat yet) the ref is not updated, so it
+  // retries after the children load.
   useEffect(() => {
     if (!activeEditorAbsPath) return;
     if (lastRevealedRef.current === activeEditorAbsPath) return;

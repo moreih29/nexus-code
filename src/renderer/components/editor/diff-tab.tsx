@@ -150,7 +150,7 @@ function DiffView({
   const { left, right, status, reload } = useDiffContent(payload);
   const showRefreshing = useDelayedRefreshing(status);
   const monacoTheme = useMonacoThemeName();
-  // @monaco-editor/react가 monaco를 lazy 로딩하는 동안에는 null.
+  // null while @monaco-editor/react is lazy-loading monaco.
   const monaco = useMonaco();
   const leftContent = readyContentFor(left);
   const rightContent = readyContentFor(right);

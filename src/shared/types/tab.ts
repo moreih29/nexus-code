@@ -7,24 +7,24 @@ const TabBaseSchema = z.object({
   id: TabIdSchema,
   workspaceId: WorkspaceIdSchema,
   /**
-   * 표시용 타이틀 — derived value: customTitle ?? processTitle ?? defaultTitle.
-   * persistence 호환을 위해 직렬화 시 함께 저장된다. 복원 시 store가 동일 규칙으로
-   * 재계산하므로 직렬화된 값은 단순 캐시 역할.
+   * Display title — derived value: customTitle ?? processTitle ?? defaultTitle.
+   * Stored along with it on serialization for persistence compatibility. On restore the store
+   * recomputes it by the same rule, so the serialized value is just a cache.
    */
   title: z.string(),
   /**
-   * 탭 생성 시점에 결정되는 기본 타이틀. customTitle / processTitle 둘 다 비어있을
-   * 때 fallback. 영구 보관 (사용자가 rename clear 시 이 값으로 복귀).
+   * Default title decided when the tab is created. Fallback when customTitle and processTitle
+   * are both empty. Kept permanently (reverted to when the user clears a rename).
    */
   defaultTitle: z.string().optional(),
   /**
-   * 사용자가 수동으로 지정한 타이틀. 설정되면 processTitle을 무시하고 title을 고정.
-   * 빈 문자열 입력 시 clear되어 자동(processTitle/defaultTitle)으로 복귀.
+   * Title the user set manually. When set it ignores processTitle and pins the title.
+   * Entering an empty string clears it, returning to automatic (processTitle/defaultTitle).
    */
   customTitle: z.string().optional(),
   /**
-   * 자동 감지된 타이틀. 터미널은 OSC 0/1/2 (xterm.js onTitleChange), 브라우저는
-   * page-title-updated 이벤트로 갱신. customTitle이 있으면 표시에는 영향 없음.
+   * Auto-detected title. Updated from OSC 0/1/2 (xterm.js onTitleChange) for terminals and from
+   * the page-title-updated event for browsers. Has no effect on the display when customTitle is set.
    */
   processTitle: z.string().optional(),
   isPreview: z.boolean().optional(),

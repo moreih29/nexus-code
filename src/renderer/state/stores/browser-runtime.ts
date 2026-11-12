@@ -53,9 +53,9 @@ export interface BrowserRuntimeState {
    */
   devtoolsOpen: boolean;
   /**
-   * 페이지가 advertise한 favicon URL. Chromium의 page-favicon-updated 이벤트에서
-   * 받은 후보 배열의 첫 번째 entry. 비어있으면 기본 아이콘(Globe)이 표시된다.
-   * runtime store에만 보관 — 앱 재시작 시 페이지가 다시 로드되며 자연스럽게 갱신.
+   * Favicon URL the page advertises. The first entry of the candidate array received from Chromium's
+   * page-favicon-updated event. If empty, the default icon (Globe) is shown.
+   * Kept only in the runtime store — refreshed naturally when the page reloads after an app restart.
    */
   faviconUrl: string | null;
   /**

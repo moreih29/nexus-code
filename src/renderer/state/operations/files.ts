@@ -383,7 +383,7 @@ export async function reveal(workspaceId: string, absPath: string): Promise<void
  */
 export function rewatchExpandedDir(workspaceId: string, absPath: string): void {
   const tree = useFilesStore.getState().trees.get(workspaceId);
-  if (!tree || !tree.expanded.has(absPath)) return;
+  if (!tree?.expanded.has(absPath)) return;
   void queueWatchCall(workspaceId, relPath(absPath, tree.rootAbsPath), "watch").then((result) => {
     if (!result.ok) log.error(`re-watch failed: ${result.message}`);
   });

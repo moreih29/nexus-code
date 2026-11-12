@@ -16,11 +16,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Electron mock — must be set up before importing the module under test.
 // ---------------------------------------------------------------------------
 
-// Track calls for assertion
-const mockSessionPermHandler:
-  | ((wc: unknown, perm: string, cb: (ok: boolean) => void) => void)
-  | null = null;
-
 mock.module("electron", () => ({
   WebContentsView: class {},
 }));

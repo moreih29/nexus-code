@@ -47,13 +47,13 @@ class FakeWritable {
 
 function makeReadyFrame(): Buffer {
   return Buffer.from(
-    JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n",
+    `${JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` })}\n`,
     "utf8",
   );
 }
 
 function frame(line: string): Buffer {
-  return Buffer.from(line + "\n", "utf8");
+  return Buffer.from(`${line}\n`, "utf8");
 }
 
 function buildPipe() {
@@ -159,13 +159,13 @@ describe("createNdjsonPipe fire() — fire-and-forget notification path", () => 
     const requestId = (JSON.parse(stdin.writes[0]!) as { id: string }).id;
 
     // Simulate the agent sending back its void ack for the notification.
-    stdout.emitData(Buffer.from(JSON.stringify({ id: requestId, result: null }) + "\n", "utf8"));
+    stdout.emitData(Buffer.from(`${JSON.stringify({ id: requestId, result: null })}\n`, "utf8"));
 
     // Channel must remain alive — a subsequent call must succeed.
     const second = pipe.call("lsp.send", { serverId: "srv-1", message: {} });
     const secondId = (JSON.parse(stdin.writes[1]!) as { id: string }).id;
     stdout.emitData(
-      Buffer.from(JSON.stringify({ id: secondId, result: { ok: true } }) + "\n", "utf8"),
+      Buffer.from(`${JSON.stringify({ id: secondId, result: { ok: true } })}\n`, "utf8"),
     );
 
     await expect(second).resolves.toEqual({ ok: true });

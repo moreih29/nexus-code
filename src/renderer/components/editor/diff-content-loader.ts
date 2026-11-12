@@ -1,5 +1,6 @@
 import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isAbortError } from "../../../shared/abort";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCallResult, ipcListen, unwrapGitResult, unwrapIpcResult } from "../../ipc/client";
@@ -333,13 +334,6 @@ function disposeSideEffects(
     if (timers[side] !== null) clearTimeout(timers[side]);
     timers[side] = null;
   }
-}
-
-/**
- * Detects abort errors from DOM AbortController and Electron-wrapped calls.
- */
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === "AbortError";
 }
 
 /**

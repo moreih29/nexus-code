@@ -11,7 +11,7 @@
 //
 // NOTE: ./marketing.ts exists and is NOT re-exported here.
 //   The marketing 18-role type scale is removed from the in-app token surface
-//   per design.md §5 ("마케팅 18-role 타입스케일은 in-app UI에 사용할 수 없다").
+//   per design.md §5 ("the marketing 18-role type scale cannot be used in in-app UI").
 //   Existing CSS output for marketing text roles is preserved in
 //   generate-theme-css.ts via direct import during the transition period.
 
