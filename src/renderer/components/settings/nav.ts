@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { useEditorFontStore } from "../../state/stores/editor-font";
 import { useIconThemeStore } from "../../state/stores/icon-theme";
 import { useInactivePanelDimStore } from "../../state/stores/inactive-panel-dim";
+import { useLanguageStore } from "../../state/stores/language";
 import { useTerminalStore } from "../../state/stores/terminal";
 import { useThemeStore } from "../../state/stores/theme";
 import { useWindowOpacityStore } from "../../state/stores/window-opacity";
@@ -128,6 +129,7 @@ function useWatched(): Record<DirtyPage, readonly unknown[]> {
       useThemeStore((s) => s.preference),
       useWindowOpacityStore((s) => s.opacity),
       useInactivePanelDimStore((s) => s.dim),
+      useLanguageStore((s) => s.preference),
     ],
     editor: [
       useEditorFontStore((s) => s.size),
@@ -140,6 +142,7 @@ function useWatched(): Record<DirtyPage, readonly unknown[]> {
       useTerminalStore((s) => s.cursorStyle),
       useTerminalStore((s) => s.fontFamily),
       useTerminalStore((s) => s.fontLigatures),
+      useTerminalStore((s) => s.shell),
     ],
   };
 }

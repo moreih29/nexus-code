@@ -233,6 +233,22 @@ export class ChatController {
     return this.target.profileId ?? defaultProfileId("claude");
   }
 
+  /**
+   * What a tab made from this one (a fork, /branch) starts with: its
+   * profile, and the model and effort picked in it.
+   */
+  inherited(): { profileId: string; chosen?: ChatChosen } {
+    const effort = typeof this.flags.effortLevel === "string" ? this.flags.effortLevel : undefined;
+    const chosen: ChatChosen = {
+      ...(this.chosenModel ? { model: this.chosenModel } : {}),
+      ...(effort ? { effort } : {}),
+    };
+    return {
+      profileId: this.profileId,
+      ...(chosen.model || chosen.effort ? { chosen } : {}),
+    };
+  }
+
   constructor(target: ChatTabTarget, hooks: ChatTabHooks = {}) {
     this.target = target;
     this.hooks = hooks;
@@ -433,13 +449,20 @@ export class ChatController {
         })
         // What /add-dir, /sandbox and the tab's chips set holds for the tab,
         // not one program: after the settings' defaults, which it overrides.
+        // One refused leaves the rest, Remote Control included, to go on.
         .then(() => {
-          if (Object.keys(this.flags).length > 0) {
-            return this.request("apply_flag_settings", { settings: this.flags });
-          }
+          if (Object.keys(this.flags).length === 0) return;
+          return this.request("apply_flag_settings", { settings: this.flags }).then(
+            () => {},
+            (err: Error) => log.warn(`tab settings not applied: ${err.message}`),
+          );
         })
         .then(() => {
-          if (this.chosenModel) return this.request("set_model", { model: this.chosenModel });
+          if (!this.chosenModel) return;
+          return this.request("set_model", { model: this.chosenModel }).then(
+            () => {},
+            (err: Error) => log.warn(`picked model not applied: ${err.message}`),
+          );
         })
         .then(() => {
           // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
@@ -907,20 +930,26 @@ export class ChatController {
     );
   }
 
+  // A pick Claude Code takes holds for the tab: a program started again for
+  // it takes it too. One it refuses is not kept, so no start gives it again.
   setModel(model: string): Promise<unknown> {
-    // Holds for the tab: a program started again for it takes it too.
-    this.chosenModel = model;
-    this.hooks.onChosen?.({ model });
-    return this.shownAtOnce("model", model, () => this.request("set_model", { model }));
+    return this.shownAtOnce("model", model, () => this.request("set_model", { model })).then(
+      (answer) => {
+        this.chosenModel = model;
+        this.hooks.onChosen?.({ model });
+        return answer;
+      },
+    );
   }
 
   setEffort(level: string): Promise<unknown> {
-    // Holds for the tab: a program started again for it takes it too.
-    this.flags = { ...this.flags, effortLevel: level };
-    this.hooks.onChosen?.({ effort: level });
     return this.shownAtOnce("effort", level, () =>
       this.request("apply_flag_settings", { settings: { effortLevel: level } }),
-    );
+    ).then((answer) => {
+      this.flags = { ...this.flags, effortLevel: level };
+      this.hooks.onChosen?.({ effort: level });
+      return answer;
+    });
   }
 
   /**

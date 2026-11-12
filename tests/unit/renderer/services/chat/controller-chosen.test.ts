@@ -40,11 +40,15 @@ function requests(): Message[] {
   return sent.filter((m) => m.type === "control_request");
 }
 
-/** Waits for the controller's next request, and answers it with `response`. */
+/**
+ * Waits for the controller's next request, and answers it with `response`,
+ * or refuses it with `error`.
+ */
 async function answerNext(
   c: Controller,
   answered: number,
   response: Record<string, unknown> = {},
+  error?: string,
 ): Promise<Record<string, unknown>> {
   for (let i = 0; i < 50 && requests().length <= answered; i++) await Bun.sleep(1);
   const request = requests()[answered];
@@ -54,17 +58,25 @@ async function answerNext(
     dir: "out",
     message: {
       type: "control_response",
-      response: { subtype: "success", request_id: request.request_id, response },
+      response: error
+        ? { subtype: "error", request_id: request.request_id, error }
+        : { subtype: "success", request_id: request.request_id, response },
     },
   });
   return request.request ?? {};
 }
 
-/** The requests a started program's initialize sends, answered in turn. */
-async function startUp(c: Controller): Promise<Record<string, unknown>[]> {
+/**
+ * The requests a started program's initialize sends, answered in turn;
+ * `refuse` names the one Claude Code refuses.
+ */
+async function startUp(
+  c: Controller,
+  { init = {}, refuse }: { init?: Record<string, unknown>; refuse?: string } = {},
+): Promise<Record<string, unknown>[]> {
   const restarted = c.restart();
   const asked: Record<string, unknown>[] = [];
-  asked.push(await answerNext(c, 0));
+  asked.push(await answerNext(c, 0, init));
   // The user's settings set effort high; the program runs at xhigh.
   asked.push(
     await answerNext(c, 1, {
@@ -74,24 +86,58 @@ async function startUp(c: Controller): Promise<Record<string, unknown>[]> {
   );
   for (let n = 2; n < 6; n++) {
     await Bun.sleep(1);
-    if (requests().length <= n) break;
-    asked.push(await answerNext(c, n));
+    const next = requests()[n]?.request;
+    if (!next) break;
+    asked.push(await answerNext(c, n, {}, next.subtype === refuse ? "refused" : undefined));
   }
   await restarted;
   return asked;
 }
 
 describe("the model and effort picked in a Claude tab", () => {
-  test("are told to the tab to keep", () => {
+  test("are told to the tab to keep once taken, and one refused is not", async () => {
     const chosen: unknown[] = [];
     const c = new ChatController(
       { workspaceId: "ws-chosen", tabId: `t${++seq}`, cwd: "/p" },
       { onChosen: (pick) => chosen.push(pick) },
     );
     live.push(c);
-    c.setModel("claude-haiku-5-5").catch(() => {});
-    c.setEffort("low").catch(() => {});
+    await startUp(c);
+    let n = requests().length;
+    const model = c.setModel("claude-haiku-5-5");
+    await answerNext(c, n++);
+    await model;
+    const effort = c.setEffort("low");
+    await answerNext(c, n++);
+    await effort;
+    const refused = c.setEffort("max");
+    await answerNext(c, n++, {}, "not for this model");
+    await expect(refused).rejects.toThrow("not for this model");
     expect(chosen).toEqual([{ model: "claude-haiku-5-5" }, { effort: "low" }]);
+    // A fork of the tab starts with them too.
+    expect(c.inherited().chosen).toEqual({ model: "claude-haiku-5-5", effort: "low" });
+  });
+
+  test("a refused one leaves the rest of the start, Remote Control included", async () => {
+    const c = new ChatController({
+      workspaceId: "ws-chosen",
+      tabId: `t${++seq}`,
+      cwd: "/p",
+      chosen: { model: "gone-model", effort: "low" },
+    });
+    live.push(c);
+    const asked = await startUp(c, {
+      init: { remote_control_available: true, remote_control_auto_enable: true },
+      refuse: "set_model",
+    });
+    expect(asked.map((r) => r.subtype)).toEqual([
+      "initialize",
+      "get_settings",
+      "apply_flag_settings",
+      "apply_flag_settings",
+      "set_model",
+      "remote_control",
+    ]);
   });
 
   test("are given to its next program after the settings' default effort", async () => {

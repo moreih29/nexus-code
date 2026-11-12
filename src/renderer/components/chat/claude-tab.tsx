@@ -538,7 +538,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
       openClaudeTab(workspaceId, {
         cwd: props.cwd,
         fork: { sessionId: point.sessionId },
-        profileId: controller.profileId,
+        ...controller.inherited(),
       });
     }
   };
@@ -837,7 +837,7 @@ function forkFrom(
   const tab = openClaudeTab(workspaceId, {
     cwd,
     ...(fork ? { fork } : {}),
-    profileId: controller.profileId,
+    ...controller.inherited(),
   });
   if (user) {
     const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };
