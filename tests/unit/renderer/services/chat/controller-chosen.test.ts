@@ -181,9 +181,9 @@ describe("the pick a tab keeps", () => {
       type: "claude",
       props: { cwd: "/p", sessionId: "old" },
     });
-    tabs().setClaudeChosen("ws-chosen-store", tab.id, { model: "claude-haiku-5-5" });
-    tabs().setClaudeChosen("ws-chosen-store", tab.id, { effort: "low" });
-    tabs().setClaudeChosen("ws-chosen-store", tab.id, { effort: "medium" });
+    tabs().setChatChosen("ws-chosen-store", tab.id, { model: "claude-haiku-5-5" });
+    tabs().setChatChosen("ws-chosen-store", tab.id, { effort: "low" });
+    tabs().setChatChosen("ws-chosen-store", tab.id, { effort: "medium" });
     tabs().setClaudeTarget("ws-chosen-store", tab.id, { fork: { sessionId: "old" } });
     tabs().setChatProfile("ws-chosen-store", tab.id, "work");
     tabs().setClaudeSession("ws-chosen-store", tab.id, "copy");

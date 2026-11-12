@@ -109,6 +109,8 @@ export const CodexTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  /** The model and effort the user picked in the tab, for its next turn to take. */
+  chosen: ChatChosenSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 

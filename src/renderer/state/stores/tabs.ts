@@ -80,6 +80,8 @@ export interface CodexTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The model and effort the user picked in the tab, for its next turn to take. */
+  chosen?: ChatChosen;
 }
 
 interface TabBase {
@@ -291,10 +293,10 @@ interface TabsState {
    */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
   /**
-   * Keep the model or effort the user picked in a Claude tab, over what it
-   * had picked before. No-op on other tab types.
+   * Keep the model or effort the user picked in a Claude or Codex tab, over
+   * what it had picked before. No-op on other tab types.
    */
-  setClaudeChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
+  setChatChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
   /** Keeps who sent a message through the nexus command; one with its id is replaced. */
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
@@ -691,8 +693,9 @@ export const useTabsStore = create<TabsState>((set, get) => {
           if (tab.props.profileId === profileId) return tab;
           // Only what holds whichever profile runs the tab: its session or
           // thread, fork and moves were the old profile's. The messages'
-          // senders, by id, are kept for a conversation that goes on, and
-          // the model and effort picked in a Claude tab are the tab's.
+          // senders, by id, are kept for a conversation that goes on. The
+          // model and effort picked in a Claude tab are the tab's; a Codex
+          // tab takes the new profile's own, as its controller does.
           const props = {
             cwd: tab.props.cwd,
             ...(profileId ? { profileId } : {}),
@@ -742,14 +745,14 @@ export const useTabsStore = create<TabsState>((set, get) => {
       );
     },
 
-    setClaudeChosen(workspaceId, tabId, chosen) {
+    setChatChosen(workspaceId, tabId, chosen) {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
-          if (tab.type !== "claude") return tab;
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
           const merged = { ...tab.props.chosen, ...chosen };
           const same =
             merged.model === tab.props.chosen?.model && merged.effort === tab.props.chosen?.effort;
-          return same ? tab : { ...tab, props: { ...tab.props, chosen: merged } };
+          return same ? tab : ({ ...tab, props: { ...tab.props, chosen: merged } } as Tab);
         }),
       );
     },

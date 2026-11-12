@@ -36,7 +36,7 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
       ),
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
-    onChosen: (chosen) => tabs().setClaudeChosen(workspaceId, tabId, chosen),
+    onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
   };
 }
 
@@ -55,6 +55,7 @@ export function codexTabHooks(workspaceId: string, tabId: string): CodexTabHooks
       ),
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
+    onChosen: (chosen) => tabs().setChatChosen(workspaceId, tabId, chosen),
   };
 }
 
@@ -89,7 +90,7 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
     };
   }
   if (tab?.type === "codex") {
-    const { cwd, threadId, fork, profileId, moves } = tab.props;
+    const { cwd, threadId, fork, profileId, moves, chosen } = tab.props;
     return {
       agent: "codex",
       controller: codexController(
@@ -101,6 +102,7 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
           fork,
           ...(profileId ? { profileId } : {}),
           ...(moves ? { moves } : {}),
+          ...(chosen ? { chosen } : {}),
         },
         codexTabHooks(workspaceId, tabId),
       ),

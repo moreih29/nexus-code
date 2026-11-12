@@ -115,6 +115,7 @@ export function CodexTabView({
           threadId: props.threadId,
           ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
+          ...(props.chosen ? { chosen: props.chosen } : {}),
           ...(developerInstructions ? { developerInstructions } : {}),
           ...(trusted ? { trusted } : {}),
         },
