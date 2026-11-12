@@ -48,6 +48,11 @@ describe("view group", () => {
     expect((await nexus(app, ["view", "group", "status", "workspace"])).stderr).toContain(
       "give status or workspace",
     );
+    // An object's own names are not groupings, nor views.
+    expect((await nexus(app, ["view", "group", "constructor"])).stderr).toContain(
+      'not "constructor"',
+    );
+    expect((await nexus(app, ["view", "toString"])).stderr).toContain('not "toString"');
     expect(groupCalls(app)).toEqual([]);
   });
 });

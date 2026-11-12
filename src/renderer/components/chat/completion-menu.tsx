@@ -22,12 +22,21 @@ export interface CompletionItem {
 interface CompletionMenuProps {
   kind: "command" | "file";
   items: CompletionItem[];
+  /** The program has not listed its commands yet: none matching says nothing so far. */
+  listing?: boolean;
   active: number;
   onPick: (index: number) => void;
   onHover: (index: number) => void;
 }
 
-export function CompletionMenu({ kind, items, active, onPick, onHover }: CompletionMenuProps) {
+export function CompletionMenu({
+  kind,
+  items,
+  listing = false,
+  active,
+  onPick,
+  onHover,
+}: CompletionMenuProps) {
   const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -35,7 +44,7 @@ export function CompletionMenu({ kind, items, active, onPick, onHover }: Complet
     row?.scrollIntoView({ block: "nearest" });
   }, [active]);
   if (items.length === 0) {
-    if (kind !== "command") return null;
+    if (kind !== "command" || listing) return null;
     return (
       <div
         role="status"

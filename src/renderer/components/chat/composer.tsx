@@ -619,6 +619,7 @@ export function Composer({
             <CompletionMenu
               kind={completion.kind}
               items={items}
+              listing={!ownCommands && !model.init}
               active={active}
               onPick={pick}
               onHover={setActive}

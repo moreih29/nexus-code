@@ -42,6 +42,11 @@ const GROUPINGS: Record<string, CliAgentGrouping> = {
   workspaces: "workspace",
 };
 
+/** What a word names in `table`, by its own keys only: "constructor" names nothing. */
+function ownValue<T>(table: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
 const GROUPING_NAME: Record<CliAgentGrouping, string> = {
   status: "by status (needs you, running, new result, idle, ended)",
   workspace: "by workspace",
@@ -246,7 +251,7 @@ const viewShow: CliCommand = {
       const view = await viewOf(ctx);
       return output(`The window shows ${VIEW_NAME[view.view]}.`, { view: view.view });
     }
-    const target = VIEWS[word.toLowerCase()];
+    const target = ownValue(VIEWS, word.toLowerCase());
     if (!target) throw new CliUsageError(`the view is agents or workspaces, not "${word}"`);
     await ctx.services.ui("agentView.show", { view: target });
     return output(`Showing ${VIEW_NAME[target]}.`, { view: target });
@@ -536,7 +541,7 @@ const viewGroup: CliCommand = {
         grouping: view.grouping,
       });
     }
-    const grouping = GROUPINGS[word.toLowerCase()];
+    const grouping = ownValue(GROUPINGS, word.toLowerCase());
     if (!grouping) throw new CliUsageError(`the grouping is status or workspace, not "${word}"`);
     await ctx.services.ui("agentView.group", { grouping });
     return output(`The agent view lists its agents ${GROUPING_NAME[grouping]}.`, { grouping });
