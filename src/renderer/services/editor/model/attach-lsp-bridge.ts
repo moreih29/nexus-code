@@ -110,7 +110,9 @@ export function attachLspBridge(
     | "workspaceRootForInput"
   >,
 ): AttachLspBridgeResult {
-  const model = entry.model!;
+  const model = entry.model;
+  // Called once the entry's model is placed (see entry.ts); without one there is nothing to wire.
+  if (!model) throw new Error("attachLspBridge: the entry has no model yet");
 
   if (deps.isLspLanguage(entry.languageId)) {
     // Resolve the canonical preset language id (e.g. "typescriptreact" → "typescript")

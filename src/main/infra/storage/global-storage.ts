@@ -516,11 +516,6 @@ export class GlobalStorage {
     const col = groupKind === "pinned" ? "pinned_sort_order" : "sort_order";
     const pinnedFilter = groupKind === "pinned" ? 1 : 0;
 
-    // No reference → tail insertion.
-    if (beforeId === undefined && afterId === undefined) {
-      return { position: this.nextTailSortOrder(groupKind) };
-    }
-
     // Insert BEFORE `beforeId`: midpoint between beforeId's predecessor and beforeId.
     if (beforeId !== undefined) {
       const refRow = this.db
@@ -561,10 +556,15 @@ export class GlobalStorage {
       return { position: Math.floor((prevRow.pos + refRow.pos) / 2) };
     }
 
+    // No reference → tail insertion.
+    if (afterId === undefined) {
+      return { position: this.nextTailSortOrder(groupKind) };
+    }
+
     // Insert AFTER `afterId`: midpoint between afterId and afterId's successor.
     const refRow = this.db
       .prepare(`SELECT ${col} AS pos FROM workspaces WHERE id = ? AND pinned = ?`)
-      .get(afterId!, pinnedFilter) as { pos: number } | undefined;
+      .get(afterId, pinnedFilter) as { pos: number } | undefined;
 
     if (!refRow) {
       throw new Error(`computeInsertPosition: afterId row not found in ${groupKind} group`);

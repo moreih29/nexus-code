@@ -15,8 +15,8 @@ export interface AttachSharedModelTemporaryModel {
 // compatible with Monaco.editor.IStandaloneCodeEditor so tests can pass stubs.
 export interface ApplySharedModelEditor {
   getModel(): unknown;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setModel(m: any): void;
+  // A method, so Monaco's narrower `setModel(model: ITextModel | null)` still fits.
+  setModel(m: unknown): void;
   updateOptions(opts: { readOnly: boolean }): void;
 }
 

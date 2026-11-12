@@ -55,14 +55,14 @@ class FakeWritable {
 
 function readyFrame(extra: Record<string, unknown> = {}): Buffer {
   return Buffer.from(
-    JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra }) + "\n",
+    `${JSON.stringify({ type: "ready", protocolVersion: AGENT_PROTOCOL_VERSION, ...extra })}\n`,
     "utf8",
   );
 }
 
 function heartbeatFrame(seq: number, uptimeMs: number): Buffer {
   return Buffer.from(
-    JSON.stringify({ event: "agent.heartbeat", payload: { seq, uptimeMs } }) + "\n",
+    `${JSON.stringify({ event: "agent.heartbeat", payload: { seq, uptimeMs } })}\n`,
     "utf8",
   );
 }

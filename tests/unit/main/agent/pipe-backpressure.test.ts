@@ -81,12 +81,12 @@ function makeFrame(index: number, paddingSize = 0): Buffer {
   const padding = paddingSize > 0 ? "x".repeat(paddingSize) : undefined;
   const obj: Record<string, unknown> = { event: "test.frame", payload: { index } };
   if (padding !== undefined) obj.padding = padding;
-  return Buffer.from(JSON.stringify(obj) + "\n", "utf8");
+  return Buffer.from(`${JSON.stringify(obj)}\n`, "utf8");
 }
 
 function makeReadyFrame(): Buffer {
   return Buffer.from(
-    JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n",
+    `${JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` })}\n`,
     "utf8",
   );
 }
@@ -304,7 +304,7 @@ describe("pipe backpressure gate", () => {
 function makeNamedFrame(event: string, index: number, paddingSize = 0): Buffer {
   const obj: Record<string, unknown> = { event, payload: { index } };
   if (paddingSize > 0) obj.padding = "x".repeat(paddingSize);
-  return Buffer.from(JSON.stringify(obj) + "\n", "utf8");
+  return Buffer.from(`${JSON.stringify(obj)}\n`, "utf8");
 }
 
 describe("pipe backpressure gate — PassThrough (real stream, honors pause)", () => {
