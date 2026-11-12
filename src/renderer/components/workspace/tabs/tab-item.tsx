@@ -80,7 +80,6 @@ function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
     );
   }
   return (
-    // biome-ignore lint/a11y/useAltText: decorative tab favicon; aria-hidden hides from AT
     <img
       aria-hidden
       src={faviconUrl}

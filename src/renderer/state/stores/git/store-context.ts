@@ -21,7 +21,6 @@ import type { GitInFlightOp, GitOperationKind, GitSession } from "./types";
 // the full GitState interface that is only defined in git.ts (the assembly).
 // ---------------------------------------------------------------------------
 
-// biome-ignore lint/suspicious/noExplicitAny: zustand setState is typed via the store, not here
 type SetState = (
   updater: (state: { sessions: Map<string, GitSession> }) => { sessions: Map<string, GitSession> },
 ) => void;
