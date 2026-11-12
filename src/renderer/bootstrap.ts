@@ -165,6 +165,7 @@ export async function bootstrapAppState(): Promise<void> {
     filesPanelHidden: state.filesPanelHidden,
     agentListFoldedGroups: state.agentListFoldedGroups,
     agentListUnfoldedTasks: state.agentListUnfoldedTasks,
+    filesPanelModeByWorkspace: state.filesPanelModeByWorkspace,
   });
 
   // Hydrate theme from appState (authoritative store).

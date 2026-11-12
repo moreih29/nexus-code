@@ -232,6 +232,12 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
       stateService.setState({ agentListViewByWorkspace: restViews });
     }
+    // And the view its files panel was left on.
+    const currentModes = currentState.filesPanelModeByWorkspace ?? {};
+    if (currentModes[removedWorkspaceId] !== undefined) {
+      const { [removedWorkspaceId]: _removedMode, ...restModes } = currentModes;
+      stateService.setState({ filesPanelModeByWorkspace: restModes });
+    }
     // And whether its task view showed its facts unfolded.
     const unfoldedTasks = currentState.agentListUnfoldedTasks ?? [];
     if (unfoldedTasks.includes(removedWorkspaceId)) {
