@@ -19,7 +19,8 @@ export function AgentRows({
   agents: readonly AgentRun[];
   /** The agent selected, when one of these is. */
   selectedId: string | undefined;
-  onSelect: (agentId: string) => void;
+  /** Picked, with its row: the agent list opens its card beside it. */
+  onSelect: (agentId: string, from: HTMLElement) => void;
   className?: string;
 }) {
   const shown = rowAgents(agents, selectedId);
@@ -33,7 +34,7 @@ export function AgentRows({
             <button
               type="button"
               aria-pressed={selected}
-              onClick={() => onSelect(agent.id)}
+              onClick={(event) => onSelect(agent.id, event.currentTarget)}
               title={`${agentLabel(agent)} · ${agentStateLabel(agent.state)}`}
               className={cn(
                 "flex w-full min-w-0 items-center gap-1.5 rounded-(--radius-control) py-0.5 pr-1 text-left text-app-micro transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring",

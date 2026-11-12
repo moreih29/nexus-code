@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import { showAgentList } from "@/services/agent-sessions/actions";
 import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { requestTabFocus } from "@/services/tab-focus";
 import { openTerminal } from "@/services/terminal";
 import {
-  openAgentListTab,
   openClaudeTab,
   openCodexTab,
   openNewBrowserTab,
@@ -123,8 +123,7 @@ export function GroupView({
   }
 
   function handleShowAgentList() {
-    const { groupId } = openAgentListTab(workspaceId);
-    onActivateGroup(groupId);
+    showAgentList(workspaceId);
   }
 
   function handleGroupClick() {

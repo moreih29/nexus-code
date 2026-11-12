@@ -294,7 +294,8 @@ nexus tab close --saved              # 저장 안 한 변경이 없는 편집기
 nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭이 없으면 모든 그룹)
 nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
 nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
-nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git)
+nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git · agents)
+nexus panel show agents              # 파일 패널을 에이전트 목록으로
 nexus panel hide sidebar
 nexus panel resize files 320         # 패널 너비(px)
 nexus reveal src/app.ts              # 파일 트리에서 그 파일을 펼쳐 선택

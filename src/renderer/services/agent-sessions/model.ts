@@ -330,20 +330,3 @@ export function sameFamily(a: SessionFamily | null, b: SessionFamily | null): bo
 export function allSessions(family: SessionFamily): AgentSession[] {
   return family.worktrees.flatMap((w) => w.sessions);
 }
-
-/**
- * The session of `sessions` to show first: one waiting on the user, else one
- * done and not looked at, else one working, else the first.
- */
-export function leadSession(sessions: readonly AgentSession[]): AgentSession | undefined {
-  for (const phase of ["attention", "done", "running", "idle"] as const) {
-    const found = sessions.find((s) => s.phase === phase);
-    if (found) return found;
-  }
-  return undefined;
-}
-
-/** The session of the family to show first; see leadSession. */
-export function firstSession(family: SessionFamily): AgentSession | undefined {
-  return leadSession(allSessions(family));
-}

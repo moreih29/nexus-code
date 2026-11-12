@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AgentListTabView } from "@/components/agent-list/agent-list-tab";
 import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
 import { CommitTab } from "@/components/editor/commit-tab";
@@ -274,8 +273,6 @@ export function ContentHost({
             isActive={isVisible}
             parentEl={parentEl}
           />
-        ) : tab.type === "agent-list" ? (
-          <AgentListTabView workspaceId={workspaceId} isVisible={isVisible} />
         ) : tab.type === "claude" ? (
           <ClaudeTabView
             workspaceId={workspaceId}

@@ -30,8 +30,17 @@ export function useSessionProfile(session: AgentSession): AgentProfile | undefin
 }
 
 /** The profile's dot and name, as the session's tab shows them. */
-export function SessionProfileMark({ session }: { session: AgentSession }) {
+export function SessionProfileMark({
+  session,
+  nameClassName,
+}: {
+  session: AgentSession;
+  /** Over the name's own; see TabProfileMark. */
+  nameClassName?: string;
+}) {
   const profileId = useTabProfileId(session);
   if (session.kind === "terminal") return null;
-  return <TabProfileMark agent={session.kind} profileId={profileId} />;
+  return (
+    <TabProfileMark agent={session.kind} profileId={profileId} nameClassName={nameClassName} />
+  );
 }

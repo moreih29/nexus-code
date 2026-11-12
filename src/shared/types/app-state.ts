@@ -35,10 +35,6 @@ export const AppStateSchema = z.object({
   // independently of `sidebarHidden`; both toggle together only via the
   // ⌘⇧B command, never via storage coupling.
   filesPanelHidden: z.boolean().optional(),
-  // The agent list's list, as a share of the tab's width, as its divider
-  // was last dragged. Absent or null = the default, min(480px, 50%).
-  // (Stored as `sessionsListRatio` before; see app-state-migrations.)
-  agentListRatio: z.number().min(0).max(1).nullable().optional(),
   // The agent list's groups the user folded ("idle", "ended", …). Absent =
   // every group open.
   agentListFoldedGroups: z.array(z.string()).optional(),

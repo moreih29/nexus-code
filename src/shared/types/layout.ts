@@ -101,10 +101,6 @@ export const CodexTabPropsSchema = z.object({
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 
-/** The agent list shows the workspace it is in, with its tasks; it has no props. */
-export const AgentListTabPropsSchema = z.object({});
-export type AgentListTabProps = z.infer<typeof AgentListTabPropsSchema>;
-
 // ---------------------------------------------------------------------------
 // SerializedTab
 // ---------------------------------------------------------------------------
@@ -183,15 +179,6 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     title: z.string(),
     ...TAB_TITLES,
     props: CodexTabPropsSchema,
-    isPreview: z.boolean().optional(),
-    isPinned: z.boolean().optional(),
-  }),
-  z.object({
-    id: z.string().uuid(),
-    type: z.literal("agent-list"),
-    title: z.string(),
-    ...TAB_TITLES,
-    props: AgentListTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

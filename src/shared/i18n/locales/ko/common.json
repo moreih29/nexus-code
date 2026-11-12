@@ -521,7 +521,6 @@
     "installHint": "설치: {{command}}"
   },
   "agentList": {
-    "tab_title": "에이전트 목록",
     "none": "대화 없음",
     "count": "{{label}} {{count}}",
     "view_label": "보기",
@@ -553,39 +552,14 @@
     "detail": {
       "show_terminal": "터미널로 이동",
       "show_changes": "변경 보기",
-      "interrupt": "중단 (Ctrl-C)",
       "remove_task": "작업 삭제…",
-      "permission_hint": "권한 요청은 터미널에서 응답합니다.",
-      "send": "보내기",
-      "screen_not_started": "이 터미널은 아직 시작되지 않았습니다. 그 작업을 열면 시작됩니다.",
-      "screen_exited": "이 터미널은 종료되었습니다.",
       "changes": "커밋하지 않은 변경 ({{count}})",
       "no_changes": "커밋하지 않은 변경이 없습니다.",
-      "more_changes": "외 {{count}}개",
-      "close": "상세 닫기",
       "todos": "할 일",
-      "screen_show": "터미널 원문 보기",
-      "screen_hide": "터미널 원문 접기",
       "show_claude_tab": "Claude 탭으로 이동",
       "show_codex_tab": "Codex 탭으로 이동",
-      "permission_hint_claude": "권한 요청은 Claude 탭에서 응답합니다.",
-      "back": "목록으로",
       "answer_more": "더 보기",
       "answer_less": "접기",
-      "steps": "최근 도구 호출",
-      "step": {
-        "running": "실행 중",
-        "done": "완료",
-        "failed": "실패",
-        "stopped": "중단됨"
-      },
-      "send_keys": "{{send}} 보내기 · {{newLine}} 줄바꿈",
-      "follow_up": "이어서 보내기",
-      "command_in_tab": "이 명령은 {{agent}} 탭에서만 쓸 수 있습니다.",
-      "open_in_tab": "탭에서 열기",
-      "not_loaded": "이전 대화는 탭을 열거나 메시지를 보내면 보입니다.",
-      "no_messages": "아직 주고받은 메시지가 없습니다.",
-      "vs_base": "{{branch}} 대비",
       "ahead_behind": "{{branch}}보다 커밋 {{ahead}}개 앞서고 {{behind}}개 뒤처짐",
       "lines": "{{added}}줄 추가, {{deleted}}줄 삭제",
       "binary": "바이너리"
@@ -621,7 +595,8 @@
         "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다.",
         "permission_hint_claude": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. Claude 탭에서 응답합니다."
       },
-      "parent": "{{title}}의 서브에이전트"
+      "parent": "{{title}}의 서브에이전트",
+      "close_card": "닫기"
     },
     "permission": {
       "title": "권한 요청",
@@ -670,7 +645,10 @@
       "no_conversations": "대화 없음",
       "created_by": "{{title}} 대화가 만든 작업",
       "waiting_on": "{{title}} 대화가 끝나기를 기다리는 중",
-      "open_terminal": "이 작업에서 터미널 열기"
+      "open_terminal": "이 작업에서 터미널 열기",
+      "more": "더 보기",
+      "copy_path": "경로 복사",
+      "more_in_git": "외 {{count}}개 · 소스 제어에서 보기"
     }
   },
   "claudeStatus": {
@@ -783,8 +761,7 @@
   "resize": {
     "sidebar": "사이드바 크기 조정",
     "horizontal": "패널을 가로로 크기 조정",
-    "vertical": "패널을 세로로 크기 조정",
-    "agent_list": "목록과 대화 크기 조정"
+    "vertical": "패널을 세로로 크기 조정"
   },
   "panel": {
     "connection_failed": "연결 실패",
