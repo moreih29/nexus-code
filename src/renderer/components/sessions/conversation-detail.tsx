@@ -1,9 +1,10 @@
 // Agents tab — the detail panel of a conversation: its title and state with
 // a button to its tab and one to stop it; what it runs on; the conversation
 // itself, as its Claude or Codex tab shows it, once the tab has loaded it;
-// what it waits on, answered here; and a box to send it more. A terminal's
-// agent, and a tab not loaded yet, tell only what they were last asked and
-// answered, with the calls they ran last, their subagents and their to-dos.
+// what it waits on, answered here; and the tab's own message box, to send it
+// more. A terminal's agent, and a tab not loaded yet, tell only what they
+// were last asked and answered, with the calls they ran last, their
+// subagents and their to-dos; a terminal's takes more typed in.
 //
 // A Claude or Codex tab's permission request is answered here as its tab
 // would. A terminal's, through Claude Code's hook when it holds the request;
@@ -21,7 +22,6 @@ import {
   FileDiff,
   GitBranch,
   ListChecks,
-  ListPlus,
   Loader,
   Pencil,
   Send,
@@ -34,10 +34,15 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
+import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { SessionActivity } from "../../../shared/claude/activity";
+import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { configCommandOf } from "../../services/chat/claude-config";
+import { parseCodexCommand } from "../../services/chat/codex-commands";
 import { existingCodexController } from "../../services/chat/codex-controller";
 import type { CodexModel } from "../../services/chat/codex-model";
 import { existingChatController } from "../../services/chat/controller";
+import type { CommandInfo } from "../../services/chat/model";
 import {
   planUsageKeyFor,
   usePlanClaudeUsage,
@@ -66,7 +71,7 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ChatMarkdown } from "../chat/chat-markdown";
-import { type ComposerController, composerHint, composerKeys, ModeChip } from "../chat/composer";
+import { Composer, composerKeys, SEND_BUTTON_CLASS } from "../chat/composer";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
 import { UsageChip } from "../chat/usage-line";
@@ -160,48 +165,40 @@ export function ConversationDetail({
       now,
     );
   }, [terminal, session.kind, chat.model, claudePlan, codexPlan, now]);
-  const footer = (
-    <>
-      {!held && session.state !== "exited" && (terminal || loaded) && (
-        // Keyed by the session, so a draft never carries over to another one.
-        <FollowUp key={session.key} session={session} chat={chat} />
-      )}
-      {waiting && requests === 0 && session.state === "permissionPending" && (
-        <p className="border-t border-border px-4 py-3 text-app-ui-sm text-(--state-warning-fg)">
-          {terminal
-            ? t("sessions.detail.permission_hint")
-            : t("sessions.detail.permission_hint_claude")}
-        </p>
-      )}
-    </>
+  const permissionHint = waiting && requests === 0 && session.state === "permissionPending" && (
+    <p className="border-t border-border px-4 py-3 text-app-ui-sm text-(--state-warning-fg)">
+      {terminal
+        ? t("sessions.detail.permission_hint")
+        : t("sessions.detail.permission_hint_claude")}
+    </p>
   );
   if (!terminal && loaded) {
-    const controller =
-      session.kind === "codex"
-        ? existingCodexController(session.workspaceId, session.tabId)
-        : existingChatController(session.workspaceId, session.tabId);
     return (
       <div className="@container flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 flex-col gap-2 border-b border-border px-4 pt-4 pb-3">
           <DetailTop session={session} running={chat.model.running} onBack={onBack} />
+          {/* The box under the conversation tells and picks the model, effort and mode, as in the tab. */}
           <MetaChips
             session={session}
             facts={facts}
             branch={branch}
             todos={facts.todos}
-            modes={controller && { controller, chat }}
+            runsOn={false}
             usage={usage}
             profile={profile}
           />
         </div>
-        <Transcript session={session} chat={chat} visible={visible} />
-        {requests > 0 && (
-          // Docked over the box, so a request is seen wherever the conversation is scrolled.
-          <div className="app-scrollbar max-h-[50%] shrink-0 overflow-y-auto border-t border-border px-4 py-2">
-            <ChatTabRequests session={session} chat={chat} />
-          </div>
-        )}
-        {footer}
+        <ChatPane session={session} chat={chat} visible={visible}>
+          {requests > 0 && (
+            // Docked over the box, so a request is seen wherever the conversation is scrolled.
+            <div className="app-scrollbar max-h-[50%] shrink-0 overflow-y-auto border-t border-border px-4 py-2">
+              <ChatTabRequests session={session} chat={chat} />
+            </div>
+          )}
+          {/* Keyed by the session, so a draft never carries over to another one. */}
+          <DetailComposer key={session.key} session={session} chat={chat} />
+          {permissionHint}
+        </ChatPane>
       </div>
     );
   }
@@ -238,7 +235,11 @@ export function ConversationDetail({
           )}
         </div>
       </div>
-      {footer}
+      {terminal && !held && session.state !== "exited" && (
+        // Keyed by the session, so a draft never carries over to another one.
+        <TerminalFollowUp key={session.key} session={session} />
+      )}
+      {permissionHint}
     </div>
   );
 }
@@ -246,17 +247,20 @@ export function ConversationDetail({
 /**
  * A Claude or Codex tab's conversation, as the tab shows it, in the tab's
  * font: what it showed before, what its program said and the reply coming
- * in, with its calls in a row folded. Its files and images open over the
+ * in, with its calls in a row folded, and under it what `children` dock
+ * there (the requests and the box). Its files and images open over the
  * panel. A message is not rewound or forked from here, only in the tab.
  */
-function Transcript({
+function ChatPane({
   session,
   chat,
   visible,
+  children,
 }: {
   session: AgentSession;
   chat: ChatTabState;
   visible: boolean;
+  children: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const { workspaceId, tabId } = session;
@@ -267,13 +271,18 @@ function Transcript({
     const tab = s.byWorkspace[workspaceId]?.[tabId];
     return tab?.type === "claude" || tab?.type === "codex" ? tab.props.cwd : "";
   });
+  const relayed = useRelayed(session);
   const fontStyle = useChatFontStyle();
   return (
     // The words name the tab's program, as in the tab.
     <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
-      <TranscriptLinks session={session} chat={chat} cwd={cwd || rootPath} visible={visible}>
-        {/* The text as Settings › Agent sets it for the chat tabs. */}
-        <div className="chat-font flex min-h-0 flex-1 flex-col" style={fontStyle}>
+      {/* The text as Settings › Agent sets it for the chat tabs; a file dropped anywhere on it is attached. */}
+      <div
+        className="chat-font relative flex min-h-0 flex-1 flex-col"
+        style={fontStyle}
+        data-chat-drop
+      >
+        <TranscriptLinks session={session} chat={chat} cwd={cwd || rootPath} visible={visible}>
           <MessageList
             // Keyed by the session, so each one opens at its latest message.
             key={session.key}
@@ -283,16 +292,26 @@ function Transcript({
             rootPath={rootPath}
             history={chat.history}
             model={chat.model}
+            relayed={relayed}
             empty={
               <p className="my-auto text-center text-app-ui-sm text-muted-foreground">
                 {t("sessions.detail.no_messages")}
               </p>
             }
           />
-        </div>
-      </TranscriptLinks>
+        </TranscriptLinks>
+        {children}
+      </div>
     </ChatAgentContext.Provider>
   );
+}
+
+/** The messages other agents sent the tab through the nexus command. */
+function useRelayed(session: AgentSession): readonly RelayedMessage[] | undefined {
+  return useTabsStore((s) => {
+    const tab = s.byWorkspace[session.workspaceId]?.[session.tabId];
+    return tab?.type === "claude" || tab?.type === "codex" ? tab.props.relayed : undefined;
+  });
 }
 
 /** The mark, the title and the state, with the buttons to its tab and to stop it. */
@@ -388,7 +407,7 @@ function MetaChips({
   facts,
   branch,
   todos,
-  modes,
+  runsOn: showRunsOn = true,
   usage,
   profile,
 }: {
@@ -397,8 +416,8 @@ function MetaChips({
   branch: string | undefined;
   /** The to-dos, as a count, where they are not listed. */
   todos?: readonly DetailTodo[];
-  /** A chat tab's program, whose permission mode the chip picks; else the chip only tells it. */
-  modes?: { controller: ComposerController; chat: ChatTabState };
+  /** Tells the model, effort and mode; left out where the box under the conversation does. */
+  runsOn?: boolean;
   /** How much of its plan's limits its account has spent, shown in place of the cost when told. */
   usage?: UsageLine | null;
   /** Its account's profile, where its agent has more than its default one. */
@@ -407,31 +426,21 @@ function MetaChips({
   const { t } = useTranslation();
   const modePrefix = session.kind === "codex" ? "chat.codex.mode" : "chat.mode";
   const runsOn = [
-    facts.model && (
+    showRunsOn && facts.model && (
       <span key="model" className={CHIP} title={facts.model}>
         {facts.model.replace(/^claude-/, "")}
       </span>
     ),
-    facts.effort && (
+    showRunsOn && facts.effort && (
       <span key="effort" className={CHIP} title={t("chat.effort.label")}>
         {facts.effort}
       </span>
     ),
-    modes ? (
-      <ModeChip
-        key="mode"
-        controller={modes.controller}
-        state={modes.chat}
-        side="bottom"
-        truncate
-      />
-    ) : (
-      facts.mode && (
-        <span key="mode" className={CHIP} title={t("chat.mode.label")}>
-          <Pencil aria-hidden className="size-3" />
-          {t(`${modePrefix}.${facts.mode}`, { defaultValue: facts.mode })}
-        </span>
-      )
+    showRunsOn && facts.mode && (
+      <span key="mode" className={CHIP} title={t("chat.mode.label")}>
+        <Pencil aria-hidden className="size-3" />
+        {t(`${modePrefix}.${facts.mode}`, { defaultValue: facts.mode })}
+      </span>
     ),
   ].filter(Boolean);
   const files = facts.files;
@@ -821,33 +830,68 @@ function Todos({ todos }: { todos: readonly DetailTodo[] }) {
 }
 
 /**
- * More for the conversation. A chat tab's turn that runs takes it as its
- * composer would: ↩ when the turn can read it, ⌘↩ at once (Claude), ⌘⇧↩
- * after the turn. A terminal has it typed in, Shift+Enter between lines.
+ * The tab's own message box, on its controller: what waits for the turn
+ * shows above it as in the tab, and its keys and buttons do as there. The
+ * tab's own commands run in the tab, which opens what they show.
  */
-function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState }) {
+function DetailComposer({ session, chat }: { session: AgentSession; chat: ChatTabState }) {
   const { t } = useTranslation();
+  const relayed = useRelayed(session);
+  const local = useWorkspacesStore(
+    (s) => s.workspaces.find((w) => w.id === session.workspaceId)?.location.kind === "local",
+  );
+  const codex = session.kind === "codex";
+  const controller = codex
+    ? existingCodexController(session.workspaceId, session.tabId)
+    : existingChatController(session.workspaceId, session.tabId);
+  if (!controller) return null;
+  const tabOnly = (text: string): boolean => {
+    const own = codex
+      ? parseCodexCommand(text) !== null
+      : configCommandOf(text) !== null ||
+        revealOf(text) !== null ||
+        parseAppCommand(text, chat.model.init?.commands ?? []) !== null;
+    if (own) {
+      const agent = codex ? "Codex" : "Claude";
+      showToast({ kind: "info", message: t("sessions.detail.command_in_tab", { agent }) });
+    }
+    return own;
+  };
+  return (
+    <Composer
+      controller={controller}
+      state={chat}
+      relayed={relayed}
+      local={local}
+      appCommands={false}
+      commands={codex ? NO_COMMANDS : undefined}
+      onCommand={tabOnly}
+      takesDraft={false}
+    />
+  );
+}
+
+/** The `/` menu of a Codex conversation here: the Codex tab's commands all run in the tab. */
+const NO_COMMANDS: readonly CommandInfo[] = [];
+
+/**
+ * More typed into a terminal's agent, Enter pressed after it; Shift+Enter
+ * between lines. The box is a chat tab's, in the chat tabs' font.
+ */
+function TerminalFollowUp({ session }: { session: AgentSession }) {
+  const { t } = useTranslation();
+  const fontStyle = useChatFontStyle();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isChat = session.kind !== "terminal";
-  const running = isChat && chat.model.running;
-  const keys = composerKeys();
+  const hint = t("sessions.detail.send_keys", composerKeys());
 
-  const submit = async (how: "send" | "queue" | "now") => {
+  const submit = async () => {
     if (text.trim() === "" || sending) return;
-    const controller = !isChat
-      ? undefined
-      : session.kind === "codex"
-        ? existingCodexController(session.workspaceId, session.tabId)
-        : existingChatController(session.workspaceId, session.tabId);
     setSending(true);
     setError(null);
     try {
-      if (running && controller && how === "queue") controller.enqueue(text);
-      else if (running && controller && how === "now" && "sendNow" in controller) {
-        await controller.sendNow(text);
-      } else await sendLine(session, text);
+      await sendLine(session, text);
       setText("");
     } catch (failure) {
       setError((failure as Error).message);
@@ -857,70 +901,48 @@ function FollowUp({ session, chat }: { session: AgentSession; chat: ChatTabState
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== "Enter" || isImeComposing(event)) return;
-    const mod = event.metaKey || event.ctrlKey;
-    if (event.shiftKey && !mod) return;
+    if (event.key !== "Enter" || event.shiftKey || isImeComposing(event)) return;
     event.preventDefault();
-    void submit(mod ? (event.shiftKey ? "queue" : "now") : "send");
+    void submit();
   };
 
-  const hint = running
-    ? composerHint(t, true, session.kind === "codex" ? "codex" : "claude")
-    : t("sessions.detail.send_keys", keys);
-  // During a turn Claude reads it after the call it runs; Codex at once.
-  const queues = running && session.kind !== "codex";
   return (
     <form
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        void submit("send");
+        void submit();
       }}
-      className="flex shrink-0 flex-col gap-1 border-t border-border p-3"
+      className="chat-font shrink-0 border-t border-border px-4 pt-2 pb-3"
+      style={fontStyle}
     >
-      <div className="flex items-end gap-2">
-        <textarea
-          rows={1}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={t("sessions.detail.follow_up")}
-          aria-label={t("sessions.detail.follow_up")}
-          title={hint}
-          className={cn(
-            "app-scrollbar field-sizing-content max-h-40 min-h-9 min-w-0 flex-1 resize-none overflow-y-auto",
-            "rounded-(--radius-control) border border-border bg-background px-2.5 py-2",
-            "text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-            "focus-visible:border-ring",
-          )}
-        />
-        <Button
-          type="submit"
-          className="h-9 gap-1.5 px-2.5"
-          loading={sending}
-          disabled={text.trim() === ""}
-          title={hint}
-          aria-label={
-            queues
-              ? t("sessions.detail.queue")
-              : running
-                ? t("chat.composer.send_now")
-                : t("sessions.detail.send")
-          }
-        >
-          {queues ? (
-            <ListPlus aria-hidden className="size-4" />
-          ) : (
-            <Send aria-hidden className="size-4" />
-          )}
-          <Keycap>↵</Keycap>
-        </Button>
+      <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+        <div className="rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
+          <textarea
+            rows={2}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            readOnly={sending}
+            placeholder={t("sessions.detail.follow_up")}
+            aria-label={t("sessions.detail.follow_up")}
+            title={hint}
+            className="app-scrollbar field-sizing-content block max-h-40 min-h-[calc(2lh+1rem)] w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
+          />
+          <div className="flex items-center justify-end gap-1 px-1.5 pb-1.5">
+            <button
+              type="submit"
+              disabled={text.trim() === "" || sending}
+              title={hint}
+              aria-label={t("sessions.detail.send")}
+              className={cn(SEND_BUTTON_CLASS, "pr-1.5 pl-2")}
+            >
+              <Send aria-hidden className="size-4" />
+              <Keycap>↵</Keycap>
+            </button>
+          </div>
+        </div>
+        {error && <p className="text-app-ui-sm text-(--state-error-fg)">{error}</p>}
       </div>
-      {chat.queue.length > 0 && (
-        <p className="text-app-micro text-muted-foreground">
-          {t("sessions.detail.queued", { count: chat.queue.length })}
-        </p>
-      )}
-      {error && <p className="text-app-ui-sm text-(--state-error-fg)">{error}</p>}
     </form>
   );
 }
