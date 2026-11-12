@@ -397,6 +397,24 @@ function nextTerminalTitle(tabs: Record<string, Tab> | undefined): string {
   }
 }
 
+/**
+ * The state with one tab changed by `change`; the same state, so nothing
+ * re-renders, when the tab is not there or `change` returns it as it was.
+ */
+function withTab(
+  state: TabsState,
+  workspaceId: string,
+  tabId: string,
+  change: (tab: Tab) => Tab,
+): Pick<TabsState, "byWorkspace"> {
+  const wsRecord = state.byWorkspace[workspaceId];
+  const tab = wsRecord?.[tabId];
+  if (!wsRecord || !tab) return state;
+  const next = change(tab);
+  if (next === tab) return state;
+  return { byWorkspace: { ...state.byWorkspace, [workspaceId]: { ...wsRecord, [tabId]: next } } };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -479,61 +497,37 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     renameTab(workspaceId, tabId, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-
-        // An empty string after trim is read as clearing customTitle — return to processTitle/defaultTitle.
-        const trimmed = title.trim();
-        const nextCustom = trimmed === "" ? undefined : trimmed;
-        const nextDisplay = computeDisplayTitle({
-          defaultTitle: tab.defaultTitle,
-          customTitle: nextCustom,
-          processTitle: tab.processTitle,
-        });
-
-        if (nextCustom === tab.customTitle && nextDisplay === tab.title) return state;
-
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, customTitle: nextCustom, title: nextDisplay },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // An empty string after trim is read as clearing customTitle — return to processTitle/defaultTitle.
+          const trimmed = title.trim();
+          const nextCustom = trimmed === "" ? undefined : trimmed;
+          const nextDisplay = computeDisplayTitle({
+            defaultTitle: tab.defaultTitle,
+            customTitle: nextCustom,
+            processTitle: tab.processTitle,
+          });
+          if (nextCustom === tab.customTitle && nextDisplay === tab.title) return tab;
+          return { ...tab, customTitle: nextCustom, title: nextDisplay };
+        }),
+      );
     },
 
     setProcessTitle(workspaceId, tabId, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-
-        // Empty string / null → clear processTitle.
-        const trimmed = title === null ? "" : title.trim();
-        const nextProcess = trimmed === "" ? undefined : trimmed;
-        const nextDisplay = computeDisplayTitle({
-          defaultTitle: tab.defaultTitle,
-          customTitle: tab.customTitle,
-          processTitle: nextProcess,
-        });
-
-        if (nextProcess === tab.processTitle && nextDisplay === tab.title) return state;
-
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, processTitle: nextProcess, title: nextDisplay },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Empty string / null → clear processTitle.
+          const trimmed = title === null ? "" : title.trim();
+          const nextProcess = trimmed === "" ? undefined : trimmed;
+          const nextDisplay = computeDisplayTitle({
+            defaultTitle: tab.defaultTitle,
+            customTitle: tab.customTitle,
+            processTitle: nextProcess,
+          });
+          if (nextProcess === tab.processTitle && nextDisplay === tab.title) return tab;
+          return { ...tab, processTitle: nextProcess, title: nextDisplay };
+        }),
+      );
     },
 
     setTerminalDead(workspaceId, tabId, dead) {
@@ -542,22 +536,13 @@ export const useTabsStore = create<TabsState>((set, get) => {
       const shouldReleaseDeath =
         existingTab?.type === "terminal" && Boolean(existingTab.props.dead) && !dead;
 
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "terminal" || Boolean(tab.props.dead) === dead) {
-          return state;
-        }
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, props: { ...tab.props, dead } },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type !== "terminal" || Boolean(tab.props.dead) === dead
+            ? tab
+            : { ...tab, props: { ...tab.props, dead } },
+        ),
+      );
 
       if (shouldRecordDeath) {
         recordTerminalDeathForAggregate(workspaceId, tabId, () =>
@@ -573,378 +558,228 @@ export const useTabsStore = create<TabsState>((set, get) => {
     },
 
     promoteFromPreview(workspaceId, tabId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (!tab.isPreview) return state;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: { ...tab, isPreview: false },
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.isPreview ? { ...tab, isPreview: false } : tab,
+        ),
+      );
     },
 
     replacePreviewTab(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // Only editor tabs have a preview slot; replace is otherwise a no-op.
-        if (tab.type !== "editor") return state;
-        // The file the tab points to changes, so update defaultTitle to the new file name and
-        // clear the old customTitle / processTitle, which no longer mean anything.
-        const next: EditorTab = {
-          ...tab,
-          props,
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Only editor tabs have a preview slot; replace is otherwise a no-op.
+          if (tab.type !== "editor") return tab;
+          // The file the tab points to changes, so update defaultTitle to the new file name and
+          // clear the old customTitle / processTitle, which no longer mean anything.
+          return {
+            ...tab,
+            props,
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     retargetEditorTab(workspaceId, tabId, filePath) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "editor" || tab.props.filePath === filePath) return state;
-        const nextDefault = defaultTitle({ type: "editor", props: { ...tab.props, filePath } });
-        const next: EditorTab = {
-          ...tab,
-          props: { ...tab.props, filePath },
-          defaultTitle: nextDefault,
-          title: computeDisplayTitle({
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "editor" || tab.props.filePath === filePath) return tab;
+          const nextDefault = defaultTitle({ type: "editor", props: { ...tab.props, filePath } });
+          return {
+            ...tab,
+            props: { ...tab.props, filePath },
             defaultTitle: nextDefault,
-            customTitle: tab.customTitle,
-            processTitle: tab.processTitle,
-          }),
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+            title: computeDisplayTitle({
+              defaultTitle: nextDefault,
+              customTitle: tab.customTitle,
+              processTitle: tab.processTitle,
+            }),
+          };
+        }),
+      );
     },
 
     replaceDiffPreviewTab(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // Targets only the editor.diff slot — editor / git.commit previews are owned by their own actions.
-        if (tab.type !== "editor.diff") return state;
-        // path / refs change, so update defaultTitle to the new value and
-        // clear the previous custom/process title, which no longer means anything (removes leftovers from the old file/ref).
-        const next: DiffTab = {
-          ...tab,
-          props,
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Targets only the editor.diff slot — editor / git.commit previews are owned by their own actions.
+          if (tab.type !== "editor.diff") return tab;
+          // path / refs change, so update defaultTitle to the new value and
+          // clear the previous custom/process title, which no longer means anything (removes leftovers from the old file/ref).
+          return {
+            ...tab,
+            props,
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     replaceCommitPreviewTab(workspaceId, tabId, sha, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        // Commit preview has its own slot; editor previews are intentionally
-        // left untouched by this replacement path.
-        if (tab.type !== "git.commit") return state;
-        // The SHA changes, so update defaultTitle to the new placeholder ("commit XXXXXXX") and
-        // clear the old custom/process title (the previous commit's subject etc. must not remain).
-        const next: GitCommitTab = {
-          ...tab,
-          props: { workspaceId, sha },
-          title,
-          defaultTitle: title,
-          customTitle: undefined,
-          processTitle: undefined,
-          isPreview: true,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          // Commit preview has its own slot; editor previews are intentionally
+          // left untouched by this replacement path.
+          if (tab.type !== "git.commit") return tab;
+          // The SHA changes, so update defaultTitle to the new placeholder ("commit XXXXXXX") and
+          // clear the old custom/process title (the previous commit's subject etc. must not remain).
+          return {
+            ...tab,
+            props: { workspaceId, sha },
+            title,
+            defaultTitle: title,
+            customTitle: undefined,
+            processTitle: undefined,
+            isPreview: true,
+          };
+        }),
+      );
     },
 
     setViewMode(workspaceId, tabId, mode) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "editor") return state;
-        if (tab.viewMode === mode) return state;
-        const next: EditorTab = { ...tab, viewMode: mode };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type !== "editor" || tab.viewMode === mode ? tab : { ...tab, viewMode: mode },
+        ),
+      );
     },
 
     replaceUntitledWithEditor(workspaceId, tabId, props, title) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "untitled") return state;
-        // Untitled → saved editor transition. Take the new file name as defaultTitle and
-        // start with custom/process cleared.
-        const next: EditorTab = {
-          id: tab.id,
-          title,
-          defaultTitle: title,
-          isPreview: tab.isPreview,
-          isPinned: tab.isPinned,
-          type: "editor",
-          props,
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: {
-              ...wsRecord,
-              [tabId]: next,
-            },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "untitled") return tab;
+          // Untitled → saved editor transition. Take the new file name as defaultTitle and
+          // start with custom/process cleared.
+          return {
+            id: tab.id,
+            title,
+            defaultTitle: title,
+            isPreview: tab.isPreview,
+            isPinned: tab.isPinned,
+            type: "editor",
+            props,
+          };
+        }),
+      );
     },
 
     setCodexThread(workspaceId, tabId, threadId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "codex") return state;
-        if (tab.props.threadId === threadId && !tab.props.fork) return state;
-        // A fork's copy has its own id now: the tab goes on with it.
-        const { fork: _copied, ...props } = tab.props;
-        const next: CodexTab = { ...tab, props: { ...props, threadId } };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "codex") return tab;
+          if (tab.props.threadId === threadId && !tab.props.fork) return tab;
+          // A fork's copy has its own id now: the tab goes on with it.
+          const { fork: _copied, ...props } = tab.props;
+          return { ...tab, props: { ...props, threadId } };
+        }),
+      );
     },
 
     setChatProfile(workspaceId, tabId, profileId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        if (tab.props.profileId === profileId) return state;
-        // The messages' senders, by id: kept for a conversation that goes on.
-        const props = {
-          cwd: tab.props.cwd,
-          ...(profileId ? { profileId } : {}),
-          ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-          // The model and effort picked hold for the tab, whichever profile runs it.
-          ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
-        };
-        const next = { ...tab, props } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (tab.props.profileId === profileId) return tab;
+          // Only what holds whichever profile runs the tab: its session or
+          // thread, fork and moves were the old profile's. The messages'
+          // senders, by id, are kept for a conversation that goes on, and
+          // the model and effort picked in a Claude tab are the tab's.
+          const props = {
+            cwd: tab.props.cwd,
+            ...(profileId ? { profileId } : {}),
+            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
+          };
+          return { ...tab, props } as Tab;
+        }),
+      );
     },
 
     setClaudeSession(workspaceId, tabId, sessionId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "claude") return state;
-        if (tab.props.sessionId === sessionId && !tab.props.fork) return state;
-        const next: ClaudeTab = {
-          ...tab,
-          props: {
-            cwd: tab.props.cwd,
-            sessionId,
-            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
-            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
-            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-            ...(tab.props.chosen ? { chosen: tab.props.chosen } : {}),
-          },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude") return tab;
+          if (tab.props.sessionId === sessionId && !tab.props.fork) return tab;
+          // The copy has its own id now: the fork it was made from goes.
+          const { fork: _copied, ...kept } = tab.props;
+          return { ...tab, props: { ...kept, sessionId } };
+        }),
+      );
     },
 
     setClaudeTarget(workspaceId, tabId, { sessionId, fork }) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "claude") return state;
-        const next: ClaudeTab = {
-          ...tab,
-          props: {
-            cwd: tab.props.cwd,
-            ...(sessionId ? { sessionId } : {}),
-            ...(fork ? { fork } : {}),
-            ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
-            ...(tab.props.moves ? { moves: tab.props.moves } : {}),
-            ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
-            ...(tab.props.chosen ? { chosen: tab.props.chosen } : {}),
-          },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude") return tab;
+          const { sessionId: _oldSession, fork: _oldFork, ...kept } = tab.props;
+          return {
+            ...tab,
+            props: { ...kept, ...(sessionId ? { sessionId } : {}), ...(fork ? { fork } : {}) },
+          };
+        }),
+      );
     },
 
     setChatMoves(workspaceId, tabId, moves) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        if (moves.length === 0 && !tab.props.moves) return state;
-        const { moves: _old, ...rest } = tab.props;
-        const props =
-          moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
-        const next = { ...tab, props } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          if (moves.length === 0 && !tab.props.moves) return tab;
+          const { moves: _old, ...rest } = tab.props;
+          const props =
+            moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
+          return { ...tab, props } as Tab;
+        }),
+      );
     },
 
     setClaudeChosen(workspaceId, tabId, chosen) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || tab?.type !== "claude") return state;
-        const merged = { ...tab.props.chosen, ...chosen };
-        if (
-          merged.model === tab.props.chosen?.model &&
-          merged.effort === tab.props.chosen?.effort
-        ) {
-          return state;
-        }
-        const next: ClaudeTab = { ...tab, props: { ...tab.props, chosen: merged } };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude") return tab;
+          const merged = { ...tab.props.chosen, ...chosen };
+          const same =
+            merged.model === tab.props.chosen?.model && merged.effort === tab.props.chosen?.effort;
+          return same ? tab : { ...tab, props: { ...tab.props, chosen: merged } };
+        }),
+      );
     },
 
     addChatRelayed(workspaceId, tabId, record) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        const tab = wsRecord?.[tabId];
-        if (!wsRecord || (tab?.type !== "claude" && tab?.type !== "codex")) return state;
-        const relayed = withRelayedMessage(tab.props.relayed, record);
-        const next = { ...tab, props: { ...tab.props, relayed } } as Tab;
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          const relayed = withRelayedMessage(tab.props.relayed, record);
+          return { ...tab, props: { ...tab.props, relayed } } as Tab;
+        }),
+      );
     },
 
     setBrowserLastUrl(workspaceId, tabId, lastUrl) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        if (tab.type !== "browser") return state;
-        const next: BrowserTab = {
-          ...tab,
-          props: { ...tab.props, lastUrl },
-        };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: next },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) =>
+          tab.type === "browser" ? { ...tab, props: { ...tab.props, lastUrl } } : tab,
+        ),
+      );
     },
 
     togglePin(workspaceId, tabId) {
-      set((state) => {
-        const wsRecord = state.byWorkspace[workspaceId];
-        if (!wsRecord || !(tabId in wsRecord)) return state;
-        const tab = wsRecord[tabId];
-        const nextPinned = !tab.isPinned;
-        // Pin implies permanent: clear preview flag when pinning. Reconstruct
-        // each branch so the union narrowing survives the spread.
-        const updatedTab: Tab =
-          tab.type === "editor"
-            ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-            : tab.type === "editor.diff"
-              ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-              : tab.type === "git.commit"
-                ? { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview }
-                : { ...tab, isPinned: nextPinned, isPreview: nextPinned ? false : tab.isPreview };
-        return {
-          byWorkspace: {
-            ...state.byWorkspace,
-            [workspaceId]: { ...wsRecord, [tabId]: updatedTab },
-          },
-        };
-      });
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          const isPinned = !tab.isPinned;
+          // Pin implies permanent: clear preview flag when pinning.
+          return { ...tab, isPinned, isPreview: isPinned ? false : tab.isPreview };
+        }),
+      );
     },
 
     closeAllForWorkspace(workspaceId) {
