@@ -1,12 +1,12 @@
 import i18next from "i18next";
 import {
-  Bot,
   CircleAlert,
   CircleCheck,
   File,
   FileDiff,
   GitCommit,
   Globe,
+  List,
   Loader,
   Lock,
   type LucideIcon,
@@ -107,7 +107,7 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "editor.diff") return FileDiff;
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
-  if (tab.type === "sessions") return Bot;
+  if (tab.type === "sessions") return List;
   if (tab.type === "claude") return ClaudeIcon;
   if (tab.type === "codex") return CodexIcon;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)

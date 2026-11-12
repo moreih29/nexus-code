@@ -1,4 +1,4 @@
-import { Bot, FilePlus, Globe, Plus, SquareTerminal } from "lucide-react";
+import { FilePlus, Globe, List, Plus, SquareTerminal } from "lucide-react";
 import { Tabs as RadixTabs } from "radix-ui";
 import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
@@ -280,7 +280,7 @@ export function TabBar({
             <NewChatMenuItems workspaceId={workspaceId} agent="claude" onOpen={onNewClaudeTab} />
             <NewChatMenuItems workspaceId={workspaceId} agent="codex" onOpen={onNewCodexTab} />
             <DropdownMenuItem onSelect={() => onShowSessions()}>
-              <Bot aria-hidden className="size-3.5 mr-1.5 shrink-0" />
+              <List aria-hidden className="size-3.5 mr-1.5 shrink-0" />
               <span className="flex-1">{t("tabBar.sessions")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>

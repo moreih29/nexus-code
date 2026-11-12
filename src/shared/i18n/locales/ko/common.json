@@ -184,7 +184,7 @@
     "switcher_aria": "작업 전환",
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
-    "show_sessions": "에이전트 보기",
+    "show_sessions": "에이전트 목록 보기",
     "ports_title": "열린 포트 {{ports}}",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
@@ -393,7 +393,7 @@
     "default_shell": "기본",
     "new_browser": "새 브라우저",
     "new_claude": "새 Claude 대화",
-    "sessions": "에이전트",
+    "sessions": "에이전트 목록",
     "pin_tab": "탭 고정",
     "unpin_tab": "탭 고정 해제",
     "rename_tab_menu": "탭 이름 변경…",
@@ -521,7 +521,7 @@
     "installHint": "설치: {{command}}"
   },
   "sessions": {
-    "tab_title": "에이전트",
+    "tab_title": "에이전트 목록",
     "none": "대화 없음",
     "count": "{{label}} {{count}}",
     "view_label": "보기",
@@ -553,7 +553,7 @@
     "detail": {
       "show_terminal": "터미널로 이동",
       "show_changes": "변경 보기",
-      "interrupt": "중지 (Ctrl-C)",
+      "interrupt": "중단 (Ctrl-C)",
       "remove_task": "작업 삭제…",
       "permission_hint": "권한 요청은 터미널에서 응답합니다.",
       "send": "보내기",
@@ -582,7 +582,8 @@
       "send_keys": "{{send}} 보내기 · {{newLine}} 줄바꿈",
       "follow_up": "이어서 보내기",
       "command_in_tab": "이 명령은 {{agent}} 탭에서만 쓸 수 있습니다.",
-      "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다.",
+      "open_in_tab": "탭에서 열기",
+      "not_loaded": "이전 대화는 탭을 열거나 메시지를 보내면 보입니다.",
       "no_messages": "아직 주고받은 메시지가 없습니다.",
       "vs_base": "{{branch}} 대비",
       "ahead_behind": "{{branch}}보다 커밋 {{ahead}}개 앞서고 {{behind}}개 뒤처짐",
@@ -1050,7 +1051,7 @@
     },
     "queue": {
       "aria": "읽히길 기다리는 메시지",
-      "label": "대기",
+      "label": "읽기 전",
       "after_turn": "턴 끝나고",
       "images_one": "이미지 {{count}}개",
       "images_other": "이미지 {{count}}개",
@@ -1267,6 +1268,10 @@
       "next": "다음 이미지 (→)",
       "open_tab": "탭으로 열기",
       "close": "닫기 (esc)",
+      "copy_image": "이미지 복사",
+      "copied_image": "이미지를 복사했습니다",
+      "copy_image_unread": "이미지를 읽지 못했습니다",
+      "copy_image_failed": "이미지를 복사하지 못했습니다: {{error}}",
       "changes": "세션 전과 비교",
       "revert": "이 파일을 세션 전으로 되돌리기",
       "revert_busy": "Claude가 작업하는 동안에는 되돌릴 수 없습니다",
@@ -1748,11 +1753,11 @@
       "held": "패널에 있음 (다른 탭 뒤)"
     },
     "pane": {
-      "reveal": "워크스페이스에서 열기",
       "close": "패널 닫기",
       "remove": "패널에서 빼기 (세션은 계속됨)",
       "empty": "빈 패널",
-      "empty_hint": "왼쪽 목록에서 에이전트를 클릭하거나 여기로 끌어 놓으세요"
+      "empty_hint": "목록에서 에이전트를 고르거나 여기로 끌어 놓으세요",
+      "open_list": "목록 열기"
     },
     "ended": {
       "message": "{{agent}} 세션이 끝났습니다",

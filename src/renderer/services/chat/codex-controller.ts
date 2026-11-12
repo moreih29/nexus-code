@@ -168,6 +168,8 @@ export class CodexController {
   private readonly live = new LiveLines();
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private opening: Promise<void> | null = null;
+  /** The opening under way is a look: it starts no program. */
+  private looking = false;
   /** A started program's handshake and thread, which a message waits for. */
   private ready: Promise<boolean> = Promise.resolve(false);
   /** The handshake of the program this controller started, until it settles. */
@@ -222,14 +224,30 @@ export class CodexController {
 
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
-    if (this.opening) return this.opening;
-    this.opening = this.doOpen().finally(() => {
+    // A look under way starts nothing: the program starts once it is done.
+    if (this.opening) return this.looking ? this.opening.then(() => this.open()) : this.opening;
+    this.opening = this.doOpen(true).finally(() => {
       this.opening = null;
     });
     return this.opening;
   }
 
-  private async doOpen(): Promise<void> {
+  /**
+   * Shows the tab's conversation without starting its program, for the
+   * agent list: the agent's log, else nothing: only its program reads a thread. The program starts with the
+   * first message sent, or when the tab is shown.
+   */
+  look(): Promise<void> {
+    if (this.opening) return this.opening;
+    this.looking = true;
+    this.opening = this.doOpen(false).finally(() => {
+      this.opening = null;
+      this.looking = false;
+    });
+    return this.opening;
+  }
+
+  private async doOpen(start: boolean): Promise<void> {
     this.flushNow();
     this.update((prev) => ({
       ...prev,
@@ -256,6 +274,10 @@ export class CodexController {
         // The limits may have moved while no window watched, or never been read.
         this.readRateLimits();
       }
+      return;
+    }
+    if (!start) {
+      this.update((prev) => ({ ...prev, phase: "ended" }));
       return;
     }
     await this.start({});
@@ -815,6 +837,11 @@ export class CodexController {
     })
       .then((result) => told(result))
       .catch(() => {});
+  }
+
+  /** Puts `text` in the tab's message box, after what is typed there, to be sent from it. */
+  putDraft(text: string): void {
+    this.update((prev) => ({ ...prev, draft: { text, images: [], nonce: Date.now() } }));
   }
 
   /** The composer took the message the app put back. */

@@ -48,6 +48,7 @@ interface HydrateOpts {
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
   sessionsListRatio?: number | null;
+  agentListFoldedGroups?: readonly string[];
 }
 
 export type FilesPanelMode = "tree" | "search" | "git";
@@ -69,6 +70,8 @@ interface UIState {
    * agents tab; null keeps the default, min(480px, 50%).
    */
   sessionsListRatio: number | null;
+  /** The agent list's groups the user folded, in every agent list; the others are open. */
+  agentListFoldedGroups: ReadonlySet<string>;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
@@ -76,6 +79,8 @@ interface UIState {
   setFilesPanelWidth(width: number, persist?: boolean): void;
   /** Sets the agents tab's list share (null for the default), clamped. */
   setSessionsListRatio(ratio: number | null, persist?: boolean): void;
+  /** Folds an agent list's group, or opens it again. Persists. */
+  toggleAgentListGroup(group: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
   /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
   toggleFilesPanel(): void;
@@ -93,7 +98,7 @@ interface UIState {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useUIStore = create<UIState>((set) => {
+export const useUIStore = create<UIState>((set, get) => {
   // Drop workspace-keyed UI state when its workspace is removed, so a
   // future workspace reusing an id (or a stale entry sticking around in
   // memory) can't surface another workspace's view mode. The central
@@ -113,9 +118,17 @@ export const useUIStore = create<UIState>((set) => {
     sidebarHidden: false,
     filesPanelHidden: false,
     sessionsListRatio: null,
+    agentListFoldedGroups: new Set(),
     filesPanelModes: new Map(),
 
-    hydrate({ sidebarWidth, filesPanelWidth, sidebarHidden, filesPanelHidden, sessionsListRatio }) {
+    hydrate({
+      sidebarWidth,
+      filesPanelWidth,
+      sidebarHidden,
+      filesPanelHidden,
+      sessionsListRatio,
+      agentListFoldedGroups,
+    }) {
       set({
         sidebarWidth:
           sidebarWidth !== undefined ? clampSidebar(sidebarWidth) : SIDEBAR_WIDTH_DEFAULT,
@@ -126,6 +139,7 @@ export const useUIStore = create<UIState>((set) => {
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
         sessionsListRatio: clampSessionsList(sessionsListRatio),
+        agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
       });
     },
 
@@ -159,6 +173,16 @@ export const useUIStore = create<UIState>((set) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }
+    },
+
+    toggleAgentListGroup(group) {
+      const next = new Set(get().agentListFoldedGroups);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      set({ agentListFoldedGroups: next });
+      void ipcCallResult("appState", "set", { agentListFoldedGroups: [...next] }).then((result) => {
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+      });
     },
 
     setFilesPanelMode(workspaceId, mode) {

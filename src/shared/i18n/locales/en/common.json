@@ -184,7 +184,7 @@
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
-    "show_sessions": "Agents",
+    "show_sessions": "Agent list",
     "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
@@ -393,7 +393,7 @@
     "default_shell": "Default",
     "new_browser": "New Browser",
     "new_claude": "New Claude conversation",
-    "sessions": "Agents",
+    "sessions": "Agent list",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -521,7 +521,7 @@
     "installHint": "Install: {{command}}"
   },
   "sessions": {
-    "tab_title": "Agents",
+    "tab_title": "Agent list",
     "none": "No conversations",
     "count": "{{label}} {{count}}",
     "view_label": "View",
@@ -553,7 +553,7 @@
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",
-      "interrupt": "Interrupt (Ctrl-C)",
+      "interrupt": "Stop (Ctrl-C)",
       "remove_task": "Delete task…",
       "permission_hint": "Permission requests are answered in the terminal.",
       "send": "Send",
@@ -582,7 +582,8 @@
       "send_keys": "{{send}} to send · {{newLine}} for a new line",
       "follow_up": "Follow up",
       "command_in_tab": "This command works only in the {{agent}} tab.",
-      "not_loaded": "This conversation has not been opened yet. Open its tab to see it.",
+      "open_in_tab": "Open in tab",
+      "not_loaded": "The earlier conversation shows once its tab is opened or a message is sent.",
       "no_messages": "No messages yet.",
       "vs_base": "vs {{branch}}",
       "ahead_behind": "Ahead of {{branch}} by {{ahead}}, behind by {{behind}}",
@@ -1050,7 +1051,7 @@
     },
     "queue": {
       "aria": "Messages waiting to be read",
-      "label": "Waiting",
+      "label": "Unread",
       "after_turn": "After the turn",
       "images_one": "{{count}} image",
       "images_other": "{{count}} images",
@@ -1267,6 +1268,10 @@
       "next": "Next image (→)",
       "open_tab": "Open as a tab",
       "close": "Close (esc)",
+      "copy_image": "Copy image",
+      "copied_image": "Image copied",
+      "copy_image_unread": "The image could not be read",
+      "copy_image_failed": "The image could not be copied: {{error}}",
       "changes": "Changes since before the session",
       "revert": "Revert this file to before the session",
       "revert_busy": "Can't revert while Claude is working",
@@ -1748,11 +1753,11 @@
       "held": "In a panel, behind another tab"
     },
     "pane": {
-      "reveal": "Open in workspace",
       "close": "Close panel",
       "remove": "Remove from panel (the session goes on)",
       "empty": "Empty panel",
-      "empty_hint": "Click an agent in the list, or drag one here"
+      "empty_hint": "Pick an agent from the list, or drag one here",
+      "open_list": "Open list"
     },
     "ended": {
       "message": "{{agent}} session ended",

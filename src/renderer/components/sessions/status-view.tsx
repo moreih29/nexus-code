@@ -45,6 +45,7 @@ import {
 } from "../../services/sessions/rows";
 import type { WorktreeChanges } from "../../services/sessions/use-family";
 import { markRead } from "../../services/sessions/use-inbox";
+import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
@@ -53,9 +54,6 @@ import { AgentRows } from "./agent-rows";
 import { isSessionSelected, type SessionsSelection } from "./selection";
 import { SessionProfileMark } from "./session-profile";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
-
-/** The groups that start folded. */
-const FOLDED: ReadonlySet<RowGroup> = new Set(["idle", "ended"]);
 
 /** The state whose glyph stands for a group. */
 const GROUP_STATE: Record<RowGroup, string> = {
@@ -93,8 +91,8 @@ export function StatusView({
 }: StatusViewProps) {
   const { t } = useTranslation();
   const chats = useChatStore((s) => s.tabs);
-  // The groups the user opened or folded, against how they start.
-  const [flipped, setFlipped] = useState<ReadonlySet<RowGroup>>(() => new Set());
+  // Every group is open until the user folds it; the folds are kept across restarts.
+  const folds = useUIStore((s) => s.agentListFoldedGroups);
   const sessions = allSessions(family);
   const worktreeOf = (session: AgentSession) =>
     family.worktrees.find((w) => w.workspace.id === session.workspaceId);
@@ -103,8 +101,8 @@ export function StatusView({
   const groups = ROW_GROUPS.map((group) => ({
     group,
     rows: sessionsIn(sessions, group, query),
-  })).filter(({ rows }) => rows.length > 0);
-  if (groups.length === 0) {
+  }));
+  if (groups.every(({ rows }) => rows.length === 0)) {
     return (
       <p className="p-4 text-app-ui-sm text-muted-foreground">
         {searching ? t("sessions.list.no_match") : t("sessions.none")}
@@ -115,48 +113,43 @@ export function StatusView({
   return (
     <div className="flex flex-col gap-3 p-2" data-testid="sessions-status-view">
       {groups.map(({ group, rows }) => {
-        // Idle and ended start folded, unless they are all there is; a
-        // search shows what it found, folded groups too.
-        const startsFolded = FOLDED.has(group) && groups.length > 1;
-        const folded = !searching && startsFolded !== flipped.has(group);
         const label = t(`sessions.group.${group}`);
+        // A group with none shows as its one dim line, so the groups keep their places.
+        if (rows.length === 0) {
+          // A search tells only what it found.
+          if (searching) return null;
+          return (
+            <section key={group} aria-label={label}>
+              <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
+                <StateGlyph state={GROUP_STATE[group]} />
+                <span>{label}</span>
+                <span className="tabular-nums">0</span>
+              </h3>
+            </section>
+          );
+        }
+        // A search shows what it found, folded groups too.
+        const folded = !searching && folds.has(group);
         return (
           <section key={group} aria-label={label} className="flex flex-col gap-1">
-            {FOLDED.has(group) ? (
-              <button
-                type="button"
-                aria-expanded={!folded}
-                onClick={() =>
-                  setFlipped((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(group)) next.delete(group);
-                    else next.add(group);
-                    return next;
-                  })
-                }
-                className="flex items-center gap-1.5 self-start rounded-(--radius-control) px-2 py-1 text-app-ui-sm text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-              >
-                <StateGlyph state={GROUP_STATE[group]} />
-                <span>{label}</span>
-                <span className="tabular-nums">{rows.length}</span>
-                {folded ? (
-                  <ChevronRight aria-hidden className="size-3.5" />
-                ) : (
-                  <ChevronDown aria-hidden className="size-3.5" />
-                )}
-              </button>
-            ) : (
-              <h3
-                className={cn(
-                  "flex items-center gap-1.5 px-2 py-1 text-app-ui-sm font-medium",
-                  GROUP_TINT[group],
-                )}
-              >
-                <StateGlyph state={GROUP_STATE[group]} />
-                <span>{label}</span>
-                <span className="tabular-nums">{rows.length}</span>
-              </h3>
-            )}
+            <button
+              type="button"
+              aria-expanded={!folded}
+              onClick={() => useUIStore.getState().toggleAgentListGroup(group)}
+              className={cn(
+                "flex items-center gap-1.5 self-start rounded-(--radius-control) px-2 py-1 text-app-ui-sm font-medium hover:bg-[var(--state-hover-bg)]",
+                GROUP_TINT[group],
+              )}
+            >
+              <StateGlyph state={GROUP_STATE[group]} />
+              <span>{label}</span>
+              <span className="tabular-nums">{rows.length}</span>
+              {folded ? (
+                <ChevronRight aria-hidden className="size-3.5" />
+              ) : (
+                <ChevronDown aria-hidden className="size-3.5" />
+              )}
+            </button>
             {!folded &&
               rows.map((session) => {
                 const worktree = worktreeOf(session);

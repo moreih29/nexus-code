@@ -2,7 +2,7 @@
 // workspace, and below it the one in front — the very tab its workspace
 // shows, moved here. Taking an agent out of the panel leaves it running.
 
-import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
+import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
@@ -26,6 +26,7 @@ import type { AgentSession } from "@/services/sessions/model";
 import { requestTabFocus } from "@/services/tab-focus";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useTabsStore } from "@/state/stores/tabs";
+import { useUIStore } from "@/state/stores/ui";
 import {
   rootWorkspaceId,
   selectIsWorkspaceOnline,
@@ -38,6 +39,7 @@ import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
 import { StateGlyph, stateLabel } from "../sessions/session-status";
 import { AgentMark } from "../sessions/status-view";
+import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
@@ -83,6 +85,9 @@ export function AgentPane({
   const lit = useAgentViewStore((s) => s.hoveredKey !== null && leaf.tabIds.includes(s.hoveredKey));
   const front = leaf.activeTabId !== null ? parseSessionKey(leaf.activeTabId) : null;
   const frontEnded = leaf.activeTabId !== null ? ended.get(leaf.activeTabId) : undefined;
+  const frontKind = useTabsStore((s) =>
+    front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
+  );
 
   const slotElRef = useRef<HTMLElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -266,8 +271,8 @@ export function AgentPane({
         />
         <div className="flex shrink-0 items-center gap-0.5">
           {front && (
-            <IconButton label={t("agentView.pane.reveal")} onClick={() => openInWorkspace(front)}>
-              <FolderOpen aria-hidden className="size-3.5" />
+            <IconButton label={t(goToTabLabel(frontKind))} onClick={() => openInWorkspace(front)}>
+              <SquareArrowOutUpRight aria-hidden className="size-3.5" />
             </IconButton>
           )}
           <IconButton
@@ -460,13 +465,32 @@ function AgentTab({
   );
 }
 
-/** What an empty panel says: where its agents come from. */
+/** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
+function goToTabLabel(type: string | undefined): string {
+  if (type === "claude") return "sessions.detail.show_claude_tab";
+  if (type === "codex") return "sessions.detail.show_codex_tab";
+  return "sessions.detail.show_terminal";
+}
+
+/** What an empty panel says: where its agents come from, and a way back to the list when it is hidden. */
 function EmptyPane() {
   const { t } = useTranslation();
+  const listHidden = useUIStore((s) => s.sidebarHidden);
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center gap-1 pt-12 select-none">
       <span className="text-app-ui-sm text-stone-gray">{t("agentView.pane.empty")}</span>
       <span className="text-app-ui-sm text-muted-foreground">{t("agentView.pane.empty_hint")}</span>
+      {listHidden && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="pointer-events-auto mt-2 h-6 px-2.5 text-app-ui-sm"
+          onClick={() => useUIStore.getState().setPanelHidden("sidebar", false)}
+        >
+          {t("agentView.pane.open_list")}
+        </Button>
+      )}
     </div>
   );
 }
