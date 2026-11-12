@@ -65,6 +65,7 @@ import {
 import { firstVersionOf } from "../../services/chat/versions";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { cn } from "../../utils/cn";
+import { formatBytes } from "../../utils/format-bytes";
 import { isMac } from "../../utils/platform";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
@@ -658,7 +659,7 @@ export function Composer({
                   <div className="min-w-0 flex-1">
                     <div className="truncate">{attachment.file.name}</div>
                     <div className="text-app-micro text-muted-foreground">
-                      {formatSize(attachment.file.size)}
+                      {formatBytes(attachment.file.size)}
                     </div>
                   </div>
                   <IconButton
@@ -803,12 +804,6 @@ function useRevealedMenu(
     else setOpen(true);
   }, [reveal]);
   return [open, setOpen];
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1).replace(/\.0$/, "")} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
 }
 
 /** The + menu: attach a file, mention one, or start a command. */
