@@ -1,6 +1,8 @@
 // The list over the composer that completes a `/` command or an `@` file.
 // The composer keeps the keys (↑ ↓ to move, ↩ or tab to pick, esc to
-// close); a click picks without taking the focus from the message box.
+// close); a click picks without taking the focus from the message box. A
+// command that matches nothing says so, as the app's other pickers do; a
+// file search, answered later, shows only what it found.
 
 import { FileText, Folder, Slash } from "lucide-react";
 import { useEffect, useRef } from "react";
@@ -32,7 +34,18 @@ export function CompletionMenu({ kind, items, active, onPick, onHover }: Complet
     const row = listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`);
     row?.scrollIntoView({ block: "nearest" });
   }, [active]);
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    if (kind !== "command") return null;
+    return (
+      <div
+        role="status"
+        className="absolute right-0 bottom-full left-0 z-30 mb-1 rounded-(--radius-raised) border border-border bg-popover px-2 py-1.5 text-app-ui-sm text-muted-foreground"
+        data-testid="chat-completion-empty"
+      >
+        {t("chat.composer.no_commands")}
+      </div>
+    );
+  }
   return (
     <div
       ref={listRef}

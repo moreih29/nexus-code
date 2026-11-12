@@ -5,6 +5,7 @@
 // opens and after each turn.
 
 import {
+  Check,
   ChevronDown,
   ChevronRight,
   Circle,
@@ -475,7 +476,7 @@ function CopyIcon({ text, label }: { text: string; label: string }) {
         setTimeout(() => setCopied(false), 1200);
       }}
     >
-      {copied ? <CircleCheck className="size-3.5" /> : <Copy className="size-3.5" />}
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
     </IconButton>
   );
 }

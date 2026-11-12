@@ -1058,6 +1058,7 @@
       "mention_file": "Mention a file",
       "command": "Command",
       "commands": "Commands",
+      "no_commands": "No matching commands",
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",

@@ -1058,6 +1058,7 @@
       "mention_file": "파일 참조",
       "command": "명령",
       "commands": "명령",
+      "no_commands": "일치하는 명령이 없습니다",
       "files": "파일",
       "remove_file": "파일 제거",
       "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다.",
