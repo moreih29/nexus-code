@@ -60,6 +60,14 @@ interface SettingsDialogProps {
 // Component
 // ---------------------------------------------------------------------------
 
+/** Whether a page's name or one of the words it is found by holds `q` (lower case). */
+function navMatches(item: SettingsNavItem, q: string): boolean {
+  return (
+    item.label.toLowerCase().includes(q) ||
+    (item.keywords ?? []).some((k) => k.toLowerCase().includes(q))
+  );
+}
+
 export function SettingsDialog({
   open,
   onOpenChange,
@@ -98,10 +106,7 @@ export function SettingsDialog({
   const filteredNav = useMemo<SettingsNavItem[]>(() => {
     const q = query.trim().toLowerCase();
     if (!q) return resolvedNav;
-    const matches = (item: SettingsNavItem) =>
-      item.label.toLowerCase().includes(q) ||
-      (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
-    const found = resolvedNav.filter(matches);
+    const found = resolvedNav.filter((item) => navMatches(item, q));
     if (found.length === 0) return [];
     const shown = new Set([...found.map((item) => item.id), activeId]);
     // A page found under another keeps its parent above it, as in the tree.
@@ -117,6 +122,20 @@ export function SettingsDialog({
     [filteredNav],
   );
   const orderedNav = useMemo(() => [...mainNav, ...footerNav], [mainNav, footerNav]);
+  // The first page the search finds, in the list's order: ↓ or Enter in the
+  // box goes to it, as in the agent view's list.
+  const firstFound = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? orderedNav.find((item) => navMatches(item, q))?.id : undefined;
+  }, [orderedNav, query]);
+  const fromSearch = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "Enter") return;
+    const id = firstFound ?? (event.key === "ArrowDown" && !query.trim() ? activeId : undefined);
+    if (!id) return;
+    event.preventDefault();
+    setActiveId(id);
+    tabRefs.current.get(id)?.focus();
+  };
   const activeItem = resolvedNav.find((item) => item.id === activeId);
   const activeParent = activeItem?.parent
     ? resolvedNav.find((item) => item.id === activeItem.parent)
@@ -239,6 +258,7 @@ export function SettingsDialog({
                   id={searchId}
                   value={query}
                   onChange={setQuery}
+                  onKeyDown={fromSearch}
                   label={t("dialog.search.placeholder")}
                 />
               </div>
