@@ -19,7 +19,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | 명령 | 하는 일 |
 |---|---|
 | `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 화면(에이전트 뷰 · 워크스페이스)과 탭 |
-| `nexus workspace list` · `worktree list` | 워크스페이스와 워크트리 목록 |
+| `nexus workspace list` · `worktree list` · `workspace current` | 워크스페이스와 워크트리 목록, 이 터미널의 워크스페이스 |
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code, Codex, ... 와 앱의 Claude · Codex 탭)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
@@ -197,6 +197,7 @@ nexus worktree new "로그인 수정" --prompt "로그인 후 원래 보던 페�
 nexus chat wait <탭 id> --workspace <작업 id>         # 출력된 명령 그대로. 그 에이전트가 끝날 때까지
 nexus worktree new 환불 --agent codex --prompt "환불 API 추가해줘"                  # Codex 탭으로
 nexus worktree new 실험 --command "gemini" --prompt "벤치마크 돌려줘"                 # 터미널에서 다른 명령으로
+nexus worktree switch 환불                                                          # 사용자 화면을 그 작업으로
 nexus worktree remove "로그인 수정" --delete-branch
 ```
 
@@ -220,6 +221,7 @@ nexus worktree remove "로그인 수정" --delete-branch
 nexus browser open localhost:5173/login
 nexus browser snapshot            # 페이지 구조와 요소 ref (e1, e2, ...)
 nexus browser fill e3 me@example.com
+nexus browser type " 추가" --into e3  # 있던 글 뒤에 이어 입력 (--into 없으면 포커스된 곳)
 nexus browser click e6
 nexus browser press Enter
 nexus browser hover e4             # 마우스를 올려 둠 (메뉴 · 툴팁)
@@ -236,6 +238,8 @@ nexus browser network --failed    # 페이지가 보낸 요청 (실패 · 4xx ·
 nexus browser network 12          # 요청 12 의 헤더 · 보낸 내용 · 응답
 nexus browser eval "document.title"
 nexus browser pick                # 사용자가 클릭한 요소의 ref · 선택자 · 스크린샷
+nexus browser back                # 뒤로 (browser forward 로 앞으로, browser reload 로 새로고침)
+nexus browser list                # 이 워크스페이스의 브라우저 탭
 ```
 
 - `browser open /login` · `browser goto /login` 처럼 경로만 주면, 이 워크스페이스(작업이면 그 워크트리) 터미널의 프로그램이 연 포트로 엽니다. 포트를 미리 정해 둘 필요 없이 작업마다 따로 띄운 개발 서버를 찾아갑니다.
@@ -294,6 +298,7 @@ nexus tab close --saved              # 저장 안 한 변경이 없는 편집기
 nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭이 없으면 모든 그룹)
 nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
 nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
+nexus panel list                     # 왼쪽 패널이 보이는지, 너비, 파일 패널의 보기
 nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git · agents)
 nexus panel show agents              # 파일 패널을 에이전트 목록으로
 nexus panel hide sidebar
