@@ -2,7 +2,7 @@
  * The agents of every workspace, as the agent view lists them: by the
  * workspace they run in, a workspace's tasks under it, pinned workspaces
  * first as the sidebar orders them. Pure: built from the same records as the
- * agents tab and the inbox.
+ * agent list and the inbox.
  */
 
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
@@ -13,8 +13,8 @@ import {
   type SessionsInput,
   sameFamily,
   sessionsOf,
-} from "../sessions/model";
-import { groupOf } from "../sessions/rows";
+} from "../agent-sessions/model";
+import { groupOf } from "../agent-sessions/rows";
 
 export interface AgentsInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
@@ -61,12 +61,12 @@ export function sameAgents(a: Agents, b: Agents): boolean {
   );
 }
 
-/** The filters of the list, in its order: every agent, then each group the agents tab has. */
+/** The filters of the list, in its order: every agent, then each group the agent list has. */
 export const AGENT_FILTERS = ["all", "running", "attention", "done", "idle"] as const;
 export type AgentFilter = (typeof AGENT_FILTERS)[number];
 
 /**
- * Whether `filter` lists `session`: in the group the agents tab puts it in,
+ * Whether `filter` lists `session`: in the group the agent list puts it in,
  * where one that ended is in none of these.
  */
 export function passesFilter(session: AgentSession, filter: AgentFilter): boolean {

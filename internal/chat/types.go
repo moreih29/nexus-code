@@ -252,6 +252,34 @@ type SessionsResult struct {
 	Sessions []ClaudeSession `json:"sessions"`
 }
 
+// DeleteSessionParams is the wire shape for chat.deleteSession.
+type DeleteSessionParams struct {
+	// Cwd is the folder whose list the session is in.
+	Cwd string `json:"cwd"`
+	// SessionID is the session deleted.
+	SessionID string `json:"sessionId"`
+	// ConfigDir is as TranscriptParams has it.
+	ConfigDir string `json:"configDir,omitempty"`
+}
+
+// DeleteSessionResult is returned by chat.deleteSession.
+type DeleteSessionResult struct {
+	// Deleted is false when the folder had no such session: it was gone.
+	Deleted bool `json:"deleted"`
+}
+
+// FileSizesParams is the wire shape for chat.fileSizes.
+type FileSizesParams struct {
+	// Paths are transcripts (.jsonl files), by their absolute paths.
+	Paths []string `json:"paths"`
+}
+
+// FileSizesResult is returned by chat.fileSizes.
+type FileSizesResult struct {
+	// Sizes are in bytes, by path; a path that is no transcript is left out.
+	Sizes map[string]int64 `json:"sizes"`
+}
+
 // ClaudeSession is a Claude Code session as a list shows it.
 type ClaudeSession struct {
 	SessionID string `json:"sessionId"`

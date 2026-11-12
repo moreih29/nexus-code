@@ -1,7 +1,7 @@
 /**
  * Claude Code runs no hook when the user interrupts a turn, so its state
  * would stay "running" until the next prompt. An interrupting key typed into
- * the terminal (Esc, or Ctrl-C from the keyboard or the sessions tab),
+ * the terminal (Esc, or Ctrl-C from the keyboard or the agent list),
  * followed shortly by a sign from Claude that the turn ended, sets it back
  * to idle. Claude prints "Interrupted" once it has answered something; before
  * that it puts the prompt back in its input instead, and either way its

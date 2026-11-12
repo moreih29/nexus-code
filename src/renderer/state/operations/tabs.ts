@@ -489,26 +489,6 @@ export function chatPropsWithProfile<P extends { profileId?: string }>(
 }
 
 /**
- * Show the workspace's sessions tab, opening one in the active group if it
- * has none. A workspace keeps at most one.
- */
-export function openSessionsTab(workspaceId: string): TabLocation {
-  useLayoutStore.getState().ensureLayout(workspaceId);
-  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
-  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
-  for (const leaf of layout ? allLeaves(layout.root) : []) {
-    const tabId = leaf.tabIds.find((id) => tabsById[id]?.type === "sessions");
-    if (tabId) {
-      revealTab(workspaceId, leaf.id, tabId);
-      return { groupId: leaf.id, tabId };
-    }
-  }
-  const tab = openTabRecord(workspaceId, { type: "sessions", props: {} });
-  const groupId = useLayoutStore.getState().byWorkspace[workspaceId]?.activeGroupId ?? "";
-  return { groupId, tabId: tab.id };
-}
-
-/**
  * Split the active group and open a brand-new tab in the resulting new leaf.
  *
  * @internal Services-only transaction helper; use domain services for

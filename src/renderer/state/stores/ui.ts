@@ -17,10 +17,6 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
-/** The share of the agents tab's width its list may take, dragged by its divider. */
-export const SESSIONS_LIST_RATIO_MIN = 0.2;
-export const SESSIONS_LIST_RATIO_MAX = 0.8;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -33,11 +29,6 @@ function clampFilesPanel(value: number): number {
   return Math.min(FILES_PANEL_WIDTH_MAX, Math.max(FILES_PANEL_WIDTH_MIN, value));
 }
 
-function clampSessionsList(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return Math.min(SESSIONS_LIST_RATIO_MAX, Math.max(SESSIONS_LIST_RATIO_MIN, value));
-}
-
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -47,10 +38,12 @@ interface HydrateOpts {
   filesPanelWidth?: number;
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
-  sessionsListRatio?: number | null;
+  agentListFoldedGroups?: readonly string[];
+  agentListUnfoldedTasks?: readonly string[];
 }
 
-export type FilesPanelMode = "tree" | "search" | "git";
+/** What the files panel shows: the file tree, search, source control, or the agent list. */
+export type FilesPanelMode = "tree" | "search" | "git" | "agents";
 
 export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 
@@ -64,20 +57,21 @@ interface UIState {
    */
   sidebarHidden: boolean;
   filesPanelHidden: boolean;
-  /**
-   * The agents tab's list as a share of the tab's width, one for every
-   * agents tab; null keeps the default, min(480px, 50%).
-   */
-  sessionsListRatio: number | null;
+  /** The agent list's groups the user folded, in every workspace; the others are open. */
+  agentListFoldedGroups: ReadonlySet<string>;
+  /** The worktrees (workspace ids) the task view shows unfolded; the others are folded. */
+  agentListUnfoldedTasks: ReadonlySet<string>;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
-  /** Sets the agents tab's list share (null for the default), clamped. */
-  setSessionsListRatio(ratio: number | null, persist?: boolean): void;
+  /** Folds an agent list's group, or opens it again. Persists. */
+  toggleAgentListGroup(group: string): void;
+  /** Unfolds a worktree's facts in the task view, or folds them again. Persists. */
+  toggleAgentListTask(workspaceId: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
-  /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
+  /** Toggle the Files Panel (tree/search/git/agents column) visibility. Persists. */
   toggleFilesPanel(): void;
   /** Shows or hides one of the two columns. Persists. */
   setPanelHidden(panel: "sidebar" | "files", hidden: boolean): void;
@@ -93,7 +87,7 @@ interface UIState {
 // Store
 // ---------------------------------------------------------------------------
 
-export const useUIStore = create<UIState>((set) => {
+export const useUIStore = create<UIState>((set, get) => {
   // Drop workspace-keyed UI state when its workspace is removed, so a
   // future workspace reusing an id (or a stale entry sticking around in
   // memory) can't surface another workspace's view mode. The central
@@ -112,10 +106,18 @@ export const useUIStore = create<UIState>((set) => {
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
     sidebarHidden: false,
     filesPanelHidden: false,
-    sessionsListRatio: null,
+    agentListFoldedGroups: new Set(),
+    agentListUnfoldedTasks: new Set(),
     filesPanelModes: new Map(),
 
-    hydrate({ sidebarWidth, filesPanelWidth, sidebarHidden, filesPanelHidden, sessionsListRatio }) {
+    hydrate({
+      sidebarWidth,
+      filesPanelWidth,
+      sidebarHidden,
+      filesPanelHidden,
+      agentListFoldedGroups,
+      agentListUnfoldedTasks,
+    }) {
       set({
         sidebarWidth:
           sidebarWidth !== undefined ? clampSidebar(sidebarWidth) : SIDEBAR_WIDTH_DEFAULT,
@@ -125,7 +127,8 @@ export const useUIStore = create<UIState>((set) => {
             : FILES_PANEL_WIDTH_DEFAULT,
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
-        sessionsListRatio: clampSessionsList(sessionsListRatio),
+        agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
+        agentListUnfoldedTasks: new Set(agentListUnfoldedTasks ?? []),
       });
     },
 
@@ -151,14 +154,26 @@ export const useUIStore = create<UIState>((set) => {
       }
     },
 
-    setSessionsListRatio(ratio, persist) {
-      const next = clampSessionsList(ratio);
-      set({ sessionsListRatio: next });
-      if (persist) {
-        void ipcCallResult("appState", "set", { sessionsListRatio: next }).then((result) => {
+    toggleAgentListGroup(group) {
+      const next = new Set(get().agentListFoldedGroups);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      set({ agentListFoldedGroups: next });
+      void ipcCallResult("appState", "set", { agentListFoldedGroups: [...next] }).then((result) => {
+        if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+      });
+    },
+
+    toggleAgentListTask(workspaceId) {
+      const next = new Set(get().agentListUnfoldedTasks);
+      if (next.has(workspaceId)) next.delete(workspaceId);
+      else next.add(workspaceId);
+      set({ agentListUnfoldedTasks: next });
+      void ipcCallResult("appState", "set", { agentListUnfoldedTasks: [...next] }).then(
+        (result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
-        });
-      }
+        },
+      );
     },
 
     setFilesPanelMode(workspaceId, mode) {

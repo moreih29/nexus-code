@@ -48,7 +48,7 @@ mock.module("../../../../../src/renderer/services/chat/controller", () => ({
 mock.module("../../../../../src/renderer/services/chat/codex-controller", () => ({
   codexController: fakeController("codex"),
 }));
-mock.module("../../../../../src/renderer/services/sessions/session-events", () => ({
+mock.module("../../../../../src/renderer/services/agent-sessions/session-events", () => ({
   onSessionEvents: () => () => {},
 }));
 

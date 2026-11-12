@@ -9,8 +9,8 @@ import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { AgentViewMode } from "../../../shared/types/agent-view";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
+import { useInbox } from "../../services/agent-sessions/use-inbox";
 import { switchView } from "../../services/agent-view/show";
-import { useInbox } from "../../services/sessions/use-inbox";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 
 export function ViewToggle() {

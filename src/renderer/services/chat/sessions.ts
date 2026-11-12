@@ -24,6 +24,10 @@ export interface ListedSession {
   gitBranch?: string;
   /** Milliseconds since the epoch. */
   lastModified: number;
+  /** Bytes its transcript takes, when known. */
+  size?: number;
+  /** Its transcript's path on the workspace's host, when the list gives it (a Codex thread's). */
+  path?: string;
   /** The profile that keeps it. */
   profileId: string;
 }
@@ -79,6 +83,40 @@ export function useClaudeSessions(
     };
   }, [workspaceId, cwd, enabled, key]);
   return sessions;
+}
+
+/**
+ * Deletes a Claude session of the folder: its transcript and what it kept
+ * under its id, in the profile's folder that keeps it. One already gone is
+ * as good as deleted.
+ */
+export async function deleteClaudeSession(
+  workspaceId: string,
+  cwd: string,
+  session: Pick<ListedSession, "sessionId" | "profileId">,
+): Promise<void> {
+  unwrapIpcResult(
+    await ipcCallResult("chat", "deleteSession", {
+      workspaceId,
+      cwd,
+      sessionId: session.sessionId,
+      profileId: session.profileId,
+    }),
+  );
+}
+
+/** The sessions with the sizes of their transcripts, where their paths are known. */
+export async function withTranscriptSizes<T extends Pick<ListedSession, "path" | "size">>(
+  workspaceId: string,
+  sessions: readonly T[],
+): Promise<T[]> {
+  const paths = sessions.flatMap((s) => (s.path && s.size === undefined ? [s.path] : []));
+  if (paths.length === 0) return [...sessions];
+  const sizes = unwrapIpcResult(await ipcCallResult("chat", "fileSizes", { workspaceId, paths }));
+  return sessions.map((s) => {
+    const size = s.path ? sizes[s.path] : undefined;
+    return size === undefined ? s : { ...s, size };
+  });
 }
 
 /** The workspace's Claude tabs by the session each has open, but `exceptTabId`. */

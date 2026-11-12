@@ -101,10 +101,6 @@ export const CodexTabPropsSchema = z.object({
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
 
-/** The sessions tab shows the workspace it is in, with its tasks; it has no props. */
-export const SessionsTabPropsSchema = z.object({});
-export type SessionsTabProps = z.infer<typeof SessionsTabPropsSchema>;
-
 // ---------------------------------------------------------------------------
 // SerializedTab
 // ---------------------------------------------------------------------------
@@ -183,15 +179,6 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     title: z.string(),
     ...TAB_TITLES,
     props: CodexTabPropsSchema,
-    isPreview: z.boolean().optional(),
-    isPinned: z.boolean().optional(),
-  }),
-  z.object({
-    id: z.string().uuid(),
-    type: z.literal("sessions"),
-    title: z.string(),
-    ...TAB_TITLES,
-    props: SessionsTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

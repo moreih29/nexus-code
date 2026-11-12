@@ -49,6 +49,18 @@ describe("layout", () => {
 });
 
 describe("panels, reveal and problems", () => {
+  test("panel show agents shows the files panel's agent list", async () => {
+    const app = fakeApp();
+    expect((await nexus(app, ["panel", "show", "agents"])).stdout).toContain("Showing agents.");
+    expect(lastCall(app, "panels.set")).toEqual({
+      workspaceId: APP,
+      panel: "files",
+      visible: true,
+      mode: "agents",
+    });
+    expect((await nexus(app, ["panel", "list"])).stdout).toContain("agents");
+  });
+
   test("reveal names a Windows workspace's file as the renderer does", async () => {
     const app = fakeApp();
     await nexusOnWindows(app, ["reveal", "src\\login.ts"]);

@@ -8,9 +8,6 @@ import {
 } from "../claude/activity";
 import { StatusEntrySchema } from "../claude/status";
 import { CliUiRequestSchema, CliUiRespondArgsSchema } from "../cli/ui";
-import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
-import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
-import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   DirEntrySchema,
   ExpectedFileStateSchema,
@@ -94,8 +91,11 @@ import {
 import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
+import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
+import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
+import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
 import {
   SshAuthCancelArgsSchema,
   SshAuthPromptSchema,
@@ -1044,6 +1044,27 @@ export const ipcContract = {
         }),
         z.array(ClaudeSessionSchema),
       ),
+      /**
+       * Deletes a session Claude Code keeps of a folder: its transcript and what
+       * it kept under its id. `deleted` is false when the folder had none such.
+       */
+      deleteSession: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          cwd: z.string().max(4096),
+          sessionId: z.string().regex(/^[0-9A-Za-z][0-9A-Za-z_-]{7,127}$/),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({ deleted: z.boolean() }),
+      ),
+      /** How big transcripts are on the workspace's host, by path: a Codex thread's file. */
+      fileSizes: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          paths: z.array(z.string().max(4096)).max(500),
+        }),
+        z.record(z.string(), z.number()),
+      ),
     },
     listen: {
       // Not validated: a line can carry megabytes of image data.
@@ -1647,6 +1668,11 @@ export const ipcContract = {
   clipboard: {
     call: {
       writeText: call(z.object({ text: z.string() }), z.object({ ok: z.literal(true) })),
+      // An image, as a PNG data URL (a quick look's image, drawn whole).
+      writeImage: call(
+        z.object({ pngDataUrl: z.string().startsWith("data:image/png;base64,") }),
+        z.object({ ok: z.literal(true) }),
+      ),
     },
     listen: {},
   },
@@ -1964,7 +1990,7 @@ export const ipcContract = {
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
       /**
        * What the Claude sessions of the workspaces are doing, as their hooks
-       * tell it: their tools, todo lists and agents. The sessions tab polls it.
+       * tell it: their tools, todo lists and agents. The agent list polls it.
        */
       activity: call(
         z.object({ workspaceIds: z.array(z.string()) }),

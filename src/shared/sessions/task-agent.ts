@@ -12,7 +12,7 @@ export type ChatAgent = Exclude<TaskAgent, "terminal">;
 export const DEFAULT_TASK_AGENT: TaskAgent = "claude";
 
 /**
- * The conversation the agents tab's [+] opens for the default agent: its
+ * The conversation the agent list's [+] opens for the default agent: its
  * own, or Claude's when it is a terminal, which is no conversation.
  */
 export function chatAgentOf(agent: TaskAgent): ChatAgent {

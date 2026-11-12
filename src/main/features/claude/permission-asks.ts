@@ -1,5 +1,5 @@
 // The permission requests of Claude sessions the app holds for the user's
-// answer, so the sessions tab can answer them.
+// answer, so the agent list can answer them.
 //
 // Claude Code (2.1.316) shows its permission dialog in the terminal and runs
 // the PermissionRequest hook beside it: whichever answers first wins. A

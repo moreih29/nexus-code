@@ -55,8 +55,8 @@ export async function closeTabWithConfirm(
     return closeDiffWithConfirm(workspaceId, tabId);
   }
 
-  // git.commit, browser, sessions — no dirty state.
-  if (tab.type === "git.commit" || tab.type === "browser" || tab.type === "sessions") {
+  // git.commit, browser — no dirty state.
+  if (tab.type === "git.commit" || tab.type === "browser") {
     closeTab(workspaceId, tabId);
   }
 

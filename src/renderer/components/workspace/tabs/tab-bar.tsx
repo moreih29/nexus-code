@@ -42,8 +42,8 @@ interface TabBarProps {
   onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
-  /** Shows the workspace's sessions tab, opening it if there is none. */
-  onShowSessions: () => void;
+  /** Shows the workspace's agent list, opening it if there is none. */
+  onShowAgentList: () => void;
   /** Opens a new Claude tab, with that profile rather than the workspace's. */
   onNewClaudeTab: (profileId?: string) => void;
   /** Opens a new Codex tab, with that profile rather than the workspace's. */
@@ -61,7 +61,7 @@ export function TabBar({
   onNewTerminalTab,
   onNewUntitledTab,
   onNewBrowserTab,
-  onShowSessions,
+  onShowAgentList,
   onNewClaudeTab,
   onNewCodexTab,
   onTabContextMenu,
@@ -279,9 +279,9 @@ export function TabBar({
             </DropdownMenuItem>
             <NewChatMenuItems workspaceId={workspaceId} agent="claude" onOpen={onNewClaudeTab} />
             <NewChatMenuItems workspaceId={workspaceId} agent="codex" onOpen={onNewCodexTab} />
-            <DropdownMenuItem onSelect={() => onShowSessions()}>
+            <DropdownMenuItem onSelect={() => onShowAgentList()}>
               <Bot aria-hidden className="size-3.5 mr-1.5 shrink-0" />
-              <span className="flex-1">{t("tabBar.sessions")}</span>
+              <span className="flex-1">{t("tabBar.agent_list")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenuRoot>

@@ -3,7 +3,7 @@
 // ring, turning to the warning colour from 80%. A tab too narrow for all of
 // it says less, a step at a time and no more than it has to (usageViews):
 // what is near its limit holds out longest, and what is left out is counted
-// ("+2"). Hovering a part tells it whole. The agents tab's detail shows the
+// ("+2"). Hovering a part tells it whole. The agent list's detail shows the
 // plan's part of it as a chip (UsageChip).
 
 import { RotateCcw } from "lucide-react";
@@ -11,8 +11,9 @@ import { type ReactNode, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { useFitStep } from "../../hooks/use-fit-step";
-import type { ChatModel } from "../../services/chat/model";
+import { useNow } from "../../services/agent-sessions/use-family";
 import type { CodexModel } from "../../services/chat/codex-model";
+import type { ChatModel } from "../../services/chat/model";
 import { usePlanClaudeUsage, usePlanCodexLimits } from "../../services/chat/plan-usage";
 import {
   claudeUsageLine,
@@ -24,7 +25,6 @@ import {
   usageViews,
   WARN_AT,
 } from "../../services/chat/usage-line";
-import { useNow } from "../../services/sessions/use-family";
 import { ContextRing } from "../ui/context-ring";
 import { tooltipProps } from "../ui/tooltip";
 
@@ -273,7 +273,7 @@ function Line({ line, trailing }: { line: UsageLine; trailing?: (compact: boolea
 }
 
 /**
- * The plan's usage as a chip, in the agents tab's detail: each meter's bar,
+ * The plan's usage as a chip, in the agent list's detail: each meter's bar,
  * short name and percent, after the dot of the account it is (`dot`);
  * hovering tells the account (`head`), each meter whole and when it starts
  * over.

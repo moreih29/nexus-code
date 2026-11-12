@@ -35,9 +35,12 @@ export const AppStateSchema = z.object({
   // independently of `sidebarHidden`; both toggle together only via the
   // ⌘⇧B command, never via storage coupling.
   filesPanelHidden: z.boolean().optional(),
-  // The agents tab's list, as a share of the tab's width, as its divider
-  // was last dragged. Absent or null = the default, min(480px, 50%).
-  sessionsListRatio: z.number().min(0).max(1).nullable().optional(),
+  // The agent list's groups the user folded ("idle", "ended", …). Absent =
+  // every group open.
+  agentListFoldedGroups: z.array(z.string()).optional(),
+  // The worktrees (workspace ids) whose facts the agent list's task view
+  // shows unfolded. Absent = every one folded.
+  agentListUnfoldedTasks: z.array(z.string()).optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
   // Experimental: whether language servers run at all. Absent = off.
   // Settings › Editor applies a change at once; see shared/lsp/settings.ts
@@ -141,13 +144,13 @@ export const AppStateSchema = z.object({
   // carry the choice over to `taskAgent`, then dropped.
   taskAgentCommand: z.string().max(1024).optional(),
 
-  // The view a sessions tab opens in (a SessionsView); absent = "status". Kept
+  // The view an agent list opens in (an AgentListView); absent = "status". Kept
   // as a plain string so a view this version lacks does not fail the state.
-  sessionsViewDefault: z.string().max(32).optional(),
+  agentListViewDefault: z.string().max(32).optional(),
 
-  // The view each workspace's sessions tab was last switched to, by the
+  // The view each workspace's agent list was last switched to, by the
   // workspace its tasks belong to; it outlasts a change of the default.
-  sessionsViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
+  agentListViewByWorkspace: z.record(z.string().uuid(), z.string().max(32)).optional(),
 
   // The agent view: whether the window shows it rather than the workspaces,
   // and its panels, each holding agents by session key. Absent = the

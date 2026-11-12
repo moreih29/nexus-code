@@ -6,9 +6,11 @@
 // asked to see. The tab's own profile's sessions come first: with more
 // than one profile keeping sessions here, the others, or all of them, are
 // a click away, each marked with its own, and one taken up goes on in the
-// profile that keeps it.
+// profile that keeps it. Each shows how much its transcript takes, and one
+// not open in a tab can be deleted, after a second click that says what
+// deleting it does.
 
-import { ChevronDown, ChevronUp, History, X } from "lucide-react";
+import { ChevronDown, ChevronUp, History, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { profilesOf } from "../../../shared/agent-profiles/profiles";
@@ -16,15 +18,19 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { CodexController } from "../../services/chat/codex-controller";
 import { revealTabById } from "../../services/chat/open-beside";
 import {
+  deleteClaudeSession,
   type ListedSession,
   sessionMatches,
   useClaudeSessions,
   useCodexThreadTabs,
   useSessionTabs,
+  withTranscriptSizes,
 } from "../../services/chat/sessions";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { cn } from "../../utils/cn";
+import { formatBytes } from "../../utils/format-bytes";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
+import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { relativeTime } from "./message-list";
 
@@ -46,31 +52,63 @@ interface ListProps {
   exceptSessionId?: string;
 }
 
+/** Deletes a session; rejects with what went wrong. */
+type DeleteSession = (session: ListedSession) => Promise<void>;
+
+/** The confirm row's buttons: as tall as a row's text, their focus ring drawn inside them. */
+const CONFIRM_BUTTON_CLASS =
+  "h-6 px-2 text-app-ui-sm focus-visible:ring-0 focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-foreground/60";
+
 /** A Claude tab's: the sessions every Claude profile keeps of the folder. */
 export function SessionList(props: ListProps & { cwd: string }) {
   const config = useAgentProfilesStore((s) => s.config);
   const profileIds = useMemo(() => profilesOf(config, "claude").map((p) => p.id), [config]);
   const listed = useClaudeSessions(props.workspaceId, props.cwd, true, profileIds);
   const openIn = useSessionTabs(props.workspaceId, props.tabId);
-  return <SessionPicker {...props} agent="claude" listed={listed} openIn={openIn} />;
+  return (
+    <SessionPicker
+      {...props}
+      agent="claude"
+      listed={listed}
+      openIn={openIn}
+      onDelete={(session) => deleteClaudeSession(props.workspaceId, props.cwd, session)}
+    />
+  );
 }
 
 /** A Codex tab's: the threads its profile's Codex keeps of the folder. */
 export function CodexSessionList(props: ListProps & { controller: CodexController }) {
-  const { controller, profileId } = props;
+  const { controller, profileId, workspaceId } = props;
   const [listed, setListed] = useState<ListedSession[] | null>(null);
   useEffect(() => {
     let live = true;
     controller.listThreads().then(
-      (threads) => live && setListed(threads.map((thread) => ({ ...thread, profileId }))),
+      (threads) => {
+        const sessions = threads.map((thread) => ({ ...thread, profileId }));
+        if (!live) return;
+        setListed(sessions);
+        // Their sizes after: Codex's list has their files, not how big they are.
+        withTranscriptSizes(workspaceId, sessions).then(
+          (sized) => live && setListed(sized),
+          () => {},
+        );
+      },
       () => live && setListed([]),
     );
     return () => {
       live = false;
     };
-  }, [controller, profileId]);
+  }, [controller, profileId, workspaceId]);
   const openIn = useCodexThreadTabs(props.workspaceId, props.tabId);
-  return <SessionPicker {...props} agent="codex" listed={listed} openIn={openIn} />;
+  return (
+    <SessionPicker
+      {...props}
+      agent="codex"
+      listed={listed}
+      openIn={openIn}
+      onDelete={(session) => controller.deleteThread(session.sessionId)}
+    />
+  );
 }
 
 function SessionPicker({
@@ -83,12 +121,15 @@ function SessionPicker({
   query,
   onClose,
   exceptSessionId,
+  onDelete,
 }: ListProps & {
   agent: ChatAgent;
   /** Null until read. */
   listed: readonly ListedSession[] | null;
   /** The tabs that have a session open, by its id. */
   openIn: ReadonlyMap<string, string>;
+  /** Deletes one; none for a list whose sessions cannot be. */
+  onDelete?: DeleteSession;
 }) {
   const { t, i18n } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
@@ -98,9 +139,33 @@ function SessionPicker({
   const [all, setAll] = useState(false);
   // Undefined until a profile is picked: the tab's.
   const [only, setOnly] = useState<string | null | undefined>(undefined);
+  // The one asked about, while deleting it waits for the second click.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<ReadonlySet<string>>(() => new Set());
   const here = (listed ?? []).filter(
-    (s) => s.sessionId !== exceptSessionId && sessionMatches(s, query),
+    (s) => s.sessionId !== exceptSessionId && !deleted.has(s.sessionId) && sessionMatches(s, query),
   );
+  const ask = (sessionId: string | null) => {
+    setConfirming(sessionId);
+    setFailed(null);
+  };
+  const remove = async (session: ListedSession) => {
+    if (!onDelete) return;
+    setDeleting(true);
+    setFailed(null);
+    try {
+      await onDelete(session);
+      setDeleted((prev) => new Set(prev).add(session.sessionId));
+      setConfirming(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setFailed(t("chat.sessions.delete_failed", { message }));
+    } finally {
+      setDeleting(false);
+    }
+  };
   // Profiles that keep sessions here: marks and a choice only when another than the tab's does.
   const keeping = profiles.filter((p) => here.some((s) => s.profileId === p.id));
   const marked = keeping.some((p) => p.id !== profileId);
@@ -202,11 +267,65 @@ function SessionPicker({
         {shown.map((session) => {
           const tab = openIn.get(session.sessionId);
           const profile = marked ? profiles.find((p) => p.id === session.profileId) : undefined;
+          if (confirming === session.sessionId) {
+            return (
+              <li key={session.sessionId} className="flex items-center gap-1">
+                <fieldset
+                  aria-label={t("chat.sessions.delete")}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-(--radius-control) bg-destructive/10 px-2 py-1"
+                  onKeyDown={(e) => {
+                    if (e.key !== "Escape") return;
+                    e.stopPropagation();
+                    ask(null);
+                  }}
+                  data-testid="chat-session-delete-confirm"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-app-body text-foreground">
+                      {session.title}
+                    </span>
+                    <span
+                      className={cn(
+                        "block text-app-micro",
+                        failed
+                          ? "line-clamp-2 break-all text-destructive"
+                          : "text-muted-foreground",
+                      )}
+                      title={failed ?? undefined}
+                    >
+                      {failed ?? t("chat.sessions.delete_hint")}
+                    </span>
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={CONFIRM_BUTTON_CLASS}
+                    disabled={deleting}
+                    onClick={() => ask(null)}
+                  >
+                    {t("action.cancel")}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className={CONFIRM_BUTTON_CLASS}
+                    autoFocus
+                    disabled={deleting}
+                    onClick={() => void remove(session)}
+                  >
+                    {deleting ? t("chat.sessions.deleting") : t("action.delete")}
+                  </Button>
+                </fieldset>
+                {/* The trash button's place, so the buttons end where the rows' details do. */}
+                <span aria-hidden className="size-6 shrink-0" />
+              </li>
+            );
+          }
           return (
-            <li key={session.sessionId}>
+            <li key={session.sessionId} className="group flex items-center gap-1">
               <button
                 type="button"
-                className="flex w-full items-baseline gap-3 rounded-(--radius-control) px-2 py-1.5 text-left hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
+                className="flex min-w-0 flex-1 items-baseline gap-3 rounded-(--radius-control) px-2 py-1.5 text-left hover:bg-[var(--state-hover-bg)] focus-visible:bg-[var(--state-hover-bg)] focus-visible:outline-none"
                 title={session.firstPrompt ?? session.title}
                 onClick={() => {
                   if (!tab) return onResume(session.sessionId, session.profileId, session.title);
@@ -226,12 +345,27 @@ function SessionPicker({
                   {[
                     tab ? t("chat.sessions.open") : undefined,
                     session.gitBranch,
+                    session.size !== undefined ? formatBytes(session.size) : undefined,
                     relativeTime(session.lastModified, now, i18n.language, t("chat.time.now")),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
                 </span>
               </button>
+              {onDelete &&
+                (tab ? (
+                  // One open in a tab is not deleted under it; the space keeps the rows' ends in line.
+                  <span aria-hidden className="size-6 shrink-0" />
+                ) : (
+                  <IconButton
+                    label={t("chat.sessions.delete")}
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                    onClick={() => ask(session.sessionId)}
+                    data-testid="chat-session-delete"
+                  >
+                    <Trash2 className="size-3.5" />
+                  </IconButton>
+                ))}
             </li>
           );
         })}

@@ -1,15 +1,15 @@
 // The `claude -p` and `codex exec` runs a Claude or Codex tab's session
 // starts from its commands, as the app records them (main's session
 // activity, by the tab's id): shown in the tab beside its subagents, with
-// their state, tools and answer; and the agent the agents tab asks the tab
+// their state, tools and answer; and the agent the agent list asks the tab
 // to show.
 
 import { useEffect, useMemo } from "react";
 import type { AgentRun, AgentRunState } from "../../../shared/claude/activity";
 import { ipcCallResult } from "../../ipc/client";
 import { type AgentRef, dropAgentAsk, useAgentRevealStore } from "../../state/stores/agent-reveal";
-import { sessionKey } from "../sessions/model";
-import { useSessionActivity } from "../sessions/use-family";
+import { sessionKey } from "../agent-sessions/model";
+import { useSessionActivity } from "../agent-sessions/use-family";
 import type { AgentRow, AgentStatus } from "./panel";
 
 /** What a run's row is keyed by among the tab's agents, apart from Agent calls. */
@@ -70,7 +70,7 @@ export function agentRowKey(rows: readonly AgentRow[], agent: AgentRef): string 
 }
 
 /**
- * Shows the agent the agents tab asked the tab to show, once it is among
+ * Shows the agent the agent list asked the tab to show, once it is among
  * the tab's agents (askToShowAgent).
  */
 export function useAgentAsk(

@@ -4,7 +4,7 @@
 // The sidebar has one row per workspace; a workspace's tasks are switched
 // here. The menu lists the workspace itself and its tasks, each with its
 // branch, Claude glyph and the ports its terminals' programs listen on, then
-// their sessions tab, New Task and, on a task, Delete This Task.
+// their agent list, New Task and, on a task, Delete This Task.
 
 import { Check, ChevronDown, GitBranch } from "lucide-react";
 import { useMemo } from "react";
@@ -12,9 +12,9 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
+import { showAgentList } from "../../services/agent-sessions/actions";
+import { useCodexWorkspaceStatus } from "../../services/agent-sessions/use-codex-status";
 import { activateWorkspace } from "../../services/workspace/tasks";
-import { openSessionsTab } from "../../state/operations/tabs";
 import {
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
@@ -88,8 +88,8 @@ export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
           <TaskItem key={task.id} workspace={task} active={active.id === task.id} />
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => openSessionsTab(active.id)}>
-          {t("task.show_sessions")}
+        <DropdownMenuItem onSelect={() => showAgentList(active.id)}>
+          {t("task.show_agent_list")}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => useTaskUIStore.getState().openNewTask(root.id)}>
           {t("task.new")}

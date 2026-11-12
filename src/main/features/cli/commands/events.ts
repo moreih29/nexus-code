@@ -1,7 +1,7 @@
 /**
  * nexus events: the agent sessions' state changes across the app, as the
  * agent view sees them, for an agent that follows several sessions at once.
- * The renderer logs them (services/sessions/session-events.ts); this reads
+ * The renderer logs them (services/agent-sessions/session-events.ts); this reads
  * the log, and waits on it for the next change when asked to.
  */
 import type { CliSessionEvent } from "../../../../shared/cli/ui";

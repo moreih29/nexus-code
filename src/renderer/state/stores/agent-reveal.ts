@@ -1,6 +1,6 @@
 /**
  * The agent a Claude or Codex tab is asked to show in its pane, from the
- * agents tab: a subagent or a run, as the app's hooks tell it. The ask
+ * agent list: a subagent or a run, as the app's hooks tell it. The ask
  * waits, by the tab's id, until the tab shows that agent or the user picks
  * another, since the tab may not have its agents yet when it opens.
  */

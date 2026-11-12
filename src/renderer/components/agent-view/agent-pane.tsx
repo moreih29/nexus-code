@@ -2,13 +2,15 @@
 // workspace, and below it the one in front — the very tab its workspace
 // shows, moved here. Taking an agent out of the panel leaves it running.
 
-import { Columns2, FolderOpen, Rows2, X } from "lucide-react";
+import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
 import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
 import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
+import { openInWorkspace } from "@/services/agent-sessions/actions";
+import type { AgentSession } from "@/services/agent-sessions/model";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import type { EndedAgent } from "@/services/agent-view/ended";
 import {
@@ -21,11 +23,10 @@ import {
   setActiveLeaf,
   splitLeaf,
 } from "@/services/agent-view/layout";
-import { openInWorkspace } from "@/services/sessions/actions";
-import type { AgentSession } from "@/services/sessions/model";
 import { requestTabFocus } from "@/services/tab-focus";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useTabsStore } from "@/state/stores/tabs";
+import { useUIStore } from "@/state/stores/ui";
 import {
   rootWorkspaceId,
   selectIsWorkspaceOnline,
@@ -36,8 +37,9 @@ import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
-import { StateGlyph, stateLabel } from "../sessions/session-status";
-import { AgentMark } from "../sessions/status-view";
+import { StateGlyph, stateLabel } from "../agent-list/session-status";
+import { AgentMark } from "../agent-list/status-view";
+import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
 import { AGENT_VIEW_SLOTS, slotRegistry } from "../workspace/content/slot-registry";
@@ -45,7 +47,15 @@ import { DropIndicator } from "../workspace/dnd/drop-indicator";
 import type { DropZone } from "../workspace/dnd/types";
 import { zoneFromCoords } from "../workspace/dnd/use-drop-target";
 import { OverflowTabsMenu } from "../workspace/tabs/overflow-tabs-menu";
-import { agentDragKey, isAgentDrag, setAgentDrag, ZONE_DIRECTION } from "./drag";
+import {
+  agentDragKey,
+  insertionIndex,
+  isAgentDrag,
+  setAgentDrag,
+  type TabInsertion,
+  tabInsertion,
+  ZONE_DIRECTION,
+} from "./drag";
 import { EndedBar } from "./ended-bar";
 
 const log = createLogger("agent-view");
@@ -75,8 +85,12 @@ export function AgentPane({
   const lit = useAgentViewStore((s) => s.hoveredKey !== null && leaf.tabIds.includes(s.hoveredKey));
   const front = leaf.activeTabId !== null ? parseSessionKey(leaf.activeTabId) : null;
   const frontEnded = leaf.activeTabId !== null ? ended.get(leaf.activeTabId) : undefined;
+  const frontKind = useTabsStore((s) =>
+    front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
+  );
 
   const slotElRef = useRef<HTMLElement | null>(null);
+  const barRef = useRef<HTMLDivElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const findTab = (strip: HTMLElement, key: string) =>
     strip.querySelector(`[data-agent-tab="${CSS.escape(key)}"]`);
@@ -112,6 +126,9 @@ export function AgentPane({
   }, [outerEl, leaf.id]);
 
   const [dropZone, setDropZone] = useState<DropZone | null>(null);
+  // Over the tab bar a drag shows where among the tabs it goes, as a
+  // workspace's tab bar does; over the content, which part of the panel.
+  const [insertion, setInsertion] = useState<TabInsertion | null>(null);
   useEffect(() => {
     if (!outerEl) return;
     // Every element the drag passes enters and leaves; it left the panel
@@ -120,10 +137,21 @@ export function AgentPane({
     const reset = () => {
       depth = 0;
       setDropZone(null);
+      setInsertion(null);
     };
     const zoneOf = (e: DragEvent): DropZone => {
       const slot = slotElRef.current;
       return slot ? zoneFromCoords(slot.getBoundingClientRect(), e.clientX, e.clientY) : "center";
+    };
+    /** Where among the tabs the drag goes, when it is over the tab bar. */
+    const insertionOf = (e: DragEvent): TabInsertion | null => {
+      const bar = barRef.current;
+      const strip = stripRef.current;
+      if (!bar || !strip) return null;
+      const r = bar.getBoundingClientRect();
+      const over =
+        e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
+      return over ? tabInsertion(strip, e.clientX) : null;
     };
     const onEnter = (e: DragEvent) => {
       if (!isAgentDrag(e.dataTransfer)) return;
@@ -136,34 +164,36 @@ export function AgentPane({
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      const zone = zoneOf(e);
+      const next = insertionOf(e);
+      setInsertion((prev) =>
+        prev && next && prev.x === next.x && prev.before === next.before ? prev : next,
+      );
+      const zone = next ? null : zoneOf(e);
       setDropZone((prev) => (prev === zone ? prev : zone));
     };
     const onLeave = (e: DragEvent) => {
       if (!isAgentDrag(e.dataTransfer)) return;
       depth = Math.max(0, depth - 1);
-      if (depth === 0) setDropZone(null);
+      if (depth === 0) {
+        setDropZone(null);
+        setInsertion(null);
+      }
     };
     const onDrop = (e: DragEvent) => {
       if (!isAgentDrag(e.dataTransfer)) return;
       e.preventDefault();
       e.stopPropagation();
       const key = agentDragKey(e.dataTransfer);
+      const at = insertionOf(e);
       const zone = zoneOf(e);
       reset();
       if (key === null) return;
-      // On a tab: in its place. On the tab bar: at the end.
-      const onTab = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-agent-tab]");
-      const at = onTab?.dataset.agentTab;
-      const index = at !== undefined ? leaf.tabIds.indexOf(at) : -1;
+      // On the tab bar: where its line showed. On the content: an edge splits
+      // the panel toward it, the middle puts the agent last.
       update((layout) =>
-        placeKey(
-          layout,
-          key,
-          leaf.id,
-          zone === "center" ? undefined : ZONE_DIRECTION[zone],
-          index >= 0 ? index : undefined,
-        ),
+        at
+          ? placeKey(layout, key, leaf.id, undefined, insertionIndex(leaf.tabIds, key, at.before))
+          : placeKey(layout, key, leaf.id, zone === "center" ? undefined : ZONE_DIRECTION[zone]),
       );
       focusKey(key);
     };
@@ -202,11 +232,11 @@ export function AgentPane({
       data-testid="agent-pane"
       data-leaf-id={leaf.id}
     >
-      <div className="flex h-9 shrink-0 items-center gap-1 px-1.5">
+      <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
         <div
           ref={stripRef}
-          className="flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="relative flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ maskImage: fadeMask(overflow) }}
         >
           {leaf.tabIds.map((key) => (
@@ -220,6 +250,13 @@ export function AgentPane({
               onRemove={() => remove(key)}
             />
           ))}
+          {insertion && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-0 bottom-0 w-0.5 bg-primary"
+              style={{ left: insertion.x, transform: "translateX(-1px)" }}
+            />
+          )}
         </div>
         <OverflowTabsMenu
           hidden={overflow.hidden}
@@ -234,8 +271,8 @@ export function AgentPane({
         />
         <div className="flex shrink-0 items-center gap-0.5">
           {front && (
-            <IconButton label={t("agentView.pane.reveal")} onClick={() => openInWorkspace(front)}>
-              <FolderOpen aria-hidden className="size-3.5" />
+            <IconButton label={t(goToTabLabel(frontKind))} onClick={() => openInWorkspace(front)}>
+              <SquareArrowOutUpRight aria-hidden className="size-3.5" />
             </IconButton>
           )}
           <IconButton
@@ -428,13 +465,32 @@ function AgentTab({
   );
 }
 
-/** What an empty panel says: where its agents come from. */
+/** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
+function goToTabLabel(type: string | undefined): string {
+  if (type === "claude") return "agentList.detail.show_claude_tab";
+  if (type === "codex") return "agentList.detail.show_codex_tab";
+  return "agentList.detail.show_terminal";
+}
+
+/** What an empty panel says: where its agents come from, and a way back to the list when it is hidden. */
 function EmptyPane() {
   const { t } = useTranslation();
+  const listHidden = useUIStore((s) => s.sidebarHidden);
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center gap-1 pt-12 select-none">
       <span className="text-app-ui-sm text-stone-gray">{t("agentView.pane.empty")}</span>
       <span className="text-app-ui-sm text-muted-foreground">{t("agentView.pane.empty_hint")}</span>
+      {listHidden && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="pointer-events-auto mt-2 h-6 px-2.5 text-app-ui-sm"
+          onClick={() => useUIStore.getState().setPanelHidden("sidebar", false)}
+        >
+          {t("agentView.pane.open_list")}
+        </Button>
+      )}
     </div>
   );
 }

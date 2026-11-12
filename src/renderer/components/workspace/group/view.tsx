@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { showAgentList } from "@/services/agent-sessions/actions";
 import { closeTabWithConfirm } from "@/services/editor/save/close-tab";
 import { requestTabFocus } from "@/services/tab-focus";
 import { openTerminal } from "@/services/terminal";
@@ -7,7 +8,6 @@ import {
   openCodexTab,
   openNewBrowserTab,
   openNewUntitledTab,
-  openSessionsTab,
 } from "@/state/operations/tabs";
 import type { LayoutLeaf } from "@/state/stores/layout";
 import { useLayoutStore } from "@/state/stores/layout";
@@ -122,9 +122,8 @@ export function GroupView({
     onActivateGroup(leaf.id);
   }
 
-  function handleShowSessions() {
-    const { groupId } = openSessionsTab(workspaceId);
-    onActivateGroup(groupId);
+  function handleShowAgentList() {
+    showAgentList(workspaceId);
   }
 
   function handleGroupClick() {
@@ -240,7 +239,7 @@ export function GroupView({
         onNewTerminalTab={handleNewTerminalTab}
         onNewUntitledTab={handleNewUntitledTab}
         onNewBrowserTab={handleNewBrowserTab}
-        onShowSessions={handleShowSessions}
+        onShowAgentList={handleShowAgentList}
         onNewClaudeTab={handleNewClaudeTab}
         onNewCodexTab={handleNewCodexTab}
         onActivateGroup={onActivateGroup}

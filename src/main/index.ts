@@ -22,9 +22,10 @@ import {
 } from "./features/browser";
 import { updateBrowserKeybindings } from "./features/browser/keyboard";
 import { BrowserPermissionPromptManager } from "./features/browser/permission-prompt-manager";
+import type { ChatHost } from "./features/chat/host";
+import { registerChatChannel } from "./features/chat/ipc";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
-import { registerManagerChannel } from "./features/manager";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -49,21 +50,20 @@ import { registerGitChannel } from "./features/git/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { registerLspChannel } from "./features/lsp/ipc";
+import { registerManagerChannel } from "./features/manager";
 import { installAppMenu } from "./features/menu";
 import { registerPanelChannel } from "./features/panel";
-import { registerChatChannel } from "./features/chat/ipc";
-import type { ChatHost } from "./features/chat/host";
 import { startAgentPtyHost } from "./features/pty/agent-host";
-import { registerPtyChannel } from "./features/pty/ipc";
 import { PortForwards } from "./features/pty/forwards";
+import { registerPtyChannel } from "./features/pty/ipc";
 import { PortWatcher } from "./features/pty/ports";
-import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import type { PtyHostHandle } from "./features/pty/types";
+import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
 import { registerSystemChannel } from "./features/shell/ipc";
-import { systemStatsHandler } from "./features/system-stats";
-import { LocalStats } from "./features/system-stats/local";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
+import { systemStatsHandler } from "./features/system-stats";
+import { LocalStats } from "./features/system-stats/local";
 import { registerTaskChannel } from "./features/tasks/ipc";
 import { installUpdatesDomain, type UpdatesDomainHandle } from "./features/updates";
 import {
@@ -92,6 +92,7 @@ import { sweepStaleControlDirs } from "./infra/agent/ssh/master";
 import { ensureRemoteAgent } from "./infra/agent/ssh/ssh-bootstrap/index";
 import { broadcast, setupRouter } from "./infra/ipc-router";
 import { isMac, isWindows, loginShell } from "./infra/platform";
+import { startDesktopNotifications } from "./infra/platform/desktop-notifications";
 import { syncUserShellPath } from "./infra/shell-path";
 import { GlobalStorage } from "./infra/storage/global-storage";
 import { StateService } from "./infra/storage/state-service";
@@ -225,11 +226,18 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removed, ...rest } = currentLspMap;
       stateService.setState({ lspDisabledLanguagesByWorkspace: rest });
     }
-    // Likewise the view its sessions tab was left in.
-    const currentViews = currentState.sessionsViewByWorkspace ?? {};
+    // Likewise the view its agent list was left in.
+    const currentViews = currentState.agentListViewByWorkspace ?? {};
     if (currentViews[removedWorkspaceId] !== undefined) {
       const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
-      stateService.setState({ sessionsViewByWorkspace: restViews });
+      stateService.setState({ agentListViewByWorkspace: restViews });
+    }
+    // And whether its task view showed its facts unfolded.
+    const unfoldedTasks = currentState.agentListUnfoldedTasks ?? [];
+    if (unfoldedTasks.includes(removedWorkspaceId)) {
+      stateService.setState({
+        agentListUnfoldedTasks: unfoldedTasks.filter((id) => id !== removedWorkspaceId),
+      });
     }
   }
   forwardBroadcast(channelName, event, args);
@@ -408,6 +416,9 @@ updatesHandle = installUpdatesDomain({
 
 app.whenReady().then(async () => {
   installAppSessionPermissions(session.defaultSession);
+  // On Linux, find out whether the notification service answers before the
+  // first notification has to wait on it (infra/platform/desktop-notifications).
+  startDesktopNotifications();
 
   // Sync the macOS About panel with current product metadata.
   // applicationVersion comes from package.json via app.getVersion();

@@ -111,8 +111,8 @@ export interface CliAgentView {
 /** The columns left of the editor area: the workspace list, and the files panel. */
 export type CliPanel = "sidebar" | "files";
 
-/** What the files panel shows. */
-export type CliFilesMode = "tree" | "search" | "git";
+/** What the files panel shows: the file tree, search, git, or the agent list. */
+export type CliFilesMode = "tree" | "search" | "git" | "agents";
 
 export interface CliPanels {
   readonly sidebar: { readonly visible: boolean; readonly width: number };

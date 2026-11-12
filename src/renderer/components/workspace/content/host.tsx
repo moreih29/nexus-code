@@ -4,7 +4,7 @@ import { ClaudeTabView } from "@/components/chat/claude-tab";
 import { CodexTabView } from "@/components/chat/codex-tab";
 import { CommitTab } from "@/components/editor/commit-tab";
 import { DiffTab } from "@/components/editor/diff-tab";
-import { SessionsTabView } from "@/components/sessions/sessions-tab";
+import { sessionKey } from "@/services/agent-sessions/model";
 import { leafShowing } from "@/services/agent-view/layout";
 import { isDocxFile } from "@/services/editor/preview/docx";
 import { isFontFile } from "@/services/editor/preview/font";
@@ -13,7 +13,6 @@ import { isPdfFile } from "@/services/editor/preview/pdf";
 import { isPresentationFile } from "@/services/editor/preview/pptx";
 import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
-import { sessionKey } from "@/services/sessions/model";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import type { Tab } from "@/state/stores/tabs";
 import { BrowserTabView } from "./browser-view";
@@ -274,8 +273,6 @@ export function ContentHost({
             isActive={isVisible}
             parentEl={parentEl}
           />
-        ) : tab.type === "sessions" ? (
-          <SessionsTabView workspaceId={workspaceId} isVisible={isVisible} />
         ) : tab.type === "claude" ? (
           <ClaudeTabView
             workspaceId={workspaceId}

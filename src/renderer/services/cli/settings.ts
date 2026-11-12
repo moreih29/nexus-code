@@ -5,6 +5,7 @@
 
 import { ipcCallResult } from "@/ipc/client";
 import { useAgentCliStore } from "@/state/stores/agent-cli";
+import { useAgentListViewStore } from "@/state/stores/agent-list-view";
 import { useChatFontStore } from "@/state/stores/chat-font";
 import { useEditorFontStore } from "@/state/stores/editor-font";
 import { ICON_THEMES, useIconThemeStore } from "@/state/stores/icon-theme";
@@ -16,11 +17,11 @@ import {
 } from "@/state/stores/inactive-panel-dim";
 import { useLanguageStore } from "@/state/stores/language";
 import { useNotificationsStore } from "@/state/stores/notifications";
-import { useSessionsViewStore } from "@/state/stores/sessions-view";
 import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
 import { useWindowOpacityStore } from "@/state/stores/window-opacity";
+import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../shared/agent-list/view";
 import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/settings";
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
@@ -30,7 +31,6 @@ import {
   TASK_AGENTS,
   type TaskAgent,
 } from "../../../shared/sessions/task-agent";
-import { DEFAULT_SESSIONS_VIEW, SESSIONS_VIEWS } from "../../../shared/sessions/view";
 import { type AppState, ThemePreferenceSchema } from "../../../shared/types/app-state";
 import { CHAT_FONT_SIZE, CHAT_FONT_SIZE_MAX, CHAT_FONT_SIZE_MIN } from "../chat/chat-font";
 import { type CliUiHandler, UiRequestError } from "./handler";
@@ -229,7 +229,7 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
   {
     key: "terminal.taskAgent",
-    summary: "What the agents tab's [+] (Claude for a terminal) and a new task open",
+    summary: "What the agent list's [+] (Claude for a terminal) and a new task open",
     type: "choice",
     choices: TASK_AGENTS,
     get: () => {
@@ -271,16 +271,16 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
   },
   {
     key: "sessions.defaultView",
-    summary: "The view an agents tab opens in",
+    summary: "The view an agent list opens in",
     type: "choice",
-    choices: SESSIONS_VIEWS,
+    choices: AGENT_LIST_VIEWS,
     get: () => {
-      const value = useSessionsViewStore.getState().defaultView;
-      return { value: value ?? DEFAULT_SESSIONS_VIEW, changed: value !== undefined };
+      const value = useAgentListViewStore.getState().defaultView;
+      return { value: value ?? DEFAULT_AGENT_LIST_VIEW, changed: value !== undefined };
     },
     set: (value) =>
-      useSessionsViewStore.getState().setDefault(value as (typeof SESSIONS_VIEWS)[number]),
-    reset: () => useSessionsViewStore.getState().setDefault(undefined),
+      useAgentListViewStore.getState().setDefault(value as (typeof AGENT_LIST_VIEWS)[number]),
+    reset: () => useAgentListViewStore.getState().setDefault(undefined),
   },
   {
     key: "notifications.desktop",

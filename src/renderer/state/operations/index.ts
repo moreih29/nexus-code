@@ -27,8 +27,7 @@ export {
   openNewBrowserTab,
   openNewUntitledTab,
   openOrRevealCommitTab,
-  openSessionsTab,
-  openTerminalTab,
   openTabInNewSplit,
+  openTerminalTab,
   revealTab,
 } from "./tabs";

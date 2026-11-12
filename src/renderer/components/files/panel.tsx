@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Folder, GitBranch, Search } from "lucide-react";
+import { Bot, Folder, GitBranch, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import i18next from "i18next";
 import { cn } from "@/utils/cn";
@@ -16,6 +16,7 @@ import {
   useUIStore,
 } from "../../state/stores/ui";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
+import { AgentsPanel } from "../agent-list/agents-panel";
 import { EMPTY_TREE } from "../editor/diff-refs";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
@@ -36,6 +37,8 @@ const MODE_BUTTONS: ModeButton[] = [
   { mode: "tree", labelKey: "files:panel.tab.tree", Icon: Folder },
   { mode: "search", labelKey: "files:panel.tab.search", Icon: Search },
   { mode: "git", labelKey: "files:panel.tab.git", Icon: GitBranch },
+  // The agent list; the same mark as the agent view's.
+  { mode: "agents", labelKey: "files:panel.tab.agents", Icon: Bot },
 ];
 
 // ---------------------------------------------------------------------------
@@ -191,6 +194,14 @@ export const FilesPanel = memo(function FilesPanel() {
                       workspaceRootPath={activeWorkspace.rootPath}
                       onOpenDiff={openGitDiffFromRow}
                     />
+                  </div>
+                </ErrorBoundary>
+              ) : filesPanelMode === "agents" ? (
+                // ErrorBoundary: an agent list crash leaves the other views working.
+                <ErrorBoundary logSource="agent-list-panel">
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                    {/* Keyed so a search and an open card belong to one workspace. */}
+                    <AgentsPanel key={activeWorkspace.id} workspace={activeWorkspace} />
                   </div>
                 </ErrorBoundary>
               ) : (

@@ -184,7 +184,7 @@
     "switcher_aria": "작업 전환",
     "new": "새 작업…",
     "remove_current": "이 작업 삭제…",
-    "show_sessions": "에이전트 보기",
+    "show_agent_list": "에이전트 목록 보기",
     "ports_title": "열린 포트 {{ports}}",
     "new_title": "새 작업",
     "new_description": "{{name}}의 {{branch}}에서 브랜치와 워크트리를 만들고 그 안에서 작업을 엽니다.",
@@ -393,7 +393,7 @@
     "default_shell": "기본",
     "new_browser": "새 브라우저",
     "new_claude": "새 Claude 대화",
-    "sessions": "에이전트",
+    "agent_list": "에이전트 목록",
     "pin_tab": "탭 고정",
     "unpin_tab": "탭 고정 해제",
     "rename_tab_menu": "탭 이름 변경…",
@@ -520,8 +520,7 @@
     "notFound": "{{language}} 언어 서버({{binary}})를 찾지 못했습니다.",
     "installHint": "설치: {{command}}"
   },
-  "sessions": {
-    "tab_title": "에이전트",
+  "agentList": {
     "none": "대화 없음",
     "count": "{{label}} {{count}}",
     "view_label": "보기",
@@ -553,40 +552,14 @@
     "detail": {
       "show_terminal": "터미널로 이동",
       "show_changes": "변경 보기",
-      "interrupt": "중지 (Ctrl-C)",
       "remove_task": "작업 삭제…",
-      "permission_hint": "권한 요청은 터미널에서 응답합니다.",
-      "send": "보내기",
-      "screen_not_started": "이 터미널은 아직 시작되지 않았습니다. 그 작업을 열면 시작됩니다.",
-      "screen_exited": "이 터미널은 종료되었습니다.",
       "changes": "커밋하지 않은 변경 ({{count}})",
       "no_changes": "커밋하지 않은 변경이 없습니다.",
-      "more_changes": "외 {{count}}개",
-      "close": "상세 닫기",
       "todos": "할 일",
-      "screen_show": "터미널 원문 보기",
-      "screen_hide": "터미널 원문 접기",
       "show_claude_tab": "Claude 탭으로 이동",
       "show_codex_tab": "Codex 탭으로 이동",
-      "permission_hint_claude": "권한 요청은 Claude 탭에서 응답합니다.",
-      "back": "목록으로",
       "answer_more": "더 보기",
       "answer_less": "접기",
-      "steps": "최근 도구 호출",
-      "step": {
-        "running": "실행 중",
-        "done": "완료",
-        "failed": "실패",
-        "stopped": "중단됨"
-      },
-      "send_keys": "{{send}} 보내기 · {{newLine}} 줄바꿈",
-      "follow_up": "이어서 보내기",
-      "queue": "대기열에 넣기",
-      "queued_one": "대기 중인 메시지 {{count}}개",
-      "queued_other": "대기 중인 메시지 {{count}}개",
-      "not_loaded": "이 대화는 아직 열리지 않았습니다. 탭을 열면 내용이 보입니다.",
-      "no_messages": "아직 주고받은 메시지가 없습니다.",
-      "vs_base": "{{branch}} 대비",
       "ahead_behind": "{{branch}}보다 커밋 {{ahead}}개 앞서고 {{behind}}개 뒤처짐",
       "lines": "{{added}}줄 추가, {{deleted}}줄 삭제",
       "binary": "바이너리"
@@ -622,7 +595,8 @@
         "permission_hint": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. 터미널에서 응답합니다.",
         "permission_hint_claude": "이 서브에이전트는 권한 요청에 응답을 기다리는 중입니다. Claude 탭에서 응답합니다."
       },
-      "parent": "{{title}}의 서브에이전트"
+      "parent": "{{title}}의 서브에이전트",
+      "close_card": "닫기"
     },
     "permission": {
       "title": "권한 요청",
@@ -671,7 +645,10 @@
       "no_conversations": "대화 없음",
       "created_by": "{{title}} 대화가 만든 작업",
       "waiting_on": "{{title}} 대화가 끝나기를 기다리는 중",
-      "open_terminal": "이 작업에서 터미널 열기"
+      "open_terminal": "이 작업에서 터미널 열기",
+      "more": "더 보기",
+      "copy_path": "경로 복사",
+      "more_in_git": "외 {{count}}개 · 소스 제어에서 보기"
     }
   },
   "claudeStatus": {
@@ -784,8 +761,7 @@
   "resize": {
     "sidebar": "사이드바 크기 조정",
     "horizontal": "패널을 가로로 크기 조정",
-    "vertical": "패널을 세로로 크기 조정",
-    "sessions_list": "목록과 대화 크기 조정"
+    "vertical": "패널을 세로로 크기 조정"
   },
   "panel": {
     "connection_failed": "연결 실패",
@@ -1052,7 +1028,7 @@
     },
     "queue": {
       "aria": "읽히길 기다리는 메시지",
-      "label": "대기",
+      "label": "읽기 전",
       "after_turn": "턴 끝나고",
       "images_one": "이미지 {{count}}개",
       "images_other": "이미지 {{count}}개",
@@ -1066,9 +1042,9 @@
       "hint": "{{send}} 보내기 · {{newLine}} 줄바꿈 · / 명령 · @ 파일",
       "hint_codex": "{{send}} 보내기 · {{newLine}} 줄바꿈 · @ 파일",
       "hint_running": "{{send}} 대기열 · {{nowKey}} 즉시 보내기 · {{queueKey}} 턴 끝나고 보내기",
-      "hint_running_codex": "{{send}} 지금 보내기 · {{queueKey}} 턴 끝나고 보내기",
+      "hint_running_codex": "{{send}} 이번 턴에 보내기 · {{queueKey}} 턴 끝나고 보내기",
       "send": "보내기",
-      "send_now": "지금 보내기",
+      "steer": "이번 턴에 보내기",
       "queue": "대기열에 넣기",
       "stop": "중단",
       "remove_image": "이미지 제거",
@@ -1269,6 +1245,10 @@
       "next": "다음 이미지 (→)",
       "open_tab": "탭으로 열기",
       "close": "닫기 (esc)",
+      "copy_image": "이미지 복사",
+      "copied_image": "이미지를 복사했습니다",
+      "copy_image_unread": "이미지를 읽지 못했습니다",
+      "copy_image_failed": "이미지를 복사하지 못했습니다: {{error}}",
       "changes": "세션 전과 비교",
       "revert": "이 파일을 세션 전으로 되돌리기",
       "revert_busy": "Claude가 작업하는 동안에는 되돌릴 수 없습니다",
@@ -1306,7 +1286,11 @@
       "title_query": "이전 세션 · \"{{query}}\"",
       "loading": "세션을 읽는 중…",
       "none_in_profile": "이 프로필에는 이 폴더의 세션이 없습니다.",
-      "none": "이 폴더에 이어갈 세션이 없습니다."
+      "none": "이 폴더에 이어갈 세션이 없습니다.",
+      "delete": "이 세션 지우기",
+      "delete_hint": "삭제하면 되돌릴 수 없습니다.",
+      "deleting": "지우는 중…",
+      "delete_failed": "세션을 지우지 못했습니다: {{message}}"
     },
     "commands": {
       "close": "닫기",
@@ -1746,11 +1730,11 @@
       "held": "패널에 있음 (다른 탭 뒤)"
     },
     "pane": {
-      "reveal": "워크스페이스에서 열기",
       "close": "패널 닫기",
       "remove": "패널에서 빼기 (세션은 계속됨)",
       "empty": "빈 패널",
-      "empty_hint": "왼쪽 목록에서 에이전트를 클릭하거나 여기로 끌어 놓으세요"
+      "empty_hint": "목록에서 에이전트를 고르거나 여기로 끌어 놓으세요",
+      "open_list": "목록 열기"
     },
     "ended": {
       "message": "{{agent}} 세션이 끝났습니다",

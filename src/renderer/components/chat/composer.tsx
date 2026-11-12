@@ -134,6 +134,11 @@ interface ComposerProps {
   appCommands?: boolean;
   /** The `/` menu's commands, in place of the CLI's and the app's (the Codex tab's). */
   commands?: readonly CommandInfo[];
+  /**
+   * Takes the message a rewind or fork puts back; the tab's own box does,
+   * not another box on the same conversation (the agent list's).
+   */
+  takesDraft?: boolean;
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -182,6 +187,7 @@ export function Composer({
   onCommand,
   appCommands = true,
   commands: ownCommands,
+  takesDraft = true,
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
@@ -501,7 +507,7 @@ export function Composer({
   }, [dropArea, addFiles]);
 
   // A rewound or forked message comes back here, after what is already typed.
-  const draft = state.draft;
+  const draft = takesDraft ? state.draft : undefined;
   const tookDraft = useRef(0);
   useEffect(() => {
     if (!draft || draft.nonce === tookDraft.current) return;
@@ -569,6 +575,8 @@ export function Composer({
       ref={rootRef}
       className="shrink-0 border-t border-border px-4 pt-2 pb-3"
       data-testid="chat-composer"
+      // Toasts rise above it rather than cover what is typed (see ToastRoot).
+      data-toast-avoid
     >
       {dropping && dropArea && createPortal(<DropCue />, dropArea)}
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
@@ -945,10 +953,14 @@ function QueueRow({
   );
 }
 
+/** The send button's look, with its padding left to the one that uses it (the keycap needs less on the right). */
+export const SEND_BUTTON_CLASS =
+  "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40";
+
 /**
  * The box's main button, with the key that presses it. During a turn a
  * Claude tab's message waits for the call that runs, so it shows as queued;
- * a Codex tab's goes in at once. Its tooltip tells the other keys.
+ * a Codex tab's goes into the turn at once. Its tooltip tells the other keys.
  */
 function SendButton({
   running,
@@ -972,7 +984,7 @@ function SendButton({
   const label = queues
     ? t("chat.composer.queue")
     : running
-      ? t("chat.composer.send_now")
+      ? t("chat.composer.steer")
       : t("chat.composer.send");
   return (
     <button
@@ -981,10 +993,7 @@ function SendButton({
       disabled={disabled}
       title={composerHint(t, running, program)}
       aria-label={label}
-      className={cn(
-        "flex shrink-0 items-center gap-1 rounded-(--radius-control) bg-primary py-1.5 text-primary-foreground hover:opacity-90 disabled:pointer-events-none disabled:opacity-40",
-        keycap ? "pr-1.5 pl-2" : "px-2",
-      )}
+      className={cn(SEND_BUTTON_CLASS, keycap ? "pr-1.5 pl-2" : "px-2")}
       data-testid="chat-send"
     >
       {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
@@ -1014,7 +1023,7 @@ const MODE_TINT: Record<string, string> = {
 const bypassConfirmed = new Set<string>();
 
 /**
- * The permission mode, as a chip that picks another; the agents tab's
+ * The permission mode, as a chip that picks another; the agent list's
  * detail panel has it too, its menu opening below.
  */
 export function ModeChip({

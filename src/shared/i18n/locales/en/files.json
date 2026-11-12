@@ -4,7 +4,8 @@
     "tab": {
       "tree": "File tree",
       "search": "Find in workspace",
-      "git": "Source control"
+      "git": "Source control",
+      "agents": "Agents"
     },
     "offline": {
       "title": "Not connected",

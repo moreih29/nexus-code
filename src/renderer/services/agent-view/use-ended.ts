@@ -8,7 +8,7 @@ import { useEffect, useRef } from "react";
 import type { SplitNode } from "@/engine";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useTabsStore } from "../../state/stores/tabs";
-import { useSessionActivity } from "../sessions/use-family";
+import { useSessionActivity } from "../agent-sessions/use-family";
 import type { Agents } from "./agents";
 import {
   type EndedAgent,

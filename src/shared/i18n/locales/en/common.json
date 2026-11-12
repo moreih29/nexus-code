@@ -184,7 +184,7 @@
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
-    "show_sessions": "Agents",
+    "show_agent_list": "Agent list",
     "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
@@ -393,7 +393,7 @@
     "default_shell": "Default",
     "new_browser": "New Browser",
     "new_claude": "New Claude conversation",
-    "sessions": "Agents",
+    "agent_list": "Agent list",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -520,8 +520,7 @@
     "notFound": "The {{language}} language server ({{binary}}) was not found.",
     "installHint": "Install: {{command}}"
   },
-  "sessions": {
-    "tab_title": "Agents",
+  "agentList": {
     "none": "No conversations",
     "count": "{{label}} {{count}}",
     "view_label": "View",
@@ -553,40 +552,14 @@
     "detail": {
       "show_terminal": "Go to terminal",
       "show_changes": "Show changes",
-      "interrupt": "Interrupt (Ctrl-C)",
       "remove_task": "Delete task…",
-      "permission_hint": "Permission requests are answered in the terminal.",
-      "send": "Send",
-      "screen_not_started": "This terminal has not started yet. It starts when its task is opened.",
-      "screen_exited": "This terminal has exited.",
       "changes": "Uncommitted changes ({{count}})",
       "no_changes": "No uncommitted changes.",
-      "more_changes": "{{count}} more",
-      "close": "Close details",
       "todos": "To do",
-      "screen_show": "Show terminal output",
-      "screen_hide": "Hide terminal output",
       "show_claude_tab": "Go to the Claude tab",
       "show_codex_tab": "Go to the Codex tab",
-      "permission_hint_claude": "Its permission requests are answered in the Claude tab.",
-      "back": "Back to the list",
       "answer_more": "Show more",
       "answer_less": "Show less",
-      "steps": "Recent tool calls",
-      "step": {
-        "running": "Running",
-        "done": "Done",
-        "failed": "Failed",
-        "stopped": "Stopped"
-      },
-      "send_keys": "{{send}} to send · {{newLine}} for a new line",
-      "follow_up": "Follow up",
-      "queue": "Queue",
-      "queued_one": "{{count}} message queued",
-      "queued_other": "{{count}} messages queued",
-      "not_loaded": "This conversation has not been opened yet. Open its tab to see it.",
-      "no_messages": "No messages yet.",
-      "vs_base": "vs {{branch}}",
       "ahead_behind": "Ahead of {{branch}} by {{ahead}}, behind by {{behind}}",
       "lines": "{{added}} lines added, {{deleted}} deleted",
       "binary": "binary"
@@ -622,7 +595,8 @@
         "permission_hint": "This subagent is waiting on a permission request. Answer it in the terminal.",
         "permission_hint_claude": "This subagent is waiting on a permission request. Answer it in the Claude tab."
       },
-      "parent": "A subagent of {{title}}"
+      "parent": "A subagent of {{title}}",
+      "close_card": "Close"
     },
     "permission": {
       "title": "Permission request",
@@ -671,7 +645,10 @@
       "no_conversations": "No conversations",
       "created_by": "Made by the conversation {{title}}",
       "waiting_on": "Waiting for {{title}} to end",
-      "open_terminal": "Open a terminal in this task"
+      "open_terminal": "Open a terminal in this task",
+      "more": "More",
+      "copy_path": "Copy path",
+      "more_in_git": "{{count}} more · Show in source control"
     }
   },
   "claudeStatus": {
@@ -784,8 +761,7 @@
   "resize": {
     "sidebar": "Resize sidebar",
     "horizontal": "Resize panels horizontally",
-    "vertical": "Resize panels vertically",
-    "sessions_list": "Resize the list and the conversation"
+    "vertical": "Resize panels vertically"
   },
   "panel": {
     "connection_failed": "Connection failed",
@@ -1052,7 +1028,7 @@
     },
     "queue": {
       "aria": "Messages waiting to be read",
-      "label": "Waiting",
+      "label": "Unread",
       "after_turn": "After the turn",
       "images_one": "{{count}} image",
       "images_other": "{{count}} images",
@@ -1066,9 +1042,9 @@
       "hint": "{{send}} send · {{newLine}} new line · / commands · @ files",
       "hint_codex": "{{send}} send · {{newLine}} new line · @ files",
       "hint_running": "{{send}} queue · {{nowKey}} send now · {{queueKey}} send after the turn",
-      "hint_running_codex": "{{send}} send now · {{queueKey}} send after the turn",
+      "hint_running_codex": "{{send}} send into this turn · {{queueKey}} send after the turn",
       "send": "Send",
-      "send_now": "Send now",
+      "steer": "Send into this turn",
       "queue": "Queue",
       "stop": "Stop",
       "remove_image": "Remove image",
@@ -1269,6 +1245,10 @@
       "next": "Next image (→)",
       "open_tab": "Open as a tab",
       "close": "Close (esc)",
+      "copy_image": "Copy image",
+      "copied_image": "Image copied",
+      "copy_image_unread": "The image could not be read",
+      "copy_image_failed": "The image could not be copied: {{error}}",
       "changes": "Changes since before the session",
       "revert": "Revert this file to before the session",
       "revert_busy": "Can't revert while Claude is working",
@@ -1306,7 +1286,11 @@
       "title_query": "Earlier sessions · \"{{query}}\"",
       "loading": "Reading the sessions…",
       "none_in_profile": "This profile has no sessions of this folder.",
-      "none": "No sessions of this folder to go on with."
+      "none": "No sessions of this folder to go on with.",
+      "delete": "Delete this session",
+      "delete_hint": "This cannot be undone.",
+      "deleting": "Deleting…",
+      "delete_failed": "Could not delete the session: {{message}}"
     },
     "commands": {
       "close": "Close",
@@ -1746,11 +1730,11 @@
       "held": "In a panel, behind another tab"
     },
     "pane": {
-      "reveal": "Open in workspace",
       "close": "Close panel",
       "remove": "Remove from panel (the session goes on)",
       "empty": "Empty panel",
-      "empty_hint": "Click an agent in the list, or drag one here"
+      "empty_hint": "Pick an agent from the list, or drag one here",
+      "open_list": "Open list"
     },
     "ended": {
       "message": "{{agent}} session ended",

@@ -38,7 +38,7 @@ interface GroupTabBarProps {
   onNewTerminalTab: (shell?: ShellChoice) => void;
   onNewUntitledTab: () => void;
   onNewBrowserTab: () => void;
-  onShowSessions: () => void;
+  onShowAgentList: () => void;
   /** Opens a new Claude tab, with that profile rather than the workspace's. */
   onNewClaudeTab: (profileId?: string) => void;
   onNewCodexTab: (profileId?: string) => void;
@@ -57,7 +57,7 @@ export function GroupTabBar({
   onNewTerminalTab,
   onNewUntitledTab,
   onNewBrowserTab,
-  onShowSessions,
+  onShowAgentList,
   onNewClaudeTab,
   onNewCodexTab,
   onActivateGroup,
@@ -147,7 +147,7 @@ export function GroupTabBar({
             onNewTerminalTab={onNewTerminalTab}
             onNewUntitledTab={onNewUntitledTab}
             onNewBrowserTab={onNewBrowserTab}
-            onShowSessions={onShowSessions}
+            onShowAgentList={onShowAgentList}
             onNewClaudeTab={onNewClaudeTab}
             onNewCodexTab={onNewCodexTab}
             onTabContextMenu={(tabId) => setContextTabId(tabId)}

@@ -9,8 +9,8 @@ import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import { openCodexTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
+import { showChanges } from "../agent-sessions/actions";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
-import { showChanges } from "../sessions/actions";
 import {
   conversationMarkdown,
   copyIndex,

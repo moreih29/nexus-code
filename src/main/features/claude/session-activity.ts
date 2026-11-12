@@ -1,6 +1,6 @@
 // What each Claude Code session is doing, as its hooks tell it: the tools
 // its turn runs, its todo list, and the subagents working beside it, each
-// with the tools it runs. The sessions tab reads it (claude.activity).
+// with the tools it runs. The agent list reads it (claude.activity).
 //
 // A subagent is told twice: the Agent tool call that starts it (what it was
 // asked, PreToolUse) and its own start (its id, SubagentStart). Claude Code

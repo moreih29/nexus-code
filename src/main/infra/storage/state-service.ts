@@ -7,6 +7,7 @@ import {
   type WindowBounds,
   WindowBoundsSchema,
 } from "../../../shared/types/app-state";
+import { migrateAppState } from "./app-state-migrations";
 
 export { type AppState, AppStateSchema, type WindowBounds, WindowBoundsSchema };
 
@@ -33,7 +34,7 @@ export class StateService {
     const empty = AppStateSchema.parse({});
     let raw: unknown;
     try {
-      raw = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+      raw = migrateAppState(JSON.parse(fs.readFileSync(this.filePath, "utf8")));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.backUpInvalidFile();
       return empty;

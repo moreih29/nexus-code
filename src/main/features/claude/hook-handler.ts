@@ -22,18 +22,18 @@
 //                        (a permission dialog's notification keeps or sets permissionPending;
 //                        one that only tells something, as a login or a push, only notifies)
 //   permission-request → broker.set(permissionPending) + (그 탭 안 보면) OS 알림; held for an
-//                        answer from the sessions tab (permission-asks.ts) beside Claude Code's
+//                        answer from the agent list (permission-asks.ts) beside Claude Code's
 //                        own dialog, or, for a `claude -p` run, respondHook at once (native fallback)
 //   post-tool-use      → the tool waiting on the permission ran: permissionPending → running + respondHook
 //   post-tool-use-failure → as post-tool-use, for a tool that failed as it ran
-//   subagent-start     → respondHook (the sessions tab's record only)
+//   subagent-start     → respondHook (the agent list's record only)
 //   subagent-stop      → the subagent's permission dialogs are over + respondHook
 //   stop               → 그 탭 보면 idle 직행 / 아니면 completed + OS 알림 + respondHook
 //   stop-failure       → an API error ended the turn instead: error + (그 탭 안 보면) OS 알림 + respondHook
 //   session-end        → broker.clear + respondHook
 //
 // Turn hooks of a turn already over (by prompt_id, see turn-order.ts) are only answered.
-// Every other hook is told to deps.activity, the record the sessions tab shows.
+// Every other hook is told to deps.activity, the record the agent list shows.
 
 import type { PermissionAnswer } from "../../../shared/claude/activity";
 import {
@@ -47,6 +47,7 @@ import { createLogger } from "../../../shared/log/main";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { tryGetMainT } from "../../i18n";
 import { broadcast } from "../../infra/ipc-router";
+import { showDesktopNotification } from "../../infra/platform/desktop-notifications";
 import type { ActiveContextStore } from "./active-context";
 import type { ChatAnswers } from "./chat-answers";
 import { handlePermissionRequest } from "./permission";
@@ -86,7 +87,7 @@ export interface HookHandlerDeps {
   broker: ClaudeStatusBroker;
   /** Records the tools, todos and agents the hooks tell of. */
   activity?: SessionActivityLog;
-  /** Holds permission requests for an answer from the sessions tab. */
+  /** Holds permission requests for an answer from the agent list. */
   asks?: PermissionAsks;
   /** Tells of the permission requests a Claude tab's user answered there. */
   chatAnswers?: ChatAnswers;
@@ -364,16 +365,18 @@ function fireOsNotification(
     deps.electronNotificationCtor ??
     (require("electron") as typeof import("electron")).Notification;
 
-  const n = new NotificationCtor({ title, body });
-  n.on("click", () => {
-    deps.focusMainWindow?.();
-    deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
-      log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+  showDesktopNotification(() => {
+    const n = new NotificationCtor({ title, body });
+    n.on("click", () => {
+      deps.focusMainWindow?.();
+      deps.activateWorkspace?.(workspaceId)?.catch((err: unknown) => {
+        log.warn(`activateWorkspace failed: ${(err as Error).message}`);
+      });
+      broadcastFn("pty", "notificationClick", { workspaceId, tabId });
     });
-    broadcastFn("pty", "notificationClick", { workspaceId, tabId });
+    trackNotification(n);
+    n.show();
   });
-  trackNotification(n);
-  n.show();
 }
 
 // ---------------------------------------------------------------------------
@@ -398,7 +401,7 @@ async function handleHookEvent(
   const { broker } = deps;
 
   // A `claude -p` run started inside the session tells of itself (hookclient's
-  // print-run), for the sessions tab only: the session's own state is its turn's.
+  // print-run), for the agent list only: the session's own state is its turn's.
   if (subcommand === PRINT_WATCH) {
     const runId = (hookPayload as { run_id?: unknown } | undefined)?.run_id;
     if (typeof runId === "string") deps.activity?.notePrintWatch(workspaceId, tabId, runId, hookId);
@@ -593,7 +596,7 @@ async function handleHookEvent(
         fireOsNotification(workspaceId, tabId, title, message, deps);
       }
 
-      // Held for an answer from the sessions tab while Claude Code shows its
+      // Held for an answer from the agent list while Claude Code shows its
       // own dialog. A `claude -p` run shows none and waits on the hook, so it
       // gets the native fallback at once.
       if (deps.asks && !parsed.data.print) {
@@ -669,7 +672,7 @@ async function handleHookEvent(
     }
 
     case "subagent-start": {
-      // Told for the sessions tab only (deps.activity, above).
+      // Told for the agent list only (deps.activity, above).
       await respondHook(deps.channelProvider, workspaceId, hookId, { exitCode: 0 });
       break;
     }
@@ -700,7 +703,7 @@ async function handleHookEvent(
 }
 
 /**
- * The user answered a held permission request from the sessions tab: its
+ * The user answered a held permission request from the agent list: its
  * dialog is closed, and the agent that asked goes on. Stopping the turn
  * leaves the session waiting on the user, as an interrupt does.
  */
