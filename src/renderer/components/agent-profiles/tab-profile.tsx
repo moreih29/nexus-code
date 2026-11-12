@@ -9,6 +9,7 @@
 import { Square } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/utils/cn";
 import {
   DEFAULT_PROFILE_DIR,
   isDefaultProfileId,
@@ -29,18 +30,29 @@ import { tooltipProps } from "../ui/tooltip";
 import { hasProfileChoice, ProfileDot, profileName } from "./profile-badge";
 import { sourceLabel } from "./workspace-profile-menu";
 
-export function TabProfileMark({ agent, profileId }: { agent: ChatAgent; profileId?: string }) {
+export function TabProfileMark({
+  agent,
+  profileId,
+  nameClassName,
+}: {
+  agent: ChatAgent;
+  profileId?: string;
+  /** Over the name's own, as to hide it where there is no room: the dot then tells it on hover. */
+  nameClassName?: string;
+}) {
   const { t } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
   if (!hasProfileChoice(config, agent)) return null;
   const profile = profileOf(config, agent, profileId);
+  const name = profileName(profile, t);
   return (
     <span
       className="flex max-w-24 shrink-0 items-center gap-1 text-app-micro text-muted-foreground"
+      title={name}
       data-testid="tab-profile"
     >
       <ProfileDot color={profile.color} className="size-1.5" />
-      <span className="truncate">{profileName(profile, t)}</span>
+      <span className={cn("truncate", nameClassName)}>{name}</span>
     </span>
   );
 }

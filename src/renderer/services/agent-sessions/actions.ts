@@ -1,13 +1,15 @@
 /**
- * What the agent list does for the user: show a session's terminal, type
- * a line into it or interrupt it, show a worktree's changes, open a
- * terminal or a conversation in it, and make or delete a task through the
- * app's own dialogs.
+ * What the agent list does for the user: show the list itself, a session's
+ * terminal, type a line into it, show a worktree's changes or a file's,
+ * open a terminal or a conversation in it, and make or delete a task
+ * through the app's own dialogs.
  */
 
-import { openClaudeTab } from "@/state/operations/tabs";
+import { EMPTY_TREE } from "@/components/editor/diff-refs";
+import { openClaudeTab, openDiffTab } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
+import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useTaskUIStore } from "@/state/stores/task-ui";
 import { useUIStore } from "@/state/stores/ui";
@@ -26,14 +28,13 @@ import { typeText } from "./typed-input";
 interface SessionRef {
   readonly workspaceId: string;
   readonly tabId: string;
-  /** A Claude or Codex tab's program takes a message, and an interrupt, as requests. */
+  /** A Claude or Codex tab's program takes a message as a request. */
   readonly kind?: "terminal" | "claude" | "codex";
 }
 
 /** What the agent list asks of a chat tab's program. */
 interface ChatTab {
   send(text: string): Promise<void>;
-  interrupt(): Promise<unknown>;
 }
 
 /** The controller of a Claude or Codex tab's session; an error when the tab was never shown. */
@@ -111,13 +112,20 @@ export async function sendLine(session: SessionRef, text: string): Promise<void>
   await actionHandlers["terminal.input"]({ ...session, text: "", mode: "keys", enter: true });
 }
 
-/** Presses Ctrl-C in the session's terminal. */
-export async function interrupt(session: SessionRef): Promise<void> {
-  if (session.kind === "claude" || session.kind === "codex") {
-    await chatTab(session).interrupt();
-    return;
-  }
-  await actionHandlers["terminal.input"]({ ...session, text: "\x03", mode: "keys", enter: false });
+/** Shows the workspace's agent list: its files panel on the agents view. */
+export function showAgentList(workspaceId: string): void {
+  if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
+  const ui = useUIStore.getState();
+  ui.setFilesPanelMode(workspaceId, "agents");
+  ui.setPanelHidden("files", false);
+}
+
+/** Opens the diff of a worktree's uncommitted change to a file, in its workspace. */
+export function showFileChange(workspaceId: string, relPath: string): void {
+  if (useActiveStore.getState().activeWorkspaceId !== workspaceId) activateWorkspace(workspaceId);
+  const unborn =
+    useGitStore.getState().sessions.get(workspaceId)?.status?.branch?.isUnborn ?? false;
+  openDiffTab(workspaceId, relPath, unborn ? EMPTY_TREE : "HEAD", "WORKING");
 }
 
 /** Switches to the worktree with its files panel on the git view. */

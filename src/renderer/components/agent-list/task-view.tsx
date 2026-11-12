@@ -2,21 +2,35 @@
 // its tasks), each headed by its branch, the conversation that made it and
 // its uncommitted changes, with its conversations in compact rows. A row
 // says what its conversation waits on or runs, and which terminal it waits
-// to end. The header picks the worktree for the detail panel.
+// to end. The header unfolds the worktree's facts, and offers what can be
+// done in it.
 
 import {
+  ChevronDown,
+  ChevronRight,
   CornerDownRight,
+  Ellipsis,
   FileDiff,
   Folder,
   GitBranch,
   Hourglass,
   ListTodo,
   MessageCircleQuestion,
+  MessageSquarePlus,
   Shield,
+  SquareTerminal,
 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { copyTextViaIpc } from "@/utils/clipboard";
 import { cn } from "@/utils/cn";
 import type { TerminalWait } from "../../../shared/sessions/agent-state";
+import {
+  openWorktreeChat,
+  openWorktreeTerminal,
+  removeTask,
+  showChanges,
+} from "../../services/agent-sessions/actions";
 import type { ActivityByKey } from "../../services/agent-sessions/agents";
 import {
   type AgentSession,
@@ -36,10 +50,18 @@ import {
 } from "../../services/agent-sessions/rows";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { chatKey, useChatStore } from "../../services/chat/store";
+import { Button } from "../ui/button";
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRoot,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { AgentRows } from "./agent-rows";
 import type { AgentListSelection } from "./selection";
 import { StateGlyph, stateColor, stateLabel, useDurationLabel } from "./session-status";
 import { AgentMark, ToolIcon } from "./status-view";
+import { TaskInfo } from "./task-info";
 
 interface TaskViewProps {
   family: SessionFamily;
@@ -47,7 +69,8 @@ interface TaskViewProps {
   activity: ActivityByKey;
   waits: readonly TerminalWait[];
   selection: AgentListSelection | null;
-  onSelect: (selection: AgentListSelection) => void;
+  /** A conversation picked, or an agent, with the row it was picked from. */
+  onSelect: (selection: AgentListSelection, from: HTMLElement) => void;
   query: string;
 }
 
@@ -61,7 +84,18 @@ export function TaskView({
   query,
 }: TaskViewProps) {
   const { t } = useTranslation();
+  // The worktrees whose facts are unfolded; folded until the user opens one.
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setUnfolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const sessions = allSessions(family);
+  // A task is compared with its workspace's branch.
+  const base = changes.get(family.root.id)?.branch;
   const groups = family.worktrees
     .map((worktree) => ({ worktree, rows: sessionsByGroup(worktree.sessions, query) }))
     // A search keeps the worktrees with a conversation it found, or whose name it is.
@@ -79,24 +113,30 @@ export function TaskView({
         const creator = createdBy
           ? sessions.find((s) => s.key === sessionKey(createdBy.workspaceId, createdBy.tabId))
           : undefined;
-        const selected = selection?.kind === "worktree" && selection.workspaceId === id;
+        const branch = worktree.branch ?? changes.get(id)?.branch;
+        const open = unfolded.has(id);
         return (
           <section
             key={id}
             aria-label={worktreeName(worktree, changes.get(id)?.branch)}
-            className={cn(
-              "overflow-hidden rounded-(--radius-raised) border",
-              selected ? "border-[var(--state-selected-indicator)]" : "border-border",
-            )}
+            className="overflow-hidden rounded-(--radius-raised) border border-border"
           >
             <TaskHeader
               worktree={worktree}
-              branch={worktree.branch ?? changes.get(id)?.branch}
+              branch={branch}
               creator={creator}
               changed={changes.get(id)?.files.length ?? 0}
-              selected={selected}
-              onSelect={() => onSelect({ kind: "worktree", workspaceId: id })}
+              unfolded={open}
+              onToggle={() => toggle(id)}
             />
+            {open && (
+              <TaskInfo
+                worktree={worktree}
+                branch={branch}
+                base={worktree.isRoot ? undefined : base}
+                changes={changes.get(id)}
+              />
+            )}
             {rows.length === 0 ? (
               <p className="border-t border-border px-3 py-1.5 text-app-ui-sm text-muted-foreground">
                 {t("agentList.task.no_conversations")}
@@ -109,11 +149,8 @@ export function TaskView({
                       session={session}
                       activity={activity}
                       waitingOn={waitedOn(session, waits, sessions)}
-                      selected={
-                        (selection?.kind === "session" || selection?.kind === "agent") &&
-                        selection.key === session.key
-                      }
-                      onSelect={() => onSelect({ kind: "session", key: session.key })}
+                      selected={selection?.key === session.key}
+                      onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
                     />
                     <AgentRows
                       agents={activity.get(session.key)?.agents ?? []}
@@ -122,7 +159,9 @@ export function TaskView({
                           ? selection.agentId
                           : undefined
                       }
-                      onSelect={(agentId) => onSelect({ kind: "agent", key: session.key, agentId })}
+                      onSelect={(agentId, from) =>
+                        onSelect({ kind: "agent", key: session.key, agentId }, from)
+                      }
                       className="pr-2 pb-1 pl-6"
                     />
                   </li>
@@ -154,66 +193,161 @@ export function WorktreeMark({
   return <Icon aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground", className)} />;
 }
 
+/**
+ * A worktree's header: its name, the conversation that made it and its
+ * changes, folding its facts open or shut. Under the pointer, or with the
+ * keyboard in it, the changes give way to what can be done in it.
+ */
 function TaskHeader({
   worktree,
   branch,
   creator,
   changed,
-  selected,
-  onSelect,
+  unfolded,
+  onToggle,
 }: {
   worktree: WorktreeEntry;
   branch: string | undefined;
   /** The conversation that made the task, while it is open. */
   creator: AgentSession | undefined;
   changed: number;
-  selected: boolean;
-  onSelect: () => void;
+  unfolded: boolean;
+  onToggle: () => void;
 }) {
   const { t } = useTranslation();
+  // Its actions stay while their menu is open, which takes the pointer and the keyboard.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const { workspace } = worktree;
+  const name = worktreeName(worktree, branch);
+  const path = workspace.task?.worktreePath ?? workspace.rootPath;
+  const Chevron = unfolded ? ChevronDown : ChevronRight;
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-app-ui-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
-        selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",
-      )}
+    <div
+      className="group/task relative flex min-w-0 items-center gap-2 px-3 py-2 text-app-ui-sm transition-colors hover:bg-[var(--state-hover-bg)]"
+      data-testid="agent-list-task-header"
     >
-      <WorktreeMark worktree={worktree} />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {worktreeName(worktree, branch)}
-      </span>
-      {worktree.isRoot && branch && (
-        <span
-          className="flex min-w-0 shrink items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground"
-          title={branch}
-        >
-          <GitBranch aria-hidden className="size-3 shrink-0" />
-          <span className="truncate">{branch}</span>
+      {/* The header as one button behind its content, so its actions stay buttons. */}
+      <button
+        type="button"
+        aria-expanded={unfolded}
+        aria-label={name}
+        onClick={onToggle}
+        className="absolute inset-0 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+      />
+      <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
+        <Chevron aria-hidden className="-ml-1 size-3.5 shrink-0 text-muted-foreground" />
+        <WorktreeMark worktree={worktree} />
+        <span className="min-w-0 truncate font-medium text-foreground" title={name}>
+          {name}
         </span>
-      )}
-      {creator && (
-        <span
-          className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground"
-          title={t("agentList.task.created_by", { title: creator.title })}
-        >
-          <CornerDownRight aria-hidden className="size-3 shrink-0" />
-          <AgentMark session={creator} className="size-3" />
-          <span className="truncate">{creator.title}</span>
-        </span>
-      )}
+        {worktree.isRoot && branch && (
+          <span
+            className="flex min-w-0 shrink items-center gap-1 rounded-(--radius-control) bg-muted px-1.5 font-mono text-app-micro text-muted-foreground @max-xs/agents:hidden"
+            title={branch}
+          >
+            <GitBranch aria-hidden className="size-3 shrink-0" />
+            <span className="truncate">{branch}</span>
+          </span>
+        )}
+        {creator && (
+          <span
+            className="flex min-w-0 shrink items-center gap-1 text-app-micro text-muted-foreground @max-xs/agents:hidden"
+            title={t("agentList.task.created_by", { title: creator.title })}
+          >
+            <CornerDownRight aria-hidden className="size-3 shrink-0" />
+            <AgentMark session={creator} className="size-3" />
+            <span className="truncate">{creator.title}</span>
+          </span>
+        )}
+      </div>
       {changed > 0 && (
         <span
-          className="ml-auto flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground tabular-nums"
+          className={cn(
+            "pointer-events-none relative flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground tabular-nums",
+            menuOpen ? "hidden" : "group-focus-within/task:hidden group-hover/task:hidden",
+          )}
           title={t("agentList.detail.changes", { count: changed })}
         >
           <FileDiff aria-hidden className="size-3.5" />
           {changed}
         </span>
       )}
-    </button>
+      <div
+        className={cn(
+          "relative shrink-0 items-center gap-0.5",
+          menuOpen ? "flex" : "hidden group-focus-within/task:flex group-hover/task:flex",
+        )}
+      >
+        <HeaderAction
+          label={t("agentList.detail.show_changes")}
+          onClick={() => showChanges(workspace.id)}
+        >
+          <FileDiff aria-hidden className="size-3.5" />
+        </HeaderAction>
+        <HeaderAction
+          label={t("agentList.task.open_terminal")}
+          onClick={() => openWorktreeTerminal(workspace)}
+        >
+          <SquareTerminal aria-hidden className="size-3.5" />
+        </HeaderAction>
+        <HeaderAction
+          label={t("agentList.list.new_claude")}
+          onClick={() => openWorktreeChat(workspace)}
+        >
+          <MessageSquarePlus aria-hidden className="size-3.5" />
+        </HeaderAction>
+        <DropdownMenuRoot onOpenChange={setMenuOpen}>
+          <DropdownMenuTrigger>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="size-6"
+              title={t("agentList.task.more")}
+              aria-label={t("agentList.task.more")}
+            >
+              <Ellipsis aria-hidden className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onSelect={() => copyTextViaIpc(path)}>
+              {t("agentList.task.copy_path")}
+            </DropdownMenuItem>
+            {!worktree.isRoot && (
+              <DropdownMenuItem
+                className="text-(--state-error-fg)"
+                onSelect={() => removeTask(workspace.id)}
+              >
+                {t("agentList.detail.remove_task")}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenuRoot>
+      </div>
+    </div>
+  );
+}
+
+/** One of a worktree header's actions, as an icon with its name for a title. */
+function HeaderAction({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button
+      size="icon-sm"
+      variant="ghost"
+      className="size-6"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
   );
 }
 
@@ -233,7 +367,8 @@ export function TaskRow({
   /** The conversation its terminal waits to end. */
   waitingOn: AgentSession | undefined;
   selected: boolean;
-  onSelect: () => void;
+  /** Picked, with its row. */
+  onSelect: (from: HTMLElement) => void;
 }) {
   const { t } = useTranslation();
   const chat = useChatStore((s) => s.tabs[chatKey(session.workspaceId, session.tabId)]);
@@ -250,7 +385,7 @@ export function TaskRow({
     <button
       type="button"
       aria-pressed={selected}
-      onClick={onSelect}
+      onClick={(event) => onSelect(event.currentTarget)}
       className={cn(
         "flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-app-ui-sm transition-colors outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
         selected ? "bg-[var(--sidebar-item-selected-bg)]" : "hover:bg-[var(--state-hover-bg)]",

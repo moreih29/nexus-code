@@ -12,9 +12,9 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { portsLabel } from "../../../shared/pty/ports";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { showAgentList } from "../../services/agent-sessions/actions";
 import { useCodexWorkspaceStatus } from "../../services/agent-sessions/use-codex-status";
 import { activateWorkspace } from "../../services/workspace/tasks";
-import { openAgentListTab } from "../../state/operations/tabs";
 import {
   selectWorkspaceAggregateStatus,
   useClaudeStatusStore,
@@ -88,7 +88,7 @@ export function TaskSwitcher({ active, label, maxWidth }: TaskSwitcherProps) {
           <TaskItem key={task.id} workspace={task} active={active.id === task.id} />
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => openAgentListTab(active.id)}>
+        <DropdownMenuItem onSelect={() => showAgentList(active.id)}>
           {t("task.show_agent_list")}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => useTaskUIStore.getState().openNewTask(root.id)}>

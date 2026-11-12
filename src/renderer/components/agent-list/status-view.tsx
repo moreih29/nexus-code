@@ -21,7 +21,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
@@ -81,7 +81,8 @@ interface StatusViewProps {
   changes: ReadonlyMap<string, WorktreeChanges>;
   activity: ActivityByKey;
   selection: AgentListSelection | null;
-  onSelect: (selection: AgentListSelection) => void;
+  /** A conversation picked, or an agent, with the row it was picked from. */
+  onSelect: (selection: AgentListSelection, from: HTMLElement) => void;
   query: string;
 }
 
@@ -167,18 +168,15 @@ export function StatusView({
                     changed={changes.get(session.workspaceId)?.files.length ?? 0}
                     chat={chats[chatKey(session.workspaceId, session.tabId)]}
                     activity={activity.get(session.key)}
-                    selected={
-                      isSessionSelected(selection, session.key) ||
-                      (selection?.kind === "agent" && selection.key === session.key)
-                    }
+                    selected={isSessionSelected(selection, session.key)}
                     selectedAgentId={
                       selection?.kind === "agent" && selection.key === session.key
                         ? selection.agentId
                         : undefined
                     }
-                    onSelect={() => onSelect({ kind: "session", key: session.key })}
-                    onSelectAgent={(agentId) =>
-                      onSelect({ kind: "agent", key: session.key, agentId })
+                    onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
+                    onSelectAgent={(agentId, from) =>
+                      onSelect({ kind: "agent", key: session.key, agentId }, from)
                     }
                   />
                 );
@@ -213,8 +211,8 @@ function SessionRow({
   selected: boolean;
   /** Its agent selected, when one is. */
   selectedAgentId: string | undefined;
-  onSelect: () => void;
-  onSelectAgent: (agentId: string) => void;
+  onSelect: (from: HTMLElement) => void;
+  onSelectAgent: (agentId: string, from: HTMLElement) => void;
 }) {
   const facts =
     session.kind === "terminal"
@@ -224,8 +222,15 @@ function SessionRow({
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
   const compact = group === "idle" || group === "ended";
+  // The row of the tab the user went to stays in sight, as the file tree's does.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selected && selectedAgentId === undefined)
+      rowRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected, selectedAgentId]);
   return (
     <div
+      ref={rowRef}
       className={cn(
         "relative rounded-(--radius-raised) border px-3 text-app-ui-sm transition-colors",
         compact ? "py-1.5" : "py-2",
@@ -242,7 +247,7 @@ function SessionRow({
         type="button"
         aria-pressed={selected}
         aria-label={session.title}
-        onClick={onSelect}
+        onClick={(event) => onSelect(event.currentTarget)}
         className="absolute inset-0 rounded-(--radius-raised) outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="pointer-events-none relative flex min-w-0 flex-col gap-1">
@@ -253,15 +258,16 @@ function SessionRow({
               "min-w-0 flex-1 truncate",
               compact ? "text-foreground" : "font-medium text-foreground",
             )}
-            title={session.title}
+            title={duration ? `${session.title} · ${duration}` : session.title}
           >
             {session.title}
           </span>
-          <SessionProfileMark session={session} />
+          {/* Narrow, the profile is its dot, and the time is in the row's title. */}
+          <SessionProfileMark session={session} nameClassName="@max-xs/agents:hidden" />
           {duration && (
             <span
               className={cn(
-                "shrink-0 text-app-micro tabular-nums",
+                "shrink-0 text-app-micro tabular-nums @max-[200px]/agents:hidden",
                 group === "attention" ? GROUP_TINT.attention : "text-muted-foreground",
               )}
               title={stateLabel(session)}
@@ -512,7 +518,7 @@ const NO_ASKS: readonly PermissionAsk[] = [];
 /**
  * Allow or deny a permission from the row: a chat tab's through its
  * program, a terminal's through Claude Code's hook. A question or a plan is
- * answered in the detail panel, where there is room for it.
+ * answered in its tab, where there is room for it.
  */
 function RowAnswer({
   session,

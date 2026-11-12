@@ -163,7 +163,6 @@ export async function bootstrapAppState(): Promise<void> {
     filesPanelWidth: state.filesPanelWidth,
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
-    agentListRatio: state.agentListRatio,
     agentListFoldedGroups: state.agentListFoldedGroups,
   });
 

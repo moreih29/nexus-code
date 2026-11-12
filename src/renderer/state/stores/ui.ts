@@ -17,10 +17,6 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
-/** The share of the agent list's width its list may take, dragged by its divider. */
-export const AGENT_LIST_RATIO_MIN = 0.2;
-export const AGENT_LIST_RATIO_MAX = 0.8;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -33,11 +29,6 @@ function clampFilesPanel(value: number): number {
   return Math.min(FILES_PANEL_WIDTH_MAX, Math.max(FILES_PANEL_WIDTH_MIN, value));
 }
 
-function clampAgentListRatio(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return Math.min(AGENT_LIST_RATIO_MAX, Math.max(AGENT_LIST_RATIO_MIN, value));
-}
-
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -47,11 +38,11 @@ interface HydrateOpts {
   filesPanelWidth?: number;
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
-  agentListRatio?: number | null;
   agentListFoldedGroups?: readonly string[];
 }
 
-export type FilesPanelMode = "tree" | "search" | "git";
+/** What the files panel shows: the file tree, search, source control, or the agent list. */
+export type FilesPanelMode = "tree" | "search" | "git" | "agents";
 
 export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 
@@ -65,24 +56,17 @@ interface UIState {
    */
   sidebarHidden: boolean;
   filesPanelHidden: boolean;
-  /**
-   * The agent list's list as a share of the tab's width, one for every
-   * agent list; null keeps the default, min(480px, 50%).
-   */
-  agentListRatio: number | null;
-  /** The agent list's groups the user folded, in every agent list; the others are open. */
+  /** The agent list's groups the user folded, in every workspace; the others are open. */
   agentListFoldedGroups: ReadonlySet<string>;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
-  /** Sets the agent list's list share (null for the default), clamped. */
-  setAgentListRatio(ratio: number | null, persist?: boolean): void;
   /** Folds an agent list's group, or opens it again. Persists. */
   toggleAgentListGroup(group: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
-  /** Toggle the Files Panel (tree/git/search column) visibility. Persists. */
+  /** Toggle the Files Panel (tree/search/git/agents column) visibility. Persists. */
   toggleFilesPanel(): void;
   /** Shows or hides one of the two columns. Persists. */
   setPanelHidden(panel: "sidebar" | "files", hidden: boolean): void;
@@ -117,7 +101,6 @@ export const useUIStore = create<UIState>((set, get) => {
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
     sidebarHidden: false,
     filesPanelHidden: false,
-    agentListRatio: null,
     agentListFoldedGroups: new Set(),
     filesPanelModes: new Map(),
 
@@ -126,7 +109,6 @@ export const useUIStore = create<UIState>((set, get) => {
       filesPanelWidth,
       sidebarHidden,
       filesPanelHidden,
-      agentListRatio,
       agentListFoldedGroups,
     }) {
       set({
@@ -138,7 +120,6 @@ export const useUIStore = create<UIState>((set, get) => {
             : FILES_PANEL_WIDTH_DEFAULT,
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
-        agentListRatio: clampAgentListRatio(agentListRatio),
         agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
       });
     },
@@ -160,16 +141,6 @@ export const useUIStore = create<UIState>((set, get) => {
       if (persist) {
         // Fire-and-forget: local state is source of truth; appState is the durable store.
         void ipcCallResult("appState", "set", { filesPanelWidth: next }).then((result) => {
-          if (!result.ok) log.warn(`appState set failed: ${result.message}`);
-        });
-      }
-    },
-
-    setAgentListRatio(ratio, persist) {
-      const next = clampAgentListRatio(ratio);
-      set({ agentListRatio: next });
-      if (persist) {
-        void ipcCallResult("appState", "set", { agentListRatio: next }).then((result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }

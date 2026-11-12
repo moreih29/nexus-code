@@ -1,7 +1,7 @@
 /**
  * nexus panel list/show/hide/resize: the two columns left of the editor
  * area, the workspace sidebar and the files panel, and what the files panel
- * shows: the file tree, search or git.
+ * shows: the file tree, search, git or the agent list.
  *
  * The columns are the app's, not a workspace's, so changing them needs no
  * leave; the files panel's view is kept per workspace.
@@ -21,16 +21,17 @@ const NAMES: Record<string, { panel: CliPanel; mode?: CliFilesMode }> = {
   tree: { panel: "files", mode: "tree" },
   search: { panel: "files", mode: "search" },
   git: { panel: "files", mode: "git" },
+  agents: { panel: "files", mode: "agents" },
 };
 
 const NAMES_HELP =
   "Panels: sidebar (the workspace list) and files, whose views are files (the tree),\n" +
-  "search and git.";
+  "search, git and agents (the workspace's agent list).";
 
 function panelNamed(word: string): { panel: CliPanel; mode?: CliFilesMode } {
   const named = NAMES[word.toLowerCase()];
   if (!named)
-    throw new CliUsageError(`no panel "${word}"; there are sidebar, files, search and git`);
+    throw new CliUsageError(`no panel "${word}"; there are sidebar, files, search, git and agents`);
   return named;
 }
 

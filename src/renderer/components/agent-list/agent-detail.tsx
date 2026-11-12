@@ -1,9 +1,9 @@
-// Agent list — detail panel of an agent a Claude session runs: the
-// conversation it belongs to, then what it was asked, wrote and ran, as its
-// session's own turn reads (agent-flow.tsx). Its permission requests are
-// answered in its terminal or Claude tab.
+// Agent list — an agent a Claude session runs, as its card shows it
+// (agent-peek.tsx): the conversation it belongs to, then what it was asked,
+// wrote and ran, as its session's own turn reads (agent-flow.tsx), with its
+// permission requests to answer.
 
-import { ChevronRight, SquareArrowOutUpRight } from "lucide-react";
+import { ChevronRight, SquareArrowOutUpRight, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
@@ -25,7 +25,6 @@ import {
   agentTitle,
 } from "./agent-status";
 import { PermissionAsks } from "./permission-asks";
-import type { AgentListSelection } from "./selection";
 import { AgentMark } from "./status-view";
 
 /** How many characters of an agent's id say which one it is. */
@@ -37,7 +36,8 @@ export function AgentDetail({
   agent,
   asks,
   visible,
-  onSelect,
+  onShowSession,
+  onClose,
 }: {
   worktree: WorktreeEntry;
   session: AgentSession;
@@ -45,7 +45,9 @@ export function AgentDetail({
   /** The permission requests the agent waits on. */
   asks: readonly PermissionAsk[];
   visible: boolean;
-  onSelect: (selection: AgentListSelection) => void;
+  /** Goes to the conversation it belongs to. */
+  onShowSession: () => void;
+  onClose: () => void;
 }) {
   const { t } = useTranslation();
   // Running tools count their seconds.
@@ -68,23 +70,28 @@ export function AgentDetail({
         className="flex min-w-0 items-center gap-1 text-app-micro text-muted-foreground"
       >
         {/* The workspace keeps its short name; the conversation's title gives way first. */}
-        <Crumb
-          className="max-w-40 shrink-0"
-          onClick={() => onSelect({ kind: "worktree", workspaceId: worktree.workspace.id })}
-        >
-          <span className="truncate">{worktree.workspace.name}</span>
-        </Crumb>
+        <span className="max-w-40 shrink-0 truncate">{worktree.workspace.name}</span>
         <ChevronRight aria-hidden className="size-3 shrink-0" />
         {/* The conversation it belongs to, by its mark and title as its row reads. */}
         <Crumb
           title={t("agentList.agents.parent", { title: session.title })}
-          onClick={() => onSelect({ kind: "session", key: session.key })}
+          onClick={onShowSession}
         >
           <AgentMark session={session} className="size-3" />
           <span className="truncate">{session.title}</span>
         </Crumb>
         <ChevronRight aria-hidden className="size-3 shrink-0" />
         <span className="shrink-0">{t("agentList.agents.agent_crumb")}</span>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="-my-1 ml-auto size-6 shrink-0"
+          title={t("agentList.agents.close_card")}
+          aria-label={t("agentList.agents.close_card")}
+          onClick={onClose}
+        >
+          <X aria-hidden className="size-3.5" />
+        </Button>
       </nav>
       <header className="flex items-start gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -112,6 +119,7 @@ export function AgentDetail({
               // A chat tab shows the agent in its pane; a terminal has none.
               if (session.kind !== "terminal") askToShowAgent(session.tabId, agent);
               showTerminal(session);
+              onClose();
             }}
           >
             <SquareArrowOutUpRight aria-hidden className="size-3.5" />

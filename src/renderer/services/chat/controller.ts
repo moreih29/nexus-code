@@ -212,8 +212,6 @@ export class ChatController {
   private readonly live = new LiveLines();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
-  /** The opening under way is a look: it starts no program. */
-  private looking = false;
   private disposed = false;
   private titled = false;
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
@@ -263,30 +261,14 @@ export class ChatController {
 
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
-    // A look under way starts nothing: the program starts once it is done.
-    if (this.opening) return this.looking ? this.opening.then(() => this.open()) : this.opening;
-    this.opening = this.doOpen(true).finally(() => {
-      this.opening = null;
-    });
-    return this.opening;
-  }
-
-  /**
-   * Shows the tab's conversation without starting its program, for the
-   * agent list: the agent's log, else the transcript of the session it goes on with. The program starts with the
-   * first message sent, or when the tab is shown.
-   */
-  look(): Promise<void> {
     if (this.opening) return this.opening;
-    this.looking = true;
-    this.opening = this.doOpen(false).finally(() => {
+    this.opening = this.doOpen().finally(() => {
       this.opening = null;
-      this.looking = false;
     });
     return this.opening;
   }
 
-  private async doOpen(start: boolean): Promise<void> {
+  private async doOpen(): Promise<void> {
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
@@ -316,10 +298,6 @@ export class ChatController {
       await this.loadTranscript(fork.sessionId, forkCut(fork), this.forkProfile());
     } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
-    }
-    if (!start) {
-      this.update((prev) => ({ ...prev, phase: "ended" }));
-      return;
     }
     await this.start(this.startArgs());
   }
@@ -878,11 +856,6 @@ export class ChatController {
     }).catch(() => undefined);
     const title = typeof result?.title === "string" ? result.title.trim() : "";
     if (title) this.hooks.onTitle?.(title);
-  }
-
-  /** Puts `text` in the tab's message box, after what is typed there, to be sent from it. */
-  putDraft(text: string): void {
-    this.update((prev) => ({ ...prev, draft: { text, images: [], nonce: Date.now() } }));
   }
 
   /** The composer took the message a rewind or fork put back. */
