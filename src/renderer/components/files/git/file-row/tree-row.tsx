@@ -134,8 +134,8 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={`Stage folder ${displayName}`}
-              title={`Stage folder ${displayName}`}
+              aria-label={t("git.fileRow.stageFolder", { name: displayName })}
+              title={t("git.fileRow.stageFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onStagePaths();
@@ -150,8 +150,8 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6"
-              aria-label={`Unstage folder ${displayName}`}
-              title={`Unstage folder ${displayName}`}
+              aria-label={t("git.fileRow.unstageFolder", { name: displayName })}
+              title={t("git.fileRow.unstageFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onUnstagePaths();
@@ -166,8 +166,8 @@ export function GitTreeRow(props: GitTreeRowProps) {
               variant="ghost"
               size="icon-sm"
               className="size-6 opacity-50 transition-opacity hover:opacity-100 git-destructive-text"
-              aria-label={`Discard changes in folder ${displayName}`}
-              title={`Discard changes in folder ${displayName}`}
+              aria-label={t("git.fileRow.discardFolder", { name: displayName })}
+              title={t("git.fileRow.discardFolder", { name: displayName })}
               onClick={(event) => {
                 event.stopPropagation();
                 onDiscardPaths();

@@ -206,6 +206,7 @@ export function GitGroup({
       {header}
       <GitGroupTree
         groupKey={groupKey}
+        label={label}
         entries={entries}
         expandedTreeNodes={expandedTreeNodes}
         onToggleTreeNode={onToggleTreeNode}
@@ -232,6 +233,8 @@ export function GitGroup({
 
 interface GitGroupTreeProps {
   groupKey: GitExpandedGroupKey;
+  /** The group's name, which names its tree. */
+  label: string;
   entries: GitStatusEntry[];
   expandedTreeNodes: string[];
   onToggleTreeNode?: (relPath: string) => void;
@@ -255,6 +258,7 @@ interface GitGroupTreeProps {
 
 function GitGroupTree({
   groupKey,
+  label,
   entries,
   expandedTreeNodes,
   onToggleTreeNode,
@@ -354,7 +358,7 @@ function GitGroupTree({
     <div
       ref={containerRef}
       role="tree"
-      aria-label={groupKey}
+      aria-label={label}
       onKeyDown={(e) => onKeyDown(e.nativeEvent)}
     >
       {flatRows.map((row, idx) => {

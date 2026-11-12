@@ -707,7 +707,8 @@
   "imagePreview": {
     "workspace_not_found": "Workspace not found.",
     "outside_workspace": "Image is outside the workspace and cannot be previewed.",
-    "load_failed": "Could not load image."
+    "load_failed": "Could not load image.",
+    "resolution": "Image resolution: {{size}} pixels"
   },
   "fontPreview": {
     "outside_workspace": "This font is outside the workspace and cannot be previewed.",
@@ -757,7 +758,9 @@
     "copy_link": "Copy link to this section",
     "mermaid_alt": "Mermaid diagram",
     "mermaid_error": "This diagram could not be drawn: {{message}}",
-    "mermaid_unshown": "This diagram was drawn but cannot be shown."
+    "mermaid_unshown": "This diagram was drawn but cannot be shown.",
+    "image": "image",
+    "image_not_loaded": "Image not loaded: {{src}}"
   },
   "resize": {
     "sidebar": "Resize sidebar",
