@@ -6,6 +6,7 @@ import { basename } from "@/utils/path";
 import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/relay";
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
+  type ChatChosen,
   PROFILE_MOVES_KEPT,
   type ProfileMove,
   type SerializedTab,
@@ -60,6 +61,8 @@ export interface ClaudeTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  /** The model and effort the user picked in the tab, for its next program to take. */
+  chosen?: ChatChosen;
 }
 
 export interface CodexTabProps {
@@ -287,6 +290,11 @@ interface TabsState {
    * profile; none drops them. No-op on other tab types.
    */
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
+  /**
+   * Keep the model or effort the user picked in a Claude tab, over what it
+   * had picked before. No-op on other tab types.
+   */
+  setClaudeChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
   /** Keeps who sent a message through the nexus command; one with its id is replaced. */
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
@@ -773,6 +781,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
           cwd: tab.props.cwd,
           ...(profileId ? { profileId } : {}),
           ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+          // The model and effort picked hold for the tab, whichever profile runs it.
+          ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
         };
         const next = { ...tab, props } as Tab;
         return {
@@ -798,6 +808,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
             ...(tab.props.moves ? { moves: tab.props.moves } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.props.chosen ? { chosen: tab.props.chosen } : {}),
           },
         };
         return {
@@ -823,6 +834,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             ...(tab.props.profileId ? { profileId: tab.props.profileId } : {}),
             ...(tab.props.moves ? { moves: tab.props.moves } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.props.chosen ? { chosen: tab.props.chosen } : {}),
           },
         };
         return {
@@ -844,6 +856,28 @@ export const useTabsStore = create<TabsState>((set, get) => {
         const props =
           moves.length > 0 ? { ...rest, moves: moves.slice(-PROFILE_MOVES_KEPT) } : rest;
         const next = { ...tab, props } as Tab;
+        return {
+          byWorkspace: {
+            ...state.byWorkspace,
+            [workspaceId]: { ...wsRecord, [tabId]: next },
+          },
+        };
+      });
+    },
+
+    setClaudeChosen(workspaceId, tabId, chosen) {
+      set((state) => {
+        const wsRecord = state.byWorkspace[workspaceId];
+        const tab = wsRecord?.[tabId];
+        if (!wsRecord || tab?.type !== "claude") return state;
+        const merged = { ...tab.props.chosen, ...chosen };
+        if (
+          merged.model === tab.props.chosen?.model &&
+          merged.effort === tab.props.chosen?.effort
+        ) {
+          return state;
+        }
+        const next: ClaudeTab = { ...tab, props: { ...tab.props, chosen: merged } };
         return {
           byWorkspace: {
             ...state.byWorkspace,

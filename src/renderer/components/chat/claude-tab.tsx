@@ -175,6 +175,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
           fork: props.fork,
           ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(props.moves ? { moves: props.moves } : {}),
+          ...(props.chosen ? { chosen: props.chosen } : {}),
         },
         hooks ?? claudeTabHooks(workspaceId, tabId),
       ),

@@ -9,7 +9,7 @@
 import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-profiles/profiles";
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
-import type { ProfileMove } from "../../../shared/types/layout";
+import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
 import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
@@ -124,6 +124,8 @@ export interface ChatTabTarget {
   profileId?: string;
   /** Where the conversation went on in another profile. */
   moves?: readonly ProfileMove[];
+  /** The model and effort the user picked in the tab before. */
+  chosen?: ChatChosen;
 }
 
 export interface ChatTabHooks {
@@ -149,6 +151,8 @@ export interface ChatTabHooks {
   onMoves?: (moves: readonly ProfileMove[]) => void;
   /** Who sent a message another agent sent through the nexus command, by its id. */
   onRelayed?: (record: RelayedMessage) => void;
+  /** The model or effort the user picked, for the tab to keep. */
+  onChosen?: (chosen: ChatChosen) => void;
 }
 
 /** What `rewind_files` would change, or why it cannot. */
@@ -202,8 +206,10 @@ export class ChatController {
   readonly key: string;
   private target: ChatTabTarget;
   private hooks: ChatTabHooks;
-  /** The flag settings the tab's commands set (/add-dir, /sandbox). */
+  /** The flag settings the tab's commands set (/add-dir, /sandbox, the effort picked). */
   private flags: Record<string, unknown> = {};
+  /** The model picked in the tab, which a program started again for it takes too. */
+  private chosenModel: string | undefined;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
   private buffered: ChatLine[] = [];
@@ -232,6 +238,8 @@ export class ChatController {
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
     this.sessionId = target.sessionId;
+    this.chosenModel = target.chosen?.model;
+    if (target.chosen?.effort) this.flags = { effortLevel: target.chosen.effort };
     this.leavePlanUsage = registerPlanSource({
       agent: "claude",
       usageKey: () => this.usageKey(),
@@ -421,12 +429,18 @@ export class ChatController {
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
-          // What /add-dir and /sandbox set holds for the tab, not one program.
+          return this.followSettings();
+        })
+        // What /add-dir, /sandbox and the tab's chips set holds for the tab,
+        // not one program: after the settings' defaults, which it overrides.
+        .then(() => {
           if (Object.keys(this.flags).length > 0) {
             return this.request("apply_flag_settings", { settings: this.flags });
           }
         })
-        .then(() => this.followSettings())
+        .then(() => {
+          if (this.chosenModel) return this.request("set_model", { model: this.chosenModel });
+        })
         .then(() => {
           // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
           if (remote) {
@@ -894,12 +908,16 @@ export class ChatController {
   }
 
   setModel(model: string): Promise<unknown> {
+    // Holds for the tab: a program started again for it takes it too.
+    this.chosenModel = model;
+    this.hooks.onChosen?.({ model });
     return this.shownAtOnce("model", model, () => this.request("set_model", { model }));
   }
 
   setEffort(level: string): Promise<unknown> {
     // Holds for the tab: a program started again for it takes it too.
     this.flags = { ...this.flags, effortLevel: level };
+    this.hooks.onChosen?.({ effort: level });
     return this.shownAtOnce("effort", level, () =>
       this.request("apply_flag_settings", { settings: { effortLevel: level } }),
     );

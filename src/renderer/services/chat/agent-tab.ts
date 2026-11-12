@@ -36,6 +36,7 @@ export function claudeTabHooks(workspaceId: string, tabId: string): ChatTabHooks
       ),
     onMoves: (moves) => tabs().setChatMoves(workspaceId, tabId, moves),
     onRelayed: (record) => tabs().addChatRelayed(workspaceId, tabId, record),
+    onChosen: (chosen) => tabs().setClaudeChosen(workspaceId, tabId, chosen),
   };
 }
 
@@ -69,7 +70,7 @@ export type AgentTabController =
 export function agentTabController(workspaceId: string, tabId: string): AgentTabController | null {
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (tab?.type === "claude") {
-    const { cwd, sessionId, fork, profileId, moves } = tab.props;
+    const { cwd, sessionId, fork, profileId, moves, chosen } = tab.props;
     return {
       agent: "claude",
       controller: chatController(
@@ -81,6 +82,7 @@ export function agentTabController(workspaceId: string, tabId: string): AgentTab
           fork,
           ...(profileId ? { profileId } : {}),
           ...(moves ? { moves } : {}),
+          ...(chosen ? { chosen } : {}),
         },
         claudeTabHooks(workspaceId, tabId),
       ),
