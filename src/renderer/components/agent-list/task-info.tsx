@@ -1,7 +1,8 @@
 // Agent list — a worktree's facts, unfolded under its header in the task
 // view: how far a task has gone from its workspace's branch, its folder,
-// and its uncommitted changes in lines, the first few files of them; a file
-// opens its diff, the rest is in source control.
+// and its uncommitted changes in lines, the first few files of them, each
+// by its name, then its folder; a file opens its diff, the rest is in
+// source control.
 
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -81,8 +82,12 @@ export function TaskInfo({
                 >
                   {file.code}
                 </span>
-                <span className="min-w-0 truncate font-mono text-foreground">{file.relPath}</span>
-                <LineCounts lines={lines.get(file.relPath)} className="ml-auto" />
+                <FilePath relPath={file.relPath} />
+                {/* Narrow, a file's lines give their room to its name; the total stays. */}
+                <LineCounts
+                  lines={lines.get(file.relPath)}
+                  className="ml-auto @max-[200px]/agents:hidden"
+                />
               </button>
             </li>
           ))}
@@ -98,6 +103,23 @@ export function TaskInfo({
         </button>
       )}
     </div>
+  );
+}
+
+/**
+ * A changed file as its name, then its folder dimmed, on one line cut at
+ * its end: where the panel is narrow the folder goes first, so the name
+ * stays readable.
+ */
+function FilePath({ relPath }: { relPath: string }) {
+  const slash = relPath.lastIndexOf("/");
+  const name = relPath.slice(slash + 1);
+  const folder = slash === -1 ? "" : relPath.slice(0, slash);
+  return (
+    <span className="min-w-0 truncate font-mono">
+      <span className="text-foreground">{name}</span>
+      {folder && <span className="ml-1.5 text-muted-foreground">{folder}</span>}
+    </span>
   );
 }
 
