@@ -7,16 +7,16 @@ import { Square, SquareArrowOutUpRight } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { useNow } from "../../services/agent-sessions/use-family";
 import { stopPrintRun } from "../../services/chat/print-runs";
-import { useNow } from "../../services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
-import { AgentFlow, toolCount } from "../sessions/agent-flow";
+import { AgentFlow, toolCount } from "../agent-list/agent-flow";
 import {
   AgentDuration,
   AgentGlyph,
   agentStateColor,
   agentStateLabel,
-} from "../sessions/agent-status";
+} from "../agent-list/agent-status";
 import { Button } from "../ui/button";
 import { ChatMarkdown } from "./chat-markdown";
 

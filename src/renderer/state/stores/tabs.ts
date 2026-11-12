@@ -43,7 +43,7 @@ export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
 export type GitCommitTabProps = GitCommitTabPayload;
 export type BrowserTabProps = BrowserTabPayload;
-export type SessionsTabProps = Record<string, never>;
+export type AgentListTabProps = Record<string, never>;
 
 export interface ClaudeTabProps {
   cwd: string;
@@ -167,9 +167,9 @@ export interface CodexTab extends TabBase {
 }
 
 /** The workspace's agent sessions, its tasks' included. */
-export interface SessionsTab extends TabBase {
-  type: "sessions";
-  props: SessionsTabProps;
+export interface AgentListTab extends TabBase {
+  type: "agent-list";
+  props: AgentListTabProps;
 }
 
 export type Tab =
@@ -181,7 +181,7 @@ export type Tab =
   | BrowserTab
   | ClaudeTab
   | CodexTab
-  | SessionsTab;
+  | AgentListTab;
 
 // ---------------------------------------------------------------------------
 // State shape — flat record registry; ordering and active state live in layout.ts
@@ -202,7 +202,7 @@ export type CreateTabArgs =
   | { type: "browser"; props: BrowserTabProps }
   | { type: "claude"; props: ClaudeTabProps }
   | { type: "codex"; props: CodexTabProps }
-  | { type: "sessions"; props: SessionsTabProps };
+  | { type: "agent-list"; props: AgentListTabProps };
 
 interface TabsState {
   byWorkspace: Record<string, Record<string, Tab>>;
@@ -339,7 +339,7 @@ export function defaultTitle(args: CreateTabArgs): string {
   }
   if (args.type === "git.commit") return `commit ${args.props.sha.slice(0, 7)}`;
   if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
-  if (args.type === "sessions") return i18next.t("common:sessions.tab_title");
+  if (args.type === "agent-list") return i18next.t("common:agentList.tab_title");
   if (args.type === "claude") return i18next.t("common:chat.tab_title");
   if (args.type === "codex") return i18next.t("common:chat.codex.tab_title");
   if (args.type === "browser") {
@@ -355,7 +355,7 @@ export function defaultTitle(args: CreateTabArgs): string {
 
 /**
  * The titles a tab restored from a snapshot starts with: as they were
- * saved, but a name the app gives (a chat tab's, the agents tab's), worked
+ * saved, but a name the app gives (a chat tab's, the agent list's), worked
  * out again in the app's language. A snapshot from before the titles were
  * kept has the shown one alone: a chat tab's is its conversation's unless
  * it is the tab's name, any other tab's is taken for its name.
@@ -365,7 +365,7 @@ export function restoredTitles(
 ): Pick<TabBase, "title" | "defaultTitle" | "customTitle" | "processTitle"> {
   const chat = tab.type === "claude" || tab.type === "codex";
   const name =
-    chat || tab.type === "sessions" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
+    chat || tab.type === "agent-list" ? defaultTitle(tab) : (tab.defaultTitle ?? tab.title);
   const { customTitle } = tab;
   const older = tab.defaultTitle === undefined;
   const processTitle =
@@ -443,8 +443,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "claude", props: args.props };
       } else if (args.type === "codex") {
         tab = { ...base, type: "codex", props: args.props };
-      } else if (args.type === "sessions") {
-        tab = { ...base, type: "sessions", props: args.props };
+      } else if (args.type === "agent-list") {
+        tab = { ...base, type: "agent-list", props: args.props };
       } else {
         tab = { ...base, type: "terminal", props: args.props };
       }

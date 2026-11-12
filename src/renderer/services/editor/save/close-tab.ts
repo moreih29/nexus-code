@@ -56,7 +56,7 @@ export async function closeTabWithConfirm(
   }
 
   // git.commit, browser, sessions — no dirty state.
-  if (tab.type === "git.commit" || tab.type === "browser" || tab.type === "sessions") {
+  if (tab.type === "git.commit" || tab.type === "browser" || tab.type === "agent-list") {
     closeTab(workspaceId, tabId);
   }
 

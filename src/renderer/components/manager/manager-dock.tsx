@@ -8,14 +8,14 @@ import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { managerProfileOf } from "../../../shared/manager/manager";
 import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
+import type { AgentSession } from "../../services/agent-sessions/model";
+import { goToSession } from "../../services/agent-sessions/use-inbox";
 import {
   managerClaudeHooks,
   managerCodexHooks,
   newManagerConversation,
 } from "../../services/manager/runtime";
 import { useManagerTasks } from "../../services/manager/use-tasks";
-import type { AgentSession } from "../../services/sessions/model";
-import { goToSession } from "../../services/sessions/use-inbox";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import {
   DOCK_WIDTH_DEFAULT,
@@ -26,12 +26,12 @@ import {
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
+import { StateGlyph, stateLabel } from "../agent-list/session-status";
+import { AgentMark } from "../agent-list/status-view";
 import { hasProfileChoice, ProfileDot, profileName } from "../agent-profiles/profile-badge";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { ClaudeTabView } from "../chat/claude-tab";
 import { CodexTabView } from "../chat/codex-tab";
-import { StateGlyph, stateLabel } from "../sessions/session-status";
-import { AgentMark } from "../sessions/status-view";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { ResizeHandle } from "../ui/resize-handle";

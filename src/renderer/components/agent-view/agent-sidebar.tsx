@@ -7,6 +7,10 @@
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
 import { type DragEvent, memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { ActivityByKey } from "@/services/agent-sessions/agents";
+import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
+import { chatRowFacts, hookRowFacts } from "@/services/agent-sessions/rows";
+import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import {
   AGENT_FILTERS,
   type AgentFilter,
@@ -19,10 +23,6 @@ import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
-import type { ActivityByKey } from "@/services/sessions/agents";
-import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/sessions/model";
-import { chatRowFacts, hookRowFacts } from "@/services/sessions/rows";
-import { useSessionActivity } from "@/services/sessions/use-family";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useManagerStore } from "@/state/stores/manager";
@@ -30,12 +30,12 @@ import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { AgentRows } from "../agent-list/agent-rows";
+import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-status";
+import { AgentMark, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
 import { ManagerChip } from "../manager/manager-chip";
-import { AgentRows } from "../sessions/agent-rows";
-import { StateGlyph, stateLabel, useDurationLabel } from "../sessions/session-status";
-import { AgentMark, RowLine } from "../sessions/status-view";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { connectionStatusClassName } from "../workbench/sidebar";

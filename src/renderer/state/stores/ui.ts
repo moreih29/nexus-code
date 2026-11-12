@@ -17,9 +17,9 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
-/** The share of the agents tab's width its list may take, dragged by its divider. */
-export const SESSIONS_LIST_RATIO_MIN = 0.2;
-export const SESSIONS_LIST_RATIO_MAX = 0.8;
+/** The share of the agent list's width its list may take, dragged by its divider. */
+export const AGENT_LIST_RATIO_MIN = 0.2;
+export const AGENT_LIST_RATIO_MAX = 0.8;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,9 +33,9 @@ function clampFilesPanel(value: number): number {
   return Math.min(FILES_PANEL_WIDTH_MAX, Math.max(FILES_PANEL_WIDTH_MIN, value));
 }
 
-function clampSessionsList(value: number | null | undefined): number | null {
+function clampAgentListRatio(value: number | null | undefined): number | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return Math.min(SESSIONS_LIST_RATIO_MAX, Math.max(SESSIONS_LIST_RATIO_MIN, value));
+  return Math.min(AGENT_LIST_RATIO_MAX, Math.max(AGENT_LIST_RATIO_MIN, value));
 }
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ interface HydrateOpts {
   filesPanelWidth?: number;
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
-  sessionsListRatio?: number | null;
+  agentListRatio?: number | null;
   agentListFoldedGroups?: readonly string[];
 }
 
@@ -66,10 +66,10 @@ interface UIState {
   sidebarHidden: boolean;
   filesPanelHidden: boolean;
   /**
-   * The agents tab's list as a share of the tab's width, one for every
-   * agents tab; null keeps the default, min(480px, 50%).
+   * The agent list's list as a share of the tab's width, one for every
+   * agent list; null keeps the default, min(480px, 50%).
    */
-  sessionsListRatio: number | null;
+  agentListRatio: number | null;
   /** The agent list's groups the user folded, in every agent list; the others are open. */
   agentListFoldedGroups: ReadonlySet<string>;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
@@ -77,8 +77,8 @@ interface UIState {
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
-  /** Sets the agents tab's list share (null for the default), clamped. */
-  setSessionsListRatio(ratio: number | null, persist?: boolean): void;
+  /** Sets the agent list's list share (null for the default), clamped. */
+  setAgentListRatio(ratio: number | null, persist?: boolean): void;
   /** Folds an agent list's group, or opens it again. Persists. */
   toggleAgentListGroup(group: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
@@ -117,7 +117,7 @@ export const useUIStore = create<UIState>((set, get) => {
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
     sidebarHidden: false,
     filesPanelHidden: false,
-    sessionsListRatio: null,
+    agentListRatio: null,
     agentListFoldedGroups: new Set(),
     filesPanelModes: new Map(),
 
@@ -126,7 +126,7 @@ export const useUIStore = create<UIState>((set, get) => {
       filesPanelWidth,
       sidebarHidden,
       filesPanelHidden,
-      sessionsListRatio,
+      agentListRatio,
       agentListFoldedGroups,
     }) {
       set({
@@ -138,7 +138,7 @@ export const useUIStore = create<UIState>((set, get) => {
             : FILES_PANEL_WIDTH_DEFAULT,
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
-        sessionsListRatio: clampSessionsList(sessionsListRatio),
+        agentListRatio: clampAgentListRatio(agentListRatio),
         agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
       });
     },
@@ -165,11 +165,11 @@ export const useUIStore = create<UIState>((set, get) => {
       }
     },
 
-    setSessionsListRatio(ratio, persist) {
-      const next = clampSessionsList(ratio);
-      set({ sessionsListRatio: next });
+    setAgentListRatio(ratio, persist) {
+      const next = clampAgentListRatio(ratio);
+      set({ agentListRatio: next });
       if (persist) {
-        void ipcCallResult("appState", "set", { sessionsListRatio: next }).then((result) => {
+        void ipcCallResult("appState", "set", { agentListRatio: next }).then((result) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }

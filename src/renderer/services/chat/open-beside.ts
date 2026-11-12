@@ -15,11 +15,11 @@ import { useActiveStore } from "../../state/stores/active";
 import { isAgentViewShown, useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout/store";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { revealInWorkspace } from "../agent-sessions/actions";
 import { showInAgentView } from "../agent-view/show";
 import { revealEditorAt } from "../editor/tabs";
 import { openExternalEditor } from "../editor/tabs/open-external-editor";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
-import { revealInWorkspace } from "../sessions/actions";
 import { activateWorkspace } from "../workspace/tasks";
 import { type FileLink, isUnder, type LineAt } from "./links";
 

@@ -1990,7 +1990,7 @@ export const ipcContract = {
       clearWorkspace: call(z.object({ workspaceId: z.string() }), z.void()),
       /**
        * What the Claude sessions of the workspaces are doing, as their hooks
-       * tell it: their tools, todo lists and agents. The sessions tab polls it.
+       * tell it: their tools, todo lists and agents. The agent list polls it.
        */
       activity: call(
         z.object({ workspaceIds: z.array(z.string()) }),

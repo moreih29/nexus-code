@@ -9,7 +9,7 @@
  */
 
 import type { EndedAgentSnapshot } from "../../../shared/types/agent-view";
-import type { AgentSession } from "../sessions/model";
+import type { AgentSession } from "../agent-sessions/model";
 
 export type ResumableAgent = "claude" | "codex";
 

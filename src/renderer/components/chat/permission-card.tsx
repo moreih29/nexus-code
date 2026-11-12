@@ -127,7 +127,7 @@ interface FormProps {
 // The keyboard
 // ---------------------------------------------------------------------------
 
-/** The chat tab `el` is in; none in the sessions tab's detail panel. */
+/** The chat tab `el` is in; none in the agent list's detail panel. */
 function chatTabOf(el: Element): Element | null {
   return el.closest('[data-testid="claude-tab"], [data-testid="codex-tab"]');
 }

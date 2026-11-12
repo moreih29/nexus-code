@@ -4,9 +4,9 @@
 
 import { Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { sendLine } from "@/services/agent-sessions/actions";
 import { type EndedAgent, resumeLine } from "@/services/agent-view/ended";
 import { parseSessionKey } from "@/services/agent-view/layout";
-import { sendLine } from "@/services/sessions/actions";
 import { requestTabFocus } from "@/services/tab-focus";
 import { createLogger } from "../../../shared/log/renderer";
 import { Button } from "../ui/button";

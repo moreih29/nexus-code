@@ -9,6 +9,8 @@ import type { SplitLeaf } from "@/engine";
 import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
 import { useTabInSight } from "@/hooks/use-tab-in-sight";
 import { shortcutFor } from "@/keybindings/shortcut-labels";
+import { openInWorkspace } from "@/services/agent-sessions/actions";
+import type { AgentSession } from "@/services/agent-sessions/model";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import type { EndedAgent } from "@/services/agent-view/ended";
 import {
@@ -21,8 +23,6 @@ import {
   setActiveLeaf,
   splitLeaf,
 } from "@/services/agent-view/layout";
-import { openInWorkspace } from "@/services/sessions/actions";
-import type { AgentSession } from "@/services/sessions/model";
 import { requestTabFocus } from "@/services/tab-focus";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useTabsStore } from "@/state/stores/tabs";
@@ -37,8 +37,8 @@ import { cn } from "@/utils/cn";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { createLogger } from "../../../shared/log/renderer";
 import { ipcCallResult } from "../../ipc/client";
-import { StateGlyph, stateLabel } from "../sessions/session-status";
-import { AgentMark } from "../sessions/status-view";
+import { StateGlyph, stateLabel } from "../agent-list/session-status";
+import { AgentMark } from "../agent-list/status-view";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
@@ -467,9 +467,9 @@ function AgentTab({
 
 /** The words of the button that goes to an agent's tab, by its tab's type, as the agent list says them. */
 function goToTabLabel(type: string | undefined): string {
-  if (type === "claude") return "sessions.detail.show_claude_tab";
-  if (type === "codex") return "sessions.detail.show_codex_tab";
-  return "sessions.detail.show_terminal";
+  if (type === "claude") return "agentList.detail.show_claude_tab";
+  if (type === "codex") return "agentList.detail.show_codex_tab";
+  return "agentList.detail.show_terminal";
 }
 
 /** What an empty panel says: where its agents come from, and a way back to the list when it is hidden. */

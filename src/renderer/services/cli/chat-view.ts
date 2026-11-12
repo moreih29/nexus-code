@@ -4,6 +4,7 @@
  * whole (chat tool). Pure.
  */
 
+import { type RelayedMessage, RelaySenderSchema } from "../../../shared/chat/relay";
 import type {
   CliChatEntry,
   CliChatGoal,
@@ -11,15 +12,14 @@ import type {
   CliChatRequest,
   CliChatTool,
 } from "../../../shared/cli/ui";
-import { type RelayedMessage, RelaySenderSchema } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { lastAnswer } from "../agent-sessions/codex-state";
+import { chatRowFacts, inputTarget } from "../agent-sessions/rows";
 import { shownGoalOf } from "../chat/goal";
 import { type ChatItem, type ChatModel, opensTurn, type ToolCall } from "../chat/model";
 import { followsMessage } from "../chat/profile-moves";
 import { relaySenderText, withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
-import { lastAnswer } from "../sessions/codex-state";
-import { chatRowFacts, inputTarget } from "../sessions/rows";
 
 /** What a tab asks the user, in a line: the question, the plan, or the tool to allow. */
 function askedOf(model: ChatModel): string | undefined {

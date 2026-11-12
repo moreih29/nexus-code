@@ -190,65 +190,61 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 6,
     up: (db) => {
-      const txn = (
-        db as unknown as { transaction: (fn: () => void) => () => void }
-      ).transaction(() => {
-        // Add sort_order column — default 0 means "not yet positioned".
-        if (!hasColumn(db, "workspaces", "sort_order")) {
-          db.exec(
-            "ALTER TABLE workspaces ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;",
-          );
-        }
+      const txn = (db as unknown as { transaction: (fn: () => void) => () => void }).transaction(
+        () => {
+          // Add sort_order column — default 0 means "not yet positioned".
+          if (!hasColumn(db, "workspaces", "sort_order")) {
+            db.exec("ALTER TABLE workspaces ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;");
+          }
 
-        // Add pinned_sort_order column — mirrors sort_order but for the pinned group.
-        if (!hasColumn(db, "workspaces", "pinned_sort_order")) {
-          db.exec(
-            "ALTER TABLE workspaces ADD COLUMN pinned_sort_order INTEGER NOT NULL DEFAULT 0;",
-          );
-        }
+          // Add pinned_sort_order column — mirrors sort_order but for the pinned group.
+          if (!hasColumn(db, "workspaces", "pinned_sort_order")) {
+            db.exec(
+              "ALTER TABLE workspaces ADD COLUMN pinned_sort_order INTEGER NOT NULL DEFAULT 0;",
+            );
+          }
 
-        // Composite index used by the sidebar list query:
-        //   ORDER BY pinned DESC, (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC
-        db.exec(`
+          // Composite index used by the sidebar list query:
+          //   ORDER BY pinned DESC, (CASE pinned WHEN 1 THEN pinned_sort_order ELSE sort_order END) ASC
+          db.exec(`
           CREATE INDEX IF NOT EXISTS idx_workspaces_order
             ON workspaces (pinned DESC, sort_order ASC);
         `);
 
-        // Backfill: assign step-1024 positions to rows that have not yet been
-        // positioned (both sort columns still at their DEFAULT 0).
-        // Rows are sorted by last_opened_at DESC so the most-recently-used
-        // workspace gets the smallest (earliest) position in its group.
-        const unpositioned = db
-          .prepare(
-            `SELECT id, pinned
+          // Backfill: assign step-1024 positions to rows that have not yet been
+          // positioned (both sort columns still at their DEFAULT 0).
+          // Rows are sorted by last_opened_at DESC so the most-recently-used
+          // workspace gets the smallest (earliest) position in its group.
+          const unpositioned = db
+            .prepare(
+              `SELECT id, pinned
              FROM workspaces
              WHERE sort_order = 0 AND pinned_sort_order = 0
              ORDER BY last_opened_at DESC`,
-          )
-          .all() as { id: string; pinned: number }[];
+            )
+            .all() as { id: string; pinned: number }[];
 
-        const updateUnpinned = db.prepare(
-          "UPDATE workspaces SET sort_order = ? WHERE id = ?",
-        );
-        const updatePinned = db.prepare(
-          "UPDATE workspaces SET pinned_sort_order = ? WHERE id = ?",
-        );
+          const updateUnpinned = db.prepare("UPDATE workspaces SET sort_order = ? WHERE id = ?");
+          const updatePinned = db.prepare(
+            "UPDATE workspaces SET pinned_sort_order = ? WHERE id = ?",
+          );
 
-        // Assign positions within each group independently so that both groups
-        // start at 1024 and increment by 1024 per row.
-        let unpinnedCounter = 0;
-        let pinnedCounter = 0;
+          // Assign positions within each group independently so that both groups
+          // start at 1024 and increment by 1024 per row.
+          let unpinnedCounter = 0;
+          let pinnedCounter = 0;
 
-        for (const row of unpositioned) {
-          if (row.pinned === 1) {
-            pinnedCounter += 1024;
-            updatePinned.run(pinnedCounter, row.id);
-          } else {
-            unpinnedCounter += 1024;
-            updateUnpinned.run(unpinnedCounter, row.id);
+          for (const row of unpositioned) {
+            if (row.pinned === 1) {
+              pinnedCounter += 1024;
+              updatePinned.run(pinnedCounter, row.id);
+            } else {
+              unpinnedCounter += 1024;
+              updateUnpinned.run(unpinnedCounter, row.id);
+            }
           }
-        }
-      });
+        },
+      );
 
       txn();
     },
@@ -263,7 +259,7 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
-  // The sessions tab's timeline: what each terminal's agent did over time.
+  // The agent list's timeline: what each terminal's agent did over time.
   // end_at is NULL while a span lasts; spans are kept for a day. The
   // timeline is gone and nothing writes or reads the table any more.
   {

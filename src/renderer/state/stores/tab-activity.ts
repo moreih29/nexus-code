@@ -1,7 +1,7 @@
 /**
  * Every live terminal's output activity, which tells what Codex and other
  * agents are doing, as main last reported it. Read every few seconds for the
- * tab bar, the sidebar and the inbox; the sessions tab reads it faster on its
+ * tab bar, the sidebar and the inbox; the agent list reads it faster on its
  * own while it is shown.
  */
 

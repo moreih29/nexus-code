@@ -11,7 +11,7 @@ import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useMountedWorkspacesStore } from "../../state/stores/mounted-workspaces";
 import { useTabsStore } from "../../state/stores/tabs";
-import { sessionKey } from "../sessions/model";
+import { sessionKey } from "../agent-sessions/model";
 import { requestTabFocus } from "../tab-focus";
 import {
   type AgentLayout,

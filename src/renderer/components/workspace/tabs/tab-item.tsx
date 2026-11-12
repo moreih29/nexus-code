@@ -40,19 +40,19 @@ import { isImeComposing } from "@/utils/ime";
 import { basename } from "@/utils/path";
 import type { ClaudeStatus } from "../../../../shared/claude/status";
 import { COMMANDS } from "../../../../shared/keybindings/commands";
-import { useCodexTabStatus } from "../../../services/sessions/use-codex-status";
-import { useEstimatedTabGlyph } from "../../../services/sessions/use-estimated";
+import { useCodexTabStatus } from "../../../services/agent-sessions/use-codex-status";
+import { useEstimatedTabGlyph } from "../../../services/agent-sessions/use-estimated";
 import { useBrowserRuntimeStore } from "../../../state/stores/browser-runtime";
 import { selectStatusForTab, useClaudeStatusStore } from "../../../state/stores/claude-status";
 import { useTabGitDecoration } from "../../../state/stores/git/use-tab-decoration";
 import { useTabEditingStore } from "../../../state/stores/tab-editing";
 import { type Tab, useTabsStore } from "../../../state/stores/tabs";
+import { codexStatusLabel, estimatedLabel } from "../../agent-list/session-status";
 import { TabProfileMark } from "../../agent-profiles/tab-profile";
 import { ClaudeIcon, CodexIcon } from "../../chat/agent-icons";
 import { GoalTabBadge } from "../../chat/goal-bar";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
-import { codexStatusLabel, estimatedLabel } from "../../sessions/session-status";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
 
 /**
@@ -107,7 +107,7 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "editor.diff") return FileDiff;
   if (tab.type === "git.commit") return GitCommit;
   if (tab.type === "untitled") return File;
-  if (tab.type === "sessions") return List;
+  if (tab.type === "agent-list") return List;
   if (tab.type === "claude") return ClaudeIcon;
   if (tab.type === "codex") return CodexIcon;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)

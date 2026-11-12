@@ -184,7 +184,7 @@
     "switcher_aria": "Switch task",
     "new": "New task…",
     "remove_current": "Delete this task…",
-    "show_sessions": "Agent list",
+    "show_agent_list": "Agent list",
     "ports_title": "Listening ports {{ports}}",
     "new_title": "New task",
     "new_description": "Makes a branch and a worktree from {{branch}} of {{name}}, and opens the task in them.",
@@ -393,7 +393,7 @@
     "default_shell": "Default",
     "new_browser": "New Browser",
     "new_claude": "New Claude conversation",
-    "sessions": "Agent list",
+    "agent_list": "Agent list",
     "pin_tab": "Pin Tab",
     "unpin_tab": "Unpin Tab",
     "rename_tab_menu": "Rename Tab…",
@@ -520,7 +520,7 @@
     "notFound": "The {{language}} language server ({{binary}}) was not found.",
     "installHint": "Install: {{command}}"
   },
-  "sessions": {
+  "agentList": {
     "tab_title": "Agent list",
     "none": "No conversations",
     "count": "{{label}} {{count}}",
@@ -784,7 +784,7 @@
     "sidebar": "Resize sidebar",
     "horizontal": "Resize panels horizontally",
     "vertical": "Resize panels vertically",
-    "sessions_list": "Resize the list and the conversation"
+    "agent_list": "Resize the list and the conversation"
   },
   "panel": {
     "connection_failed": "Connection failed",

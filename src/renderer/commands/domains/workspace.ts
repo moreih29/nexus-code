@@ -1,6 +1,6 @@
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import { registerCommand } from "../../commands/registry";
-import { goToNextWaiting } from "../../services/sessions/use-inbox";
+import { goToNextWaiting } from "../../services/agent-sessions/use-inbox";
 import { useActiveStore } from "../../state/stores/active";
 import { useAddWorkspaceUIStore } from "../../state/stores/add-workspace-ui";
 import { useTaskUIStore } from "../../state/stores/task-ui";

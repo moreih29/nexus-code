@@ -1,6 +1,6 @@
 /**
  * The plan's usage, once per profile: one store every tab of a profile, the
- * agents tab and the side panel read, filled by one request at a time.
+ * agent list and the side panel read, filled by one request at a time.
  *
  * Before, each Claude and Codex tab asked for its own and kept what it heard:
  * tabs of one profile told different numbers, and several asking at once

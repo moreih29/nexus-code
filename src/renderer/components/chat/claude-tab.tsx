@@ -60,8 +60,8 @@ import {
   usePrintRuns,
 } from "../../services/chat/print-runs";
 import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
-import { revertChangedFile } from "../../services/chat/revert-file";
 import { withRelayed } from "../../services/chat/relayed";
+import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
 import {
   type ChatTabState,
@@ -847,7 +847,7 @@ function forkFrom(
 /**
  * The tab's state in one line, where it is too narrow for the strip and the
  * panel: its subagents, background jobs, to-dos and context, each an icon
- * and a number as the agents tab's rows tell them. It opens the panel.
+ * and a number as the agent list's rows tell them. It opens the panel.
  */
 function SummaryLine({
   state,
