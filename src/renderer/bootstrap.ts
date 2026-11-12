@@ -5,18 +5,17 @@
  * Functions here are plain async — callers own the `useEffect` wrapper.
  */
 
-import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
-import { startTabActivityPolling } from "./services/sessions/activity-poll";
+import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { startManager } from "./services/manager/runtime";
+import { startTabActivityPolling } from "./services/sessions/activity-poll";
 import { startSessionEvents } from "./services/sessions/session-events";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
-import { startTerminalExitListener } from "./state/terminal-exit";
 import {
   initBrowserLastUrlPersistence,
   initBrowserRuntimeSubscriptions,
@@ -41,6 +40,7 @@ import { useChatFontStore } from "./state/stores/chat-font";
 import { useClaudeStatusStore } from "./state/stores/claude-status";
 import { useEditorFontStore } from "./state/stores/editor-font";
 import { useIconThemeStore } from "./state/stores/icon-theme";
+import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
@@ -54,9 +54,9 @@ import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
-import { useInactivePanelDimStore } from "./state/stores/inactive-panel-dim";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { restoredWorkspace } from "./state/stores/workspaces";
+import { startTerminalExitListener } from "./state/terminal-exit";
 import { initializeWorkspaceLifecycle } from "./state/workspace-cleanup";
 
 const log = createLogger("bootstrap");
@@ -164,6 +164,7 @@ export async function bootstrapAppState(): Promise<void> {
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
     sessionsListRatio: state.sessionsListRatio,
+    agentListFoldedGroups: state.agentListFoldedGroups,
   });
 
   // Hydrate theme from appState (authoritative store).

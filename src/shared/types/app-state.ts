@@ -38,6 +38,9 @@ export const AppStateSchema = z.object({
   // The agents tab's list, as a share of the tab's width, as its divider
   // was last dragged. Absent or null = the default, min(480px, 50%).
   sessionsListRatio: z.number().min(0).max(1).nullable().optional(),
+  // The agent list's groups the user folded ("idle", "ended", …). Absent =
+  // every group open.
+  agentListFoldedGroups: z.array(z.string()).optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
   // Experimental: whether language servers run at all. Absent = off.
   // Settings › Editor applies a change at once; see shared/lsp/settings.ts

@@ -575,6 +575,8 @@ export function Composer({
       ref={rootRef}
       className="shrink-0 border-t border-border px-4 pt-2 pb-3"
       data-testid="chat-composer"
+      // Toasts rise above it rather than cover what is typed (see ToastRoot).
+      data-toast-avoid
     >
       {dropping && dropArea && createPortal(<DropCue />, dropArea)}
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">

@@ -27,9 +27,9 @@
  * code paths (services, IPC error handlers).
  */
 
-import { useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { DetailsDisclosure } from "@/components/ui/details-disclosure";
 import { cn } from "@/utils/cn";
@@ -157,6 +157,35 @@ function dismiss(id: number): void {
   bus.notify();
 }
 
+/** The stack's distance from the window's bottom at rest: above the status bar. */
+const STACK_BOTTOM_PX = 40;
+/** The room left between the stack and a message box it rises above. */
+const STACK_GAP_PX = 8;
+
+/**
+ * Where the stack's bottom goes: above the status bar, and above any message
+ * box (`[data-toast-avoid]`) shown under it, so a toast never covers what is
+ * typed. Never higher than half the window.
+ */
+function stackBottom(stack: HTMLElement): number {
+  const { innerHeight } = window;
+  const box = stack.getBoundingClientRect();
+  const top = innerHeight - STACK_BOTTOM_PX - stack.offsetHeight;
+  let bottom = STACK_BOTTOM_PX;
+  for (const el of document.querySelectorAll<HTMLElement>("[data-toast-avoid]")) {
+    if (
+      typeof el.checkVisibility === "function" &&
+      !el.checkVisibility({ visibilityProperty: true })
+    )
+      continue;
+    const rect = el.getBoundingClientRect();
+    const across = rect.left < box.right && rect.right > box.left;
+    const under = rect.top < innerHeight - STACK_BOTTOM_PX && rect.bottom > top;
+    if (across && under) bottom = Math.max(bottom, innerHeight - rect.top + STACK_GAP_PX);
+  }
+  return Math.min(bottom, innerHeight / 2);
+}
+
 /**
  * Mount once at App level. Renders the active toast stack and runs the
  * auto-dismiss timer.
@@ -164,6 +193,8 @@ function dismiss(id: number): void {
 export function ToastRoot(): React.JSX.Element | null {
   const { t } = useTranslation();
   const [toasts, setToasts] = useState<ActiveToast[]>(active);
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [bottom, setBottom] = useState(STACK_BOTTOM_PX);
 
   useEffect(() => {
     return bus.subscribe(() => setToasts([...active]));
@@ -187,6 +218,22 @@ export function ToastRoot(): React.JSX.Element | null {
     return () => clearInterval(interval);
   }, [toasts.length]);
 
+  // Kept above the message boxes as toasts come and go, the window resizes
+  // and a box grows (looked at again with each sweep).
+  useLayoutEffect(() => {
+    if (toasts.length === 0) return;
+    const place = () => {
+      if (stackRef.current) setBottom(stackBottom(stackRef.current));
+    };
+    place();
+    const interval = setInterval(place, TOAST_SWEEP_INTERVAL_MS);
+    window.addEventListener("resize", place);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("resize", place);
+    };
+  }, [toasts]);
+
   if (toasts.length === 0) return null;
 
   return (
@@ -194,9 +241,11 @@ export function ToastRoot(): React.JSX.Element | null {
       // Lets the browser-suspend observer lift the stack above a browser
       // tab's native view when the two overlap.
       data-toast-viewport=""
+      ref={stackRef}
       // Above the status bar, so its items stay clickable while a toast is
       // up: the language server's warning sits at its right end.
-      className="fixed bottom-10 right-4 z-(--layer-toast) flex flex-col gap-2 w-[360px] max-w-[90vw]"
+      className="fixed right-4 z-(--layer-toast) flex flex-col gap-2 w-[360px] max-w-[90vw]"
+      style={{ bottom }}
     >
       {toasts.map((toast) => {
         // Action toasts use role="alert" (assertive) so assistive technology
@@ -228,10 +277,7 @@ export function ToastRoot(): React.JSX.Element | null {
                 (WCAG 1.4.1 — not colour alone). */}
             <div className="flex items-start gap-2">
               {toast.kind === "warning" ? (
-                <TriangleAlert
-                  className="size-4 shrink-0 mt-px"
-                  aria-hidden="true"
-                />
+                <TriangleAlert className="size-4 shrink-0 mt-px" aria-hidden="true" />
               ) : null}
               <span className="flex-1 break-words">{toast.message}</span>
               <Button

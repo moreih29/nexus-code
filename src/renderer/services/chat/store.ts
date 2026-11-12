@@ -21,7 +21,7 @@ export interface QueuedMessage {
   from?: RelaySender;
 }
 
-/** Text the app puts in the composer: a rewound or forked message. */
+/** Text the app puts in the composer: a rewound or forked message, a command the agent list passed on. */
 export interface ComposerDraft {
   text: string;
   images: ImageBlock[];

@@ -13,6 +13,7 @@ import Editor from "@monaco-editor/react";
 import {
   ChevronLeft,
   ChevronRight,
+  Copy,
   FolderOpen,
   GitCompareArrows,
   Image as ImageIcon,
@@ -28,6 +29,7 @@ import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
+import { copyImage, workspaceImageSrc } from "../../services/chat/copy-image";
 import { imageLookSize, imageSrc, type Size } from "../../services/chat/image-look";
 import { baseName, isUnder, type LineAt } from "../../services/chat/links";
 import type { ImageBlock } from "../../services/chat/model";
@@ -49,12 +51,14 @@ import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { fileErrorMessage } from "../../utils/file-error";
+import { relPath } from "../../utils/path";
 import { revealInOSLabel } from "../../utils/reveal-label";
 import { ImagePreview, ZoomableImage } from "../editor/preview/image-preview";
 import { PreviewFindScope } from "../editor/preview/preview-find";
 import { ViewModeToggle } from "../editor/preview/view-mode-toggle";
 import { EmptyState } from "../ui/empty-state";
 import { IconButton } from "../ui/icon-button";
+import { showToast } from "../ui/toast";
 import { tooltipProps } from "../ui/tooltip";
 import { DocxEditorView } from "../workspace/content/docx-editor-view";
 import { useSharedModelAttach } from "../workspace/content/editor-mount/use-shared-model-attach";
@@ -286,6 +290,34 @@ export function QuickLook({
             disabled={support === "mdx-disabled"}
             disabledReason={support === "mdx-disabled" ? t("editor.mdx_disabled") : undefined}
           />
+        )}
+        {shownAsImage && (image || isUnder(path, root)) && (
+          <IconButton
+            label={t("chat.look.copy_image")}
+            onClick={() => {
+              const src = image
+                ? Promise.resolve(imageSrc(image))
+                : workspaceImageSrc(workspaceId, relPath(path, root));
+              void src
+                .then((data) => {
+                  if (data === null) throw new Error(t("chat.look.copy_image_unread"));
+                  return copyImage(data);
+                })
+                .then(
+                  () => showToast({ kind: "info", message: t("chat.look.copied_image") }),
+                  (failure: unknown) =>
+                    showToast({
+                      kind: "error",
+                      message: t("chat.look.copy_image_failed", {
+                        error: (failure as Error).message,
+                      }),
+                    }),
+                );
+            }}
+            data-testid="chat-quick-look-copy"
+          >
+            <Copy className="size-3.5" />
+          </IconButton>
         )}
         {local && !image && (
           <IconButton

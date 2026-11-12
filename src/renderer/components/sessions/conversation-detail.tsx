@@ -1,10 +1,12 @@
-// Agents tab — the detail panel of a conversation: its title and state with
-// a button to its tab and one to stop it; what it runs on; the conversation
-// itself, as its Claude or Codex tab shows it, once the tab has loaded it;
-// what it waits on, answered here; and the tab's own message box, to send it
-// more. A terminal's agent, and a tab not loaded yet, tell only what they
+// Agent list — the detail panel of a conversation: its title and state with
+// a button to its tab (and, for a terminal's agent, one to stop it); the
+// conversation itself, as its Claude or Codex tab shows it; what it waits
+// on, answered here; and the tab's own message box with its usage line, to
+// send it more. A tab not shown yet is read, not started: its transcript
+// shows, and its program starts with the first message sent. A terminal's
+// agent, and a Codex thread its program has not read, tell only what they
 // were last asked and answered, with the calls they ran last, their
-// subagents and their to-dos; a terminal's takes more typed in.
+// subagents and their to-dos.
 //
 // A Claude or Codex tab's permission request is answered here as its tab
 // would. A terminal's, through Claude Code's hook when it holds the request;
@@ -36,6 +38,7 @@ import { isImeComposing } from "@/utils/ime";
 import type { AgentProfile } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { SessionActivity } from "../../../shared/claude/activity";
+import { agentTabController } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { configCommandOf } from "../../services/chat/claude-config";
 import { parseCodexCommand } from "../../services/chat/codex-commands";
@@ -43,14 +46,8 @@ import { existingCodexController } from "../../services/chat/codex-controller";
 import type { CodexModel } from "../../services/chat/codex-model";
 import { existingChatController } from "../../services/chat/controller";
 import type { CommandInfo } from "../../services/chat/model";
-import {
-  planUsageKeyFor,
-  usePlanClaudeUsage,
-  usePlanCodexLimits,
-  wantPlanUsage,
-} from "../../services/chat/plan-usage";
+import { planUsageKeyFor, wantPlanUsage } from "../../services/chat/plan-usage";
 import { type ChatTabState, chatKey, useChatStore, useChatTab } from "../../services/chat/store";
-import { claudeUsageLine, codexUsageLine, type UsageLine } from "../../services/chat/usage-line";
 import { interrupt, sendLine, showChanges, showTerminal } from "../../services/sessions/actions";
 import {
   chatDetailFacts,
@@ -64,7 +61,6 @@ import {
 } from "../../services/sessions/detail";
 import type { AgentSession } from "../../services/sessions/model";
 import { oneLineMarkdown } from "../../services/sessions/preview";
-import { useNow } from "../../services/sessions/use-family";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -74,11 +70,11 @@ import { ChatMarkdown } from "../chat/chat-markdown";
 import { Composer, composerKeys, SEND_BUTTON_CLASS } from "../chat/composer";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
-import { UsageChip } from "../chat/usage-line";
+import { ClaudeUsageLine, CodexUsageLine } from "../chat/usage-line";
 import { Button } from "../ui/button";
 import { ContextRing } from "../ui/context-ring";
 import { Keycap } from "../ui/keycap";
-import { showToast } from "../ui/toast";
+import { dismissToast, showToast } from "../ui/toast";
 import { FoldToggle, useFold } from "./fold";
 import { PermissionAsks } from "./permission-asks";
 import type { SessionsSelection } from "./selection";
@@ -114,11 +110,23 @@ export function ConversationDetail({
 }: ConversationDetailProps) {
   const { t } = useTranslation();
   const chat = useChatTab(session.workspaceId, session.tabId);
-  // A chat tab not shown since the app started has no conversation loaded, nor a program to send to.
+  // A chat tab not shown since the app started has no conversation loaded until it is looked at.
   const loaded = useChatStore(
     (s) => s.tabs[chatKey(session.workspaceId, session.tabId)] !== undefined,
   );
   const terminal = session.kind === "terminal";
+  // A conversation the tab goes on with, which its transcript tells before the tab is shown.
+  const earlier = useTabsStore((s) => {
+    const tab = s.byWorkspace[session.workspaceId]?.[session.tabId];
+    if (tab?.type === "claude") return Boolean(tab.props.sessionId || tab.props.fork);
+    if (tab?.type === "codex") return Boolean(tab.props.threadId || tab.props.fork);
+    return false;
+  });
+  // Read, not started: its program starts with a message sent from here, or when its tab is shown.
+  useEffect(() => {
+    if (!visible || terminal || loaded) return;
+    void agentTabController(session.workspaceId, session.tabId)?.controller.look();
+  }, [visible, terminal, loaded, session.workspaceId, session.tabId]);
   // A Claude tab's hooks tell its agents as a terminal's do, `claude -p` runs
   // too; a Codex tab's runs are told the same.
   const hooked = terminal || activity !== undefined;
@@ -140,31 +148,13 @@ export function ConversationDetail({
   );
   const profile = useSessionProfile(session);
   // The plan's limits: its profile's, as its tabs heard them last, not this
-  // conversation's. Shown, it asks for them when they are due. A minute's
-  // clock, so a window that resets leaves.
+  // conversation's. Shown, it asks for them when they are due.
   const agent = session.kind === "codex" ? "codex" : "claude";
   const profileId = useTabProfileId(session);
-  const claudePlan = usePlanClaudeUsage(session.workspaceId, profileId);
-  const codexPlan = usePlanCodexLimits(session.workspaceId, profileId);
   useEffect(() => {
     if (visible && !terminal)
       void wantPlanUsage(planUsageKeyFor(agent, session.workspaceId, profileId));
   }, [visible, terminal, agent, session.workspaceId, profileId]);
-  const now = useNow(visible && !terminal, 60_000);
-  const usage = useMemo(() => {
-    if (terminal) return null;
-    if (session.kind === "codex") {
-      const model = chat.model as CodexModel;
-      return codexUsageLine(
-        { tokens: model.tokens, rateLimits: codexPlan ?? model.rateLimits },
-        now,
-      );
-    }
-    return claudeUsageLine(
-      { contextUsage: chat.model.contextUsage, usage: claudePlan ?? chat.model.usage },
-      now,
-    );
-  }, [terminal, session.kind, chat.model, claudePlan, codexPlan, now]);
   const permissionHint = waiting && requests === 0 && session.state === "permissionPending" && (
     <p className="border-t border-border px-4 py-3 text-app-ui-sm text-(--state-warning-fg)">
       {terminal
@@ -172,20 +162,23 @@ export function ConversationDetail({
         : t("sessions.detail.permission_hint_claude")}
     </p>
   );
-  if (!terminal && loaded) {
+  // The conversation as the tab shows it, once there is one read; a Codex
+  // thread only its program reads, so until then it shows its last exchange.
+  const chatShown = !terminal && loaded && (told || chat.model.running || !earlier);
+  if (chatShown) {
     return (
       <div className="@container flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 flex-col gap-2 border-b border-border px-4 pt-4 pb-3">
-          <DetailTop session={session} running={chat.model.running} onBack={onBack} />
-          {/* The box under the conversation tells and picks the model, effort and mode, as in the tab. */}
+          <DetailTop session={session} onBack={onBack} />
+          {/* The box under the conversation tells and picks the model, effort and mode, and
+              the line under it what is spent, as in the tab. */}
           <MetaChips
             session={session}
             facts={facts}
             branch={branch}
             todos={facts.todos}
             runsOn={false}
-            usage={usage}
-            profile={profile}
+            spent={false}
           />
         </div>
         <ChatPane session={session} chat={chat} visible={visible}>
@@ -196,7 +189,14 @@ export function ConversationDetail({
             </div>
           )}
           {/* Keyed by the session, so a draft never carries over to another one. */}
-          <DetailComposer key={session.key} session={session} chat={chat} />
+          <DetailComposer
+            key={session.key}
+            session={session}
+            chat={chat}
+            visible={visible}
+            profileId={profileId}
+            profile={profile}
+          />
           {permissionHint}
         </ChatPane>
       </div>
@@ -206,14 +206,14 @@ export function ConversationDetail({
     <div className="@container flex h-full min-h-0 flex-col">
       <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="flex min-w-0 flex-col gap-4 p-4">
-          <DetailTop session={session} running={chat.model.running} onBack={onBack} />
+          <DetailTop session={session} onBack={onBack} />
           <MetaChips session={session} facts={facts} branch={branch} />
           {!waiting && prompt && <UserBubble text={prompt} />}
           {session.phase !== "running" && answer && (
             // Keyed by the session, so each one opens folded.
             <AgentBubble key={session.key} session={session} text={answer} rootPath={rootPath} />
           )}
-          {!terminal && (
+          {!terminal && chat.phase !== "starting" && (
             <p className="text-app-ui-sm text-muted-foreground">
               {t("sessions.detail.not_loaded")}
             </p>
@@ -239,8 +239,32 @@ export function ConversationDetail({
         // Keyed by the session, so a draft never carries over to another one.
         <TerminalFollowUp key={session.key} session={session} />
       )}
+      {!terminal && loaded && (
+        <ChatFont session={session}>
+          <DetailComposer
+            key={session.key}
+            session={session}
+            chat={chat}
+            visible={visible}
+            profileId={profileId}
+            profile={profile}
+          />
+        </ChatFont>
+      )}
       {permissionHint}
     </div>
+  );
+}
+
+/** What is in it in the chat tabs' font, its words naming the tab's program, as in the tab. */
+function ChatFont({ session, children }: { session: AgentSession; children: React.ReactNode }) {
+  const fontStyle = useChatFontStyle();
+  return (
+    <ChatAgentContext.Provider value={session.kind === "codex" ? "codex" : "claude"}>
+      <div className="chat-font" style={fontStyle}>
+        {children}
+      </div>
+    </ChatAgentContext.Provider>
   );
 }
 
@@ -314,20 +338,16 @@ function useRelayed(session: AgentSession): readonly RelayedMessage[] | undefine
   });
 }
 
-/** The mark, the title and the state, with the buttons to its tab and to stop it. */
-function DetailTop({
-  session,
-  running,
-  onBack,
-}: {
-  session: AgentSession;
-  /** A chat tab's turn runs. */
-  running: boolean;
-  onBack?: () => void;
-}) {
+/**
+ * The mark, the title and the state, with the buttons to its tab and, for a
+ * terminal's agent, to stop it: a Claude or Codex tab's turn stops from its
+ * message box, as in the tab.
+ */
+function DetailTop({ session, onBack }: { session: AgentSession; onBack?: () => void }) {
   const { t } = useTranslation();
   const duration = useDurationLabel(session.since);
-  const canStop = session.state === "running" || session.state === "busy" || running;
+  const canStop =
+    session.kind === "terminal" && (session.state === "running" || session.state === "busy");
   const openLabel =
     session.kind === "claude"
       ? t("sessions.detail.show_claude_tab")
@@ -408,8 +428,7 @@ function MetaChips({
   branch,
   todos,
   runsOn: showRunsOn = true,
-  usage,
-  profile,
+  spent = true,
 }: {
   session: AgentSession;
   facts: DetailFacts;
@@ -418,10 +437,8 @@ function MetaChips({
   todos?: readonly DetailTodo[];
   /** Tells the model, effort and mode; left out where the box under the conversation does. */
   runsOn?: boolean;
-  /** How much of its plan's limits its account has spent, shown in place of the cost when told. */
-  usage?: UsageLine | null;
-  /** Its account's profile, where its agent has more than its default one. */
-  profile?: AgentProfile;
+  /** Tells the context used and the cost; left out where the line under the box tells what is spent. */
+  spent?: boolean;
 }) {
   const { t } = useTranslation();
   const modePrefix = session.kind === "codex" ? "chat.codex.mode" : "chat.mode";
@@ -459,7 +476,7 @@ function MetaChips({
         {todosDone}/{todos.length}
       </span>
     ),
-    facts.context !== undefined && (
+    spent && facts.context !== undefined && (
       <span
         key="context"
         className="flex shrink-0 items-center gap-1"
@@ -469,22 +486,11 @@ function MetaChips({
         {facts.context}%
       </span>
     ),
-    // A plan's limits tell what is spent; the cost, an estimate at API
-    // prices, shows only where none are told (an account on an API key).
-    usage && usage.meters.length > 0 ? (
-      <UsageChip
-        key="usage"
-        line={usage}
-        head={profile ? profileName(profile, t) : undefined}
-        dot={profile ? <ProfileDot color={profile.color} className="size-1.5" /> : undefined}
-      />
-    ) : (
-      facts.costUsd !== undefined &&
-      facts.costUsd > 0 && (
-        <span key="cost" className="shrink-0" title={t("chat.panel.usage.cost_hint")}>
-          {facts.costUsd < 0.01 ? "<$0.01" : `$${facts.costUsd.toFixed(2)}`}
-        </span>
-      )
+    // The cost, an estimate at API prices.
+    spent && facts.costUsd !== undefined && facts.costUsd > 0 && (
+      <span key="cost" className="shrink-0" title={t("chat.panel.usage.cost_hint")}>
+        {facts.costUsd < 0.01 ? "<$0.01" : `$${facts.costUsd.toFixed(2)}`}
+      </span>
     ),
     files && (
       <button
@@ -834,7 +840,20 @@ function Todos({ todos }: { todos: readonly DetailTodo[] }) {
  * shows above it as in the tab, and its keys and buttons do as there. The
  * tab's own commands run in the tab, which opens what they show.
  */
-function DetailComposer({ session, chat }: { session: AgentSession; chat: ChatTabState }) {
+function DetailComposer({
+  session,
+  chat,
+  visible,
+  profileId,
+  profile,
+}: {
+  session: AgentSession;
+  chat: ChatTabState;
+  visible: boolean;
+  profileId: string | undefined;
+  /** Its account's profile, where its agent has more than its default one. */
+  profile: AgentProfile | undefined;
+}) {
   const { t } = useTranslation();
   const relayed = useRelayed(session);
   const local = useWorkspacesStore(
@@ -853,10 +872,28 @@ function DetailComposer({ session, chat }: { session: AgentSession; chat: ChatTa
         parseAppCommand(text, chat.model.init?.commands ?? []) !== null;
     if (own) {
       const agent = codex ? "Codex" : "Claude";
-      showToast({ kind: "info", message: t("sessions.detail.command_in_tab", { agent }) });
+      // It goes to the tab's own box, to be sent there.
+      const toast = showToast({
+        kind: "info",
+        message: t("sessions.detail.command_in_tab", { agent }),
+        actions: [
+          {
+            label: t("sessions.detail.open_in_tab"),
+            onAction: () => {
+              controller.putDraft(text);
+              showTerminal(session);
+            },
+          },
+        ],
+      });
+      setTimeout(() => dismissToast(toast), COMMAND_TOAST_MS);
     }
     return own;
   };
+  // Its profile's mark ends the line, as in the tab; another one is picked there.
+  const trailing = profile
+    ? (compact: boolean) => <ProfileMark profile={profile} compact={compact} />
+    : undefined;
   return (
     <Composer
       controller={controller}
@@ -867,7 +904,43 @@ function DetailComposer({ session, chat }: { session: AgentSession; chat: ChatTa
       commands={codex ? NO_COMMANDS : undefined}
       onCommand={tabOnly}
       takesDraft={false}
+      below={
+        codex ? (
+          <CodexUsageLine
+            workspaceId={session.workspaceId}
+            profileId={profileId}
+            visible={visible}
+            tokens={(chat.model as CodexModel).tokens}
+            rateLimits={(chat.model as CodexModel).rateLimits}
+            trailing={trailing}
+          />
+        ) : (
+          <ClaudeUsageLine
+            workspaceId={session.workspaceId}
+            profileId={profileId}
+            visible={visible}
+            contextUsage={chat.model.contextUsage}
+            usage={chat.model.usage}
+            trailing={trailing}
+          />
+        )
+      }
     />
+  );
+}
+
+/** How long the toast of a command the tab runs stays, its button with it. */
+const COMMAND_TOAST_MS = 15_000;
+
+/** A profile's dot and name, which the tab's line shows as the button that picks another. */
+function ProfileMark({ profile, compact }: { profile: AgentProfile; compact: boolean }) {
+  const { t } = useTranslation();
+  const name = profileName(profile, t);
+  return (
+    <span className="flex shrink-0 items-center gap-1 px-1" title={name}>
+      <ProfileDot color={profile.color} className="size-1.5" />
+      {!compact && <span className="max-w-28 truncate">{name}</span>}
+    </span>
   );
 }
 
@@ -914,6 +987,7 @@ function TerminalFollowUp({ session }: { session: AgentSession }) {
       }}
       className="chat-font shrink-0 border-t border-border px-4 pt-2 pb-3"
       style={fontStyle}
+      data-toast-avoid
     >
       <div className="mx-auto flex max-w-[860px] flex-col gap-2">
         <div className="rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
@@ -923,7 +997,6 @@ function TerminalFollowUp({ session }: { session: AgentSession }) {
             onChange={(event) => setText(event.target.value)}
             onKeyDown={onKeyDown}
             readOnly={sending}
-            placeholder={t("sessions.detail.follow_up")}
             aria-label={t("sessions.detail.follow_up")}
             title={hint}
             className="app-scrollbar field-sizing-content block max-h-40 min-h-[calc(2lh+1rem)] w-full resize-none overflow-y-auto bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
