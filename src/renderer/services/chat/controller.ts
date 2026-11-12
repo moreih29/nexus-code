@@ -445,7 +445,10 @@ export class ChatController {
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
-          return this.followSettings();
+          // The settings' effort failing leaves the tab's own flags and pick to apply.
+          return this.followSettings().catch((err: Error) =>
+            log.warn(`settings' effort not applied: ${err.message}`),
+          );
         })
         // What /add-dir, /sandbox and the tab's chips set holds for the tab,
         // not one program: after the settings' defaults, which it overrides.
@@ -870,6 +873,9 @@ export class ChatController {
     from?: RelaySender,
   ): Promise<void> {
     if (!(await this.ensureRunning())) return;
+    // A program just started takes the tab's flags and pick first, so its
+    // first turn runs with them. The chain settles on its own failures.
+    await this.initializing;
     const first = !this.titled && text.trim() ? text.trim() : undefined;
     if (first) {
       this.titled = true;

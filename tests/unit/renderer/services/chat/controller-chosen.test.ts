@@ -161,6 +161,42 @@ describe("the model and effort picked in a Claude tab", () => {
     expect(asked[4]?.model).toBe("claude-haiku-5-5");
   });
 
+  test("still go to the program when the settings' effort is refused", async () => {
+    const c = new ChatController({
+      workspaceId: "ws-chosen",
+      tabId: `t${++seq}`,
+      cwd: "/p",
+      chosen: { model: "claude-haiku-5-5", effort: "low" },
+    });
+    live.push(c);
+    const asked = await startUp(c, { refuse: "apply_flag_settings" });
+    expect(asked.map((r) => r.subtype)).toEqual([
+      "initialize",
+      "get_settings",
+      "apply_flag_settings",
+      "apply_flag_settings",
+      "set_model",
+    ]);
+    expect(asked[3]?.settings).toEqual({ effortLevel: "low" });
+  });
+
+  test("reach the program before a message sent as it starts", async () => {
+    const c = new ChatController({
+      workspaceId: "ws-chosen",
+      tabId: `t${++seq}`,
+      cwd: "/p",
+      chosen: { model: "claude-haiku-5-5", effort: "low" },
+    });
+    live.push(c);
+    const sending = c.send("hi");
+    await answerNext(c, 0);
+    await answerNext(c, 1, { effective: { effortLevel: "high" } });
+    for (let n = 2; n < 5; n++) await answerNext(c, n);
+    await sending;
+    const order = sent.map((m) => (m.type === "control_request" ? m.request?.subtype : m.type));
+    expect(order.indexOf("user")).toBeGreaterThan(order.indexOf("set_model"));
+  });
+
   test("leave a tab without a pick to the settings", async () => {
     const c = new ChatController({ workspaceId: "ws-chosen", tabId: `t${++seq}`, cwd: "/p" });
     live.push(c);
