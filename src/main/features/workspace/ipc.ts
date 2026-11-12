@@ -1,4 +1,4 @@
-import { createAbortError, isAbortError } from "../../../shared/abort";
+import { createAbortError, isAbortError, throwIfAborted } from "../../../shared/abort";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
 import { type SshErrorCode, SshErrorCodeSchema } from "../../../shared/ssh/errors";
@@ -273,16 +273,6 @@ function messageForSshErrorCode(code: SshErrorCode): string {
     case "transport.timeout":
       return "Agent request timed out";
   }
-}
-
-/**
- * Throws the router-compatible AbortError when a call signal is canceled.
- */
-function throwIfAborted(signal?: AbortSignal): void {
-  if (!signal?.aborted) {
-    return;
-  }
-  throw createAbortError();
 }
 
 /**

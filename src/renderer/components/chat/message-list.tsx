@@ -31,13 +31,13 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { ProfileMove } from "../../../shared/types/layout";
+import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
 import { splitAttachments } from "../../services/chat/composer-input";
@@ -1264,7 +1264,7 @@ function CopyButton({ text }: { text: string }) {
 /** When a message was sent: relative, exact on hover. */
 function MessageTime({ at }: { at?: number }) {
   const { t, i18n } = useTranslation();
-  const now = useSyncExternalStore(subscribeClock, clockNow);
+  const now = useSharedClock(messageClock);
   if (at === undefined) return null;
   const exact = dateTimeFormat(i18n.language, DATE_AND_TIME).format(at);
   return (
@@ -1292,28 +1292,4 @@ export function relativeTime(at: number, now: number, locale: string, justNow: s
 const RELATIVE: Intl.RelativeTimeFormatOptions = { numeric: "auto" };
 
 // One clock for every message's time, ticking while any is shown.
-const clockListeners = new Set<() => void>();
-let clockTimer: ReturnType<typeof setInterval> | null = null;
-let clockValue = Date.now();
-
-function subscribeClock(listener: () => void): () => void {
-  clockListeners.add(listener);
-  if (clockTimer === null) {
-    clockValue = Date.now();
-    clockTimer = setInterval(() => {
-      clockValue = Date.now();
-      for (const l of clockListeners) l();
-    }, 30_000);
-  }
-  return () => {
-    clockListeners.delete(listener);
-    if (clockListeners.size === 0 && clockTimer !== null) {
-      clearInterval(clockTimer);
-      clockTimer = null;
-    }
-  };
-}
-
-function clockNow(): number {
-  return clockValue;
-}
+const messageClock = sharedClock(30_000);
