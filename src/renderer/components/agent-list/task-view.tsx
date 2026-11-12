@@ -232,7 +232,15 @@ function TaskHeader({
       <div className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
         <Chevron aria-hidden className="-ml-1 size-3.5 shrink-0 text-muted-foreground" />
         <WorktreeMark worktree={worktree} />
-        <span className="min-w-0 truncate font-medium text-foreground" title={name}>
+        {/* The name keeps its width beside the branch or the creator, which
+            give way first, up to most of the line. */}
+        <span
+          className={cn(
+            "truncate font-medium text-foreground",
+            (worktree.isRoot && branch) || creator ? "max-w-[70%] shrink-0" : "min-w-0",
+          )}
+          title={name}
+        >
           {name}
         </span>
         {worktree.isRoot && branch && (
