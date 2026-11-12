@@ -14,7 +14,6 @@ import {
   sameFamily,
   sessionsOf,
 } from "../agent-sessions/model";
-import { groupOf } from "../agent-sessions/rows";
 
 export interface AgentsInput extends SessionsInput {
   readonly workspaces: readonly WorkspaceMeta[];
@@ -59,34 +58,6 @@ export function sameAgents(a: Agents, b: Agents): boolean {
     a.families.length === b.families.length &&
     a.families.every((family, i) => sameFamily(family, b.families[i] ?? null))
   );
-}
-
-/** The filters of the list, in its order: every agent, then each group the agent list has. */
-export const AGENT_FILTERS = ["all", "running", "attention", "done", "idle"] as const;
-export type AgentFilter = (typeof AGENT_FILTERS)[number];
-
-/**
- * Whether `filter` lists `session`: in the group the agent list puts it in,
- * where one that ended is in none of these.
- */
-export function passesFilter(session: AgentSession, filter: AgentFilter): boolean {
-  return filter === "all" || groupOf(session) === filter;
-}
-
-/** How many agents each filter lists. */
-export function agentCounts(agents: Agents): Record<AgentFilter, number> {
-  const counts: Record<AgentFilter, number> = {
-    all: agents.byKey.size,
-    running: 0,
-    attention: 0,
-    done: 0,
-    idle: 0,
-  };
-  for (const { session } of agents.byKey.values()) {
-    const group = groupOf(session);
-    if (group !== "ended") counts[group]++;
-  }
-  return counts;
 }
 
 /** The palette's colors, one per workspace and its tasks, so its panels read as its own. */

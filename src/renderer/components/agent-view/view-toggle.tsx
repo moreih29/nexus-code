@@ -16,10 +16,10 @@ import { useAgentViewStore } from "../../state/stores/agent-view";
 export function ViewToggle() {
   const { t } = useTranslation();
   const mode = useAgentViewStore((s) => s.mode);
-  // An agent waiting on the user shows from the workspaces too.
-  const waiting = useInbox().attention > 0;
+  // How many agents wait on the user, told from the workspaces too.
+  const waiting = useInbox().attention;
   const shortcut = shortcutFor(COMMANDS.workbenchToggleAgentView);
-  const option = (value: AgentViewMode, label: string, icon: React.ReactNode, dot = false) => {
+  const option = (value: AgentViewMode, label: string, icon: React.ReactNode, count = 0) => {
     const on = mode === value;
     return (
       <button
@@ -36,11 +36,14 @@ export function ViewToggle() {
       >
         {icon}
         <span>{label}</span>
-        {dot && (
+        {count > 0 && (
           <span
-            aria-hidden="true"
-            className="size-1.5 shrink-0 rounded-full bg-(--state-warning-fg)"
-          />
+            className="flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-(--state-warning-fg) px-1 text-[10px] leading-none font-semibold text-background tabular-nums"
+            title={t("agentView.toggle.waiting", { count })}
+            data-testid="view-toggle-waiting"
+          >
+            {count > 99 ? "99+" : count}
+          </span>
         )}
       </button>
     );
