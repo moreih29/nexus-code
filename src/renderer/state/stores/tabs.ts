@@ -294,7 +294,8 @@ interface TabsState {
   setChatMoves: (workspaceId: string, tabId: string, moves: readonly ProfileMove[]) => void;
   /**
    * Keep the model or effort the user picked in a Claude or Codex tab, over
-   * what it had picked before. No-op on other tab types.
+   * what it had picked before; an empty pick forgets them (a Codex turn
+   * took them). No-op on other tab types.
    */
   setChatChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
   /** Keeps who sent a message through the nexus command; one with its id is replaced. */
@@ -749,9 +750,15 @@ export const useTabsStore = create<TabsState>((set, get) => {
       set((state) =>
         withTab(state, workspaceId, tabId, (tab) => {
           if (tab.type !== "claude" && tab.type !== "codex") return tab;
-          const merged = { ...tab.props.chosen, ...chosen };
-          const same =
-            merged.model === tab.props.chosen?.model && merged.effort === tab.props.chosen?.effort;
+          const before = tab.props.chosen;
+          const empty = !chosen.model && !chosen.effort;
+          if (empty) {
+            if (!before) return tab;
+            const { chosen: _forgotten, ...props } = tab.props;
+            return { ...tab, props } as Tab;
+          }
+          const merged = { ...before, ...chosen };
+          const same = merged.model === before?.model && merged.effort === before?.effort;
           return same ? tab : ({ ...tab, props: { ...tab.props, chosen: merged } } as Tab);
         }),
       );

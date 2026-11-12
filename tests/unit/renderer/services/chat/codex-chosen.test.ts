@@ -110,6 +110,21 @@ describe("the model and effort picked in a Codex tab", () => {
     expect(turn?.params).toMatchObject({ threadId: "t1", model: "gpt-5.4-mini", effort: "low" });
   });
 
+  test("are forgotten once a turn takes them: the thread holds them from then on", async () => {
+    const picks: unknown[] = [];
+    const c = tab({ model: "gpt-5.4-mini" }, (pick) => picks.push(pick));
+    await c.readDefaults();
+    await Bun.sleep(40);
+    await c.send("hi");
+    expect(picks).toEqual([{}]);
+    // A second turn has nothing of its own to send, nor to forget.
+    await Bun.sleep(40);
+    await c.send("again");
+    const turns = sent.filter((m) => m.method === "turn/start");
+    expect(turns[1]?.params?.model).toBeUndefined();
+    expect(picks).toEqual([{}]);
+  });
+
   test("leave a tab without a pick on the thread's", async () => {
     const c = tab();
     await c.readDefaults();
@@ -123,7 +138,7 @@ describe("the model and effort picked in a Codex tab", () => {
 });
 
 describe("the pick a Codex tab keeps", () => {
-  test("goes on with its thread, and not to another profile, which has its own", () => {
+  test("goes on with its thread until a turn takes it, and not to another profile", () => {
     const tabs = () => useTabsStore.getState();
     const t = tabs().createTab("ws-codex-chosen-store", { type: "codex", props: { cwd: "/p" } });
     const props = () => tabs().byWorkspace["ws-codex-chosen-store"]?.[t.id]?.props;
@@ -135,6 +150,9 @@ describe("the pick a Codex tab keeps", () => {
       threadId: "t1",
       chosen: { model: "gpt-5.4-mini", effort: "low" },
     });
+    tabs().setChatChosen("ws-codex-chosen-store", t.id, {});
+    expect(props()).toEqual({ cwd: "/p", threadId: "t1" });
+    tabs().setChatChosen("ws-codex-chosen-store", t.id, { effort: "low" });
     tabs().setChatProfile("ws-codex-chosen-store", t.id, "work");
     expect(props()).toEqual({ cwd: "/p", profileId: "work" });
   });

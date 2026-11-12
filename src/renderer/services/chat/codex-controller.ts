@@ -140,7 +140,10 @@ export interface CodexTabHooks {
    * client id; again with its turn once that is known.
    */
   onRelayed?: (record: RelayedMessage) => void;
-  /** The model or effort the user picked, for the tab to keep. */
+  /**
+   * The model or effort the user picked, for the tab to keep until a turn
+   * takes it; none once one has.
+   */
   onChosen?: (chosen: ChatChosen) => void;
 }
 
@@ -190,8 +193,8 @@ export class CodexController {
     this.target = target;
     this.hooks = hooks;
     this.key = chatKey(target.workspaceId, target.tabId);
-    // What the user picked before, not sent yet or the thread's since: its
-    // next turn takes it, as one picked now would.
+    // What the user picked before and no turn has sent yet: the next turn
+    // takes it, as one picked now would.
     this.next = picksFrom(target.chosen);
     this.removeReceiver = addLineReceiver(this.key, this);
     this.leavePlanUsage = registerPlanSource({
@@ -309,6 +312,7 @@ export class CodexController {
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
       this.readRateLimits();
+      this.showPicks();
       return true;
     }
     const handshake = this.handshake()
@@ -817,6 +821,9 @@ export class CodexController {
     }
     const { model, effort, mode } = this.next;
     this.next = {};
+    // The thread holds them from this turn on: the tab keeps a pick only
+    // until it is sent, so a thread changed since is not overridden.
+    if (model || effort) this.hooks.onChosen?.({});
     // Its answer, or its error as a notice, comes in the log.
     void this.request("turn/start", {
       threadId,
