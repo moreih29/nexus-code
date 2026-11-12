@@ -251,6 +251,11 @@ export function Composer({
   const completion = completionAt(text, caret);
   const completionKey = completion ? `${completion.kind}:${completion.start}` : null;
   const [dismissed, setDismissed] = useState<string | null>(null);
+  // A menu put away stays away only while its word lasts: once the word is
+  // gone (the box emptied, the message sent), the next one opens again.
+  useEffect(() => {
+    if (completionKey === null) setDismissed(null);
+  }, [completionKey]);
   const menuOpen = focused && completion !== null && completionKey !== dismissed;
   const commands = useMemo(() => {
     if (!menuOpen || completion?.kind !== "command") return [];
