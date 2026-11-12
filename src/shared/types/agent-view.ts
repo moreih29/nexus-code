@@ -82,5 +82,11 @@ export const AgentViewSnapshotSchema = z.object({
     .record(z.string().max(200), z.array(SessionKeySchema).max(256))
     .optional()
     .catch(undefined),
+  // How the list groups its agents: by their state, or by their workspace.
+  // Absent, or one this version lacks = by state.
+  grouping: z.string().max(32).optional().catch(undefined),
+  // The list's groups the user folded: "status:<group>" or
+  // "workspace:<workspace id>". Absent = every group open.
+  folded: z.array(z.string().max(200)).max(256).optional().catch(undefined),
 });
 export type AgentViewSnapshot = z.infer<typeof AgentViewSnapshotSchema>;

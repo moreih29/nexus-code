@@ -60,7 +60,7 @@ import { SessionProfileMark } from "./session-profile";
 import { StateGlyph, stateLabel, useDurationLabel } from "./session-status";
 
 /** The state whose glyph stands for a group. */
-const GROUP_STATE: Record<RowGroup, string> = {
+export const GROUP_STATE: Record<RowGroup, string> = {
   attention: "permissionPending",
   running: "running",
   done: "completed",
@@ -68,7 +68,7 @@ const GROUP_STATE: Record<RowGroup, string> = {
   ended: "exited",
 };
 
-const GROUP_TINT: Record<RowGroup, string> = {
+export const GROUP_TINT: Record<RowGroup, string> = {
   attention: "text-(--state-warning-fg)",
   running: "text-emerald-500",
   done: "text-(--tab-claude-attention-fg)",

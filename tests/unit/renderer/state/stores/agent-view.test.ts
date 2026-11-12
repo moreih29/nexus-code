@@ -137,4 +137,63 @@ describe("agent view store", () => {
       "ws-b": [B, "ws-b:t4"],
     });
   });
+
+  it("lists by state until the user picks the workspaces, and stores only a pick that is not that", async () => {
+    const leaf = { kind: "leaf" as const, id: P1, tabIds: [], activeTabId: null };
+    useAgentViewStore
+      .getState()
+      .hydrate({ mode: "agents", root: leaf, activeLeafId: P1 }, () => true);
+    expect(useAgentViewStore.getState().grouping).toBe("status");
+
+    useAgentViewStore.getState().setGrouping("status");
+    await settle();
+    expect(stored).toEqual([]);
+
+    useAgentViewStore.getState().setGrouping("workspace");
+    await settle();
+    expect((stored[0] as { agentView: { grouping: unknown } }).agentView.grouping).toBe(
+      "workspace",
+    );
+
+    useAgentViewStore.getState().setGrouping("status");
+    await settle();
+    expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.grouping");
+  });
+
+  it("restores the grouping stored, and lists by state for one it does not know", () => {
+    const leaf = { kind: "leaf" as const, id: P1, tabIds: [], activeTabId: null };
+    useAgentViewStore
+      .getState()
+      .hydrate({ mode: "agents", root: leaf, activeLeafId: P1, grouping: "workspace" }, () => true);
+    expect(useAgentViewStore.getState().grouping).toBe("workspace");
+
+    __resetAgentViewForTests();
+    useAgentViewStore
+      .getState()
+      .hydrate({ mode: "agents", root: leaf, activeLeafId: P1, grouping: "branch" }, () => true);
+    expect(useAgentViewStore.getState().grouping).toBe("status");
+  });
+
+  it("restores the folded groups, and stores them as they change; a second fold opens one again", async () => {
+    const leaf = { kind: "leaf" as const, id: P1, tabIds: [], activeTabId: null };
+    useAgentViewStore
+      .getState()
+      .hydrate(
+        { mode: "agents", root: leaf, activeLeafId: P1, folded: ["status:ended"] },
+        () => true,
+      );
+    expect([...useAgentViewStore.getState().folded]).toEqual(["status:ended"]);
+
+    useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    await settle();
+    expect((stored[0] as { agentView: { folded: unknown } }).agentView.folded).toEqual([
+      "status:ended",
+      "workspace:ws-a",
+    ]);
+
+    useAgentViewStore.getState().toggleFolded("status:ended");
+    useAgentViewStore.getState().toggleFolded("workspace:ws-a");
+    await settle();
+    expect(stored[1] as { agentView: object }).not.toHaveProperty("agentView.folded");
+  });
 });

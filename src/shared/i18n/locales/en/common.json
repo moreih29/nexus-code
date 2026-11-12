@@ -1710,19 +1710,17 @@
     "toggle": {
       "aria": "View",
       "workspaces": "Workspaces",
-      "agents": "Agents"
+      "agents": "Agents",
+      "waiting_one": "{{count}} agent waiting on you",
+      "waiting_other": "{{count}} agents waiting on you"
     },
     "list": {
       "title": "Agents",
-      "filter_aria": "Filter agents",
-      "filter": {
-        "all": "All",
-        "running": "Running",
-        "attention": "Needs you",
-        "done": "New result",
-        "idle": "Idle"
+      "group_by": "Group by",
+      "grouping": {
+        "status": "Status",
+        "workspace": "Workspace"
       },
-      "none_filtered": "No matching agents",
       "no_agents": "No agents",
       "worktree": "Worktree",
       "new_agent": "New agent in {{name}}",

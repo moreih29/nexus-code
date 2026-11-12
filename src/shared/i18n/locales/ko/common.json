@@ -1710,19 +1710,17 @@
     "toggle": {
       "aria": "보기",
       "workspaces": "워크스페이스",
-      "agents": "에이전트"
+      "agents": "에이전트",
+      "waiting_one": "응답을 기다리는 에이전트 {{count}}개",
+      "waiting_other": "응답을 기다리는 에이전트 {{count}}개"
     },
     "list": {
       "title": "에이전트",
-      "filter_aria": "에이전트 거르기",
-      "filter": {
-        "all": "전체",
-        "running": "실행 중",
-        "attention": "응답 필요",
-        "done": "새 결과",
-        "idle": "대기"
+      "group_by": "묶기",
+      "grouping": {
+        "status": "상태",
+        "workspace": "워크스페이스"
       },
-      "none_filtered": "해당하는 에이전트가 없습니다",
       "no_agents": "에이전트 없음",
       "worktree": "워크트리",
       "new_agent": "{{name}}에서 새 에이전트",

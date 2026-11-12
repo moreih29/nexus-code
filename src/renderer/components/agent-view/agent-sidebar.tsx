@@ -1,30 +1,34 @@
-// The agent view's list: every workspace's agents under it, a workspace's
-// tasks set in below it, in the sidebar's order. A row shows its agent in
-// a panel, by a click or dragged where it should go; dragged among its
-// workspace's rows, it takes the place it is dropped on. The eye tells which
-// already are shown, and the pointer on a row lights up the panel it is in.
+// The agent view's list: every workspace's agents, grouped by their state
+// (waiting on the user, running, with a new result, idle, ended) or by the
+// workspace they run in, a workspace's tasks set in below it, in the
+// sidebar's order. A row shows its agent in a panel, by a click or dragged
+// where it should go; dragged among its workspace's rows, it takes the place
+// it is dropped on. The eye tells which already are shown, and the pointer
+// on a row lights up the panel it is in. The grouping and the folded groups
+// are kept across restarts.
 
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
 import { type DragEvent, memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
-import { chatRowFacts, hookRowFacts } from "@/services/agent-sessions/rows";
-import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import {
-  AGENT_FILTERS,
-  type AgentFilter,
-  agentCounts,
-  passesFilter,
-  workspaceColor,
-} from "@/services/agent-view/agents";
+  chatRowFacts,
+  groupOf,
+  hookRowFacts,
+  ROW_GROUPS,
+  type RowGroup,
+  sessionsIn,
+} from "@/services/agent-sessions/rows";
+import { useSessionActivity } from "@/services/agent-sessions/use-family";
+import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { leafHolding, leafShowing, parseSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
-import { useAgentViewStore } from "@/state/stores/agent-view";
+import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
 import { useManagerStore } from "@/state/stores/manager";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
@@ -32,7 +36,7 @@ import { cn } from "@/utils/cn";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-status";
-import { AgentMark, RowLine } from "../agent-list/status-view";
+import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
 import { ManagerChip } from "../manager/manager-chip";
@@ -48,66 +52,23 @@ type DropEdge = "before" | "after";
 /** Moves the agent `moved` to just before or after `target`, among its workspace's. */
 type Reorder = (moved: string, target: string, edge: DropEdge) => void;
 
-/** The state whose glyph stands for a filter. */
-const FILTER_STATE: Record<Exclude<AgentFilter, "all">, string> = {
-  running: "running",
-  attention: "permissionPending",
-  done: "completed",
-  idle: "idle",
-};
+const GROUPINGS: readonly AgentListGrouping[] = ["status", "workspace"];
+
+/** The groups a workspace's header counts: the ones that ask for a look. */
+const SUMMED: readonly RowGroup[] = ["attention", "running", "done"];
 
 // Memo: kept while hidden, it would render again with each of the app's.
 export const AgentSidebar = memo(function AgentSidebar() {
   const { t } = useTranslation();
   const sidebarWidth = useUIStore((s) => s.sidebarWidth);
   const agents = useAgents();
-  const counts = agentCounts(agents);
-  const [filter, setFilter] = useState<AgentFilter>("all");
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  const grouping = useAgentViewStore((s) => s.grouping);
   const ids = useMemo(
     () => agents.families.flatMap((family) => family.worktrees.map((w) => w.workspace.id)),
     [agents],
   );
   const activity = useSessionActivity(ids, true);
   const chats = useChatStore((s) => s.tabs);
-  const order = useAgentViewStore((s) => s.order);
-
-  // Among every agent of the workspace, those the filter hides too.
-  const reorder: Reorder = (moved, target, edge) => {
-    const workspaceId = parseSessionKey(target)?.workspaceId;
-    const worktree = agents.families
-      .flatMap((family) => family.worktrees)
-      .find((each) => each.workspace.id === workspaceId);
-    if (!worktree || !workspaceId) return;
-    const keys = orderSessions(worktree.sessions, order[workspaceId]).map((each) => each.key);
-    useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
-  };
-
-  const families = agents.families
-    .map((family) => ({
-      family,
-      worktrees: family.worktrees
-        .map((worktree) => ({
-          worktree,
-          sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
-            (session) => passesFilter(session, filter),
-          ),
-        }))
-        // A task shows with agents to list; the workspace itself always does
-        // while nothing is filtered, for its + to start one.
-        .filter(
-          ({ worktree, sessions }) => sessions.length > 0 || (filter === "all" && worktree.isRoot),
-        ),
-    }))
-    .filter(({ worktrees }) => worktrees.length > 0);
-
-  const toggleFold = (id: string) =>
-    setFolded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   return (
     // The sidebar's shell and width, so switching views keeps the layout.
@@ -122,26 +83,27 @@ export const AgentSidebar = memo(function AgentSidebar() {
               {t("agentView.list.title")}
             </span>
           </div>
-          <fieldset aria-label={t("agentView.list.filter_aria")} className="flex flex-wrap gap-1">
-            {AGENT_FILTERS.map((value) => (
+          <fieldset
+            aria-label={t("agentView.list.group_by")}
+            className="flex flex-wrap items-center gap-1"
+          >
+            <span className="mr-0.5 text-app-micro text-muted-foreground">
+              {t("agentView.list.group_by")}
+            </span>
+            {GROUPINGS.map((value) => (
               <button
                 key={value}
                 type="button"
-                aria-pressed={filter === value}
-                onClick={() => setFilter(value)}
+                aria-pressed={grouping === value}
+                onClick={() => useAgentViewStore.getState().setGrouping(value)}
                 className={cn(
-                  "flex items-center gap-1 rounded-full border px-2 py-0.5 text-app-micro whitespace-nowrap transition-colors",
-                  filter === value
+                  "flex items-center rounded-full border px-2 py-0.5 text-app-micro whitespace-nowrap transition-colors",
+                  grouping === value
                     ? "border-[var(--state-selected-indicator)] bg-[var(--sidebar-item-selected-bg)] text-foreground"
                     : "border-border text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground",
                 )}
               >
-                {value !== "all" && (
-                  // A count of none has nothing running to spin for.
-                  <StateGlyph state={FILTER_STATE[value]} still={counts[value] === 0} />
-                )}
-                <span>{t(`agentView.list.filter.${value}`)}</span>
-                <span className="tabular-nums">{counts[value]}</span>
+                {t(`agentView.list.grouping.${value}`)}
               </button>
             ))}
           </fieldset>
@@ -151,24 +113,10 @@ export const AgentSidebar = memo(function AgentSidebar() {
             <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
               {t("sidebar.no_workspaces")}
             </p>
-          ) : families.length === 0 ? (
-            <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground">
-              {t("agentView.list.none_filtered")}
-            </p>
+          ) : grouping === "status" ? (
+            <StatusGroups agents={agents} activity={activity} chats={chats} />
           ) : (
-            families.map(({ family, worktrees }) => (
-              <FamilyGroup
-                key={family.root.id}
-                family={family}
-                worktrees={worktrees}
-                folded={folded.has(family.root.id)}
-                onToggle={() => toggleFold(family.root.id)}
-                activity={activity}
-                chats={chats}
-                filtered={filter !== "all"}
-                onReorder={reorder}
-              />
-            ))
+            <WorkspaceGroups agents={agents} activity={activity} chats={chats} />
           )}
         </div>
         <SystemStatsFooter />
@@ -178,6 +126,149 @@ export const AgentSidebar = memo(function AgentSidebar() {
   );
 });
 
+interface GroupsProps {
+  agents: Agents;
+  activity: ActivityByKey;
+  chats: Record<string, ChatTabState>;
+}
+
+/**
+ * Every agent by its state, the agent list's groups in its order: those
+ * waiting on the user longest first, the latest first in the others. A row
+ * tells the workspace it runs in; one with none shows as a dim line, so the
+ * groups keep their places.
+ */
+function StatusGroups({ agents, activity, chats }: GroupsProps) {
+  const { t } = useTranslation();
+  const folded = useAgentViewStore((s) => s.folded);
+  const sessions = useMemo(
+    () => [...agents.byKey.values()].map((entry) => entry.session),
+    [agents],
+  );
+  return (
+    <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
+      {ROW_GROUPS.map((group) => {
+        const rows = sessionsIn(sessions, group, "");
+        const label = t(`agentList.group.${group}`);
+        if (rows.length === 0) {
+          return (
+            <section key={group} aria-label={label}>
+              <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
+                <StateGlyph state={GROUP_STATE[group]} still />
+                <span>{label}</span>
+                <span className="tabular-nums">0</span>
+              </h3>
+            </section>
+          );
+        }
+        const key = `status:${group}`;
+        const isFolded = folded.has(key);
+        return (
+          <section
+            key={group}
+            aria-label={label}
+            className="flex flex-col"
+            data-testid="agent-sidebar-group"
+          >
+            <button
+              type="button"
+              aria-expanded={!isFolded}
+              onClick={() => useAgentViewStore.getState().toggleFolded(key)}
+              className={cn(
+                "flex h-7 items-center gap-1.5 self-start rounded-(--radius-control) px-2 text-app-ui-sm font-medium outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
+                GROUP_TINT[group],
+              )}
+            >
+              <StateGlyph state={GROUP_STATE[group]} />
+              <span>{label}</span>
+              <span className="tabular-nums">{rows.length}</span>
+              {isFolded ? (
+                <ChevronRight aria-hidden className="size-3.5" />
+              ) : (
+                <ChevronDown aria-hidden className="size-3.5" />
+              )}
+            </button>
+            {!isFolded &&
+              rows.map((session) => (
+                <AgentItem
+                  key={session.key}
+                  session={session}
+                  activity={activity}
+                  chat={chats[chatKey(session.workspaceId, session.tabId)]}
+                  where={agents.byKey.get(session.key)}
+                />
+              ))}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
+function WorkspaceGroups({ agents, activity, chats }: GroupsProps) {
+  const order = useAgentViewStore((s) => s.order);
+  const folded = useAgentViewStore((s) => s.folded);
+
+  const reorder: Reorder = (moved, target, edge) => {
+    const workspaceId = parseSessionKey(target)?.workspaceId;
+    const worktree = agents.families
+      .flatMap((family) => family.worktrees)
+      .find((each) => each.workspace.id === workspaceId);
+    if (!worktree || !workspaceId) return;
+    const keys = orderSessions(worktree.sessions, order[workspaceId]).map((each) => each.key);
+    useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
+  };
+
+  return agents.families.map((family) => {
+    const worktrees = family.worktrees
+      .map((worktree) => ({
+        worktree,
+        sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]),
+      }))
+      // A task shows with agents to list; the workspace itself always does, for its + to start one.
+      .filter(({ worktree, sessions }) => sessions.length > 0 || worktree.isRoot);
+    const key = `workspace:${family.root.id}`;
+    return (
+      <FamilyGroup
+        key={family.root.id}
+        family={family}
+        worktrees={worktrees}
+        folded={folded.has(key)}
+        onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
+        activity={activity}
+        chats={chats}
+        onReorder={reorder}
+      />
+    );
+  });
+}
+
+/** How many of a workspace's agents wait on the user, run, or have a new result, the ones there are. */
+function StateSummary({ sessions }: { sessions: readonly AgentSession[] }) {
+  const { t } = useTranslation();
+  const counts = SUMMED.map((group) => ({
+    group,
+    count: sessions.filter((session) => groupOf(session) === group).length,
+  })).filter(({ count }) => count > 0);
+  if (counts.length === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center gap-2 text-app-micro tabular-nums">
+      {counts.map(({ group, count }) => (
+        <span
+          key={group}
+          className={cn("inline-flex items-center gap-0.5", GROUP_TINT[group])}
+          title={`${t(`agentList.group.${group}`)} ${count}`}
+          data-testid="agent-sidebar-summary"
+        >
+          <StateGlyph state={GROUP_STATE[group]} />
+          {count}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function FamilyGroup({
   family,
   worktrees,
@@ -185,7 +276,6 @@ function FamilyGroup({
   onToggle,
   activity,
   chats,
-  filtered,
   onReorder,
 }: {
   family: SessionFamily;
@@ -194,12 +284,11 @@ function FamilyGroup({
   onToggle: () => void;
   activity: ActivityByKey;
   chats: Record<string, ChatTabState>;
-  filtered: boolean;
   onReorder: Reorder;
 }) {
   const { t } = useTranslation();
   const root = family.root;
-  const count = worktrees.reduce((n, { sessions }) => n + sessions.length, 0);
+  const all = worktrees.flatMap(({ sessions }) => sessions);
   return (
     <section
       aria-label={root.name}
@@ -227,11 +316,8 @@ function FamilyGroup({
             {root.name}
           </span>
           <WhereLabel workspace={root} />
-          {folded && count > 0 && (
-            <span className="shrink-0 text-app-micro text-muted-foreground tabular-nums">
-              {count}
-            </span>
-          )}
+          <span className="flex-1" />
+          <StateSummary sessions={all} />
         </button>
         <NewAgentMenu workspace={root} />
       </div>
@@ -263,7 +349,7 @@ function FamilyGroup({
                 onReorder={onReorder}
               />
             ))}
-            {worktree.isRoot && sessions.length === 0 && !filtered && (
+            {worktree.isRoot && sessions.length === 0 && (
               <p className="py-1 pl-7 text-app-micro text-muted-foreground">
                 {t("agentView.list.no_agents")}
               </p>
@@ -350,11 +436,15 @@ function AgentItem({
   activity,
   chat,
   onReorder,
+  where: placed,
 }: {
   session: AgentSession;
   activity: ActivityByKey;
   chat: ChatTabState | undefined;
-  onReorder: Reorder;
+  /** Its place among its workspace's agents, dragged; none where the list is by state. */
+  onReorder?: Reorder;
+  /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
+  where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
 }) {
   const { t } = useTranslation();
   const key = session.key;
@@ -385,7 +475,7 @@ function AgentItem({
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
       onDragOver={(e) => {
-        const edge = dropEdgeOf(e, session);
+        const edge = onReorder ? dropEdgeOf(e, session) : null;
         if (!edge) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = "move";
@@ -396,9 +486,9 @@ function AgentItem({
       }}
       onDrop={(e) => {
         const moved = listDrag();
-        const edge = dropEdgeOf(e, session);
+        const edge = onReorder ? dropEdgeOf(e, session) : null;
         setDropEdge(null);
-        if (!moved || !edge) return;
+        if (!moved || !edge || !onReorder) return;
         e.preventDefault();
         onReorder(moved, key, edge);
       }}
@@ -437,15 +527,17 @@ function AgentItem({
           {/* Its state at a glance, the glyph its filter has (running, waiting
               on the user, done, or idle), and for how long. */}
           <span className="flex shrink-0 items-center gap-1">
-            <span
-              role="img"
-              aria-label={stateLabel(session)}
-              title={stateLabel(session)}
-              className="inline-flex"
-              data-testid="agent-sidebar-state"
-            >
-              <StateGlyph state={session.state} />
-            </span>
+            {!placed && (
+              <span
+                role="img"
+                aria-label={stateLabel(session)}
+                title={stateLabel(session)}
+                className="inline-flex"
+                data-testid="agent-sidebar-state"
+              >
+                <StateGlyph state={session.state} />
+              </span>
+            )}
             {duration && (
               <span
                 className={cn(
@@ -480,6 +572,7 @@ function AgentItem({
           )}
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
+          {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
           {managers && <ManagerChip />}
           <RowLine session={session} facts={facts} />
         </div>
@@ -494,5 +587,23 @@ function AgentItem({
         className="relative mt-0.5 pl-4"
       />
     </div>
+  );
+}
+
+/** The workspace an agent runs in, by its color and name, where the list is by state. */
+function WorkspaceTag({ workspace, root }: { workspace: WorkspaceMeta; root: WorkspaceMeta }) {
+  return (
+    <span
+      className="flex max-w-[45%] shrink-0 items-center gap-1 text-muted-foreground"
+      title={workspace.id === root.id ? root.name : `${root.name} · ${workspace.name}`}
+      data-testid="agent-sidebar-workspace"
+    >
+      <span
+        aria-hidden
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ background: workspaceColor(root.id) }}
+      />
+      <span className="min-w-0 truncate">{workspace.name}</span>
+    </span>
   );
 }

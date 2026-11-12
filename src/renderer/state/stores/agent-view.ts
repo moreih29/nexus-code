@@ -1,8 +1,9 @@
 /**
  * The agent view: whether the window shows it rather than the workspaces,
- * its panels, the ended agents they show, and the order its list's agents
- * were dragged into. All persist in AppState, the panels a moment after
- * they settle, so dragging a divider writes once.
+ * its panels, the ended agents they show, the order its list's agents were
+ * dragged into, and how its list groups them and which groups are folded.
+ * All persist in AppState, the panels a moment after they settle, so
+ * dragging a divider writes once.
  */
 
 import { create } from "zustand";
@@ -31,6 +32,17 @@ import {
 
 const log = createLogger("agent-view");
 
+/** How the list groups its agents: by their state, or by the workspace they run in. */
+export type AgentListGrouping = "status" | "workspace";
+
+export const AGENT_LIST_GROUPING_DEFAULT: AgentListGrouping = "status";
+
+function groupingFromStore(value: string | undefined): AgentListGrouping {
+  return value === "status" || value === "workspace" ? value : AGENT_LIST_GROUPING_DEFAULT;
+}
+
+const NO_FOLDS: ReadonlySet<string> = new Set();
+
 const PERSIST_DELAY_MS = 300;
 
 interface AgentViewState extends AgentLayout {
@@ -41,6 +53,10 @@ interface AgentViewState extends AgentLayout {
   ended: ReadonlyMap<string, EndedAgent>;
   /** The order the list's agents were dragged into (services/agent-view/order). */
   order: AgentOrder;
+  /** How the list groups its agents. */
+  grouping: AgentListGrouping;
+  /** The list's groups the user folded ("status:<group>", "workspace:<id>"); the others are open. */
+  folded: ReadonlySet<string>;
   /** Restores what was stored, keeping only the agents `alive` knows. */
   hydrate(snapshot: AgentViewSnapshot | undefined, alive: (key: string) => boolean): void;
   setMode(mode: AgentViewMode): void;
@@ -51,6 +67,9 @@ interface AgentViewState extends AgentLayout {
   setEnded(ended: ReadonlyMap<string, EndedAgent>): void;
   /** The order of a workspace's (or task's) agents in the list, every one of them. */
   setOrder(workspaceId: string, keys: readonly string[]): void;
+  setGrouping(grouping: AgentListGrouping): void;
+  /** Folds one of the list's groups, or opens it again. */
+  toggleFolded(group: string): void;
 }
 
 const NO_ENDED: ReadonlyMap<string, EndedAgent> = new Map();
@@ -63,13 +82,16 @@ function schedulePersist(): void {
   if (persistTimer !== undefined) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = undefined;
-    const { mode, root, activeLeafId, ended, order } = useAgentViewStore.getState();
+    const { mode, root, activeLeafId, ended, order, grouping, folded } =
+      useAgentViewStore.getState();
     const agentView = {
       mode,
       root,
       activeLeafId,
       ...(ended.size > 0 ? { ended: endedToStore(ended) } : {}),
       ...(Object.keys(order).length > 0 ? { order: orderToStore(order) } : {}),
+      ...(grouping !== AGENT_LIST_GROUPING_DEFAULT ? { grouping } : {}),
+      ...(folded.size > 0 ? { folded: [...folded] } : {}),
     };
     void ipcCallResult("appState", "set", { agentView }).then((result) => {
       if (!result.ok) log.warn(`appState set (agent view) failed: ${result.message}`);
@@ -83,6 +105,8 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
   hoveredKey: null,
   ended: NO_ENDED,
   order: NO_ORDER,
+  grouping: AGENT_LIST_GROUPING_DEFAULT,
+  folded: NO_FOLDS,
 
   hydrate(snapshot, alive) {
     if (snapshot) {
@@ -93,6 +117,8 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
         activeLeafId: layout.activeLeafId,
         ended: endedFromStore(snapshot.ended, new Set(heldKeys(layout.root))),
         order: orderFromStore(snapshot.order, alive),
+        grouping: groupingFromStore(snapshot.grouping),
+        folded: new Set(snapshot.folded ?? []),
       });
     }
     hydrated = true;
@@ -132,6 +158,20 @@ export const useAgentViewStore = create<AgentViewState>((set, get) => ({
     set({ order: { ...get().order, [workspaceId]: [...keys] } });
     schedulePersist();
   },
+
+  setGrouping(grouping) {
+    if (get().grouping === grouping) return;
+    set({ grouping });
+    schedulePersist();
+  },
+
+  toggleFolded(group) {
+    const next = new Set(get().folded);
+    if (next.has(group)) next.delete(group);
+    else next.add(group);
+    set({ folded: next });
+    schedulePersist();
+  },
 }));
 
 /** Whether the window shows the agent view. */
@@ -150,5 +190,7 @@ export function __resetAgentViewForTests(): void {
     hoveredKey: null,
     ended: NO_ENDED,
     order: NO_ORDER,
+    grouping: AGENT_LIST_GROUPING_DEFAULT,
+    folded: NO_FOLDS,
   });
 }
