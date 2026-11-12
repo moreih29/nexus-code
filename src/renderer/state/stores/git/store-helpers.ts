@@ -10,7 +10,6 @@
 import i18next from "i18next";
 import { toSlashPath } from "../../../../shared/fs/drive-path";
 import type { GitActionHint, RepoInfo } from "../../../../shared/git/types";
-import { canUseIpcBridge } from "../../../ipc/client";
 import { isRecord } from "../../../utils/is-record";
 import type {
   GitOperationKind,

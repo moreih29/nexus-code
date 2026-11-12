@@ -32,10 +32,10 @@ const c = ipcContract.git.call;
  * receives this as an IpcErrResult and unwrapGitResult converts it to a thrown Error.
  */
 export function getFileContentHandler(
-  registry: GitRegistry,
+  _registry: GitRegistry,
   manager?: WorkspaceManager,
 ): (args: unknown, ctx?: CallContext) => Promise<unknown> {
-  return async (args: unknown, ctx?: CallContext): Promise<unknown> => {
+  return async (args: unknown, _ctx?: CallContext): Promise<unknown> => {
     try {
       const { workspaceId, ref, relPath } = validateArgs(c.getFileContent.args, args);
 

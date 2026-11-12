@@ -22,7 +22,7 @@ export interface SessionLifecycleSlice {
 }
 
 export function createSessionLifecycleSlice(ctx: GitStoreContext): SessionLifecycleSlice {
-  const { set, get, controllers, updateExistingSession, upsertSession, runOperation } = ctx;
+  const { set, get, controllers, updateExistingSession, runOperation } = ctx;
 
   return {
     async loadInitial(workspaceId) {

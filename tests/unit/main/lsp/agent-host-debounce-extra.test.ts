@@ -232,7 +232,7 @@ describe("AC 2b: handleServerExited deeper coverage", () => {
     const survivingChannel = new MinimalChannel("srv-surviving");
     let callCount = 0;
     const manager = {
-      getAgentChannel: async (wsId: string) => {
+      getAgentChannel: async (_wsId: string) => {
         callCount++;
         return callCount === 1 ? exitedChannel : survivingChannel;
       },

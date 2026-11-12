@@ -91,7 +91,7 @@ class DebounceTestChannel implements AgentChannel {
 
 async function openUri(
   host: ReturnType<typeof startAgentLspHost>,
-  channel: DebounceTestChannel,
+  _channel: DebounceTestChannel,
   uri: string,
 ): Promise<void> {
   await host.call("didOpen", {

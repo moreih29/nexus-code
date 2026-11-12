@@ -69,7 +69,7 @@ export function registerWorkspaceChannel(
         }
         return meta;
       },
-      createAndConnect: async (args: unknown, ctx?: CallContext) => {
+      createAndConnect: async (args: unknown, _ctx?: CallContext) => {
         const createArgs = validateArgs(c.createAndConnect.args, args);
         const browseSessionId =
           "sshBrowseSessionId" in createArgs ? createArgs.sshBrowseSessionId : undefined;

@@ -29,12 +29,6 @@ import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
-// Constants mirrored from pipe.ts (must be kept in sync manually)
-// ---------------------------------------------------------------------------
-const BACKPRESSURE_HWM = 1 * 1024 * 1024; // 1 MiB
-const BACKPRESSURE_LWM = 64 * 1024; // 64 KiB
-
-// ---------------------------------------------------------------------------
 // Fake stream helpers
 // ---------------------------------------------------------------------------
 

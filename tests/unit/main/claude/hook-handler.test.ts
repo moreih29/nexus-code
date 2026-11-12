@@ -7,7 +7,7 @@
  *   (which releases the hook process).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // electron mock — must be declared before the dynamic import.
 mock.module("electron", () => ({

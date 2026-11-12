@@ -90,7 +90,7 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
   const inputRef = useRef<HTMLInputElement | null>(null);
   /** Ref to the focus-first-row function exposed by SearchResultsList. */
   const firstRowFocusRef = useRef<(() => void) | null>(null);
-  const { trigger, flush, cancel } = useSearchDebounce(workspaceId);
+  const { trigger, cancel } = useSearchDebounce(workspaceId);
   const showLoader = useLoaderDelay(session?.status);
   useGlobalSearchHotkey(inputRef);
 
