@@ -132,6 +132,7 @@ export function KeybindingsPanel() {
   const resetEditorCommand = useKeybindingsStore((s) => s.resetEditorCommand);
 
   const [query, setQuery] = useState("");
+  const panelRef = useRef<HTMLDivElement>(null);
   const [modifiedOnly, setModifiedOnly] = useState(false);
   const [conflictsOnly, setConflictsOnly] = useState(false);
   const modifiedOnlyId = useId();
@@ -220,12 +221,22 @@ export function KeybindingsPanel() {
   const hasOverrides = overrides.length > 0 || editorOverrides.length > 0;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div ref={panelRef} className="flex flex-col gap-4">
       {/* Toolbar: search + filters + reset all */}
       <div className="flex items-center gap-2">
         <SearchInput
           value={query}
           onChange={setQuery}
+          onKeyDown={(event) => {
+            // ↓ or Enter goes to the first command found, to its edit
+            // button, as the other search boxes go to what they found.
+            const go = event.key === "ArrowDown" || (event.key === "Enter" && query !== "");
+            if (!go) return;
+            const first = panelRef.current?.querySelector<HTMLElement>("[data-keybinding-edit]");
+            if (!first) return;
+            event.preventDefault();
+            first.focus();
+          }}
           label={t("keybindings.searchPlaceholder")}
           className="flex-1"
         />
@@ -472,6 +483,7 @@ function CommandSection({
                   type="button"
                   aria-label={t("keybindings.edit")}
                   title={t("keybindings.edit")}
+                  data-keybinding-edit=""
                   onClick={() => setRecordingFor(row.command)}
                   className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
                 >
