@@ -11,11 +11,11 @@ import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { useNow } from "../../hooks/use-now";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
 import type { InboxItem } from "../../services/agent-sessions/inbox";
 import type { AgentSession } from "../../services/agent-sessions/model";
 import { plainPreview } from "../../services/agent-sessions/preview";
-import { useNow } from "../../services/agent-sessions/use-family";
 import {
   goToNextWaiting,
   goToSession,

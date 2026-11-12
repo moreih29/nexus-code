@@ -24,6 +24,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
+import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
@@ -54,6 +55,7 @@ import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
+import { elapsedLabel } from "../agent-list/agent-status";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
@@ -147,7 +149,7 @@ export function SidePanel({
   }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
-  const now = useTicker(anyRunning);
+  const now = useNow(anyRunning);
 
   const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
@@ -1336,18 +1338,7 @@ function Elapsed({ from, to, now }: { from?: number; to?: number; now: number })
   const seconds = Math.max(0, Math.floor(((to ?? now) - from) / 1000));
   return (
     <span className="shrink-0 text-app-micro text-muted-foreground tabular-nums">
-      {seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}
+      {elapsedLabel(seconds * 1_000)}
     </span>
   );
-}
-
-function useTicker(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [ticking]);
-  return now;
 }
