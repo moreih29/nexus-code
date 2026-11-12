@@ -12,8 +12,8 @@ import { useSessionSeenStore } from "../../state/stores/session-seen";
 import { useTabActivityStore } from "../../state/stores/tab-activity";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { viewingKey } from "../agent-sessions/viewing";
 import { useChatStore } from "../chat/store";
-import { viewingKey } from "../sessions/viewing";
 import { type Agents, buildAgents, sameAgents } from "./agents";
 
 function agentsNow(): Agents {

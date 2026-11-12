@@ -9,11 +9,11 @@ import { createLogger } from "../shared/log/renderer";
 import { lspSettingsFromState } from "../shared/lsp/settings";
 import type { WorkspaceMeta } from "../shared/types/workspace";
 import { ipcCallResult, ipcListen, mustSucceed } from "./ipc/client";
+import { startTabActivityPolling } from "./services/agent-sessions/activity-poll";
+import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { startManager } from "./services/manager/runtime";
-import { startTabActivityPolling } from "./services/sessions/activity-poll";
-import { startSessionEvents } from "./services/sessions/session-events";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNotificationClickListener } from "./state/notification-click";
 import {
@@ -32,6 +32,7 @@ import { normalizeWorkspaceTabOrder } from "./state/operations/tab-order";
 import { initUpdatesSubscriptions } from "./state/operations/updates";
 import { registerStatePersistence } from "./state/persistence";
 import { useAgentCliStore } from "./state/stores/agent-cli";
+import { useAgentListViewStore } from "./state/stores/agent-list-view";
 import { loadProfilesHome, useAgentProfilesStore } from "./state/stores/agent-profiles";
 import { useAgentViewStore } from "./state/stores/agent-view";
 import { startAppFocusTracking } from "./state/stores/app-focus";
@@ -48,7 +49,6 @@ import { useLspSettingsStore } from "./state/stores/lsp-settings";
 import { useManagerStore } from "./state/stores/manager";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
-import { useSessionsViewStore } from "./state/stores/sessions-view";
 import { restoredTitles, useTabsStore } from "./state/stores/tabs";
 import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
@@ -163,7 +163,7 @@ export async function bootstrapAppState(): Promise<void> {
     filesPanelWidth: state.filesPanelWidth,
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
-    sessionsListRatio: state.sessionsListRatio,
+    agentListRatio: state.agentListRatio,
     agentListFoldedGroups: state.agentListFoldedGroups,
   });
 
@@ -270,7 +270,7 @@ export async function bootstrapAppState(): Promise<void> {
   useNotificationsStore.getState().hydrate(state);
   useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
-  useSessionsViewStore.getState().hydrate(state);
+  useAgentListViewStore.getState().hydrate(state);
   usePreviewDefaultsStore.getState().hydrate(state.previewViewDefaults);
 
   // Hydrate browser permission global toggles so the BrowserPermissionsPanel

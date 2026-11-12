@@ -4,7 +4,7 @@
 //
 // The button counts the first kind; the second only lights a dot, since a
 // finished turn can wait. Picking a session shows its terminal with the
-// keyboard in it. The glyphs and words are the sessions tab's.
+// keyboard in it. The glyphs and words are the agent list's.
 
 import { Inbox } from "lucide-react";
 import { useRef, useState } from "react";
@@ -12,18 +12,18 @@ import { useTranslation } from "react-i18next";
 import { COMMANDS } from "../../../shared/keybindings/commands";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { shortcutFor } from "../../keybindings/shortcut-labels";
-import type { InboxItem } from "../../services/sessions/inbox";
-import type { AgentSession } from "../../services/sessions/model";
-import { plainPreview } from "../../services/sessions/preview";
-import { useNow } from "../../services/sessions/use-family";
+import type { InboxItem } from "../../services/agent-sessions/inbox";
+import type { AgentSession } from "../../services/agent-sessions/model";
+import { plainPreview } from "../../services/agent-sessions/preview";
+import { useNow } from "../../services/agent-sessions/use-family";
 import {
   goToNextWaiting,
   goToSession,
   markRead,
   useInbox,
-} from "../../services/sessions/use-inbox";
+} from "../../services/agent-sessions/use-inbox";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
-import { AgentBadge, durationLabel, StateGlyph, stateLabel } from "../sessions/session-status";
+import { AgentBadge, durationLabel, StateGlyph, stateLabel } from "../agent-list/session-status";
 import {
   DropdownMenuContent,
   DropdownMenuItem,

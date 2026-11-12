@@ -9,7 +9,7 @@ import {
 import type React from "react";
 import { cn } from "@/utils/cn";
 import type { ClaudeStatus } from "../../../shared/claude/status";
-import { codexStatusLabel, estimatedLabel } from "../sessions/session-status";
+import { codexStatusLabel, estimatedLabel } from "../agent-list/session-status";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -129,11 +129,7 @@ export function WorkspaceStatusGlyph({
       role="status"
       aria-label={ariaLabel}
       title={estimated ? ariaLabel : undefined}
-      className={cn(
-        "inline-flex shrink-0",
-        colorClass,
-        pulse && "motion-safe:animate-pulse",
-      )}
+      className={cn("inline-flex shrink-0", colorClass, pulse && "motion-safe:animate-pulse")}
     >
       <Icon
         width={12}

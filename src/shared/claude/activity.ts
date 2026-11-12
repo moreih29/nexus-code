@@ -1,7 +1,7 @@
 /**
  * What a Claude Code session is doing, as its hooks tell it: the tools its
  * turn ran, its todo list, and the agents working beside it. Main records it
- * (features/claude/session-activity.ts) for the sessions tab.
+ * (features/claude/session-activity.ts) for the agent list.
  */
 import { z } from "zod";
 

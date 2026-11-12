@@ -18,6 +18,8 @@ import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useManagerStore } from "../../state/stores/manager";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
+import { lastAnswer } from "../agent-sessions/codex-state";
+import { onSessionEvents } from "../agent-sessions/session-events";
 import {
   type CodexController,
   type CodexTabHooks,
@@ -25,8 +27,6 @@ import {
 } from "../chat/codex-controller";
 import { type ChatController, type ChatTabHooks, chatController } from "../chat/controller";
 import { type ChatTabState, chatKey, useChatStore } from "../chat/store";
-import { lastAnswer } from "../sessions/codex-state";
-import { onSessionEvents } from "../sessions/session-events";
 import { ReportQueue, reportable, reportOf } from "./report";
 
 const log = createLogger("manager");

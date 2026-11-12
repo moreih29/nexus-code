@@ -5,7 +5,7 @@
  */
 
 import { agentFromProgram } from "../../../shared/sessions/agent-state";
-import { type AgentSession, buildFamily, type FamilyInput } from "../sessions/model";
+import { type AgentSession, buildFamily, type FamilyInput } from "../agent-sessions/model";
 
 /**
  * The live agent sessions of `input.workspaceId` itself, not of its tasks

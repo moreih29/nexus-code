@@ -38,8 +38,8 @@ import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { ProfileMove } from "../../../shared/types/layout";
+import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
-
 import { splitAttachments } from "../../services/chat/composer-input";
 import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
 import {
@@ -76,7 +76,6 @@ import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
-import { revealInWorkspace } from "../../services/sessions/actions";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { isAgentViewShown } from "../../state/stores/agent-view";
 import { sentIn, useManagerStore } from "../../state/stores/manager";

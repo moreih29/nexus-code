@@ -7,8 +7,8 @@
 
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { AGENT_LIST_VIEWS, DEFAULT_AGENT_LIST_VIEW } from "../../../../shared/agent-list/view";
 import { DEFAULT_TASK_AGENT } from "../../../../shared/sessions/task-agent";
-import { DEFAULT_SESSIONS_VIEW, SESSIONS_VIEWS } from "../../../../shared/sessions/view";
 import { ipcCallResult } from "../../../ipc/client";
 import {
   CHAT_FONT_SIZE,
@@ -16,8 +16,8 @@ import {
   CHAT_FONT_SIZE_MIN,
 } from "../../../services/chat/chat-font";
 import { type CrossWorkspacePolicy, useAgentCliStore } from "../../../state/stores/agent-cli";
+import { useAgentListViewStore } from "../../../state/stores/agent-list-view";
 import { useChatFontStore, useChatFontStyle } from "../../../state/stores/chat-font";
-import { useSessionsViewStore } from "../../../state/stores/sessions-view";
 import { useTerminalStore } from "../../../state/stores/terminal";
 import { NumberInput } from "../../ui/number-input";
 import { taskAgentOptions } from "../../workspace/task-agent-options";
@@ -29,8 +29,8 @@ export function AgentPanel() {
   const { t } = useTranslation("settings");
   const taskAgent = useTerminalStore((s) => s.taskAgent);
   const setTaskAgent = useTerminalStore((s) => s.setTaskAgent);
-  const sessionsView = useSessionsViewStore((s) => s.defaultView);
-  const setSessionsView = useSessionsViewStore((s) => s.setDefault);
+  const agentListView = useAgentListViewStore((s) => s.defaultView);
+  const setAgentListView = useAgentListViewStore((s) => s.setDefault);
   const enabled = useAgentCliStore((s) => s.enabled);
   const crossWorkspace = useAgentCliStore((s) => s.crossWorkspace);
   const agentContext = useAgentCliStore((s) => s.agentContext);
@@ -46,7 +46,7 @@ export function AgentPanel() {
   return (
     <SettingsPage>
       <SettingsGroup title={t("agent.newTask")}>
-        {/* What the agents tab's [+] and a new task open; New Task can pick another per task. */}
+        {/* What the agent list's [+] and a new task open; New Task can pick another per task. */}
         <SettingsRow
           label={t("terminal.taskAgent.label")}
           description={t("terminal.taskAgent.hint")}
@@ -61,21 +61,21 @@ export function AgentPanel() {
           />
         </SettingsRow>
 
-        {/* The view an agents tab opens in, until switched there. */}
+        {/* The view an agent list opens in, until switched there. */}
         <SettingsRow
-          label={t("terminal.sessionsView.label")}
-          description={t("terminal.sessionsView.hint")}
-          dirty={sessionsView !== undefined}
-          onReset={() => setSessionsView(undefined)}
+          label={t("terminal.agentListView.label")}
+          description={t("terminal.agentListView.hint")}
+          dirty={agentListView !== undefined}
+          onReset={() => setAgentListView(undefined)}
         >
           <SegmentedControl
-            options={SESSIONS_VIEWS.map((value) => ({
+            options={AGENT_LIST_VIEWS.map((value) => ({
               value,
-              label: t(`common:sessions.view.${value}`),
+              label: t(`common:agentList.view.${value}`),
             }))}
-            value={sessionsView ?? DEFAULT_SESSIONS_VIEW}
-            onChange={setSessionsView}
-            label={t("terminal.sessionsView.label")}
+            value={agentListView ?? DEFAULT_AGENT_LIST_VIEW}
+            onChange={setAgentListView}
+            label={t("terminal.agentListView.label")}
           />
         </SettingsRow>
       </SettingsGroup>

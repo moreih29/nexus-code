@@ -20,6 +20,7 @@ export { normalizeWorkspaceTabOrder, toggleTabPin } from "./tab-order";
 export {
   closeTab,
   findCommitTab,
+  openAgentListTab,
   openClaudeTab,
   openCodexTab,
   openDiffTab,
@@ -27,8 +28,7 @@ export {
   openNewBrowserTab,
   openNewUntitledTab,
   openOrRevealCommitTab,
-  openSessionsTab,
-  openTerminalTab,
   openTabInNewSplit,
+  openTerminalTab,
   revealTab,
 } from "./tabs";

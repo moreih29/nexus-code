@@ -136,7 +136,7 @@ interface ComposerProps {
   commands?: readonly CommandInfo[];
   /**
    * Takes the message a rewind or fork puts back; the tab's own box does,
-   * not another box on the same conversation (the agents tab's).
+   * not another box on the same conversation (the agent list's).
    */
   takesDraft?: boolean;
 }
@@ -1023,7 +1023,7 @@ const MODE_TINT: Record<string, string> = {
 const bypassConfirmed = new Set<string>();
 
 /**
- * The permission mode, as a chip that picks another; the agents tab's
+ * The permission mode, as a chip that picks another; the agent list's
  * detail panel has it too, its menu opening below.
  */
 export function ModeChip({

@@ -25,9 +25,9 @@ import {
 import { IconButton } from "@/components/ui/icon-button";
 import { showToast } from "@/components/ui/toast";
 import { ipcCallResult } from "@/ipc/client";
+import { showTerminal } from "@/services/agent-sessions/actions";
+import { type AgentSession, sessionKey } from "@/services/agent-sessions/model";
 import { pasteForTerminal, pickTargets, targetLabels } from "@/services/browser/element-pick";
-import { showTerminal } from "@/services/sessions/actions";
-import { type AgentSession, sessionKey } from "@/services/sessions/model";
 import { getTerminalController } from "@/services/terminal/terminal-registry";
 import { useClaudeStatusStore } from "@/state/stores/claude-status";
 import { useTabsStore } from "@/state/stores/tabs";

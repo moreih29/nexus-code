@@ -7,7 +7,7 @@
 import type { CliSessionEvent } from "../../../shared/cli/ui";
 import type { ManagerNotify } from "../../../shared/manager/manager";
 import { MANAGER_EVENTS_PREFIX } from "../../../shared/manager/prompt";
-import { phaseOf } from "../sessions/model";
+import { phaseOf } from "../agent-sessions/model";
 
 /** How much of a session's last answer or question a report quotes. */
 const MESSAGE_CHARS = 600;

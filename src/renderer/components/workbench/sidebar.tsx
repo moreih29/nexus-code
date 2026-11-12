@@ -3,40 +3,16 @@ import React, { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/shallow";
 import { cn } from "@/utils/cn";
-import type { WorkspaceMeta } from "../../../shared/types/workspace";
-import { useUIStore } from "../../state/stores/ui";
-import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
-import {
-  rootWorkspaceId,
-  useWorkspacesStore,
-  visibleWorkspaces,
-} from "../../state/stores/workspaces";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
-import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
-import {
-  ContextMenuContent,
-  ContextMenuItems,
-  ContextMenuRoot,
-  ContextMenuSeparator,
-  ContextMenuTrigger,
-} from "../ui/context-menu";
-import {
-  formatSshSecondaryLine,
-  formatSshTooltip,
-} from "../workspace/add-workspace/ssh-helpers";
-import { IconButton } from "../ui/icon-button";
-import { PinToggle } from "./pin-toggle";
-import { SidebarResizeHandle } from "./sidebar-resize-handle";
-import { RowDropSlot } from "./dnd/row-drop-slot";
-import {
-  buildSlotsForGroup,
-  type SlotInfo,
-  useWorkspaceRowDnd,
-} from "./dnd/use-workspace-row-dnd";
+import { appErrorFailed } from "../../../shared/error/app-error";
+import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { useIpcAction } from "../../hooks/use-ipc-action";
 import { ipcCallResult } from "../../ipc/client";
+import type { EstimatedGlyph } from "../../services/agent-sessions/model";
+import { plainPreview } from "../../services/agent-sessions/preview";
+import { useCodexWorkspaceStatus } from "../../services/agent-sessions/use-codex-status";
+import { useEstimatedWorkspaceGlyph } from "../../services/agent-sessions/use-estimated";
 import { surfaceError } from "../../services/error-surface/surface-error";
-import { appErrorFailed } from "../../../shared/error/app-error";
 import {
   STATUS_PRIORITY,
   selectWorkspaceAggregateStatus,
@@ -44,11 +20,28 @@ import {
   WORKSPACE_VISIBLE_STATUSES,
 } from "../../state/stores/claude-status";
 import { useGitStore } from "../../state/stores/git/index";
+import { useUIStore } from "../../state/stores/ui";
+import type { WorkspaceConnectionStatus } from "../../state/stores/workspaces";
+import {
+  rootWorkspaceId,
+  useWorkspacesStore,
+  visibleWorkspaces,
+} from "../../state/stores/workspaces";
+import { WorkspaceProfileMenu } from "../agent-profiles/workspace-profile-menu";
 import { WorkspaceStatusGlyph } from "../sidebar/workspace-status-glyph";
-import type { EstimatedGlyph } from "../../services/sessions/model";
-import { plainPreview } from "../../services/sessions/preview";
-import { useEstimatedWorkspaceGlyph } from "../../services/sessions/use-estimated";
-import { useCodexWorkspaceStatus } from "../../services/sessions/use-codex-status";
+import {
+  ContextMenuContent,
+  ContextMenuItems,
+  ContextMenuRoot,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "../ui/context-menu";
+import { IconButton } from "../ui/icon-button";
+import { formatSshSecondaryLine, formatSshTooltip } from "../workspace/add-workspace/ssh-helpers";
+import { RowDropSlot } from "./dnd/row-drop-slot";
+import { buildSlotsForGroup, type SlotInfo, useWorkspaceRowDnd } from "./dnd/use-workspace-row-dnd";
+import { PinToggle } from "./pin-toggle";
+import { SidebarResizeHandle } from "./sidebar-resize-handle";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -159,9 +152,7 @@ function WorkspaceRow({
   // wsTabs가 undefined(StatusEntry가 한 번도 없었던 워크스페이스)이면 aggregate가 null이라
   // 글리프가 렌더되지 않는다. 한 번이라도 세션을 시작한 워크스페이스만 글리프가 노출된다.
   const glyphStatus =
-    aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status)
-      ? aggregate.status
-      : null;
+    aggregate && WORKSPACE_VISIBLE_STATUSES.includes(aggregate.status) ? aggregate.status : null;
 
   // Codex 등 Claude 상태가 없는 에이전트 터미널의 추정 상태와 Codex 탭의 상태 —
   // 더 강하면 글리프에 대신 보인다.
@@ -286,10 +277,7 @@ function WorkspaceRow({
             <span className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2">
               {/* col 1: ssh/wsl/local 아이콘 + (SSH·WSL일 때) 연결 상태 인디케이터 */}
               <span className="flex flex-col items-center gap-1 mt-0.5">
-                <Icon
-                  className="size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
+                <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                 {(isSsh || isWsl) && <ConnectionStatusDot status={connectionStatus} />}
               </span>
 
@@ -375,13 +363,10 @@ function WorkspaceRow({
                         codex={shownGlyph.codex}
                       />
                     )}
-                    {previewMessage && (
-                      <span className="truncate">{previewMessage}</span>
-                    )}
+                    {previewMessage && <span className="truncate">{previewMessage}</span>}
                   </span>
                 )}
               </span>
-
             </span>
           </button>
 
@@ -485,7 +470,12 @@ export const Sidebar = memo(function Sidebar({
    */
   function togglePin(ws: WorkspaceMeta) {
     runPinToggle(async (signal) => {
-      const result = await ipcCallResult("workspace", "update", { id: ws.id, pinned: !ws.pinned }, { signal });
+      const result = await ipcCallResult(
+        "workspace",
+        "update",
+        { id: ws.id, pinned: !ws.pinned },
+        { signal },
+      );
       if (!result.ok) {
         const err = appErrorFailed(result.message);
         surfaceError(err, { surface: "auto" });
@@ -524,16 +514,11 @@ export const Sidebar = memo(function Sidebar({
   // DnD hook — drag source / drop target state for the slot-based DnD model.
   // workspaces is passed so the hook can suppress no-op slots (those adjacent
   // to the source row in the same group).
-  const {
-    dragSourceId,
-    activeSlotKey,
-    getRowDragSourceProps,
-    getSlotDropProps,
-    isSlotSuppressed,
-  } = useWorkspaceRowDnd({
-    workspaces,
-    onReorder: handleReorder,
-  });
+  const { dragSourceId, activeSlotKey, getRowDragSourceProps, getSlotDropProps, isSlotSuppressed } =
+    useWorkspaceRowDnd({
+      workspaces,
+      onReorder: handleReorder,
+    });
 
   const isDragging = dragSourceId !== null;
 
@@ -576,9 +561,7 @@ export const Sidebar = memo(function Sidebar({
             clickable underneath the inset-0 overlay. */}
         {workspaces.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-app-ui-sm text-muted-foreground pointer-events-none">
-            <div style={{ whiteSpace: "pre-line" }}>
-              {t("sidebar.no_workspaces")}
-            </div>
+            <div style={{ whiteSpace: "pre-line" }}>{t("sidebar.no_workspaces")}</div>
           </div>
         )}
         <div className="py-3 flex-1 overflow-y-auto app-scrollbar">
@@ -614,7 +597,12 @@ export const Sidebar = memo(function Sidebar({
 
           {/* Gap + optional "Recent" label between groups — only when both are non-empty. */}
           {hasBothGroups && (
-            <div className={cn("mt-2", showLabels && "text-app-label text-muted-foreground uppercase px-4 py-1")}>
+            <div
+              className={cn(
+                "mt-2",
+                showLabels && "text-app-label text-muted-foreground uppercase px-4 py-1",
+              )}
+            >
               {showLabels ? t("sidebar.recent") : null}
             </div>
           )}
@@ -678,9 +666,7 @@ function ConnectionStatusDot({ status }: { status: WorkspaceConnectionStatus }) 
   // "unstable" has its own tooltip copy ("연결 확인 중…"); all others use the
   // generic "SSH workspace, <status>" string.
   const label =
-    status === "unstable"
-      ? t("sidebar.ssh_status_unstable")
-      : t("sidebar.ssh_status", { status });
+    status === "unstable" ? t("sidebar.ssh_status_unstable") : t("sidebar.ssh_status", { status });
   const isTransient = status === "connecting" || status === "reconnecting" || status === "unstable";
   return (
     <span

@@ -11,6 +11,7 @@ import { useAgentViewStore } from "@/state/stores/agent-view";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliUiOp, CliViewAgent } from "../../../shared/cli/ui";
+import { sessionKey } from "../agent-sessions/model";
 import {
   type AgentLayout,
   closeLeaf,
@@ -29,7 +30,6 @@ import {
   updateKeepingActive,
   updateKeepingFocus,
 } from "../agent-view/show";
-import { sessionKey } from "../sessions/model";
 import { type CliUiHandler, tabRecord, UiRequestError } from "./actions";
 import { toCli } from "./layout-actions";
 

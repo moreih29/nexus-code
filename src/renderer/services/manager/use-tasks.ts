@@ -6,8 +6,8 @@
 import { useEffect, useState } from "react";
 import { useManagerStore } from "../../state/stores/manager";
 import { useTabActivityStore } from "../../state/stores/tab-activity";
-import { type AgentSession, sessionsOf } from "../sessions/model";
-import { SESSION_STORES, sessionsInputNow } from "../sessions/use-inbox";
+import { type AgentSession, sessionsOf } from "../agent-sessions/model";
+import { SESSION_STORES, sessionsInputNow } from "../agent-sessions/use-inbox";
 
 function tasksNow(): AgentSession[] {
   const tasks = Object.values(useManagerStore.getState().tasks).sort((a, b) => b.since - a.since);
