@@ -139,6 +139,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
    * records the literal "${NEXUS_AGENT_BIN}" hook <sub> form.
    * (The variable reference must be stored as is, not the path itself.)
    */
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: the test is about the literal ${NEXUS_AGENT_BIN} text.
   test("NEXUS_AGENT_BIN 설정 시 settings.json command 필드에 리터럴 ${NEXUS_AGENT_BIN}이 포함된다", () => {
     // A path with a space: the command must quote the variable, because the
     // shell that runs the hook expands it.
@@ -347,6 +348,7 @@ describeOnPosix("claude-wrapper.sh — a `claude -p` run", () => {
     const binDir = path.join(tmpDir, "bin");
     fs.mkdirSync(binDir, { recursive: true });
     const fake = path.join(binDir, "claude");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a bash script, which expands it.
     fs.writeFileSync(fake, '#!/usr/bin/env bash\nprintf "%s" "${NEXUS_CLAUDE_PRINT:-unset}"\n');
     fs.chmodSync(fake, 0o755);
     const hookBin = path.join(tmpDir, "agent");
@@ -405,6 +407,7 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
     const fake = path.join(binDir, "claude");
     fs.writeFileSync(
       fake,
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a bash script, which expands it.
       '#!/usr/bin/env bash\nhooks=no\nfor a in "$@"; do [[ "$a" == --settings ]] && hooks=yes; done\nprintf "%s %s" "$hooks" "${NEXUS_CLAUDE_TAB_ID:-}"\n',
     );
     fs.chmodSync(fake, 0o755);

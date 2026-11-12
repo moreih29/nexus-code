@@ -384,6 +384,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
       workspaceId,
       setCommitPickerRef,
       setCommitPickerOpen,
+      t,
     ],
   );
   const addRemoteFields = useMemo<FormDialogField[]>(

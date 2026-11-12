@@ -59,14 +59,11 @@ import { MIME_TAB, type TabDragPayload } from "../dnd/types";
  * Globe icon. A URL that fails to load (404 / blocked / malformed) falls back to Globe
  * through onError.
  *
- * When faviconUrl changes, the errored state is reset so the new URL is tried again.
+ * Keyed by faviconUrl where it is drawn, so a new URL starts it over and is tried again.
  * 12px (size-3) with shrink-0 so it lines up with the text inside the tab chip.
  */
 function BrowserFaviconIcon({ faviconUrl }: { faviconUrl: string | null }) {
   const [errored, setErrored] = useState(false);
-  useEffect(() => {
-    setErrored(false);
-  }, [faviconUrl]);
 
   if (!faviconUrl || errored) {
     return (
@@ -123,7 +120,7 @@ export function TabIcon({ tab }: { tab: Tab }) {
   if (tab.type === "browser") {
     return (
       <span data-tab-icon className="inline-flex" aria-hidden>
-        <BrowserFaviconIcon faviconUrl={faviconUrl} />
+        <BrowserFaviconIcon key={faviconUrl ?? ""} faviconUrl={faviconUrl} />
       </span>
     );
   }
