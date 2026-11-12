@@ -14,12 +14,14 @@
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 import { createI18n } from "../src/shared/i18n/index";
+
 {
   const { options } = createI18n({ lng: "en" });
   if (!i18next.isInitialized) {
     await i18next.use(initReactI18next).init(options);
   }
 }
+
 // 2. Filter out the React useSyncExternalStore "result of getSnapshot should be
 //    cached" warning. Our slot-registry returns reference-stable values (HTMLElement
 //    or null) per (workspaceId, leafId) key, so the warning is a false positive
@@ -70,11 +72,21 @@ mock.module("@xterm/xterm", () => ({
 
     dispose(): void {}
     loadAddon(_addon: unknown): void {}
-    onData(_callback: (data: string) => void): typeof disposable { return disposable; }
-    onResize(_callback: (size: { cols: number; rows: number }) => void): typeof disposable { return disposable; }
-    onTitleChange(_callback: (title: string) => void): typeof disposable { return disposable; }
-    onSelectionChange(_callback: () => void): typeof disposable { return disposable; }
-    getSelection(): string { return ""; }
+    onData(_callback: (data: string) => void): typeof disposable {
+      return disposable;
+    }
+    onResize(_callback: (size: { cols: number; rows: number }) => void): typeof disposable {
+      return disposable;
+    }
+    onTitleChange(_callback: (title: string) => void): typeof disposable {
+      return disposable;
+    }
+    onSelectionChange(_callback: () => void): typeof disposable {
+      return disposable;
+    }
+    getSelection(): string {
+      return "";
+    }
     open(_parent: HTMLElement): void {}
     refresh(_start: number, _end: number): void {}
     write(_data: string): void {}
@@ -107,7 +119,9 @@ mock.module("@xterm/addon-fit", () => ({
     activate(): void {}
     dispose(): void {}
     fit(): void {}
-    proposeDimensions(): { cols: number; rows: number } | undefined { return undefined; }
+    proposeDimensions(): { cols: number; rows: number } | undefined {
+      return undefined;
+    }
   },
 }));
 
@@ -129,16 +143,19 @@ mock.module("@xterm/addon-fit", () => ({
 // ---------------------------------------------------------------------------
 
 function makeMatchMediaStub() {
-  return (_query: string): MediaQueryList => ({
-    matches: false,
-    media: _query,
-    onchange: null,
-    addEventListener(): void {},
-    removeEventListener(): void {},
-    addListener(): void {},
-    removeListener(): void {},
-    dispatchEvent(): boolean { return false; },
-  } as MediaQueryList);
+  return (_query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: _query,
+      onchange: null,
+      addEventListener(): void {},
+      removeEventListener(): void {},
+      addListener(): void {},
+      removeListener(): void {},
+      dispatchEvent(): boolean {
+        return false;
+      },
+    }) as MediaQueryList;
 }
 
 function ensureMatchMedia(win: unknown): void {
@@ -217,15 +234,14 @@ function ensureMatchMedia(win: unknown): void {
 // happy-dom 가 MutationObserver 를 제공하지 않으므로 no-op stub. browser-suspend-auto
 // 가 bootstrap 시 document.body 의 MutationObserver 를 설치하는데, 옵저버가 자동
 // 실행되는지 자체는 본 test scope 밖이라 no-op 으로 충분.
-(globalThis as Record<string, unknown>).MutationObserver ??=
-  class MutationObserver {
-    constructor(_cb: unknown) {}
-    observe(_target: unknown, _options?: unknown): void {}
-    disconnect(): void {}
-    takeRecords(): unknown[] {
-      return [];
-    }
-  };
+(globalThis as Record<string, unknown>).MutationObserver ??= class MutationObserver {
+  constructor(_cb: unknown) {}
+  observe(_target: unknown, _options?: unknown): void {}
+  disconnect(): void {}
+  takeRecords(): unknown[] {
+    return [];
+  }
+};
 
 // ---------------------------------------------------------------------------
 // file-icon.tsx stub — this module uses Vite-specific APIs (import.meta.glob
@@ -249,42 +265,41 @@ const FILE_ICON_MODULE_PATH = `${import.meta.dir}/../src/renderer/components/fil
 const FILE_ICON_RESOLVERS_PATH = `${import.meta.dir}/../src/renderer/components/files/file-tree/file-icon-resolvers`;
 
 mock.module(FILE_ICON_MODULE_PATH, () => {
-    const React = require("react");
-    // biome-ignore lint/style/noCommonJs: require needed in mock factory (no top-level await)
-    const { resolveLucide } = require(FILE_ICON_RESOLVERS_PATH);
+  const React = require("react");
+  // biome-ignore lint/style/noCommonJs: require needed in mock factory (no top-level await)
+  const { resolveLucide } = require(FILE_ICON_RESOLVERS_PATH);
 
-    const SIZE_CLASS: Record<string, string> = { sm: "size-3", md: "size-3.5" };
-    const TONE_CLASS: Record<string, string> = {
-      sidebar: "text-[var(--sidebar-icon-fg)]",
-      muted: "text-muted-foreground",
-    };
+  const SIZE_CLASS: Record<string, string> = { sm: "size-3", md: "size-3.5" };
+  const TONE_CLASS: Record<string, string> = {
+    sidebar: "text-[var(--sidebar-icon-fg)]",
+    muted: "text-muted-foreground",
+  };
 
-    function FileIcon({
-      kind,
-      name,
-      size = "sm",
-      tone,
-      className,
+  function FileIcon({
+    kind,
+    name,
+    size = "sm",
+    tone,
+    className,
+    "aria-hidden": ariaHidden,
+  }: {
+    kind: string;
+    name?: string;
+    size?: string;
+    tone: string;
+    className?: string;
+    "aria-hidden"?: boolean | "true" | "false";
+  }) {
+    const LucideComp = resolveLucide(kind, name);
+    return React.createElement(LucideComp, {
       "aria-hidden": ariaHidden,
-    }: {
-      kind: string;
-      name?: string;
-      size?: string;
-      tone: string;
-      className?: string;
-      "aria-hidden"?: boolean | "true" | "false";
-    }) {
-      const LucideComp = resolveLucide(kind, name);
-      return React.createElement(LucideComp, {
-        "aria-hidden": ariaHidden,
-        className: [SIZE_CLASS[size], TONE_CLASS[tone], className].filter(Boolean).join(" "),
-        strokeWidth: 1.5,
-      });
-    }
+      className: [SIZE_CLASS[size], TONE_CLASS[tone], className].filter(Boolean).join(" "),
+      strokeWidth: 1.5,
+    });
+  }
 
-    return { FileIcon, resolveLucide, resolveMaterialIconName: () => null };
-  },
-);
+  return { FileIcon, resolveLucide, resolveMaterialIconName: () => null };
+});
 
 // ---------------------------------------------------------------------------
 // electron — canonical hermetic stub
@@ -366,7 +381,9 @@ mock.module("electron", () => ({
       this.title = _opts?.title ?? "";
       this.body = _opts?.body ?? "";
     }
-    on(_event: string, _cb: () => void): this { return this; }
+    on(_event: string, _cb: () => void): this {
+      return this;
+    }
     show(): void {}
   },
 

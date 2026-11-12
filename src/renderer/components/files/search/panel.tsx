@@ -280,7 +280,9 @@ export function SearchPanel({ workspaceId, focusRequest = 0 }: SearchPanelProps)
         {isNoResults && (
           <div className="px-4 py-4 text-center flex flex-col gap-1">
             <p className="text-app-ui-sm text-foreground">{t("search.state.noResults")}</p>
-            <p className="text-app-ui-sm text-muted-foreground">{t("search.state.noResultsHint")}</p>
+            <p className="text-app-ui-sm text-muted-foreground">
+              {t("search.state.noResultsHint")}
+            </p>
           </div>
         )}
 

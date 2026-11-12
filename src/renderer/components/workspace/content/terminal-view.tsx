@@ -3,15 +3,15 @@ import type { ReactNode, Ref } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import "@xterm/xterm/css/xterm.css";
+import { ipcListen } from "@/ipc/client";
 import { registerTabFocusTarget } from "@/services/tab-focus";
-import { registerTerminalController } from "@/services/terminal/terminal-registry";
 import { createTerminalController } from "@/services/terminal";
 import { subscribeTerminalReopenRequest } from "@/services/terminal/reopen-requests";
+import { registerTerminalController } from "@/services/terminal/terminal-registry";
 import type { TerminalController } from "@/services/terminal/types";
 import { useTabsStore } from "@/state/stores/tabs";
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
-import { ipcListen } from "@/ipc/client";
 import { Banner } from "../../ui/banner";
 
 interface TerminalViewProps {
@@ -180,9 +180,7 @@ export function TerminalView({
   /** Shown in place of the held banner for a few seconds after a keypress while held. */
   const [showInputHint, setShowInputHint] = useState(false);
   /** Minutes remaining in the grace window — updated per-minute, not per-second. */
-  const [graceMinutes, setGraceMinutes] = useState<number>(
-    Math.ceil(REATTACH_GRACE_SECONDS / 60),
-  );
+  const [graceMinutes, setGraceMinutes] = useState<number>(Math.ceil(REATTACH_GRACE_SECONDS / 60));
   const isHeld = heldAt !== null;
 
   // Subscribe to `pty.held` / `pty.restored` / `pty.expired` for this tab.
@@ -353,7 +351,7 @@ export function TerminalView({
   //   3. Held warning banner (reconnecting, countdown)
   //   4. Held input hint (first keypress while held)
   // ---------------------------------------------------------------------------
-  let activeBanner: ReactNode = undefined;
+  let activeBanner: ReactNode;
   if (showEndedBanner) {
     activeBanner = (
       <DeadTerminalBanner
@@ -383,12 +381,7 @@ export function TerminalView({
     );
   } else if (isHeld && showInputHint) {
     activeBanner = (
-      <Banner
-        display="bar"
-        variant="info"
-        message={t("terminal.held_input_hint")}
-        role="status"
-      />
+      <Banner display="bar" variant="info" message={t("terminal.held_input_hint")} role="status" />
     );
   } else if (isHeld) {
     activeBanner = (

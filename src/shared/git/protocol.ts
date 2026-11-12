@@ -29,14 +29,14 @@ import {
   LogChunkSchema,
   type LogComplete,
   LogCompleteSchema,
-  type StashEntry,
-  StashEntrySchema,
-  type Tag,
-  TagSchema,
   type RemoteTag,
   RemoteTagSchema,
   type RepoInfo,
   RepoInfoSchema,
+  type StashEntry,
+  StashEntrySchema,
+  type Tag,
+  TagSchema,
 } from "./types";
 
 export const GIT_RUN_METHOD = "git.run";
@@ -319,9 +319,7 @@ export const AgentGitStashListParamsSchema = z.object({
 });
 export type AgentGitStashListParams = z.infer<typeof AgentGitStashListParamsSchema>;
 
-export const AgentGitStashListResultSchema = z.array(
-  StashEntrySchema as z.ZodType<StashEntry>,
-);
+export const AgentGitStashListResultSchema = z.array(StashEntrySchema as z.ZodType<StashEntry>);
 export type AgentGitStashListResult = StashEntry[];
 
 export const AgentGitStashApplyParamsSchema = z.object({
@@ -572,9 +570,7 @@ export const AgentGitBranchSetUpstreamParamsSchema = z.object({
   /** null unsets the upstream; a string sets it to the given remote/ref. */
   upstream: z.string().min(1).nullable(),
 });
-export type AgentGitBranchSetUpstreamParams = z.infer<
-  typeof AgentGitBranchSetUpstreamParamsSchema
->;
+export type AgentGitBranchSetUpstreamParams = z.infer<typeof AgentGitBranchSetUpstreamParamsSchema>;
 
 export const AgentGitBranchFastForwardParamsSchema = z.object({
   cwd: z.string().min(1).optional(),
@@ -583,18 +579,14 @@ export const AgentGitBranchFastForwardParamsSchema = z.object({
   remoteRef: z.string().min(1),
   runId: AgentGitRunIdSchema,
 });
-export type AgentGitBranchFastForwardParams = z.infer<
-  typeof AgentGitBranchFastForwardParamsSchema
->;
+export type AgentGitBranchFastForwardParams = z.infer<typeof AgentGitBranchFastForwardParamsSchema>;
 
 export const AgentGitBranchFastForwardResultSchema = z.object({
   advanced: z.boolean(),
   fromSha: z.string(),
   toSha: z.string(),
 });
-export type AgentGitBranchFastForwardResult = z.infer<
-  typeof AgentGitBranchFastForwardResultSchema
->;
+export type AgentGitBranchFastForwardResult = z.infer<typeof AgentGitBranchFastForwardResultSchema>;
 
 // ---------------------------------------------------------------------------
 // git.pull / git.push — typed RPC wrappers

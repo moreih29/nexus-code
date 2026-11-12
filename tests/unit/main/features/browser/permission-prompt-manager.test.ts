@@ -13,9 +13,7 @@
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  BrowserPermissionPromptManager,
-} from "../../../../../src/main/features/browser/permission-prompt-manager";
+import { BrowserPermissionPromptManager } from "../../../../../src/main/features/browser/permission-prompt-manager";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,8 +54,16 @@ describe("handlePermissionRequest — allow", () => {
     let result: boolean | null = null;
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "media", webContentsId: 1, decision: "allow" },
-      (ok) => { result = ok; },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "allow",
+      },
+      (ok) => {
+        result = ok;
+      },
     );
 
     expect(result).toBe(true);
@@ -75,8 +81,16 @@ describe("handlePermissionRequest — block", () => {
     let result: boolean | null = null;
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "media", webContentsId: 1, decision: "block" },
-      (ok) => { result = ok; },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "block",
+      },
+      (ok) => {
+        result = ok;
+      },
     );
 
     expect(result).toBe(false);
@@ -94,8 +108,16 @@ describe("handlePermissionRequest — ask (first request)", () => {
     let result: boolean | null = null;
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "notifications", webContentsId: 1, decision: "ask" },
-      (ok) => { result = ok; },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "notifications",
+        webContentsId: 1,
+        decision: "ask",
+      },
+      (ok) => {
+        result = ok;
+      },
     );
 
     // callback not called yet
@@ -105,7 +127,9 @@ describe("handlePermissionRequest — ask (first request)", () => {
     expect(broadcastCalls[0].channelName).toBe("browserPermission");
     expect(broadcastCalls[0].event).toBe("prompt");
     expect((broadcastCalls[0].args as { promptId: string }).promptId).toBe("prompt-1");
-    expect((broadcastCalls[0].args as { permissions: string[] }).permissions).toEqual(["notifications"]);
+    expect((broadcastCalls[0].args as { permissions: string[] }).permissions).toEqual([
+      "notifications",
+    ]);
   });
 });
 
@@ -119,11 +143,23 @@ describe("handlePermissionRequest — coalesce", () => {
     const results: boolean[] = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "notifications", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "notifications",
+        webContentsId: 1,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "notifications", webContentsId: 2, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "notifications",
+        webContentsId: 2,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
 
@@ -137,11 +173,23 @@ describe("handlePermissionRequest — coalesce", () => {
     const manager = makeManager();
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "notifications", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "notifications",
+        webContentsId: 1,
+        decision: "ask",
+      },
       () => {},
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://example.com", permission: "geolocation", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://example.com",
+        permission: "geolocation",
+        webContentsId: 1,
+        decision: "ask",
+      },
       () => {},
     );
 
@@ -159,11 +207,23 @@ describe("respond", () => {
     const results: boolean[] = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 2, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 2,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
 
@@ -177,7 +237,13 @@ describe("respond", () => {
     const results: boolean[] = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
 
@@ -190,7 +256,13 @@ describe("respond", () => {
     const manager = makeManager();
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-2", origin: "https://b.com", permission: "geolocation", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-2",
+        origin: "https://b.com",
+        permission: "geolocation",
+        webContentsId: 1,
+        decision: "ask",
+      },
       () => {},
     );
 
@@ -209,7 +281,13 @@ describe("respond", () => {
     const manager = makeManager();
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "ask",
+      },
       () => {},
     );
 
@@ -229,11 +307,23 @@ describe("cancel", () => {
     const results: boolean[] = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 2, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 2,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
 
@@ -246,7 +336,13 @@ describe("cancel", () => {
     const manager = makeManager();
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 1, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 1,
+        decision: "ask",
+      },
       () => {},
     );
     manager.cancel("prompt-1");
@@ -265,11 +361,23 @@ describe("disposeByWebContents", () => {
     const results: Array<{ id: number; ok: boolean }> = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 10,
+        decision: "ask",
+      },
       (ok) => results.push({ id: 10, ok }),
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 20, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 20,
+        decision: "ask",
+      },
       (ok) => results.push({ id: 20, ok }),
     );
 
@@ -285,11 +393,23 @@ describe("disposeByWebContents", () => {
     const results: boolean[] = [];
 
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 10,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 20, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 20,
+        decision: "ask",
+      },
       (ok) => results.push(ok),
     );
 
@@ -308,11 +428,23 @@ describe("disposeByWebContents", () => {
   test("tells the renderer to drop a prompt nothing waits on any more", () => {
     const manager = makeManager();
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 10, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 10,
+        decision: "ask",
+      },
       () => {},
     );
     manager.handlePermissionRequest(
-      { workspaceId: "ws-1", origin: "https://a.com", permission: "media", webContentsId: 20, decision: "ask" },
+      {
+        workspaceId: "ws-1",
+        origin: "https://a.com",
+        permission: "media",
+        webContentsId: 20,
+        decision: "ask",
+      },
       () => {},
     );
 

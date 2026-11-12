@@ -6,11 +6,11 @@
  * from the git.ts assembly file so existing consumers need no import changes.
  */
 
-import type { GitActionHint } from "../../../../shared/git/types";
 import type {
   BranchInfo,
   BranchList,
   CommitResult,
+  GitActionHint,
   GitAutofetchError,
   GitAutofetchIntervalMin,
   GitCommitOptions,

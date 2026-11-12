@@ -229,7 +229,9 @@ function componentLines(component: PickedComponent): string[] {
 
 function selectorText(el: PickedElement): string {
   if (el.selector !== null) return el.selector;
-  return el.inShadow ? "none, as it is inside a shadow root; use the ref" : "none found; use the ref";
+  return el.inShadow
+    ? "none, as it is inside a shadow root; use the ref"
+    : "none found; use the ref";
 }
 
 /** Why a pick ended without an element, said for the agent. */

@@ -25,17 +25,17 @@ import type * as Monaco from "monaco-editor";
 import type { GitStatus } from "../../../../../shared/git/types";
 import { ipcCallResult, ipcListen, unwrapGitResult } from "../../../../ipc/client";
 import type { EditorInput } from "../../../../services/editor";
+import type { TextEncoding } from "../../../../services/editor/encoding/text-encoding";
 import {
   DirtyDiffController,
   type DirtyDiffSource,
 } from "../../../../services/editor/git/dirty-diff/controller";
 import type { DirtyChange } from "../../../../services/editor/git/dirty-diff/types";
 import { lineChangeOfDirty } from "../../../../services/editor/git/staging/line-changes";
-import type { TextEncoding } from "../../../../services/editor/encoding/text-encoding";
+import { stageLines } from "../../../../services/editor/git/staging/stage-lines";
 import { getResolvedModel } from "../../../../services/editor/model/cache";
 import { isDirty } from "../../../../services/editor/model/dirty-tracker";
 import { decodeFileContent } from "../../../../services/editor/model/file-loader";
-import { stageLines } from "../../../../services/editor/git/staging/stage-lines";
 import { useGitStore } from "../../../../state/stores/git";
 
 export interface InstallDirtyDiffInput {

@@ -5,8 +5,9 @@
  * panel/store path, and the selected radio maps to the existing GitMergeMode
  * IPC enum at submit time.
  */
-import { useEffect, useState } from "react";
+
 import i18next from "i18next";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitMergeMode, LogEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";

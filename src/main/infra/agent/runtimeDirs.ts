@@ -117,9 +117,9 @@ fi
 
 _nexus_prepend_wrapper() {
   [ -z "\${NEXUS_WRAPPER_SELF_DIR-}" ] && return
-  case ":\$PATH:" in
-    ":\$NEXUS_WRAPPER_SELF_DIR:"*) ;;
-    *) PATH="\$NEXUS_WRAPPER_SELF_DIR:\${PATH//:\$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
+  case ":$PATH:" in
+    ":$NEXUS_WRAPPER_SELF_DIR:"*) ;;
+    *) PATH="$NEXUS_WRAPPER_SELF_DIR:\${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
   esac
 }
 autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd _nexus_prepend_wrapper
@@ -129,9 +129,9 @@ _nexus_prepend_wrapper
 /** sh that puts the directory `variable` names first on PATH, if it names one. */
 function prependDir(variable: string): string {
   return `if [ -n "\${${variable}-}" ]; then
-  case ":\$PATH:" in
-    ":\$${variable}:"*) ;;
-    *) PATH="\$${variable}:\${PATH//:\$${variable}:/:}" ;;
+  case ":$PATH:" in
+    ":$${variable}:"*) ;;
+    *) PATH="$${variable}:\${PATH//:$${variable}:/:}" ;;
   esac
 fi
 `;
@@ -181,12 +181,12 @@ fi
 
 _nexus_prepend_wrapper() {
   [ -z "\${NEXUS_WRAPPER_SELF_DIR-}" ] && return
-  case ":\$PATH:" in
-    ":\$NEXUS_WRAPPER_SELF_DIR:"*) ;;
-    *) PATH="\$NEXUS_WRAPPER_SELF_DIR:\${PATH//:\$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
+  case ":$PATH:" in
+    ":$NEXUS_WRAPPER_SELF_DIR:"*) ;;
+    *) PATH="$NEXUS_WRAPPER_SELF_DIR:\${PATH//:$NEXUS_WRAPPER_SELF_DIR:/:}" ;;
   esac
 }
-PROMPT_COMMAND="_nexus_prepend_wrapper\${PROMPT_COMMAND:+; \$PROMPT_COMMAND}"
+PROMPT_COMMAND="_nexus_prepend_wrapper\${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
 _nexus_prepend_wrapper
 `;
 

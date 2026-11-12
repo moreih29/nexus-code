@@ -11,8 +11,8 @@
  * no-op rather than propagating a "workspace not found" throw.
  */
 import { describe, expect, test } from "bun:test";
-import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type { AgentPtyWorkspaceManager } from "../../../../src/main/features/pty/agent-host";
+import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type {
   AgentChannel,
   ChannelEventCallback,
@@ -78,8 +78,20 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
     host.on("exit", (args) => exits.push(args));
 
     // Spawn two sessions.
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     // Simulate WorkspaceManager.remove() calling closeWorkspaceSessions first.
     host.closeWorkspaceSessions(WORKSPACE_ID);
@@ -97,7 +109,13 @@ describe("AgentPtyHostHandle.closeWorkspaceSessions", () => {
     const exits: Array<unknown> = [];
     host.on("exit", (args) => exits.push(args));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     host.closeWorkspaceSessions(WORKSPACE_ID);
     host.closeWorkspaceSessions(WORKSPACE_ID); // second call must be a no-op
@@ -167,7 +185,13 @@ describe("workspace removal ordering", () => {
     host.on("exit", (args) => exits.push(args));
 
     // Step 0 — session is live.
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     // Step 1 — WorkspaceManager calls closeWorkspaceSessions before deletion.
     host.closeWorkspaceSessions(WORKSPACE_ID);

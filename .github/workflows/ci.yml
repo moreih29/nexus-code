@@ -45,8 +45,8 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Lint
-        run: bun run lint
+      - name: Lint and format check
+        run: bun run check:ci
 
   build-agent:
     name: Build agent (dry-run)

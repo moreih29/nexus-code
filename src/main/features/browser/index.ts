@@ -21,10 +21,10 @@
 import type { BrowserWindow, WebContents } from "electron";
 import type { GlobalStorage } from "../../infra/storage/global-storage";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
+import { type BrowserChannelDeps, registerBrowserChannel } from "./ipc";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 import { type BrowserAddressResolver, BrowserTabRegistry } from "./registry";
 import type { PermissionHandlerDeps } from "./security";
-import { type BrowserChannelDeps, registerBrowserChannel } from "./ipc";
 
 let registry: BrowserTabRegistry | null = null;
 const createListeners = new Set<(tabId: string, contents: WebContents) => void>();
@@ -123,8 +123,6 @@ export function registerBrowserCloser(manager: {
       reg.closePopups(workspaceId);
     }
     const { session } = require("electron") as typeof import("electron");
-    await session
-      .fromPartition(`persist:browser-${workspaceId}`)
-      .clearStorageData();
+    await session.fromPartition(`persist:browser-${workspaceId}`).clearStorageData();
   });
 }

@@ -120,8 +120,16 @@ export function buildAutofetchMenuModel(
   const t = i18next.t.bind(i18next);
   return [
     { intervalMin: 0, label: t("files:git.moreMenu.autofetch.off"), selected: selected === 0 },
-    { intervalMin: 1, label: t("files:git.moreMenu.autofetch.every1min"), selected: selected === 1 },
-    { intervalMin: 3, label: t("files:git.moreMenu.autofetch.every3min"), selected: selected === 3 },
+    {
+      intervalMin: 1,
+      label: t("files:git.moreMenu.autofetch.every1min"),
+      selected: selected === 1,
+    },
+    {
+      intervalMin: 3,
+      label: t("files:git.moreMenu.autofetch.every3min"),
+      selected: selected === 3,
+    },
   ];
 }
 
@@ -335,7 +343,8 @@ export function resolveGitPushTagsAction({
   remotes: readonly string[];
 }): GitPushTagsMenuAction {
   const t = i18next.t.bind(i18next);
-  if (remotes.length === 0) return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
+  if (remotes.length === 0)
+    return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
   if (disabled) return { kind: "disabled", reason: t("files:git.moreMenu.tag.repoBusy") };
   if (!hasHead) return { kind: "disabled", reason: t("files:git.moreMenu.tag.requiresCommit") };
   const [firstRemote] = remotes;
@@ -354,7 +363,8 @@ export function resolveGitDeleteRemoteTagAction({
   remotes: readonly string[];
 }): GitDeleteRemoteTagMenuAction {
   const t = i18next.t.bind(i18next);
-  if (remotes.length === 0) return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
+  if (remotes.length === 0)
+    return { kind: "disabled", reason: t("files:git.moreMenu.tag.noRemotes") };
   if (disabled) return { kind: "disabled", reason: t("files:git.moreMenu.tag.repoBusy") };
   if (!hasHead) return { kind: "disabled", reason: t("files:git.moreMenu.tag.requiresCommit") };
   const [firstRemote] = remotes;

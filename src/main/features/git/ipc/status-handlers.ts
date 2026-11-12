@@ -1,16 +1,17 @@
 /**
  * Status handlers — one-shot Git status snapshots for the Source Control panel.
  */
-import { ipcContract } from "../../../../shared/ipc/contract";
+
 import {
   DEFAULT_GIT_OPERATION_STATE,
   DEFAULT_REPO_CAPABILITIES,
   type GitChangeStats,
   type GitStatus,
 } from "../../../../shared/git/types";
-import type { GitRegistry } from "../domain/registry";
+import { ipcContract } from "../../../../shared/ipc/contract";
 import type { CallContext } from "../../../infra/ipc-router";
 import { validateArgs } from "../../../infra/ipc-router";
+import type { GitRegistry } from "../domain/registry";
 
 const c = ipcContract.git.call;
 

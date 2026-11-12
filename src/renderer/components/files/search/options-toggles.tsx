@@ -28,8 +28,7 @@ interface SearchOptionsTogglesProps {
 // The ring is what distinguishes "pressed" from "hover" — the ghost
 // variant's hover state shares the same state.hover.bg overlay, so a bg
 // change alone would let pressed and hover look identical.
-const TOGGLE_ON_CLASS =
-  "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
+const TOGGLE_ON_CLASS = "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
 export function SearchOptionsToggles({
   options,

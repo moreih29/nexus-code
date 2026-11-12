@@ -34,7 +34,11 @@ export function createMergeTargetPickerSource(
   const current = input.currentBranch?.trim() || null;
   return {
     id: "git.merge-target-picker",
-    title: input.title ?? (current ? t("files:git.mergePicker.titleWithBranch", { current }) : t("files:git.mergePicker.title")),
+    title:
+      input.title ??
+      (current
+        ? t("files:git.mergePicker.titleWithBranch", { current })
+        : t("files:git.mergePicker.title")),
     placeholder: input.placeholder ?? t("files:git.mergePicker.placeholder"),
     emptyQueryMessage: t("files:git.mergePicker.loadingBranches"),
     noResultsMessage: t("files:git.mergePicker.noMatchingBranches"),

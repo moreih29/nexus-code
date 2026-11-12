@@ -3,8 +3,8 @@
 // editable.
 
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
-import { SpreadsheetPreview } from "../../editor/preview/spreadsheet-preview";
 import { PreviewFindScope } from "../../editor/preview/preview-find";
+import { SpreadsheetPreview } from "../../editor/preview/spreadsheet-preview";
 import { EditorBreadcrumbs } from "./editor-breadcrumbs";
 
 interface SpreadsheetEditorViewProps {

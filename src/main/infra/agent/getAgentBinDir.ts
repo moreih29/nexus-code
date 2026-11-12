@@ -78,9 +78,7 @@ export function getAgentBinaryPath(): string | undefined {
   if (!fs.existsSync(manifestPath)) return undefined;
 
   try {
-    const manifest = AgentManifestSchema.parse(
-      JSON.parse(fs.readFileSync(manifestPath, "utf8")),
-    );
+    const manifest = AgentManifestSchema.parse(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
     const platform = localAgentPlatform();
     if (!platform) return undefined;
 

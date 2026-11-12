@@ -14,8 +14,7 @@
  * that Bun resolves at import time.
  */
 
-import { describe, expect, mock, test } from "bun:test";
-import { mock as bunMock } from "bun:test";
+import { mock as bunMock, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Electron leaf mock — required before importing security.ts.
@@ -35,13 +34,13 @@ const { installPermissionHandler } = await import(
 // Fake helpers
 // ---------------------------------------------------------------------------
 
-interface FakeCheckHandler {
-  (webContents: unknown, permission: string): boolean;
-}
+type FakeCheckHandler = (webContents: unknown, permission: string) => boolean;
 
-interface FakeRequestHandler {
-  (webContents: unknown, permission: string, callback: (ok: boolean) => void): void;
-}
+type FakeRequestHandler = (
+  webContents: unknown,
+  permission: string,
+  callback: (ok: boolean) => void,
+) => void;
 
 interface FakeSession {
   _checkHandler: FakeCheckHandler | null;

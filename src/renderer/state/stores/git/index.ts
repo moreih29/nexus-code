@@ -37,8 +37,13 @@ import type {
   Tag,
 } from "../../../../shared/git/types";
 import { registerWorkspaceCleanup } from "../../workspace-cleanup";
-import { installGitEventSubscriptions } from "./event-subscriptions";
 import { installCommitDraftFlushListeners } from "./draft-persistence";
+import { installGitEventSubscriptions } from "./event-subscriptions";
+import { createOperationsSlice, type OperationsSlice } from "./operations";
+import { createPanelUiSlice } from "./panel-ui";
+import { createQueriesSlice } from "./queries";
+import { createSessionLifecycleSlice } from "./session-lifecycle";
+import { createGitStoreContext } from "./store-context";
 import type {
   CommitOptions,
   CreateBranchOptions,
@@ -49,11 +54,6 @@ import type {
   GitStoreError,
   PendingNonFFRetry,
 } from "./types";
-import { createGitStoreContext } from "./store-context";
-import { createSessionLifecycleSlice } from "./session-lifecycle";
-import { createOperationsSlice, type OperationsSlice } from "./operations";
-import { createQueriesSlice } from "./queries";
-import { createPanelUiSlice } from "./panel-ui";
 
 // ---------------------------------------------------------------------------
 // Public types — re-exported from git/types.ts so consumers keep the same
@@ -61,14 +61,14 @@ import { createPanelUiSlice } from "./panel-ui";
 // ---------------------------------------------------------------------------
 
 export type {
-  GitOperationKind,
-  GitInFlightOp,
-  GitStoreError,
-  GitPushOptions,
-  PendingNonFFRetry,
-  GitSession,
   CommitOptions,
   CreateBranchOptions,
+  GitInFlightOp,
+  GitOperationKind,
+  GitPushOptions,
+  GitSession,
+  GitStoreError,
+  PendingNonFFRetry,
 };
 
 // ---------------------------------------------------------------------------

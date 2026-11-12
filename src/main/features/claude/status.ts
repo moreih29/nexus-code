@@ -1,8 +1,8 @@
 // Claude 세션 상태 broker — (workspaceId, tabId) 쌍별 상태를 메모리로 관리하고
 // 변경 시 renderer로 broadcast한다.
 
-import { broadcast } from "../../infra/ipc-router";
 import type { ClaudeStatus, StatusEntry } from "../../../shared/claude/status";
+import { broadcast } from "../../infra/ipc-router";
 
 /** 내부 저장 단위 */
 interface StateEntry {
@@ -47,9 +47,7 @@ export class ClaudeStatusBroker {
 
   private readonly listeners = new Set<ClaudeStatusListener>();
 
-  constructor(
-    broadcastFn: (channel: string, event: string, args: unknown) => void = broadcast,
-  ) {
+  constructor(broadcastFn: (channel: string, event: string, args: unknown) => void = broadcast) {
     this.broadcastFn = broadcastFn;
   }
 

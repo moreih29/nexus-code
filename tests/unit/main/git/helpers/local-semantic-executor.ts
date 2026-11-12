@@ -1,26 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
-import {
-  LOG_CHUNK_ENTRY_COUNT,
-  type CommitDetail,
-  type CommitFileChange,
-  type DiffChunk,
-  type DiffComplete,
-  type GitBlobChunk,
-  type GitBlobComplete,
-  type GitConflictType,
-  type GitOperationState,
-  type GitStatus,
-  type GitStatusEntry,
-  type LogChunk,
-  type LogComplete,
-  type LogEntry,
-  type LogEntryRef,
-  type PullResult,
-  type PushResult,
-} from "../../../../../src/shared/git/types";
+import { StringDecoder } from "node:string_decoder";
 import type {
   GitBlobOptions,
   GitBranchDeleteOptions,
@@ -36,11 +17,33 @@ import type {
   RunGitResult,
 } from "../../../../../src/main/features/git/bridge/types";
 import { GitError } from "../../../../../src/main/features/git/domain/error";
-import { type GitMetadataReader, GitRepository } from "../../../../../src/main/features/git/domain/repository";
+import {
+  type GitMetadataReader,
+  GitRepository,
+} from "../../../../../src/main/features/git/domain/repository";
 import {
   buildDiffArgs,
   readFetchHeadMtime,
 } from "../../../../../src/main/features/git/domain/repository-helpers";
+import {
+  type CommitDetail,
+  type CommitFileChange,
+  type DiffChunk,
+  type DiffComplete,
+  type GitBlobChunk,
+  type GitBlobComplete,
+  type GitConflictType,
+  type GitOperationState,
+  type GitStatus,
+  type GitStatusEntry,
+  LOG_CHUNK_ENTRY_COUNT,
+  type LogChunk,
+  type LogComplete,
+  type LogEntry,
+  type LogEntryRef,
+  type PullResult,
+  type PushResult,
+} from "../../../../../src/shared/git/types";
 
 const LOG_FIELD_SEPARATOR = "\x1f";
 const LOG_RECORD_SEPARATOR = "\x1e";

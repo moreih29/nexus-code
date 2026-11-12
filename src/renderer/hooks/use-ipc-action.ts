@@ -50,8 +50,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type AppError, appErrorBug, appErrorCancelled } from "../../shared/error/app-error";
 import { isAbortError } from "../../shared/abort";
+import { type AppError, appErrorBug, appErrorCancelled } from "../../shared/error/app-error";
 
 // ---------------------------------------------------------------------------
 // State type — discriminated union covering all four lifecycle phases
@@ -232,8 +232,7 @@ export function useIpcAction<T>(options: UseIpcActionOptions<T> = {}): UseIpcAct
 
           // Determine whether the throw represents a cancellation.
           const isCancellation =
-            isAbortError(err) ||
-            (isAppError(err) && err.category === "cancelled");
+            isAbortError(err) || (isAppError(err) && err.category === "cancelled");
 
           if (isCancellation) {
             // Cancelled operations return to idle without surfacing any UI.
@@ -304,8 +303,7 @@ export function normaliseError(err: unknown): AppError {
   }
 
   // Last-resort fallback for exotic throws (string literals, objects, etc.).
-  const message =
-    typeof err === "string" ? err : "An unexpected error occurred";
+  const message = typeof err === "string" ? err : "An unexpected error occurred";
   return appErrorBug(message);
 }
 

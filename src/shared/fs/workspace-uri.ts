@@ -132,7 +132,9 @@ export function untitledCacheUriFor(workspaceId: string, untitledIndex: number):
     throw new Error("untitledCacheUriFor: workspaceId must be non-empty");
   }
   if (!Number.isInteger(untitledIndex) || untitledIndex < 1) {
-    throw new Error(`untitledCacheUriFor: untitledIndex must be a positive integer, got ${untitledIndex}`);
+    throw new Error(
+      `untitledCacheUriFor: untitledIndex must be a positive integer, got ${untitledIndex}`,
+    );
   }
   return `${UNTITLED_URI_PREFIX}${workspaceId}/Untitled-${untitledIndex}`;
 }

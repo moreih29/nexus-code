@@ -8,8 +8,9 @@
  * without significant prop proliferation. It does reuse bannerColorClass for
  * color consistency. (T7 consistency review, 2026-05.)
  */
-import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
+
 import i18next from "i18next";
+import { CircleAlert, GitMerge, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { GitOperationState } from "../../../../../shared/git/types";
 import type { GitStoreError } from "../../../../state/stores/git";
@@ -81,14 +82,21 @@ export function buildOperationBannerView(
         return {
           ...base,
           message: t("files:git.operations.merge.conflicts", {
-            source: formatRef(state.mergeLabel ?? state.mergeRef, t("files:git.operations.merge.conflicts")),
+            source: formatRef(
+              state.mergeLabel ?? state.mergeRef,
+              t("files:git.operations.merge.conflicts"),
+            ),
             target: formatRef(state.headRef, t("files:git.operations.merge.conflicts")),
             conflictText: formatConflictsRemain(conflictCount, t),
           }),
           details: t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView(t("files:git.operations.merge.ready"), t("files:git.operations.merge.readyDetail"), base);
+      return readyView(
+        t("files:git.operations.merge.ready"),
+        t("files:git.operations.merge.readyDetail"),
+        base,
+      );
     case "rebase":
       return rebaseBannerView(state, base, t);
     case "cherry-pick":
@@ -102,7 +110,11 @@ export function buildOperationBannerView(
           details: state.sourceSubject ?? t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView(t("files:git.operations.cherryPick.ready"), t("files:git.operations.merge.readyDetail"), base);
+      return readyView(
+        t("files:git.operations.cherryPick.ready"),
+        t("files:git.operations.merge.readyDetail"),
+        base,
+      );
     case "revert":
       if (conflictCount > 0) {
         return {
@@ -114,7 +126,11 @@ export function buildOperationBannerView(
           details: state.sourceSubject ?? t("files:git.operations.merge.conflictsDetail"),
         };
       }
-      return readyView(t("files:git.operations.revert.ready"), t("files:git.operations.merge.readyDetail"), base);
+      return readyView(
+        t("files:git.operations.revert.ready"),
+        t("files:git.operations.merge.readyDetail"),
+        base,
+      );
   }
 }
 
@@ -198,7 +214,10 @@ function rebaseBannerView(
   t: (key: string, opts?: Record<string, unknown>) => string,
 ): OperationBannerView {
   const step = formatRebaseStep(state, t);
-  const onto = formatRef(state.ontoLabel ?? state.ontoRef, t("files:git.operations.rebase.rebasing"));
+  const onto = formatRef(
+    state.ontoLabel ?? state.ontoRef,
+    t("files:git.operations.rebase.rebasing"),
+  );
   if (state.conflictCount > 0) {
     const progress = step ? ` — ${step}` : "";
     return {
@@ -222,7 +241,11 @@ function rebaseBannerView(
 }
 
 /** Builds the shared clean workflow ready copy. */
-function readyView(message: string, readyDetail: string, base: OperationBannerBaseView): OperationBannerView {
+function readyView(
+  message: string,
+  readyDetail: string,
+  base: OperationBannerBaseView,
+): OperationBannerView {
   return { ...base, message, details: readyDetail };
 }
 
@@ -241,7 +264,10 @@ function formatRef(ref: string | null, fallback: string): string {
 }
 
 /** Formats the full "N conflicts remain" phrase. */
-function formatConflictsRemain(count: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
+function formatConflictsRemain(
+  count: number,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+): string {
   return t("files:git.operations.conflictsRemain", { count });
 }
 

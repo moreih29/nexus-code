@@ -40,7 +40,9 @@ export interface WorkspacesState {
   remove: (id: string) => void;
   setConnectionStatus: (id: string, status: WorkspaceConnectionStatus) => void;
   /** Bulk-update sort positions after a server-side group rebalance. */
-  reorder: (orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>) => void;
+  reorder: (
+    orders: Array<{ id: string; sortOrder: number; pinnedSortOrder: number; pinned: boolean }>,
+  ) => void;
 }
 
 interface WorkspacesStoreDeps {

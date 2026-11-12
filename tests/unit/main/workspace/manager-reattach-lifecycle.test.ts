@@ -15,8 +15,8 @@
  * so no mock.module is needed.
  */
 
-import { describe, expect, jest, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, jest, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 
@@ -33,13 +33,9 @@ mock.module("electron", () => ({
 // ---------------------------------------------------------------------------
 
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import(
-  "../../../../src/main/infra/storage/workspace-storage"
-);
+const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import(
-  "../../../../src/main/features/workspace/manager"
-);
+const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
 
 // ---------------------------------------------------------------------------
 // Minimal channel stub
@@ -54,7 +50,9 @@ class StubChannel {
   readonly ready: Promise<void>;
 
   constructor() {
-    this.ready = new Promise<void>((r) => { this.resolveReady = r; });
+    this.ready = new Promise<void>((r) => {
+      this.resolveReady = r;
+    });
   }
 
   async call(method: string, params?: unknown): Promise<unknown> {
@@ -64,7 +62,9 @@ class StubChannel {
   }
 
   fire(_method: string, _params?: unknown): void {}
-  on(_event: string, _cb: unknown): () => void { return () => {}; }
+  on(_event: string, _cb: unknown): () => void {
+    return () => {};
+  }
 
   onLifecycle(cb: LifecycleCb): () => void {
     this.lifecycleListeners.add(cb);
@@ -75,7 +75,9 @@ class StubChannel {
     for (const cb of this.lifecycleListeners) cb(event);
   }
 
-  resolveChannel(): void { this.resolveReady(); }
+  resolveChannel(): void {
+    this.resolveReady();
+  }
   dispose(): void {}
 }
 
@@ -99,13 +101,18 @@ function makeManager(overrides?: {
     path.join(os.tmpdir(), `nexus-reattach-lc-state-${Date.now()}-${Math.random()}.json`),
   );
   const broadcasts: Array<{ channelName: string; event: string; args: unknown }> = [];
-  const broadcastFn = mock(
-    (channelName: string, event: string, args: unknown) => broadcasts.push({ channelName, event, args }),
+  const broadcastFn = mock((channelName: string, event: string, args: unknown) =>
+    broadcasts.push({ channelName, event, args }),
   );
 
-  const defaultWriteShimFiles = mock((_id: string) => Promise.resolve({
-    dir: "/stub", zshrc: "/stub/.zshrc", zshenv: "/stub/.zshenv", bashrc: "/stub/.bashrc",
-  }));
+  const defaultWriteShimFiles = mock((_id: string) =>
+    Promise.resolve({
+      dir: "/stub",
+      zshrc: "/stub/.zshrc",
+      zshenv: "/stub/.zshenv",
+      bashrc: "/stub/.bashrc",
+    }),
+  );
   const defaultRemoveShimDir = mock((_id: string) => Promise.resolve());
 
   const manager = new WorkspaceManager(
@@ -295,7 +302,9 @@ describe("acceptance 4b: reauthInFlight prevents duplicate prompt", () => {
     let bootCallCount = 0;
     // Bootstrap hangs after first call so we can observe reauthInFlight guard.
     let resolveSecondBoot!: () => void;
-    const secondBootPromise = new Promise<void>((r) => { resolveSecondBoot = r; });
+    const secondBootPromise = new Promise<void>((r) => {
+      resolveSecondBoot = r;
+    });
 
     const channel = new StubChannel();
     const sshBootstrap = mock(async () => {
@@ -327,7 +336,9 @@ describe("acceptance 4b: reauthInFlight prevents duplicate prompt", () => {
     channelInstances.push(channel2);
     channelIdx = 1;
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     // First failure → triggers reauth (in-flight now).
     channel.emitLifecycle({ type: "failure", error: authFailedError });
     await new Promise<void>((r) => setTimeout(r, 0));
@@ -379,7 +390,9 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
     channel.resolveChannel();
     await bootPromise;
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
     // Allow the async reauth to run and fail with auth-cancelled.
@@ -387,7 +400,7 @@ describe("acceptance 4c: auth-cancelled → disconnected (no retry)", () => {
 
     const statusBroadcasts = broadcasts
       .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
-      .map((b) => (b.args as { status: string; workspaceId: string }));
+      .map((b) => b.args as { status: string; workspaceId: string });
     const disconnectedForWs = statusBroadcasts.filter(
       (b) => b.workspaceId === meta.id && b.status === "disconnected",
     );
@@ -429,7 +442,9 @@ describe("acceptance 4d: reauth backoff — 3 attempts then error", () => {
     const m = manager as unknown as { reauthAttempts: Map<string, number> };
     m.reauthAttempts.set(meta.id, 3);
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
     // scheduleReauth is async (void) — allow the microtask to complete.
@@ -437,7 +452,7 @@ describe("acceptance 4d: reauth backoff — 3 attempts then error", () => {
 
     const statusBroadcasts = broadcasts
       .filter((b) => b.channelName === "workspace" && b.event === "connectionChanged")
-      .map((b) => (b.args as { status: string; workspaceId: string }));
+      .map((b) => b.args as { status: string; workspaceId: string });
     const errorForWs = statusBroadcasts.filter(
       (b) => b.workspaceId === meta.id && b.status === "error",
     );
@@ -480,7 +495,9 @@ describe("acceptance 5: ctx absent guard in reauth", () => {
     const m = manager as unknown as { reauthAttempts: Map<string, number> };
     m.reauthAttempts.set(meta.id, 1);
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
     // Remove the workspace immediately before the timer fires.
@@ -540,7 +557,9 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     channel.resolveChannel();
     await bootPromise;
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
     // Allow async reauth to run (0 ms backoff → immediate).
@@ -580,7 +599,9 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     const m = manager as unknown as { reauthAttempts: Map<string, number> };
     m.reauthAttempts.set(meta.id, 3);
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
     await new Promise<void>((r) => setTimeout(r, 0));
 
@@ -610,7 +631,9 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     const { manager, globalDb } = makeManager({
       sshBootstrap,
       sshChannelFactory,
-      ptyRestoreAfterReauth: async (id) => { restoreCalls.push(id); },
+      ptyRestoreAfterReauth: async (id) => {
+        restoreCalls.push(id);
+      },
       ptyReleaseHeld: (id) => releaseHeldCalls.push(id),
     });
     const meta = makeSshMeta(manager);
@@ -623,7 +646,9 @@ describe("manager hold resolution: releaseHeld called on non-reauth exits", () =
     channelInstances.push(channel2);
     channelIdx = 1;
 
-    const authFailedError = Object.assign(new Error("SSH auth failed"), { code: "ssh.auth-failed" });
+    const authFailedError = Object.assign(new Error("SSH auth failed"), {
+      code: "ssh.auth-failed",
+    });
     channel.emitLifecycle({ type: "failure", error: authFailedError });
 
     // Resolve new channel — reauth succeeds.

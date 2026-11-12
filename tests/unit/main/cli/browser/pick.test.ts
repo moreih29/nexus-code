@@ -207,7 +207,7 @@ describe("the picked element's selector", () => {
     // JSON would write \u0001, which CSS reads as the letter u: "xu0001y".
     const built = page(
       ["button", { "data-testid": "xu0001y" }],
-      ["button", { key: "odd", "data-testid": "x\u0001y\"z" }],
+      ["button", { key: "odd", "data-testid": 'x\u0001y"z' }],
     );
     expect(selectorOf(built, "odd")).toBe('[data-testid="x\\1 y\\"z"]');
   });

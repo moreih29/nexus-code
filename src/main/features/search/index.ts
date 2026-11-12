@@ -14,12 +14,10 @@ import {
   SEARCH_TEXT_METHOD,
 } from "../../../shared/search/protocol";
 import type { FileMatch } from "../../../shared/search/types";
-import { isAgentBackedProvider } from "../fs/bridge/provider";
-import {
-  findWorkspace,
-} from "../workspace/guards";
-import type { WorkspaceManager } from "../workspace/manager";
 import type { StreamContext } from "../../infra/ipc-router";
+import { isAgentBackedProvider } from "../fs/bridge/provider";
+import { findWorkspace } from "../workspace/guards";
+import type { WorkspaceManager } from "../workspace/manager";
 
 type SearchTextStreamProcedure = (typeof ipcContract)["fs"]["stream"]["searchText"];
 type SearchTextArgs = InferArgs<SearchTextStreamProcedure>;
@@ -179,4 +177,3 @@ function normalizeSearchError(error: unknown): unknown {
   }
   return error;
 }
-

@@ -17,6 +17,7 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ThemeId } from "../src/shared/design-tokens";
 import {
   appTypeScale,
   borderRadius,
@@ -27,7 +28,6 @@ import {
   spacing,
 } from "../src/shared/design-tokens";
 import { DEFAULT_THEME, THEMES } from "../src/shared/design-tokens/themes";
-import type { ThemeId } from "../src/shared/design-tokens";
 import { EDITOR_PALETTES } from "../src/shared/editor/palette";
 
 function camelToKebab(s: string): string {
@@ -105,9 +105,7 @@ function gitTokensForTheme(themeId: ThemeId): Record<string, string> {
     "--color-git-chip-hover-bg": theme["state.hover.bg"],
     "--color-status-banner-fg": theme["surface.island.fg"],
     // workspace connection status colors (semantic: success/warning/error/disabled)
-    "--color-workspace-connection-idle": isDark
-      ? "oklch(0.68 0.003 84)"
-      : "oklch(0.48 0.003 84)",
+    "--color-workspace-connection-idle": isDark ? "oklch(0.68 0.003 84)" : "oklch(0.48 0.003 84)",
     "--color-workspace-connection-connected": theme["feedback.success.fg"],
     "--color-workspace-connection-connecting": theme["state.warning.fg"],
     "--color-workspace-connection-error": theme["state.error.fg"],
@@ -195,10 +193,7 @@ export function generateThemeCss(): string {
     ["codeUi", { fontSize: 16, lineHeight: 1.0, letterSpacing: 0, fontWeight: 400 }],
     ["codeBody", { fontSize: 16, lineHeight: 1.0, letterSpacing: -0.2, fontWeight: 400 }],
   ] as const;
-  const allTypeScaleEntries = [
-    ...codeTypeScaleEntries,
-    ...Object.entries(appTypeScale),
-  ];
+  const allTypeScaleEntries = [...codeTypeScaleEntries, ...Object.entries(appTypeScale)];
   for (const [role, def] of allTypeScaleEntries) {
     const kebab = camelToKebab(role);
     lines.push(`  --text-${kebab}: ${def.fontSize}px;`);

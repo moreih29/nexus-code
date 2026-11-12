@@ -41,28 +41,23 @@
  */
 
 import { shell } from "electron";
-import { createLogger } from "../../../shared/log/main";
-import { ipcOk } from "../../../shared/ipc/result";
-import { register, validateArgs } from "../../infra/ipc-router";
 import { ipcContract } from "../../../shared/ipc/contract";
+import { ipcOk } from "../../../shared/ipc/result";
+import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
-import type { StateService } from "../../infra/storage/state-service";
-import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
-import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
 import {
   nextUpdateStatus,
   type UpdateProgress,
   type UpdateStatus,
 } from "../../../shared/updates/status";
+import type { TimerScheduler } from "../../../shared/util/timer-scheduler";
+import { defaultTimerScheduler } from "../../../shared/util/timer-scheduler";
+import { register, validateArgs } from "../../infra/ipc-router";
+import type { StateService } from "../../infra/storage/state-service";
 import { createAutoCheck } from "./auto-check";
 import { createUpdateInstaller, type UpdateBackend } from "./installer";
 import { STORE_PAGE_URL } from "./microsoft-store";
-import {
-  createConditionalCache,
-  pollGithubReleases,
-  type PollResult,
-  REPO_BASE,
-} from "./poller";
+import { createConditionalCache, type PollResult, pollGithubReleases, REPO_BASE } from "./poller";
 import { createReleaseNotesCache, fetchReleaseNotes } from "./release-notes";
 
 // ---------------------------------------------------------------------------
@@ -189,11 +184,7 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
     // dropping the response leaves them clicking a no-op button. So we
     // bypass dedupe whenever trigger=manual and still record the key so
     // the *next* auto-poll dedupes against this latest broadcast.
-    if (
-      payload.trigger !== "manual" &&
-      dedupeKey !== null &&
-      dedupeKey === lastBroadcastKey
-    ) {
+    if (payload.trigger !== "manual" && dedupeKey !== null && dedupeKey === lastBroadcastKey) {
       logger.info(`updates: skip dup broadcast key=${dedupeKey}`);
       return;
     }
@@ -255,23 +246,25 @@ export function installUpdatesDomain(options: InstallUpdatesDomainOptions): Upda
         }
       }, 3000);
 
-      void doPoll(trigger).then(() => {
-        settled = true;
-        if (progressHandle !== null) {
-          timerScheduler.clearTimeout(progressHandle);
-          progressHandle = null;
-        }
-      }).catch((err: unknown) => {
-        settled = true;
-        if (progressHandle !== null) {
-          timerScheduler.clearTimeout(progressHandle);
-          progressHandle = null;
-        }
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error(`updates: unexpected error in poll: ${message}`);
-        remember({ kind: "error", trigger, reason: "unexpected" });
-        broadcastStatus({ kind: "error", trigger, reason: "unexpected" });
-      });
+      void doPoll(trigger)
+        .then(() => {
+          settled = true;
+          if (progressHandle !== null) {
+            timerScheduler.clearTimeout(progressHandle);
+            progressHandle = null;
+          }
+        })
+        .catch((err: unknown) => {
+          settled = true;
+          if (progressHandle !== null) {
+            timerScheduler.clearTimeout(progressHandle);
+            progressHandle = null;
+          }
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error(`updates: unexpected error in poll: ${message}`);
+          remember({ kind: "error", trigger, reason: "unexpected" });
+          broadcastStatus({ kind: "error", trigger, reason: "unexpected" });
+        });
     } else {
       // Auto: fire and forget — errors are silent (not broadcast).
       void doPoll(trigger).catch((err: unknown) => {

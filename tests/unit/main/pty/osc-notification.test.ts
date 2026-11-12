@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
-  OscNotificationDispatcher,
   extractOscNotifications,
+  OscNotificationDispatcher,
 } from "../../../../src/main/features/pty/osc-notification";
 
 // ---------------------------------------------------------------------------
@@ -19,9 +19,7 @@ describe("extractOscNotifications", () => {
 
   test("OSC 9 single match", () => {
     const chunk = "\x1b]9;Task finished\x07";
-    expect(extractOscNotifications(chunk)).toEqual([
-      { kind: "osc9", body: "Task finished" },
-    ]);
+    expect(extractOscNotifications(chunk)).toEqual([{ kind: "osc9", body: "Task finished" }]);
   });
 
   test("OSC 9 with ST terminator", () => {
@@ -38,9 +36,7 @@ describe("extractOscNotifications", () => {
 
   test("OSC 99 single match — no title param", () => {
     const chunk = "\x1b]99;;Task done\x07";
-    expect(extractOscNotifications(chunk)).toEqual([
-      { kind: "osc99", body: "Task done" },
-    ]);
+    expect(extractOscNotifications(chunk)).toEqual([{ kind: "osc99", body: "Task done" }]);
   });
 
   test("OSC 99 with p=title param", () => {
@@ -51,8 +47,7 @@ describe("extractOscNotifications", () => {
   });
 
   test("mixed OSC 9 + OSC 777 in one chunk", () => {
-    const chunk =
-      "some output\x1b]9;First\x07more text\x1b]777;notify;Title;Second\x07end";
+    const chunk = "some output\x1b]9;First\x07more text\x1b]777;notify;Title;Second\x07end";
     const results = extractOscNotifications(chunk);
     expect(results).toHaveLength(2);
     expect(results[0]).toEqual({ kind: "osc9", body: "First" });

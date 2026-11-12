@@ -11,8 +11,8 @@
  * immediately (invariant preserved).
  */
 import { describe, expect, mock, test } from "bun:test";
-import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type { AgentPtyWorkspaceManager } from "../../../../src/main/features/pty/agent-host";
+import { startAgentPtyHost } from "../../../../src/main/features/pty/agent-host";
 import type {
   AgentChannel,
   ChannelEventCallback,
@@ -98,8 +98,20 @@ describe("PTY hold on reconnecting (hadEpoch=true)", () => {
     host.on("held", (a) => held.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
 
@@ -113,11 +125,21 @@ describe("PTY hold on reconnecting (hadEpoch=true)", () => {
     const channel = new FakeAgentChannel();
     const host = startAgentPtyHost(makeWorkspaceManager(channel));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.calls.length = 0;
 
-    const result = await host.call("write", { workspaceId: WORKSPACE_ID, tabId: TAB_A, data: "hello" });
+    const result = await host.call("write", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      data: "hello",
+    });
 
     expect(result).toBeUndefined();
     expect(channel.calls.some((c) => c.method === "pty.write")).toBe(false);
@@ -143,8 +165,20 @@ describe("PTY restore on ready (epoch-match)", () => {
     host.on("restored", (a) => restored.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
@@ -186,7 +220,13 @@ describe("PTY restore on ready (epoch-match)", () => {
       return originalCall(method, params);
     }) as typeof channel.call;
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
@@ -245,8 +285,20 @@ describe("PTY restore on ready (epoch-match)", () => {
 
     const host = startAgentPtyHost(makeWorkspaceManager(channel));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
@@ -277,7 +329,13 @@ describe("PTY restore on ready (epoch-match)", () => {
     const exits: unknown[] = [];
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "ready" });
     await new Promise<void>((r) => setTimeout(r, 0));
@@ -300,8 +358,20 @@ describe("PTY expire on held-then-expired", () => {
     host.on("expired", (a) => expired.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "held-then-expired", previousEpoch: 1, newEpoch: 2 });
@@ -319,7 +389,13 @@ describe("PTY expire on held-then-expired", () => {
     const heldExpiredEvents: unknown[] = [];
     host.on("held-then-expired", (a) => heldExpiredEvents.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "held-then-expired", previousEpoch: 1, newEpoch: 2 });
 
@@ -333,7 +409,13 @@ describe("PTY expire on held-then-expired", () => {
     const exits: unknown[] = [];
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "failure", error: new Error("connection lost") });
 
@@ -356,7 +438,13 @@ describe("legacy path: reconnecting hadEpoch=false → immediate exit", () => {
     host.on("held", (a) => held.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: false });
 
     expect(exits).toContainEqual({ workspaceId: WORKSPACE_ID, tabId: TAB_A, code: null });
@@ -378,8 +466,20 @@ describe("releaseHeld: manager releases held sessions on non-reauth exit", () =>
     host.on("expired", (a) => expired.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     // Put sessions on hold (simulating reconnecting with epoch).
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
@@ -411,7 +511,11 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
     // Return channel2 on tryGetAgentChannel (only called from restoreAfterReauth in this test).
     const manager: AgentPtyWorkspaceManager = {
       async getAgentChannel(id: string): Promise<AgentChannel> {
-        return id === WORKSPACE_ID ? channel : (() => { throw new Error("not found"); })();
+        return id === WORKSPACE_ID
+          ? channel
+          : (() => {
+              throw new Error("not found");
+            })();
       },
       async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {
         if (id !== WORKSPACE_ID) return null;
@@ -425,8 +529,20 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
     host.on("restored", (a) => restored.push(a));
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_B, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_B,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
 
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "failure", error: new Error("auth failed") });
@@ -458,7 +574,11 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
 
     const manager: AgentPtyWorkspaceManager = {
       async getAgentChannel(id: string): Promise<AgentChannel> {
-        return id === WORKSPACE_ID ? channel : (() => { throw new Error("not found"); })();
+        return id === WORKSPACE_ID
+          ? channel
+          : (() => {
+              throw new Error("not found");
+            })();
       },
       async tryGetAgentChannel(id: string): Promise<AgentChannel | null> {
         if (id !== WORKSPACE_ID) return null;
@@ -470,7 +590,13 @@ describe("restoreAfterReauth: manager-driven restore through new channel", () =>
     const exits: unknown[] = [];
     host.on("exit", (a) => exits.push(a));
 
-    await host.call("spawn", { workspaceId: WORKSPACE_ID, tabId: TAB_A, cwd: "/", cols: 80, rows: 24 });
+    await host.call("spawn", {
+      workspaceId: WORKSPACE_ID,
+      tabId: TAB_A,
+      cwd: "/",
+      cols: 80,
+      rows: 24,
+    });
     channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
     channel.emitLifecycle({ type: "failure", error: new Error("auth failed") });
 

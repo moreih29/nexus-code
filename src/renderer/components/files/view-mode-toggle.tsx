@@ -36,7 +36,11 @@ export function computeNextViewMode(current: "list" | "tree"): "list" | "tree" {
 // "pressed" from "hover" because ghost hover bg matches pressed bg alone.
 const TOGGLE_ON_CLASS = "bg-[var(--state-active-bg)] text-foreground ring-1 ring-inset ring-ring";
 
-export function ViewModeToggle({ viewMode, onViewModeChange, disabled = false }: ViewModeToggleProps) {
+export function ViewModeToggle({
+  viewMode,
+  onViewModeChange,
+  disabled = false,
+}: ViewModeToggleProps) {
   const { t } = useTranslation("files");
   const isTree = viewMode === "tree";
   const toggleLabel = isTree ? t("search.viewMode.viewAsList") : t("search.viewMode.viewAsTree");

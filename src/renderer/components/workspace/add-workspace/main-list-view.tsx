@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ErrorNotice } from "./error-notice";
 import type { ConnectionProfile, FolderBookmark } from "../../../../shared/types/entry-points";
 import {
   createLocalWorkspace,
@@ -24,10 +23,11 @@ import {
   removeFolderBookmark,
   setFolderBookmarkFavorite,
 } from "../../../services/workspace";
+import { isWindows } from "../../../utils/platform";
 import { Button } from "../../ui/button";
 import { EmptyState } from "../../ui/empty-state";
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
-import { isWindows } from "../../../utils/platform";
+import { ErrorNotice } from "./error-notice";
 import {
   folderName,
   formatSshSecondaryLine,
@@ -332,7 +332,9 @@ export function MainListView({
         {favorites.length > 0 ? (
           <section aria-label={t("workspace.favorites")}>
             <div className="px-2 pb-1 pt-0">
-              <span className="text-app-label uppercase text-muted-foreground">{t("workspace.favorites")}</span>
+              <span className="text-app-label uppercase text-muted-foreground">
+                {t("workspace.favorites")}
+              </span>
             </div>
             <ul className="flex flex-col gap-0.5">
               {favorites.map((bookmark) => (
@@ -359,9 +361,14 @@ export function MainListView({
         ) : null}
 
         {recents.length > 0 ? (
-          <section aria-label={t("workspace.recent")} className={favorites.length > 0 ? "mt-3" : undefined}>
+          <section
+            aria-label={t("workspace.recent")}
+            className={favorites.length > 0 ? "mt-3" : undefined}
+          >
             <div className="px-2 pb-1 pt-0">
-              <span className="text-app-label uppercase text-muted-foreground">{t("workspace.recent")}</span>
+              <span className="text-app-label uppercase text-muted-foreground">
+                {t("workspace.recent")}
+              </span>
             </div>
             <ul className="flex flex-col gap-0.5">
               {visibleRecents.map((bookmark) => (
@@ -390,7 +397,9 @@ export function MainListView({
                 onClick={() => setShowAllRecent((prev) => !prev)}
                 className="mt-1 w-full rounded-(--radius-control) px-2 py-2 text-left text-app-ui-sm text-muted-foreground outline-none hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
               >
-                {showAllRecent ? t("workspace.show_less") : t("workspace.show_more", { count: recents.length - RECENT_MAX_DEFAULT })}
+                {showAllRecent
+                  ? t("workspace.show_less")
+                  : t("workspace.show_more", { count: recents.length - RECENT_MAX_DEFAULT })}
               </button>
             ) : null}
           </section>
@@ -602,7 +611,9 @@ function BookmarkRow({
           <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <button
               type="button"
-              aria-label={isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")}
+              aria-label={
+                isFavorite ? t("workspace.remove_from_favorites") : t("workspace.add_to_favorites")
+              }
               onClick={onToggleFavorite}
               tabIndex={-1}
               className="inline-flex size-8 items-center justify-center rounded-(--radius-control) text-muted-foreground outline-none pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto hover:bg-[var(--state-hover-bg)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"

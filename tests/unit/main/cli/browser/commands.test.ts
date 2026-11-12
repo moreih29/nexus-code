@@ -83,7 +83,10 @@ describe("picking an element", () => {
   test("the pick stops with the command: it gets the command's signal", async () => {
     const app = fakeApp();
     const controller = new AbortController();
-    await runCli(CLI_COMMANDS, { ...contextFor(app, ["browser", "pick"]), signal: controller.signal });
+    await runCli(CLI_COMMANDS, {
+      ...contextFor(app, ["browser", "pick"]),
+      signal: controller.signal,
+    });
     expect(app.browser.calls.at(-1)?.args).toEqual([
       { timeoutMs: 120_000, signal: controller.signal },
     ]);

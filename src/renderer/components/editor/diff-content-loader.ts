@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import i18next from "i18next";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { DiffTabPayload } from "../../../shared/types/tab";
 import { ipcCallResult, ipcListen, unwrapGitResult, unwrapIpcResult } from "../../ipc/client";

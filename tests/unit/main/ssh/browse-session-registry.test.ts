@@ -47,7 +47,9 @@ function makeMaster(disposeFn = mock(() => {})): SshControlMaster {
 function makeRegistry(idleTtlMs = BROWSE_IDLE_TTL_MS, initialNow = 1_000_000) {
   let fakeNow = initialNow;
   const nowFn = () => fakeNow;
-  const advance = (ms: number) => { fakeNow += ms; };
+  const advance = (ms: number) => {
+    fakeNow += ms;
+  };
   const registry = new SshBrowseSessionRegistry(idleTtlMs, nowFn);
   return { registry, advance };
 }

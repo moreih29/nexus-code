@@ -31,9 +31,7 @@ mock.module("electron", () => ({
   WebContentsView: class {},
 }));
 
-const { evaluatePermission } = await import(
-  "../../../../../src/main/features/browser/security"
-);
+const { evaluatePermission } = await import("../../../../../src/main/features/browser/security");
 
 // ---------------------------------------------------------------------------
 // Fake deps factory
@@ -55,15 +53,21 @@ const ORIGIN = "https://example.com";
 
 describe("evaluatePermission — auto classified", () => {
   test("clipboard-sanitized-write → allow (globalAllowed=false)", () => {
-    expect(evaluatePermission(WS, ORIGIN, "clipboard-sanitized-write", makeDeps(false, null))).toBe("allow");
+    expect(evaluatePermission(WS, ORIGIN, "clipboard-sanitized-write", makeDeps(false, null))).toBe(
+      "allow",
+    );
   });
 
   test("storage-access → allow", () => {
-    expect(evaluatePermission(WS, ORIGIN, "storage-access", makeDeps(false, "block"))).toBe("allow");
+    expect(evaluatePermission(WS, ORIGIN, "storage-access", makeDeps(false, "block"))).toBe(
+      "allow",
+    );
   });
 
   test("top-level-storage-access → allow", () => {
-    expect(evaluatePermission(WS, ORIGIN, "top-level-storage-access", makeDeps(false, null))).toBe("allow");
+    expect(evaluatePermission(WS, ORIGIN, "top-level-storage-access", makeDeps(false, null))).toBe(
+      "allow",
+    );
   });
 });
 
@@ -77,7 +81,9 @@ describe("evaluatePermission — blocked classified", () => {
   });
 
   test("unrecognised string → block", () => {
-    expect(evaluatePermission(WS, ORIGIN, "totally-unknown-permission", makeDeps(true, "allow"))).toBe("block");
+    expect(
+      evaluatePermission(WS, ORIGIN, "totally-unknown-permission", makeDeps(true, "allow")),
+    ).toBe("block");
   });
 });
 
@@ -110,11 +116,7 @@ describe("evaluatePermission — prompt classified", () => {
 // ---------------------------------------------------------------------------
 
 describe("evaluatePermission — high-risk permissions default to ask", () => {
-  const highRiskPermissions = [
-    "openExternal",
-    "fileSystem",
-    "display-capture",
-  ] as const;
+  const highRiskPermissions = ["openExternal", "fileSystem", "display-capture"] as const;
 
   for (const permission of highRiskPermissions) {
     test(`${permission}: globalAllowed=false, remembered=null → ask`, () => {

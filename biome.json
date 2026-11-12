@@ -16,7 +16,10 @@
       "*.js",
       "*.cjs",
       "*.mjs",
-      "*.json"
+      "*.json",
+      "!tests/fixtures",
+      "!src/renderer/styles/theme.generated.css",
+      "!src/renderer/index.html"
     ]
   },
   "formatter": {

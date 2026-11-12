@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { EventEmitter } from "node:events";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { authenticateSshControlMaster } from "../../../../src/main/infra/agent/ssh/auth-pty";
 import type { SshAuthPrompt } from "../../../../src/shared/ssh/auth-prompt";
 

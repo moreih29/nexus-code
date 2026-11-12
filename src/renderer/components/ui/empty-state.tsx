@@ -48,9 +48,7 @@ export function EmptyState({
         <p
           className={cn(
             "text-muted-foreground",
-            tone === "label"
-              ? "text-app-label uppercase"
-              : "text-app-ui-sm",
+            tone === "label" ? "text-app-label uppercase" : "text-app-ui-sm",
           )}
         >
           {title}

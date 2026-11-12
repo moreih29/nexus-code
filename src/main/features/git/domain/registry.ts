@@ -9,12 +9,9 @@ import {
   type RepoInfo,
 } from "../../../../shared/git/types";
 import { isAgentBackedProvider } from "../../fs/bridge/provider";
-import { AgentGitExecutor } from "../bridge/agent-executor";
-import {
-  requireLocalWorkspace,
-  requireWorkspace,
-} from "../../workspace/guards";
+import { requireLocalWorkspace, requireWorkspace } from "../../workspace/guards";
 import type { BroadcastFn, WorkspaceManager } from "../../workspace/manager";
+import { AgentGitExecutor } from "../bridge/agent-executor";
 import { GitError } from "./error";
 import type { GitHelpersIpcManager } from "./helpers/ipc";
 import { GitRepository } from "./repository";

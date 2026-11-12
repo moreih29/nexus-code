@@ -17,8 +17,8 @@ import type {
 } from "../../../../shared/fs/types";
 import { ipcContract } from "../../../../shared/ipc/contract";
 import { validateArgs } from "../../../infra/ipc-router";
-import type { FsProvider } from "../bridge/provider";
 import type { WorkspaceManager } from "../../workspace/manager";
+import type { FsProvider } from "../bridge/provider";
 import { isOutsideGranted, resolveOutsideGrant, setOutsideGrant } from "../outside-grants";
 import { type FsIpcErrorResult, fsErrorToIpcResult, isFsError } from "./fs-result";
 

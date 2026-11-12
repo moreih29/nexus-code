@@ -238,10 +238,7 @@ export function selectWorkspaceAggregateStatus(
  * 워크스페이스에 주의 필요 탭이 하나라도 있는지 반환한다.
  * (needsInput | permissionPending | error 탭이 존재하는 경우 true)
  */
-export function selectIsWorkspaceAttention(
-  state: ClaudeStatusStore,
-  workspaceId: string,
-): boolean {
+export function selectIsWorkspaceAttention(state: ClaudeStatusStore, workspaceId: string): boolean {
   const aggregate = selectWorkspaceAggregateStatus(state, workspaceId);
   return aggregate !== null && ATTENTION_STATUSES.includes(aggregate.status);
 }

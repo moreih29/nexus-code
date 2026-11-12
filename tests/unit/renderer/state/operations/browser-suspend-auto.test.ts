@@ -46,8 +46,7 @@ function fakeEl(spec: FakeSpec): Element {
       if (selector === "[inert]") return spec.insideInert ? ({} as Element) : null;
       return spec.insideMonaco || spec.isMonacoWidget ? ({} as Element) : null;
     },
-    getAttribute: (name: string) =>
-      name === "aria-hidden" && spec.ariaHidden ? "true" : null,
+    getAttribute: (name: string) => (name === "aria-hidden" && spec.ariaHidden ? "true" : null),
   } as unknown as Element;
 }
 

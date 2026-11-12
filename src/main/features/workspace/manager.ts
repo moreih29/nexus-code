@@ -62,9 +62,9 @@ import type { StateService } from "../../infra/storage/state-service";
 import type { WorkspaceStorage } from "../../infra/storage/workspace-storage";
 import { windowsCliLauncherDir } from "../cli/launchers";
 import { AgentFsProvider } from "../fs/bridge/agent-provider";
-import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { createFsProvider } from "../fs/bridge/create-provider";
 import type { FsProvider } from "../fs/bridge/provider";
+import { agentAliasPath } from "../git/domain/helpers/launcher";
 import { WorkspaceContext } from "./context";
 
 const log = createLogger("workspace");
@@ -1638,10 +1638,7 @@ export class WorkspaceManager {
    * 에이전트 부트스트랩 진행 이벤트를 렌더러로 전달한다.
    * workspaceId 범위로 scoped되므로 "새 워크스페이스 추가"와 "앱 시작 시 재연결" 양쪽 흐름 모두 커버한다.
    */
-  private broadcastConnectionProgress(
-    workspaceId: string,
-    event: LspBootstrapProgressEvent,
-  ): void {
+  private broadcastConnectionProgress(workspaceId: string, event: LspBootstrapProgressEvent): void {
     this.broadcastFn("workspace", "connectionProgress", {
       workspaceId,
       name: event.name,
@@ -1733,8 +1730,7 @@ export class WorkspaceManager {
 
     // ── Terminal events: failure / exit ───────────────────────────────────
     const isAuthFailure =
-      event.type === "failure" &&
-      (event.error as { code?: string }).code === "ssh.auth-failed";
+      event.type === "failure" && (event.error as { code?: string }).code === "ssh.auth-failed";
     const meta = ctx.getMeta();
     const isInteractive = meta.location.kind === "ssh" && meta.location.authMode === "interactive";
 
@@ -1856,7 +1852,9 @@ export class WorkspaceManager {
           // Other failures (connect error, etc.) handled by the new lifecycle
           // event from the fresh channel — don't double-broadcast here. Hold
           // state is preserved so the next channel's lifecycle can restore it.
-          log.warn(`reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`);
+          log.warn(
+            `reauth attempt ${attempts + 1} failed for ${workspaceId}: ${(err as Error).message}`,
+          );
         }
       } finally {
         this.reauthInFlight.delete(workspaceId);

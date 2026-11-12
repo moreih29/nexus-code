@@ -55,7 +55,8 @@ export function GitFileRow({
   const code = getGitStatusCode(groupKey, entry);
   const isConflictRow = groupKey === "merge";
   const toggleStage = groupKey === "staged" ? onUnstage : onStage;
-  const toggleLabel = groupKey === "staged" ? t("git.fileRow.unstageChanges") : t("git.fileRow.stageChanges");
+  const toggleLabel =
+    groupKey === "staged" ? t("git.fileRow.unstageChanges") : t("git.fileRow.stageChanges");
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === " " && toggleStage) {

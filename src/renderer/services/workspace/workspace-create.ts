@@ -6,9 +6,9 @@
  */
 
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import type { IpcResult } from "../../ipc/client";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
 import type { CallReturn } from "../../ipc/types";
-import type { IpcResult } from "../../ipc/client";
 
 // ---------------------------------------------------------------------------
 // Local workspace

@@ -25,9 +25,17 @@ import type { GitStoreContext } from "./store-context";
 export interface QueriesSlice {
   listBranches: (workspaceId: string, signal?: AbortSignal) => Promise<BranchList | undefined>;
   listTags: (workspaceId: string, signal?: AbortSignal) => Promise<Tag[] | undefined>;
-  listRemoteTags: (workspaceId: string, remote: string, signal?: AbortSignal) => Promise<RemoteTag[] | undefined>;
+  listRemoteTags: (
+    workspaceId: string,
+    remote: string,
+    signal?: AbortSignal,
+  ) => Promise<RemoteTag[] | undefined>;
   listStashes: (workspaceId: string, signal?: AbortSignal) => Promise<StashEntry[] | undefined>;
-  listRecentCommits: (workspaceId: string, signal?: AbortSignal, ref?: string) => Promise<LogEntry[] | undefined>;
+  listRecentCommits: (
+    workspaceId: string,
+    signal?: AbortSignal,
+    ref?: string,
+  ) => Promise<LogEntry[] | undefined>;
 }
 
 // ctx is accepted for API consistency with other slice creators even though

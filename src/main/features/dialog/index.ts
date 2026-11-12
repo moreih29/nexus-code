@@ -2,8 +2,8 @@ import path from "node:path";
 import { dialog } from "electron";
 import { toNativeDrivePath } from "../../../shared/fs/drive-path";
 import { ipcContract } from "../../../shared/ipc/contract";
-import { register, validateArgs } from "../../infra/ipc-router";
 import { getMainT } from "../../i18n";
+import { register, validateArgs } from "../../infra/ipc-router";
 
 const c = ipcContract.dialog.call;
 

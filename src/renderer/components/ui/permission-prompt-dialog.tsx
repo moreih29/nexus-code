@@ -24,6 +24,7 @@ import {
   FolderOpen,
   LayoutGrid,
   Lock,
+  type LucideProps,
   MapPin,
   Maximize,
   MonitorUp,
@@ -31,15 +32,14 @@ import {
   ShieldCheck,
   Video,
   Volume2,
-  type LucideProps,
 } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { BrowserPermissionKind } from "../../../shared/security/browser-permissions";
+import { createListenerBus } from "../../../shared/util/listener-bus";
 import { ipcCallResult } from "../../ipc/client";
 import { useBrowserSuspendStore } from "../../state/stores/browser-suspend";
-import { createListenerBus } from "../../../shared/util/listener-bus";
 import { Button } from "./button";
 import { Checkbox } from "./checkbox";
 import { Dialog } from "./dialog";
@@ -245,8 +245,8 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
   };
 
   const Icon = resolvePermissionIcon(prompt.permissions);
-  const labels = prompt.permissions.map(
-    (p) => t(`browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[p] ?? "unknown"}`),
+  const labels = prompt.permissions.map((p) =>
+    t(`browserPermissions.permissionLabel.${PERMISSION_LABEL_I18N_KEY[p] ?? "unknown"}`),
   );
   const labelsText = labels.join(", ");
 
@@ -260,9 +260,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
           <Icon className="size-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-app-body-emphasis text-foreground break-all">
-            {prompt.origin}
-          </p>
+          <p className="text-app-body-emphasis text-foreground break-all">{prompt.origin}</p>
           <p className="mt-0.5 text-app-ui-sm text-muted-foreground">
             {t("permissionPrompt.requesting")}
           </p>
@@ -309,9 +307,7 @@ function PermissionPromptModal({ prompt, onDone }: PermissionPromptModalProps): 
       </div>
 
       {/* Micro hint */}
-      <p className="mt-3 text-app-micro text-muted-foreground">
-        {t("permissionPrompt.escHint")}
-      </p>
+      <p className="mt-3 text-app-micro text-muted-foreground">{t("permissionPrompt.escHint")}</p>
     </Dialog>
   );
 }
@@ -335,11 +331,5 @@ export function PermissionPromptRoot(): React.JSX.Element {
     return <></>;
   }
 
-  return (
-    <PermissionPromptModal
-      key={active.promptId}
-      prompt={active}
-      onDone={dequeueActive}
-    />
-  );
+  return <PermissionPromptModal key={active.promptId} prompt={active} onDone={dequeueActive} />;
 }

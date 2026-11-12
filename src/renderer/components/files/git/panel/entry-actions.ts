@@ -67,7 +67,10 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     if (entry.conflictType !== null) {
       const absPath = absolutePathForEntry(entry);
       if (!absPath) {
-        ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
+        ctx.setBanner({
+          variant: "error",
+          message: i18next.t("files:git.entryActions.workingTreeUnavailable"),
+        });
         return;
       }
       openOrRevealEditor({ workspaceId: ctx.workspaceId, filePath: absPath });
@@ -83,7 +86,10 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
       });
       return;
     }
-    ctx.setBanner({ variant: "info", message: i18next.t("files:git.entryActions.diffViewUnavailable") });
+    ctx.setBanner({
+      variant: "info",
+      message: i18next.t("files:git.entryActions.diffViewUnavailable"),
+    });
   }
 
   /**
@@ -94,7 +100,10 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   function openWorkingTreeFile(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
-      ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
+      ctx.setBanner({
+        variant: "error",
+        message: i18next.t("files:git.entryActions.workingTreeUnavailable"),
+      });
       return;
     }
     openOrRevealEditor({ workspaceId: ctx.workspaceId, filePath: absPath });
@@ -103,7 +112,10 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
   function revealEntryInOS(entry: GitStatusEntry): void {
     const absPath = absolutePathForEntry(entry);
     if (!absPath) {
-      ctx.setBanner({ variant: "error", message: i18next.t("files:git.entryActions.workingTreeUnavailable") });
+      ctx.setBanner({
+        variant: "error",
+        message: i18next.t("files:git.entryActions.workingTreeUnavailable"),
+      });
       return;
     }
     void runSystemPathAction("revealInOS", absPath, ctx.setBanner);
@@ -143,7 +155,10 @@ export function createEntryActions(ctx: EntryActionContext): EntryActions {
     } catch (error) {
       ctx.setBanner({
         variant: "error",
-        message: error instanceof Error ? error.message : i18next.t("files:git.entryActions.couldNotUpdateGitignore"),
+        message:
+          error instanceof Error
+            ? error.message
+            : i18next.t("files:git.entryActions.couldNotUpdateGitignore"),
       });
     }
   }
@@ -190,7 +205,10 @@ async function runSystemPathAction(
     // system channel handler — check the inner ok for path-not-found etc.
     const inner = result.value as { ok: boolean; error?: { message: string } };
     if (!inner.ok) {
-      setBanner({ variant: "error", message: inner.error?.message ?? i18next.t("files:git.entryActions.systemPathActionFailed") });
+      setBanner({
+        variant: "error",
+        message: inner.error?.message ?? i18next.t("files:git.entryActions.systemPathActionFailed"),
+      });
     }
   } else {
     setBanner({ variant: "error", message: result.message });

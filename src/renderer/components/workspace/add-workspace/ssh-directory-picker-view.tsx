@@ -522,7 +522,10 @@ export function SshDirectoryPickerView({
           </div>
         ) : (
           // Directory list
-          <ul className="app-scrollbar h-full overflow-y-auto py-1" aria-label={t("sshPicker.directory_listing")}>
+          <ul
+            className="app-scrollbar h-full overflow-y-auto py-1"
+            aria-label={t("sshPicker.directory_listing")}
+          >
             {dirEntries.map((entry) => (
               <li key={entry.name}>
                 <button

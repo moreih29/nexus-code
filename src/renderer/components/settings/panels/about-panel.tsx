@@ -66,7 +66,6 @@ export function AboutPanel() {
   const progress = useUpdatesStore((s) => s.progress);
   const storeManaged = window.host?.windowsStore === true;
 
-
   const handleAutoCheckChange = useCallback(
     (next: boolean) => {
       // Optimistic local update so the switch flips immediately.
@@ -308,7 +307,9 @@ function DownloadProgressBar({
 }) {
   const { t } = useTranslation("settings");
   const known = status.kind === "downloading" && progress !== null && progress.total > 0;
-  const percent = known ? Math.min(100, Math.round((progress.transferred / progress.total) * 100)) : 0;
+  const percent = known
+    ? Math.min(100, Math.round((progress.transferred / progress.total) * 100))
+    : 0;
   return (
     <div className="flex w-full max-w-sm flex-col gap-1">
       <div

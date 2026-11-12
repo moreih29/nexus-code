@@ -16,9 +16,9 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { classifyUrl } from "@/services/browser/url-classifier";
 import { cn } from "@/utils/cn";
 import { isImeComposing } from "@/utils/ime";
-import { classifyUrl } from "@/services/browser/url-classifier";
 
 interface UrlBarProps {
   /** Current URL from the runtime store (kept in sync when not focused). */
@@ -116,7 +116,9 @@ export function UrlBar({
           "px-2 h-7",
           "transition-colors",
           isFocused && "ring-[3px] ring-ring/50 border-ring",
-          isLoading && !isFocused && "border-[var(--state-loading-indicator,var(--surface-island-border))]",
+          isLoading &&
+            !isFocused &&
+            "border-[var(--state-loading-indicator,var(--surface-island-border))]",
           blockedError && "border-destructive ring-destructive/20 ring-[3px]",
         )}
       >

@@ -1,9 +1,9 @@
 export { closeTerminalWithConfirm } from "./close-confirm";
+export { createTerminalController } from "./controller";
 export { closeTerminal, findTerminalTab, openTerminal } from "./open-terminal";
 export { queueStartupInput } from "./pty-client";
-export { quoteShellArgument } from "./shell-quote";
 export { requestTerminalReopen, subscribeTerminalReopenRequest } from "./reopen-requests";
-export { createTerminalController } from "./controller";
+export { quoteShellArgument } from "./shell-quote";
 export type {
   OpenTerminalOptions,
   PtyClient,

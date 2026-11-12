@@ -3,8 +3,8 @@
  * through the WSL transport the manager is given.
  */
 
-import { describe, expect, mock, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, mock, test } from "bun:test";
 import os from "node:os";
 import path from "node:path";
 

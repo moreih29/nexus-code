@@ -1,6 +1,7 @@
 import type { IPty } from "node-pty";
 import type { SshAuthPrompt, SshAuthResponse } from "../../../../shared/ssh/auth-prompt";
 import type { SshErrorCode } from "../../../../shared/ssh/errors";
+import { createSshError } from "../pipe";
 import {
   buildSshControlMasterArgs,
   createSshControlMaster,
@@ -8,7 +9,6 @@ import {
   type SshControlMaster,
   type SshMasterOptions,
 } from "./master";
-import { createSshError } from "../pipe";
 import { authenticateSsh2Master, usesSsh2Client } from "./ssh2";
 
 const PASSWORD_PROMPT_PATTERN = /([^\r\n]*?(?:password|passphrase)\s*(?:for [^:]+)?\s*:)\s*$/i;

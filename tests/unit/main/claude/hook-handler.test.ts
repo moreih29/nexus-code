@@ -6,7 +6,7 @@
  * - 모든 subcommand가 즉시 respondHook { exitCode: 0 } 호출하는지(hook 프로세스 해제).
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // electron mock — dynamic import 전에 선언 필요.
 mock.module("electron", () => ({
@@ -31,18 +31,12 @@ mock.module("electron", () => ({
   },
 }));
 
-const { registerHookHandler } = await import(
-  "../../../../src/main/features/claude/hook-handler"
-);
+const { registerHookHandler } = await import("../../../../src/main/features/claude/hook-handler");
 const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
   "../../../../src/shared/manager/manager"
 );
-const { ClaudeStatusBroker } = await import(
-  "../../../../src/main/features/claude/status"
-);
-const { ActiveContextStore } = await import(
-  "../../../../src/main/features/claude/active-context"
-);
+const { ClaudeStatusBroker } = await import("../../../../src/main/features/claude/status");
+const { ActiveContextStore } = await import("../../../../src/main/features/claude/active-context");
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
 const { SessionActivityLog } = await import(
   "../../../../src/main/features/claude/session-activity"
@@ -146,7 +140,10 @@ interface Harness {
   agentHost: ReturnType<typeof makeHookAgentHost>;
   channel: MockAgentChannel;
   notifInstances: Array<{ title: string; body: string; shown: boolean }>;
-  FakeNotification: new (opts: { title: string; body: string }) => InstanceType<typeof FakeNotification>;
+  FakeNotification: new (opts: {
+    title: string;
+    body: string;
+  }) => InstanceType<typeof FakeNotification>;
   broadcastCalls: Array<{ channel: string; event: string; args: unknown }>;
   emit: (payload: unknown) => void;
 }
@@ -154,7 +151,9 @@ interface Harness {
 // FakeNotification 타입을 위한 placeholder — 실제로는 makeNotificationCtor에서 반환
 class FakeNotification {
   constructor(_opts: { title: string; body: string }) {}
-  on(_: string, _cb: () => void) { return this; }
+  on(_: string, _cb: () => void) {
+    return this;
+  }
   show() {}
 }
 
@@ -185,7 +184,7 @@ function makeHarness(
   const chatAnswers = new ChatAnswers();
 
   const getFocusedWindow = focused
-    ? () => ({ isMinimized: () => false } as unknown as import("electron").BrowserWindow)
+    ? () => ({ isMinimized: () => false }) as unknown as import("electron").BrowserWindow
     : () => null;
 
   registerHookHandler({
@@ -196,7 +195,8 @@ function makeHarness(
     chatAnswers,
     agentHost,
     channelProvider: {
-      tryGetAgentChannel: async () => channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
+      tryGetAgentChannel: async () =>
+        channel as unknown as import("../../../../../src/main/infra/agent/channel").AgentChannel,
     },
     workspaceManager: { getName: () => "TestWorkspace" },
     getFocusedWindow,
@@ -273,10 +273,14 @@ describe("hook-handler — subcommand 상태 전이", () => {
       'see this:\n<pasted_content id="edf0">\n1. first\n2. second\n</pasted_content id="edf0">\nthanks';
     emit(makeHookPayload("user-prompt-submit", { prompt }));
     await new Promise((r) => setTimeout(r, 0));
-    expect(broker.get("ws-test", "tab-test")?.prompt).toBe("see this:\n1. first\n2. second\nthanks");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBe(
+      "see this:\n1. first\n2. second\nthanks",
+    );
 
     // Only a pair with the same id is a paste; a lone mark is the user's text.
-    emit(makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }));
+    emit(
+      makeHookPayload("user-prompt-submit", { prompt: 'why is <pasted_content id="a"> shown?' }),
+    );
     await new Promise((r) => setTimeout(r, 0));
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe('why is <pasted_content id="a"> shown?');
   });
@@ -332,18 +336,19 @@ describe("hook-handler — subcommand 상태 전이", () => {
     expect(broker.get("ws-test", "tab-test")?.prompt).toBe("refactor the parser");
   });
 
-  test.each(["startup", "resume", "clear"])(
-    "session-start from %s goes idle without the old prompt",
-    async (source) => {
-      const { broker, emit } = makeHarness();
-      emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
-      await new Promise((r) => setTimeout(r, 0));
-      emit(makeHookPayload("session-start", { source }));
-      await new Promise((r) => setTimeout(r, 0));
-      expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
-      expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
-    },
-  );
+  test.each([
+    "startup",
+    "resume",
+    "clear",
+  ])("session-start from %s goes idle without the old prompt", async (source) => {
+    const { broker, emit } = makeHarness();
+    emit(makeHookPayload("user-prompt-submit", { prompt: "old" }));
+    await new Promise((r) => setTimeout(r, 0));
+    emit(makeHookPayload("session-start", { source }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(broker.get("ws-test", "tab-test")?.status).toBe("idle");
+    expect(broker.get("ws-test", "tab-test")?.prompt).toBeUndefined();
+  });
 
   test("stop — 사용자가 그 탭을 보고 있으면(앱 포커스+active 일치) idle로 직행", async () => {
     const { broker, activeContext, emit } = makeHarness(true /* focused */);
@@ -974,9 +979,7 @@ describe("hook-handler — notificationsEnabled 마스터 토글", () => {
     const { notifInstances, broker, emit } = makeHarness(false, {
       notificationsEnabled: () => false,
     });
-    emit(
-      makeHookPayload("notification", { message: "ping" }),
-    );
+    emit(makeHookPayload("notification", { message: "ping" }));
     await new Promise((r) => setTimeout(r, 0));
     expect(notifInstances.length).toBe(0);
     // broker는 정상 갱신 — 사이드바 인디케이터는 토글 영향 없음.

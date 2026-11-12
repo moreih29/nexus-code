@@ -18,8 +18,8 @@ import {
 import type { TreeKeyboardRow } from "../../file-tree/use-tree-keyboard";
 import { useTreeKeyboard } from "../../file-tree/use-tree-keyboard";
 import { collectGitEntryPaths } from "../utils/status-utils";
-import { GitFileRow } from "./row";
 import { GitGroupHeader } from "./group-header";
+import { GitFileRow } from "./row";
 import { GitTreeRow } from "./tree-row";
 
 // ---------------------------------------------------------------------------
@@ -156,7 +156,9 @@ export function GitGroup({
       count={entries.length}
       expanded={expanded}
       onToggle={onToggle}
-      stageActionLabel={canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined}
+      stageActionLabel={
+        canStageHeader ? t("git.groups.stageAll", { label: label.toLowerCase() }) : undefined
+      }
       unstageActionLabel={canUnstage ? t("git.groups.unstageAll") : undefined}
       discardActionLabel={canDiscardHeader ? discardLabel : undefined}
       onStageAll={canStageHeader ? () => onStagePaths(paths) : undefined}

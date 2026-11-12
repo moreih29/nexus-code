@@ -17,9 +17,9 @@
 
 import type * as Monaco from "monaco-editor";
 import {
+  type ConflictCodelensInstallation,
   installConflictCodelens,
   registerAcceptCommands,
-  type ConflictCodelensInstallation,
 } from "../../../../services/editor/conflict/conflict-codelens";
 import { hasConflictMarkers } from "../../../../services/editor/conflict/conflict-parser";
 

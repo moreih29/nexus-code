@@ -1,19 +1,18 @@
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, mock, test, beforeAll, afterAll } from "bun:test";
-import type {
-  AgentChannel,
-  ChannelEventCallback,
-  ChannelLifecycleCallback,
-} from "../../../../src/main/infra/agent/channel";
-
-import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 import {
   bundledServerInfo,
   resolveLspCommandFromManifest,
   startAgentLspHost,
 } from "../../../../src/main/features/lsp/agent-host";
+import type {
+  AgentChannel,
+  ChannelEventCallback,
+  ChannelLifecycleCallback,
+} from "../../../../src/main/infra/agent/channel";
+import { LSP_BOOTSTRAP_PROGRESS_EVENT } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
 
 // ---------------------------------------------------------------------------
 // Manifest neutralization
@@ -331,7 +330,12 @@ describe("AgentLspHostHandle", () => {
       ),
     ).toBe(true);
 
-    const hover = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const hover = await host.call("hover", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(hover).toEqual({ contents: "agent hover" });
     expect(
       channel.calls.some(
@@ -351,12 +355,14 @@ describe("AgentLspHostHandle", () => {
     // Fire-and-forget notifications can arrive after dispose() during app
     // shutdown (the renderer is still emitting didClose as editor models
     // close) — they must resolve quietly rather than surfacing a handler error.
-    await expect(host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI })).resolves.toBeNull();
+    await expect(
+      host.call("didClose", { workspaceId: WORKSPACE_ID, uri: URI }),
+    ).resolves.toBeNull();
 
     // Request-style methods still surface the disposed error to their callers.
-    await expect(host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 0 })).rejects.toThrow(
-      "LSP host disposed",
-    );
+    await expect(
+      host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 0 }),
+    ).rejects.toThrow("LSP host disposed");
   });
 
   test("normalizes definition, completion, and diagnostics on the agent path", async () => {
@@ -377,7 +383,12 @@ describe("AgentLspHostHandle", () => {
     });
     await Promise.resolve();
 
-    const definition = await host.call("definition", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const definition = await host.call("definition", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(definition).toEqual([
       {
         uri: URI,
@@ -388,7 +399,12 @@ describe("AgentLspHostHandle", () => {
       },
     ]);
 
-    const completion = await host.call("completion", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const completion = await host.call("completion", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(completion).toEqual({ isIncomplete: false, items: [{ label: "agentCompletion" }] });
     expect(diagnostics).toEqual([
       {
@@ -534,14 +550,24 @@ describe("AgentLspHostHandle", () => {
       text: "print(1)\n",
     });
 
-    const hoverBeforeDispose = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const hoverBeforeDispose = await host.call("hover", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(hoverBeforeDispose).toEqual({ contents: "agent hover" });
 
     for (const listener of channel.lifecycleListeners) {
       listener({ type: "disposed" });
     }
 
-    const hoverAfterDispose = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const hoverAfterDispose = await host.call("hover", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(hoverAfterDispose).toBeNull();
   });
 
@@ -608,7 +634,12 @@ describe("AgentLspHostHandle", () => {
       stderrTail: "panic: out of memory",
     });
 
-    const hoverAfterExit = await host.call("hover", { workspaceId: WORKSPACE_ID, uri: URI, line: 0, character: 1 });
+    const hoverAfterExit = await host.call("hover", {
+      workspaceId: WORKSPACE_ID,
+      uri: URI,
+      line: 0,
+      character: 1,
+    });
     expect(hoverAfterExit).toBeNull();
   });
 
@@ -722,7 +753,15 @@ describe("resolveLspCommandFromManifest", () => {
       binaries: [{ os: "darwin", arch: "arm64", path: "bin/agent", sha256: SHA, size: 1 }],
       runtime: {
         node: [
-          { os: "linux", arch: "amd64", version: "22", path: "n.tgz", sha256: SHA, size: 1, entry: "bin/node" },
+          {
+            os: "linux",
+            arch: "amd64",
+            version: "22",
+            path: "n.tgz",
+            sha256: SHA,
+            size: 1,
+            entry: "bin/node",
+          },
         ],
       },
       lspBinaries: [
@@ -742,7 +781,12 @@ describe("resolveLspCommandFromManifest", () => {
     };
     fs.writeFileSync(path.join(dir, "manifest.json"), JSON.stringify(manifest));
     if (entryExists) {
-      const entry = path.join(dir, "lsp", "pyright-langserver-1.1.0", manifest.lspBinaries[0].entry);
+      const entry = path.join(
+        dir,
+        "lsp",
+        "pyright-langserver-1.1.0",
+        manifest.lspBinaries[0].entry,
+      );
       fs.mkdirSync(path.dirname(entry), { recursive: true });
       fs.writeFileSync(entry, "");
     }
@@ -755,7 +799,12 @@ describe("resolveLspCommandFromManifest", () => {
       expect(resolveLspCommandFromManifest(PYRIGHT, dir)).toEqual({
         binaryPath: process.execPath,
         args: [
-          path.join(dir, "lsp", "pyright-langserver-1.1.0", "node_modules/pyright/langserver.index.js"),
+          path.join(
+            dir,
+            "lsp",
+            "pyright-langserver-1.1.0",
+            "node_modules/pyright/langserver.index.js",
+          ),
           "--stdio",
         ],
         env: { ELECTRON_RUN_AS_NODE: "1" },

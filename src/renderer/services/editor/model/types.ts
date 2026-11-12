@@ -9,8 +9,8 @@
 import type * as Monaco from "monaco-editor";
 import type { absolutePathToFileUri } from "../../../../shared/fs/file-uri";
 import type { TextDocumentContentChangeEvent } from "../../../../shared/lsp";
-import type { TextEncoding } from "../encoding/text-encoding";
 import type { FileErrorCode } from "../../../utils/file-error";
+import type { TextEncoding } from "../encoding/text-encoding";
 import type { registerKnownModelUri, unregisterKnownModelUri } from "../lsp/known-uris";
 import type { monacoContentChangesToLsp } from "../lsp/monaco-converters";
 import type { EditorInput } from "../types";

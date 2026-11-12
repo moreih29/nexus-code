@@ -34,10 +34,10 @@ if (typeof (globalThis as Record<string, unknown>).crypto === "undefined") {
 // Imports after shims
 // ---------------------------------------------------------------------------
 
-import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
 import { useLayoutStore } from "../../../../../../src/renderer/state/stores/layout";
-import { WorkspaceLayoutSnapshotSchema } from "../../../../../../src/shared/types/layout";
 import type { Tab } from "../../../../../../src/renderer/state/stores/tabs";
+import { useTabsStore } from "../../../../../../src/renderer/state/stores/tabs";
+import { WorkspaceLayoutSnapshotSchema } from "../../../../../../src/shared/types/layout";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -80,9 +80,7 @@ describe("persistence — BrowserTab roundtrip through snapshot", () => {
       lastUrl: "https://example.com/docs",
       partition: `persist:browser-${WS}`,
     };
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS, { type: "browser", props });
+    const tab = useTabsStore.getState().createTab(WS, { type: "browser", props });
 
     const leafId = "11111111-1111-4111-b111-111111111111";
     // Inject a minimal layout so buildSnapshot can find it.
@@ -128,9 +126,7 @@ describe("persistence — BrowserTab roundtrip through snapshot", () => {
       lastUrl: "https://roundtrip.test/end",
       partition: "persist:browser-rt",
     };
-    const tab = useTabsStore
-      .getState()
-      .createTab(WS, { type: "browser", props });
+    const tab = useTabsStore.getState().createTab(WS, { type: "browser", props });
 
     const leafId = "22222222-2222-4222-b222-222222222222";
     useLayoutStore.setState({
