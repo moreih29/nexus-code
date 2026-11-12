@@ -35,6 +35,11 @@ export const AppStateSchema = z.object({
   // independently of `sidebarHidden`; both toggle together only via the
   // ⌘⇧B command, never via storage coupling.
   filesPanelHidden: z.boolean().optional(),
+  // The view each workspace's files panel was last switched to (a
+  // FilesPanelMode: "tree", "search", "git", "agents"). Absent = the tree.
+  // Kept as a plain string so a view this version lacks does not fail the
+  // state.
+  filesPanelModeByWorkspace: z.record(z.string().uuid(), z.string().max(16)).optional(),
   // The agent list's groups the user folded ("idle", "ended", …). Absent =
   // every group open.
   agentListFoldedGroups: z.array(z.string()).optional(),
