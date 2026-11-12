@@ -312,6 +312,21 @@ export class ChatHost {
     return channel.call("chat.sessions", { cwd, ...this.configDir(profileId) });
   }
 
+  async deleteSession(
+    workspaceId: string,
+    cwd: string,
+    sessionId: string,
+    profileId?: string,
+  ): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.deleteSession", { cwd, sessionId, ...this.configDir(profileId) });
+  }
+
+  async fileSizes(workspaceId: string, paths: readonly string[]): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.fileSizes", { paths });
+  }
+
   /** The Claude profile's folder, as the agent's readers take it; none for the default. */
   private configDir(profileId: string | undefined): { configDir?: string } {
     const profile = profileId ? this.options.profile?.(profileId) : null;

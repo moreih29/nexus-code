@@ -170,6 +170,19 @@ describe("codex threads to go on with", () => {
     ]);
   });
 
+  test("a thread's file is kept, for its size and nothing else", () => {
+    const [listed] = threadsOf([
+      {
+        id: "t1",
+        preview: "Fix it",
+        updatedAt: 1,
+        path: "/home/me/.codex/sessions/rollout-t1.jsonl",
+      },
+    ]);
+    expect(listed?.path).toBe("/home/me/.codex/sessions/rollout-t1.jsonl");
+    expect(threadsOf([{ id: "t2", preview: "x", path: "  " }])[0]).not.toHaveProperty("path");
+  });
+
   test("a thread with nothing to call it by, or no id, is left out", () => {
     expect(threadsOf([{ id: "t1", preview: "  " }, { preview: "no id" }, null])).toEqual([]);
     expect(threadsOf(undefined)).toEqual([]);

@@ -453,6 +453,16 @@ export class CodexController {
   }
 
   /**
+   * Deletes one of the folder's threads for good (thread/delete): Codex
+   * removes its file, so it leaves `codex resume` too and gives back the space.
+   */
+  async deleteThread(threadId: string): Promise<void> {
+    if (threadId === this.currentThread()) throw new Error("the tab's own thread");
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    await this.request("thread/delete", { threadId });
+  }
+
+  /**
    * Goes on with another of the folder's threads in this tab (/resume):
    * the program starts again with it, and the tab shows its turns, under
    * the thread's name or first prompt.
@@ -1273,6 +1283,7 @@ export function threadsOf(data: unknown): Omit<ListedSession, "profileId">[] {
     if (!id || !title) return [];
     const branch = text((thread.gitInfo as { branch?: unknown } | null)?.branch);
     const updated = typeof thread.updatedAt === "number" ? thread.updatedAt : 0;
+    const path = text(thread.path);
     return [
       {
         sessionId: id,
@@ -1280,6 +1291,7 @@ export function threadsOf(data: unknown): Omit<ListedSession, "profileId">[] {
         ...(preview ? { firstPrompt: preview } : {}),
         ...(branch ? { gitBranch: branch } : {}),
         lastModified: updated * 1000,
+        ...(path ? { path } : {}),
       },
     ];
   });
