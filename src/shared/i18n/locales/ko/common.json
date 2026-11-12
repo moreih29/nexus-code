@@ -1306,7 +1306,11 @@
       "title_query": "이전 세션 · \"{{query}}\"",
       "loading": "세션을 읽는 중…",
       "none_in_profile": "이 프로필에는 이 폴더의 세션이 없습니다.",
-      "none": "이 폴더에 이어갈 세션이 없습니다."
+      "none": "이 폴더에 이어갈 세션이 없습니다.",
+      "delete": "이 세션 지우기",
+      "delete_hint": "삭제하면 되돌릴 수 없습니다.",
+      "deleting": "지우는 중…",
+      "delete_failed": "세션을 지우지 못했습니다: {{message}}"
     },
     "commands": {
       "close": "닫기",

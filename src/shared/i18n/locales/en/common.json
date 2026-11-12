@@ -1306,7 +1306,11 @@
       "title_query": "Earlier sessions · \"{{query}}\"",
       "loading": "Reading the sessions…",
       "none_in_profile": "This profile has no sessions of this folder.",
-      "none": "No sessions of this folder to go on with."
+      "none": "No sessions of this folder to go on with.",
+      "delete": "Delete this session",
+      "delete_hint": "This cannot be undone.",
+      "deleting": "Deleting…",
+      "delete_failed": "Could not delete the session: {{message}}"
     },
     "commands": {
       "close": "Close",

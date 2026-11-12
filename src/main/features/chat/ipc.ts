@@ -135,6 +135,18 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
         };
         return ipcOk(validateArgs(c.sessions.result, result.sessions ?? []));
       },
+      deleteSession: async (args: unknown) => {
+        const { workspaceId, cwd, sessionId, profileId } = validateArgs(c.deleteSession.args, args);
+        const result = (await host.deleteSession(workspaceId, cwd, sessionId, profileId)) as {
+          deleted?: unknown;
+        };
+        return ipcOk({ deleted: result.deleted === true });
+      },
+      fileSizes: async (args: unknown) => {
+        const { workspaceId, paths } = validateArgs(c.fileSizes.args, args);
+        const result = (await host.fileSizes(workspaceId, paths)) as { sizes?: unknown };
+        return ipcOk(validateArgs(c.fileSizes.result, result.sizes ?? {}));
+      },
     },
     listen: {
       line: {},

@@ -1044,6 +1044,27 @@ export const ipcContract = {
         }),
         z.array(ClaudeSessionSchema),
       ),
+      /**
+       * Deletes a session Claude Code keeps of a folder: its transcript and what
+       * it kept under its id. `deleted` is false when the folder had none such.
+       */
+      deleteSession: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          cwd: z.string().max(4096),
+          sessionId: z.string().regex(/^[0-9A-Za-z][0-9A-Za-z_-]{7,127}$/),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({ deleted: z.boolean() }),
+      ),
+      /** How big transcripts are on the workspace's host, by path: a Codex thread's file. */
+      fileSizes: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          paths: z.array(z.string().max(4096)).max(500),
+        }),
+        z.record(z.string(), z.number()),
+      ),
     },
     listen: {
       // Not validated: a line can carry megabytes of image data.
