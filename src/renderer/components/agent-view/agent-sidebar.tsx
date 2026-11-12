@@ -4,8 +4,9 @@
 // sidebar's order. A row shows its agent in a panel, by a click or dragged
 // where it should go; dragged among its workspace's rows, it takes the place
 // it is dropped on. The eye tells which already are shown, and the pointer
-// on a row lights up the panel it is in. The grouping and the folded groups
-// are kept across restarts.
+// on a row lights up the panel it is in. The search box finds agents by
+// their title, last prompt or last answer, as the agent list's does. The
+// grouping and the folded groups are kept across restarts.
 
 import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
 import { type DragEvent, memo, useMemo, useState } from "react";
@@ -16,6 +17,7 @@ import {
   chatRowFacts,
   groupOf,
   hookRowFacts,
+  matchesQuery,
   ROW_GROUPS,
   type RowGroup,
   sessionsIn,
@@ -42,6 +44,7 @@ import { GoalRowLine } from "../chat/goal-bar";
 import { ManagerChip } from "../manager/manager-chip";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
+import { SearchInput } from "../ui/search-input";
 import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
@@ -69,6 +72,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
   );
   const activity = useSessionActivity(ids, true);
   const chats = useChatStore((s) => s.tabs);
+  const [query, setQuery] = useState("");
 
   return (
     // The sidebar's shell and width, so switching views keeps the layout.
@@ -107,6 +111,12 @@ export const AgentSidebar = memo(function AgentSidebar() {
               </button>
             ))}
           </fieldset>
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            label={t("agentList.list.search")}
+            data-testid="agent-sidebar-search"
+          />
         </div>
         <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
           {agents.families.length === 0 ? (
@@ -114,9 +124,9 @@ export const AgentSidebar = memo(function AgentSidebar() {
               {t("sidebar.no_workspaces")}
             </p>
           ) : grouping === "status" ? (
-            <StatusGroups agents={agents} activity={activity} chats={chats} />
+            <StatusGroups agents={agents} activity={activity} chats={chats} query={query} />
           ) : (
-            <WorkspaceGroups agents={agents} activity={activity} chats={chats} />
+            <WorkspaceGroups agents={agents} activity={activity} chats={chats} query={query} />
           )}
         </div>
         <SystemStatsFooter />
@@ -130,6 +140,18 @@ interface GroupsProps {
   agents: Agents;
   activity: ActivityByKey;
   chats: Record<string, ChatTabState>;
+  /** What the search box holds: only the agents it finds are listed, in groups that are open. */
+  query: string;
+}
+
+/** What the list says when the search finds no agent. */
+function NoMatch() {
+  const { t } = useTranslation();
+  return (
+    <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground">
+      {t("agentList.list.no_match")}
+    </p>
+  );
 }
 
 /**
@@ -138,19 +160,23 @@ interface GroupsProps {
  * tells the workspace it runs in; one with none shows as a dim line, so the
  * groups keep their places.
  */
-function StatusGroups({ agents, activity, chats }: GroupsProps) {
+function StatusGroups({ agents, activity, chats, query }: GroupsProps) {
   const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
   const sessions = useMemo(
     () => [...agents.byKey.values()].map((entry) => entry.session),
     [agents],
   );
+  const searching = query.trim() !== "";
+  const groups = ROW_GROUPS.map((group) => ({ group, rows: sessionsIn(sessions, group, query) }));
+  if (searching && groups.every(({ rows }) => rows.length === 0)) return <NoMatch />;
   return (
     <div className="flex flex-col gap-1" data-testid="agent-sidebar-status">
-      {ROW_GROUPS.map((group) => {
-        const rows = sessionsIn(sessions, group, "");
+      {groups.map(({ group, rows }) => {
         const label = t(`agentList.group.${group}`);
         if (rows.length === 0) {
+          // A search tells only what it found.
+          if (searching) return null;
           return (
             <section key={group} aria-label={label}>
               <h3 className="flex h-7 items-center gap-1.5 px-2 text-app-ui-sm text-muted-foreground opacity-60">
@@ -162,7 +188,8 @@ function StatusGroups({ agents, activity, chats }: GroupsProps) {
           );
         }
         const key = `status:${group}`;
-        const isFolded = folded.has(key);
+        // A search shows what it found, in folded groups too.
+        const isFolded = !searching && folded.has(key);
         return (
           <section
             key={group}
@@ -206,7 +233,7 @@ function StatusGroups({ agents, activity, chats }: GroupsProps) {
 }
 
 /** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
-function WorkspaceGroups({ agents, activity, chats }: GroupsProps) {
+function WorkspaceGroups({ agents, activity, chats, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
 
@@ -220,21 +247,33 @@ function WorkspaceGroups({ agents, activity, chats }: GroupsProps) {
     useAgentViewStore.getState().setOrder(workspaceId, moveKey(keys, moved, target, edge));
   };
 
-  return agents.families.map((family) => {
-    const worktrees = family.worktrees
-      .map((worktree) => ({
-        worktree,
-        sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]),
-      }))
-      // A task shows with agents to list; the workspace itself always does, for its + to start one.
-      .filter(({ worktree, sessions }) => sessions.length > 0 || worktree.isRoot);
+  const searching = query.trim() !== "";
+  const groups = agents.families
+    .map((family) => ({
+      family,
+      worktrees: family.worktrees
+        .map((worktree) => ({
+          worktree,
+          sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
+            (session) => matchesQuery(session, query),
+          ),
+        }))
+        // A task shows with agents to list; the workspace itself does, for its + to start
+        // one, unless a search found none of its agents.
+        .filter(({ worktree, sessions }) => sessions.length > 0 || (worktree.isRoot && !searching)),
+    }))
+    .filter(({ worktrees }) => worktrees.length > 0);
+  if (groups.length === 0) return <NoMatch />;
+
+  return groups.map(({ family, worktrees }) => {
     const key = `workspace:${family.root.id}`;
     return (
       <FamilyGroup
         key={family.root.id}
         family={family}
         worktrees={worktrees}
-        folded={folded.has(key)}
+        // A search shows what it found, in folded workspaces too.
+        folded={!searching && folded.has(key)}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
         chats={chats}

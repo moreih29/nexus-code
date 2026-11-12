@@ -20,15 +20,17 @@
 // Design seal: semantic tokens only, no hex/oklch/rgba literals,
 // no magic pixel values, no shadows.
 
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "../ui/dialog";
 import { DialogCloseButton } from "../ui/dialog-close-button";
+import { escapeClearsSearch, SearchInput } from "../ui/search-input";
 import { useDialogFocusReturn } from "../ui/use-dialog-focus-return";
-import { PROFILE_KEYWORDS, type SettingsNavItem } from "./types";
+import { useSettingsNav } from "./nav";
+import type { SettingsNavItem } from "./types";
 
 // ---------------------------------------------------------------------------
 // Default nav items — derived from i18n inside the component (resolvedNav).
@@ -46,7 +48,6 @@ const SETTINGS_NAV_WIDTH_PX = 180;
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  nav?: SettingsNavItem[];
   defaultActiveId?: string;
   /**
    * Render prop — receives the active nav id, and a way for a panel to go
@@ -62,75 +63,14 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   open,
   onOpenChange,
-  nav,
   defaultActiveId,
   children,
 }: SettingsDialogProps) {
   const { t } = useTranslation("settings");
   const returnFocus = useDialogFocusReturn(open);
 
-  // Build the translated default nav inside the component so that i18n is
-  // active when the labels are read. Falls back only when nav prop is not
-  // supplied (emergency backstop; caller normally passes its own fully-
-  // translated list from app.tsx). Items mirror app.tsx settingsNav exactly
-  // so the fallback never renders a panel that has no route handler.
-  const resolvedNav: SettingsNavItem[] = nav ?? [
-    {
-      id: "appearance",
-      label: t("nav.appearance"),
-      keywords: ["theme", "opacity", "language", "언어"],
-    },
-    {
-      id: "editor",
-      label: t("nav.editor"),
-      keywords: ["font", "size", "family", "ligatures", "line height"],
-    },
-    {
-      id: "language-servers",
-      label: t("nav.languageServers"),
-      parent: "editor",
-      keywords: ["lsp", "language server", "completion", "diagnostics"],
-    },
-    {
-      id: "terminal",
-      label: t("nav.terminal"),
-      keywords: ["font", "size", "cursor", "family", "ligatures", "shell", "셸"],
-    },
-    {
-      id: "notifications",
-      label: t("nav.notifications"),
-      keywords: ["alert", "desktop", "os", "notification", "claude"],
-    },
-    {
-      id: "browser-permissions",
-      label: t("nav.browserPermissions"),
-      keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
-    },
-    {
-      id: "keybindings",
-      label: t("nav.keybindings"),
-      keywords: ["keyboard", "shortcut", "keybinding", "hotkey", "단축키", "키보드"],
-    },
-    {
-      id: "agent",
-      label: t("nav.agent"),
-      keywords: ["nexus", "cli", "agent", "claude", "codex", "task", "chat", "font"],
-    },
-    { id: "claude", label: t("nav.claude"), parent: "agent", keywords: PROFILE_KEYWORDS },
-    { id: "codex", label: t("nav.codex"), parent: "agent", keywords: PROFILE_KEYWORDS },
-    {
-      id: "profile-rules",
-      label: t("nav.profileRules"),
-      parent: "agent",
-      keywords: PROFILE_KEYWORDS,
-    },
-    {
-      id: "about",
-      label: t("nav.about"),
-      footer: true,
-      keywords: ["version", "update", "info"],
-    },
-  ];
+  // The dialog's pages, each with its dot while its values changed since it opened.
+  const resolvedNav = useSettingsNav(open);
 
   const firstId = resolvedNav[0]?.id ?? "appearance";
   const [activeId, setActiveId] = useState<string>(defaultActiveId ?? firstId);
@@ -152,16 +92,18 @@ export function SettingsDialog({
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   // Filter nav items by the search query. Matches label + keywords (case-
-  // insensitive substring). The active item stays visible even when filtered
-  // out so the right panel doesn't blank.
+  // insensitive substring). While something matches, the active item stays
+  // listed too, so the open page keeps its row; a search that finds nothing
+  // lists nothing and says so.
   const filteredNav = useMemo<SettingsNavItem[]>(() => {
     const q = query.trim().toLowerCase();
     if (!q) return resolvedNav;
     const matches = (item: SettingsNavItem) =>
-      item.id === activeId ||
       item.label.toLowerCase().includes(q) ||
       (item.keywords ?? []).some((k) => k.toLowerCase().includes(q));
-    const shown = new Set(resolvedNav.filter(matches).map((item) => item.id));
+    const found = resolvedNav.filter(matches);
+    if (found.length === 0) return [];
+    const shown = new Set([...found.map((item) => item.id), activeId]);
     // A page found under another keeps its parent above it, as in the tree.
     for (const item of resolvedNav) {
       if (item.parent && shown.has(item.id)) shown.add(item.parent);
@@ -263,6 +205,7 @@ export function SettingsDialog({
         <RadixDialog.Content
           className={dialogContentClass("xl", false, "flex flex-col")}
           onCloseAutoFocus={returnFocus}
+          onEscapeKeyDown={escapeClearsSearch}
           style={{
             // Fixed-height dialog: the body never reflows when controls change,
             // so the user never sees the modal jump as they tweak a slider /
@@ -292,39 +235,12 @@ export function SettingsDialog({
             >
               {/* Search */}
               <div className="px-3 pb-2">
-                <label htmlFor={searchId} className="sr-only">
-                  {t("dialog.search.placeholder")}
-                </label>
-                <div
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-(--radius-control)",
-                    "border border-border bg-background px-2 py-1",
-                    "focus-within:ring-1 focus-within:ring-ring",
-                  )}
-                >
-                  <Search className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <input
-                    id={searchId}
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder={t("dialog.search.placeholder")}
-                    className={cn(
-                      "min-w-0 flex-1 bg-transparent text-app-ui-sm text-foreground outline-none",
-                      "placeholder:text-muted-foreground",
-                    )}
-                  />
-                  {query !== "" && (
-                    <button
-                      type="button"
-                      aria-label={t("dialog.search.clear")}
-                      onClick={() => setQuery("")}
-                      className="inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="size-3" aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
+                <SearchInput
+                  id={searchId}
+                  value={query}
+                  onChange={setQuery}
+                  label={t("dialog.search.placeholder")}
+                />
               </div>
 
               {/* Nav tabs */}

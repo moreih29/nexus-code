@@ -31,7 +31,8 @@
     "open_connection_settings": "연결 설정 열기",
     "dismiss": "닫기",
     "increase": "증가",
-    "decrease": "감소"
+    "decrease": "감소",
+    "clear_search": "검색어 지우기"
   },
   "palette": {
     "close_aria": "커맨드 팔레트 닫기",

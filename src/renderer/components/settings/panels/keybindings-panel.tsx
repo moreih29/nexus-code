@@ -58,6 +58,7 @@ import { labelOptions } from "../../../keybindings/shortcut-labels";
 import { useKeybindingsStore } from "../../../state/stores/keybindings";
 import { isLinux, isMac } from "../../../utils/platform";
 import { Checkbox } from "../../ui/checkbox";
+import { SearchInput } from "../../ui/search-input";
 
 // `updates.check` is dispatched inside the main process from the menu —
 // the renderer registry has no handler for it, so a keybinding would be
@@ -222,16 +223,11 @@ export function KeybindingsPanel() {
     <div className="flex flex-col gap-4">
       {/* Toolbar: search + filters + reset all */}
       <div className="flex items-center gap-2">
-        <input
-          type="text"
+        <SearchInput
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("keybindings.searchPlaceholder")}
-          className={cn(
-            "min-w-0 flex-1 rounded-(--radius-control) border border-border bg-background",
-            "px-2 py-1 text-app-ui-sm text-foreground outline-none",
-            "placeholder:text-muted-foreground focus:ring-1 focus:ring-ring",
-          )}
+          onChange={setQuery}
+          label={t("keybindings.searchPlaceholder")}
+          className="flex-1"
         />
         <label
           htmlFor={modifiedOnlyId}

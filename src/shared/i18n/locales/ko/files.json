@@ -434,8 +434,7 @@
     "history": {
       "search": {
         "label": "커밋 기록 검색",
-        "placeholder": "SHA 또는 커밋 메시지 검색…",
-        "clear": "지우기"
+        "placeholder": "SHA 또는 커밋 메시지 검색…"
       },
       "refSwitcher": {
         "viewingHistory": "{{ref}} 기록 보는 중",

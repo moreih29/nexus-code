@@ -434,8 +434,7 @@
     "history": {
       "search": {
         "label": "Search commit history",
-        "placeholder": "Search SHA or commit message…",
-        "clear": "Clear"
+        "placeholder": "Search SHA or commit message…"
       },
       "refSwitcher": {
         "viewingHistory": "Viewing history of {{ref}}",
