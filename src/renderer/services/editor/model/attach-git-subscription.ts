@@ -31,10 +31,7 @@ export interface AttachGitSubscriptionDeps {
   scheduler?: TimerScheduler;
 }
 
-export const defaultAttachGitSubscriptionDeps: Pick<
-  AttachGitSubscriptionDeps,
-  "scheduler"
-> = {
+export const defaultAttachGitSubscriptionDeps: Pick<AttachGitSubscriptionDeps, "scheduler"> = {
   scheduler: defaultTimerScheduler,
 };
 

@@ -1,8 +1,8 @@
 import type * as Monaco from "monaco-editor";
 import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTabsStore } from "@/state/stores/tabs";
-import { defaultViewMode } from "../preview/previewable";
 import type { MonacoRange } from "../../../../shared/editor/monaco-range";
+import { defaultViewMode } from "../preview/previewable";
 import type { EditorInput } from "../types";
 import { revealRange } from "./reveal";
 

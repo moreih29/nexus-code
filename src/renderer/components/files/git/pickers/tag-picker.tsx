@@ -1,10 +1,11 @@
 /**
  * TagPicker hosts the tag quick-pick plus create and delete dialogs.
  */
+
+import i18next from "i18next";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import i18next from "i18next";
 import { DIALOG_OVERLAY_CLASS, dialogContentClass } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
 import type { Tag } from "../../../../../shared/git/types";
@@ -204,7 +205,9 @@ export function CreateTagRefSelector({
     <div className="rounded-sm border border-border bg-muted p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-app-label uppercase text-muted-foreground">{t("git.tagPicker.createTagRef.targetRef")}</div>
+          <div className="text-app-label uppercase text-muted-foreground">
+            {t("git.tagPicker.createTagRef.targetRef")}
+          </div>
           <div className="truncate font-mono text-app-ui-sm text-foreground">{refName}</div>
         </div>
         <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onPickRef}>

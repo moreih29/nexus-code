@@ -1,4 +1,26 @@
 export {
+  acquireModel,
+  cacheUriFor,
+  cacheUriToFilePath,
+  clearDiskDiverged,
+  type EntryMetadata,
+  forceDisposeExternalsForWorkspace,
+  getEntryMetadata,
+  getModelSnapshot,
+  getResolvedModel,
+  initializeModelCache,
+  parseCacheUri,
+  type ReleasedModelInfo,
+  type ResolvedModelView,
+  releaseModel,
+  reloadModelFromDisk,
+  type SharedModelPhase,
+  type SharedModelState,
+  subscribeModel,
+  subscribeOnRelease,
+  toFileErrorCode,
+} from "./cache";
+export {
   __resetDirtyTrackerForTests,
   type AttachOptions,
   attachDirtyTracker,
@@ -17,26 +39,4 @@ export {
 } from "./dirty-tracker";
 export { ensureModelWithContent } from "./ensure-model";
 export { relPathForInput, workspaceRootForInput } from "./file-loader";
-export {
-  acquireModel,
-  cacheUriFor,
-  cacheUriToFilePath,
-  clearDiskDiverged,
-  type EntryMetadata,
-  forceDisposeExternalsForWorkspace,
-  getEntryMetadata,
-  getModelSnapshot,
-  getResolvedModel,
-  initializeModelCache,
-  parseCacheUri,
-  type ReleasedModelInfo,
-  reloadModelFromDisk,
-  type ResolvedModelView,
-  releaseModel,
-  type SharedModelPhase,
-  type SharedModelState,
-  subscribeModel,
-  subscribeOnRelease,
-  toFileErrorCode,
-} from "./cache";
 export { useSharedModel } from "./use-shared-model";

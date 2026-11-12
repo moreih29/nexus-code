@@ -9,11 +9,11 @@
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import os from "node:os";
+import path from "node:path";
 import { GlobalStorage } from "../../../../src/main/infra/storage/global-storage";
 import { applyMigrations } from "../../../../src/main/infra/storage/migrations";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
-import os from "node:os";
-import path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,7 +65,15 @@ describe("migration v4 — applied on top of existing v3 DB", () => {
     db.prepare(`
       INSERT INTO workspaces (id, name, root_path, location, color_tone, pinned, last_opened_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run("00000000-0000-0000-0000-000000000001", "legacy", "/legacy", null, "default", 0, 1700000000000);
+    `).run(
+      "00000000-0000-0000-0000-000000000001",
+      "legacy",
+      "/legacy",
+      null,
+      "default",
+      0,
+      1700000000000,
+    );
 
     // Apply v4 migration — must not throw
     expect(() => applyMigrations(db)).not.toThrow();

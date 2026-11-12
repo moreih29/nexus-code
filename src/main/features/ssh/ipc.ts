@@ -13,15 +13,15 @@ import type { SshAuthPromptHandler } from "../../infra/agent/ssh/auth-pty";
 import { createSshChannel } from "../../infra/agent/ssh/channel";
 import type { SshControlMaster } from "../../infra/agent/ssh/master";
 import {
-  resolveSshHostConfig,
-  type SshHostConfig,
-  type SshTarget,
-} from "../../infra/agent/ssh/ssh2/config";
-import {
   type EnsureRemoteAgentOptions,
   ensureRemoteAgent,
   type LspBootstrapProgressEvent,
 } from "../../infra/agent/ssh/ssh-bootstrap/index";
+import {
+  resolveSshHostConfig,
+  type SshHostConfig,
+  type SshTarget,
+} from "../../infra/agent/ssh/ssh2/config";
 import { register, validateArgs } from "../../infra/ipc-router";
 import { BROWSE_MAX_ENTRIES, type SshBrowseSessionRegistry } from "./browse-session-registry";
 import { parseSshConfig, type SshConfigHost } from "./config";

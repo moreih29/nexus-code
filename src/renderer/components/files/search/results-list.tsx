@@ -114,10 +114,7 @@ function walkTreeRows(
   }
 }
 
-function buildTreeRows(
-  results: FileGroup[],
-  expandedDirs: ReadonlySet<string>,
-): FlatRow[] {
+function buildTreeRows(results: FileGroup[], expandedDirs: ReadonlySet<string>): FlatRow[] {
   if (results.length === 0) return [];
 
   const relPaths = results.map((g) => g.relPath);

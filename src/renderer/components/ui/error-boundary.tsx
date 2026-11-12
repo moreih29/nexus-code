@@ -21,8 +21,8 @@
  */
 
 import i18next from "i18next";
-import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
+import { Component } from "react";
 import { createLogger } from "../../../shared/log/renderer";
 
 // ---------------------------------------------------------------------------

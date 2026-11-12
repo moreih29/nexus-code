@@ -68,7 +68,8 @@ function SelectContent({
           "overflow-hidden rounded-(--radius-island)",
           "border border-[var(--surface-floating-border)] bg-popover text-popover-foreground",
           // Slight offset so the popup doesn't crowd the trigger
-          position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
+          position === "popper" &&
+            "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
         )}
         {...props}

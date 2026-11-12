@@ -21,11 +21,12 @@
  *    fires unconditionally (post-burst resume — prevents permanent stall).
  *  - Partial-line bytes in the splitter's internal buffer are excluded.
  */
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
 // Constants mirrored from pipe.ts (must be kept in sync manually)
@@ -90,7 +91,10 @@ function makeFrame(index: number, paddingSize = 0): Buffer {
 }
 
 function makeReadyFrame(): Buffer {
-  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n", "utf8");
+  return Buffer.from(
+    JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n",
+    "utf8",
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,13 @@
 import { describe, expect, it, mock } from "bun:test";
-import {
-  clearOutsideGrants,
-  setOutsideGrant,
-} from "../../../../src/main/features/fs/outside-grants";
 import type { FsProvider } from "../../../../src/main/features/fs/bridge/provider";
 import {
   readExternalHandler,
   readRangeHandler,
 } from "../../../../src/main/features/fs/ipc/read-handlers";
+import {
+  clearOutsideGrants,
+  setOutsideGrant,
+} from "../../../../src/main/features/fs/outside-grants";
 import type {
   DirEntry,
   FileReadBinaryResult,

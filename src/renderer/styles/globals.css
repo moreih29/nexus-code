@@ -568,7 +568,9 @@
   position: absolute;
   left: -1.1em;
   top: 0.2em;
-  transition: opacity 0.1s ease, transform 0.12s ease;
+  transition:
+    opacity 0.1s ease,
+    transform 0.12s ease;
 }
 .md-preview .md-heading[data-collapsed] .md-heading-fold {
   transform: rotate(-90deg);

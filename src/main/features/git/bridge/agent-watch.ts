@@ -5,8 +5,8 @@ import {
   GIT_WATCH_METHOD,
 } from "../../../../shared/git/protocol";
 import { createLogger } from "../../../../shared/log/main";
+import { type AgentBackedProvider, isAgentBackedProvider } from "../../fs/bridge/provider";
 import type { WorkspaceManager } from "../../workspace/manager";
-import { isAgentBackedProvider, type AgentBackedProvider } from "../../fs/bridge/provider";
 
 const log = createLogger("git");
 

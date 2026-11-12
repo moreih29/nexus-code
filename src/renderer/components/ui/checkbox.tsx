@@ -12,10 +12,7 @@ import { Checkbox as RadixCheckbox } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/utils/cn";
 
-function Checkbox({
-  className,
-  ...props
-}: React.ComponentProps<typeof RadixCheckbox.Root>) {
+function Checkbox({ className, ...props }: React.ComponentProps<typeof RadixCheckbox.Root>) {
   return (
     <RadixCheckbox.Root
       className={cn(

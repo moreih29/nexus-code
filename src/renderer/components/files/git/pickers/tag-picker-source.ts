@@ -257,9 +257,13 @@ function createTagItem(query: string): Extract<TagPickItem, { kind: "create" }> 
   const t = i18next.t.bind(i18next);
   return {
     id: query ? `create:${query}` : "create",
-    label: query ? t("files:git.tagPicker.createRow", { name: query }) : t("files:git.tagPicker.createRowEmpty"),
+    label: query
+      ? t("files:git.tagPicker.createRow", { name: query })
+      : t("files:git.tagPicker.createRowEmpty"),
     kindLabel: "+",
-    ariaLabel: query ? t("files:git.tagPicker.createRow", { name: query }) : t("files:git.tagPicker.createRowEmpty"),
+    ariaLabel: query
+      ? t("files:git.tagPicker.createRow", { name: query })
+      : t("files:git.tagPicker.createRowEmpty"),
     kind: "create",
     ...(query ? { defaultName: query } : {}),
   };
@@ -363,7 +367,7 @@ function formatRemoteTag(tag: RemoteTag): string {
  */
 function formatTagDate(tag: Tag): string {
   const t = i18next.t.bind(i18next);
-  if (tag.taggerDate === null) return `${tag.sha.slice(0, 7)} · ${t("files:git.tagPicker.noTaggerDate")}`;
+  if (tag.taggerDate === null)
+    return `${tag.sha.slice(0, 7)} · ${t("files:git.tagPicker.noTaggerDate")}`;
   return `${relativeTime(tag.taggerDate)} · ${tag.sha.slice(0, 7)}`;
 }
-

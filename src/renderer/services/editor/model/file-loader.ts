@@ -3,8 +3,8 @@
 
 import i18next from "i18next";
 import { FS_ERROR, fsErrorMessage } from "../../../../shared/fs/errors";
-import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import type { FileContent, FsChangedEvent } from "../../../../shared/fs/types";
+import { workspaceUriFor } from "../../../../shared/fs/workspace-uri";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../../ipc/client";
 import { useWorkspacesStore } from "../../../state/stores/workspaces";
 import { relPath } from "../../../utils/path";
@@ -122,10 +122,7 @@ export function subscribeFsChanged(
  * Called after a workflow mutation (merge/rebase/cherry-pick) completes and
  * the main process has re-broadcast git status. Returns an unsubscribe fn.
  */
-export function subscribeGitStatusChanged(
-  input: EditorInput,
-  onChanged: () => void,
-): () => void {
+export function subscribeGitStatusChanged(input: EditorInput, onChanged: () => void): () => void {
   return ipcListen("git", "statusChanged", (event) => {
     if (event.workspaceId !== input.workspaceId) return;
     onChanged();

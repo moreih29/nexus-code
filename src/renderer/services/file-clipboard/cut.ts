@@ -1,8 +1,10 @@
 /** Mark entries for cut (move) in the file clipboard. */
 
-import { useFileClipboardStore } from "./store";
 import type { FileClipboardInput } from "./copy";
+import { useFileClipboardStore } from "./store";
 
 export function handleCut(input: FileClipboardInput): void {
-  useFileClipboardStore.getState().set("cut", input.workspaceId, input.entries, input.workspaceRootPath);
+  useFileClipboardStore
+    .getState()
+    .set("cut", input.workspaceId, input.entries, input.workspaceRootPath);
 }

@@ -13,10 +13,10 @@ import { getExpandedHandler, setExpandedHandler } from "./expanded-handlers";
 import {
   grantOutsideHandler,
   readBinaryHandler,
-  readRangeHandler,
   readdirHandler,
   readExternalHandler,
   readFileHandler,
+  readRangeHandler,
   statHandler,
 } from "./read-handlers";
 import { trashHandler } from "./trash-handler";

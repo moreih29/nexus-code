@@ -1,12 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
+import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
+import type { PtyRecorderSink } from "../../../../src/main/features/pty/recorder";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
   ChannelLifecycleEvent,
 } from "../../../../src/main/infra/agent/channel";
-import type { PtyChannelOptions } from "../../../../src/main/features/pty/ipc";
-import type { PtyRecorderSink } from "../../../../src/main/features/pty/recorder";
 
 const mockHandle = mock((_channel: string, _handler: unknown) => {});
 const mockOn = mock((_channel: string, _handler: unknown) => {});

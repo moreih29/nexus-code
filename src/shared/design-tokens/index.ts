@@ -20,14 +20,14 @@
 // ---------------------------------------------------------------------------
 
 export {
-  color,
-  fontFamily,
-  spacing,
-  spacingInApp,
-  radiusScale,
-  islandGeometry,
   borderRadius,
   breakpoint,
+  color,
+  fontFamily,
+  islandGeometry,
+  radiusScale,
+  spacing,
+  spacingInApp,
 } from "./primitive";
 
 // ---------------------------------------------------------------------------
@@ -47,15 +47,15 @@ export { buildShadcnVars, SEALED } from "./component";
 // ---------------------------------------------------------------------------
 
 export type { ThemeId } from "./themes";
-export { THEMES, DEFAULT_THEME, THEME_SOURCES, THEME_SOURCE_BY_ID } from "./themes";
+export { DEFAULT_THEME, THEME_SOURCE_BY_ID, THEME_SOURCES, THEMES } from "./themes";
 
 // ---------------------------------------------------------------------------
 // theme-adapter — exposes buildSemanticTokens / buildEditorPalette to
 // downstream consumers (palette.ts, tests, scripts).
 // ---------------------------------------------------------------------------
 
-export { buildSemanticTokens, buildEditorPalette } from "./theme-adapter";
 export type { EditorPalette } from "./theme-adapter";
+export { buildEditorPalette, buildSemanticTokens } from "./theme-adapter";
 export type { ThemeSource } from "./theme-sources";
 
 // ---------------------------------------------------------------------------

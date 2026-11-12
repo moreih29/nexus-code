@@ -154,10 +154,7 @@ export function folderName(absPath: string): string {
  * Port is intentionally omitted from this short form; use formatSshTooltip
  * for the full path + port in title attributes.
  */
-export function formatSshSecondaryLine(params: {
-  user?: string | null;
-  host: string;
-}): string {
+export function formatSshSecondaryLine(params: { user?: string | null; host: string }): string {
   return params.user ? `${params.user}@${params.host}` : params.host;
 }
 

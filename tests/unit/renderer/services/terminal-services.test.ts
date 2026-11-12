@@ -98,9 +98,12 @@ mock.module("../../../../src/renderer/ipc/client", () => ({
     const err = new Error(result.message ?? "git ipc error");
     throw err;
   },
-  isIpcResult: (v: unknown): boolean => v !== null && typeof v === "object" && "ok" in (v as object),
-  isIpcOkResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
-  isIpcErrResult: (v: unknown): boolean => v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
+  isIpcResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && "ok" in (v as object),
+  isIpcOkResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === true,
+  isIpcErrResult: (v: unknown): boolean =>
+    v !== null && typeof v === "object" && (v as Record<string, unknown>)["ok"] === false,
 }));
 
 // Spread over the real module so later files keep its other exports.
@@ -201,13 +204,10 @@ function makeTerminalControllerDeps(
   // alt screen exit CSI handler. params로 47/1047/1049 중 하나가 들어오면 alt→normal
   // 전이로 해석되어 processTitle clear가 발사된다. xterm.js v5 API의 params는
   // (number | number[])[] 직접 배열 형태.
-  let capturedAltExitHandler:
-    | ((params: ReadonlyArray<number | number[]>) => boolean)
-    | null = null;
+  let capturedAltExitHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null = null;
   // alt screen ENTER CSI handler — TUI 시작 시 fg process 이름 IPC로 가져와 processTitle.
-  let capturedAltEnterHandler:
-    | ((params: ReadonlyArray<number | number[]>) => boolean)
-    | null = null;
+  let capturedAltEnterHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null =
+    null;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
     createTerminal: () => ({
@@ -1112,25 +1112,29 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
     const { harness, controller, handler } = await setupHandler();
 
     // Shift+Home: selection 확장 — 통과
-    expect(
-      handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "Home", shiftKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     // Cmd+End (Home/End 키와 modifier 조합): 통과 — 정의되지 않은 시퀀스라 보존
-    expect(
-      handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "End", metaKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     // Ctrl+Home: buffer-top 의도: 통과
-    expect(
-      handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "Home", ctrlKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     // Alt+End: word-level 의도: 통과
-    expect(
-      handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "End", altKey: true }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     // Shift+Cmd+ArrowLeft: macOS selection 확장 의도: 통과
     expect(
       handler(
-        fakeKeyEvent({ key: "ArrowLeft", metaKey: true, shiftKey: true }) as unknown as KeyboardEvent,
+        fakeKeyEvent({
+          key: "ArrowLeft",
+          metaKey: true,
+          shiftKey: true,
+        }) as unknown as KeyboardEvent,
       ),
     ).toBe(true);
     // Option+ArrowRight: word-jump 의도: 통과 (meta 없이 alt 단독)
@@ -1138,12 +1142,8 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
       handler(fakeKeyEvent({ key: "ArrowRight", altKey: true }) as unknown as KeyboardEvent),
     ).toBe(true);
     // 단독 ArrowLeft/ArrowRight (modifier 없음): cursor 이동 — 통과
-    expect(
-      handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent),
-    ).toBe(true);
-    expect(
-      handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "ArrowLeft" }) as unknown as KeyboardEvent)).toBe(true);
+    expect(handler(fakeKeyEvent({ key: "ArrowRight" }) as unknown as KeyboardEvent)).toBe(true);
 
     expect(harness.ptyWrites).toEqual([]);
 
@@ -1153,9 +1153,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
   it("keyup은 통과 — keydown만 인터셉트", async () => {
     const { harness, controller, handler } = await setupHandler();
 
-    expect(
-      handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent),
-    ).toBe(true);
+    expect(handler(fakeKeyEvent({ type: "keyup", key: "Home" }) as unknown as KeyboardEvent)).toBe(
+      true,
+    );
     expect(harness.ptyWrites).toEqual([]);
 
     controller.dispose();
@@ -1389,7 +1389,9 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 // escapeDroppedPath — a dropped file's path, quoted for the terminal's shell
 describe("escapeDroppedPath", () => {
   it("backslash-escapes for a POSIX or remote shell, leaving Unicode letters", () => {
-    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe("/Users/me/my\\ file\\ \\(1\\).png");
+    expect(escapeDroppedPath("/Users/me/my file (1).png")).toBe(
+      "/Users/me/my\\ file\\ \\(1\\).png",
+    );
     expect(escapeDroppedPath("/tmp/한글 파일.txt", "/bin/zsh")).toBe("/tmp/한글\\ 파일.txt");
     expect(escapeDroppedPath("/tmp/plain.txt", "/bin/bash")).toBe("/tmp/plain.txt");
   });
@@ -1899,11 +1901,10 @@ describe("services/terminal controller — OSC title sync", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(
-      ipcCalls.some((c) => c.channel === "pty" && c.method === "foregroundProcess"),
-    ).toBe(false);
+    expect(ipcCalls.some((c) => c.channel === "pty" && c.method === "foregroundProcess")).toBe(
+      false,
+    );
 
     controller.dispose();
   });
 });
-

@@ -2,28 +2,28 @@
 // All PTY sessions are routed to the agent host unconditionally.
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import type { PtyHostHandle } from "./types";
-import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import { TerminalRecorderRegistry, type PtyRecorderSink } from "./recorder";
 import { ipcErr, ipcOk } from "../../../shared/ipc/result";
+import type { WorkspacePorts } from "../../../shared/pty/ports";
+import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
+import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
+import type { HookInfo } from "../workspace/manager";
+import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
+import type { WorkspaceNameLookup } from "./osc-notification";
+import { OscNotificationDispatcher } from "./osc-notification";
+import { type PtyRecorderSink, TerminalRecorderRegistry } from "./recorder";
 import { applyShellPathShim } from "./shell-shim";
-import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 import {
   detectShells,
   findShellProgram,
   nodeShellHost,
   resolveShellChoice,
-  systemDefaultShell,
   type ShellHost,
+  systemDefaultShell,
 } from "./shells";
-import type { WorkspacePorts } from "../../../shared/pty/ports";
-import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
-import { ForwardError, type PortForwards } from "./forwards";
-import { OscNotificationDispatcher } from "./osc-notification";
-import type { WorkspaceNameLookup } from "./osc-notification";
-import type { HookInfo } from "../workspace/manager";
-import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
+import type { PtyHostHandle } from "./types";
+import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 
 const c = ipcContract.pty.call;
 

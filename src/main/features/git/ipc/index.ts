@@ -2,10 +2,10 @@
  * git channel — registers Source Control panel call and stream handlers.
  */
 
+import { register } from "../../../infra/ipc-router";
+import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
 import type { GitAutofetchScheduler } from "../domain/autofetch";
 import type { GitRegistry } from "../domain/registry";
-import type { WorkspaceStorage } from "../../../infra/storage/workspace-storage";
-import { register } from "../../../infra/ipc-router";
 import { checkoutHandler, checkoutTrackingHandler, listBranchesHandler } from "./branch-handlers";
 import {
   createBranchHandler,
@@ -15,13 +15,13 @@ import {
   renameBranchHandler,
   setUpstreamHandler,
 } from "./branch-ops-handlers";
+import { checkIgnoreHandler } from "./check-ignore-handlers";
 import {
   commitAmendHandler,
   commitEmptyHandler,
   commitHandler,
   undoLastCommitHandler,
 } from "./commit-handlers";
-import { checkIgnoreHandler } from "./check-ignore-handlers";
 import { getFileContentHandler } from "./content-handlers";
 import { diffStream } from "./diff-stream";
 import { getFileBlobStream, openFileAtHeadHandler } from "./file-handlers";

@@ -16,8 +16,8 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import {
   type CustomShell,
-  type ShellChoice,
   joinShellArgs,
+  type ShellChoice,
   sameShellChoice,
   splitShellArgs,
 } from "../../../../shared/pty/shell";
@@ -31,12 +31,12 @@ import {
   useInstalledShells,
 } from "../../../services/terminal/installed-shells";
 import { useTerminalStore } from "../../../state/stores/terminal";
+import { isWindows } from "../../../utils/platform";
 import { Button } from "../../ui/button";
 import { Dialog } from "../../ui/dialog";
 import { DialogHeader } from "../../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../ui/select";
 import { SettingsSection } from "../section";
-import { isWindows } from "../../../utils/platform";
 
 const SYSTEM_VALUE = "__system__";
 const choiceValue = (choice: ShellChoice) => `${choice.kind}:${choice.id}`;

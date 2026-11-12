@@ -64,8 +64,7 @@ const BLOCKED_SCHEME_RE = /^(about:|javascript:|data:)/i;
 const EXPLICIT_HTTP_RE = /^(https?|file):\/\//i;
 
 /** localhost, 127.0.0.1, or any IPv4 address (with optional port). */
-const LOCAL_ADDRESS_RE =
-  /^(localhost|127\.0\.0\.1|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?(\/.*)?$/i;
+const LOCAL_ADDRESS_RE = /^(localhost|127\.0\.0\.1|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?(\/.*)?$/i;
 
 /**
  * Simple domain-like heuristic: no spaces, contains at least one dot, and the

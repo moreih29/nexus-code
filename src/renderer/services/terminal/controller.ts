@@ -76,7 +76,9 @@ interface BufferLike {
   readonly type: "normal" | "alternate";
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
-  getLine?(y: number): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+  getLine?(
+    y: number,
+  ): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
 }
 
 interface TerminalLike {

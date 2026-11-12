@@ -2,13 +2,13 @@
 // 기존 pty/ipc.ts의 register 패턴을 그대로 따른다.
 
 import { ipcContract } from "../../../shared/ipc/contract";
-import { register, validateArgs } from "../../infra/ipc-router";
 import { ipcOk } from "../../../shared/ipc/result";
-import type { ClaudeStatusBroker } from "./status";
+import { register, validateArgs } from "../../infra/ipc-router";
 import type { ActiveContextStore } from "./active-context";
 import type { ChatAnswers } from "./chat-answers";
 import type { PermissionAsks } from "./permission-asks";
 import type { SessionActivityLog } from "./session-activity";
+import type { ClaudeStatusBroker } from "./status";
 
 const c = ipcContract.claude.call;
 

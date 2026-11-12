@@ -94,4 +94,3 @@ function matchesCommitQuery(item: CommitPickItem, lowerQuery: string): boolean {
     .filter((value): value is string => typeof value === "string")
     .some((value) => value.toLowerCase().includes(lowerQuery));
 }
-

@@ -13,15 +13,15 @@ import type * as Monaco from "monaco-editor";
 import { showConflictResolution } from "../../../components/editor/conflict-dialog";
 import { showToast } from "../../../components/ui/toast";
 import { ipcCallResult, unwrapIpcResult } from "../../../ipc/client";
-import { notifyDidSave } from "../lsp/bridge";
-import { getDirtyEntry, markSaved as markDirtyTrackerSaved, updateLoadedMetadata } from "../model/dirty-tracker";
+import { fsErrorReason } from "../../../utils/file-error";
+import { basename } from "../../../utils/path";
 import {
   bytesToBase64,
   encodeText,
   encodingInfo,
   type TextEncoding,
 } from "../encoding/text-encoding";
-import { relPathForInput, setEncodingOverride } from "../model/file-loader";
+import { notifyDidSave } from "../lsp/bridge";
 import {
   clearDiskDiverged,
   getResolvedModel,
@@ -29,8 +29,12 @@ import {
   setModelEncoding,
   syncLoadedValueAfterSave,
 } from "../model/cache";
-import { fsErrorReason } from "../../../utils/file-error";
-import { basename } from "../../../utils/path";
+import {
+  getDirtyEntry,
+  markSaved as markDirtyTrackerSaved,
+  updateLoadedMetadata,
+} from "../model/dirty-tracker";
+import { relPathForInput, setEncodingOverride } from "../model/file-loader";
 import { promoteAllPreviewTabsForFile } from "../tabs/promote-policy";
 import type { EditorInput } from "../types";
 import { SaveSequentializer, SaveSupersededError } from "./sequentializer";
@@ -81,7 +85,10 @@ export type SaveResult =
  */
 export function reportSaveFailure(result: SaveResult): void {
   if (result.kind === "error") {
-    showToast({ kind: "error", message: i18next.t("errors:save.failed", { reason: result.message }) });
+    showToast({
+      kind: "error",
+      message: i18next.t("errors:save.failed", { reason: result.message }),
+    });
   }
 }
 

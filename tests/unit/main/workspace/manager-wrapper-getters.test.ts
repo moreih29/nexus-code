@@ -13,11 +13,11 @@
  * dynamic import로 대상 모듈을 로드한다.
  */
 
-import { describe, expect, mock, test, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import fs from "node:fs";
 import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 // ---------------------------------------------------------------------------
@@ -42,13 +42,9 @@ mock.module("../../../../src/main/features/cli/launchers", () => ({
 
 // dynamic import — mock.module 이후
 const { GlobalStorage } = await import("../../../../src/main/infra/storage/global-storage");
-const { WorkspaceStorage } = await import(
-  "../../../../src/main/infra/storage/workspace-storage"
-);
+const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
-const { WorkspaceManager } = await import(
-  "../../../../src/main/features/workspace/manager"
-);
+const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
 const { loginShell } = await import("../../../../src/main/infra/platform");
 
 // ---------------------------------------------------------------------------
@@ -59,12 +55,14 @@ const REMOTE_HOME = "/home/testuser";
 const REMOTE_BIN_DIR = `${REMOTE_HOME}/.nexus-code/bin`;
 
 /** 최소 EnsureRemoteAgentResult stub */
-function makeSshBootstrap(overrides: Partial<{
-  remoteBinDir: string;
-  platform: { os: "linux" | "darwin"; arch: "amd64" | "arm64" };
-  remoteShell: string | undefined;
-  remoteShimDir: string | undefined;
-}> = {}) {
+function makeSshBootstrap(
+  overrides: Partial<{
+    remoteBinDir: string;
+    platform: { os: "linux" | "darwin"; arch: "amd64" | "arm64" };
+    remoteShell: string | undefined;
+    remoteShimDir: string | undefined;
+  }> = {},
+) {
   return {
     remoteCommand: "bash -lc 'exec /home/testuser/.nexus-code/bin/agent-0.1.0-linux-amd64'",
     remoteHome: REMOTE_HOME,
@@ -87,15 +85,12 @@ function makeManager() {
   const globalStorage = new GlobalStorage(globalDb);
   const wsBaseDir = path.join(os.tmpdir(), `nexus-wrapper-getter-test-${Date.now()}`);
   const workspaceStorage = new WorkspaceStorage(wsBaseDir, () => new Database(":memory:"));
-  const stateService = new StateService(path.join(os.tmpdir(), `nexus-getter-state-${Date.now()}.json`));
+  const stateService = new StateService(
+    path.join(os.tmpdir(), `nexus-getter-state-${Date.now()}.json`),
+  );
   const broadcast = mock((_ch: string, _ev: string, _args: unknown) => {});
 
-  const manager = new WorkspaceManager(
-    globalStorage,
-    workspaceStorage,
-    stateService,
-    broadcast,
-  );
+  const manager = new WorkspaceManager(globalStorage, workspaceStorage, stateService, broadcast);
 
   return { manager, globalDb };
 }
@@ -159,7 +154,10 @@ const windowsTest = test.skipIf(!isWindows);
 describe("WorkspaceManager.getWrapperBinDir — acceptance #1, #2, #3", () => {
   windowsTest("#1w: Windows 로컬 워크스페이스 → nexus 런처 디렉터리", () => {
     const { manager, globalDb } = makeManager();
-    const meta = manager.create({ rootPath: path.join(os.tmpdir(), "ws-local-bindir"), name: "local" });
+    const meta = manager.create({
+      rootPath: path.join(os.tmpdir(), "ws-local-bindir"),
+      name: "local",
+    });
 
     expect(manager.getWrapperBinDir(meta.id)).toBe(WINDOWS_LAUNCHER_DIR);
     globalDb.close();
@@ -174,7 +172,11 @@ describe("WorkspaceManager.getWrapperAgentBin — acceptance #4, #5", () => {
     // Another test file may leave process.resourcesPath read-only, so it is
     // redefined rather than assigned.
     const setResourcesPath = (value: string | undefined) =>
-      Object.defineProperty(process, "resourcesPath", { value, configurable: true, writable: true });
+      Object.defineProperty(process, "resourcesPath", {
+        value,
+        configurable: true,
+        writable: true,
+      });
     const originalResourcesPath = process.resourcesPath;
     electronApp.isPackaged = true;
     setResourcesPath(resourcesPath);

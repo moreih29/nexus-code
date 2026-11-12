@@ -158,9 +158,7 @@ function parseBlock(
   };
 
   const base: ConflictSection | null =
-    baseMarkerLine !== null
-      ? { startLine: baseMarkerLine + 1, endLine: separatorLine - 1 }
-      : null;
+    baseMarkerLine !== null ? { startLine: baseMarkerLine + 1, endLine: separatorLine - 1 } : null;
 
   const incoming: ConflictSection = {
     startLine: separatorLine + 1,
@@ -245,11 +243,7 @@ function linesForSection(text: string, section: ConflictSection): string[] {
  * Uses the same line split/join as the parser so line-ending behaviour is
  * consistent across calls.
  */
-function replaceBlock(
-  text: string,
-  block: ConflictBlock,
-  replacementLines: string[],
-): string {
+function replaceBlock(text: string, block: ConflictBlock, replacementLines: string[]): string {
   const lines = text.split("\n");
   const blockStart = block.blockRange.startLine - 1; // 0-based
   const blockEnd = block.blockRange.endLine - 1; // 0-based (inclusive)

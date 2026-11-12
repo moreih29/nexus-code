@@ -5,8 +5,6 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { AGENT_PROTOCOL_VERSION } from "../src/shared/agent/envelope";
-import { cliExecutableName, POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
-import { CODEX_WRAPPER } from "../src/shared/codex/wrapper";
 import {
   type AgentArtifactPlatform,
   type AgentBinaryManifestEntry,
@@ -14,6 +12,8 @@ import {
   type LspBinaryManifestEntry,
   type NodeRuntimeManifestEntry,
 } from "../src/shared/agent/manifest";
+import { cliExecutableName, POSIX_CLI_LAUNCHER } from "../src/shared/cli/launcher";
+import { CODEX_WRAPPER } from "../src/shared/codex/wrapper";
 
 const DEFAULT_VERSION = "0.1.0";
 // Manifest metadata follows the single source of truth in envelope.ts —

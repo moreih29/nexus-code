@@ -4,13 +4,10 @@
  * submodule import without circularity.
  */
 import path from "node:path";
-import type {
-  AuthenticateSshControlMasterDependencies,
-  SshAuthPromptHandler,
-} from "../auth-pty";
-import type { SshMasterOptions } from "../master";
 import { AGENT_PROTOCOL_VERSION } from "../../../../../shared/agent/envelope";
 import type { AgentArtifactPlatform, SshHostOs } from "../../../../../shared/agent/manifest";
+import type { AuthenticateSshControlMasterDependencies, SshAuthPromptHandler } from "../auth-pty";
+import type { SshMasterOptions } from "../master";
 
 // Alias of the single source of truth in shared/agent/envelope.ts — the SSH
 // and local channels speak the same protocol to the same Go agent, so they

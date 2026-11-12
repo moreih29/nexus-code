@@ -109,8 +109,16 @@ export function buildHistoryCommitMenuItems(
 
   const t = i18next.t.bind(i18next);
   return [
-    { kind: "item", label: t("files:git.history.menu.copySha"), onSelect: () => copyText(entry.sha) },
-    { kind: "item", label: t("files:git.history.menu.copyMessage"), onSelect: () => copyText(message) },
+    {
+      kind: "item",
+      label: t("files:git.history.menu.copySha"),
+      onSelect: () => copyText(entry.sha),
+    },
+    {
+      kind: "item",
+      label: t("files:git.history.menu.copyMessage"),
+      onSelect: () => copyText(message),
+    },
     { kind: "separator" },
     {
       kind: "item",

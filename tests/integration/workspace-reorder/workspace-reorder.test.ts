@@ -18,14 +18,11 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import os from "node:os";
 import path from "node:path";
+import { type BroadcastFn, WorkspaceManager } from "../../../src/main/features/workspace/manager";
 import { GlobalStorage } from "../../../src/main/infra/storage/global-storage";
 import { applyMigrations } from "../../../src/main/infra/storage/migrations";
 import { StateService } from "../../../src/main/infra/storage/state-service";
 import { WorkspaceStorage } from "../../../src/main/infra/storage/workspace-storage";
-import {
-  type BroadcastFn,
-  WorkspaceManager,
-} from "../../../src/main/features/workspace/manager";
 import { createWorkspacesStore } from "../../../src/renderer/state/stores/workspaces";
 import type { WorkspaceMeta } from "../../../src/shared/types/workspace";
 
@@ -369,16 +366,13 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
       fixtures.manager["workspaceStorage"].openForWorkspace(id);
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { WorkspaceContext } = require("../../../src/main/features/workspace/context") as {
-        WorkspaceContext: new (
-          meta: WorkspaceMeta,
-          storage: unknown,
-          provider: unknown,
-        ) => unknown;
+        WorkspaceContext: new (meta: WorkspaceMeta, storage: unknown, provider: unknown) => unknown;
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { AgentFsProvider } = require("../../../src/main/features/fs/bridge/agent-provider") as {
-        AgentFsProvider: new (kind: string) => unknown;
-      };
+      const { AgentFsProvider } =
+        require("../../../src/main/features/fs/bridge/agent-provider") as {
+          AgentFsProvider: new (kind: string) => unknown;
+        };
       const ctx = new WorkspaceContext(
         {
           id,
@@ -492,17 +486,13 @@ describe("concurrent reorder serialization — deterministic final state", () =>
 
 describe("renderer store — stale applySortedInsert triggers fetchList fallback", () => {
   it("consistent=false on a sort collision triggers fetchList and setAll", async () => {
-    const fetchListMock = mock(() =>
-      Promise.resolve([] as WorkspaceMeta[]),
-    );
+    const fetchListMock = mock(() => Promise.resolve([] as WorkspaceMeta[]));
 
     const listenCallbacks: Map<string, (payload: unknown) => void> = new Map();
-    const listenMock = mock(
-      (_channel: string, event: string, cb: (payload: unknown) => void) => {
-        listenCallbacks.set(event, cb);
-        return () => {};
-      },
-    );
+    const listenMock = mock((_channel: string, event: string, cb: (payload: unknown) => void) => {
+      listenCallbacks.set(event, cb);
+      return () => {};
+    });
 
     const store = createWorkspacesStore({
       canUseIpcBridge: () => true,
@@ -558,9 +548,7 @@ describe("renderer store — stale applySortedInsert triggers fetchList fallback
   });
 
   it("upsert with a sort collision triggers fetchList fallback", async () => {
-    const fetchListMock = mock(() =>
-      Promise.resolve([] as WorkspaceMeta[]),
-    );
+    const fetchListMock = mock(() => Promise.resolve([] as WorkspaceMeta[]));
 
     const store = createWorkspacesStore({
       canUseIpcBridge: () => false,

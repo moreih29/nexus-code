@@ -75,9 +75,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 
 const cleanupEntryMock = mock((_entry: unknown) => {});
 
-const realModelEntry = await import(
-  "../../../../../src/renderer/services/editor/model/entry"
-);
+const realModelEntry = await import("../../../../../src/renderer/services/editor/model/entry");
 
 function makeStubEntry(
   input: { workspaceId: string; filePath: string; origin?: string; readOnly?: boolean },
@@ -104,10 +102,16 @@ mock.module("../../../../../src/renderer/services/editor/model/entry", () => ({
   ...realModelEntry,
   cleanupEntry: cleanupEntryMock,
   createEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) =>
-    makeStubEntry(input as { workspaceId: string; filePath: string; origin?: string; readOnly?: boolean }, cacheUri),
+    makeStubEntry(
+      input as { workspaceId: string; filePath: string; origin?: string; readOnly?: boolean },
+      cacheUri,
+    ),
   createUntitledEntry: (input: { workspaceId: string; filePath: string }, cacheUri: string) =>
     makeStubEntry(
-      { ...input as { workspaceId: string; filePath: string; origin?: string }, origin: "untitled" },
+      {
+        ...(input as { workspaceId: string; filePath: string; origin?: string }),
+        origin: "untitled",
+      },
       cacheUri,
     ),
 }));

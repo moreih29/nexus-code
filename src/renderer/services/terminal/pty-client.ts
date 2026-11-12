@@ -18,7 +18,8 @@ function sessionKey(workspaceId: string, tabId: string): string {
 
 function ackData(workspaceId: string, tabId: string, chunk: string): void {
   const key = sessionKey(workspaceId, tabId);
-  const pending = (pendingAckBytesBySessionKey.get(key) ?? 0) + textEncoder.encode(chunk).byteLength;
+  const pending =
+    (pendingAckBytesBySessionKey.get(key) ?? 0) + textEncoder.encode(chunk).byteLength;
   if (pending < TERMINAL_FLOW_CONTROL.ACK_SIZE) {
     pendingAckBytesBySessionKey.set(key, pending);
     return;

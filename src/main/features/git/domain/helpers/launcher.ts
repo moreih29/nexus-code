@@ -54,7 +54,9 @@ export function buildHelperEnv(
 ): NodeJS.ProcessEnv {
   const baseEnv = runtime.baseEnv ?? process.env;
   const platform = runtime.platform ?? process.platform;
-  const electronCommand = runtime.electronPath ? [runtime.electronPath] : resolveDefaultElectronCommand();
+  const electronCommand = runtime.electronPath
+    ? [runtime.electronPath]
+    : resolveDefaultElectronCommand();
   const helperDir = runtime.helperDir ?? resolveDefaultHelperDir();
   const wrapperDir = runtime.wrapperDir ?? resolveDefaultWrapperDir(platform);
 
@@ -197,7 +199,13 @@ export function agentAliasPath(execPath: string, localAppData: string): string |
   const fullName = path.win32.basename(path.win32.dirname(path.win32.dirname(execPath))).split("_");
   if (fullName.length !== 5) return null;
   const familyName = `${fullName[0]}_${fullName[4]}`;
-  return path.win32.join(localAppData, "Microsoft", "WindowsApps", familyName, "nexuscode-agent.exe");
+  return path.win32.join(
+    localAppData,
+    "Microsoft",
+    "WindowsApps",
+    familyName,
+    "nexuscode-agent.exe",
+  );
 }
 
 /**

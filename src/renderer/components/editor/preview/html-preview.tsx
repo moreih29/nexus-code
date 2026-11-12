@@ -70,6 +70,7 @@
 //   lives) and collapses truncate-then-write saves into a single reload.
 
 import { useCallback, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { isWithinWorkspace, relPath } from "@/utils/path";
 import {
   createDomFinder,
@@ -82,8 +83,7 @@ import {
   buildWorkspaceDirUrl,
 } from "../../../services/editor/preview/workspace-url";
 import { useOutsideDirGranted } from "../../../state/stores/outside-grants";
-import { useTranslation } from "react-i18next";
-import { type FindResult, usePreviewFinder, usePreviewFindBar } from "./preview-find";
+import { type FindResult, usePreviewFindBar, usePreviewFinder } from "./preview-find";
 
 interface HtmlPreviewProps {
   source: string;

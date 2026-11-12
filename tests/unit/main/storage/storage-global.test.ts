@@ -215,9 +215,9 @@ describe("GlobalStorage.updateWorkspace", () => {
 
     storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
 
-    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
-      "00000000-0000-0000-0000-000000000001",
-    ) as { location: string };
+    const raw = db
+      .prepare("SELECT location FROM workspaces WHERE id = ?")
+      .get("00000000-0000-0000-0000-000000000001") as { location: string };
     expect(JSON.parse(raw.location)).toEqual({
       kind: "ssh",
       host: "legacy",
@@ -250,9 +250,9 @@ describe("GlobalStorage.updateWorkspace", () => {
 
     storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
 
-    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
-      "00000000-0000-0000-0000-000000000001",
-    ) as { location: string };
+    const raw = db
+      .prepare("SELECT location FROM workspaces WHERE id = ?")
+      .get("00000000-0000-0000-0000-000000000001") as { location: string };
     expect(JSON.parse(raw.location)).toEqual(stored);
   });
 
@@ -265,9 +265,9 @@ describe("GlobalStorage.updateWorkspace", () => {
 
     storage.updateWorkspace("00000000-0000-0000-0000-000000000001", { name: "renamed" });
 
-    const raw = db.prepare("SELECT location FROM workspaces WHERE id = ?").get(
-      "00000000-0000-0000-0000-000000000001",
-    ) as { location: string };
+    const raw = db
+      .prepare("SELECT location FROM workspaces WHERE id = ?")
+      .get("00000000-0000-0000-0000-000000000001") as { location: string };
     expect(raw.location).toBe(stored);
   });
 });

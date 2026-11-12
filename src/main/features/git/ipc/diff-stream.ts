@@ -7,9 +7,9 @@ import type {
   InferProgress,
   ipcContract,
 } from "../../../../shared/ipc/contract";
+import type { StreamContext } from "../../../infra/ipc-router";
 import { GitError } from "../domain/error";
 import type { GitRegistry } from "../domain/registry";
-import type { StreamContext } from "../../../infra/ipc-router";
 
 type DiffStreamProcedure = (typeof ipcContract)["git"]["stream"]["diff"];
 type DiffStreamArgs = InferArgs<DiffStreamProcedure>;

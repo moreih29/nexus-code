@@ -12,11 +12,12 @@
  *   2. idleWatchdogMs absent (heartbeat-only) → no pings ever.
  *   3. pings stop after dispose().
  */
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+
 import { afterEach, describe, expect, it, jest } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 class FakeReadable extends EventEmitter {
   pause(): this {

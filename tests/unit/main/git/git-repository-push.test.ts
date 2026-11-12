@@ -12,7 +12,12 @@ describe.skipIf(process.platform === "win32")("GitRepository push guardrails", (
   it("uses --force-with-lease for explicit force pushes", async () => {
     const fixture = makeFakeRepo();
     try {
-      const repo = newLocalGitRepository("ws-push-lease", fixture.root, fixture.gitDir, fixture.gitBin);
+      const repo = newLocalGitRepository(
+        "ws-push-lease",
+        fixture.root,
+        fixture.gitDir,
+        fixture.gitBin,
+      );
 
       await repo.push(true);
 
@@ -39,7 +44,6 @@ describe.skipIf(process.platform === "win32")("GitRepository push guardrails", (
       fs.rmSync(fixture.root, { recursive: true, force: true });
     }
   });
-
 });
 
 /** Creates a temp repository root with a push-logging git executable. */

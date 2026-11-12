@@ -135,8 +135,12 @@ export function GitHeader({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label={hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")}
-            title={hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")}
+            aria-label={
+              hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
+            }
+            title={
+              hasAnyExpanded ? t("git.panel.header.collapseAll") : t("git.panel.header.expandAll")
+            }
             disabled={disabled || !hasChanges}
             onClick={onToggleAllTrees}
           >

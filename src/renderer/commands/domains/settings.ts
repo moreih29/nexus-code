@@ -1,6 +1,6 @@
 import { COMMANDS } from "../../../shared/keybindings/commands";
-import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { registerCommand } from "../../commands/registry";
+import { useSettingsUIStore } from "../../state/stores/settings-ui";
 
 /**
  * Settings dialog open command. Toggle (not open-only) so the same

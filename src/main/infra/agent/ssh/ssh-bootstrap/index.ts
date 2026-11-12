@@ -14,8 +14,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { POSIX_CLI_LAUNCHER } from "../../../../../shared/cli/launcher";
-import { CODEX_WRAPPER } from "../../../../../shared/codex/wrapper";
 import {
   AgentManifestSchema,
   findAgentBinary,
@@ -25,6 +23,8 @@ import {
   type NodeRuntimeManifestEntry,
   type WrapperManifestEntry,
 } from "../../../../../shared/agent/manifest";
+import { POSIX_CLI_LAUNCHER } from "../../../../../shared/cli/launcher";
+import { CODEX_WRAPPER } from "../../../../../shared/codex/wrapper";
 import { getAgentDistDir } from "../../getAgentBinDir";
 import { createSshError } from "../../pipe";
 import {

@@ -44,7 +44,9 @@ export function FileTreeStatusView({
   }
   if (showLoading) {
     return (
-      <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">{t("fileTree.status.loading")}</div>
+      <div className="px-4 py-6 text-center text-app-ui-sm text-muted-foreground">
+        {t("fileTree.status.loading")}
+      </div>
     );
   }
   if (treeKnown && !isLoading) {
@@ -64,7 +66,8 @@ function toUserMessage(err: string, t: (key: string) => string): string {
   //   3. The renderer subscriber stores `err.message` on the tree slice.
   // Older error strings can still leak through from layers that haven't
   // been migrated to the shared codes — accept both forms here.
-  if (hasFsErrorCode(err, FS_ERROR.NOT_FOUND) || err.includes("ENOENT")) return t("fileTree.status.error.notFound");
+  if (hasFsErrorCode(err, FS_ERROR.NOT_FOUND) || err.includes("ENOENT"))
+    return t("fileTree.status.error.notFound");
   if (hasFsErrorCode(err, FS_ERROR.PERMISSION_DENIED) || err.includes("EACCES"))
     return t("fileTree.status.error.permissionDenied");
   return t("fileTree.status.error.unexpected");

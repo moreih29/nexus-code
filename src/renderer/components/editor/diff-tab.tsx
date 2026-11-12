@@ -15,18 +15,18 @@ import { useDiffWorkingFile } from "../../services/editor/tabs";
 import type { EditorInput } from "../../services/editor/types";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { formatBytes } from "../../utils/format-bytes";
+import { Button } from "../ui/button";
+import { EmptyState } from "../ui/empty-state";
 import {
   type DiffContentStatus,
   type DiffSideReadyState,
   type DiffSideState,
-  readyContentFor,
   REFRESHING_INDICATOR_DELAY_MS,
+  readyContentFor,
   useDiffContent,
 } from "./diff-content-loader";
 import { EMPTY_TREE } from "./diff-refs";
 import { languageIdForPath } from "./language-id-for-path";
-import { Button } from "../ui/button";
-import { EmptyState } from "../ui/empty-state";
 
 const diffEditorOptions = {
   readOnly: true,
@@ -161,7 +161,8 @@ function DiffView({
   const placeholderSide = !!leftContent?.placeholder || !!rightContent?.placeholder;
   const staging = useMemo<DiffStaging | null>(() => {
     if (placeholderSide) return null;
-    if (leftRef === "INDEX" && rightRef === "WORKING") return { kind: "stage", workspaceId, relPath };
+    if (leftRef === "INDEX" && rightRef === "WORKING")
+      return { kind: "stage", workspaceId, relPath };
     if (rightRef === "INDEX" && leftRef !== EMPTY_TREE) {
       return { kind: "unstage", workspaceId, relPath, headRelPath: oldRelPath ?? relPath };
     }
@@ -171,7 +172,12 @@ function DiffView({
   if (blocking) {
     return (
       <DiffShell left={left} right={right} showRefreshing={showRefreshing} onReload={reload}>
-        <EmptyState title={blocking.title} description={blocking.description} tone="status" className="min-h-0" />
+        <EmptyState
+          title={blocking.title}
+          description={blocking.description}
+          tone="status"
+          className="min-h-0"
+        />
       </DiffShell>
     );
   }

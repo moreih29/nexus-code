@@ -42,9 +42,7 @@ export interface WorkspaceRowDragPayload {
  * Returns `null` if the MIME slot is absent, empty, or contains invalid JSON
  * — callers treat null as "not a workspace-row drag" and ignore the event.
  */
-export function parseWorkspaceDragPayload(
-  dt: DataTransfer,
-): WorkspaceRowDragPayload | null {
+export function parseWorkspaceDragPayload(dt: DataTransfer): WorkspaceRowDragPayload | null {
   const raw = dt.getData(MIME_WORKSPACE_ROW);
   if (!raw) return null;
   try {

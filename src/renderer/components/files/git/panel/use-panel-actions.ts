@@ -10,16 +10,22 @@
  * git-panel.tsx calls this hook and delegates rendering; all policy stays here.
  */
 
-import { useCallback, useRef } from "react";
 import i18next from "i18next";
-import type { BranchInfo, GitExpandedGroupKey, GitMergeMode, Tag } from "../../../../../shared/git/types";
+import { useCallback, useRef } from "react";
+import { useShallow } from "zustand/shallow";
+import type {
+  BranchInfo,
+  GitExpandedGroupKey,
+  GitMergeMode,
+  Tag,
+} from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
-import { useShallow } from "zustand/shallow";
-import type { BranchPickerMode } from "../branch/picker";
 import { submitBranchCreate } from "../branch/create-dialog";
+import type { BranchPickerMode } from "../branch/picker";
 import { buildSquashCommitDraft } from "../pickers/merge-options-dialog";
 import type { TagPickerMode } from "../pickers/tag-picker-source";
+import type { GitPanelPickersState } from "../pickers/use-panel-pickers";
 import { buildRemoteUpstreamWarning } from "../utils/more-menu-model";
 import type { PushGuardActionKind } from "../utils/push-guard-banner";
 import {
@@ -28,7 +34,6 @@ import {
   tagHistoryRef,
 } from "./panel-actions";
 import type { GitDialogsState } from "./use-dialogs";
-import type { GitPanelPickersState } from "../pickers/use-panel-pickers";
 
 // ---------------------------------------------------------------------------
 // Types surfaced to the panel
@@ -178,7 +183,8 @@ export function useGitPanelActions({
       setBranchCreateBranchList(null);
       setBranchCreateBranchListLoading(true);
 
-      void branchOps.listBranches(workspaceId)
+      void branchOps
+        .listBranches(workspaceId)
         .then((list) => {
           if (branchCreateLoadIdRef.current !== loadId) return;
           setBranchCreateBranchList(list ?? null);
@@ -313,7 +319,13 @@ export function useGitPanelActions({
       await commitOps.stage(workspaceId, derived.stageablePaths);
     }
     await commitOps.commit(workspaceId, { message: derived.trimmedDraft });
-  }, [commitOps.commit, derived.stageablePaths, derived.trimmedDraft, commitOps.stage, workspaceId]);
+  }, [
+    commitOps.commit,
+    derived.stageablePaths,
+    derived.trimmedDraft,
+    commitOps.stage,
+    workspaceId,
+  ]);
 
   const handleAmend = useCallback(async (): Promise<void> => {
     await commitOps.commitAmend(workspaceId, { message: derived.trimmedDraft });
@@ -332,7 +344,10 @@ export function useGitPanelActions({
   const handleSync = useCallback(async (): Promise<void> => {
     const result = await pushPullOps.sync(workspaceId);
     if (result?.pulled === "cancelled") {
-      setContextBanner({ variant: "info", message: i18next.t("files:git.panelActions.syncCancelled") });
+      setContextBanner({
+        variant: "info",
+        message: i18next.t("files:git.panelActions.syncCancelled"),
+      });
     }
   }, [pushPullOps.sync, setContextBanner, workspaceId]);
 
@@ -365,9 +380,7 @@ export function useGitPanelActions({
         confirm: {
           relPaths: [remote],
           title: t("files:git.removeRemote.title", { remote }),
-          description: upstreamWarning
-            ? `${upstreamWarning} ${baseDescription}`
-            : baseDescription,
+          description: upstreamWarning ? `${upstreamWarning} ${baseDescription}` : baseDescription,
           confirmLabel: t("files:git.removeRemote.confirmLabel"),
         },
       });

@@ -5,13 +5,13 @@
  *
  * Adversarial / lifecycle scenarios are in agent-host-debounce-extra.test.ts.
  */
-import { describe, expect, jest, test, afterEach } from "bun:test";
+import { afterEach, describe, expect, jest, test } from "bun:test";
+import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 import type {
   AgentChannel,
   ChannelEventCallback,
   ChannelLifecycleCallback,
 } from "../../../../src/main/infra/agent/channel";
-import { startAgentLspHost } from "../../../../src/main/features/lsp/agent-host";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const URI_A = "file:///tmp/ws/a.py";
@@ -73,7 +73,15 @@ class DebounceTestChannel implements AgentChannel {
       message: {
         jsonrpc: "2.0",
         method: "textDocument/publishDiagnostics",
-        params: { uri, diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: `v${version}` }] },
+        params: {
+          uri,
+          diagnostics: [
+            {
+              range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+              message: `v${version}`,
+            },
+          ],
+        },
       },
     });
   }
@@ -81,7 +89,11 @@ class DebounceTestChannel implements AgentChannel {
   dispose(): void {}
 }
 
-async function openUri(host: ReturnType<typeof startAgentLspHost>, channel: DebounceTestChannel, uri: string): Promise<void> {
+async function openUri(
+  host: ReturnType<typeof startAgentLspHost>,
+  channel: DebounceTestChannel,
+  uri: string,
+): Promise<void> {
   await host.call("didOpen", {
     workspaceId: WORKSPACE_ID,
     workspaceRoot: "/tmp/ws",
@@ -130,7 +142,9 @@ describe("publishDiagnostics debounce", () => {
 
     // Exactly one trailing-edge emit — carrying the last payload (v50).
     expect(emitted).toHaveLength(2);
-    expect((emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe("v50");
+    expect((emitted[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe(
+      "v50",
+    );
 
     jest.useRealTimers();
     host.dispose();
@@ -207,8 +221,12 @@ describe("publishDiagnostics debounce", () => {
     expect(emittedA).toHaveLength(2);
     expect(emittedB).toHaveLength(2);
     // Each received its own latest payload.
-    expect((emittedA[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe("v2");
-    expect((emittedB[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message).toBe("v10");
+    expect(
+      (emittedA[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
+    ).toBe("v2");
+    expect(
+      (emittedB[1] as { diagnostics: Array<{ message: string }> }).diagnostics[0].message,
+    ).toBe("v10");
 
     jest.useRealTimers();
     host.dispose();

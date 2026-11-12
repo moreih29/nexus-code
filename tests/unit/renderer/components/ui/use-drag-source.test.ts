@@ -112,9 +112,7 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 }));
 
 // Re-import after the mock has been registered so the store binds to it.
-const { useDragSource } = await import(
-  "../../../../../src/renderer/components/ui/use-drag-source"
-);
+const { useDragSource } = await import("../../../../../src/renderer/components/ui/use-drag-source");
 const { useBrowserSuspendStore } = await import(
   "../../../../../src/renderer/state/stores/browser-suspend"
 );
@@ -191,7 +189,9 @@ describe("useDragSource — browser-suspend integration", () => {
 
     // After dragstart: count=1, suspendAll IPC fired exactly once.
     expect(useBrowserSuspendStore.getState().count).toBe(1);
-    expect(ipcCalls).toEqual([{ channel: "browser", method: "suspendAll", args: { captureSnapshot: false } }]);
+    expect(ipcCalls).toEqual([
+      { channel: "browser", method: "suspendAll", args: { captureSnapshot: false } },
+    ]);
 
     // Simulate dragend on document — our one-shot listener should fire.
     docStub.dispatchEvent(new Event("dragend"));

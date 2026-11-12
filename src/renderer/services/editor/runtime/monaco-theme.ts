@@ -1,9 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import {
-  THEME_SOURCES,
-  THEME_SOURCE_BY_ID,
-  type ThemeId,
-} from "../../../../shared/design-tokens";
+import { THEME_SOURCE_BY_ID, THEME_SOURCES, type ThemeId } from "../../../../shared/design-tokens";
 import { EDITOR_PALETTES, type EditorPalette } from "../../../../shared/editor/palette";
 import { buildEffectiveEditorFont } from "../../../hooks/use-effective-editor-font";
 import { EDITOR_FONT_EVENT, useEditorFontStore } from "../../../state/stores/editor-font";

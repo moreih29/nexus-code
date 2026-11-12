@@ -9,9 +9,9 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  PERMISSION_TOGGLES,
   classifyPermission,
   isKnownPermission,
+  PERMISSION_TOGGLES,
 } from "../../../../src/shared/security/browser-permissions";
 
 // ---------------------------------------------------------------------------

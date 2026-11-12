@@ -178,7 +178,10 @@ export function createBranchPickerSource(
         // user knows what's about to happen before they click.
         const unbornCurrent = list.current?.isUnborn && currentName ? currentName : null;
         const label = unbornCurrent
-          ? i18next.t("files:git.branch.picker.renameUnborn", { current: unbornCurrent, name: trimmed })
+          ? i18next.t("files:git.branch.picker.renameUnborn", {
+              current: unbornCurrent,
+              name: trimmed,
+            })
           : i18next.t("files:git.branch.picker.createNew", { name: trimmed });
         const ariaLabel = label;
         items.push({

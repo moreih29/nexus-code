@@ -256,9 +256,7 @@ interface DropdownMenuShortcutProps {
 }
 
 export function DropdownMenuShortcut({ children }: DropdownMenuShortcutProps) {
-  return (
-    <span className="text-muted-foreground ml-4 font-mono text-app-ui-sm">{children}</span>
-  );
+  return <span className="text-muted-foreground ml-4 font-mono text-app-ui-sm">{children}</span>;
 }
 
 // ---------------------------------------------------------------------------

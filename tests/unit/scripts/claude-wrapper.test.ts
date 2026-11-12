@@ -7,12 +7,12 @@
  * JSON is captured through NEXUS_CAPTURE_SETTINGS_TO.
  */
 
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const WRAPPER_PATH = path.resolve(import.meta.dir, "../../../scripts/assets/claude-wrapper.sh");
 
@@ -600,8 +600,8 @@ function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
     "post-tool-use-failure": "PostToolUseFailure",
     "subagent-start": "SubagentStart",
     "subagent-stop": "SubagentStop",
-    "notification": "Notification",
-    "stop": "Stop",
+    notification: "Notification",
+    stop: "Stop",
     "stop-failure": "StopFailure",
     "session-end": "SessionEnd",
     "permission-request": "PermissionRequest",

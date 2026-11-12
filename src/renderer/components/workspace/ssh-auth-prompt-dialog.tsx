@@ -218,15 +218,15 @@ function HostKeyPromptBody({
         {prompt.message ?? t("ssh.host_key_default")}
       </p>
       {prompt.keyType ? (
-        <p className="text-app-ui-sm text-muted-foreground">{t("ssh.key_type", { type: prompt.keyType })}</p>
+        <p className="text-app-ui-sm text-muted-foreground">
+          {t("ssh.key_type", { type: prompt.keyType })}
+        </p>
       ) : null}
       <div className="rounded-(--radius-control) border border-border bg-muted/30 p-3">
         <p className="text-app-ui-sm text-muted-foreground">{t("ssh.fingerprint")}</p>
         <p className="mt-1 break-all font-mono text-[14px] text-foreground">{prompt.fingerprint}</p>
       </div>
-      <p className="text-app-ui-sm text-muted-foreground">
-        {t("ssh.fingerprint_warning")}
-      </p>
+      <p className="text-app-ui-sm text-muted-foreground">{t("ssh.fingerprint_warning")}</p>
       <p className="text-app-ui-sm text-muted-foreground">{t("ssh.trust_saved")}</p>
       <div>
         <Button

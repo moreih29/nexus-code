@@ -4,13 +4,14 @@
  * detection, and the monotonic load-token guard. The panel consumes this hook
  * for state and callbacks, and keeps only rendering + row selection.
  */
+
+import i18next from "i18next";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import i18next from "i18next";
 import type { CommitDetail, CommitSearchResult, LogEntry } from "../../../../../shared/git/types";
 import { ipcCallResult, ipcStream, unwrapGitResult } from "../../../../ipc/client";
-import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 import type { LaneState } from "./graph/lane-assign";
+import { initialLaneState, reduceLanes } from "./graph/lane-assign";
 
 // ---------------------------------------------------------------------------
 // Constants (kept identical to original panel values)

@@ -24,9 +24,9 @@
  */
 
 import i18next, { type i18n, type TFunction } from "i18next";
-import { createLogger } from "../shared/log/main";
-import { createI18n } from "../shared/i18n";
 import type { SupportedLanguage } from "../shared/i18n";
+import { createI18n } from "../shared/i18n";
+import { createLogger } from "../shared/log/main";
 
 const logger = createLogger("main:i18n");
 

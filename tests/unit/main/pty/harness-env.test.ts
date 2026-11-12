@@ -21,10 +21,11 @@ describe("injectHarnessTerminalEnv — PATH (left to the agent's host)", () => {
   });
 
   test("does not send this process's PATH, which an SSH host does not share", () => {
-    const result = injectHarnessTerminalEnv(
-      undefined,
-      { binDir: FAKE_BIN_DIR, workspaceId: "ws-1", tabId: "tab-1" },
-    );
+    const result = injectHarnessTerminalEnv(undefined, {
+      binDir: FAKE_BIN_DIR,
+      workspaceId: "ws-1",
+      tabId: "tab-1",
+    });
     expect(result.PATH).toBeUndefined();
   });
 });

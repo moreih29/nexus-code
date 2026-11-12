@@ -1,7 +1,7 @@
-import { memo, useState } from "react";
-import { Bot, Folder, GitBranch, Search } from "lucide-react";
-import { useTranslation } from "react-i18next";
 import i18next from "i18next";
+import { Bot, Folder, GitBranch, Search } from "lucide-react";
+import { memo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { ipcCallResult } from "../../ipc/client";
 import { openDiffTab } from "../../state/operations";
@@ -155,7 +155,9 @@ export const FilesPanel = memo(function FilesPanel() {
                   title={t("panel.offline.title")}
                   description={t("panel.offline.description")}
                   tone="status"
-                  actionLabel={isReconnecting ? t("panel.offline.reconnecting") : t("panel.offline.reconnect")}
+                  actionLabel={
+                    isReconnecting ? t("panel.offline.reconnecting") : t("panel.offline.reconnect")
+                  }
                   onAction={handleReconnect}
                   disabled={isReconnecting}
                 />

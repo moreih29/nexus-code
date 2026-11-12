@@ -95,10 +95,12 @@ describe("resolveProfile", () => {
         { id: "r2", target: { kind: "folder", path: "/Users/me/work/app" }, claude: "claude-test" },
       ],
     });
-    expect(resolveProfile(c, "claude", local(WS_A, "/Users/me/work/app/sub"), options).profile.id).toBe(
-      "claude-test",
-    );
-    expect(resolveProfile(c, "claude", local(WS_A, "/Users/me/work/other"), options).source).toEqual({
+    expect(
+      resolveProfile(c, "claude", local(WS_A, "/Users/me/work/app/sub"), options).profile.id,
+    ).toBe("claude-test");
+    expect(
+      resolveProfile(c, "claude", local(WS_A, "/Users/me/work/other"), options).source,
+    ).toEqual({
       kind: "folder",
       ruleId: "r1",
     });
@@ -139,7 +141,10 @@ describe("resolveProfile", () => {
       ],
     });
     const ws = local(WS_A, "/Users/me/a");
-    expect(resolveProfile(c, "claude", ws, options).source).toEqual({ kind: "folder", ruleId: "f" });
+    expect(resolveProfile(c, "claude", ws, options).source).toEqual({
+      kind: "folder",
+      ruleId: "f",
+    });
     expect(resolveProfile(c, "codex", ws, options)).toMatchObject({
       profile: { id: "codex-2" },
       source: { kind: "default" },
@@ -175,7 +180,9 @@ describe("edits", () => {
     let c = withRuleProfile(config(), target, "claude", "claude-personal", newId);
     expect(c.rules).toEqual([{ id: "rule-1", target, claude: "claude-personal" }]);
     c = withRuleProfile(c, target, "codex", "codex-2", newId);
-    expect(c.rules).toEqual([{ id: "rule-1", target, claude: "claude-personal", codex: "codex-2" }]);
+    expect(c.rules).toEqual([
+      { id: "rule-1", target, claude: "claude-personal", codex: "codex-2" },
+    ]);
     c = withRuleProfile(c, target, "claude", null, newId);
     c = withRuleProfile(c, target, "codex", null, newId);
     expect(c.rules).toEqual([]);
@@ -190,7 +197,12 @@ describe("edits", () => {
         defaults: { claude: "claude-personal" },
         rules: [
           { id: "a", target: { kind: "ssh", host: "h" }, claude: "claude-personal" },
-          { id: "b", target: { kind: "ssh", host: "i" }, claude: "claude-personal", codex: "codex-2" },
+          {
+            id: "b",
+            target: { kind: "ssh", host: "i" },
+            claude: "claude-personal",
+            codex: "codex-2",
+          },
           { id: "c", target: { kind: "ssh", host: "j" } },
         ],
       }),

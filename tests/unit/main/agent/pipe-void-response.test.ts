@@ -14,11 +14,12 @@
  *
  * These tests pin the TS half of that contract.
  */
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+
 import { describe, expect, it } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { createNdjsonPipe } from "../../../../src/main/infra/agent/pipe";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 
 class FakeReadable extends EventEmitter {
   pause(): this {
@@ -45,7 +46,10 @@ class FakeWritable {
 }
 
 function makeReadyFrame(): Buffer {
-  return Buffer.from(JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n", "utf8");
+  return Buffer.from(
+    JSON.stringify({ type: "ready", protocolVersion: `${AGENT_PROTOCOL_VERSION}.0` }) + "\n",
+    "utf8",
+  );
 }
 
 function frame(line: string): Buffer {
@@ -78,7 +82,7 @@ function buildPipe() {
 }
 
 describe("createNdjsonPipe void-response shim", () => {
-  it("resolves a pending request when the agent emits `{\"id\":\"x\"}` with no result/error/event", async () => {
+  it('resolves a pending request when the agent emits `{"id":"x"}` with no result/error/event', async () => {
     const { stdout, pipe, stdin } = buildPipe();
 
     const result = pipe.call("void.method");
@@ -160,7 +164,9 @@ describe("createNdjsonPipe fire() — fire-and-forget notification path", () => 
     // Channel must remain alive — a subsequent call must succeed.
     const second = pipe.call("lsp.send", { serverId: "srv-1", message: {} });
     const secondId = (JSON.parse(stdin.writes[1]!) as { id: string }).id;
-    stdout.emitData(Buffer.from(JSON.stringify({ id: secondId, result: { ok: true } }) + "\n", "utf8"));
+    stdout.emitData(
+      Buffer.from(JSON.stringify({ id: secondId, result: { ok: true } }) + "\n", "utf8"),
+    );
 
     await expect(second).resolves.toEqual({ ok: true });
   });

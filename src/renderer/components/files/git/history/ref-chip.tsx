@@ -279,7 +279,8 @@ function refChipIconStyle(displayKind: RefChipDisplayKind): React.CSSProperties 
 function refChipAriaLabel(refInfo: LogEntryRef, displayKind: RefChipDisplayKind): string {
   const t = i18next.t.bind(i18next);
   if (displayKind === "head") return t("files:git.refChip.headRef");
-  if (displayKind === "current") return t("files:git.refChip.currentBranch", { name: refInfo.name });
+  if (displayKind === "current")
+    return t("files:git.refChip.currentBranch", { name: refInfo.name });
   if (displayKind === "branch") return t("files:git.refChip.branch", { name: refInfo.name });
   if (displayKind === "remote") return t("files:git.refChip.remoteBranch", { name: refInfo.name });
   return t("files:git.refChip.tag", { name: refInfo.name });

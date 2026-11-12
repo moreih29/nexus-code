@@ -13,11 +13,11 @@
  * and installs a fresh one (safe for HMR during development).
  */
 
-import { ipcListen } from "../../ipc/client";
 import {
   dismissPermissionPrompt,
   showPermissionPrompt,
 } from "../../components/ui/permission-prompt-dialog";
+import { ipcListen } from "../../ipc/client";
 
 type Unsubscribe = () => void;
 

@@ -137,4 +137,3 @@ function matchesRefQuery(item: RefPickItem, lowerQuery: string): boolean {
     .filter((value): value is string => typeof value === "string")
     .some((value) => value.toLowerCase().includes(lowerQuery));
 }
-

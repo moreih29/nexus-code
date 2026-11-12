@@ -173,10 +173,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
    * agent can read it: this machine's temp directory, so only for a local
    * workspace. An agent on an SSH host or in WSL gets none.
    */
-  const pickPicture = async (
-    tabId: string,
-    picked: PickedElement,
-  ): Promise<string | undefined> => {
+  const pickPicture = async (tabId: string, picked: PickedElement): Promise<string | undefined> => {
     const workspaceId = getBrowserRegistry()?.get(tabId)?.workspaceId;
     const workspace = workspaceManager.list().find((w) => w.id === workspaceId);
     if (picked.png === undefined || workspace?.location.kind !== "local") return undefined;

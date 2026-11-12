@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { I18N_NAMESPACES, resources } from "../../../src/shared/i18n/index";
 import { THEME_SOURCES } from "../../../src/shared/design-tokens/theme-sources";
+import { I18N_NAMESPACES, resources } from "../../../src/shared/i18n/index";
 
 /** Dotted path of every leaf in a locale namespace, sorted. */
 function keyPaths(value: unknown, prefix = ""): string[] {

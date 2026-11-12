@@ -6,7 +6,10 @@ import {
 } from "../../../../src/shared/agent-profiles/status";
 
 function jwt(claims: object): string {
-  const part = btoa(JSON.stringify(claims)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const part = btoa(JSON.stringify(claims))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   return `e30.${part}.sig`;
 }
 
@@ -46,7 +49,9 @@ describe("codexStatusOf", () => {
       email: "me@example.com",
       "https://api.openai.com/auth": { chatgpt_plan_type: "plus", chatgpt_account_id: "acct-1" },
     });
-    expect(codexStatusOf(JSON.stringify({ auth_mode: "chatgpt", tokens: { id_token: idToken } }))).toEqual({
+    expect(
+      codexStatusOf(JSON.stringify({ auth_mode: "chatgpt", tokens: { id_token: idToken } })),
+    ).toEqual({
       state: "signed-in",
       method: "chatgpt",
       email: "me@example.com",
@@ -56,8 +61,13 @@ describe("codexStatusOf", () => {
   });
 
   test("an API key, and nothing", () => {
-    expect(codexStatusOf('{"OPENAI_API_KEY": "sk-x"}')).toEqual({ state: "signed-in", method: "apikey" });
-    expect(codexStatusOf('{"OPENAI_API_KEY": null, "tokens": null}')).toEqual({ state: "signed-out" });
+    expect(codexStatusOf('{"OPENAI_API_KEY": "sk-x"}')).toEqual({
+      state: "signed-in",
+      method: "apikey",
+    });
+    expect(codexStatusOf('{"OPENAI_API_KEY": null, "tokens": null}')).toEqual({
+      state: "signed-out",
+    });
     expect(codexStatusOf("{")).toBeNull();
   });
 });

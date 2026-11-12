@@ -3,18 +3,18 @@
 // setupClaudeFeature()를 src/main/index.ts의 app.whenReady() 이후에 호출한다.
 
 import { broadcast } from "../../infra/ipc-router";
-import { ClaudeStatusBroker } from "./status";
+import type { PtyHostHandle } from "../pty/types";
+import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 import { ActiveContextStore } from "./active-context";
 import { ChatAnswers } from "./chat-answers";
-import { registerClaudeChannel } from "./ipc";
-import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
-import { answersDialog, PermissionAsks } from "./permission-asks";
-import { SessionActivityLog } from "./session-activity";
-import { ClaudeInterruptWatcher } from "./interrupt";
-import { ClaudeReconnectCheck } from "./reconnect";
-import type { PtyHostHandle } from "../pty/types";
 import type { WorkspaceNameLookup } from "./hook-handler";
-import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
+import { answerHook, PRINT_STOP_ANSWER, registerHookHandler } from "./hook-handler";
+import { ClaudeInterruptWatcher } from "./interrupt";
+import { registerClaudeChannel } from "./ipc";
+import { answersDialog, PermissionAsks } from "./permission-asks";
+import { ClaudeReconnectCheck } from "./reconnect";
+import { SessionActivityLog } from "./session-activity";
+import { ClaudeStatusBroker } from "./status";
 
 // ---------------------------------------------------------------------------
 // 의존성 타입

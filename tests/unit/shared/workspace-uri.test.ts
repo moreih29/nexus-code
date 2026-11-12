@@ -4,9 +4,9 @@ import {
   parseUntitledCacheUri,
   parseWorkspaceUri,
   untitledCacheUriFor,
+  WORKSPACE_URI_SCHEME,
   workspaceUriFor,
   workspaceUriToFileUri,
-  WORKSPACE_URI_SCHEME,
 } from "../../../src/shared/fs/workspace-uri";
 
 const ID = "11111111-2222-3333-4444-555555555555";

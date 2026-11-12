@@ -2,9 +2,10 @@
  * BranchCreateDialog hosts the validated branch-name input shared by
  * Branch ▸ Create New Branch and Branch ▸ Create New Branch From.
  */
+
+import i18next from "i18next";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import i18next from "i18next";
 import type { BranchList } from "../../../../../shared/git/types";
 import type { CreateBranchOptions } from "../../../../state/stores/git";
 import { Dialog } from "../../../ui/dialog";
@@ -89,14 +90,12 @@ export function branchCreateDialogDescription(request: BranchCreateRequest | nul
 /**
  * Validates names that can be checked locally before invoking Git.
  */
-function validateBranchCreateName(
-  value: string,
-  context: BranchCreateFieldContext,
-): string | null {
+function validateBranchCreateName(value: string, context: BranchCreateFieldContext): string | null {
   const t = i18next.t.bind(i18next);
   const name = value.trim();
   if (name.length === 0) return t("files:git.branch.createDialog.validation.required");
-  if (context.loadingExistingBranches) return t("files:git.branch.createDialog.validation.checkingBranches");
+  if (context.loadingExistingBranches)
+    return t("files:git.branch.createDialog.validation.checkingBranches");
   if (!context.branchList) return null;
   if (context.branchList.current?.current === name) {
     return t("files:git.branch.createDialog.validation.alreadyCurrent", { name });

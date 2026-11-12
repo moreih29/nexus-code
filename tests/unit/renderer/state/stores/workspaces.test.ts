@@ -174,10 +174,7 @@ describe("workspaces store — fetchList fallback on inconsistency", () => {
     storeWithFetch.getState().setAll([a, bInitial]);
 
     // Enqueue the refreshed list that fetchList should return
-    const refreshed = [
-      makeWsWithOrder(ID_A, 1024),
-      makeWsWithOrder(ID_B, 2048),
-    ];
+    const refreshed = [makeWsWithOrder(ID_A, 1024), makeWsWithOrder(ID_B, 2048)];
     fetchListResults.push(refreshed);
 
     // Upsert b with the colliding sort key — inconsistency detected → fetchList

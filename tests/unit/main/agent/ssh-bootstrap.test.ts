@@ -1,6 +1,3 @@
-import { POSIX_CLI_LAUNCHER } from "../../../../src/shared/cli/launcher";
-import { CODEX_WRAPPER } from "../../../../src/shared/codex/wrapper";
-import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -16,6 +13,9 @@ import {
   remoteAgentBinaryPath,
   type SshBootstrapRunner,
 } from "../../../../src/main/infra/agent/ssh/ssh-bootstrap/index";
+import { AGENT_PROTOCOL_VERSION } from "../../../../src/shared/agent/envelope";
+import { POSIX_CLI_LAUNCHER } from "../../../../src/shared/cli/launcher";
+import { CODEX_WRAPPER } from "../../../../src/shared/codex/wrapper";
 
 let tmpDir: string;
 
