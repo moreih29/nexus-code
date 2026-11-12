@@ -12,7 +12,7 @@ import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
 import { OscNotificationDispatcher } from "./osc-notification";
-import { type PtyRecorderSink, TerminalRecorderRegistry } from "./recorder";
+import type { PtyRecorderSink } from "./recorder";
 import { applyShellPathShim } from "./shell-shim";
 import {
   detectShells,
@@ -88,13 +88,23 @@ export interface PtyChannelOptions {
   forwards?: PortForwards;
 }
 
+const NO_RECORDER: PtyRecorderSink = {
+  start() {},
+  appendData() {},
+  handleResize() {},
+  stop() {},
+};
+
 /**
  * Registers the renderer PTY IPC channel. Every session is handled by the
  * workspace-scoped Go agent host; the legacy utility process path is gone.
  */
 export function registerPtyChannel(options: PtyChannelOptions): void {
   const { agentHost } = options;
-  const recorder = options.recorder ?? new TerminalRecorderRegistry();
+  // Nothing reads a main-side recording yet (the agent keeps the replay
+  // buffer), so by default output is not kept here: a recorder held up to
+  // 10 MB per terminal for no reader.
+  const recorder = options.recorder ?? NO_RECORDER;
   const wm = options.workspaceManager;
   // The shell each local session started with, keyed by workspace and tab,
   // so a tab that reconnects to its running session reports that shell.
