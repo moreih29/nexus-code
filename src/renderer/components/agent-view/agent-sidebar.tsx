@@ -3,13 +3,14 @@
 // workspace they run in, a workspace's tasks set in below it, in the
 // sidebar's order. A row shows its agent in a panel, by a click or dragged
 // where it should go; dragged among its workspace's rows, it takes the place
-// it is dropped on. The eye tells which already are shown, and the pointer
-// on a row lights up the panel it is in. The search box finds agents by
-// their title, last prompt or last answer, as the agent list's does. The
-// grouping and the folded groups are kept across restarts.
+// it is dropped on; ↑ and ↓ step between rows. The eye tells which already
+// are shown, and the pointer on a row lights up the panel it is in. The
+// search box finds agents by their title, last prompt or last answer, as
+// the agent list's does. The grouping and the folded groups are kept across
+// restarts.
 
 import { CheckCheck, ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
-import { type DragEvent, memo, useMemo, useState } from "react";
+import { type DragEvent, type KeyboardEvent, memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
@@ -120,7 +121,12 @@ export const AgentSidebar = memo(function AgentSidebar() {
             data-testid="agent-sidebar-search"
           />
         </div>
-        <div className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
+        {/* ↑ ↓ step between the agents' rows, Home and End to the first and last. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: the keys come from the rows' own buttons */}
+        <div
+          className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3"
+          onKeyDown={stepRows}
+        >
           {agents.families.length === 0 ? (
             <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
               {t("sidebar.no_workspaces")}
@@ -137,6 +143,25 @@ export const AgentSidebar = memo(function AgentSidebar() {
     </aside>
   );
 });
+
+/** Moves the focus from one agent's row to the next or previous one in the list, as shown. */
+function stepRows(event: KeyboardEvent<HTMLDivElement>): void {
+  const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+  if (!keys.includes(event.key)) return;
+  const here = event.target as HTMLElement;
+  if (!here.matches("[data-agent-row]")) return;
+  const rows = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-agent-row]")];
+  const at = rows.indexOf(here);
+  const next =
+    event.key === "Home"
+      ? rows[0]
+      : event.key === "End"
+        ? rows.at(-1)
+        : rows[at + (event.key === "ArrowDown" ? 1 : -1)];
+  if (!next) return;
+  event.preventDefault();
+  next.focus();
+}
 
 interface GroupsProps {
   agents: Agents;
@@ -576,6 +601,7 @@ function AgentItem({
         draggable
         aria-label={session.title}
         onClick={show}
+        data-agent-row=""
         onDragStart={(e) => {
           setAgentDrag(e.dataTransfer, key);
           setListDrag(key);
