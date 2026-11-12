@@ -8,10 +8,11 @@
 // their title, last prompt or last answer, as the agent list's does. The
 // grouping and the folded groups are kept across restarts.
 
-import { ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
+import { CheckCheck, ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
 import { type DragEvent, memo, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
+import type { InboxItem } from "@/services/agent-sessions/inbox";
 import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
 import {
   chatRowFacts,
@@ -23,6 +24,7 @@ import {
   sessionsIn,
 } from "@/services/agent-sessions/rows";
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
+import { markRead } from "@/services/agent-sessions/use-inbox";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { leafHolding, leafShowing, parseSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
@@ -197,24 +199,34 @@ function StatusGroups({ agents, activity, chats, query }: GroupsProps) {
             className="flex flex-col"
             data-testid="agent-sidebar-group"
           >
-            <button
-              type="button"
-              aria-expanded={!isFolded}
-              onClick={() => useAgentViewStore.getState().toggleFolded(key)}
-              className={cn(
-                "flex h-7 items-center gap-1.5 self-start rounded-(--radius-control) px-2 text-app-ui-sm font-medium outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
-                GROUP_TINT[group],
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-expanded={!isFolded}
+                onClick={() => useAgentViewStore.getState().toggleFolded(key)}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-(--radius-control) px-2 text-app-ui-sm font-medium outline-none hover:bg-[var(--state-hover-bg)] focus-visible:ring-1 focus-visible:ring-ring",
+                  GROUP_TINT[group],
+                )}
+              >
+                <StateGlyph state={GROUP_STATE[group]} />
+                <span>{label}</span>
+                <span className="tabular-nums">{rows.length}</span>
+                {isFolded ? (
+                  <ChevronRight aria-hidden className="size-3.5" />
+                ) : (
+                  <ChevronDown aria-hidden className="size-3.5" />
+                )}
+              </button>
+              {group === "done" && (
+                <MarkAllRead
+                  items={rows.flatMap((session) => {
+                    const entry = agents.byKey.get(session.key);
+                    return entry ? [{ workspace: entry.workspace, session }] : [];
+                  })}
+                />
               )}
-            >
-              <StateGlyph state={GROUP_STATE[group]} />
-              <span>{label}</span>
-              <span className="tabular-nums">{rows.length}</span>
-              {isFolded ? (
-                <ChevronRight aria-hidden className="size-3.5" />
-              ) : (
-                <ChevronDown aria-hidden className="size-3.5" />
-              )}
-            </button>
+            </div>
             {!isFolded &&
               rows.map((session) => (
                 <AgentItem
@@ -229,6 +241,20 @@ function StatusGroups({ agents, activity, chats, query }: GroupsProps) {
         );
       })}
     </div>
+  );
+}
+
+/** Marks every new result of the group read, as the inbox's "Mark new results read" does. */
+function MarkAllRead({ items }: { items: readonly InboxItem[] }) {
+  const { t } = useTranslation();
+  return (
+    <IconButton
+      label={t("inbox.mark_read")}
+      onClick={() => markRead(items)}
+      data-testid="agent-sidebar-mark-read"
+    >
+      <CheckCheck aria-hidden className="size-3.5" />
+    </IconButton>
   );
 }
 
