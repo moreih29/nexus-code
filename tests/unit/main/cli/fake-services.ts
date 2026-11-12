@@ -414,6 +414,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   /** The agent view, shown, in two columns: p1 (app's Claude) | p2 (api's codex), p1 active. */
   const agentView: Omit<CliAgentView, "agents"> = {
     view: "agents",
+    grouping: "status",
     activePanelId: "p1",
     root: {
       kind: "split",

@@ -324,6 +324,7 @@ nexus view close 2                   # 패널 닫기 (든 세션은 빠지고 �
 nexus view resize 1 30%              # 패널 1 이 30% 차지 (--width · --height)
 nexus view even                      # 패널 크기 균등하게
 nexus view focus 2                   # 패널 2 를 활성 패널로 (에이전트 뷰가 보이면 키보드도)
+nexus view group workspace           # 에이전트 뷰 목록을 워크스페이스별로 묶기 (status 로 상태별, 인자 없으면 지금 묶기)
 ```
 
 - 패널은 `view layout` 의 번호, id, `.`(이 세션이 든 패널, 없으면 활성 패널), 또는 그 안의 세션 이름으로 고릅니다.

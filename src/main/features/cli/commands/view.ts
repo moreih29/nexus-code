@@ -11,6 +11,7 @@
  * workspace, or of --workspace.
  */
 import type {
+  CliAgentGrouping,
   CliAgentView,
   CliLayoutNode,
   CliSplitSide,
@@ -32,6 +33,18 @@ const VIEWS: Record<string, CliView> = {
   agent: "agents",
   workspaces: "workspaces",
   workspace: "workspaces",
+};
+
+const GROUPINGS: Record<string, CliAgentGrouping> = {
+  status: "status",
+  state: "status",
+  workspace: "workspace",
+  workspaces: "workspace",
+};
+
+const GROUPING_NAME: Record<CliAgentGrouping, string> = {
+  status: "by status (needs you, running, new result, idle, ended)",
+  workspace: "by workspace",
 };
 
 const PANEL_HELP =
@@ -507,6 +520,29 @@ const viewFocus: CliCommand = {
   },
 };
 
+const viewGroup: CliCommand = {
+  path: ["view", "group"],
+  summary: "Show how the agent view's list groups its agents, or group them by status or workspace",
+  args: "[status|workspace]",
+  details:
+    "With no argument, tells the grouping. With one, groups the list that way, as the\n" +
+    "switch above it does; the app keeps it across restarts.",
+  async run(ctx, { positionals }) {
+    const [word, ...rest] = positionals;
+    if (rest.length > 0) throw new CliUsageError("give status or workspace");
+    if (word === undefined) {
+      const view = await viewOf(ctx);
+      return output(`The agent view lists its agents ${GROUPING_NAME[view.grouping]}.`, {
+        grouping: view.grouping,
+      });
+    }
+    const grouping = GROUPINGS[word.toLowerCase()];
+    if (!grouping) throw new CliUsageError(`the grouping is status or workspace, not "${word}"`);
+    await ctx.services.ui("agentView.group", { grouping });
+    return output(`The agent view lists its agents ${GROUPING_NAME[grouping]}.`, { grouping });
+  },
+};
+
 export const viewCommands: CliCommand[] = [
   viewShow,
   viewLayout,
@@ -518,4 +554,5 @@ export const viewCommands: CliCommand[] = [
   viewResize,
   viewEven,
   viewFocus,
+  viewGroup,
 ];

@@ -101,8 +101,12 @@ export interface CliViewAgent {
  * workspace's editor area is; a panel's tabIds are the keys of the
  * sessions it holds.
  */
+/** How the agent view's list groups its agents: by their state, or by their workspace. */
+export type CliAgentGrouping = "status" | "workspace";
+
 export interface CliAgentView {
   readonly view: CliView;
+  readonly grouping: CliAgentGrouping;
   readonly root: CliLayoutNode;
   readonly activePanelId: string;
   readonly agents: readonly CliViewAgent[];
@@ -545,6 +549,11 @@ export interface CliUiOps {
   /** Makes a panel the active one, the keyboard in it while the view is shown. */
   "agentView.focus": {
     args: { panelId: string };
+    result: Record<string, never>;
+  };
+  /** Groups the agent view's list by the agents' state or by their workspace, as its switch does. */
+  "agentView.group": {
+    args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
   };
   /** Shows a workspace, as clicking it in the sidebar does. */

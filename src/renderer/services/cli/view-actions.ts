@@ -53,9 +53,10 @@ function panelOf(panelId: string) {
 
 export const viewHandlers: { [K in ViewOp]: CliUiHandler<K> } = {
   "agentView.get": async () => {
-    const { mode, root, activeLeafId } = useAgentViewStore.getState();
+    const { mode, root, activeLeafId, grouping } = useAgentViewStore.getState();
     return {
       view: mode === "agents" ? "agents" : "workspaces",
+      grouping,
       root: toCli(root),
       activePanelId: activeLeafId,
       agents: agentsHeld(),
@@ -116,6 +117,11 @@ export const viewHandlers: { [K in ViewOp]: CliUiHandler<K> } = {
     const store = useAgentViewStore.getState();
     store.update((layout) => setActiveLeaf(layout, panelId));
     if (store.mode === "agents") focusActiveAgent();
+    return {};
+  },
+
+  "agentView.group": async ({ grouping }) => {
+    useAgentViewStore.getState().setGrouping(grouping);
     return {};
   },
 };
