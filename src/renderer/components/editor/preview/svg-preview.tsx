@@ -17,6 +17,7 @@
 // edits, and revoke the previous URL on cleanup to avoid leaking memory.
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 
 interface SvgPreviewProps {
@@ -24,6 +25,7 @@ interface SvgPreviewProps {
 }
 
 export function SvgPreview({ source }: SvgPreviewProps) {
+  const { t } = useTranslation();
   const { text, truncated } = capPreviewSource(source);
   const blobUrl = useSvgBlobUrl(text);
 
@@ -39,7 +41,11 @@ export function SvgPreview({ source }: SvgPreviewProps) {
       )}
       <div className="app-scrollbar flex-1 min-h-0 flex items-center justify-center p-4 overflow-auto">
         {blobUrl && (
-          <img src={blobUrl} alt="SVG preview" className="max-w-full max-h-full object-contain" />
+          <img
+            src={blobUrl}
+            alt={t("preview.svg_alt")}
+            className="max-w-full max-h-full object-contain"
+          />
         )}
       </div>
     </div>

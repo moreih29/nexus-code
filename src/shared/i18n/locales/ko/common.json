@@ -685,7 +685,8 @@
   "preview": {
     "truncated": "미리보기가 {{kb}} KB에서 잘렸습니다. 전체 파일을 보려면 원본으로 전환하세요.",
     "table_empty": "행이 없습니다.",
-    "html_title": "HTML 미리보기"
+    "html_title": "HTML 미리보기",
+    "svg_alt": "SVG 미리보기"
   },
   "jsonPreview": {
     "label": "{{format}} 트리",
