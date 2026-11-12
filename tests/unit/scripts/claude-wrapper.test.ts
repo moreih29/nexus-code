@@ -46,8 +46,8 @@ let socketServer: net.Server;
 let socketPath: string;
 
 /**
- * 가짜 claude 실행 파일을 tmpDir/bin/claude로 생성한다.
- * 래퍼가 exec 하면 이 스크립트가 실행되어 즉시 exit 0 한다.
+ * Creates a fake claude executable at tmpDir/bin/claude.
+ * When the wrapper execs it, this script runs and exits 0 immediately.
  */
 function createFakeClaude(binDir: string): void {
   fs.mkdirSync(binDir, { recursive: true });
@@ -57,8 +57,8 @@ function createFakeClaude(binDir: string): void {
 }
 
 /**
- * 래퍼 스크립트를 실행해 생성된 settings JSON을 반환한다.
- * NEXUS_CAPTURE_SETTINGS_TO에 캡처 경로를 지정해 exec 이전에 복사된 파일을 읽는다.
+ * Runs the wrapper script and returns the generated settings JSON.
+ * Sets NEXUS_CAPTURE_SETTINGS_TO to a capture path and reads the file copied before exec.
  */
 function runWrapper(hookBin: string): {
   exitCode: number;
@@ -70,12 +70,12 @@ function runWrapper(hookBin: string): {
 
   const capturePath = path.join(tmpDir, "captured-settings.json");
 
-  // 이미 존재하는 캡처 파일 제거 (여러 번 호출 시 오염 방지)
+  // Remove any existing capture file (avoids contamination across repeated calls)
   if (fs.existsSync(capturePath)) {
     fs.unlinkSync(capturePath);
   }
 
-  // 가짜 hook 바이너리 파일 생성 (실행 가능해야 HOOK_BIN 검증 통과)
+  // Create a fake hook binary file (it must be executable to pass the HOOK_BIN check)
   const hookBinDir = path.dirname(hookBin);
   fs.mkdirSync(hookBinDir, { recursive: true });
   if (!fs.existsSync(hookBin)) {
@@ -118,7 +118,7 @@ function runWrapper(hookBin: string): {
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nexus-wrapper-test-"));
 
-  // Unix domain socket 생성 (-S 검사 충족)
+  // Create a Unix domain socket (satisfies the -S check)
   socketPath = path.join(tmpDir, "agent.sock");
   socketServer = net.createServer();
   await new Promise<void>((resolve) => {
@@ -135,9 +135,9 @@ afterEach(async () => {
 
 describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
   /**
-   * Acceptance 1: NEXUS_AGENT_BIN이 설정되면 settings.json의 command 필드에
-   * 리터럴 "${NEXUS_AGENT_BIN}" hook <sub> 형태가 기록된다.
-   * (경로 자체가 아닌 변수 참조가 그대로 저장되어야 한다.)
+   * Acceptance 1: when NEXUS_AGENT_BIN is set, the command field in settings.json
+   * records the literal "${NEXUS_AGENT_BIN}" hook <sub> form.
+   * (The variable reference must be stored as is, not the path itself.)
    */
   test("NEXUS_AGENT_BIN 설정 시 settings.json command 필드에 리터럴 ${NEXUS_AGENT_BIN}이 포함된다", () => {
     // A path with a space: the command must quote the variable, because the
@@ -156,7 +156,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       const eventKey = toHookKey(event);
       const cmd = (hooks[eventKey] as Array<{ hooks: Array<{ command: string }> }>)[0].hooks[0]
         .command;
-      // 리터럴 변수 참조가 command에 있어야 한다 (확장된 실제 경로가 아님).
+      // The command must contain the literal variable reference (not the expanded real path).
       expect(cmd).toBe(`"\${NEXUS_AGENT_BIN}" hook ${event}`);
     }
 
@@ -196,8 +196,8 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
   });
 
   /**
-   * Acceptance 2: NEXUS_AGENT_BIN 미설정 시 stderr에 경고를 출력하고
-   * settings 파일을 생성하지 않으며 진짜 claude를 exec한다.
+   * Acceptance 2: when NEXUS_AGENT_BIN is unset, a warning goes to stderr, no
+   * settings file is created, and the real claude is exec'd.
    */
   test("NEXUS_AGENT_BIN 미설정 시 stderr 경고 출력 + settings 주입 없이 passthrough한다", () => {
     const fakeBinDir = path.join(tmpDir, "bin");
@@ -210,7 +210,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
         NEXUS_IN_APP: "1",
         NEXUS_AGENT_SOCKET: socketPath,
         NEXUS_HOOK_TOKEN: "test-token-abc",
-        // NEXUS_AGENT_BIN 미설정
+        // NEXUS_AGENT_BIN is unset
         NEXUS_CAPTURE_SETTINGS_TO: capturePath,
         PATH: `${fakeBinDir}:${process.env["PATH"] ?? ""}`,
       },
@@ -218,11 +218,11 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       encoding: "utf8",
     });
 
-    // 진짜 claude(fake)로 passthrough되므로 exit 0
+    // Passes through to the real claude (fake), so exit 0
     expect(result.status).toBe(0);
-    // settings 파일이 생성되지 않아야 한다
+    // No settings file should be created
     expect(fs.existsSync(capturePath)).toBe(false);
-    // stderr에 경고 문구가 있어야 한다
+    // stderr should contain the warning text
     expect(result.stderr).toContain("NEXUS_AGENT_BIN is not set");
     expect(result.stderr).toContain("hook injection skipped");
   });
@@ -475,13 +475,13 @@ describeOnPosix("claude-wrapper.sh — a claude inside the tab's Claude session"
 
 describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방지)", () => {
   /**
-   * 시나리오: PATH 에 cmux 와 우리 wrapper 가 함께 있을 때, find_real_claude 가
-   * 다른 wrapper 를 진짜 claude 로 오인해 서로 exec 하는 무한 루프에 빠지면 안 된다.
-   * 헤더 첫 5 줄의 magic 마커("nexus-code claude wrapper" / "cmux claude wrapper")
-   * 를 발견하면 그 후보를 skip 하고 다음으로 넘어가야 한다.
+   * Scenario: when cmux and our wrapper are both on PATH, find_real_claude must not
+   * mistake the other wrapper for the real claude and fall into an infinite exec loop.
+   * If it finds the magic marker ("nexus-code claude wrapper" / "cmux claude wrapper")
+   * in the first 5 header lines, it must skip that candidate and move on to the next.
    */
   test("PATH 에 wrapper 마커 후보가 있어도 진짜 claude 까지 fall-through 한다", () => {
-    // cmux 스타일 마커를 가진 fake wrapper.
+    // A fake wrapper carrying a cmux-style marker.
     const fakeWrapperDir = path.join(tmpDir, "fake-cmux-bin");
     fs.mkdirSync(fakeWrapperDir, { recursive: true });
     const fakeWrapperPath = path.join(fakeWrapperDir, "claude");
@@ -491,16 +491,17 @@ describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방�
     );
     fs.chmodSync(fakeWrapperPath, 0o755);
 
-    // 마커 없는 진짜 claude 역할.
+    // Stands in for the real claude, with no marker.
     const realDir = path.join(tmpDir, "real-bin");
     fs.mkdirSync(realDir, { recursive: true });
     const realPath = path.join(realDir, "claude");
     fs.writeFileSync(realPath, "#!/usr/bin/env bash\necho REAL_CLAUDE_CALLED\nexit 0\n");
     fs.chmodSync(realPath, 0o755);
 
-    // NEXUS_IN_APP 미설정 → 우리 wrapper 는 passthrough 모드.
-    // fake-cmux 가 real 보다 PATH 우선순위 앞이어도 마커 검사로 skip 되어야 한다.
-    // PATH 에 /bin·/usr/bin 도 포함해야 wrapper 내부의 head·grep 외부 명령이 동작한다.
+    // NEXUS_IN_APP is unset → our wrapper runs in passthrough mode.
+    // Even if fake-cmux comes before real in PATH, the marker check must skip it.
+    // PATH must also include /bin and /usr/bin so the external commands head and grep work
+    // inside the wrapper.
     const result = spawnSync("bash", [WRAPPER_PATH], {
       env: {
         PATH: `${fakeWrapperDir}:${realDir}:/bin:/usr/bin`,
@@ -517,19 +518,19 @@ describeOnPosix("claude-wrapper.sh — 다른 wrapper 회피 (무한 루프 방�
 
 describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오", () => {
   /**
-   * Acceptance 3: NEXUS_WRAPPER_SELF_DIR이 /home/u/.nexus-code/bin (SSH 경로)으로 설정되면
-   * find_real_claude가 그 디렉터리를 self로 skip하고 다음 후보를 선택한다.
+   * Acceptance 3: when NEXUS_WRAPPER_SELF_DIR is set to /home/u/.nexus-code/bin (an SSH path),
+   * find_real_claude skips that directory as self and picks the next candidate.
    */
   test("NEXUS_WRAPPER_SELF_DIR 설정 시 해당 디렉터리의 claude를 self로 skip한다", () => {
-    // SSH 배포 경로처럼 보이는 디렉터리에 wrapper 마커가 없는 가짜 claude를 배치.
-    // (실제로는 이 경로가 self_dir이어서 skip되어야 한다.)
+    // Place a fake claude without a wrapper marker in a directory that looks like an SSH deploy path.
+    // (In practice this path is self_dir and must be skipped.)
     const sshBinDir = path.join(tmpDir, "home", "u", ".nexus-code", "bin");
     fs.mkdirSync(sshBinDir, { recursive: true });
     const sshClaude = path.join(sshBinDir, "claude");
     fs.writeFileSync(sshClaude, "#!/usr/bin/env bash\necho SSH_SELF_CALLED\nexit 0\n");
     fs.chmodSync(sshClaude, 0o755);
 
-    // 실제 선택되어야 할 진짜 claude.
+    // The real claude that should actually be selected.
     const realDir = path.join(tmpDir, "usr", "local", "bin");
     fs.mkdirSync(realDir, { recursive: true });
     const realClaude = path.join(realDir, "claude");
@@ -538,7 +539,7 @@ describeOnPosix("claude-wrapper.sh — NEXUS_WRAPPER_SELF_DIR SSH 시나리오",
 
     const result = spawnSync("bash", [WRAPPER_PATH], {
       env: {
-        // NEXUS_WRAPPER_SELF_DIR을 sshBinDir로 설정해 self skip 강제
+        // Set NEXUS_WRAPPER_SELF_DIR to sshBinDir to force the self skip
         NEXUS_WRAPPER_SELF_DIR: sshBinDir,
         PATH: `${sshBinDir}:${realDir}:/bin:/usr/bin`,
       },
@@ -589,7 +590,7 @@ describeInGitBash("claude-wrapper.sh — Git Bash on Windows", () => {
 });
 
 /**
- * hook 이벤트 이름("session-start")을 JSON 키("SessionStart")로 변환한다.
+ * Converts the hook event name ("session-start") to the JSON key ("SessionStart").
  */
 function toHookKey(event: (typeof HOOK_EVENT_NAMES)[number]): string {
   const map: Record<(typeof HOOK_EVENT_NAMES)[number], string> = {

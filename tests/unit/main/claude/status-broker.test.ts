@@ -1,9 +1,9 @@
 /**
- * ClaudeStatusBroker 단위 테스트.
+ * Unit tests for ClaudeStatusBroker.
  *
- * - set/get/clear/snapshot 동작 검증.
- * - 동일 상태 재설정 시 broadcast 생략(dedupe) 검증.
- * - message 변경만 있어도 broadcast 발사 검증.
+ * - Verifies set/get/clear/snapshot behavior.
+ * - Verifies broadcast is skipped when the same state is set again (dedupe).
+ * - Verifies broadcast fires even when only the message changes.
  */
 
 import { afterEach, describe, expect, mock, setSystemTime, test } from "bun:test";
@@ -22,7 +22,7 @@ describe("ClaudeStatusBroker — broadcast 동작", () => {
   test("동일 상태 재설정 시 broadcast 생략(dedupe)", () => {
     const { broker, calls } = makeBroker();
     broker.set("ws-1", "tab-1", "running");
-    broker.set("ws-1", "tab-1", "running"); // 동일 — broadcast 없어야 함.
+    broker.set("ws-1", "tab-1", "running"); // same — no broadcast expected.
     expect(calls).toHaveLength(1);
   });
 

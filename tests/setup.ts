@@ -231,9 +231,9 @@ function ensureMatchMedia(win: unknown): void {
   });
 })();
 
-// happy-dom 가 MutationObserver 를 제공하지 않으므로 no-op stub. browser-suspend-auto
-// 가 bootstrap 시 document.body 의 MutationObserver 를 설치하는데, 옵저버가 자동
-// 실행되는지 자체는 본 test scope 밖이라 no-op 으로 충분.
+// happy-dom does not provide MutationObserver, so this is a no-op stub. browser-suspend-auto
+// installs a MutationObserver on document.body at bootstrap; whether the observer actually
+// runs is outside the scope of this test, so a no-op is enough.
 (globalThis as Record<string, unknown>).MutationObserver ??= class MutationObserver {
   constructor(_cb: unknown) {}
   observe(_target: unknown, _options?: unknown): void {}
