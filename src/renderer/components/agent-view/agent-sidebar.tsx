@@ -10,7 +10,7 @@
 // restarts.
 
 import { CheckCheck, ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
-import { type DragEvent, type KeyboardEvent, memo, useMemo, useState } from "react";
+import { type DragEvent, type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
@@ -76,6 +76,8 @@ export const AgentSidebar = memo(function AgentSidebar() {
   const activity = useSessionActivity(ids, true);
   const chats = useChatStore((s) => s.tabs);
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   return (
     // The sidebar's shell and width, so switching views keeps the layout.
@@ -118,14 +120,18 @@ export const AgentSidebar = memo(function AgentSidebar() {
             value={query}
             onChange={setQuery}
             label={t("agentList.list.search")}
+            inputRef={searchRef}
+            onKeyDown={(event) => fromSearch(event, listRef.current)}
             data-testid="agent-sidebar-search"
           />
         </div>
-        {/* ↑ ↓ step between the agents' rows, Home and End to the first and last. */}
+        {/* ↑ ↓ step between the agents' rows, Home and End to the first and last;
+            ↑ on the first goes back to the search box. */}
         {/* biome-ignore lint/a11y/noStaticElementInteractions: the keys come from the rows' own buttons */}
         <div
+          ref={listRef}
           className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-1.5 pb-3"
-          onKeyDown={stepRows}
+          onKeyDown={(event) => stepRows(event, searchRef.current)}
         >
           {agents.families.length === 0 ? (
             <p className="px-2 py-4 text-center text-app-ui-sm text-muted-foreground whitespace-pre-line">
@@ -145,7 +151,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
 });
 
 /** Moves the focus from one agent's row to the next or previous one in the list, as shown. */
-function stepRows(event: KeyboardEvent<HTMLDivElement>): void {
+function stepRows(event: KeyboardEvent<HTMLDivElement>, search: HTMLElement | null): void {
   const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
   if (!keys.includes(event.key)) return;
   const here = event.target as HTMLElement;
@@ -158,9 +164,28 @@ function stepRows(event: KeyboardEvent<HTMLDivElement>): void {
       : event.key === "End"
         ? rows.at(-1)
         : rows[at + (event.key === "ArrowDown" ? 1 : -1)];
-  if (!next) return;
+  const target = next ?? (at === 0 && event.key === "ArrowUp" ? search : null);
+  if (!target) return;
   event.preventDefault();
-  next.focus();
+  target.focus();
+}
+
+/**
+ * The search box's keys for the list under it: ↓ goes to the first agent
+ * it lists, and Enter, with a query, opens that agent.
+ */
+function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | null): void {
+  if (event.key !== "ArrowDown" && event.key !== "Enter") return;
+  const first = list?.querySelector<HTMLElement>("[data-agent-row]");
+  if (!first) return;
+  if (event.key === "Enter") {
+    if (event.currentTarget.value === "") return;
+    event.preventDefault();
+    first.click();
+    return;
+  }
+  event.preventDefault();
+  first.focus();
 }
 
 interface GroupsProps {

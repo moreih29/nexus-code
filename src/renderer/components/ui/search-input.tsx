@@ -4,6 +4,7 @@
 // the next one closes the dialog.
 
 import { Search, X } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent, Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 
@@ -16,6 +17,10 @@ interface SearchInputProps {
   disabled?: boolean;
   id?: string;
   className?: string;
+  /** Keys the box does not take itself (it takes Escape while it holds a query). */
+  onKeyDown?: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+  /** The input itself, for a list under it to hand the keyboard back to. */
+  inputRef?: Ref<HTMLInputElement>;
   "data-testid"?: string;
 }
 
@@ -27,6 +32,8 @@ export function SearchInput({
   disabled = false,
   id,
   className,
+  onKeyDown,
+  inputRef,
   "data-testid": testId,
 }: SearchInputProps) {
   const { t } = useTranslation();
@@ -46,11 +53,14 @@ export function SearchInput({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
+        ref={inputRef}
         onKeyDown={(event) => {
           if (event.key === "Escape" && value !== "") {
             event.preventDefault();
             onChange("");
+            return;
           }
+          onKeyDown?.(event);
         }}
         aria-label={label}
         placeholder={placeholder ?? label}
