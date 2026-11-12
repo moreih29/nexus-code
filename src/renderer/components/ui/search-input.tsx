@@ -7,6 +7,7 @@ import { Search, X } from "lucide-react";
 import type { KeyboardEvent as ReactKeyboardEvent, Ref } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
+import { isImeComposing } from "@/utils/ime";
 
 interface SearchInputProps {
   value: string;
@@ -55,6 +56,9 @@ export function SearchInput({
         onChange={(event) => onChange(event.target.value)}
         ref={inputRef}
         onKeyDown={(event) => {
+          // A key an IME is composing with (Enter to commit, Escape to
+          // cancel) is the IME's, not the box's or its owner's.
+          if (isImeComposing(event)) return;
           if (event.key === "Escape" && value !== "") {
             event.preventDefault();
             onChange("");
