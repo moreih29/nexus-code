@@ -50,6 +50,7 @@ import {
 } from "../../services/agent-sessions/rows";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { chatKey, useChatStore } from "../../services/chat/store";
+import { useUIStore } from "../../state/stores/ui";
 import { Button } from "../ui/button";
 import {
   DropdownMenuContent,
@@ -84,15 +85,9 @@ export function TaskView({
   query,
 }: TaskViewProps) {
   const { t } = useTranslation();
-  // The worktrees whose facts are unfolded; folded until the user opens one.
-  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(() => new Set());
-  const toggle = (id: string) =>
-    setUnfolded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  // The worktrees whose facts are unfolded, kept by the app as the status
+  // view's folded groups are: folded until the user opens one.
+  const unfolded = useUIStore((s) => s.agentListUnfoldedTasks);
   const sessions = allSessions(family);
   // A task is compared with its workspace's branch.
   const base = changes.get(family.root.id)?.branch;
@@ -127,7 +122,7 @@ export function TaskView({
               creator={creator}
               changed={changes.get(id)?.files.length ?? 0}
               unfolded={open}
-              onToggle={() => toggle(id)}
+              onToggle={() => useUIStore.getState().toggleAgentListTask(id)}
             />
             {open && (
               <TaskInfo

@@ -39,6 +39,7 @@ interface HydrateOpts {
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
   agentListFoldedGroups?: readonly string[];
+  agentListUnfoldedTasks?: readonly string[];
 }
 
 /** What the files panel shows: the file tree, search, source control, or the agent list. */
@@ -58,6 +59,8 @@ interface UIState {
   filesPanelHidden: boolean;
   /** The agent list's groups the user folded, in every workspace; the others are open. */
   agentListFoldedGroups: ReadonlySet<string>;
+  /** The worktrees (workspace ids) the task view shows unfolded; the others are folded. */
+  agentListUnfoldedTasks: ReadonlySet<string>;
   /** Per-workspace files-panel view mode. Missing entry → falls back to default. */
   filesPanelModes: Map<string, FilesPanelMode>;
   hydrate(opts: HydrateOpts): void;
@@ -65,6 +68,8 @@ interface UIState {
   setFilesPanelWidth(width: number, persist?: boolean): void;
   /** Folds an agent list's group, or opens it again. Persists. */
   toggleAgentListGroup(group: string): void;
+  /** Unfolds a worktree's facts in the task view, or folds them again. Persists. */
+  toggleAgentListTask(workspaceId: string): void;
   setFilesPanelMode(workspaceId: string, mode: FilesPanelMode): void;
   /** Toggle the Files Panel (tree/search/git/agents column) visibility. Persists. */
   toggleFilesPanel(): void;
@@ -102,6 +107,7 @@ export const useUIStore = create<UIState>((set, get) => {
     sidebarHidden: false,
     filesPanelHidden: false,
     agentListFoldedGroups: new Set(),
+    agentListUnfoldedTasks: new Set(),
     filesPanelModes: new Map(),
 
     hydrate({
@@ -110,6 +116,7 @@ export const useUIStore = create<UIState>((set, get) => {
       sidebarHidden,
       filesPanelHidden,
       agentListFoldedGroups,
+      agentListUnfoldedTasks,
     }) {
       set({
         sidebarWidth:
@@ -121,6 +128,7 @@ export const useUIStore = create<UIState>((set, get) => {
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
         agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
+        agentListUnfoldedTasks: new Set(agentListUnfoldedTasks ?? []),
       });
     },
 
@@ -154,6 +162,18 @@ export const useUIStore = create<UIState>((set, get) => {
       void ipcCallResult("appState", "set", { agentListFoldedGroups: [...next] }).then((result) => {
         if (!result.ok) log.warn(`appState set failed: ${result.message}`);
       });
+    },
+
+    toggleAgentListTask(workspaceId) {
+      const next = new Set(get().agentListUnfoldedTasks);
+      if (next.has(workspaceId)) next.delete(workspaceId);
+      else next.add(workspaceId);
+      set({ agentListUnfoldedTasks: next });
+      void ipcCallResult("appState", "set", { agentListUnfoldedTasks: [...next] }).then(
+        (result) => {
+          if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+        },
+      );
     },
 
     setFilesPanelMode(workspaceId, mode) {

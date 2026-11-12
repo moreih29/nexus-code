@@ -232,6 +232,13 @@ function wrappedBroadcast(channelName: string, event: string, args: unknown): vo
       const { [removedWorkspaceId]: _removedView, ...restViews } = currentViews;
       stateService.setState({ agentListViewByWorkspace: restViews });
     }
+    // And whether its task view showed its facts unfolded.
+    const unfoldedTasks = currentState.agentListUnfoldedTasks ?? [];
+    if (unfoldedTasks.includes(removedWorkspaceId)) {
+      stateService.setState({
+        agentListUnfoldedTasks: unfoldedTasks.filter((id) => id !== removedWorkspaceId),
+      });
+    }
   }
   forwardBroadcast(channelName, event, args);
 }

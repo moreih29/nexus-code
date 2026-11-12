@@ -38,6 +38,9 @@ export const AppStateSchema = z.object({
   // The agent list's groups the user folded ("idle", "ended", …). Absent =
   // every group open.
   agentListFoldedGroups: z.array(z.string()).optional(),
+  // The worktrees (workspace ids) whose facts the agent list's task view
+  // shows unfolded. Absent = every one folded.
+  agentListUnfoldedTasks: z.array(z.string()).optional(),
   layoutByWorkspace: z.record(z.string().uuid(), WorkspaceLayoutSnapshotSchema).optional(),
   // Experimental: whether language servers run at all. Absent = off.
   // Settings › Editor applies a change at once; see shared/lsp/settings.ts
