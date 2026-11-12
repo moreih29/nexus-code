@@ -179,6 +179,13 @@ export class CodexController {
   private ready: Promise<boolean> = Promise.resolve(false);
   /** The handshake of the program this controller started, until it settles. */
   private handshaking: Promise<boolean> | null = null;
+  /**
+   * Whether the program this controller started knows the app (initialize),
+   * which a request waits for: Codex refuses one sent before ("Not
+   * initialized"). A program started before the controller was made knew
+   * it already.
+   */
+  private introduced: Promise<boolean> = Promise.resolve(true);
   private disposed = false;
   private titled = false;
   /** What the user picked for the next turn. */
@@ -315,7 +322,9 @@ export class CodexController {
       this.showPicks();
       return true;
     }
-    const handshake = this.handshake()
+    const introduced = this.introduce();
+    this.introduced = introduced;
+    const handshake = this.handshake(introduced)
       .then((ok) => {
         if (ok) this.showPicks();
         return ok;
@@ -328,18 +337,24 @@ export class CodexController {
     return true;
   }
 
-  /** Introduces the app, then starts the tab's thread or goes on with the one it had. */
-  private async handshake(): Promise<boolean> {
+  /** Introduces the app to the program, which takes no other request before. */
+  private async introduce(): Promise<boolean> {
     try {
       await this.request("initialize", {
         clientInfo: { name: "nexus-code", title: "NexusCode", version: __APP_VERSION__ },
         capabilities: null,
       });
       await this.write({ method: "initialized" });
+      return true;
     } catch (err) {
       log.warn(`initialize failed: ${(err as Error).message}`);
       return false;
     }
+  }
+
+  /** Once the program knows the app, starts the tab's thread or goes on with the one it had. */
+  private async handshake(introduced: Promise<boolean>): Promise<boolean> {
+    if (!(await introduced)) return false;
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
     this.readRateLimits();
@@ -1012,16 +1027,20 @@ export class CodexController {
     unwrapIpcResult(await ipcCallResult("chat", "send", { workspaceId, tabId, message }));
   }
 
-  /** Starts the program again when it is not running, for a message to go to. */
+  /**
+   * Starts the program again when it is not running, for a message to go
+   * to, and waits until it knows the app: a request the tab makes as it
+   * opens (its list of threads, its defaults) would come before that.
+   */
   private async ensureRunning(): Promise<boolean> {
     if (this.opening) await this.opening;
     // The program's start line may wait for the next frame: a message sent as
     // the tab opens (a new task's, the CLI's) would start it again.
     this.flushNow();
     const { phase } = this.state;
-    if (phase === "ready" && this.model.process === "running") return true;
+    if (phase === "ready" && this.model.process === "running") return this.introduced;
     if (phase === "held" || phase === "not-found") return false;
-    return this.start({});
+    return (await this.start({})) && (await this.introduced);
   }
 
   /** A line from the agent, buffered for the next frame. */
