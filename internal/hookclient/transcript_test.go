@@ -241,41 +241,68 @@ func TestStopAssistantText_FallsBackToTranscript(t *testing.T) {
 // waitForTranscriptStable — mtime stability polling
 // ---------------------------------------------------------------------------
 
-// 파일이 계속 자라고 있으면 maxWait까지 polling을 계속하고 결국 반환한다.
-func TestWaitForTranscriptStable_ChangingFileTimesOut(t *testing.T) {
-	path := writeTempTranscript(t, "{}\n")
-	stop := make(chan struct{})
-	defer close(stop)
+// fakeClock 은 sleep할 때만 흐르는 시계. waitUntilSteady를 실제 시간 없이
+// 돌려서, CI 머신의 타이머 해상도나 스케줄링과 상관없이 결과가 같다.
+type fakeClock struct{ t time.Time }
 
-	// 다른 goroutine에서 30ms마다 append해 mtime을 계속 갱신.
-	go func() {
-		ticker := time.NewTicker(30 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-				if err != nil {
-					return
-				}
-				_, _ = f.WriteString("{}\n")
-				_ = f.Close()
-			}
-		}
-	}()
+func (c *fakeClock) now() time.Time                   { return c.t }
+func (c *fakeClock) sleep(d time.Duration)            { c.t = c.t.Add(d) }
+func (c *fakeClock) since(t0 time.Time) time.Duration { return c.t.Sub(t0) }
 
-	start := time.Now()
-	waitForTranscriptStable(path, 200*time.Millisecond, 50*time.Millisecond)
-	elapsed := time.Since(start)
-	// maxWait 근처에서 반환해야 한다. 너무 짧으면 안 됨.
-	if elapsed < 150*time.Millisecond {
-		t.Errorf("changing file: should wait near maxWait, took %v", elapsed)
+// 파일이 계속 자라고 있으면 maxWait까지 polling을 계속하고, 넘기지 않고 반환한다.
+func TestWaitUntilSteady_ChangingFileWaitsUntilMaxWait(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(0, 0)}
+	start := clock.now()
+	size := int64(0)
+	polls := 0
+	waitUntilSteady(func() (fileMark, bool) {
+		polls++
+		size++ // 매번 자란다
+		return fileMark{mtime: clock.now(), size: size}, true
+	}, 200*time.Millisecond, 50*time.Millisecond, clock.now, clock.sleep)
+	if waited := clock.since(start); waited != 200*time.Millisecond {
+		t.Errorf("changing file: want to wait exactly maxWait (200ms), waited %v", waited)
 	}
-	// maxWait를 한 interval 이상 크게 넘기면 안 된다.
-	if elapsed > 400*time.Millisecond {
-		t.Errorf("changing file: should not greatly exceed maxWait, took %v", elapsed)
+	// 처음 한 번 + 50ms마다 4번.
+	if polls != 5 {
+		t.Errorf("changing file: want 5 looks, got %d", polls)
+	}
+}
+
+// 한 interval 동안 변하지 않으면 그 자리에서 반환한다.
+func TestWaitUntilSteady_SteadyFileReturnsAfterOneInterval(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(0, 0)}
+	start := clock.now()
+	mark := fileMark{mtime: time.Unix(100, 0), size: 10}
+	waitUntilSteady(func() (fileMark, bool) { return mark, true },
+		time.Second, 100*time.Millisecond, clock.now, clock.sleep)
+	if waited := clock.since(start); waited != 100*time.Millisecond {
+		t.Errorf("steady file: want one interval (100ms), waited %v", waited)
+	}
+}
+
+// mtime이 같아도 size가 자라면 아직 쓰이는 중이다 (mtime 해상도가 거친 fs).
+func TestWaitUntilSteady_GrowingSizeWithSameMtimeKeepsWaiting(t *testing.T) {
+	clock := &fakeClock{t: time.Unix(0, 0)}
+	start := clock.now()
+	sizes := []int64{10, 20, 30, 30}
+	i := 0
+	waitUntilSteady(func() (fileMark, bool) {
+		m := fileMark{mtime: time.Unix(100, 0), size: sizes[i]}
+		i++
+		return m, true
+	}, time.Second, 100*time.Millisecond, clock.now, clock.sleep)
+	if waited := clock.since(start); waited != 300*time.Millisecond {
+		t.Errorf("growing size: want to stop once it stops growing (300ms), waited %v", waited)
+	}
+}
+
+// 파일이 없으면 기다리지 않는다.
+func TestWaitForTranscriptStable_MissingFileReturnsAtOnce(t *testing.T) {
+	start := time.Now()
+	waitForTranscriptStable(filepath.Join(t.TempDir(), "missing.jsonl"), time.Second, 100*time.Millisecond)
+	if elapsed := time.Since(start); elapsed >= time.Second {
+		t.Errorf("missing file: should return at once, took %v", elapsed)
 	}
 }
 

@@ -88,29 +88,44 @@ func extractLastAssistantText(transcriptPath string) string {
 //
 // 파일이 없거나 stat 실패는 silent — 호출자가 빈 결과로 자연히 처리.
 func waitForTranscriptStable(path string, maxWait, interval time.Duration) {
-	deadline := time.Now().Add(maxWait)
-
-	first, err := os.Stat(path)
-	if err != nil {
-		return
-	}
-	prevMtime := first.ModTime()
-	prevSize := first.Size()
-
-	for time.Now().Before(deadline) {
-		time.Sleep(interval)
+	waitUntilSteady(func() (fileMark, bool) {
 		info, err := os.Stat(path)
 		if err != nil {
+			return fileMark{}, false
+		}
+		return fileMark{mtime: info.ModTime(), size: info.Size()}, true
+	}, maxWait, interval, time.Now, time.Sleep)
+}
+
+// fileMark 는 파일이 아직 쓰이는 중인지 가늠하는 값: mtime과 size.
+// 둘 다 본다 — 일부 fs에서 mtime 해상도가 거칠어 동일 ms 안에 두 write가
+// 일어나면 mtime은 안 변해도 size는 자라기 때문.
+type fileMark struct {
+	mtime time.Time
+	size  int64
+}
+
+// waitUntilSteady 는 waitForTranscriptStable의 polling 본체. mark가 interval
+// 간격으로 두 번 연속 같으면, 또는 maxWait가 지나면, 또는 mark가 실패하면
+// 반환한다. 시계(now, sleep)를 받아서 테스트가 실제 시간 없이 돌린다.
+func waitUntilSteady(
+	mark func() (fileMark, bool),
+	maxWait, interval time.Duration,
+	now func() time.Time,
+	sleep func(time.Duration),
+) {
+	deadline := now().Add(maxWait)
+	prev, ok := mark()
+	if !ok {
+		return
+	}
+	for now().Before(deadline) {
+		sleep(interval)
+		next, ok := mark()
+		if !ok || (next.mtime.Equal(prev.mtime) && next.size == prev.size) {
 			return
 		}
-		// mtime + size 둘 다 변동 없으면 flush 완료. 둘 다 본다 — 일부 fs에서
-		// mtime 해상도가 거칠어 동일 ms 안에 두 write가 일어나면 mtime은 안
-		// 변해도 size는 자라기 때문.
-		if info.ModTime().Equal(prevMtime) && info.Size() == prevSize {
-			return
-		}
-		prevMtime = info.ModTime()
-		prevSize = info.Size()
+		prev = next
 	}
 }
 
