@@ -58,6 +58,7 @@ import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
 import { elapsedLabel } from "../agent-list/agent-status";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
+import { IconButton } from "../ui/icon-button";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { StatusDot } from "./agent-strip";
@@ -432,36 +433,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
       <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
     </div>
-  );
-}
-
-function IconButton({
-  label,
-  onClick,
-  disabled = false,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onClick}
-      title={label}
-      aria-label={label}
-      aria-disabled={disabled || undefined}
-      className={cn(
-        "shrink-0 rounded-(--radius-control) p-1 text-muted-foreground",
-        disabled
-          ? "cursor-not-allowed opacity-40"
-          : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -840,7 +811,7 @@ function JobEntry({
         {running && (
           <IconButton
             label={stopNote ?? t("chat.panel.stop")}
-            disabled={stopNote !== undefined}
+            blocked={stopNote !== undefined}
             onClick={onStop}
           >
             <Square className="size-3" />
@@ -1041,7 +1012,7 @@ function AgentEntry({
         {onStop && (
           <IconButton
             label={stopNote ?? t("chat.panel.stop")}
-            disabled={stopNote !== undefined}
+            blocked={stopNote !== undefined}
             onClick={onStop}
           >
             <Square className="size-3" />
