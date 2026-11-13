@@ -8,6 +8,8 @@ import type { ChatModel } from "../../services/chat/model";
 import { agentsOf } from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
 import { elapsedLabel } from "../agent-list/agent-status";
+import { StateGlyph } from "../agent-list/session-status";
+import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 
 export function StatusLine({ model }: { model: ChatModel }) {
   const { t } = useTranslation();
@@ -20,6 +22,7 @@ export function StatusLine({ model }: { model: ChatModel }) {
     turn.startedAt !== undefined ? Math.max(0, Math.floor((now - turn.startedAt) / 1000)) : null;
   const tokens = turn.outputTokens + turn.thinkingTokens;
   const agents = agentsOf(model).filter((a) => a.status === "running").length;
+  const waiting = model.permissions.length > 0 && !model.interrupting;
 
   return (
     <div
@@ -29,8 +32,13 @@ export function StatusLine({ model }: { model: ChatModel }) {
       data-testid="chat-status"
     >
       {/* Clipped, so the turning icon's corners never make the dock scroll. */}
-      <span className="inline-flex size-3.5 shrink-0 overflow-hidden">
-        <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
+      <span className="inline-flex size-3.5 shrink-0 items-center justify-center overflow-hidden">
+        {waiting ? (
+          // Waiting on the user, not working: the list's needs-you glyph, still.
+          <StateGlyph state={GROUP_STATE.attention} className={GROUP_TINT.attention} />
+        ) : (
+          <LoaderCircle className="size-3.5 animate-spin text-[var(--state-loading-indicator)]" />
+        )}
       </span>
       <span className="text-foreground">{activity}</span>
       {elapsed !== null && <span>{elapsedLabel(elapsed * 1_000)}</span>}

@@ -3,10 +3,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-const { PeerGroup, RemoteSessionRow } = await import(
+const { OfflinePeer, PeerGroup, RemoteSessionRow } = await import(
   "../../../../../src/renderer/components/agent-view/remote-sessions"
 );
-const { servingPeers } = await import("../../../../../src/renderer/services/remote/room");
+const { offlinePeers, servingPeers } = await import(
+  "../../../../../src/renderer/services/remote/room"
+);
 
 const peer: RoomPeer = {
   id: "d2",
@@ -44,6 +46,21 @@ describe("the agent view's other computers", () => {
     expect(servingPeers({ status: "online", peers }).map((p) => p.id)).toEqual(["d2"]);
     expect(servingPeers({ status: "waiting", peers })).toEqual([]);
     expect(servingPeers(null)).toEqual([]);
+  });
+
+  test("keeps the computers out of the room listed, greyed, but not a phone", () => {
+    const peers: RoomPeer[] = [
+      peer,
+      { ...peer, id: "d3", name: "Laptop", platform: "darwin", online: false, serves: undefined },
+      { id: "d5", name: "Phone", platform: "ios", online: false },
+    ];
+    expect(offlinePeers({ status: "online", peers }).map((p) => p.id)).toEqual(["d3"]);
+    // This device out of the room knows nothing of who else is.
+    expect(offlinePeers({ status: "waiting", peers })).toEqual([]);
+    const html = renderToStaticMarkup(<OfflinePeer peer={peers[1]!} />);
+    expect(html).toContain("Laptop");
+    expect(html).toContain("macOS");
+    expect(html).toContain("Offline");
   });
 
   test("names the computer and its system, and its sessions by workspace", () => {

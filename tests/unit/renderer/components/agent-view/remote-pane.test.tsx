@@ -43,7 +43,7 @@ describe("controlling another computer's chat", () => {
   test("a session out of reach says why, in place of the controls", () => {
     const offline = renderToStaticMarkup(<Unreachable reach="offline" device="Work PC" />);
     expect(offline).toContain('role="status"');
-    expect(offline).toContain("Work PC is offline. This is how the session last looked.");
+    expect(offline).toContain("Work PC is offline. Showing what it last sent.");
     const disconnected = renderToStaticMarkup(
       <Unreachable reach="disconnected" device="Work PC" />,
     );

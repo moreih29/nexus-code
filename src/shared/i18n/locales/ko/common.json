@@ -1765,10 +1765,11 @@
       "send": "보내기",
       "stop": "중단",
       "failed": "전달하지 못했습니다: {{message}}",
-      "offline": "{{device}} 오프라인",
+      "offline": "{{device}}이(가) 오프라인입니다",
       "disconnected": "서버에 연결되어 있지 않음",
-      "offlineLast": "{{device}} 오프라인. 마지막으로 받은 내용입니다.",
-      "disconnectedLast": "서버에 연결되어 있지 않습니다. 마지막으로 받은 내용입니다."
+      "offlineLast": "{{device}}이(가) 오프라인입니다. 마지막으로 받은 내용을 보여 줍니다.",
+      "disconnectedLast": "서버에 연결되어 있지 않습니다. 마지막으로 받은 내용을 보여 줍니다.",
+      "offlineTag": "오프라인"
     }
   },
   "releaseNotes": {

@@ -85,7 +85,14 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
           <X aria-hidden className="size-3.5" />
         </IconButton>
       </div>
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* Out of reach, nothing in it turns: a running call shows as it was, not as live. */}
+      <div
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 flex-col",
+          reach !== "online" && "[&_*]:animate-none!",
+        )}
+        data-reach={reach}
+      >
         {target.kind === "terminal" ? (
           <RemoteTerminal target={target} visible={visible} reach={reach} />
         ) : (

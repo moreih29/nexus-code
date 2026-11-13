@@ -45,6 +45,18 @@ export function servingPeers(room: RoomState | null): RoomPeer[] {
   return room.peers.filter((p) => p.online && p.serves?.includes("sessions"));
 }
 
+/** The systems the desktop app runs on: a phone of the account is not listed when away. */
+const DESKTOPS = new Set(["darwin", "win32", "linux"]);
+
+/**
+ * The account's computers out of the room, listed greyed so the way back
+ * to one stays; none while this device is out of it too.
+ */
+export function offlinePeers(room: RoomState | null): RoomPeer[] {
+  if (room?.status !== "online") return [];
+  return room.peers.filter((p) => !p.online && DESKTOPS.has(p.platform));
+}
+
 export type SessionsList = RpcResult<"sessions.list">;
 
 export type PeerSessions =

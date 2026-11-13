@@ -11,6 +11,7 @@ import type { RemoteSession, SessionState } from "../../../../packages/remote-pr
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import {
+  offlinePeers,
   type PeerSessions,
   servingPeers,
   usePeerSessions,
@@ -41,12 +42,15 @@ function matches(session: RemoteSession, query: string): boolean {
 
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
   const { t } = useTranslation();
-  const peers = servingPeers(useRemoteRoom());
+  const room = useRemoteRoom();
+  const peers = servingPeers(room);
+  // Searching, an offline computer has no sessions to find.
+  const away = query.trim() ? [] : offlinePeers(room);
   const lists = usePeerSessions(
     peers.map((p) => p.id),
     shown,
   );
-  if (peers.length === 0) return null;
+  if (peers.length === 0 && away.length === 0) return null;
   return (
     <section className="mt-3 flex flex-col gap-0.5" data-testid="remote-sessions">
       <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
@@ -55,7 +59,27 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
       {peers.map((peer) => (
         <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
       ))}
+      {away.map((peer) => (
+        <OfflinePeer key={peer.id} peer={peer} />
+      ))}
     </section>
+  );
+}
+
+/** A computer of the account out of the room: greyed, its sessions out of reach until it is back. */
+export function OfflinePeer({ peer }: { peer: RoomPeer }) {
+  const { t } = useTranslation();
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 text-muted-foreground"
+      data-testid="remote-peer-offline"
+    >
+      <ChevronRight aria-hidden className="size-3 shrink-0 opacity-40" />
+      <Monitor aria-hidden className="size-3.5 shrink-0" />
+      <span className="truncate text-app-ui-sm">{peer.name}</span>
+      <span className="shrink-0 text-app-micro">{PLATFORMS[peer.platform] ?? peer.platform}</span>
+      <span className="ml-auto shrink-0 text-app-micro">{t("agentView.remote.offlineTag")}</span>
+    </div>
   );
 }
 

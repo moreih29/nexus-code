@@ -1767,8 +1767,9 @@
       "failed": "It did not go through: {{message}}",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
-      "offlineLast": "{{device}} is offline. This is how the session last looked.",
-      "disconnectedLast": "Not connected to the server. This is how the session last looked."
+      "offlineLast": "{{device}} is offline. Showing what it last sent.",
+      "disconnectedLast": "Not connected to the server. Showing what came last.",
+      "offlineTag": "Offline"
     }
   },
   "releaseNotes": {
