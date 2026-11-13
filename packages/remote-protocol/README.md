@@ -17,7 +17,7 @@ Beside them:
 
 Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing.
 
-The package is not published yet. Other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, and need `zod` 3.25 or later.
+Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`. They need `zod` 3.25 or later.
 
 ## Use and publish
 
