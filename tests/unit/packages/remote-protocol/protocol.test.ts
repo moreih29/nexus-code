@@ -160,3 +160,32 @@ describe("the account key's bundle", () => {
     expect(bundleAadOf("u2", 2)).not.toBe(bundleAadOf("u1", 2));
   });
 });
+
+describe("the voice socket", () => {
+  test("the server's messages, as they come", async () => {
+    const { VoiceServerMessageSchema, VoiceClientMessageSchema, VoiceLanguageSchema } =
+      await import("../../../../packages/remote-protocol/src");
+    for (const message of [
+      { t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 600 },
+      { t: "partial", text: "안녕" },
+      { t: "final", text: "안녕하세요." },
+      { t: "limit", reason: "quota" },
+      { t: "done", seconds: 3.2 },
+      { t: "error", code: "provider-error", message: "upstream closed" },
+    ]) {
+      expect(VoiceServerMessageSchema.parse(message)).toEqual(message as never);
+    }
+    expect(
+      VoiceServerMessageSchema.safeParse({
+        t: "ready",
+        format: "opus",
+        sampleRate: 16000,
+        maxSeconds: 1,
+      }).success,
+    ).toBe(false);
+    expect(VoiceClientMessageSchema.parse({ t: "end" })).toEqual({ t: "end" });
+    for (const lang of ["ko", "en", "en-US", "multi"])
+      expect(VoiceLanguageSchema.parse(lang)).toBe(lang);
+    expect(VoiceLanguageSchema.safeParse("korean").success).toBe(false);
+  });
+});

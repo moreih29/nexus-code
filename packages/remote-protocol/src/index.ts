@@ -5,10 +5,12 @@
  * - ./sealed, ./rpc, ./view: what a sealed frame carries between two
  *   devices of the account, which only they can open;
  * - ./account: the account key, locked with the account password, as the
- *   server keeps it.
+ *   server keeps it;
+ * - ./voice: the voice socket, speech to text while the user speaks.
  */
 export * from "./account";
 export * from "./relay";
 export * from "./rpc";
 export * from "./sealed";
 export * from "./view";
+export * from "./voice";
