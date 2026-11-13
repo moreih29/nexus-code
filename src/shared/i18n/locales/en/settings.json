@@ -680,7 +680,8 @@
         "mismatch": "The browser came back from another sign-in. Try again.",
         "unreachable": "Could not reach the server.",
         "failed": "The sign-in did not finish. Try again."
-      }
+      },
+      "localOnly": "Local server only"
     },
     "devices": {
       "title": "Devices",

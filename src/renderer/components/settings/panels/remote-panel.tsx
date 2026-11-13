@@ -1,9 +1,10 @@
 // src/renderer/components/settings/panels/remote-panel.tsx
 //
 // The NexusCode account the remote runs on: signing in with one of the
-// server's sign-ins, Google or GitHub (in the system browser; main waits
-// for it to come back), who the app is signed in as, the account password (remote-key-group), and the account's devices,
-// each of which can be removed.
+// server's sign-ins, Google or GitHub (sign-in-buttons; in the system
+// browser, main waits for it to come back), who the app is signed in as,
+// the account password (remote-key-group), and the account's devices,
+// each of which can be renamed or removed.
 
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -23,8 +24,9 @@ import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
-import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
+import { SettingsGroup, SettingsPage, SettingsRow, SettingsSection } from "../section";
 import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
+import { SignInButton } from "./sign-in-buttons";
 
 const iconButtonClass = cn(
   "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center",
@@ -121,7 +123,8 @@ export function AccountGroup({
           </Button>
         </SettingsRow>
       ) : (
-        <SettingsRow
+        // Below the name, not beside it: the buttons wrap when there are several.
+        <SettingsSection
           label={t("remote.account.signedOut")}
           description={
             failure && (
@@ -131,14 +134,12 @@ export function AccountGroup({
             )
           }
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {signIns.map((provider) => (
-              <Button key={provider} size="sm" onClick={() => signIn(provider)}>
-                {t(`remote.account.signInWith.${provider}`)}
-              </Button>
+              <SignInButton key={provider} provider={provider} onClick={() => signIn(provider)} />
             ))}
           </div>
-        </SettingsRow>
+        </SettingsSection>
       )}
       <p className="text-app-micro text-muted-foreground">
         {t("remote.account.server", { server: state.server })}
