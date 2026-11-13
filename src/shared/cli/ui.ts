@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
-import type { ChatPanel } from "../../../packages/remote-protocol/src/view";
+import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
@@ -805,6 +805,14 @@ export interface CliUiOps {
       maxChars: number;
     };
     result: CliChatImage;
+  };
+  /**
+   * A tool call of a Claude or Codex tab as another device reads it, by its
+   * id: a subagent's too, its result's text cut at `maxText` characters.
+   */
+  "chat.toolCall": {
+    args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
+    result: ViewToolCall;
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {

@@ -87,14 +87,15 @@ export function viewAssistantOf(item: AssistantItem): ViewAssistantItem {
   return rest;
 }
 
-export function viewToolOf(tool: ToolCall): ViewToolCall {
+/** A call as another device reads it, its result's text cut at `maxText` characters. */
+export function viewToolOf(tool: ToolCall, maxText = MAX_RESULT_TEXT): ViewToolCall {
   const { partialInput: _p, result, ...rest } = tool;
   if (!result) return rest;
-  const truncated = result.text.length > MAX_RESULT_TEXT;
+  const truncated = result.text.length > maxText;
   return {
     ...rest,
     result: {
-      text: truncated ? result.text.slice(0, MAX_RESULT_TEXT) : result.text,
+      text: truncated ? result.text.slice(0, maxText) : result.text,
       isError: result.isError,
       ...(result.structured !== undefined ? { structured: result.structured } : {}),
       images: result.images.map(imageRef),

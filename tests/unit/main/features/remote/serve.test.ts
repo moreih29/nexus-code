@@ -241,6 +241,52 @@ describe("serving a chat's settings", () => {
   });
 });
 
+describe("serving one tool call", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  function toolServices() {
+    const asked: number[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (
+        op: string,
+        args: { workspaceId: string; toolUseId?: string; maxText?: number },
+      ) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        if (args.toolUseId === "nope") throw new Error("no tool call nope in that tab");
+        asked.push(args.maxText ?? 0);
+        // A result of quotes, twice as long in JSON as it is.
+        const text = '"'.repeat(Math.min(args.maxText ?? 0, 600_000));
+        return {
+          id: "tu1",
+          name: "Bash",
+          input: {},
+          status: "done",
+          parentToolUseId: null,
+          result: { text, isError: false, images: [] },
+        };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("with as much of its result as a frame takes, and NotFound for none", async () => {
+    const { serve, asked } = toolServices();
+    const tool = (await serve({
+      from: "d",
+      method: "chat.tool",
+      params: { ...tab, toolUseId: "tu1" },
+    })) as {
+      result: { text: string };
+    };
+    expect(asked.length).toBeGreaterThan(1);
+    expect(tool.result.text.length).toBeGreaterThan(100_000);
+    await expect(
+      serve({ from: "d", method: "chat.tool", params: { ...tab, toolUseId: "nope" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
 describe("serving a chat's side panel", () => {
   const tab = { workspaceId: "w1", tabId: "t1" };
   function panelServices(files: number) {

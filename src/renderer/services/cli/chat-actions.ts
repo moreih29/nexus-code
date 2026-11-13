@@ -34,7 +34,7 @@ import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { fitImage, imageOf } from "../remote/chat-image";
-import { type ChatSource, chatPageOf } from "../remote/chat-page";
+import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
@@ -381,6 +381,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.toolCall": async ({ workspaceId, tabId, toolUseId, maxText }) => {
+    const { agent } = await readableTab(workspaceId, tabId);
+    const tool = conversationOf(sourceOf(workspaceId, tabId, agent)).tools[toolUseId];
+    if (!tool) throw new UiRequestError(`no tool call ${toolUseId} in that tab`);
+    return viewToolOf(tool, maxText);
   },
 
   "chat.panel": async ({ workspaceId, tabId }) => {

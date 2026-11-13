@@ -511,6 +511,33 @@ export async function newChat(
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
+/** Most characters of a tool's result asked for: more than a frame takes anyway. */
+const MAX_TOOL_TEXT = MAX_MESSAGE_BYTES;
+
+/** One tool call, a subagent's too, with as much of its result as a frame takes. */
+export async function chatTool(
+  services: CliServices,
+  { workspaceId, tabId, toolUseId }: RpcParams<"chat.tool">,
+): Promise<RpcResult<"chat.tool">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const ask = (maxText: number) =>
+    services
+      .ui("chat.toolCall", { workspaceId, tabId, toolUseId, maxText })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/^no tool call /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+        return unavailable(error);
+      });
+  let tool = await ask(MAX_TOOL_TEXT);
+  // Its input, or text that escapes long in JSON: asked again with less of the result.
+  for (let maxText = MAX_TOOL_TEXT / 2; !fitsAsResult(tool); maxText = Math.floor(maxText / 2)) {
+    if (maxText < 1024)
+      throw new RpcFailure(RpcErrorCode.Unavailable, "that call is too large to send");
+    tool = await ask(maxText);
+  }
+  return tool;
+}
+
 /** What the chat's side panel shows; its changed files cut to what goes in a frame. */
 export async function chatPanel(
   services: CliServices,
@@ -694,6 +721,8 @@ export function serveWith(
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
+      case "chat.tool":
+        return chatTool(s, request.params as RpcParams<"chat.tool">);
       case "chat.panel":
         return chatPanel(s, request.params as RpcParams<"chat.panel">);
       case "chat.stopTask":
