@@ -4,7 +4,7 @@
 // to, answers and stops from here; or a terminal's text, to read only.
 // A chat is watched, a terminal read again every moment, while shown.
 
-import { ArrowUp, Monitor, Square, X } from "lucide-react";
+import { CloudOff, Monitor, Send, Square, X } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -19,13 +19,21 @@ import type { PermissionAnswer } from "../../services/chat/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { usePeerChat } from "../../services/remote/peer-chat";
-import { type PeerRead, usePeerRead } from "../../services/remote/room";
+import {
+  type PeerReach,
+  type PeerRead,
+  usePeerReach,
+  usePeerRead,
+} from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
+import { SEND_BUTTON_CLASS } from "../chat/composer";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
 import { StatusLine } from "../chat/status-line";
 import { IconButton } from "../ui/icon-button";
+import { Keycap } from "../ui/keycap";
 import { showToast } from "../ui/toast";
 
 /** How many lines of a terminal are shown. */
@@ -46,6 +54,7 @@ export function RemotePane({ visible }: { visible: boolean }) {
 export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; visible: boolean }) {
   const { t } = useTranslation();
   const close = useRemoteViewStore((s) => s.close);
+  const reach = usePeerReach(target.deviceId);
   useEffect(() => {
     if (!visible) return;
     const onKey = (event: KeyboardEvent) => {
@@ -68,7 +77,7 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
           {target.title}
         </span>
         {target.kind === "terminal" && (
-          <span className="shrink-0 text-app-micro text-muted-foreground">
+          <span className="shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground">
             {t("agentView.remote.viewOnly")}
           </span>
         )}
@@ -78,27 +87,62 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
       </div>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {target.kind === "terminal" ? (
-          <RemoteTerminal target={target} visible={visible} />
+          <RemoteTerminal target={target} visible={visible} reach={reach} />
         ) : (
-          <RemoteChat target={target} visible={visible} />
+          <RemoteChat target={target} visible={visible} reach={reach} />
         )}
       </div>
     </div>
   );
 }
 
-function Waiting({ read }: { read: { status: PeerRead<unknown>["status"] } }) {
+function Waiting({
+  read,
+  reach,
+  device,
+}: {
+  read: { status: PeerRead<unknown>["status"] };
+  reach: PeerReach;
+  device: string;
+}) {
   const { t } = useTranslation();
   const text =
-    read.status === "loading"
-      ? t("agentView.remote.loading")
-      : read.status === "gone"
-        ? t("agentView.remote.gone")
-        : t("agentView.remote.unavailable");
+    reach === "disconnected" && read.status !== "gone"
+      ? t("agentView.remote.disconnected")
+      : reach === "offline" && read.status !== "gone"
+        ? t("agentView.remote.offline", { device })
+        : read.status === "loading"
+          ? t("agentView.remote.loading")
+          : read.status === "gone"
+            ? t("agentView.remote.gone")
+            : t("agentView.remote.unavailable");
   return (
     <p className="m-auto px-4 text-center text-app-ui-sm text-muted-foreground" role="status">
       {text}
     </p>
+  );
+}
+
+/**
+ * In place of the controls while the session cannot be reached: what is
+ * shown is how it last was, and nothing sent from here would arrive.
+ */
+export function Unreachable({ reach, device }: { reach: PeerReach; device: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="shrink-0 px-4 pt-1 pb-3">
+      <p
+        role="status"
+        className="mx-auto flex max-w-[860px] items-center gap-2 rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground"
+      >
+        <CloudOff aria-hidden className="size-3.5 shrink-0" />
+        <span>
+          {reach === "disconnected"
+            ? t("agentView.remote.disconnectedLast")
+            : t("agentView.remote.offlineLast", { device })}
+        </span>
+      </p>
+    </div>
   );
 }
 
@@ -128,7 +172,15 @@ export function remoteAnswerOf(answer: PermissionAnswer): {
   }
 }
 
-function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolean }) {
+function RemoteChat({
+  target,
+  visible,
+  reach,
+}: {
+  target: RemoteTarget;
+  visible: boolean;
+  reach: PeerReach;
+}) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
@@ -155,7 +207,9 @@ function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolea
         ...remoteAnswerOf(given),
       }),
     );
-  if (read.status !== "ready" || !model) return <Waiting read={read} />;
+  if (read.status !== "ready" || !model) {
+    return <Waiting read={read} reach={reach} device={target.deviceName} />;
+  }
   return (
     <ChatAgentContext.Provider value={target.kind === "codex" ? "codex" : "claude"}>
       <MessageList
@@ -165,33 +219,42 @@ function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolea
         history={null}
         model={model}
       />
-      {(model.permissions.length > 0 || model.running) && (
-        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-            {model.permissions.length > 0 && (
-              <PermissionCard
-                requests={model.permissions}
-                workspaceId={`remote:${deviceId}`}
-                cwd={target.path}
-                rootPath={target.path}
-                onAnswer={answer}
-              />
-            )}
-            <StatusLine model={model} />
-          </div>
-        </div>
+      {reach !== "online" ? (
+        <Unreachable reach={reach} device={target.deviceName} />
+      ) : (
+        <>
+          {(model.permissions.length > 0 || model.running) && (
+            <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
+              <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+                {model.permissions.length > 0 && (
+                  <PermissionCard
+                    requests={model.permissions}
+                    workspaceId={`remote:${deviceId}`}
+                    cwd={target.path}
+                    rootPath={target.path}
+                    onAnswer={answer}
+                  />
+                )}
+                <StatusLine model={model} />
+              </div>
+            </div>
+          )}
+          <RemoteComposer
+            device={target.deviceName}
+            running={model.running}
+            onSend={(text) =>
+              control(
+                ipcCallResult("remote", "peerChatSend", { deviceId, workspaceId, tabId, text }),
+              )
+            }
+            onStop={() =>
+              void control(
+                ipcCallResult("remote", "peerChatInterrupt", { deviceId, workspaceId, tabId }),
+              )
+            }
+          />
+        </>
       )}
-      <RemoteComposer
-        running={model.running}
-        onSend={(text) =>
-          control(ipcCallResult("remote", "peerChatSend", { deviceId, workspaceId, tabId, text }))
-        }
-        onStop={() =>
-          void control(
-            ipcCallResult("remote", "peerChatInterrupt", { deviceId, workspaceId, tabId }),
-          )
-        }
-      />
     </ChatAgentContext.Provider>
   );
 }
@@ -202,10 +265,13 @@ function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolea
  * and the stop button stops the turn.
  */
 export function RemoteComposer({
+  device,
   running,
   onSend,
   onStop,
 }: {
+  /** The device the chat runs on, named in the empty box. */
+  device: string;
   running: boolean;
   onSend: (text: string) => Promise<boolean>;
   onStop: () => void;
@@ -227,37 +293,57 @@ export function RemoteComposer({
       void send();
     }
   };
+  const hasText = text.trim() !== "";
+  // Drawn as this app's own composer is, but for what only this device has.
   return (
     <div className="shrink-0 px-4 pt-1 pb-3">
-      <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-(--radius-raised) border border-border bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+      <div className="mx-auto max-w-[860px] rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
         <textarea
           value={text}
-          rows={Math.min(8, Math.max(1, text.split("\n").length))}
+          rows={Math.min(8, Math.max(2, text.split("\n").length))}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={t("agentView.remote.placeholder")}
-          aria-label={t("agentView.remote.placeholder")}
-          className="min-h-6 flex-1 resize-none bg-transparent text-app-body text-foreground outline-none placeholder:text-muted-foreground"
+          readOnly={sending}
+          placeholder={t("agentView.remote.placeholder", { device })}
+          aria-label={t("agentView.remote.placeholder", { device })}
+          className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body text-foreground outline-none placeholder:text-muted-foreground"
           data-testid="remote-composer"
         />
-        {running && (
-          <IconButton label={t("agentView.remote.stop")} onClick={onStop}>
-            <Square aria-hidden className="size-3.5" />
-          </IconButton>
-        )}
-        <IconButton
-          label={t("agentView.remote.send")}
-          onClick={() => void send()}
-          disabled={sending || text.trim() === ""}
-        >
-          <ArrowUp aria-hidden className="size-3.5" />
-        </IconButton>
+        <div className="flex items-center justify-end gap-1 px-1.5 pb-1.5">
+          {running && (
+            <IconButton label={t("agentView.remote.stop")} size="md" onClick={onStop}>
+              <Square aria-hidden className="size-3.5 fill-current" />
+            </IconButton>
+          )}
+          {/* During a turn an empty box offers only stop, as this app's own does. */}
+          {(!running || hasText) && (
+            <button
+              type="button"
+              onClick={() => void send()}
+              disabled={sending || !hasText}
+              aria-label={t("agentView.remote.send")}
+              title={t("agentView.remote.send")}
+              className={cn(SEND_BUTTON_CLASS, "pr-1.5 pl-2")}
+            >
+              <Send aria-hidden className="size-4" />
+              <Keycap>↵</Keycap>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function RemoteTerminal({ target, visible }: { target: RemoteTarget; visible: boolean }) {
+function RemoteTerminal({
+  target,
+  visible,
+  reach,
+}: {
+  target: RemoteTarget;
+  visible: boolean;
+  reach: PeerReach;
+}) {
   const { deviceId, workspaceId, tabId } = target;
   const { read } = usePeerRead(
     `${deviceId}/${workspaceId}/${tabId}`,
@@ -278,18 +364,21 @@ function RemoteTerminal({ target, visible }: { target: RemoteTarget; visible: bo
     const el = ref.current;
     if (el && text !== null && stuck.current) el.scrollTop = el.scrollHeight;
   }, [text]);
-  if (text === null) return <Waiting read={read} />;
+  if (text === null) return <Waiting read={read} reach={reach} device={target.deviceName} />;
   return (
-    <pre
-      ref={ref}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-      }}
-      className="app-scrollbar min-h-0 flex-1 overflow-auto px-4 py-2 font-mono text-app-ui-sm whitespace-pre text-foreground"
-      data-testid="remote-terminal"
-    >
-      {text}
-    </pre>
+    <>
+      <pre
+        ref={ref}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+        className="app-scrollbar min-h-0 flex-1 overflow-auto px-4 py-2 font-mono text-app-ui-sm whitespace-pre text-foreground"
+        data-testid="remote-terminal"
+      >
+        {text}
+      </pre>
+      {reach !== "online" && <Unreachable reach={reach} device={target.deviceName} />}
+    </>
   );
 }

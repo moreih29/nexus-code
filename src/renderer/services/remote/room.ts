@@ -25,6 +25,20 @@ export function useRemoteRoom(): RoomState | null {
   return state;
 }
 
+/**
+ * Whether another device of the account can be reached now: "disconnected"
+ * while this one is not in the room, "offline" while that one is not.
+ * Taken as reachable until main has said.
+ */
+export type PeerReach = "online" | "offline" | "disconnected";
+
+export function usePeerReach(deviceId: string): PeerReach {
+  const room = useRemoteRoom();
+  if (!room) return "online";
+  if (room.status !== "online") return "disconnected";
+  return room.peers.some((p) => p.id === deviceId && p.online) ? "online" : "offline";
+}
+
 /** The devices in the room now that serve their sessions. */
 export function servingPeers(room: RoomState | null): RoomPeer[] {
   if (room?.status !== "online") return [];

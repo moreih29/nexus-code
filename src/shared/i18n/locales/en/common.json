@@ -1761,10 +1761,14 @@
       "viewOnly": "View only",
       "close": "Close",
       "gone": "This session was closed",
-      "placeholder": "Write to it from here",
+      "placeholder": "Message {{device}}",
       "send": "Send",
       "stop": "Stop",
-      "failed": "It did not go through: {{message}}"
+      "failed": "It did not go through: {{message}}",
+      "offline": "{{device}} is offline",
+      "disconnected": "Not connected to the server",
+      "offlineLast": "{{device}} is offline. This is how the session last looked.",
+      "disconnectedLast": "Not connected to the server. This is how the session last looked."
     }
   },
   "releaseNotes": {

@@ -73,6 +73,7 @@ export function PeerGroup({
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
   const shownSessions = list ? list.sessions.filter((s) => matches(s, query)) : [];
+  const waiting = list?.sessions.filter((s) => s.state === "needs-you").length ?? 0;
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
   const shown = useRemoteViewStore((s) => s.shown);
@@ -96,6 +97,18 @@ export function PeerGroup({
         <span className="shrink-0 text-app-micro text-muted-foreground">
           {PLATFORMS[peer.platform] ?? peer.platform}
         </span>
+        {/* Folded, it still tells how many sessions there are and whether one needs the user. */}
+        {folded && list && (
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
+            {waiting > 0 && (
+              <>
+                <StateGlyph state={GROUP_STATE.attention} className={GROUP_TINT.attention} />
+                <span className="sr-only">{t("agentView.remote.state.needs-you")}</span>
+              </>
+            )}
+            {list.sessions.length}
+          </span>
+        )}
       </button>
       {!folded && (
         <div className="flex flex-col pl-3">
