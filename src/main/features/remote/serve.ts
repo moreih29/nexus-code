@@ -268,15 +268,24 @@ export async function readChat(
 
 export async function readTerminal(
   services: CliServices,
-  { workspaceId, tabId, lines }: RpcParams<"terminal.read">,
+  { workspaceId, tabId, lines, ansi }: RpcParams<"terminal.read">,
 ): Promise<RpcResult<"terminal.read">> {
   await tabOf(services, workspaceId, tabId, ["terminal"]);
   const { text } = await services
-    .ui("terminal.read", { workspaceId, tabId, lines: lines ?? DEFAULT_TERMINAL_LINES })
+    .ui("terminal.read", {
+      workspaceId,
+      tabId,
+      lines: lines ?? DEFAULT_TERMINAL_LINES,
+      ...(ansi ? { ansi } : {}),
+    })
     .catch(unavailable);
-  // The end of it, as much as goes in a frame.
+  // The end of it, as much as goes in a frame, from a line's start: no escape cut in two.
   let shown = text;
-  while (!fitsAsResult({ text: shown })) shown = shown.slice(Math.floor(shown.length / 4));
+  while (!fitsAsResult({ text: shown })) {
+    const cut = shown.slice(Math.floor(shown.length / 4));
+    const line = cut.indexOf("\n");
+    shown = line >= 0 ? cut.slice(line + 1) : cut;
+  }
   return { text: shown };
 }
 

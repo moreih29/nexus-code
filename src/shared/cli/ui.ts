@@ -379,7 +379,8 @@ export interface CliUiOps {
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
   "terminal.read": {
-    args: { workspaceId: string; tabId: string; lines: number };
+    /** `ansi`: with the colors and styles as SGR escapes, for another device. */
+    args: { workspaceId: string; tabId: string; lines: number; ansi?: boolean };
     result: { text: string };
   };
   /**
@@ -387,7 +388,7 @@ export interface CliUiOps {
    * what changes, told to main (remote.terminalChanged) under `watchId`.
    */
   "terminal.watch": {
-    args: { workspaceId: string; tabId: string; watchId: string; lines: number };
+    args: { workspaceId: string; tabId: string; watchId: string; lines: number; ansi?: boolean };
     result: { text: string };
   };
   /** Stops a watch terminal.watch started; nothing when there is none. */

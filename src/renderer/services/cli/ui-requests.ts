@@ -65,16 +65,16 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
-  "terminal.read": async ({ tabId, lines }) => {
+  "terminal.read": async ({ tabId, lines, ansi }) => {
     const controller = getTerminalController(tabId);
     if (!controller) {
       throw new UiRequestError(
         "that terminal has not started: its workspace has not been opened since NexusCode started",
       );
     }
-    return { text: controller.readText(lines) };
+    return { text: controller.readText(lines, ansi) };
   },
-  "terminal.watch": async ({ tabId, watchId, lines }) => {
+  "terminal.watch": async ({ tabId, watchId, lines, ansi }) => {
     if (!getTerminalController(tabId)) {
       throw new UiRequestError(
         "that terminal has not started: its workspace has not been opened since NexusCode started",
@@ -86,6 +86,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
       lines,
       (change) => void ipcCallResult("remote", "terminalChanged", { watchId, change }),
       () => void ipcCallResult("remote", "terminalWatchEnded", { watchId }),
+      ansi ?? false,
     );
   },
   "terminal.unwatch": async ({ watchId }) => {

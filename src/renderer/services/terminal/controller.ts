@@ -18,6 +18,7 @@ import {
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
+import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -72,13 +73,11 @@ interface ParserLike {
 }
 
 /** The part of xterm's active buffer the controller reads. */
-interface BufferLike {
+interface BufferLike extends AnsiBufferLike {
   readonly type: "normal" | "alternate";
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
-  getLine?(
-    y: number,
-  ): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+  getLine?(y: number): AnsiLineLike | undefined;
 }
 
 interface TerminalLike {
@@ -436,10 +435,10 @@ class XtermTerminalController implements TerminalController {
     else this.focusOnOpen = wanted;
   }
 
-  readText(lines: number): string {
+  readText(lines: number, ansi = false): string {
     const buffer = this.term?.buffer.active;
     if (!buffer?.getLine || buffer.length === undefined) return "";
-    return bufferText(buffer, lines);
+    return ansi ? bufferAnsi(buffer, lines) : bufferText(buffer, lines);
   }
 
   /**

@@ -38,7 +38,7 @@ export class TerminalWatches {
   /** Starts a watch for `from`: the terminal's text now. */
   async watch(
     from: string,
-    { workspaceId, tabId, lines }: RpcParams<"terminal.watch">,
+    { workspaceId, tabId, lines, ansi }: RpcParams<"terminal.watch">,
   ): Promise<RpcResult<"terminal.watch">> {
     const services = this.deps.services();
     if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
@@ -57,6 +57,7 @@ export class TerminalWatches {
         tabId,
         watchId,
         lines: lines ?? DEFAULT_TERMINAL_LINES,
+        ...(ansi ? { ansi } : {}),
       })
       .catch((error: unknown) => {
         this.watches.delete(watchId);

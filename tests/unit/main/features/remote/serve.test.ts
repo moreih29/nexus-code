@@ -144,6 +144,21 @@ describe("serving a chat and a terminal to read", () => {
     expect(await read({ workspaceId: "w1", tabId: "t2" })).toEqual({ text: "$ ls" });
     await read({ workspaceId: "w1", tabId: "t2", lines: 50 });
     expect(asked.map(([, a]) => (a as { lines: number }).lines)).toEqual([1000, 50]);
+    // With its colors, when asked.
+    await read({ workspaceId: "w1", tabId: "t2", ansi: true });
+    expect(asked.at(-1)?.[1]).toMatchObject({ ansi: true });
+  });
+
+  test("a terminal's text too long for a frame: its end, from a line's start", async () => {
+    const line = `\x1b[0;31m${"x".repeat(990)}\x1b[0m`;
+    const { s } = recording(() => ({ text: Array.from({ length: 1000 }, () => line).join("\n") }));
+    const { text } = (await serveWith(() => s)({
+      from: "d",
+      method: "terminal.read",
+      params: { workspaceId: "w1", tabId: "t2", ansi: true },
+    })) as { text: string };
+    expect(text.length).toBeLessThan(1000 * line.length);
+    expect(text.startsWith("\x1b[0;31m")).toBe(true);
   });
 
   test("a tab that is not there, or not of that kind, is not found", async () => {

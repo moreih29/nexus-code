@@ -78,8 +78,11 @@ export interface TerminalController {
    * `wanted` (asked then) still says so.
    */
   focus: (wanted?: () => boolean) => void;
-  /** The last `lines` lines it shows, scrollback included, as plain text. */
-  readText: (lines: number) => string;
+  /**
+   * The last `lines` lines it shows, scrollback included, as plain text;
+   * with `ansi`, with their colors and styles as SGR escapes.
+   */
+  readText: (lines: number, ansi?: boolean) => string;
   /**
    * Types `text` into the session: as one paste, which an app that turned on
    * bracketed paste takes as a whole, or as keystrokes. False before the
