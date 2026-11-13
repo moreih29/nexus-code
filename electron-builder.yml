@@ -49,6 +49,12 @@ mac:
   identity: "NexusCode Release Signing"
   sign: scripts/sign-mac.cjs
   notarize: false
+  # Voice input captures the microphone; macOS shows this when it asks the user.
+  # scripts/sign-mac.cjs signs without the hardened runtime, so no entitlement
+  # is needed for it; signing with `--options runtime` would also need
+  # com.apple.security.device.audio-input in the entitlements.
+  extendInfo:
+    NSMicrophoneUsageDescription: "NexusCode uses the microphone for voice input: what you say is turned into text in the chat box."
 
 linux:
   # Both update in place (src/main/features/updates): the AppImage replaces
