@@ -1,0 +1,16 @@
+{
+  "name": "@nexus-code/remote-protocol",
+  "version": "0.1.0",
+  "description": "NexusCode's remote protocol: the relay's frames and the end-to-end RPC between a user's devices",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "peerDependencies": {
+    "zod": "^3.25.0"
+  }
+}
