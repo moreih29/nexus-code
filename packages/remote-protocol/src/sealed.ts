@@ -15,6 +15,13 @@ import { RpcMessageSchema } from "./rpc.js";
 /** The version of what is sealed; a device tells it in its hello. */
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * This package's version, which a device tells in its hello (`schema`):
+ * the methods a device serves are those of its version, so another can
+ * leave out what an older one does not have. Kept equal to package.json's.
+ */
+export const SCHEMA_VERSION = "0.2.0";
+
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
 
@@ -32,14 +39,27 @@ export function aadOf(frame: { from: DeviceId; to: string; seq: number; kid: num
  * side asks only for what is listed; a newer device lists more.
  */
 export const CAPABILITIES = [
-  /** sessions.list and the session events. */
+  /** sessions.list and sessions.watch, profiles.list. */
   "sessions",
-  /** chat.read and chat.watch. */
+  /** Reading a chat: chat.read and chat.watch, its settings, commands, panel, images, tool calls; history.list. */
   "chat.read",
-  /** chat.send, chat.answer, chat.interrupt, chat.new and chat.close. */
+  /** Acting in a chat: sending, answering, stopping, settings, commands, opening, resuming, renaming, closing. */
   "chat.control",
   /** terminal.read and terminal.watch: a terminal's screen, as text. */
   "terminal.read",
+  /** Typing into a terminal, opening, renaming and closing one. */
+  "terminal.control",
+  /** files.list and files.read, in a workspace's folders. */
+  "files",
+  /** git.status, git.diff and git.log of a workspace. */
+  "git",
+  /**
+   * Takes agents' requests (`from`: nexus on another device) to act in its
+   * chats and terminals, as the user set it (Settings › Remote: ask or
+   * allow). Without it, a request with `from` is refused, whatever
+   * chat.control and terminal.control say: those are for people.
+   */
+  "agents",
 ] as const;
 export const CapabilitySchema = z.string();
 export type Capability = (typeof CAPABILITIES)[number];
@@ -57,8 +77,18 @@ export const HelloSchema = z.object({
     name: z.string(),
     platform: z.string(),
   }),
-  app: z.object({ name: z.string(), version: z.string() }),
+  app: z.object({
+    name: z.string(),
+    version: z.string(),
+    /** The app's color theme now, by its id ("github-dark"): a phone may follow it. */
+    theme: z.string().optional(),
+  }),
   serves: z.array(CapabilitySchema),
+  /**
+   * The protocol package's version it speaks (SCHEMA_VERSION, "0.2.0");
+   * absent before 0.2.0. A method it does not have is answered MethodNotFound.
+   */
+  schema: z.string().max(40).optional(),
   /** Whether it wants the hello of devices already there: true as it joins. */
   reply: z.boolean(),
 });

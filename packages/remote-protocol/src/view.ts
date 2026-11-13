@@ -56,6 +56,18 @@ export const NoticeItemSchema = z.object({
   at,
 });
 
+/**
+ * Where an agent that sent a message can be answered: its tab, on the
+ * device `deviceId` (absent: the device this chat runs on). `nexus chat
+ * send` takes it as it is.
+ */
+export const ReplyAddressSchema = z.object({
+  deviceId: z.string().optional(),
+  workspaceId: z.string(),
+  tabId: z.string(),
+});
+export type ReplyAddress = z.infer<typeof ReplyAddressSchema>;
+
 /** A message the program took that the user did not write: another session's, a channel's. */
 export const ReceivedItemSchema = z.object({
   kind: z.literal("received"),
@@ -64,6 +76,10 @@ export const ReceivedItemSchema = z.object({
     kind: z.string(),
     name: z.string().optional(),
     agent: z.string().optional(),
+    /** Sent from another device of the account: which one, as it names itself. */
+    device: z.object({ id: z.string(), name: z.string() }).optional(),
+    /** Where the sender takes an answer. */
+    replyTo: ReplyAddressSchema.optional(),
   }),
   text: z.string(),
   at,
@@ -159,6 +175,12 @@ export const ViewPermissionSchema = z.object({
   agentId: z.string().optional(),
   /** The call as the card previews it, when the input alone does not tell it. */
   preview: ViewToolCallSchema.optional(),
+  /**
+   * What "always allow" would add, one choice each, in the serving
+   * device's words ("Allow Bash(npm test:*) in this folder"): chat.answer
+   * picks them by index.
+   */
+  suggestions: z.array(z.object({ label: z.string() })).optional(),
 });
 export type ViewPermission = z.infer<typeof ViewPermissionSchema>;
 
@@ -212,3 +234,64 @@ export const ChatStatusSchema = z.object({
   permissions: z.array(ViewPermissionSchema),
 });
 export type ChatStatus = z.infer<typeof ChatStatusSchema>;
+
+/** One step of the agent's to-do list. */
+export const ViewTodoSchema = z.object({
+  content: z.string(),
+  /** pending, in_progress or completed. */
+  status: z.string(),
+});
+
+/** A subagent the turn called (an Agent tool call). */
+export const ViewAgentRowSchema = z.object({
+  toolUseId: z.string(),
+  description: z.string(),
+  /** running, completed, failed or stopped. */
+  status: z.string(),
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
+});
+
+/** A goal the chat works toward (/goal), and where it stands. */
+export const ViewGoalSchema = z.object({
+  condition: z.string(),
+  /** active, paused, met or failed. */
+  status: z.string(),
+  setAt: z.number().optional(),
+  /** How many checks found it unmet so far. */
+  checks: z.number().int().nonnegative(),
+  /** Once it ended: why. */
+  reason: z.string().optional(),
+});
+export type ViewGoal = z.infer<typeof ViewGoalSchema>;
+
+/**
+ * What the chat's side panel shows beside the conversation: the to-do
+ * list, the tasks and subagents, the files it changed, the context it
+ * fills, what it cost, and its goal.
+ */
+export const ChatPanelSchema = z.object({
+  todos: z.array(ViewTodoSchema),
+  /** Background runs and the like, by the program's task ids (chat.stopTask stops one). */
+  tasks: z.array(ViewTaskSchema),
+  agents: z.array(ViewAgentRowSchema),
+  changedFiles: z.array(
+    z.object({
+      /** Absolute, on the serving device, as the chat's tool calls name it. */
+      path: z.string(),
+      added: z.number().int().nonnegative().optional(),
+      removed: z.number().int().nonnegative().optional(),
+    }),
+  ),
+  /** The context window: tokens in it, and how many it takes; null before the program said. */
+  context: z
+    .object({
+      usedTokens: z.number().int().nonnegative(),
+      maxTokens: z.number().int().positive(),
+    })
+    .nullable(),
+  /** What the conversation cost so far, in US dollars, when the program tells it. */
+  costUsd: z.number().nonnegative().optional(),
+  goal: ViewGoalSchema.nullable(),
+});
+export type ChatPanel = z.infer<typeof ChatPanelSchema>;

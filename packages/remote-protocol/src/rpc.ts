@@ -9,6 +9,7 @@
 import { z } from "zod";
 import {
   AssistantItemSchema,
+  ChatPanelSchema,
   ChatStatusSchema,
   ViewItemSchema,
   ViewTaskSchema,
@@ -83,6 +84,22 @@ export const RemoteWorkspaceSchema = z.object({
   name: z.string(),
   /** Its folder, on the serving device. */
   path: z.string(),
+  /** A task: a workspace on a git worktree of the workspace `parentId`, on its own branch. */
+  parentId: z.string().optional(),
+  /** The agent manager's own workspace, where the session that directs the others runs. */
+  manager: z.boolean().optional(),
+  /**
+   * A task's branch and how it stands against its upstream, with how many
+   * files it changed and did not commit. Looked at now and then, not live.
+   */
+  git: z
+    .object({
+      branch: z.string().nullable(),
+      ahead: z.number().int().nonnegative(),
+      behind: z.number().int().nonnegative(),
+      uncommitted: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export type RemoteWorkspace = z.infer<typeof RemoteWorkspaceSchema>;
 
@@ -108,6 +125,8 @@ export const RemoteSessionSchema = z.object({
     .object({
       kind: z.enum(["permission", "question", "plan"]),
       text: z.string(),
+      /** A terminal's Claude Code asking: the request terminal.answer answers. */
+      requestId: z.string().optional(),
     })
     .optional(),
 });
@@ -120,6 +139,191 @@ const SessionsSchema = z.object({
 
 /** A session of the serving device, by its ids there. */
 const TabRef = { workspaceId: z.string(), tabId: z.string() };
+
+/**
+ * The agent that sends a message, when an agent does (nexus chat send on
+ * another device): its own tab there, which the receiving chat shows as
+ * the reply address. The device is the frame's sender.
+ */
+export const AgentSenderSchema = z.object({
+  /** tab: a Claude or Codex tab; terminal: an agent in a terminal; manager: the agent manager. */
+  kind: z.enum(["tab", "terminal", "manager"]),
+  agent: z.string().min(1).max(40).optional(),
+  workspaceId: z.string(),
+  tabId: z.string(),
+  /** Its tab's title, as the receiver shows the sender. */
+  name: z.string().max(200).optional(),
+  /**
+   * How many messages between agents led to this one, the first being 1:
+   * a device refuses one past MAX_AGENT_HOPS, so agents on two devices
+   * cannot keep each other going without end.
+   */
+  hops: z.number().int().positive(),
+});
+export type AgentSender = z.infer<typeof AgentSenderSchema>;
+
+/** The keys terminal.input presses by name, as `nexus terminal key` names them. */
+export const TERMINAL_KEYS = [
+  "enter",
+  "tab",
+  "shift-tab",
+  "esc",
+  "space",
+  "backspace",
+  "delete",
+  "up",
+  "down",
+  "left",
+  "right",
+  "home",
+  "end",
+  "pageup",
+  "pagedown",
+  "ctrl-a",
+  "ctrl-b",
+  "ctrl-c",
+  "ctrl-d",
+  "ctrl-e",
+  "ctrl-f",
+  "ctrl-g",
+  "ctrl-h",
+  "ctrl-i",
+  "ctrl-j",
+  "ctrl-k",
+  "ctrl-l",
+  "ctrl-m",
+  "ctrl-n",
+  "ctrl-o",
+  "ctrl-p",
+  "ctrl-q",
+  "ctrl-r",
+  "ctrl-s",
+  "ctrl-t",
+  "ctrl-u",
+  "ctrl-v",
+  "ctrl-w",
+  "ctrl-x",
+  "ctrl-y",
+  "ctrl-z",
+] as const;
+export const TerminalKeySchema = z.enum(TERMINAL_KEYS);
+export type TerminalKey = z.infer<typeof TerminalKeySchema>;
+
+/** Most messages between agents one chain may take; past it, `from` requests are refused. */
+export const MAX_AGENT_HOPS = 8;
+
+/** Longest a chat.wait or terminal.wait holds before it answers that the session is not done yet. */
+export const MAX_WAIT_MS = 10_000;
+
+/** Where a chat stands for one that waits on it, as `nexus chat wait` tells it. */
+export const ChatWaitStateSchema = z.enum(["working", "asking", "idle", "error", "closed"]);
+
+/** A session state change, as `nexus events` lists them. */
+export const SessionEventSchema = z.object({
+  /** Counts the device's events from 1 since its app started. */
+  seq: z.number().int().positive(),
+  at: z.number(),
+  workspaceId: z.string(),
+  tabId: z.string(),
+  title: z.string(),
+  kind: z.enum(["terminal", "claude", "codex"]),
+  agent: z.string().optional(),
+  /** The phase it left (null: first seen) and the one it came to ("closed" when the tab went). */
+  from: z.string().nullable(),
+  to: z.string(),
+  message: z.string().optional(),
+});
+export type SessionEvent = z.infer<typeof SessionEventSchema>;
+
+/** Most images one message takes. */
+export const MAX_ATTACHMENTS = 4;
+
+/**
+ * Most bytes one image chat.attach takes, before base64: its base64 and the
+ * request around it stay inside a frame (MAX_FRAME_BYTES, sealed).
+ */
+export const MAX_ATTACHMENT_BYTES = 560 * 1024;
+
+/** The image types a chat takes. */
+export const ImageMediaTypeSchema = z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** What a chat runs with, and what it may be set to. */
+export const ChatSettingsSchema = z.object({
+  agent: z.enum(["claude", "codex"]),
+  /** The model it runs, by the id to give back; null before the program says. */
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  permissionMode: z.string(),
+  options: z.object({
+    models: z.array(z.object({ id: z.string(), label: z.string() })),
+    /** The effort levels its model takes; none when it takes none. */
+    efforts: z.array(z.string()),
+    /** The permission modes; `dangerous` ones ask the serving device's policy first. */
+    modes: z.array(
+      z.object({ id: z.string(), label: z.string(), dangerous: z.boolean().optional() }),
+    ),
+  }),
+});
+export type ChatSettings = z.infer<typeof ChatSettingsSchema>;
+
+/**
+ * A slash command of a chat, for a "/" picker: the app's own (run with
+ * chat.command), the agent's own (sent as a message: chat.send "/name
+ * args"), or one that sets what chat.configure sets.
+ */
+export const ChatCommandSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  /** command: chat.command; send: chat.send its text; settings: chat.configure. */
+  runs: z.enum(["command", "send", "settings"]),
+  /** With runs "settings": what it sets, so the picker for it opens. */
+  sets: z.enum(["model", "effort", "permissionMode"]).optional(),
+  /** What it takes after its name, as its help writes it ("<condition>"). */
+  args: z.string().optional(),
+});
+export type ChatCommand = z.infer<typeof ChatCommandSchema>;
+
+/** A chat of the past that can be resumed: Claude Code's sessions, Codex's threads. */
+export const PastSessionSchema = z.object({
+  sessionId: z.string(),
+  title: z.string(),
+  /** When it last changed, in Unix milliseconds. */
+  at: z.number(),
+  /** Its log's size in bytes, when known. */
+  bytes: z.number().int().nonnegative().optional(),
+  /** The folder it ran in. */
+  cwd: z.string().optional(),
+  profile: z.string().optional(),
+});
+export type PastSession = z.infer<typeof PastSessionSchema>;
+
+/** A file's state in git: a letter as `git status --porcelain` gives it (M, A, D, R, C, U, ?). */
+const GitLetter = z.string().length(1);
+
+/** A file git sees changed, staged or not. */
+export const GitFileSchema = z.object({
+  path: z.string(),
+  /** Renamed or copied from. */
+  oldPath: z.string().optional(),
+  staged: GitLetter.optional(),
+  unstaged: GitLetter.optional(),
+});
+
+/** A piece of a diff, as jsdiff's structuredPatch gives it: lines starting " ", "-" or "+". */
+export const DiffHunkSchema = z.object({
+  oldStart: z.number().int().nonnegative(),
+  oldLines: z.number().int().nonnegative(),
+  newStart: z.number().int().nonnegative(),
+  newLines: z.number().int().nonnegative(),
+  lines: z.array(z.string()),
+});
+export type DiffHunk = z.infer<typeof DiffHunkSchema>;
+
+/** Most entries one files.list gives. */
+export const MAX_LIST_ENTRIES = 2000;
+
+/** Most bytes of text one files.read gives. */
+export const MAX_READ_BYTES = 512 * 1024;
 
 // ---------------------------------------------------------------------------
 // Chats
@@ -158,13 +362,16 @@ export const ChatUpdateSchema = z.object({
   tools: z.record(ViewToolCallSchema),
   tasks: z.record(ViewTaskSchema),
   agentItems: z.record(z.array(AssistantItemSchema)),
+  /** The side panel, when it changed. */
+  panel: ChatPanelSchema.optional(),
 });
 export type ChatUpdate = z.infer<typeof ChatUpdateSchema>;
 
 /**
  * A watched terminal's text changed: the text from `start` (a UTF-16
  * offset into the text as it was) is now `text`. A redraw at the bottom
- * sends only the bottom; a scroll, all of it from 0.
+ * sends only the bottom; a scroll, all of it from 0. A watch with `ansi`
+ * counts in the text with its escapes.
  */
 export const TerminalUpdateSchema = z.object({
   watchId: z.string(),
@@ -202,6 +409,51 @@ export const RPC_METHODS = {
     params: z.object({ watchId: z.string() }),
     result: Ok,
   },
+  /**
+   * The session state changes after `since` (the first `limit`, `more` when
+   * some were left out), or the last `limit`; `cursor` is the latest seq. A
+   * `since` past it (from before the app restarted) reads from the start.
+   */
+  "events.read": {
+    capability: "sessions",
+    params: z.object({
+      since: z.number().int().nonnegative().optional(),
+      limit: z.number().int().positive().max(500).optional(),
+    }),
+    result: z.object({
+      events: z.array(SessionEventSchema),
+      cursor: z.number().int().nonnegative(),
+      more: z.boolean(),
+    }),
+  },
+  /** The agent profiles a chat can run with (accounts, config folders). */
+  "profiles.list": {
+    capability: "sessions",
+    params: z.object({ agent: z.enum(["claude", "codex"]).optional() }),
+    result: z.object({
+      profiles: z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          agent: z.enum(["claude", "codex"]),
+          /** The one a workspace runs with unless told otherwise. */
+          isDefault: z.boolean(),
+        }),
+      ),
+    }),
+  },
+  /** The past chats of a workspace's folder that can be resumed, latest first. */
+  "history.list": {
+    capability: "chat.read",
+    params: z.object({
+      workspaceId: z.string(),
+      agent: z.enum(["claude", "codex"]),
+      /** Only those whose title has it. */
+      query: z.string().max(200).optional(),
+      limit: z.number().int().positive().max(200).optional(),
+    }),
+    result: z.object({ sessions: z.array(PastSessionSchema) }),
+  },
 
   /** The chat's last `limit` items, or those before `before`. */
   "chat.read": {
@@ -220,19 +472,120 @@ export const RPC_METHODS = {
       ...TabRef,
       limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
     }),
-    result: ChatPageSchema.extend({ watchId: z.string() }),
+    result: ChatPageSchema.extend({ watchId: z.string(), panel: ChatPanelSchema.optional() }),
   },
   "chat.unwatch": {
     capability: "chat.read",
     params: z.object({ watchId: z.string() }),
     result: Ok,
   },
+  /** What the chat runs with and may be set to (model, effort, permission mode). */
+  "chat.settings": {
+    capability: "chat.read",
+    params: z.object(TabRef),
+    result: ChatSettingsSchema,
+  },
+  /** Its slash commands, the app's and the agent's, for a "/" picker. */
+  "chat.commands": {
+    capability: "chat.read",
+    params: z.object(TabRef),
+    result: z.object({ commands: z.array(ChatCommandSchema) }),
+  },
+  /** Its side panel now; a watch sends it again in chat.update as it changes. */
+  "chat.panel": {
+    capability: "chat.read",
+    params: z.object(TabRef),
+    result: ChatPanelSchema,
+  },
+  /** One tool call with as much of its result as a frame takes. */
+  "chat.tool": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, toolUseId: z.string() }),
+    result: ViewToolCallSchema,
+  },
+  /**
+   * Waits up to `timeoutMs` (at most MAX_WAIT_MS) for the chat to be done
+   * with its turn: no longer working (asking, idle, error, or closed). Ask
+   * again while `done` is false. `after`: a chat.send's `at`, so a message
+   * the chat has not shown yet counts as working.
+   */
+  "chat.wait": {
+    capability: "chat.read",
+    params: z.object({
+      ...TabRef,
+      timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
+      after: z.number().optional(),
+    }),
+    result: z.object({
+      done: z.boolean(),
+      state: ChatWaitStateSchema,
+      /** Its last answer; when asking, what it asks; on an error, what went wrong. */
+      message: z.string().optional(),
+    }),
+  },
+  /**
+   * An image of the chat, made small enough for a frame: a user message's
+   * (by its item's key and the image's index) or a tool result's.
+   */
+  "chat.image": {
+    capability: "chat.read",
+    params: z.object({
+      ...TabRef,
+      ref: z.discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("user"),
+          itemKey: z.string(),
+          index: z.number().int().nonnegative(),
+        }),
+        z.object({
+          kind: z.literal("tool"),
+          toolUseId: z.string(),
+          index: z.number().int().nonnegative(),
+        }),
+      ]),
+    }),
+    result: z.object({
+      mediaType: ImageMediaTypeSchema,
+      /** Base64. */
+      data: z.string(),
+      width: z.number().int().positive().optional(),
+      height: z.number().int().positive().optional(),
+    }),
+  },
 
-  /** Sends a message, as its composer does: during a turn, the turn reads it next. */
+  /**
+   * Sends a message, as its composer does: during a turn, the turn reads it
+   * next. `text` may be empty only with attachments. Sent by an agent
+   * (`from`), the chat shows it as that agent's, not the user's.
+   */
   "chat.send": {
     capability: "chat.control",
-    params: z.object({ ...TabRef, text: z.string().min(1) }),
-    result: Ok,
+    params: z.object({
+      ...TabRef,
+      text: z.string(),
+      /** Images chat.attach took, at most MAX_ATTACHMENTS. */
+      attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
+      from: AgentSenderSchema.optional(),
+    }),
+    /** `at`: when the serving device took it, by its clock, for chat.wait's `after`. */
+    result: z.object({ at: z.number().optional() }),
+  },
+  /**
+   * Takes an image for the next chat.send to this tab: one image a request,
+   * small enough for a frame. Kept 10 minutes, for this device only.
+   */
+  "chat.attach": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      mediaType: ImageMediaTypeSchema,
+      /** Base64, of at most MAX_ATTACHMENT_BYTES bytes. */
+      data: z
+        .string()
+        .min(1)
+        .max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4),
+    }),
+    result: z.object({ attachmentId: z.string() }),
   },
   /** Answers the permission request `requestId`, as its card's buttons do. */
   "chat.answer": {
@@ -247,10 +600,63 @@ export const RPC_METHODS = {
       updatedInput: z.record(z.unknown()).optional(),
       /** With deny: the turn stops too, as the card's "No, and stop" does. */
       stop: z.boolean().optional(),
+      /** With allow: the request's suggestions to keep from now on, by index ("always allow"). */
+      always: z.array(z.number().int().nonnegative()).optional(),
     }),
     result: Ok,
   },
   "chat.interrupt": { capability: "chat.control", params: z.object(TabRef), result: Ok },
+  /**
+   * Sets any of model, effort and permission mode, as the composer's chips
+   * do; what it runs with after. A mode the serving device's policy does
+   * not allow is refused (Forbidden) with why.
+   */
+  "chat.configure": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      model: z.string().min(1).max(100).optional(),
+      effort: z.string().min(1).max(100).optional(),
+      permissionMode: z.string().min(1).max(100).optional(),
+    }),
+    result: ChatSettingsSchema,
+  },
+  /** Runs one of the app's slash commands (chat.commands' `command` ones), `args` after its name. */
+  "chat.command": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      name: z.string().min(1).max(100),
+      args: z.string().max(10_000).optional(),
+    }),
+    result: z.object({
+      /** What it said, when it says something rather than changing the chat. */
+      message: z.string().optional(),
+      /** The tab it opened, when it opened one. */
+      tabId: z.string().optional(),
+    }),
+  },
+  /** Stops a task of the chat's (a background run, a subagent), as the side panel's button does. */
+  "chat.stopTask": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, taskId: z.string() }),
+    result: Ok,
+  },
+  "chat.rename": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    result: z.object({ title: z.string() }),
+  },
+  /** Opens a past chat (history.list) in a new tab. */
+  "chat.resume": {
+    capability: "chat.control",
+    params: z.object({
+      workspaceId: z.string(),
+      agent: z.enum(["claude", "codex"]),
+      sessionId: z.string(),
+    }),
+    result: z.object({ tabId: z.string() }),
+  },
   /**
    * Opens a chat in one of the serving device's workspaces, sending it
    * `prompt` if given. `model` and `effort` are set before the prompt goes,
@@ -265,6 +671,13 @@ export const RPC_METHODS = {
       prompt: z.string().optional(),
       model: z.string().min(1).max(100).optional(),
       effort: z.string().min(1).max(100).optional(),
+      permissionMode: z.string().min(1).max(100).optional(),
+      /** The agent profile, by id or name (profiles.list); the workspace's otherwise. */
+      profile: z.string().min(1).max(100).optional(),
+      /** A folder inside the workspace to run in; its own folder otherwise. */
+      folder: z.string().min(1).max(4096).optional(),
+      /** Sent by an agent: the chat shows the prompt as that agent's. */
+      from: AgentSenderSchema.optional(),
     }),
     result: z.object({
       tabId: z.string(),
@@ -274,22 +687,231 @@ export const RPC_METHODS = {
   },
   "chat.close": { capability: "chat.control", params: z.object(TabRef), result: Ok },
 
-  /** A terminal's screen and the lines above it, as text. Nothing can be typed into it. */
+  /**
+   * A terminal's screen and the lines above it, as text; with `ansi`, with
+   * its colors and styles as SGR escapes (no other escapes).
+   */
   "terminal.read": {
     capability: "terminal.read",
-    params: z.object({ ...TabRef, lines: z.number().int().positive().max(5000).optional() }),
+    params: z.object({
+      ...TabRef,
+      lines: z.number().int().positive().max(5000).optional(),
+      ansi: z.boolean().optional(),
+    }),
     result: z.object({ text: z.string() }),
   },
   /** The terminal's text now, as terminal.read; then a terminal.update each time it changes, until terminal.unwatch. */
   "terminal.watch": {
     capability: "terminal.read",
-    params: z.object({ ...TabRef, lines: z.number().int().positive().max(5000).optional() }),
+    params: z.object({
+      ...TabRef,
+      lines: z.number().int().positive().max(5000).optional(),
+      ansi: z.boolean().optional(),
+    }),
     result: z.object({ text: z.string(), watchId: z.string() }),
   },
   "terminal.unwatch": {
     capability: "terminal.read",
     params: z.object({ watchId: z.string() }),
     result: Ok,
+  },
+  /**
+   * Types into a terminal: `text` as pasted, then `keys` by name
+   * (TERMINAL_KEYS), then Enter when `enter`. Sent by an agent (`from`), the receiving device counts it
+   * as that agent's.
+   */
+  "terminal.input": {
+    capability: "terminal.control",
+    params: z.object({
+      ...TabRef,
+      text: z
+        .string()
+        .max(64 * 1024)
+        .optional(),
+      keys: z.array(TerminalKeySchema).max(64).optional(),
+      enter: z.boolean().optional(),
+      from: AgentSenderSchema.optional(),
+    }),
+    /** `at`: when it was typed, by the serving device's clock, for terminal.wait's `after`. */
+    result: z.object({ at: z.number().optional() }),
+  },
+  /**
+   * Waits up to `timeoutMs` (at most MAX_WAIT_MS) as `nexus terminal wait`
+   * does: for the terminal's agent to finish its turn, its shell to be back
+   * at the prompt, or quiet output; with `exit`, for its program to end;
+   * with `match`, for a line to match. Ask again while `done` is false.
+   */
+  "terminal.wait": {
+    capability: "terminal.read",
+    params: z.object({
+      ...TabRef,
+      timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
+      /** A terminal.input's `at`: a turn must have started after it. */
+      after: z.number().optional(),
+      exit: z.boolean().optional(),
+      match: z.string().min(1).max(1000).optional(),
+      /** Quiet for this long counts as idle, for a program that is no agent or shell. */
+      quietMs: z.number().int().positive().max(600_000).optional(),
+    }),
+    result: z.object({
+      done: z.boolean(),
+      /** idle, completed, needsInput, permissionPending, error, notStarted, notified, exited, matched, or waiting. */
+      state: z.string(),
+      message: z.string().optional(),
+    }),
+  },
+  /**
+   * Answers the permission request a terminal's Claude Code holds for the
+   * app (its session's `waiting.requestId`), as the agent list's buttons do.
+   * An answer for agents, so chat.control's: no typing goes in.
+   */
+  "terminal.answer": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      requestId: z.string(),
+      decision: z.enum(["allow", "allowAlways", "deny", "denyStop"]),
+      from: AgentSenderSchema.optional(),
+    }),
+    result: Ok,
+  },
+  /** The shells a new terminal can run, as "New terminal with" lists them. */
+  "terminal.shells": {
+    capability: "terminal.control",
+    params: z.object({ workspaceId: z.string() }),
+    result: z.object({
+      shells: z.array(z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() })),
+    }),
+  },
+  /** Opens a terminal: a shell (by its id), in a folder inside the workspace, running `command`. */
+  "terminal.open": {
+    capability: "terminal.control",
+    params: z.object({
+      workspaceId: z.string(),
+      shell: z.string().min(1).max(200).optional(),
+      folder: z.string().min(1).max(4096).optional(),
+      command: z.string().min(1).max(10_000).optional(),
+      title: z.string().min(1).max(200).optional(),
+    }),
+    result: z.object({ tabId: z.string() }),
+  },
+  "terminal.rename": {
+    capability: "terminal.control",
+    params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
+    result: z.object({ title: z.string() }),
+  },
+  /** Closes a terminal; one running a program only with `force`. */
+  "terminal.close": {
+    capability: "terminal.control",
+    params: z.object({ ...TabRef, force: z.boolean().optional() }),
+    result: Ok,
+  },
+
+  /**
+   * A folder's entries, folders first. `path` is absolute or inside the
+   * workspace's folder ("" for it); it must be in the workspace's folders
+   * (its own, and those its chats were given).
+   */
+  "files.list": {
+    capability: "files",
+    params: z.object({ workspaceId: z.string(), path: z.string().max(4096) }),
+    result: z.object({
+      /** The folder, absolute. */
+      path: z.string(),
+      entries: z.array(
+        z.object({
+          name: z.string(),
+          kind: z.enum(["file", "dir", "link"]),
+          size: z.number().int().nonnegative().optional(),
+        }),
+      ),
+      /** More than MAX_LIST_ENTRIES: the rest left out. */
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /** A file: text (its start, up to `maxBytes`), an image made small enough for a frame, or that it is binary. */
+  "files.read": {
+    capability: "files",
+    params: z.object({
+      workspaceId: z.string(),
+      path: z.string().min(1).max(4096),
+      maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
+    }),
+    result: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("text"),
+        path: z.string(),
+        text: z.string(),
+        size: z.number().int().nonnegative(),
+        truncated: z.boolean(),
+      }),
+      z.object({
+        kind: z.literal("image"),
+        path: z.string(),
+        mediaType: ImageMediaTypeSchema,
+        data: z.string(),
+        size: z.number().int().nonnegative(),
+      }),
+      z.object({
+        kind: z.literal("binary"),
+        path: z.string(),
+        size: z.number().int().nonnegative(),
+      }),
+    ]),
+  },
+
+  /** The workspace's branch, how it stands against its upstream, and its changed files. */
+  "git.status": {
+    capability: "git",
+    params: z.object({ workspaceId: z.string() }),
+    result: z.object({
+      /** null when no branch is checked out. */
+      branch: z.string().nullable(),
+      upstream: z.string().optional(),
+      ahead: z.number().int().nonnegative(),
+      behind: z.number().int().nonnegative(),
+      files: z.array(GitFileSchema),
+      /** More files than a frame takes: the rest left out. */
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /** A file's changes, staged or not, in hunks as an edit's patch has them. */
+  "git.diff": {
+    capability: "git",
+    params: z.object({
+      workspaceId: z.string(),
+      path: z.string().min(1).max(4096),
+      staged: z.boolean().optional(),
+    }),
+    result: z.object({
+      path: z.string(),
+      oldPath: z.string().optional(),
+      binary: z.boolean().optional(),
+      hunks: z.array(DiffHunkSchema),
+      /** More than a frame takes: the hunks after left out. */
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /** The branch's commits, latest first. */
+  "git.log": {
+    capability: "git",
+    params: z.object({
+      workspaceId: z.string(),
+      limit: z.number().int().positive().max(200).optional(),
+      skip: z.number().int().nonnegative().optional(),
+    }),
+    result: z.object({
+      commits: z.array(
+        z.object({
+          hash: z.string(),
+          subject: z.string(),
+          author: z.string(),
+          /** Unix milliseconds. */
+          at: z.number(),
+          refs: z.array(z.string()).optional(),
+        }),
+      ),
+    }),
   },
 } as const;
 
