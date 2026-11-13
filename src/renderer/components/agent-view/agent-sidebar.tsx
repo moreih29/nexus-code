@@ -52,6 +52,7 @@ import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
+import { RemoteSessions } from "./remote-sessions";
 
 type DropEdge = "before" | "after";
 
@@ -142,6 +143,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
           ) : (
             <WorkspaceGroups agents={agents} activity={activity} chats={chats} query={query} />
           )}
+          <RemoteSessions query={query} />
         </div>
         <SystemStatsFooter />
       </div>

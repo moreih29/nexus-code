@@ -1745,6 +1745,19 @@
       "agent": "Agent",
       "resume": "Resume",
       "resume_title": "Types {{line}} in the terminal"
+    },
+    "remote": {
+      "title": "Other computers",
+      "loading": "Loading…",
+      "unavailable": "Not answering",
+      "empty": "No sessions",
+      "state": {
+        "needs-you": "Needs you",
+        "running": "Running",
+        "new-result": "New result",
+        "idle": "Idle",
+        "ended": "Ended"
+      }
     }
   },
   "releaseNotes": {

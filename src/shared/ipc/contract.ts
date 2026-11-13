@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
+import { RPC_METHODS } from "../../../packages/remote-protocol/src/rpc";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -2356,6 +2357,11 @@ export const ipcContract = {
        */
       /** The account's room: whether this device is in, and the other devices. */
       room: call(z.void(), RoomStateSchema),
+      /** Another device's workspaces and sessions, asked through the room. */
+      peerSessions: call(
+        z.object({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.list"].result,
+      ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),
       createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),

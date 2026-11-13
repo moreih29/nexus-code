@@ -3,7 +3,7 @@
 import { join } from "node:path";
 import { app, shell } from "electron";
 import { z } from "zod";
-import { RELAY_VERSION } from "../../../../packages/remote-protocol/src";
+import { RELAY_VERSION, RpcErrorCode } from "../../../../packages/remote-protocol/src";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AccountKeyState } from "../../../shared/remote/account";
@@ -15,7 +15,7 @@ import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { RelayConnection } from "./relay-connection";
-import { RemoteRoom } from "./room";
+import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { SERVES, serveWith } from "./serve";
 
@@ -50,6 +50,27 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
     }
     if (error instanceof ServerError || error instanceof UnreachableError) {
       return ipcErr("unavailable", error.message);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Asks another device of the account for the renderer: its answer, or why
+ * not (not-found, forbidden, unavailable: not in the room, gone, slow).
+ */
+async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
+  try {
+    return ipcOk(await question());
+  } catch (error) {
+    if (error instanceof RpcFailure) {
+      const kind =
+        error.code === RpcErrorCode.NotFound
+          ? "not-found"
+          : error.code === RpcErrorCode.Forbidden
+            ? "permission-denied"
+            : "unavailable";
+      return ipcErr(kind, error.message);
     }
     throw error;
   }
@@ -177,6 +198,13 @@ export async function registerRemoteChannel(options: {
         return ask(() => account.removeDevice(id));
       },
       room: async () => ipcOk(roomState),
+      peerSessions: (args: unknown) => {
+        const { deviceId } = validateArgs(c.peerSessions.args, args);
+        return askPeer(() => {
+          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
+          return room.request(deviceId, "sessions.list", {});
+        });
+      },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),
       createKey: (args: unknown) => {

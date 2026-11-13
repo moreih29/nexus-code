@@ -1745,6 +1745,19 @@
       "agent": "에이전트",
       "resume": "이어하기",
       "resume_title": "터미널에 {{line}} 입력"
+    },
+    "remote": {
+      "title": "다른 컴퓨터",
+      "loading": "불러오는 중…",
+      "unavailable": "응답 없음",
+      "empty": "세션 없음",
+      "state": {
+        "needs-you": "확인 필요",
+        "running": "실행 중",
+        "new-result": "새 결과",
+        "idle": "대기",
+        "ended": "종료"
+      }
     }
   },
   "releaseNotes": {

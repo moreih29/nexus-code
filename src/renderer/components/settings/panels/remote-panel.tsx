@@ -18,6 +18,7 @@ import {
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
+import { useRemoteRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
@@ -44,23 +45,6 @@ function useRemoteAccount(): RemoteAccountState | null {
     let live = true;
     const off = ipcListen("remote", "accountChanged", (next) => setState(next));
     void ipcCallResult("remote", "account", undefined).then((result) => {
-      if (live && result.ok) setState((now) => now ?? result.value);
-    });
-    return () => {
-      live = false;
-      off();
-    };
-  }, []);
-  return state;
-}
-
-/** The account's room from main: whether this device is in, and who else is. */
-function useRemoteRoom(): RoomState | null {
-  const [state, setState] = useState<RoomState | null>(null);
-  useEffect(() => {
-    let live = true;
-    const off = ipcListen("remote", "roomChanged", (next) => setState(next));
-    void ipcCallResult("remote", "room", undefined).then((result) => {
       if (live && result.ok) setState((now) => now ?? result.value);
     });
     return () => {
