@@ -9,10 +9,10 @@
  * - ./voice: the voice socket, speech to text while the user speaks;
  * - ./info: what the server offers (GET /info).
  */
-export * from "./account";
-export * from "./info";
-export * from "./relay";
-export * from "./rpc";
-export * from "./sealed";
-export * from "./view";
-export * from "./voice";
+export * from "./account.js";
+export * from "./info.js";
+export * from "./relay.js";
+export * from "./rpc.js";
+export * from "./sealed.js";
+export * from "./view.js";
+export * from "./voice.js";

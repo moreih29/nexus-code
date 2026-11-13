@@ -5,7 +5,7 @@
  * the key, or anything made from them; it only checks the bundle's shape.
  */
 import { z } from "zod";
-import { Base64UrlSchema } from "./relay";
+import { Base64UrlSchema } from "./relay.js";
 
 /** The associated data the key is sealed with: the user's id and the key's version, so a bundle cannot pass for another's. */
 export function bundleAadOf(userId: string, kid: number): string {

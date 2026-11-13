@@ -13,7 +13,7 @@ import {
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
-} from "./view";
+} from "./view.js";
 
 // ---------------------------------------------------------------------------
 // JSON-RPC 2.0 shapes

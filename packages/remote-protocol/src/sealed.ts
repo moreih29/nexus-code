@@ -9,8 +9,8 @@
  * in UTF-8.
  */
 import { z } from "zod";
-import { type DeviceId, DeviceIdSchema } from "./relay";
-import { RpcMessageSchema } from "./rpc";
+import { type DeviceId, DeviceIdSchema } from "./relay.js";
+import { RpcMessageSchema } from "./rpc.js";
 
 /** The version of what is sealed; a device tells it in its hello. */
 export const PROTOCOL_VERSION = 1;

@@ -3,13 +3,35 @@
   "version": "0.1.0",
   "description": "NexusCode's remote protocol: the relay's frames and the end-to-end RPC between a user's devices",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/moreih29/nexus-code.git",
+    "directory": "packages/remote-protocol"
+  },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
-    "src"
+    "dist",
+    "src",
+    "README.md",
+    "ACCOUNT_KEYS.md"
   ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "zod": "^3.25.0"
   }
