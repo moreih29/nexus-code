@@ -7,7 +7,8 @@ const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
 );
 
 const server = "http://localhost:8787";
-const render = (state: RemoteAccountState) => renderToStaticMarkup(<AccountGroup state={state} />);
+const render = (state: RemoteAccountState, signIns?: ("google" | "dev")[]) =>
+  renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
 
 describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
@@ -15,6 +16,12 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Sign in with Google");
     expect(html).toContain("This Google account&#x27;s email is not verified.");
     expect(html).toContain(`Server: ${server}`);
+  });
+
+  test("offers the sign-ins the server has", () => {
+    const html = render({ status: "signed-out", server }, ["dev"]);
+    expect(html).toContain("Sign in (dev server)");
+    expect(html).not.toContain("Sign in with Google");
   });
 
   test("says nothing of a sign-in the user cancelled", () => {
@@ -47,9 +54,13 @@ describe("the remote panel's account", () => {
       <DeviceRow
         device={{ id: "d1", name: "Work PC", platform: "win32" }}
         current
+        online
+        onRename={() => {}}
         onRemove={() => {}}
       />,
     );
+    expect(html).toContain('aria-label="Online"');
+    expect(html).toContain('aria-label="Rename Work PC"');
     expect(html).toContain("Work PC");
     expect(html).toContain("Windows");
     expect(html).toContain("This device");

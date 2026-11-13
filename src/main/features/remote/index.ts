@@ -31,15 +31,12 @@ export function remoteServer(): string {
 }
 
 /**
- * For development: NEXUS_REMOTE_PROVIDER=dev signs in with the dev server's
- * own sign-in instead of Google, as NEXUS_REMOTE_LOGIN_HINT's email when set.
+ * For development: NEXUS_REMOTE_LOGIN_HINT signs in as that email, so the
+ * dev server's sign-in asks nothing (two instances, one account).
  */
-function signInOptions(): { provider?: "dev"; loginHint?: string } {
+function signInOptions(): { loginHint?: string } {
   const loginHint = process.env.NEXUS_REMOTE_LOGIN_HINT?.trim();
-  return {
-    ...(process.env.NEXUS_REMOTE_PROVIDER?.trim() === "dev" ? { provider: "dev" as const } : {}),
-    ...(loginHint ? { loginHint } : {}),
-  };
+  return loginHint ? { loginHint } : {};
 }
 
 /** Asks the server for the renderer: how it failed, where the renderer can act on it. */
@@ -156,7 +153,11 @@ export async function registerRemoteChannel(options: {
   register("remote", {
     call: {
       account: async () => ipcOk(account.state()),
-      signIn: async () => ipcOk(await account.signIn()),
+      signIn: async (args: unknown) => {
+        const provider = validateArgs(c.signIn.args, args)?.provider;
+        return ipcOk(await account.signIn(provider));
+      },
+      serverInfo: () => ask(() => account.info()),
       cancelSignIn: async () => {
         account.cancelSignIn();
         return ipcOk(undefined);
@@ -167,6 +168,10 @@ export async function registerRemoteChannel(options: {
       },
       deleteAccount: () => ask(() => account.deleteAccount()),
       devices: () => ask(() => account.devices()),
+      renameDevice: (args: unknown) => {
+        const { id, name } = validateArgs(c.renameDevice.args, args);
+        return ask(() => account.renameDevice(id, name));
+      },
       removeDevice: (args: unknown) => {
         const { id } = validateArgs(c.removeDevice.args, args);
         return ask(() => account.removeDevice(id));

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -97,6 +98,7 @@ import {
   AccountKeyStateSchema,
   RemoteAccountStateSchema,
   RemoteDeviceInfoSchema,
+  SignInProviderSchema,
 } from "../remote/account";
 import { RoomStateSchema } from "../remote/room";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
@@ -2331,13 +2333,22 @@ export const ipcContract = {
        * Opens the sign-in in the browser and answers once it is over: signed
        * in, or signed out with why it did not finish.
        */
-      signIn: call(z.void(), RemoteAccountStateSchema),
+      signIn: call(
+        z.object({ provider: SignInProviderSchema }).optional(),
+        RemoteAccountStateSchema,
+      ),
+      /** What the server offers (GET /info): its sign-ins, the relay, voice. */
+      serverInfo: call(z.void(), ServerInfoSchema),
       cancelSignIn: call(z.void(), z.void()),
       signOut: call(z.void(), z.void()),
       /** Deletes the account on the server, and signs every device out. */
       deleteAccount: call(z.void(), z.void()),
       devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
       removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
+      renameDevice: call(
+        z.object({ id: z.string().min(1).max(64), name: z.string().trim().min(1).max(100) }),
+        z.void(),
+      ),
       /**
        * The account key and the account password's flows. A flow that does
        * not go through fails with a KeyFailure as its kind (too-short,

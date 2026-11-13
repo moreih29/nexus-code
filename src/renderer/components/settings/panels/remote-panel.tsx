@@ -5,15 +5,23 @@
 // as, the account password (remote-key-group), and the account's devices,
 // each of which can be removed.
 
-import { RefreshCw, Trash2 } from "lucide-react";
+import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
-import type { RemoteAccountState, RemoteDeviceInfo } from "../../../../shared/remote/account";
+import type { ServerInfo } from "../../../../../packages/remote-protocol/src/info";
+import {
+  type RemoteAccountState,
+  type RemoteDeviceInfo,
+  SIGN_IN_PROVIDERS,
+  type SignInProvider,
+} from "../../../../shared/remote/account";
+import type { RoomState } from "../../../../shared/remote/room";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
+import { PromptDialog } from "../../ui/prompt-dialog";
 import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
 import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
 
@@ -46,24 +54,67 @@ function useRemoteAccount(): RemoteAccountState | null {
   return state;
 }
 
+/** The account's room from main: whether this device is in, and who else is. */
+function useRemoteRoom(): RoomState | null {
+  const [state, setState] = useState<RoomState | null>(null);
+  useEffect(() => {
+    let live = true;
+    const off = ipcListen("remote", "roomChanged", (next) => setState(next));
+    void ipcCallResult("remote", "room", undefined).then((result) => {
+      if (live && result.ok) setState((now) => now ?? result.value);
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+  return state;
+}
+
+/** The sign-ins the server offers, asked while signed out; Google's alone until it answers. */
+function useSignIns(ask: boolean): SignInProvider[] {
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+  useEffect(() => {
+    if (!ask) return;
+    let live = true;
+    void ipcCallResult("remote", "serverInfo", undefined).then((result) => {
+      if (live && result.ok) setInfo(result.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ask]);
+  const offered = SIGN_IN_PROVIDERS.filter((p) => info?.signIn.includes(p));
+  return offered.length > 0 ? offered : ["google"];
+}
+
 export function RemotePanel() {
   const state = useRemoteAccount();
   const key = useAccountKey();
+  const room = useRemoteRoom();
+  const signIns = useSignIns(state?.status === "signed-out");
   if (!state) return null;
   return (
     <SettingsPage>
-      <AccountGroup state={state} />
+      <AccountGroup state={state} signIns={signIns} />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
-      {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} />}
+      {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} room={room} />}
       {state.status === "signed-in" && <DeleteAccountGroup />}
     </SettingsPage>
   );
 }
 
-export function AccountGroup({ state }: { state: RemoteAccountState }) {
+export function AccountGroup({
+  state,
+  signIns = ["google"],
+}: {
+  state: RemoteAccountState;
+  /** The sign-ins the server offers. */
+  signIns?: readonly SignInProvider[];
+}) {
   const { t } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
-  const signIn = () => void ipcCallResult("remote", "signIn", undefined);
+  const signIn = (provider: SignInProvider) => void ipcCallResult("remote", "signIn", { provider });
   const cancel = () => void ipcCallResult("remote", "cancelSignIn", undefined);
   const signOut = () => void ipcCallResult("remote", "signOut", undefined);
   const failure =
@@ -96,9 +147,13 @@ export function AccountGroup({ state }: { state: RemoteAccountState }) {
             )
           }
         >
-          <Button size="sm" onClick={signIn}>
-            {t("remote.account.signIn")}
-          </Button>
+          <div className="flex items-center gap-2">
+            {signIns.map((provider) => (
+              <Button key={provider} size="sm" onClick={() => signIn(provider)}>
+                {t(`remote.account.signInWith.${provider}`)}
+              </Button>
+            ))}
+          </div>
         </SettingsRow>
       )}
       <p className="text-app-micro text-muted-foreground">
@@ -113,10 +168,17 @@ type DevicesView =
   | { status: "ready"; devices: RemoteDeviceInfo[] }
   | { status: "unavailable" };
 
-function DevicesGroup({ thisDevice }: { thisDevice: string }) {
+function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomState | null }) {
   const { t } = useTranslation("settings");
   const [view, setView] = useState<DevicesView>({ status: "loading" });
   const [busy, setBusy] = useState(false);
+  const [renaming, setRenaming] = useState<RemoteDeviceInfo | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  /** Who is in the room now; this device while it is. */
+  const online = (id: string) =>
+    id === thisDevice
+      ? room?.status === "online"
+      : (room?.peers.some((p) => p.id === id && p.online) ?? false);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -145,6 +207,16 @@ function DevicesGroup({ thisDevice }: { thisDevice: string }) {
     const result = await ipcCallResult("remote", "removeDevice", { id: device.id });
     if (!self && (result.ok || result.kind === "not-found")) void load();
     else if (!result.ok && result.kind !== "session-expired") setView({ status: "unavailable" });
+  };
+
+  const rename = async (name: string) => {
+    if (!renaming) return;
+    setRenameBusy(true);
+    const result = await ipcCallResult("remote", "renameDevice", { id: renaming.id, name });
+    setRenameBusy(false);
+    setRenaming(null);
+    if (result.ok || result.kind === "not-found") void load();
+    else if (result.kind !== "session-expired") setView({ status: "unavailable" });
   };
 
   return (
@@ -178,11 +250,26 @@ function DevicesGroup({ thisDevice }: { thisDevice: string }) {
               key={device.id}
               device={device}
               current={device.current ?? device.id === thisDevice}
+              online={online(device.id)}
+              onRename={() => setRenaming(device)}
               onRemove={() => void remove(device)}
             />
           ))}
         </div>
       )}
+      <PromptDialog
+        request={
+          renaming && {
+            title: t("remote.devices.renameTitle", { name: renaming.name }),
+            label: t("remote.devices.renameLabel"),
+            defaultValue: renaming.name,
+            confirmLabel: t("remote.devices.renameConfirm"),
+          }
+        }
+        busy={renameBusy}
+        onCancel={() => setRenaming(null)}
+        onConfirm={(name) => void rename(name.trim().slice(0, 100))}
+      />
     </SettingsGroup>
   );
 }
@@ -190,10 +277,15 @@ function DevicesGroup({ thisDevice }: { thisDevice: string }) {
 export function DeviceRow({
   device,
   current,
+  online = false,
+  onRename,
   onRemove,
 }: {
   device: RemoteDeviceInfo;
   current: boolean;
+  /** In the account's room now. */
+  online?: boolean;
+  onRename?: () => void;
   onRemove: () => void;
 }) {
   const { t, i18n } = useTranslation("settings");
@@ -214,6 +306,15 @@ export function DeviceRow({
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-1.5">
+          <span
+            className={cn(
+              "size-2 shrink-0 rounded-full",
+              online ? "bg-[var(--state-success-fg)]" : "bg-muted-foreground/40",
+            )}
+            role="img"
+            aria-label={online ? t("remote.devices.online") : t("remote.devices.offline")}
+            title={online ? t("remote.devices.online") : t("remote.devices.offline")}
+          />
           <span className="truncate text-app-body text-foreground">{device.name}</span>
           {current && <span className={tagClass}>{t("remote.devices.current")}</span>}
         </span>
@@ -221,6 +322,17 @@ export function DeviceRow({
           {seen ? `${platform} · ${seen}` : platform}
         </span>
       </div>
+      {onRename && (
+        <button
+          type="button"
+          aria-label={t("remote.devices.rename", { name: device.name })}
+          title={t("remote.devices.rename", { name: device.name })}
+          onClick={onRename}
+          className={iconButtonClass}
+        >
+          <Pencil className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
       <button
         type="button"
         aria-label={t("remote.devices.remove", { name: device.name })}

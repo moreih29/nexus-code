@@ -6,9 +6,11 @@
  *   devices of the account, which only they can open;
  * - ./account: the account key, locked with the account password, as the
  *   server keeps it;
- * - ./voice: the voice socket, speech to text while the user speaks.
+ * - ./voice: the voice socket, speech to text while the user speaks;
+ * - ./info: what the server offers (GET /info).
  */
 export * from "./account";
+export * from "./info";
 export * from "./relay";
 export * from "./rpc";
 export * from "./sealed";

@@ -661,7 +661,10 @@
       "title": "NexusCode account",
       "description": "Sign in on each of your computers to reach one's agent sessions from another.",
       "signedOut": "Not signed in",
-      "signIn": "Sign in with Google",
+      "signInWith": {
+        "google": "Sign in with Google",
+        "dev": "Sign in (dev server)"
+      },
       "signingIn": "Finish signing in in your browser…",
       "cancel": "Cancel",
       "signOut": "Sign out",
@@ -691,7 +694,13 @@
         "description": "It is signed out of your account and can no longer reach your sessions. If it was lost or stolen, also reset the account password, so the key it holds opens nothing new.",
         "descriptionSelf": "This computer is signed out of your account.",
         "confirm": "Remove"
-      }
+      },
+      "online": "Online",
+      "offline": "Offline",
+      "rename": "Rename {{name}}",
+      "renameTitle": "Rename {{name}}",
+      "renameLabel": "Name",
+      "renameConfirm": "Rename"
     },
     "key": {
       "title": "Account password",

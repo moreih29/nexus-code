@@ -7,12 +7,14 @@
 
 import os from "node:os";
 import { z } from "zod";
+import { type ServerInfo, ServerInfoSchema } from "../../../../packages/remote-protocol/src";
 import {
   type RemoteAccountState,
   type RemoteDeviceInfo,
   RemoteDeviceInfoSchema,
   RemoteUserSchema,
   type SignInFailure,
+  type SignInProvider,
 } from "../../../shared/remote/account";
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
@@ -73,11 +75,8 @@ export interface RemoteAccountDeps {
   device?: { name: string; platform: string };
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
   timeoutMs?: number;
-  /**
-   * Who signs the user in: Google, or the dev server's own sign-in (only on
-   * a server at localhost), which takes an email and no password.
-   */
-  provider?: "google" | "dev";
+  /** The sign-in used when none is asked for. */
+  provider?: SignInProvider;
   /** The email to sign in as, when known: the dev sign-in then asks nothing. */
   loginHint?: string;
 }
@@ -122,7 +121,7 @@ export class RemoteAccount {
    * come back; then trades its code for this device's token. A sign-in that
    * does not finish leaves the app signed out, with why in the state.
    */
-  async signIn(): Promise<RemoteAccountState> {
+  async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
     if (this.signingIn || this.saved) return this.state();
     const listener = await (this.deps.listen ?? listenForCallback)(
       this.deps.timeoutMs ?? SIGN_IN_TIMEOUT_MS,
@@ -133,7 +132,10 @@ export class RemoteAccount {
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
-      const start = new URL(`/auth/${this.deps.provider ?? "google"}/start`, this.deps.server);
+      const start = new URL(
+        `/auth/${provider ?? this.deps.provider ?? "google"}/start`,
+        this.deps.server,
+      );
       start.search = new URLSearchParams({
         redirect_uri: listener.redirectUri,
         state,
@@ -182,6 +184,21 @@ export class RemoteAccount {
     if (!this.saved) return;
     await this.call("POST", "/auth/logout").catch(() => {});
     this.forget();
+  }
+
+  /** What the server offers: its sign-ins, and whether it has the relay and voice. */
+  async info(): Promise<ServerInfo> {
+    return ServerInfoSchema.parse(await this.call("GET", "/info", { signedIn: false }));
+  }
+
+  /** Names a device of the account anew; the room tells every device. */
+  async renameDevice(id: string, name: string): Promise<void> {
+    await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { name } });
+    if (this.saved && id === this.saved.device.id) {
+      this.saved = { ...this.saved, device: { ...this.saved.device, name: name.trim() } };
+      await this.deps.store.save(this.saved);
+      this.changed();
+    }
   }
 
   /**

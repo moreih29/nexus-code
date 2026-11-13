@@ -661,7 +661,10 @@
       "title": "NexusCode 계정",
       "description": "각 컴퓨터에서 로그인하면 한 컴퓨터의 에이전트 세션을 다른 컴퓨터에서 볼 수 있습니다.",
       "signedOut": "로그인하지 않음",
-      "signIn": "Google로 로그인",
+      "signInWith": {
+        "google": "Google로 로그인",
+        "dev": "로그인 (개발 서버)"
+      },
       "signingIn": "브라우저에서 로그인을 마쳐 주세요…",
       "cancel": "취소",
       "signOut": "로그아웃",
@@ -691,7 +694,13 @@
         "description": "이 기기는 계정에서 로그아웃되고 더 이상 세션에 접근할 수 없습니다. 분실했거나 도난당한 기기라면 계정 암호도 재설정하세요. 그래야 그 기기에 남은 키로 새 내용을 열 수 없습니다.",
         "descriptionSelf": "이 컴퓨터가 계정에서 로그아웃됩니다.",
         "confirm": "해제"
-      }
+      },
+      "online": "온라인",
+      "offline": "오프라인",
+      "rename": "{{name}} 이름 바꾸기",
+      "renameTitle": "{{name}} 이름 바꾸기",
+      "renameLabel": "이름",
+      "renameConfirm": "바꾸기"
     },
     "key": {
       "title": "계정 암호",

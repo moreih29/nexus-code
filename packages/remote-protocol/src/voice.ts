@@ -47,7 +47,8 @@ export const VoiceServerMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("done"), seconds: z.number().nonnegative() }),
   z.object({
     t: z.literal("error"),
-    code: z.enum(["bad-frame", "provider-error"]),
+    /** unauthorized: the device's sign-in ended (the socket closes 4001 after it). */
+    code: z.enum(["bad-frame", "provider-error", "unauthorized"]),
     message: z.string(),
   }),
 ]);
