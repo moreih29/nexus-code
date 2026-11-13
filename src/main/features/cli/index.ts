@@ -5,7 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
+import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -80,6 +80,12 @@ export interface SetupCliFeatureOptions {
   /** The permission requests the terminals' Claude sessions hold for the app to answer. */
   claudeAsks?: {
     list(workspaceId: string, tabId: string): readonly PermissionAsk[];
+    answer(
+      workspaceId: string,
+      tabId: string,
+      askId: string,
+      answer: PermissionAnswer,
+    ): Promise<boolean>;
   };
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
@@ -225,6 +231,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
     claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
+    answerClaudeAsk: async (workspaceId, tabId, askId, answer) =>
+      (await options.claudeAsks?.answer(workspaceId, tabId, askId, answer)) ?? false,
     managerWorkspace: () => workspaceManager.managerMeta(),
     claudeAgents: {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],

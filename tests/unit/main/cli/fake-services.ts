@@ -628,6 +628,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
     claudeAsks: () => [],
+    answerClaudeAsk: async () => false,
     managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],

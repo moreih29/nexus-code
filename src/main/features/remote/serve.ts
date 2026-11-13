@@ -28,6 +28,14 @@ import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { gitDiff, gitLog, gitStatus, type RemoteGit } from "./git";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import type { SessionWatches } from "./session-watches";
+import {
+  answerTerminal,
+  closeTerminal,
+  inputTerminal,
+  openTerminal,
+  renameTerminal,
+  terminalShells,
+} from "./terminal-control";
 import type { TerminalWatches } from "./terminal-watches";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
@@ -36,17 +44,20 @@ export const SERVES: readonly Capability[] = [
   "chat.read",
   "chat.control",
   "terminal.read",
+  "terminal.control",
   "files",
   "git",
 ];
 
 /**
- * What this device serves as the user set it: its chats' controls only
- * when the user lets other devices control them (Settings › Remote); else
- * they may only look.
+ * What this device serves as the user set it: its chats' controls, and
+ * its terminals', each only when the user lets other devices have them
+ * (Settings › Remote); else they may only look.
  */
-export function servesWith(allowControl: boolean): readonly Capability[] {
-  return allowControl ? SERVES : SERVES.filter((c) => c !== "chat.control");
+export function servesWith(allowControl: boolean, allowTerminal = false): readonly Capability[] {
+  return SERVES.filter(
+    (c) => (c !== "chat.control" || allowControl) && (c !== "terminal.control" || allowTerminal),
+  );
 }
 
 /** How many lines of a terminal a read gives when it does not say. */
@@ -788,6 +799,18 @@ export function serveWith(
         return resumeChat(s, request.params as RpcParams<"chat.resume">);
       case "chat.close":
         return closeChat(s, request.params as RpcParams<"chat.close">);
+      case "terminal.input":
+        return inputTerminal(s, request.params as RpcParams<"terminal.input">);
+      case "terminal.shells":
+        return terminalShells(s, request.params as RpcParams<"terminal.shells">);
+      case "terminal.open":
+        return openTerminal(s, request.params as RpcParams<"terminal.open">, watches.files?.fs);
+      case "terminal.rename":
+        return renameTerminal(s, request.params as RpcParams<"terminal.rename">);
+      case "terminal.close":
+        return closeTerminal(s, request.params as RpcParams<"terminal.close">);
+      case "terminal.answer":
+        return answerTerminal(s, request.params as RpcParams<"terminal.answer">);
       default:
         throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
     }

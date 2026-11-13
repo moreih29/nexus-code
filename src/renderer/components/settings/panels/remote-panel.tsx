@@ -227,6 +227,36 @@ export function RemoteControlSwitch() {
   );
 }
 
+/**
+ * Whether the account's other devices may control this computer's
+ * terminals: type into them, open and close them. Off, they only read them.
+ */
+export function RemoteTerminalSwitch() {
+  const { t } = useTranslation("settings");
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void ipcCallResult("remote", "allowTerminal", undefined).then((result) => {
+      if (live && result.ok) setAllowed(result.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <SettingsSwitch
+      label={t("remote.terminal.label")}
+      description={t("remote.terminal.description")}
+      checked={allowed ?? false}
+      disabled={allowed === null}
+      onChange={(next) => {
+        setAllowed(next);
+        void ipcCallResult("remote", "setAllowTerminal", { allowed: next });
+      }}
+    />
+  );
+}
+
 function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomState | null }) {
   const { t } = useTranslation("settings");
   const [view, setView] = useState<DevicesView>({ status: "loading" });
@@ -302,6 +332,7 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
       }
     >
       <RemoteControlSwitch />
+      <RemoteTerminalSwitch />
       {view.status === "unavailable" && (
         <p className="text-app-ui-sm text-destructive" role="alert">
           {t("remote.devices.unavailable")}

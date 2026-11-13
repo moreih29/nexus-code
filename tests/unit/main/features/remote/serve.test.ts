@@ -182,6 +182,15 @@ describe("what this device serves", () => {
     expect(servesWith(false)).not.toContain("chat.control");
     expect(servesWith(false)).toContain("chat.read");
   });
+
+  test("terminal control only while the user allows it, apart from chat control", () => {
+    expect(servesWith(true)).not.toContain("terminal.control");
+    expect(servesWith(false, true)).toContain("terminal.control");
+    expect(servesWith(false, true)).not.toContain("chat.control");
+    expect(servesWith(true, true)).toEqual(
+      expect.arrayContaining(["chat.control", "terminal.control"]),
+    );
+  });
 });
 
 describe("serving a chat's settings", () => {

@@ -232,6 +232,10 @@ export const AppStateSchema = z.object({
   // (send, answer, stop, open, close) or only look (main/features/remote).
   remoteControl: z.boolean().default(false),
 
+  // Whether they may control its terminals too (type, open, rename, close),
+  // which runs anything the user could; off, they only read them.
+  remoteTerminalControl: z.boolean().default(false),
+
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.
   cliEnabled: z.boolean().default(true),

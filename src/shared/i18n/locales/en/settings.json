@@ -709,8 +709,12 @@
       "renameConfirm": "Rename"
     },
     "control": {
-      "label": "Allow control from other devices",
-      "description": "Off, your other devices can only look."
+      "label": "Allow chat control from other devices",
+      "description": "Off, your other devices can only read the chats."
+    },
+    "terminal": {
+      "label": "Allow terminal control from other devices",
+      "description": "Off, your other devices can only read the terminals. On, they can type into them, open and close them: anything you could run there."
     },
     "key": {
       "title": "Account password",

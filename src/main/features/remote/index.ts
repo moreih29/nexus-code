@@ -155,6 +155,8 @@ export async function registerRemoteChannel(options: {
   services: () => CliServices | null;
   /** Whether other devices may control this one's chats (off unless the user turned it on), kept with the app's state. */
   allowControl: { get(): boolean; set(allowed: boolean): void };
+  /** Whether they may control its terminals too (off unless the user turned it on). */
+  allowTerminal: { get(): boolean; set(allowed: boolean): void };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
@@ -271,7 +273,7 @@ export async function registerRemoteChannel(options: {
       self: { id: want.device.id, name: want.device.name, platform: want.device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
-      serves: () => servesWith(options.allowControl.get()),
+      serves: () => servesWith(options.allowControl.get(), options.allowTerminal.get()),
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
       serve: serveWith(options.services, {
         chats: watches,
@@ -350,6 +352,13 @@ export async function registerRemoteChannel(options: {
         const { allowed } = validateArgs(c.setAllowControl.args, args);
         options.allowControl.set(allowed);
         // The others learn it from the hello: they show the chats as view only, or not.
+        room?.announce();
+        return ipcOk(allowed);
+      },
+      allowTerminal: async () => ipcOk(options.allowTerminal.get()),
+      setAllowTerminal: async (args: unknown) => {
+        const { allowed } = validateArgs(c.setAllowTerminal.args, args);
+        options.allowTerminal.set(allowed);
         room?.announce();
         return ipcOk(allowed);
       },
