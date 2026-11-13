@@ -36,9 +36,11 @@ export const RpcErrorSchema = z.object({
 });
 export type RpcError = z.infer<typeof RpcErrorSchema>;
 
+// The error first: `result: z.unknown()` takes an object without one too,
+// and would strip an error answer's `error`.
 export const RpcResponseSchema = z.union([
-  z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, result: z.unknown() }),
   z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, error: RpcErrorSchema }),
+  z.object({ jsonrpc: z.literal("2.0"), id: RpcIdSchema, result: z.unknown() }),
 ]);
 export type RpcResponse = z.infer<typeof RpcResponseSchema>;
 

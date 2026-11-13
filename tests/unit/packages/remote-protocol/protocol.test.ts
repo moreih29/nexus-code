@@ -81,6 +81,11 @@ describe("a sealed message", () => {
       expect(SealedMessageSchema.safeParse(message).success).toBe(true);
     }
   });
+
+  test("an error answer keeps its error", () => {
+    const answer = { jsonrpc: "2.0", id: 1, error: { code: 1001, message: "no such tab" } };
+    expect(SealedMessageSchema.parse(answer)).toEqual(answer);
+  });
 });
 
 describe("the methods", () => {
