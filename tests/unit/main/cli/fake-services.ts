@@ -627,6 +627,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
+    claudeAsks: () => [],
+    managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
       stop: async (_ws, _t, agentId) => {

@@ -7,6 +7,7 @@ import {
   RpcErrorCode,
   type RpcNotificationParams,
 } from "../../../../packages/remote-protocol/src";
+import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AccountKeyState } from "../../../shared/remote/account";
@@ -24,6 +25,7 @@ import { electronSecretBox, SealedFile } from "./sealed-file";
 import { listSessions, servesWith, serveWith } from "./serve";
 import { remoteServer } from "./server";
 import { SessionWatches } from "./session-watches";
+import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
 import { TicketSchema, VoiceSessions } from "./voice";
 
@@ -118,6 +120,8 @@ export async function registerRemoteChannel(options: {
   services: () => CliServices | null;
   /** Whether other devices may control this one's chats (off unless the user turned it on), kept with the app's state. */
   allowControl: { get(): boolean; set(allowed: boolean): void };
+  /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
+  gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -143,12 +147,16 @@ export async function registerRemoteChannel(options: {
     services: options.services,
     notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
   });
+  // The tasks' branches, looked at now and then for the sessions' list.
+  const { gitStatus } = options;
+  const taskGit = gitStatus ? new TaskGit(gitStatus) : null;
+  const git = taskGit?.facts;
   // The sessions' list other devices watch here.
   const sessionWatches = new SessionWatches({
     list: async () => {
       const services = options.services();
       if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-      return listSessions(services);
+      return listSessions(services, git);
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
   });
@@ -230,6 +238,7 @@ export async function registerRemoteChannel(options: {
         chats: watches,
         sessions: sessionWatches,
         terminals: terminalWatches,
+        ...(git ? { git } : {}),
       }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {

@@ -2,7 +2,7 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
-import type { AgentRun } from "../../../shared/claude/activity";
+import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import type {
@@ -56,6 +56,10 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
+  claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];
+  /** The agent manager's own workspace, once the manager opened it; listWorkspaces leaves it out. */
+  managerWorkspace(): WorkspaceMeta | null;
   /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
   readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */

@@ -11,6 +11,7 @@ import type {
   CliChatInfo,
   CliChatRequest,
   CliChatTool,
+  CliChatWaiting,
 } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { lastAnswer } from "../agent-sessions/codex-state";
@@ -33,6 +34,16 @@ function askedOf(model: ChatModel): string | undefined {
     case "permission":
       return `asks to run ${wait.tool}${wait.target ? ` ${wait.target}` : ""}`;
   }
+}
+
+/** What a tab asks the user for, in a line; none while it asks nothing. */
+function waitingOf(model: ChatModel): CliChatWaiting | undefined {
+  const wait = chatRowFacts(model).wait;
+  if (!wait) return undefined;
+  if (wait.kind === "permission") {
+    return { kind: "permission", text: wait.target ? `${wait.tool} ${wait.target}` : wait.tool };
+  }
+  return { kind: wait.kind, text: wait.text };
 }
 
 /** How much of a request's input is told: a command is whole well under it. */
@@ -110,7 +121,15 @@ export function chatInfoOf(
   const asked = model.permissions.length > 0 ? askedOf(model) : undefined;
   if (asked) {
     const request = requestOf(model);
-    return { agent, state: "asking", message: asked, ...(request ? { request } : {}), ...at };
+    const waiting = waitingOf(model);
+    return {
+      agent,
+      state: "asking",
+      message: asked,
+      ...(request ? { request } : {}),
+      ...(waiting ? { waiting } : {}),
+      ...at,
+    };
   }
   const answer = lastAnswer(model);
   const told = answer ? { message: answer } : {};

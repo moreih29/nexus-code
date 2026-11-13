@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
 function services(): CliServices {
   const workspaces = [
@@ -16,9 +17,13 @@ function services(): CliServices {
       { id: "t3", type: "editor", title: "a.ts" },
     ],
     w2: [{ id: "t4", type: "codex", title: "Review" }],
+    [MANAGER_WORKSPACE_ID]: [],
   };
   return {
     listWorkspaces: () => workspaces,
+    managerWorkspace: () => ({ id: MANAGER_WORKSPACE_ID, name: "Manager", rootPath: "/manager" }),
+    claudeAsks: (_w: string, tab: string) =>
+      tab === "t2" ? [{ id: "h1", tool: "Bash", target: "rm -rf dist", always: [], since: 5 }] : [],
     claudeStatus: (_w: string, tab: string) =>
       tab === "t2" ? { status: "permissionPending", message: "Allow rm?", since: 5 } : null,
     activity: () => null,
@@ -36,6 +41,7 @@ function services(): CliServices {
           since: 10,
           profile: "work",
           request: { id: "r1", tool: "Bash", input: "bun test" },
+          waiting: { kind: "permission", text: "Bash bun\ntest" },
         };
       }
       return { agent: "codex", state: "working", since: 20 };
@@ -45,9 +51,17 @@ function services(): CliServices {
 
 describe("serving the sessions", () => {
   test("lists the chats and terminals of every workspace, in the app's order", async () => {
-    const list = await listSessions(services());
-    expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3"]);
+    const git = (w: { id: string }) =>
+      w.id === "w2" ? { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 } : undefined;
+    const list = await listSessions(services(), git);
+    expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3", MANAGER_WORKSPACE_ID]);
     expect(list.workspaces[0]).toEqual({ id: "w1", name: "app", path: "/src/app" });
+    // A task names its parent and how its branch stands; the manager's says it is the manager's.
+    expect(list.workspaces[1]).toMatchObject({
+      parentId: "w1",
+      git: { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 },
+    });
+    expect(list.workspaces[3]).toMatchObject({ manager: true });
     expect(list.sessions).toEqual([
       {
         workspaceId: "w1",
@@ -58,7 +72,7 @@ describe("serving the sessions", () => {
         since: 10,
         last: "May I run bun test?",
         profile: "work",
-        waiting: { kind: "permission", text: "bun test" },
+        waiting: { kind: "permission", text: "Bash bun test" },
       },
       {
         workspaceId: "w1",
@@ -68,6 +82,8 @@ describe("serving the sessions", () => {
         state: "needs-you",
         since: 5,
         last: "Allow rm?",
+        // What the terminal's Claude Code asks, as the app holds it.
+        waiting: { kind: "permission", text: "Bash rm -rf dist", requestId: "h1" },
       },
       {
         workspaceId: "w2",

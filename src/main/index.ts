@@ -595,6 +595,10 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteControl ?? false,
       set: (allowed) => stateService.setState({ remoteControl: allowed }),
     },
+    gitStatus: async (workspaceId) => {
+      const repository = await gitRegistry?.getOrDetect(workspaceId);
+      return repository ? repository.status() : null;
+    },
   }).catch((error: unknown) => {
     logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
     return null;

@@ -86,12 +86,21 @@ describe("chatInfoOf", () => {
       state: "asking",
       message: "asks to run Bash rm -rf dist",
       request: { id: "r1", tool: "Bash", input: "rm -rf dist" },
+      waiting: { kind: "permission", text: "Bash rm -rf dist" },
     });
     const question = chat({
       permissions: [permission("AskUserQuestion", { questions: [{ question: "Which port?" }] })],
     });
     expect(chatInfoOf("claude", question, false).message).toBe("asks: Which port?");
     expect(chatInfoOf("claude", question, false).request).toBeUndefined();
+    expect(chatInfoOf("claude", question, false).waiting).toEqual({
+      kind: "question",
+      text: "Which port?",
+    });
+    const plan = chat({
+      permissions: [permission("ExitPlanMode", { plan: "Step one\nStep two" })],
+    });
+    expect(chatInfoOf("claude", plan, false).waiting).toEqual({ kind: "plan", text: "Step one" });
   });
 
   it("tells a request whole: a command's every line, another tool's input", () => {

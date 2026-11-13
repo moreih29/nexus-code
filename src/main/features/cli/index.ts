@@ -5,7 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { AgentRun } from "../../../shared/claude/activity";
+import type { AgentRun, PermissionAsk } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -69,11 +69,16 @@ export interface SetupCliFeatureOptions {
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
+    /** The agent manager's workspace, once opened; list leaves it out. */
+    managerMeta(): WorkspaceMeta | null;
   };
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
-    get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+    get(
+      workspaceId: string,
+      tabId: string,
+    ): { agents: readonly AgentRun[]; asks?: readonly PermissionAsk[] } | null;
   };
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
@@ -218,6 +223,8 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
+    claudeAsks: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.asks ?? [],
+    managerWorkspace: () => workspaceManager.managerMeta(),
     claudeAgents: {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
       stop: async (workspaceId, tabId, agentId) =>

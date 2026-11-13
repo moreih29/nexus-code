@@ -20,6 +20,7 @@ import {
   type RpcNotificationParams,
   type RpcParams,
   type RpcResult,
+  SCHEMA_VERSION,
   type SealedMessage,
   type ServerFrame,
 } from "../../../../packages/remote-protocol/src";
@@ -207,6 +208,7 @@ export class RemoteRoom {
       device: this.deps.self,
       app: this.deps.app,
       serves: [...this.serves()],
+      schema: SCHEMA_VERSION,
       reply,
     };
   }

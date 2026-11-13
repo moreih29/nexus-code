@@ -14,6 +14,7 @@ import {
   type SessionState,
 } from "../../../../packages/remote-protocol/src";
 import type { CliChatState } from "../../../shared/cli/ui";
+import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { CliServices } from "../cli/context";
@@ -77,8 +78,19 @@ function oneLine(text: string, max = 200): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
-export async function listSessions(services: CliServices): Promise<RpcResult<"sessions.list">> {
-  const workspaces = ordered(services.listWorkspaces());
+/** A task's git facts as last looked at; none for a workspace that is no task, or not looked at yet. */
+export type WorkspaceGit = (workspace: WorkspaceMeta) => RemoteWorkspace["git"] | undefined;
+
+/**
+ * The workspaces and their sessions, the agent manager's last; a task's
+ * git facts from `git`, which looks at them now and then rather than now.
+ */
+export async function listSessions(
+  services: CliServices,
+  git?: WorkspaceGit,
+): Promise<RpcResult<"sessions.list">> {
+  const manager = services.managerWorkspace();
+  const workspaces = [...ordered(services.listWorkspaces()), ...(manager ? [manager] : [])];
   const sessions: RemoteSession[] = [];
   const now = Date.now();
   for (const workspace of workspaces) {
@@ -104,17 +116,23 @@ export async function listSessions(services: CliServices): Promise<RpcResult<"se
           ...(info.since !== undefined ? { since: info.since } : {}),
           ...(info.message ? { last: oneLine(info.message) } : {}),
           ...(info.profile ? { profile: info.profile } : {}),
-          ...(info.state === "asking" && info.request
-            ? { waiting: { kind: "permission" as const, text: oneLine(info.request.input) } }
+          ...(info.state === "asking" && info.waiting
+            ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
             : {}),
         });
       } else if (tab.type === "terminal") {
+        const claude = services.claudeStatus(workspace.id, tab.id);
         const state = describeTerminal(
-          services.claudeStatus(workspace.id, tab.id),
+          claude,
           services.activity(workspace.id, tab.id),
           tab.title,
           now,
         );
+        // A Claude Code there asking to run a tool: what it asks, as the app holds it.
+        const ask =
+          claude?.status === "permissionPending"
+            ? services.claudeAsks(workspace.id, tab.id)[0]
+            : undefined;
         sessions.push({
           workspaceId: workspace.id,
           tabId: tab.id,
@@ -123,15 +141,30 @@ export async function listSessions(services: CliServices): Promise<RpcResult<"se
           state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
           ...(state.since !== undefined ? { since: state.since } : {}),
           ...(state.message ? { last: oneLine(state.message) } : {}),
+          ...(ask
+            ? {
+                waiting: {
+                  kind: "permission" as const,
+                  text: oneLine(ask.target ? `${ask.tool} ${ask.target}` : ask.tool),
+                  requestId: ask.id,
+                },
+              }
+            : {}),
         });
       }
     }
   }
-  const listed: RemoteWorkspace[] = workspaces.map((w) => ({
-    id: w.id,
-    name: w.name,
-    path: w.rootPath,
-  }));
+  const listed: RemoteWorkspace[] = workspaces.map((w) => {
+    const facts = w.task ? git?.(w) : undefined;
+    return {
+      id: w.id,
+      name: w.name,
+      path: w.rootPath,
+      ...(w.task ? { parentId: w.task.parentId } : {}),
+      ...(isManagerWorkspace(w.id) ? { manager: true } : {}),
+      ...(facts ? { git: facts } : {}),
+    };
+  });
   return { workspaces: listed, sessions };
 }
 
@@ -303,9 +336,15 @@ export async function closeChat(
 /** Answers another device's request with this device's services. */
 export function serveWith(
   services: () => CliServices | null,
-  watches: { chats?: ChatWatches; sessions?: SessionWatches; terminals?: TerminalWatches } = {},
+  watches: {
+    chats?: ChatWatches;
+    sessions?: SessionWatches;
+    terminals?: TerminalWatches;
+    /** The tasks' git facts the sessions' list tells. */
+    git?: WorkspaceGit;
+  } = {},
 ) {
-  const { chats, sessions, terminals } = watches;
+  const { chats, sessions, terminals, git } = watches;
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
@@ -328,7 +367,7 @@ export function serveWith(
     }
     switch (request.method) {
       case "sessions.list":
-        return listSessions(s);
+        return listSessions(s, git);
       case "chat.read":
         return readChat(s, request.params as RpcParams<"chat.read">);
       case "terminal.read":

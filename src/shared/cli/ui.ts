@@ -241,10 +241,19 @@ export interface CliChatInfo {
   readonly since?: number;
   /** When asking to run a tool: the request, whole. */
   readonly request?: CliChatRequest;
+  /** When asking: what for (a tool to allow, a question, a plan to approve), in a line. */
+  readonly waiting?: CliChatWaiting;
   /** The agent profile it runs with, by name, where the agent has more than the default. */
   readonly profile?: string;
   /** The goal it works toward (/goal), while it shows one. */
   readonly goal?: CliChatGoal;
+}
+
+/** What a tab asks the user for. */
+export interface CliChatWaiting {
+  readonly kind: "permission" | "question" | "plan";
+  /** The question, the plan's start, or the tool and what it works on. */
+  readonly text: string;
 }
 
 /** A tab's goal (/goal) as the CLI tells it. */

@@ -461,6 +461,11 @@ export class WorkspaceManager {
       .filter((meta) => !isManagerWorkspace(meta.id));
   }
 
+  /** The agent manager's workspace, once opened (openManagerWorkspace); list leaves it out. */
+  managerMeta(): WorkspaceMeta | null {
+    return this.contexts.get(MANAGER_WORKSPACE_ID)?.getMeta() ?? null;
+  }
+
   /**
    * Opens the agent manager's workspace (shared/manager), a local one at
    * `rootPath` whose agent runs the manager's program and relays its nexus
