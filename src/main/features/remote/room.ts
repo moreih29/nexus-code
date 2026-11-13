@@ -66,6 +66,8 @@ export interface RemoteRoomDeps {
   readonly self: { id: string; name: string; platform: string };
   readonly room: RoomKey;
   readonly app: { name: string; version: string };
+  /** The app's color theme now, by its id, which its hello says; it may change (see announce). */
+  readonly theme?: () => string | undefined;
   /** What this device serves of its sessions, as its hello says; it may change (see announce). */
   readonly serves: readonly Capability[] | (() => readonly Capability[]);
   /** Makes the socket, telling it what to call. */
@@ -137,7 +139,7 @@ export class RemoteRoom {
     return typeof serves === "function" ? serves() : serves;
   }
 
-  /** Tells the room again what this device serves, after it changed. */
+  /** Tells the room again what this device serves, or its theme, after it changed. */
   announce(): void {
     if (this.status === "online" && this.greeted) void this.post("*", this.hello(false));
   }
@@ -201,12 +203,17 @@ export class RemoteRoom {
     return this.connection.send(frame) ? seq : null;
   }
 
+  private themeNow(): { theme?: string } {
+    const theme = this.deps.theme?.();
+    return theme ? { theme } : {};
+  }
+
   private hello(reply: boolean): Hello {
     return {
       type: "hello",
       protocol: PROTOCOL_VERSION,
       device: this.deps.self,
-      app: this.deps.app,
+      app: { ...this.deps.app, ...this.themeNow() },
       serves: [...this.serves()],
       schema: SCHEMA_VERSION,
       reply,

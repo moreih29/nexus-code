@@ -175,6 +175,28 @@ describe("the room", () => {
     ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
   });
 
+  test("its hello says the app's theme, and says it again once it changed", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let theme = "github-dark";
+    const a = device(relay, "a", key, { theme: () => theme });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    expect(b.room.state().peers[0]?.app).toEqual({
+      name: "NexusCode",
+      version: "0.0.0-test",
+      theme: "github-dark",
+    });
+    // One that tells none says none.
+    expect(a.room.state().peers[0]?.app).toEqual({ name: "NexusCode", version: "0.0.0-test" });
+    theme = "github-light";
+    a.room.announce();
+    await tick();
+    expect(b.room.state().peers[0]?.app.theme).toBe("github-light");
+  });
+
   test("a device that left is told as unavailable", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

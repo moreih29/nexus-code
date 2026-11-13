@@ -163,9 +163,13 @@ export async function registerRemoteChannel(options: {
   fs?: (workspaceId: string) => Promise<FsProvider>;
   /** A workspace's repository, for the git other devices read; null where it is none. */
   repository?: (workspaceId: string) => Promise<RemoteRepository | null>;
+  /** The app's color theme now, by its id: a phone may follow it. */
+  theme?: () => string | undefined;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
+  /** The app's theme changed: the other devices are told. */
+  themeChanged(): void;
   dispose(): void;
 }> {
   const box = await electronSecretBox();
@@ -273,6 +277,7 @@ export async function registerRemoteChannel(options: {
       self: { id: want.device.id, name: want.device.name, platform: want.device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
+      ...(options.theme ? { theme: options.theme } : {}),
       serves: () => servesWith(options.allowControl.get(), options.allowTerminal.get()),
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
       serve: serveWith(options.services, {
@@ -481,6 +486,7 @@ export async function registerRemoteChannel(options: {
   return {
     account,
     keys: accountKeys,
+    themeChanged: () => room?.announce(),
     dispose: () => {
       account.cancelSignIn();
       voice.cancel();

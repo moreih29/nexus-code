@@ -1,6 +1,7 @@
 import path from "node:path";
 import { app, type BrowserWindow, powerMonitor, session } from "electron";
 import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
+import { DEFAULT_THEME } from "../shared/design-tokens";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -174,7 +175,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
-let remote: { dispose(): void } | null = null;
+let remote: { themeChanged(): void; dispose(): void } | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -375,6 +376,8 @@ registerAppStateChannel(stateService, {
   /** The theme changed: the window controls Electron draws follow it. */
   onThemeChanged(theme) {
     updateTitleBarOverlays(theme);
+    // Another device may follow it.
+    remote?.themeChanged();
   },
 });
 
@@ -595,6 +598,7 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteControl ?? false,
       set: (allowed) => stateService.setState({ remoteControl: allowed }),
     },
+    theme: () => stateService.getState().themePreference ?? DEFAULT_THEME,
     allowTerminal: {
       get: () => stateService.getState().remoteTerminalControl ?? false,
       set: (allowed) => stateService.setState({ remoteTerminalControl: allowed }),
