@@ -57,21 +57,37 @@ function useRemoteAccount(): RemoteAccountState | null {
   return state;
 }
 
-/** The sign-ins the server offers, asked while signed out; Google's alone until it answers. */
-function useSignIns(ask: boolean): SignInProvider[] {
+/**
+ * The sign-ins the server offers, asked while signed out: Google's alone
+ * until it answers, and whether it could not be reached, to ask again.
+ */
+function useSignIns(ask: boolean): {
+  providers: SignInProvider[];
+  unreachable: boolean;
+  retry: () => void;
+} {
   const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [unreachable, setUnreachable] = useState(false);
+  const [round, setRound] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `round` asks again
   useEffect(() => {
     if (!ask) return;
     let live = true;
     void ipcCallResult("remote", "serverInfo", undefined).then((result) => {
-      if (live && result.ok) setInfo(result.value);
+      if (!live) return;
+      setUnreachable(!result.ok);
+      if (result.ok) setInfo(result.value);
     });
     return () => {
       live = false;
     };
-  }, [ask]);
+  }, [ask, round]);
   const offered = SIGN_IN_PROVIDERS.filter((p) => info?.signIn.includes(p));
-  return offered.length > 0 ? offered : ["google"];
+  return {
+    providers: offered.length > 0 ? offered : ["google"],
+    unreachable,
+    retry: () => setRound((r) => r + 1),
+  };
 }
 
 export function RemotePanel() {
@@ -82,7 +98,12 @@ export function RemotePanel() {
   if (!state) return null;
   return (
     <SettingsPage>
-      <AccountGroup state={state} signIns={signIns} />
+      <AccountGroup
+        state={state}
+        signIns={signIns.providers}
+        unreachable={signIns.unreachable}
+        onRetry={signIns.retry}
+      />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} room={room} />}
       {state.status === "signed-in" && <DeleteAccountGroup />}
@@ -93,10 +114,15 @@ export function RemotePanel() {
 export function AccountGroup({
   state,
   signIns = ["google"],
+  unreachable = false,
+  onRetry,
 }: {
   state: RemoteAccountState;
   /** The sign-ins the server offers. */
   signIns?: readonly SignInProvider[];
+  /** The server did not answer when asked what it offers. */
+  unreachable?: boolean;
+  onRetry?: () => void;
 }) {
   const { t } = useTranslation("settings");
   // Signing in answers once the browser is back; the state says so meanwhile.
@@ -106,7 +132,9 @@ export function AccountGroup({
   const failure =
     state.status === "signed-out" && state.failure && state.failure !== "cancelled"
       ? state.failure
-      : undefined;
+      : unreachable
+        ? "unreachable"
+        : undefined;
 
   return (
     <SettingsGroup title={t("remote.account.title")} description={t("remote.account.description")}>
@@ -126,6 +154,14 @@ export function AccountGroup({
         // Below the name, not beside it: the buttons wrap when there are several.
         <SettingsSection
           label={t("remote.account.signedOut")}
+          action={
+            unreachable &&
+            onRetry && (
+              <Button variant="outline" size="sm" onClick={onRetry}>
+                {t("remote.account.retry")}
+              </Button>
+            )
+          }
           description={
             failure && (
               <span className="text-destructive" role="alert">
@@ -177,6 +213,13 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A device signed in since the list came: in the room before it is in the list.
+  const known = view.status === "ready" ? view.devices : null;
+  const newcomer = room?.peers.some((p) => !known?.some((d) => d.id === p.id)) ?? false;
+  useEffect(() => {
+    if (known && newcomer) void load();
+  }, [known, newcomer, load]);
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;

@@ -681,7 +681,8 @@
         "unreachable": "Could not reach the server.",
         "failed": "The sign-in did not finish. Try again."
       },
-      "localOnly": "Local server only"
+      "localOnly": "Local server only",
+      "retry": "Try again"
     },
     "devices": {
       "title": "Devices",

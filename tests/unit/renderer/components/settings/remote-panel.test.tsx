@@ -41,6 +41,18 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Local server only");
   });
 
+  test("says when the server could not be reached, and offers to ask again", () => {
+    const html = renderToStaticMarkup(
+      <AccountGroup state={{ status: "signed-out", server }} unreachable onRetry={() => {}} />,
+    );
+    expect(html).toContain("Could not reach the server.");
+    expect(html).toContain("Try again");
+    // The sign-in stays: the server may answer it.
+    expect(html).toContain("Sign in with Google");
+    const reached = render({ status: "signed-out", server });
+    expect(reached).not.toContain("Try again");
+  });
+
   test("says nothing of a sign-in the user cancelled", () => {
     const html = render({ status: "signed-out", server, failure: "cancelled" });
     expect(html).toContain("Sign in with Google");
