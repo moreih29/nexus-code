@@ -23,17 +23,11 @@ import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { SERVES, serveWith } from "./serve";
+import { remoteServer } from "./server";
 
 const TicketSchema = z.object({ ticket: z.string().min(1) });
 
 const c = ipcContract.remote.call;
-
-/** The server in development (wrangler dev); NEXUS_REMOTE_SERVER names another. */
-export const DEV_SERVER = "http://localhost:8787";
-
-export function remoteServer(): string {
-  return process.env.NEXUS_REMOTE_SERVER?.trim() || DEV_SERVER;
-}
 
 /**
  * For development: NEXUS_REMOTE_LOGIN_HINT signs in as that email, so the
@@ -134,7 +128,7 @@ export async function registerRemoteChannel(options: {
   };
   let keys: AccountKeys | null = null;
   const account = new RemoteAccount({
-    server: remoteServer(),
+    server: remoteServer(process.env, app.isPackaged),
     store,
     openExternal: (url) => shell.openExternal(url),
     ...signInOptions(),
