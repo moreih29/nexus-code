@@ -229,6 +229,10 @@ export const RPC_METHODS = {
       decision: z.enum(["allow", "deny"]),
       /** Why, for a denial: the program reads it. */
       message: z.string().optional(),
+      /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
+      updatedInput: z.record(z.unknown()).optional(),
+      /** With deny: the turn stops too, as the card's "No, and stop" does. */
+      stop: z.boolean().optional(),
     }),
     result: Ok,
   },
