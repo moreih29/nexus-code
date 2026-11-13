@@ -4,7 +4,7 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
-import type { ChatPage } from "../../../packages/remote-protocol/src/rpc";
+import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
@@ -649,6 +649,24 @@ export interface CliUiOps {
       user?: boolean;
     };
     result: CliChatChoices;
+  };
+  /**
+   * A Claude or Codex tab's slash commands that another device may use: the
+   * agent's own, the model and effort chat.settings sets, and the app's own
+   * that change the conversation. Its program is started if it was not.
+   */
+  "chat.commands": {
+    args: { workspaceId: string; tabId: string };
+    result: { commands: ChatCommand[] };
+  };
+  /**
+   * Runs one of the app's own commands in a Claude or Codex tab as its
+   * composer runs it typed, for the user on another device; what it said,
+   * and the tab it opened, when it opened one.
+   */
+  "chat.command": {
+    args: { workspaceId: string; tabId: string; name: string; args?: string };
+    result: { message?: string; tabId?: string };
   };
   /**
    * Has a Claude or Codex tab run with another agent profile (by name or id),

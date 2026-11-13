@@ -241,6 +241,55 @@ describe("serving a chat's settings", () => {
   });
 });
 
+describe("serving a chat's slash commands", () => {
+  const commands = [
+    { name: "review", description: "Review", runs: "send" },
+    { name: "model", description: "Model", runs: "settings", sets: "model" },
+    { name: "btw", description: "Aside", runs: "command", args: "<question>" },
+  ];
+  function commandServices() {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return op === "chat.commands" ? { commands } : { message: "an answer" };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  const tab = { workspaceId: "w1", tabId: "t1" };
+
+  test("lists them, and runs one of the app's with what follows it", async () => {
+    const { serve, asked } = commandServices();
+    expect(await serve({ from: "d", method: "chat.commands", params: tab })).toEqual({ commands });
+    const ran = await serve({
+      from: "d",
+      method: "chat.command",
+      params: { ...tab, name: "/btw", args: "why?" },
+    });
+    expect(ran).toEqual({ message: "an answer" });
+    expect(asked.at(-1)).toEqual(["chat.command", { ...tab, name: "btw", args: "why?" }]);
+  });
+
+  test("sends the agent's own and the settings elsewhere, and refuses one it does not list", async () => {
+    const { serve, asked } = commandServices();
+    const run = (name: string) =>
+      serve({ from: "d", method: "chat.command", params: { ...tab, name } });
+    await expect(run("review")).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining("chat.send"),
+    });
+    await expect(run("model")).rejects.toMatchObject({
+      message: expect.stringContaining("chat.configure"),
+    });
+    await expect(run("logout")).rejects.toMatchObject({ code: -32602 });
+    expect(asked.some(([op]) => op === "chat.command")).toBe(false);
+  });
+});
+
 describe("serving a chat's controls", () => {
   function recording(fail?: string) {
     const asked: [string, unknown][] = [];

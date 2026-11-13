@@ -374,6 +374,48 @@ export async function configureChat(
 /** How long a change of settings may take: a model change restarts nothing, but waits to be shown. */
 const SETTINGS_TIMEOUT_MS = 60_000;
 
+export async function chatCommands(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.commands">,
+): Promise<RpcResult<"chat.commands">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
+}
+
+/**
+ * Runs one of the app's commands the tab lists, as its composer runs it
+ * typed; one the agent runs goes with chat.send, and the model and effort
+ * with chat.configure.
+ */
+export async function runChatCommand(
+  services: CliServices,
+  { workspaceId, tabId, name, args }: RpcParams<"chat.command">,
+): Promise<RpcResult<"chat.command">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const bare = name.replace(/^\//, "");
+  const { commands } = await services
+    .ui("chat.commands", { workspaceId, tabId })
+    .catch(unavailable);
+  const command = commands.find((c) => c.name === bare);
+  if (command?.runs !== "command") {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      !command
+        ? `/${bare} is not a command this chat lists (chat.commands)`
+        : command.runs === "send"
+          ? `/${bare} is the agent's own: send it as a message (chat.send)`
+          : `/${bare} sets what chat.configure sets`,
+    );
+  }
+  return services
+    .ui(
+      "chat.command",
+      { workspaceId, tabId, name: bare, ...(args ? { args } : {}) },
+      SETTINGS_TIMEOUT_MS,
+    )
+    .catch(unavailable);
+}
+
 export async function interruptChat(
   services: CliServices,
   { workspaceId, tabId }: RpcParams<"chat.interrupt">,
@@ -465,6 +507,10 @@ export function serveWith(
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
         return configureChat(s, request.params as RpcParams<"chat.configure">);
+      case "chat.commands":
+        return chatCommands(s, request.params as RpcParams<"chat.commands">);
+      case "chat.command":
+        return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
       case "chat.close":

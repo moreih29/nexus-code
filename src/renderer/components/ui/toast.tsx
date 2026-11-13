@@ -110,6 +110,19 @@ interface ActiveToast {
 let nextId = 1;
 let active: ActiveToast[] = [];
 const bus = createListenerBus();
+const watchers = new Set<(toast: ToastInput) => void>();
+
+/**
+ * Calls `watcher` with each toast shown until the returned function is
+ * called: what a command run for another device said, which that device
+ * is told as the command's answer.
+ */
+export function watchToasts(watcher: (toast: ToastInput) => void): () => void {
+  watchers.add(watcher);
+  return () => {
+    watchers.delete(watcher);
+  };
+}
 
 function defaultDuration(kind: ToastKind): number {
   if (kind === "error") return TOAST_ERROR_MS;
@@ -123,6 +136,7 @@ function defaultDuration(kind: ToastKind): number {
  */
 export function showToast(input: ToastInput): number {
   const id = nextId++;
+  for (const watcher of watchers) watcher(input);
   const actions = input.actions ?? [];
 
   // Action and details toasts never expire — they wait for the user to act

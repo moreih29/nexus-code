@@ -29,6 +29,7 @@ import {
 } from "../chat/agent-tab";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
+import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { type ChatSource, chatPageOf } from "../remote/chat-page";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
@@ -367,6 +368,24 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.commands": async ({ workspaceId, tabId }) => {
+    const target = await openedTab(workspaceId, tabId);
+    const key = chatKey(workspaceId, tabId);
+    // Claude lists its own when its program starts; a program that will not
+    // start leaves the app's.
+    if (target.agent === "claude" && !useChatStore.getState().tabs[key]?.model.init) {
+      await whenReady(workspaceId, tabId, target.agent).catch(() => {});
+    }
+    const chat = useChatStore.getState().tabs[key];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    return { commands: chatCommandsOf(target.agent, chat.model) };
+  },
+
+  "chat.command": async ({ workspaceId, tabId, name, args }) => {
+    const target = await openedTab(workspaceId, tabId);
+    return runRemoteCommand(workspaceId, tabId, target, name, args?.trim() ?? "");
   },
 
   "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun }) => {
