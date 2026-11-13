@@ -13,6 +13,7 @@ function setup(pageItems = 0) {
   const sent: [string, ChatUpdate][] = [];
   const services = {
     listWorkspaces: () => [{ id: "w1", name: "app", rootPath: "/src/app" }],
+    managerWorkspace: () => null,
     ui: async (op: string, args: Record<string, unknown>) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Chat" }] };
       asked.push([op, args]);

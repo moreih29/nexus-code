@@ -26,6 +26,8 @@ export const RoomPeerSchema = z.object({
   /** From its hello, once it said one: its app, and what it serves of its sessions. */
   app: z.object({ name: z.string(), version: z.string() }).optional(),
   serves: z.array(z.string()).optional(),
+  /** The protocol package's version it speaks (0.2.0 on); absent from an older one. */
+  schema: z.string().optional(),
 });
 export type RoomPeer = z.infer<typeof RoomPeerSchema>;
 

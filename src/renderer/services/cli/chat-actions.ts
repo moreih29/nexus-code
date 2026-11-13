@@ -212,13 +212,20 @@ async function applySettings(
   tabId: string,
   { agent, controller }: AgentTabController,
   wanted: CliChatSettings,
+  user = false,
 ): Promise<void> {
   await whenReady(workspaceId, tabId, agent);
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
   if (!chat) throw new UiRequestError("that tab is gone");
   let plan: ChatSettingsPlan;
   try {
-    plan = planChatSettings(agent, chat.model, wanted, controller.supports("apply_flag_settings"));
+    plan = planChatSettings(
+      agent,
+      chat.model,
+      wanted,
+      controller.supports("apply_flag_settings"),
+      user,
+    );
   } catch (err) {
     throw new UiRequestError((err as Error).message);
   }
@@ -353,9 +360,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.settings": async ({ workspaceId, tabId, settings }) => {
+  "chat.settings": async ({ workspaceId, tabId, settings, user }) => {
     const target = await openedTab(workspaceId, tabId);
-    if (hasSettings(settings)) await applySettings(workspaceId, tabId, target, settings);
+    if (hasSettings(settings)) await applySettings(workspaceId, tabId, target, settings, user);
     else await whenReady(workspaceId, tabId, target.agent);
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");

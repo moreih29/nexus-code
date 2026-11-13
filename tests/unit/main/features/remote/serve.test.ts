@@ -184,6 +184,63 @@ describe("what this device serves", () => {
   });
 });
 
+describe("serving a chat's settings", () => {
+  const choices = {
+    agent: "claude",
+    model: "sonnet",
+    effort: "high",
+    mode: "default",
+    models: [{ value: "sonnet", name: "Sonnet" }],
+    efforts: ["low", "high"],
+  };
+  function settingsServices(now: Record<string, unknown> = choices) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return now;
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  const tab = { workspaceId: "w1", tabId: "t1" };
+
+  test("tells what the chat runs with and every mode it may take, the dangerous one marked", async () => {
+    const { serve } = settingsServices();
+    const got = (await serve({ from: "d", method: "chat.settings", params: tab })) as {
+      model: string;
+      options: { models: unknown[]; modes: { id: string; dangerous?: boolean }[] };
+    };
+    expect(got).toMatchObject({ agent: "claude", model: "sonnet", permissionMode: "default" });
+    expect(got.options.models).toEqual([{ id: "sonnet", label: "Sonnet" }]);
+    expect(got.options.modes.map((m) => m.id)).toContain("acceptEdits");
+    expect(got.options.modes.find((m) => m.dangerous)?.id).toBe("bypassPermissions");
+  });
+
+  test("sets them as the user, and refuses the dangerous mode a policy turned off", async () => {
+    const { serve, asked } = settingsServices();
+    await serve({
+      from: "d",
+      method: "chat.configure",
+      params: { ...tab, model: "sonnet", permissionMode: "acceptEdits" },
+    });
+    expect(asked).toEqual([
+      ["chat.settings", { ...tab, settings: { model: "sonnet", mode: "acceptEdits" }, user: true }],
+    ]);
+    const blocked = settingsServices({ ...choices, dangerousBlocked: "disabled by policy" });
+    await expect(
+      blocked.serve({
+        from: "d",
+        method: "chat.configure",
+        params: { ...tab, permissionMode: "bypassPermissions" },
+      }),
+    ).rejects.toMatchObject({ code: 1002, message: expect.stringContaining("disabled by policy") });
+  });
+});
+
 describe("serving a chat's controls", () => {
   function recording(fail?: string) {
     const asked: [string, unknown][] = [];

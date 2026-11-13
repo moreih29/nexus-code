@@ -277,7 +277,12 @@ export class RemoteRoom {
         platform: message.device.platform,
         online: true,
       };
-      this.peers.set(frame.from, { ...peer, app: message.app, serves: message.serves });
+      this.peers.set(frame.from, {
+        ...peer,
+        app: message.app,
+        serves: message.serves,
+        ...(message.schema ? { schema: message.schema } : {}),
+      });
       this.changed();
       if (message.reply) void this.post(frame.from, this.hello(false));
       return;

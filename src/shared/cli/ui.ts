@@ -219,6 +219,8 @@ export interface CliChatChoices {
   readonly models: readonly { readonly value: string; readonly name: string }[];
   /** The effort levels its model takes; none when it takes none. */
   readonly efforts: readonly string[];
+  /** Why the mode that lets everything run cannot be picked here (a policy), when it cannot. */
+  readonly dangerousBlocked?: string;
 }
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
@@ -636,7 +638,16 @@ export interface CliUiOps {
    * what it takes. Its program is started if it was not.
    */
   "chat.settings": {
-    args: { workspaceId: string; tabId: string; settings: CliChatSettings };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      settings: CliChatSettings;
+      /**
+       * The user sets them, from another device (the remote): the mode that
+       * lets everything run too, unless a policy keeps it off. An agent never.
+       */
+      user?: boolean;
+    };
     result: CliChatChoices;
   };
   /**

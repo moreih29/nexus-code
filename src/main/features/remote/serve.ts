@@ -13,10 +13,13 @@ import {
   type RpcResult,
   type SessionState,
 } from "../../../../packages/remote-protocol/src";
-import type { CliChatState } from "../../../shared/cli/ui";
+import type { CliChatChoices, CliChatState } from "../../../shared/cli/ui";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
+import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
 import type { ChatWatches } from "./chat-watches";
 import { fitsInFrame, RpcFailure } from "./room";
@@ -174,17 +177,27 @@ export async function tabOf(
   workspaceId: string,
   tabId: string,
   kinds: readonly string[],
-): Promise<void> {
-  if (!services.listWorkspaces().some((w) => w.id === workspaceId)) {
+): Promise<{ id: string; type: string; title: string }> {
+  if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
   const { tabs } = await services
     .ui("tabs.list", { workspaceId })
-    .catch(() => ({ tabs: [] as { id: string; type: string }[] }));
+    .catch(() => ({ tabs: [] as { id: string; type: string; title: string }[] }));
   const tab = tabs.find((t) => t.id === tabId);
   if (!tab || !kinds.includes(tab.type)) {
     throw new RpcFailure(RpcErrorCode.NotFound, `no such ${kinds.join(" or ")} tab`);
   }
+  return tab;
+}
+
+/** A workspace the sessions' list shows: the user's, or the agent manager's. */
+export function workspaceOf(services: CliServices, workspaceId: string): WorkspaceMeta | undefined {
+  const manager = services.managerWorkspace();
+  return (
+    services.listWorkspaces().find((w) => w.id === workspaceId) ??
+    (manager?.id === workspaceId ? manager : undefined)
+  );
 }
 
 /**
@@ -291,6 +304,76 @@ export async function answerChat(
   return {};
 }
 
+/** What a tab's choices are, as the protocol tells them; the modes named in this app's language. */
+export function settingsOf(choices: CliChatChoices): RpcResult<"chat.settings"> {
+  const set = CHAT_MODES[choices.agent];
+  const t = tryGetMainT();
+  return {
+    agent: choices.agent,
+    model: choices.model,
+    effort: choices.effort,
+    permissionMode: choices.mode,
+    options: {
+      models: choices.models.map((m) => ({ id: m.value, label: m.name })),
+      efforts: [...choices.efforts],
+      modes: set.modes.map((id) => ({
+        id,
+        label: t ? String(t(`common:${set.prefix}.${id}`)) : id,
+        ...(id === set.dangerous ? { dangerous: true } : {}),
+      })),
+    },
+  };
+}
+
+export async function chatSettings(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.settings">,
+): Promise<RpcResult<"chat.settings">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const choices = await services
+    .ui("chat.settings", { workspaceId, tabId, settings: {} })
+    .catch(unavailable);
+  return settingsOf(choices);
+}
+
+/**
+ * Sets what the user asked from another device, as the composer's chips
+ * do: the mode that lets everything run too, unless a policy keeps it off
+ * here (Forbidden, with why).
+ */
+export async function configureChat(
+  services: CliServices,
+  { workspaceId, tabId, model, effort, permissionMode }: RpcParams<"chat.configure">,
+): Promise<RpcResult<"chat.configure">> {
+  const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const settings = {
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    ...(permissionMode !== undefined ? { mode: permissionMode } : {}),
+  };
+  if (permissionMode !== undefined) {
+    const set = CHAT_MODES[tab.type as ChatAgent];
+    if (chatModeNamed(tab.type as ChatAgent, permissionMode) === set.dangerous) {
+      const now = await services
+        .ui("chat.settings", { workspaceId, tabId, settings: {} })
+        .catch(unavailable);
+      if (now.dangerousBlocked) {
+        throw new RpcFailure(
+          RpcErrorCode.Forbidden,
+          `${set.dangerous} is turned off on this computer: ${now.dangerousBlocked}`,
+        );
+      }
+    }
+  }
+  const choices = await services
+    .ui("chat.settings", { workspaceId, tabId, settings, user: true }, SETTINGS_TIMEOUT_MS)
+    .catch(unavailable);
+  return settingsOf(choices);
+}
+
+/** How long a change of settings may take: a model change restarts nothing, but waits to be shown. */
+const SETTINGS_TIMEOUT_MS = 60_000;
+
 export async function interruptChat(
   services: CliServices,
   { workspaceId, tabId }: RpcParams<"chat.interrupt">,
@@ -304,7 +387,7 @@ export async function newChat(
   services: CliServices,
   { workspaceId, agent, prompt, model, effort }: RpcParams<"chat.new">,
 ): Promise<RpcResult<"chat.new">> {
-  const workspace = services.listWorkspaces().find((w) => w.id === workspaceId);
+  const workspace = workspaceOf(services, workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   const settings = {
     ...(model !== undefined ? { model } : {}),
@@ -378,6 +461,10 @@ export function serveWith(
         return answerChat(s, request.params as RpcParams<"chat.answer">);
       case "chat.interrupt":
         return interruptChat(s, request.params as RpcParams<"chat.interrupt">);
+      case "chat.settings":
+        return chatSettings(s, request.params as RpcParams<"chat.settings">);
+      case "chat.configure":
+        return configureChat(s, request.params as RpcParams<"chat.configure">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
       case "chat.close":

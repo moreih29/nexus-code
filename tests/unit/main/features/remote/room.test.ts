@@ -5,7 +5,7 @@ import type {
   RoomDevice,
   ServerFrame,
 } from "../../../../../packages/remote-protocol/src";
-import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
+import { RpcErrorCode, SCHEMA_VERSION } from "../../../../../packages/remote-protocol/src";
 import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remote/account-key";
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
@@ -125,6 +125,8 @@ describe("the room", () => {
           online: true,
           app: { name: "NexusCode", version: "0.0.0-test" },
           serves: ["sessions"],
+          // The protocol version it speaks, so the other leaves out what it lacks.
+          schema: SCHEMA_VERSION,
         },
       ],
     });
