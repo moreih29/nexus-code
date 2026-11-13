@@ -37,13 +37,13 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "./consent";
-import { CliError, type CliForwards, type CliServices, shortId } from "./context";
+import { CliError, type CliForwards, type CliRemote, type CliServices, shortId } from "./context";
+import { AgentInputs } from "./hops";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
-import { AgentInputs } from "./hops";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
@@ -88,6 +88,8 @@ export interface SetupCliFeatureOptions {
       answer: PermissionAnswer,
     ): Promise<boolean>;
   };
+  /** The user's other computers, once the remote is set up; none before. */
+  remote?: () => CliRemote | null;
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
@@ -245,6 +247,17 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
     agentInputs,
+    remote: {
+      inRoom: () => options.remote?.()?.inRoom() ?? false,
+      devices: async () => (await options.remote?.()?.devices()) ?? [],
+      request: (deviceId, method, params, timeoutMs) => {
+        const remote = options.remote?.();
+        if (!remote) {
+          throw new CliError("this computer is not in the remote room (Settings › Remote)", 3);
+        }
+        return remote.request(deviceId, method, params, timeoutMs);
+      },
+    },
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
       bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>

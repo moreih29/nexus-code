@@ -2,6 +2,7 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
+import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remote-protocol/src";
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
@@ -19,22 +20,56 @@ import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/wor
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
-import type { StartedAgents } from "./started-agents";
 import type { AgentInputs } from "./hops";
+import type { StartedAgents } from "./started-agents";
 import type { WaitRegistry } from "./waits";
 
-/** A failure the command reports as is, with its exit code. */
+/** A failure the command reports as is, with its exit code; with --json, `json` too. */
 export class CliError extends Error {
   constructor(
     message: string,
     readonly exitCode = 1,
+    readonly json?: unknown,
   ) {
     super(message);
   }
 }
 
+/** A device of the user's account, as `nexus device list` shows it. */
+export interface CliDevice {
+  readonly id: string;
+  readonly name: string;
+  readonly platform: string;
+  /** Whether it is this computer. */
+  readonly self: boolean;
+  readonly online: boolean;
+  /** When the server last heard from it, in Unix ms. */
+  readonly lastSeen?: number;
+  /** What it serves its account's other devices, as its hello said; none until it said one. */
+  readonly serves: readonly string[];
+  /** The protocol package's version it speaks; absent from an older NexusCode. */
+  readonly schema?: string;
+}
+
+/** The user's other computers, through the remote's room, for `--device`. */
+export interface CliRemote {
+  /** Whether this computer is in its account's room now: signed in, its key unlocked, connected. */
+  inRoom(): boolean;
+  /** The account's devices, as the server and the room know them; the room's alone without the server. */
+  devices(): Promise<CliDevice[]>;
+  /** Asks another device; a RpcFailure for its refusal or its silence. */
+  request<M extends RpcMethod>(
+    deviceId: string,
+    method: M,
+    params: RpcParams<M>,
+    timeoutMs?: number,
+  ): Promise<RpcResult<M>>;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
+  /** The user's other computers, for --device. */
+  readonly remote: CliRemote;
   readonly appVersion: string;
   listWorkspaces(): WorkspaceMeta[];
   /**

@@ -26,6 +26,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | `nexus chat read <탭>` | Claude · Codex 탭의 최근 대화와 상태 |
 | `nexus events` | 모든 워크스페이스 에이전트 세션의 상태 변화(번호순). `--since N --wait 10m` 으로 다음 변화를 기다림 |
 | `nexus port list` | 이 워크스페이스 터미널에서 실행한 프로그램(개발 서버 등)이 연 포트 (SSH 워크스페이스면 이 컴퓨터에서 열리는 주소도) |
+| `nexus device list` | 원격에 로그인한 내 컴퓨터들. 다른 컴퓨터의 세션은 `--device` 로 읽고 조작 |
 
 읽기는 어느 워크스페이스든 허락 없이 됩니다.
 
@@ -126,6 +127,23 @@ nexus events --workspace api --limit 20
 - 변화는 시작(일을 하며 나타남), 상태 바뀜(working, asking, idle, completed, error, ...), 닫힘이고, 마지막 답변이나 질문이 함께 나옵니다. 자기 세션의 변화에는 `(you)` 가 붙습니다.
 - 번호는 앱을 켤 때 1부터 다시 셉니다. 앱은 최근 1000개를 갖고 있고, 최신보다 큰 `--since` 는 처음부터 읽습니다.
 - `--wait` 은 최대 30분입니다. 시간이 다 되도록 변화가 없으면 종료 코드 124 입니다. 다시 실행하면 이어서 기다립니다.
+
+## 다른 컴퓨터
+
+같은 NexusCode 계정으로 원격(**설정 → 원격**)에 로그인한 다른 컴퓨터의 세션도 `--device` 로 읽고 조작합니다. 컴퓨터는 id, 4자 이상의 id 앞부분, 또는 이름으로 고릅니다. `--device` 가 없으면 이 컴퓨터입니다.
+
+```bash
+nexus device list                                   # 내 컴퓨터들: 이 컴퓨터, 온라인, 오프라인
+nexus session list --device "Mac mini"              # 그 컴퓨터의 세션 (--device all 은 모든 컴퓨터)
+nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 보내고 끝날 때까지 기다림
+```
+
+- `session list` 는 이 컴퓨터만 보여주고, 다른 컴퓨터에 일하는 세션이 있으면 끝에 `+ 5 sessions on 1 other computer: nexus session list --device all` 을 덧붙입니다. `--device` 를 주면 DEVICE 열이 생기고, JSON 에는 `device: {id, name}` 이 붙습니다. 오프라인 컴퓨터는 목록을 실패시키지 않고 한 줄로 알립니다.
+- 다른 컴퓨터에서는 `--workspace` 를 주지 않으면 그 컴퓨터의 모든 탭에서 찾습니다. `.` 은 이 컴퓨터의 것이라 쓸 수 없습니다.
+- 읽기(`session list`, `chat read`, `terminal read`, `wait`, `events`)는 언제나 됩니다. 에이전트가 보내거나 바꾸는 일은 그 컴퓨터의 "다른 컴퓨터의 에이전트" 설정(묻기 · 허용 · 거부)을 따릅니다. 묻기면 그 컴퓨터에 확인 창이 뜨고 90초 안에 답이 없으면 거절됩니다. 사람이 자기 셸에서 실행한 명령은 원격 설정의 채팅 · 터미널 조작 스위치를 따릅니다.
+- 받는 쪽 에이전트에게는 보낸 컴퓨터와 탭, 답장할 명령(`nexus chat send ... --device ...`)이 함께 갑니다. 에이전트끼리 주고받은 메시지가 8개를 넘으면 루프로 보고 거절합니다.
+- 종료 코드: 오프라인(`"Mac mini" is offline (last seen 12m ago)`), 이 컴퓨터가 원격에 없음, 구버전, 응답 없음은 3, 그 컴퓨터가 거절하면(`"Mac mini" refused: ...`) 1 입니다. `--json` 이면 `{error, device, ...}` 도 출력합니다.
+- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems` 는 이 컴퓨터에서만 됩니다.
 
 ## 에이전트 매니저
 

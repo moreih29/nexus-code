@@ -149,6 +149,8 @@ export class RemoteRoom {
     to: string,
     method: M,
     params: RpcParams<M>,
+    /** How long to wait for the answer: longer for one the other device's user may be asked about. */
+    timeoutMs?: number,
   ): Promise<RpcResult<M>> {
     const id = this.nextId++;
     const key = `${to}|${id}`;
@@ -157,10 +159,13 @@ export class RemoteRoom {
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
     }
     const answer = new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(key);
-        reject(new RpcFailure(RpcErrorCode.Unavailable, `${method}: no answer in time`));
-      }, this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(key);
+          reject(new RpcFailure(RpcErrorCode.Unavailable, `${method}: no answer in time`));
+        },
+        timeoutMs ?? this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+      );
       this.pending.set(key, { resolve, reject, timer, method });
     });
     const seq = await this.post(to, message);

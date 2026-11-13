@@ -6,6 +6,7 @@ import { browserCommands } from "./browser";
 import { browserControlCommands } from "./browser-control";
 import { browserNetworkCommands } from "./browser-network";
 import { chatCommands } from "./chat";
+import { deviceCommands } from "./device";
 import { editorCommands } from "./editor";
 import { eventCommands } from "./events";
 import { layoutCommands, tabArrangeCommands } from "./layout";
@@ -23,6 +24,7 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...terminalCommands,
   ...chatCommands,
   ...eventCommands,
+  ...deviceCommands,
   ...tabArrangeCommands,
   ...layoutCommands,
   ...viewCommands,

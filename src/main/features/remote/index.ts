@@ -14,7 +14,7 @@ import type { AccountKeyState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import type { CliServices } from "../cli/context";
+import type { CliRemote, CliServices } from "../cli/context";
 import type { FsProvider } from "../fs/bridge/provider";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
@@ -174,6 +174,8 @@ export async function registerRemoteChannel(options: {
   keys: AccountKeys;
   /** The app's theme changed: the other devices are told. */
   themeChanged(): void;
+  /** The user's other computers, for the nexus command's --device. */
+  cli: CliRemote;
   dispose(): void;
 }> {
   const box = await electronSecretBox();
@@ -508,6 +510,36 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    cli: {
+      inRoom: () => room !== null && roomState.status === "online",
+      devices: async () => {
+        const peers = roomState.peers;
+        const self = account.state();
+        const selfId = self.status === "signed-in" ? self.device.id : "";
+        const listed = await account.devices().catch(() => null);
+        const known: { id: string; name: string; platform: string; lastSeenAt?: number }[] =
+          listed ?? [
+            ...(self.status === "signed-in" ? [self.device] : []),
+            ...peers.map((p) => ({ id: p.id, name: p.name, platform: p.platform })),
+          ];
+        return known.map((d) => {
+          const peer = peers.find((p) => p.id === d.id);
+          const isSelf = d.id === selfId;
+          return {
+            id: d.id,
+            name: peer?.name ?? d.name,
+            platform: d.platform,
+            self: isSelf,
+            online: isSelf ? roomState.status === "online" : (peer?.online ?? false),
+            ...(d.lastSeenAt !== undefined ? { lastSeen: d.lastSeenAt } : {}),
+            serves: peer?.serves ?? [],
+            ...(peer?.schema ? { schema: peer.schema } : {}),
+          };
+        });
+      },
+      request: (deviceId, method, params, timeoutMs) =>
+        inRoom().request(deviceId, method, params, timeoutMs),
+    },
     dispose: () => {
       account.cancelSignIn();
       voice.cancel();

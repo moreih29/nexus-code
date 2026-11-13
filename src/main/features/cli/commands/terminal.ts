@@ -5,6 +5,7 @@ import { isAgentSession, type TerminalState, terminalState } from "../agent-stat
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
   mayChange,
   noteDispatch,
@@ -18,6 +19,14 @@ import { refuseLoop } from "../hops";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import {
+  DEVICE_FLAG,
+  deviceFlag,
+  listDevices,
+  peerSessions,
+  pickPeerWorkspace,
+  resolveDevice,
+} from "../remote";
 import { senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
@@ -27,6 +36,7 @@ import {
   type WaitTarget,
   waitOnTerminal,
 } from "../wait";
+import { otherSessionsHint, peerSessionRows } from "./device";
 import { WORKSPACE_FLAG } from "./flags";
 import { orderedWorkspaces } from "./workspace";
 
@@ -737,72 +747,138 @@ const sessionList: CliCommand = {
     'To follow the changes as they come, see "nexus events".',
   flags: {
     workspace: { ...WORKSPACE_FLAG, description: "Only this workspace (id, id prefix or name)" },
+    device: {
+      ...DEVICE_FLAG,
+      description:
+        "Another computer's sessions (id, id prefix or name), or \"all\" for every one's",
+    },
   },
   async run(ctx, { flags }) {
+    const device = deviceFlag(flags);
+    if (device !== undefined) return deviceSessionList(ctx, device, flags);
     const workspaces =
       flags.workspace === undefined
         ? orderedWorkspaces(ctx.services.listWorkspaces())
         : [resolveWorkspace(ctx, flags.workspace as string)];
-    const now = Date.now();
-    const you = (tab: CliTabInfo, state: string) =>
-      tab.id === ctx.caller.tabId ? `${state} (you)` : state;
-    // A workspace's terminals, then its Claude and Codex tabs.
-    const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
-      ...(await terminalRows(ctx, workspaces))
-        .filter((r) => isAgentSession(r.state))
-        .map((r) => ({
-          workspace: r.workspace,
-          cells: [
-            shortId(r.tab.id),
-            r.workspace.name,
-            oneLine(r.tab.title, 30),
-            r.state.agent ?? "?",
-            you(r.tab, r.state.state),
-            r.state.since ? ago(r.state.since, now) : "",
-            r.state.message ? oneLine(r.state.message, 60) : "",
-          ],
-          json: rowJson(ctx, r),
-        })),
-      ...(await chatRows(ctx, workspaces)).map((c) => ({
-        workspace: c.workspace,
-        cells: [
-          shortId(c.tab.id),
-          c.workspace.name,
-          oneLine(c.tab.title, 30),
-          `${c.info.agent}-tab${c.info.profile ? ` (${oneLine(c.info.profile, 20)})` : ""}`,
-          `${you(c.tab, c.info.state)}${c.info.goal ? ` · goal ${c.info.goal.status}` : ""}`,
-          c.info.since ? ago(c.info.since, now) : "",
-          c.info.message ? oneLine(c.info.message, 60) : "",
-        ],
-        json: {
-          id: c.tab.id,
-          workspaceId: c.workspace.id,
-          workspace: c.workspace.name,
-          ...taskJson(c.workspace),
-          title: c.tab.title,
-          current: c.tab.id === ctx.caller.tabId,
-          tab: c.tab.type,
-          agent: c.info.agent,
-          state: c.info.state,
-          ...(c.info.message ? { message: c.info.message } : {}),
-          ...(c.info.since !== undefined ? { since: c.info.since } : {}),
-          ...(c.info.profile ? { profile: c.info.profile } : {}),
-          ...(c.info.goal ? { goal: c.info.goal } : {}),
-        },
-      })),
-    ];
-    const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
-    sessions.sort((a, b) => order(a) - order(b));
+    const sessions = await localSessions(ctx, workspaces);
     const text = table(
-      ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"],
+      SESSION_HEADER,
       sessions.map((s) => s.cells),
     );
+    // The other computers' sessions are a command away, said under the text only.
+    const hint =
+      flags.json === true || flags.jsonl === true || flags.workspace !== undefined
+        ? ""
+        : await otherSessionsHint(ctx);
     return output(
-      text || "No agent sessions.",
+      [text || "No agent sessions.", hint].filter(Boolean).join("\n"),
       sessions.map((s) => s.json),
     );
   },
 };
+
+const SESSION_HEADER = ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"];
+
+/** session list --device: another computer's sessions, or every computer's with "all". */
+async function deviceSessionList(
+  ctx: CliContext,
+  selector: string,
+  flags: ParsedArgs["flags"],
+): Promise<CliOutput> {
+  const all = selector === "all";
+  if (all && flags.workspace !== undefined) {
+    throw new CliUsageError("--workspace takes one computer's workspace: give --device NAME");
+  }
+  const devices = all
+    ? (await listDevices(ctx)).filter((d) => !d.self)
+    : [(await resolveDevice(ctx, selector)) as CliDevice];
+  const self = all ? (await ctx.services.remote.devices()).find((d) => d.self) : undefined;
+  const local = all
+    ? (await localSessions(ctx, orderedWorkspaces(ctx.services.listWorkspaces()))).map((s) => ({
+        cells: [
+          s.cells[0] as string,
+          oneLine(self?.name ?? "this computer", 20),
+          ...s.cells.slice(1),
+        ],
+        json: s.json,
+      }))
+    : [];
+  const peers = await peerSessionRows(ctx, devices);
+  let rows = peers.rows;
+  if (!all && flags.workspace !== undefined) {
+    const device = devices[0] as CliDevice;
+    const { workspaces } = await peerSessions(ctx, device);
+    const workspace = pickPeerWorkspace(device, workspaces, flags.workspace as string);
+    rows = rows.filter((r) => (r.json as { workspaceId: string }).workspaceId === workspace.id);
+  }
+  const sessions = [...local, ...rows];
+  const text = table(
+    ["ID", "DEVICE", ...SESSION_HEADER.slice(1)],
+    sessions.map((s) => s.cells),
+  );
+  return output(
+    [text || "No agent sessions.", ...peers.notes].join("\n"),
+    sessions.map((s) => s.json),
+  );
+}
+
+/** This computer's agent sessions in `workspaces`, as session list lists them. */
+async function localSessions(
+  ctx: CliContext,
+  workspaces: readonly WorkspaceMeta[],
+): Promise<Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }>> {
+  const now = Date.now();
+  const you = (tab: CliTabInfo, state: string) =>
+    tab.id === ctx.caller.tabId ? `${state} (you)` : state;
+  // A workspace's terminals, then its Claude and Codex tabs.
+  const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
+    ...(await terminalRows(ctx, workspaces))
+      .filter((r) => isAgentSession(r.state))
+      .map((r) => ({
+        workspace: r.workspace,
+        cells: [
+          shortId(r.tab.id),
+          r.workspace.name,
+          oneLine(r.tab.title, 30),
+          r.state.agent ?? "?",
+          you(r.tab, r.state.state),
+          r.state.since ? ago(r.state.since, now) : "",
+          r.state.message ? oneLine(r.state.message, 60) : "",
+        ],
+        json: rowJson(ctx, r),
+      })),
+    ...(await chatRows(ctx, workspaces)).map((c) => ({
+      workspace: c.workspace,
+      cells: [
+        shortId(c.tab.id),
+        c.workspace.name,
+        oneLine(c.tab.title, 30),
+        `${c.info.agent}-tab${c.info.profile ? ` (${oneLine(c.info.profile, 20)})` : ""}`,
+        `${you(c.tab, c.info.state)}${c.info.goal ? ` · goal ${c.info.goal.status}` : ""}`,
+        c.info.since ? ago(c.info.since, now) : "",
+        c.info.message ? oneLine(c.info.message, 60) : "",
+      ],
+      json: {
+        id: c.tab.id,
+        workspaceId: c.workspace.id,
+        workspace: c.workspace.name,
+        ...taskJson(c.workspace),
+        title: c.tab.title,
+        current: c.tab.id === ctx.caller.tabId,
+        tab: c.tab.type,
+        agent: c.info.agent,
+        state: c.info.state,
+        ...(c.info.message ? { message: c.info.message } : {}),
+        ...(c.info.since !== undefined ? { since: c.info.since } : {}),
+        ...(c.info.profile ? { profile: c.info.profile } : {}),
+        ...(c.info.goal ? { goal: c.info.goal } : {}),
+      },
+    })),
+  ];
+  const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
+  sessions.sort((a, b) => order(a) - order(b));
+  return sessions;
+}
 
 export const terminalCommands: CliCommand[] = [
   tabList,

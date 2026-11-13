@@ -27,6 +27,7 @@ import type { ChatHost } from "./features/chat/host";
 import { registerChatChannel } from "./features/chat/ipc";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
+import type { CliRemote } from "./features/cli/context";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -175,7 +176,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
-let remote: { themeChanged(): void; dispose(): void } | null = null;
+let remote: { themeChanged(): void; cli: CliRemote; dispose(): void } | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -638,6 +639,7 @@ app.whenReady().then(async () => {
     claudeBroker: claudeSetup.broker,
     claudeActivity: claudeSetup.activity,
     claudeAsks: claudeSetup.asks,
+    remote: () => remote?.cli ?? null,
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),

@@ -21,7 +21,9 @@ import {
 } from "../../../../src/main/features/cli/consent";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
+  type CliRemote,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
 import { AgentInputs } from "../../../../src/main/features/cli/hops";
@@ -174,6 +176,13 @@ export interface FakeApp {
   foreground: Map<string, string>;
   /** The hops of the message that started each chat tab's latest turn, by tab id; 0 when absent. */
   turnHops: Map<string, number>;
+  /** The user's other computers: the room, its devices, what was asked of them and how they answer. */
+  peers: {
+    inRoom: boolean;
+    devices: CliDevice[];
+    requests: Array<{ deviceId: string; method: string; params: unknown; timeoutMs?: number }>;
+    answer: (deviceId: string, method: string, params: unknown) => Promise<unknown>;
+  };
   /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
@@ -454,6 +463,27 @@ export function fakeApp(now = Date.now()): FakeApp {
     },
   });
   const turnHops: FakeApp["turnHops"] = new Map();
+  const peers: FakeApp["peers"] = {
+    inRoom: true,
+    devices: [],
+    requests: [],
+    answer: async (_d, method) => {
+      throw new Error(`no answer for ${method}`);
+    },
+  };
+  const remote: CliRemote = {
+    inRoom: () => peers.inRoom,
+    devices: async () => peers.devices,
+    request: async (deviceId, method, params, timeoutMs) => {
+      peers.requests.push({
+        deviceId,
+        method,
+        params,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      });
+      return (await peers.answer(deviceId, method, params)) as never;
+    },
+  };
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
     if (op === "chat.turnHops") {
@@ -638,6 +668,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     claudeAsks: () => [],
     answerClaudeAsk: async () => false,
     agentInputs: new AgentInputs(),
+    remote,
     managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
@@ -702,6 +733,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     waits,
     foreground,
     turnHops,
+    peers,
     settings,
     answers,
     asked,
