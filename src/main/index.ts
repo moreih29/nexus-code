@@ -600,6 +600,7 @@ app.whenReady().then(async () => {
       return repository ? repository.status() : null;
     },
     fs: (workspaceId) => workspaceManager.getFs(workspaceId),
+    repository: async (workspaceId) => (await gitRegistry?.getOrDetect(workspaceId)) ?? null,
   }).catch((error: unknown) => {
     logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
     return null;

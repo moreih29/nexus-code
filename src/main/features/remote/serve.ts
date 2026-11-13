@@ -24,6 +24,7 @@ import type { CliServices } from "../cli/context";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { listFiles, type RemoteFiles, readFile } from "./files";
+import { gitDiff, gitLog, gitStatus, type RemoteGit } from "./git";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import type { SessionWatches } from "./session-watches";
 import type { TerminalWatches } from "./terminal-watches";
@@ -35,6 +36,7 @@ export const SERVES: readonly Capability[] = [
   "chat.control",
   "terminal.read",
   "files",
+  "git",
 ];
 
 /**
@@ -531,6 +533,8 @@ export function serveWith(
     attachments?: Attachments;
     /** The workspaces' file systems, and how an image is drawn smaller. */
     files?: Omit<RemoteFiles, "folders">;
+    /** The workspaces' repositories, for git.status, git.diff and git.log. */
+    repositories?: RemoteGit;
   } = {},
 ) {
   const { chats, sessions, terminals, git } = watches;
@@ -586,6 +590,24 @@ export function serveWith(
         return request.method === "files.list"
           ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
           : readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+      }
+      case "git.status":
+      case "git.diff":
+      case "git.log": {
+        const repositories = watches.repositories;
+        if (!repositories) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
+        }
+        const { workspaceId } = request.params as { workspaceId: string };
+        if (!workspaceOf(s, workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        if (request.method === "git.status") {
+          return gitStatus(repositories, request.params as RpcParams<"git.status">);
+        }
+        return request.method === "git.diff"
+          ? gitDiff(repositories, request.params as RpcParams<"git.diff">)
+          : gitLog(repositories, request.params as RpcParams<"git.log">);
       }
       case "chat.image":
         return chatImage(s, request.params as RpcParams<"chat.image">);

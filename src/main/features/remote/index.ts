@@ -20,6 +20,7 @@ import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import type { RemoteRepository } from "./git";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
@@ -140,6 +141,15 @@ function shrinkImage(
   return null;
 }
 
+/** Reads the start of a file git does not track yet, as text, for its diff. */
+function untrackedReader(fs: (workspaceId: string) => Promise<FsProvider>) {
+  return async (workspaceId: string, absolute: string, maxBytes: number): Promise<string> => {
+    const read = await (await fs(workspaceId)).readAbsoluteRange(absolute, 0, maxBytes);
+    if (read.kind === "missing") return "";
+    return new TextDecoder("utf-8").decode(Buffer.from(read.base64, "base64"), { stream: true });
+  };
+}
+
 export async function registerRemoteChannel(options: {
   /** The services the nexus CLI uses, once the app made them: the room serves with them. */
   services: () => CliServices | null;
@@ -149,6 +159,8 @@ export async function registerRemoteChannel(options: {
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
   fs?: (workspaceId: string) => Promise<FsProvider>;
+  /** A workspace's repository, for the git other devices read; null where it is none. */
+  repository?: (workspaceId: string) => Promise<RemoteRepository | null>;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -267,6 +279,14 @@ export async function registerRemoteChannel(options: {
         terminals: terminalWatches,
         ...(git ? { git } : {}),
         ...(options.fs ? { files: { fs: options.fs, shrink: shrinkImage } } : {}),
+        ...(options.repository && options.fs
+          ? {
+              repositories: {
+                repository: options.repository,
+                readUntracked: untrackedReader(options.fs),
+              },
+            }
+          : {}),
       }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {
