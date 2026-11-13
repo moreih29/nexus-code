@@ -20,6 +20,7 @@ function services(): CliServices {
     [MANAGER_WORKSPACE_ID]: [],
   };
   return {
+    clock: { now: () => 1000, sleep: async () => {} },
     listWorkspaces: () => workspaces,
     managerWorkspace: () => ({ id: MANAGER_WORKSPACE_ID, name: "Manager", rootPath: "/manager" }),
     claudeAsks: (_w: string, tab: string) =>
@@ -484,7 +485,10 @@ describe("serving a chat's controls", () => {
 
   test("sends as the user, who may write while the chat asks", async () => {
     const { serve, asked } = recording();
-    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } });
+    // When it took it, for a chat.wait's `after`.
+    expect(
+      await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } }),
+    ).toEqual({ at: 1000 });
     expect(asked).toEqual([["chat.send", { ...tab, text: "go on", user: true }]]);
   });
 
@@ -721,5 +725,79 @@ describe("serving what goes in a frame", () => {
     })) as { text: string };
     expect(read.text.endsWith("THE END")).toBe(true);
     expect(read.text.length).toBeLessThan(800_000);
+  });
+});
+
+describe("serving the sessions' changes", () => {
+  const event = (seq: number, message = "done") => ({
+    seq,
+    at: seq * 10,
+    workspaceId: "w1",
+    tabId: "t1",
+    title: "Fix",
+    kind: "claude",
+    agent: "claude",
+    from: "running",
+    to: "done",
+    phase: "done",
+    message,
+    goal: { condition: "x", status: "active", from: null },
+  });
+  function reading(events: ReturnType<typeof event>[], more = false) {
+    const asked: unknown[] = [];
+    const s = {
+      ...services(),
+      ui: async (op: string, args: unknown) => {
+        asked.push([op, args]);
+        return { events, cursor: events.at(-1)?.seq ?? 0, more };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("as nexus events lists them, each message in a line", async () => {
+    const { serve, asked } = reading([event(1, "first\nsecond")]);
+    expect(await serve({ from: "d", method: "events.read", params: { since: 0 } })).toEqual({
+      events: [
+        {
+          seq: 1,
+          at: 10,
+          workspaceId: "w1",
+          tabId: "t1",
+          title: "Fix",
+          kind: "claude",
+          agent: "claude",
+          from: "running",
+          to: "done",
+          message: "first second",
+        },
+      ],
+      cursor: 1,
+      more: false,
+    });
+    expect(asked).toEqual([["events.read", { since: 0, limit: 100 }]]);
+  });
+
+  test("as many as go in a frame: the first after `since`, else the last", async () => {
+    // Long titles: 500 changes then take more than a frame.
+    const many = Array.from({ length: 500 }, (_, i) => ({
+      ...event(i + 1, "x".repeat(500)),
+      title: "t".repeat(2000),
+    }));
+    const after = (await reading(many).serve({
+      from: "d",
+      method: "events.read",
+      params: { since: 0, limit: 500 },
+    })) as { events: { seq: number }[]; more: boolean };
+    expect(after.events.length).toBeLessThan(500);
+    expect(after.events[0]?.seq).toBe(1);
+    expect(after.more).toBe(true);
+    const last = (await reading(many).serve({
+      from: "d",
+      method: "events.read",
+      params: { limit: 500 },
+    })) as { events: { seq: number }[]; more: boolean };
+    expect(last.events.at(-1)?.seq).toBe(500);
+    expect(last.more).toBe(false);
   });
 });

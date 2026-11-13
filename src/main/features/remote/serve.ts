@@ -37,6 +37,7 @@ import {
   terminalShells,
 } from "./terminal-control";
 import type { TerminalWatches } from "./terminal-watches";
+import { waitOnChat, waitOnTerminalFor } from "./waits";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
 export const SERVES: readonly Capability[] = [
@@ -305,6 +306,8 @@ export async function sendChat(
     attached && ids.length > 0
       ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
       : [];
+  // Before it goes: what the chat shows from here on is from this message on.
+  const at = services.clock.now();
   await services
     .ui("chat.send", {
       workspaceId,
@@ -315,7 +318,7 @@ export async function sendChat(
     })
     .catch(unavailable);
   attached?.attachments.drop(ids);
-  return {};
+  return { at };
 }
 
 /** Room an image's base64 may take in its answer: the frame, less the envelope and its other fields. */
@@ -554,6 +557,51 @@ export async function newChat(
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
+/** How many session changes an events.read with no `limit` reads. */
+export const DEFAULT_EVENTS = 100;
+
+/**
+ * The sessions' state changes, as `nexus events` lists them: after `since`
+ * (the first ones, `more` when some were left out), or the last ones. As
+ * many as go in a frame, each message in a line.
+ */
+export async function readEvents(
+  services: CliServices,
+  { since, limit }: RpcParams<"events.read">,
+): Promise<RpcResult<"events.read">> {
+  const read = await services
+    .ui("events.read", {
+      ...(since !== undefined ? { since } : {}),
+      limit: limit ?? DEFAULT_EVENTS,
+    })
+    .catch(unavailable);
+  let events: RpcResult<"events.read">["events"] = read.events.map((e) => ({
+    seq: e.seq,
+    at: e.at,
+    workspaceId: e.workspaceId,
+    tabId: e.tabId,
+    title: e.title,
+    kind: e.kind,
+    ...(e.agent ? { agent: e.agent } : {}),
+    from: e.from,
+    to: e.to,
+    ...(e.message ? { message: oneLine(e.message, 500) } : {}),
+  }));
+  let more = read.more;
+  while (events.length > 0 && !fitsAsResult({ events, cursor: read.cursor, more })) {
+    const half = Math.ceil(events.length / 2);
+    if (since === undefined) {
+      // The last ones: the latest are kept.
+      events = events.slice(half);
+    } else {
+      // After `since`: the first are kept, and the rest left for the next read.
+      events = events.slice(0, events.length - half);
+      more = true;
+    }
+  }
+  return { events, cursor: read.cursor, more };
+}
+
 /** The agent profiles a new chat may run with. */
 export async function listProfiles(
   services: CliServices,
@@ -783,6 +831,12 @@ export function serveWith(
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs);
+      case "chat.wait":
+        return waitOnChat(s, request.params as RpcParams<"chat.wait">);
+      case "terminal.wait":
+        return waitOnTerminalFor(s, request.params as RpcParams<"terminal.wait">);
+      case "events.read":
+        return readEvents(s, request.params as RpcParams<"events.read">);
       case "profiles.list":
         return listProfiles(s, request.params as RpcParams<"profiles.list">);
       case "chat.rename":
