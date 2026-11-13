@@ -802,6 +802,14 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string };
     result: { hops: number };
   };
+  /**
+   * A page of a chat on another device (its chat.read) as chat read tells
+   * it here: each item's entries, numbered by the item's index there.
+   */
+  "chat.pageEntries": {
+    args: { page: ChatPage; subagents?: boolean };
+    result: { entries: CliChatEntry[] };
+  };
   /** What a Claude or Codex tab's side panel shows now. */
   "chat.panel": {
     args: { workspaceId: string; tabId: string };

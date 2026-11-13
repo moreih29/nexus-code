@@ -4,7 +4,6 @@
  * whole or a piece at a time, and wait on one or several tabs.
  */
 import type {
-  CliChatChoices,
   CliChatEntry,
   CliChatInfo,
   CliChatSettings,
@@ -17,6 +16,7 @@ import type { WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
   mayChange,
   noteDispatch,
@@ -29,12 +29,21 @@ import { oneLine } from "../format";
 import { refuseLoop } from "../hops";
 import { absolutePath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
 import { senderOf } from "../sender";
 import { DEFAULT_WAIT_MS, MAX_WAIT_MS, WAIT_POLL_MS, type WaitResult } from "../wait";
+import {
+  answerPeer,
+  interruptPeer,
+  newPeerChat,
+  readPeerChat,
+  sendToPeer,
+  setPeerChat,
+  waitOnPeer,
+} from "./chat-remote";
+import { AGENT_NAMES, chatStateText, choicesText } from "./chat-text";
 import { WORKSPACE_FLAG } from "./flags";
 import { workspaceTabs } from "./terminal";
-
-const AGENT_NAMES: Readonly<Record<ChatAgent, string>> = { claude: "Claude", codex: "Codex" };
 
 /** The agent an --agent flag names: claude or codex. */
 export function chatAgentFlag(value: unknown, fallback: ChatAgent): ChatAgent {
@@ -57,24 +66,6 @@ export async function resolveChat(
 ): Promise<CliTabInfo> {
   const tabs = (await workspaceTabs(ctx, workspace.id)).filter(isChatTab);
   return resolveTab(ctx, tabs, selector, `Claude or Codex tab in ${workspace.name}`);
-}
-
-/** How a tab stands, in a sentence. */
-export function chatStateText(tab: CliTabInfo, info: CliChatInfo): string {
-  const who = `${AGENT_NAMES[info.agent]} in ${tab.title}`;
-  const said = info.message ? oneLine(info.message, 500) : "";
-  switch (info.state) {
-    case "working":
-      return `${who} is working.`;
-    case "asking":
-      return said
-        ? `${who} is waiting for the user: it ${said}.`
-        : `${who} is waiting for the user.`;
-    case "error":
-      return `${who} stopped on an error${said ? `: ${said}` : "."}`;
-    case "idle":
-      return info.message ? `${who} finished:\n${info.message}` : `${who} is idle.`;
-  }
 }
 
 /** What a tab runs with and works toward, a line each: its profile, its goal. */
@@ -122,10 +113,16 @@ export function chatTranscript(
     .join("\n");
 }
 
-function infoJson(tab: CliTabInfo, workspace: WorkspaceMeta, info: CliChatInfo) {
+function infoJson(
+  tab: { readonly id: string; readonly title: string },
+  workspaceId: string,
+  info: CliChatInfo,
+  device?: CliDevice,
+) {
   return {
     tabId: tab.id,
-    workspaceId: workspace.id,
+    workspaceId,
+    ...(device ? { device: deviceRef(device) } : {}),
     title: tab.title,
     agent: info.agent,
     state: info.state,
@@ -319,31 +316,6 @@ async function mayLoosen(
   });
 }
 
-/** What a tab runs with, and what it takes, as chat set prints it. */
-function choicesText(tab: CliTabInfo, choices: CliChatChoices): string {
-  const lines = [
-    `${AGENT_NAMES[choices.agent]} in ${tab.title}:`,
-    `  model   ${choices.model ?? "(its default)"}`,
-    `  effort  ${choices.effort ?? "(the model's default)"}`,
-    `  mode    ${choices.mode}`,
-  ];
-  if (choices.models.length > 0) {
-    const width = Math.max(...choices.models.map((m) => m.value.length));
-    // A model's name, when it says more than its value.
-    const named = (m: { value: string; name: string }) =>
-      m.name.toLowerCase() === m.value.toLowerCase()
-        ? m.value
-        : `${m.value.padEnd(width)}  ${m.name}`;
-    lines.push("models:", ...choices.models.map((m) => `  ${named(m)}`));
-  }
-  lines.push(
-    `efforts of its model: ${choices.efforts.length > 0 ? choices.efforts.join(", ") : "none"}`,
-  );
-  const set = CHAT_MODES[choices.agent];
-  lines.push(`modes: ${set.modes.filter((m) => m !== set.dangerous).join(", ")}`);
-  return lines.join("\n");
-}
-
 const chatNew: CliCommand = {
   path: ["chat", "new"],
   summary: "Open a Claude or Codex tab, sending it a prompt if given",
@@ -365,12 +337,23 @@ const chatNew: CliCommand = {
     },
     ...SETTING_FLAGS,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
     const agent = chatAgentFlag(flags.agent, "claude");
     const prompt = ((flags.prompt as string | undefined) ?? "").trim();
     const settings = settingsFlags(agent, flags);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const folder = typeof flags.cwd === "string" ? flags.cwd : undefined;
+      return newPeerChat(ctx, device, flags, {
+        agent,
+        prompt,
+        ...(folder ? { folder } : {}),
+        settings,
+      });
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const dir = flags.cwd as string | undefined;
     const cwd =
@@ -438,9 +421,11 @@ const chatInterrupt: CliCommand = {
   details:
     "As its stop button does: the agent stops what it runs, and the tab waits for a message.\n" +
     "Messages queued in it stay queued.",
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return interruptPeer(ctx, device, flags, selector);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
@@ -471,9 +456,14 @@ const chatSet: CliCommand = {
     profile: { type: "string", value: "NAME", description: "Run it with that agent profile" },
     new: { type: "boolean", description: "With --profile: start a new conversation there" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      return setPeerChat(ctx, device, flags, selector, (agent) => settingsFlags(agent, flags));
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     const agent: ChatAgent = tab.type === "codex" ? "codex" : "claude";
@@ -571,6 +561,32 @@ async function setProfile(
   return output(text, { ...target, from, profile: to, fresh });
 }
 
+/** A tab of this computer's as chat read reads it. */
+async function readChat(
+  ctx: CliContext,
+  flags: ParsedArgs["flags"],
+  selector: string,
+  messages: number | undefined,
+  since: number | undefined,
+): Promise<{
+  tab: CliTabInfo;
+  workspaceId: string;
+  entries: CliChatEntry[];
+  end: number;
+  info: CliChatInfo;
+}> {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const tab = await resolveChat(ctx, workspace, selector);
+  const { entries, end, ...info } = await ctx.services.ui("chat.read", {
+    workspaceId: workspace.id,
+    tabId: tab.id,
+    ...(messages !== undefined ? { messages } : {}),
+    ...(since !== undefined ? { since } : {}),
+    ...(flags.subagents === true ? { subagents: true } : {}),
+  });
+  return { tab, workspaceId: workspace.id, entries, end, info };
+}
+
 const chatRead: CliCommand = {
   path: ["chat", "read"],
   summary: "Print a Claude or Codex tab's messages, and where it stands",
@@ -593,6 +609,7 @@ const chatRead: CliCommand = {
     subagents: { type: "boolean", description: "Subagents' tool calls too" },
     "max-chars": MAX_CHARS_FLAG,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
@@ -610,15 +627,19 @@ const chatRead: CliCommand = {
       throw new CliError("--messages takes a positive whole number", 2);
     }
     const maxChars = maxCharsFlag(flags);
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveChat(ctx, workspace, selector);
-    const { entries, end, ...info } = await ctx.services.ui("chat.read", {
-      workspaceId: workspace.id,
-      tabId: tab.id,
-      ...(messages !== undefined ? { messages } : {}),
-      ...(since !== undefined ? { since } : {}),
-      ...(flags.subagents === true ? { subagents: true } : {}),
-    });
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    const { tab, workspaceId, entries, end, info } = device
+      ? await readPeerChat(ctx, device, flags, selector, {
+          ...(messages !== undefined ? { messages } : {}),
+          ...(since !== undefined ? { since } : {}),
+          all: flags.all === true,
+          subagents: flags.subagents === true,
+        }).then((read) => ({
+          tab: { id: read.peer.session.tabId, title: read.peer.session.title },
+          workspaceId: read.peer.workspace.id,
+          ...read,
+        }))
+      : await readChat(ctx, flags, selector, messages, since);
     const shown =
       maxChars === undefined
         ? entries
@@ -633,7 +654,10 @@ const chatRead: CliCommand = {
     // Cleared or rewound since #since: the app read it from its start.
     const restarted = since !== undefined && since > end;
     const last = entries.at(-1)?.i ?? (restarted ? undefined : since);
-    const stands = { ...infoJson(tab, workspace, info), ...(restarted ? { restarted } : {}) };
+    const stands = {
+      ...infoJson(tab, workspaceId, info, device ?? undefined),
+      ...(restarted ? { restarted } : {}),
+    };
     const json = { ...stands, entries: shown, ...(last !== undefined ? { last } : {}) };
     const before = restarted
       ? `The conversation was cleared or rewound: it ends before #${since} now. From its start:\n`
@@ -700,6 +724,7 @@ const chatSend: CliCommand = {
     wait: { type: "boolean", description: "Then wait until it is done" },
     timeout: TIMEOUT_FLAG,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, ...words] = positionals;
@@ -710,6 +735,8 @@ const chatSend: CliCommand = {
     ).trim();
     if (text === "") throw new CliUsageError("nothing to send");
     const timeoutMs = flags.wait === true ? waitTimeout(flags) : null;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return sendToPeer(ctx, device, flags, selector, text, timeoutMs);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
@@ -747,10 +774,12 @@ const chatWait: CliCommand = {
     "has not taken yet counts as work. Given several tabs, it waits for the first of them to be\n" +
     'done; to follow tabs across workspaces, see "nexus events". When the wait runs out, nexus\n' +
     "exits with 124; run it again to wait longer.",
-  flags: { timeout: TIMEOUT_FLAG, workspace: WORKSPACE_FLAG },
+  flags: { timeout: TIMEOUT_FLAG, workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     if (positionals.length === 0) throw new CliUsageError("missing <tab>");
     const timeoutMs = waitTimeout(flags);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return waitOnPeer(ctx, device, flags, positionals, timeoutMs);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tabs: CliTabInfo[] = [];
     for (const selector of positionals) {
@@ -793,6 +822,7 @@ const chatAnswer: CliCommand = {
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, decision] = exactArgs(positionals, "tab", "answer") as [string, string];
@@ -803,6 +833,8 @@ const chatAnswer: CliCommand = {
     if (message !== undefined && decision !== "deny") {
       throw new CliUsageError("--message goes with deny");
     }
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return answerPeer(ctx, device, flags, selector, decision, message);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {

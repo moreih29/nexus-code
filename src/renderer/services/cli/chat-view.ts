@@ -4,6 +4,7 @@
  * whole (chat tool). Pure.
  */
 
+import { type ChatPage, ITEM_KINDS, type ViewItem } from "../../../../packages/remote-protocol/src";
 import { type RelayedMessage, RelaySenderSchema } from "../../../shared/chat/relay";
 import type {
   CliChatEntry,
@@ -322,4 +323,40 @@ export function chatToolOf(
     ...(call.result ? { result: { text: call.result.text, isError: call.result.isError } } : {}),
     ...(call.parentToolUseId ? { parentToolUseId: call.parentToolUseId } : {}),
   };
+}
+
+/**
+ * A page of another device's chat (the remote's chat.read) as chat read
+ * tells it: each item's entries, `i` the item's index there, so that a later
+ * read can start after it. Subagents' tool calls are left out unless asked
+ * for.
+ */
+export function pageEntriesOf(page: ChatPage, subagents = false): CliChatEntry[] {
+  return page.items.flatMap((item, k) =>
+    viewEntriesOf(item, page.tools)
+      .filter((entry) => subagents || !entry.parentToolUseId)
+      .map((entry) => ({ i: page.start + k, ...entry })),
+  );
+}
+
+/**
+ * A chat view's item as chat read tells it. The view is the conversation
+ * as the serving device's app built it, trimmed for drawing: the fields
+ * read here keep their shape and meaning. A kind this version does not
+ * know tells nothing.
+ */
+function viewEntriesOf(item: ViewItem, tools: ChatPage["tools"]): Entry[] {
+  if (!ITEM_KINDS.has(item.kind)) return [];
+  const asModel = tools as unknown as ChatModel["tools"];
+  if (item.kind !== "received") return entriesOfItem(item as unknown as ChatItem, asModel);
+  // Another agent's message: who sent it, where it takes an answer, on which computer.
+  const received = item as Extract<ViewItem, { kind: "received" }>;
+  const { replyTo, device } = received.from;
+  const from = {
+    ...received.from,
+    ...(replyTo ? { workspaceId: replyTo.workspaceId, tabId: replyTo.tabId } : {}),
+  };
+  return entriesOfItem({ ...received, from } as unknown as ChatItem, asModel).map((entry) =>
+    entry.from && device ? { ...entry, from: { ...entry.from, device } } : entry,
+  );
 }

@@ -490,6 +490,20 @@ export function fakeApp(now = Date.now()): FakeApp {
       const { tabId } = args as CliUiOps["chat.turnHops"]["args"];
       return { hops: turnHops.get(tabId) ?? 0 } as CliUiOps[K]["result"];
     }
+    // Another device's chat page, its user messages and the agent's text told as chat read tells them.
+    if (op === "chat.pageEntries") {
+      const { page } = args as CliUiOps["chat.pageEntries"]["args"];
+      const entries = page.items.flatMap((item, k) => {
+        const i = page.start + k;
+        if (item.kind === "user") return [{ i, role: "user" as const, text: String(item.text) }];
+        if (item.kind !== "assistant") return [];
+        const blocks = item.blocks as Array<{ type: string; text?: string }>;
+        return blocks
+          .filter((b) => b.type === "text")
+          .map((b) => ({ i, role: "agent" as const, text: String(b.text) }));
+      });
+      return { entries } as CliUiOps[K]["result"];
+    }
     if (op === "tabs.list") {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];

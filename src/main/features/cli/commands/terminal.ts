@@ -36,6 +36,7 @@ import {
   type WaitTarget,
   waitOnTerminal,
 } from "../wait";
+import { closePeerTab } from "./chat-remote";
 import { otherSessionsHint, peerSessionRows } from "./device";
 import { WORKSPACE_FLAG } from "./flags";
 import { orderedWorkspaces } from "./workspace";
@@ -400,10 +401,17 @@ const tabClose: CliCommand = {
     others: { type: "boolean", description: "The other tabs of TAB's group, pinned ones aside" },
     saved: { type: "boolean", description: "The editors with nothing unsaved" },
     all: { type: "boolean", description: "Every tab, pinned ones too" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const bulk = bulkCloseFlag(flags);
     const force = flags.force === true;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      if (bulk !== null) throw new CliUsageError(`--${bulk} is for this computer's tabs`);
+      const [selector] = exactArgs(positionals, "tab") as [string];
+      return closePeerTab(ctx, device, flags, selector);
+    }
     if (bulk !== null) {
       if (positionals.length > 1) {
         throw new CliUsageError(`unexpected argument "${positionals[1]}"`);

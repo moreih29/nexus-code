@@ -10,6 +10,7 @@ import {
   chatEntriesOf,
   chatInfoOf,
   chatToolOf,
+  pageEntriesOf,
 } from "../../../../../src/renderer/services/cli/chat-view";
 
 function chat(model: Partial<ChatModel>, rest: Partial<ChatTabState> = {}): ChatTabState {
@@ -274,5 +275,78 @@ describe("what the tab keeps beside its conversation", () => {
     expect(shown.goal).toEqual({ objective: "All tests pass", status: "met", reason: "green" });
     const closed = chat({ goal } as Partial<ChatModel>, { goalClosed: "claude|1|All tests pass" });
     expect(chatInfoOf("claude", closed, false).goal).toBeUndefined();
+  });
+});
+
+describe("pageEntriesOf", () => {
+  it("tells another device's chat page as chat read does, numbered by its items' places there", () => {
+    const page = {
+      status: {
+        agent: "claude",
+        title: "Review",
+        running: false,
+        process: "running",
+        turn: null,
+        streaming: null,
+        permissions: [],
+      },
+      start: 40,
+      total: 44,
+      items: [
+        { kind: "user", key: "u1", text: "Review it", images: [], state: "taken" },
+        {
+          kind: "assistant",
+          key: "a1",
+          messageId: "m1",
+          blocks: [
+            { type: "text", text: "Reading." },
+            { type: "tool", toolUseId: "t1" },
+            { type: "tool", toolUseId: "t2" },
+          ],
+        },
+        { kind: "future", key: "f1" },
+        {
+          kind: "received",
+          key: "r1",
+          from: { kind: "tab", name: "Fix build", device: { id: "d1", name: "MacBook" } },
+          text: "Done?",
+        },
+      ],
+      tools: {
+        t1: {
+          id: "t1",
+          name: "Bash",
+          input: { command: "npm test" },
+          status: "error",
+          parentToolUseId: null,
+        },
+        t2: {
+          id: "t2",
+          name: "Read",
+          input: { file_path: "/x/a.ts" },
+          status: "done",
+          parentToolUseId: "agent-1",
+        },
+      },
+      tasks: {},
+      agentItems: {},
+    } as const;
+    const entries = pageEntriesOf(page as never);
+    expect(entries).toEqual([
+      { i: 40, role: "user", text: "Review it" },
+      { i: 41, role: "agent", text: "Reading." },
+      { i: 41, role: "tool", text: "Bash npm test (failed)", toolUseId: "t1", status: "error" },
+      {
+        i: 43,
+        role: "notice",
+        text: 'from tab "Fix build" on "MacBook": Done?',
+        from: { kind: "tab", name: "Fix build", device: { id: "d1", name: "MacBook" } },
+      },
+    ]);
+    expect(
+      pageEntriesOf(page as never, true)
+        .map((e) => e.toolUseId)
+        .filter(Boolean),
+    ).toEqual(["t1", "t2"]);
   });
 });

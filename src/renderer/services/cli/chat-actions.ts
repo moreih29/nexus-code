@@ -42,7 +42,13 @@ import { chatPanelOf } from "../remote/chat-panel";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
-import { type ChatTabExtras, chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
+import {
+  type ChatTabExtras,
+  chatEntriesOf,
+  chatInfoOf,
+  chatToolOf,
+  pageEntriesOf,
+} from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import { openTab } from "./placement";
 
@@ -436,6 +442,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const { agent } = await readableTab(workspaceId, tabId);
     return { hops: turnHopsOf(conversationOf(sourceOf(workspaceId, tabId, agent)).items) };
   },
+
+  "chat.pageEntries": async ({ page, subagents }) => ({
+    entries: pageEntriesOf(page, subagents === true),
+  }),
 
   "chat.panel": async ({ workspaceId, tabId }) => {
     const { agent } = await readableTab(workspaceId, tabId);
