@@ -224,6 +224,10 @@ export const AppStateSchema = z.object({
   // limit is near. Off hides the warning only: a limit reached still shows.
   rateLimitWarnings: z.boolean().default(true),
 
+  // The language voice input listens for: the app's ("app", ko or en), or
+  // "multi", which lets the server tell the language as the user speaks.
+  voiceLanguage: z.enum(["app", "multi"]).default("app"),
+
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.
   cliEnabled: z.boolean().default(true),

@@ -82,6 +82,9 @@ export const COMMANDS = {
   // title bar inbox's order, from any workspace.
   sessionNextWaiting: "session.nextWaiting",
 
+  // Voice input in the chat box focused last: starts dictating, or stops.
+  chatVoiceToggle: "chat.voiceToggle",
+
   // Settings
   settingsOpen: "settings.open",
 

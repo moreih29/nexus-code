@@ -83,6 +83,7 @@ import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
+import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -203,8 +204,10 @@ export function Composer({
   const { model, phase } = state;
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
+  const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
-  const canSend = !blocked && hasText && !sending;
+  // Never sent while dictating: the text is the user's to read and edit first.
+  const canSend = !blocked && hasText && !sending && !dictation.active;
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
@@ -442,6 +445,14 @@ export function Composer({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
+    if (dictation.active) {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        dictation.toggle();
+      }
+      return;
+    }
     // A request's card has the keys, which the box passes on to it.
     if (e.currentTarget.dataset.cardKeys !== undefined) return;
     // Escape closes the "no matching commands" box as it closes the list,
@@ -692,24 +703,41 @@ export function Composer({
               ))}
             </div>
           )}
-          <textarea
-            ref={areaRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setCaret(e.target.selectionStart);
-            }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            readOnly={sending}
-            rows={2}
-            placeholder={placeholder}
-            aria-label={t("chat.composer.aria", agent)}
-            className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
-          />
+          <div className="relative">
+            <textarea
+              ref={areaRef}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setCaret(e.target.selectionStart);
+              }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onFocus={() => {
+                setFocused(true);
+                dictation.onFocus();
+              }}
+              onBlur={() => setFocused(false)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              readOnly={sending || dictation.active}
+              rows={2}
+              placeholder={placeholder}
+              aria-label={t("chat.composer.aria", agent)}
+              className={cn(
+                "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground",
+                // The overlay draws the text meanwhile, the partial lighter.
+                dictation.partial && "text-transparent caret-transparent",
+              )}
+            />
+            {dictation.partial && (
+              <DictationOverlay
+                text={text}
+                partial={dictation.partial}
+                areaRef={areaRef}
+                className="px-3 py-2 text-app-body"
+              />
+            )}
+          </div>
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
             <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
             {(fit < FIT.NO_MODEL || kept("model")) && (
@@ -748,6 +776,7 @@ export function Composer({
                 e.target.value = "";
               }}
             />
+            <MicButton dictation={dictation} />
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}

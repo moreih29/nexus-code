@@ -29,6 +29,7 @@ import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { SEND_BUTTON_CLASS } from "../chat/composer";
+import { DictationOverlay, MicButton, useComposerDictation } from "../chat/dictation";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
 import { StatusLine } from "../chat/status-line";
@@ -286,16 +287,29 @@ export function RemoteComposer({
   const { t } = useTranslation();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const dictation = useComposerDictation({ text, setText, areaRef });
   const send = async () => {
     const message = text.trim();
-    if (!message || sending) return;
+    // Never sent while dictating: the text is the user's to read and edit first.
+    if (!message || sending || dictation.active) return;
     setSending(true);
     const sent = await onSend(message);
     setSending(false);
     if (sent) setText("");
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (event.nativeEvent.isComposing) return;
+    // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
+    if (dictation.active) {
+      if (event.key === "Escape" || event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        dictation.toggle();
+      }
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send();
     }
@@ -305,18 +319,34 @@ export function RemoteComposer({
   return (
     <div className="shrink-0 px-4 pt-1 pb-3">
       <div className="mx-auto max-w-[860px] rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
-        <textarea
-          value={text}
-          rows={Math.min(8, Math.max(2, text.split("\n").length))}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          readOnly={sending}
-          placeholder={t("agentView.remote.placeholder", { device })}
-          aria-label={t("agentView.remote.placeholder", { device })}
-          className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body text-foreground outline-none placeholder:text-muted-foreground"
-          data-testid="remote-composer"
-        />
+        <div className="relative">
+          <textarea
+            ref={areaRef}
+            value={text}
+            rows={Math.min(8, Math.max(2, text.split("\n").length))}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKeyDown}
+            onFocus={dictation.onFocus}
+            readOnly={sending || dictation.active}
+            placeholder={t("agentView.remote.placeholder", { device })}
+            aria-label={t("agentView.remote.placeholder", { device })}
+            className={cn(
+              "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body text-foreground outline-none placeholder:text-muted-foreground",
+              dictation.partial && "text-transparent caret-transparent",
+            )}
+            data-testid="remote-composer"
+          />
+          {dictation.partial && (
+            <DictationOverlay
+              text={text}
+              partial={dictation.partial}
+              areaRef={areaRef}
+              className="px-3 py-2 text-app-body"
+            />
+          )}
+        </div>
         <div className="flex items-center justify-end gap-1 px-1.5 pb-1.5">
+          <MicButton dictation={dictation} />
           {running && (
             <IconButton label={t("agentView.remote.stop")} size="md" onClick={onStop}>
               <Square aria-hidden className="size-3.5 fill-current" />
@@ -327,7 +357,7 @@ export function RemoteComposer({
             <button
               type="button"
               onClick={() => void send()}
-              disabled={sending || !hasText}
+              disabled={sending || !hasText || dictation.active}
               aria-label={t("agentView.remote.send")}
               title={t("agentView.remote.send")}
               className={cn(SEND_BUTTON_CLASS, "pr-1.5 pl-2")}

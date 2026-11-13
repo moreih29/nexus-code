@@ -200,6 +200,9 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.sessionNextWaiting, primary: "CmdOrCtrl+Shift+U", when: "!isLinux" },
   { command: COMMANDS.sessionNextWaiting, primary: "Ctrl+Shift+J", when: "isLinux" },
 
+  // Voice input: D for dictate. Shells and agent TUIs don't bind Ctrl+Shift+letter.
+  { command: COMMANDS.chatVoiceToggle, primary: "CmdOrCtrl+Shift+D" },
+
   // Settings
   { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },
 

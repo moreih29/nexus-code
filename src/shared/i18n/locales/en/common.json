@@ -1829,5 +1829,29 @@
     "this_computer": "This computer",
     "cpu_title": "CPU: {{percent}}% in use",
     "memory_title": "Memory: {{used}} of {{total}} in use ({{percent}}%)"
+  },
+  "voice": {
+    "start": "Voice input",
+    "stop": "Stop voice input",
+    "needsSignIn": "Voice input needs a NexusCode account: sign in in Settings › Remote",
+    "unavailable": "This server has no voice input",
+    "signIn": "Sign in",
+    "openSettings": "Open System Settings",
+    "failure": {
+      "signed-out": "Sign in to NexusCode to use voice input.",
+      "denied": "NexusCode may not use the microphone. Allow it in System Settings › Privacy & Security › Microphone.",
+      "no-microphone": "No microphone was found.",
+      "unavailable": "This server has no voice input.",
+      "quota": "This month's voice input minutes are used up.",
+      "busy": "Voice input is already on on two of your devices. Stop it on one and try again.",
+      "network": "Could not reach the server for voice input.",
+      "failed": "Voice input could not start.",
+      "recognition": "Voice recognition failed. What was heard so far is kept.",
+      "dropped": "Voice input lost the connection. What was heard so far is kept."
+    },
+    "limit": {
+      "session": "Voice input stops after 10 minutes at a time.",
+      "quota": "This month's voice input minutes ran out."
+    }
   }
 }

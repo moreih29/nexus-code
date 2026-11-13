@@ -23,6 +23,7 @@ import { registerSettingsCommands } from "../commands/domains/settings";
 import { registerTabCommands } from "../commands/domains/tab";
 import { registerTerminalCommands } from "../commands/domains/terminal";
 import { registerUpdatesCommands } from "../commands/domains/updates";
+import { registerVoiceCommands } from "../commands/domains/voice";
 import { registerWorkbenchCommands } from "../commands/domains/workbench";
 import { registerWorkspaceCommands } from "../commands/domains/workspace";
 import { handleGlobalKeyDown } from "./dispatcher";
@@ -42,6 +43,7 @@ export function useGlobalKeybindings(): void {
       ...registerWorkbenchCommands(),
       ...registerBrowserCommands(),
       ...registerAgentViewCommands(),
+      ...registerVoiceCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

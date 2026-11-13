@@ -466,6 +466,9 @@
       },
       "updates": {
         "releaseNotes": "Show Release Notes"
+      },
+      "chat": {
+        "voiceToggle": "Voice Input"
       }
     }
   },
@@ -760,6 +763,18 @@
         "description": "The account, its devices and its locked account key are removed from the server, and every device is signed out. This cannot be undone.",
         "confirm": "Delete account"
       }
+    },
+    "voice": {
+      "title": "Voice input",
+      "description": "Click the mic in a chat's box and speak: the text appears as you talk, to edit before you send it.",
+      "descriptionWithShortcut": "Click the mic in a chat's box, or press {{shortcut}}, and speak: the text appears as you talk, to edit before you send it.",
+      "usage": "This month",
+      "usageOf": "{{used}} of {{limit}} minutes used",
+      "usageLoading": "Loading…",
+      "usageUnavailable": "Could not load the usage from the server.",
+      "language": "Language",
+      "languageHint": "The app's language, or told apart as you speak.",
+      "languageMulti": "Detect"
     }
   }
 }

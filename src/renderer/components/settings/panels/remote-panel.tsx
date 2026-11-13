@@ -26,6 +26,7 @@ import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
 import { SettingsGroup, SettingsPage, SettingsRow, SettingsSection } from "../section";
 import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
+import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
 
 const iconButtonClass = cn(
@@ -106,6 +107,7 @@ export function RemotePanel() {
       />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} room={room} />}
+      {state.status === "signed-in" && <VoiceGroup />}
       {state.status === "signed-in" && <DeleteAccountGroup />}
     </SettingsPage>
   );
