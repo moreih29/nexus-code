@@ -708,6 +708,10 @@
       "renameLabel": "Name",
       "renameConfirm": "Rename"
     },
+    "control": {
+      "label": "Allow control from other devices",
+      "description": "Off, your other devices can only look."
+    },
     "key": {
       "title": "Account password",
       "description": "What your devices send each other is encrypted, so not even the server can read it.",

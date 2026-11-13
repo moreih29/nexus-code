@@ -65,8 +65,8 @@ export interface RemoteRoomDeps {
   readonly self: { id: string; name: string; platform: string };
   readonly room: RoomKey;
   readonly app: { name: string; version: string };
-  /** What this device serves of its sessions, as its hello says. */
-  readonly serves: readonly Capability[];
+  /** What this device serves of its sessions, as its hello says; it may change (see announce). */
+  readonly serves: readonly Capability[] | (() => readonly Capability[]);
   /** Makes the socket, telling it what to call. */
   connect(
     handlers: Pick<RelayConnectionDeps, "onOpen" | "onFrame" | "onStatus" | "onSignedOut">,
@@ -128,6 +128,17 @@ export class RemoteRoom {
 
   state(): RoomState {
     return { status: this.status, peers: [...this.peers.values()] };
+  }
+
+  /** What this device serves now. */
+  private serves(): readonly Capability[] {
+    const { serves } = this.deps;
+    return typeof serves === "function" ? serves() : serves;
+  }
+
+  /** Tells the room again what this device serves, after it changed. */
+  announce(): void {
+    if (this.status === "online" && this.greeted) void this.post("*", this.hello(false));
   }
 
   /** Asks another device of the account; its answer, or a RpcFailure. */
@@ -195,7 +206,7 @@ export class RemoteRoom {
       protocol: PROTOCOL_VERSION,
       device: this.deps.self,
       app: this.deps.app,
-      serves: [...this.deps.serves],
+      serves: [...this.serves()],
       reply,
     };
   }
@@ -321,7 +332,7 @@ export class RemoteRoom {
       return { error: { code: RpcErrorCode.MethodNotFound, message: `no method ${method}` } };
     }
     const spec = RPC_METHODS[method];
-    if (!this.deps.serves.includes(spec.capability as Capability)) {
+    if (!this.serves().includes(spec.capability as Capability)) {
       return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
     }
     const parsed = spec.params.safeParse(params ?? {});

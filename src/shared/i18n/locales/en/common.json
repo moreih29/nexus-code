@@ -1759,6 +1759,7 @@
         "ended": "Ended"
       },
       "viewOnly": "View only",
+      "viewOnlyNote": "Control from other devices is off on {{device}}: you can only look.",
       "close": "Close",
       "gone": "This session was closed",
       "placeholder": "Message {{device}}",

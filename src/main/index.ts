@@ -589,12 +589,16 @@ app.whenReady().then(async () => {
 
   // The NexusCode account the remote runs on. A failure there leaves the
   // app without the remote, never without its window.
-  remote = await registerRemoteChannel({ services: () => cliFeature?.services ?? null }).catch(
-    (error: unknown) => {
-      logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
-      return null;
+  remote = await registerRemoteChannel({
+    services: () => cliFeature?.services ?? null,
+    allowControl: {
+      get: () => stateService.getState().remoteControl ?? false,
+      set: (allowed) => stateService.setState({ remoteControl: allowed }),
     },
-  );
+  }).catch((error: unknown) => {
+    logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
+    return null;
+  });
 
   // The agent manager's workspace and its reports.
   registerManagerChannel({

@@ -2374,6 +2374,9 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.list"].result,
       ),
+      /** Whether the account's other devices may control this one's chats. */
+      allowControl: call(z.void(), z.boolean()),
+      setAllowControl: call(z.object({ allowed: z.boolean() }), z.boolean()),
       /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
       peerSessionsWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }),

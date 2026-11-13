@@ -24,7 +24,13 @@ import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { PromptDialog } from "../../ui/prompt-dialog";
-import { SettingsGroup, SettingsPage, SettingsRow, SettingsSection } from "../section";
+import {
+  SettingsGroup,
+  SettingsPage,
+  SettingsRow,
+  SettingsSection,
+  SettingsSwitch,
+} from "../section";
 import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
@@ -191,6 +197,36 @@ type DevicesView =
   | { status: "ready"; devices: RemoteDeviceInfo[] }
   | { status: "unavailable" };
 
+/**
+ * Whether the account's other devices may control this computer's chats:
+ * off, they only look.
+ */
+export function RemoteControlSwitch() {
+  const { t } = useTranslation("settings");
+  const [allowed, setAllowed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    void ipcCallResult("remote", "allowControl", undefined).then((result) => {
+      if (live && result.ok) setAllowed(result.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <SettingsSwitch
+      label={t("remote.control.label")}
+      description={t("remote.control.description")}
+      checked={allowed ?? false}
+      disabled={allowed === null}
+      onChange={(next) => {
+        setAllowed(next);
+        void ipcCallResult("remote", "setAllowControl", { allowed: next });
+      }}
+    />
+  );
+}
+
 function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomState | null }) {
   const { t } = useTranslation("settings");
   const [view, setView] = useState<DevicesView>({ status: "loading" });
@@ -265,6 +301,7 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
         </button>
       }
     >
+      <RemoteControlSwitch />
       {view.status === "unavailable" && (
         <p className="text-app-ui-sm text-destructive" role="alert">
           {t("remote.devices.unavailable")}

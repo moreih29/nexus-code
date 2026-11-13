@@ -1,7 +1,7 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
-import { listSessions, serveWith } from "../../../../../src/main/features/remote/serve";
+import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 
 function services(): CliServices {
   const workspaces = [
@@ -157,6 +157,14 @@ describe("serving a chat and a terminal to read", () => {
         params: { workspaceId: "w1", tabId: "t1" },
       }),
     ).rejects.toMatchObject({ code: 1003, message: "that tab is gone" });
+  });
+});
+
+describe("what this device serves", () => {
+  test("its chats' controls only when the user allows them", () => {
+    expect(servesWith(true)).toContain("chat.control");
+    expect(servesWith(false)).not.toContain("chat.control");
+    expect(servesWith(false)).toContain("chat.read");
   });
 });
 

@@ -39,6 +39,17 @@ export function usePeerReach(deviceId: string): PeerReach {
   return room.peers.some((p) => p.id === deviceId && p.online) ? "online" : "offline";
 }
 
+/**
+ * Whether this device may control another's chats: that one serves
+ * chat.control, as the user there allowed it. Taken as yes until its hello
+ * says otherwise.
+ */
+export function usePeerControls(deviceId: string): boolean {
+  const room = useRemoteRoom();
+  const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
+  return serves ? serves.includes("chat.control") : true;
+}
+
 /** The devices in the room now that serve their sessions. */
 export function servingPeers(room: RoomState | null): RoomPeer[] {
   if (room?.status !== "online") return [];

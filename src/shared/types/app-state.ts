@@ -228,6 +228,10 @@ export const AppStateSchema = z.object({
   // "multi", which lets the server tell the language as the user speaks.
   voiceLanguage: z.enum(["app", "multi"]).default("app"),
 
+  // Whether the account's other devices may control this one's chats
+  // (send, answer, stop, open, close) or only look (main/features/remote).
+  remoteControl: z.boolean().default(false),
+
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.
   cliEnabled: z.boolean().default(true),

@@ -21,7 +21,7 @@ import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
-import { listSessions, SERVES, serveWith } from "./serve";
+import { listSessions, servesWith, serveWith } from "./serve";
 import { remoteServer } from "./server";
 import { SessionWatches } from "./session-watches";
 import { TerminalWatches } from "./terminal-watches";
@@ -116,6 +116,8 @@ async function keyFlow(flow: () => Promise<AccountKeyState>): Promise<IpcResult<
 export async function registerRemoteChannel(options: {
   /** The services the nexus CLI uses, once the app made them: the room serves with them. */
   services: () => CliServices | null;
+  /** Whether other devices may control this one's chats (off unless the user turned it on), kept with the app's state. */
+  allowControl: { get(): boolean; set(allowed: boolean): void };
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -222,7 +224,7 @@ export async function registerRemoteChannel(options: {
       self: { id: want.device.id, name: want.device.name, platform: want.device.platform },
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
-      serves: SERVES,
+      serves: () => servesWith(options.allowControl.get()),
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
       serve: serveWith(options.services, {
         chats: watches,
@@ -286,6 +288,14 @@ export async function registerRemoteChannel(options: {
         return ask(() => account.removeDevice(id));
       },
       room: async () => ipcOk(roomState),
+      allowControl: async () => ipcOk(options.allowControl.get()),
+      setAllowControl: async (args: unknown) => {
+        const { allowed } = validateArgs(c.setAllowControl.args, args);
+        options.allowControl.set(allowed);
+        // The others learn it from the hello: they show the chats as view only, or not.
+        room?.announce();
+        return ipcOk(allowed);
+      },
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));

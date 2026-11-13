@@ -30,6 +30,15 @@ export const SERVES: readonly Capability[] = [
   "terminal.read",
 ];
 
+/**
+ * What this device serves as the user set it: its chats' controls only
+ * when the user lets other devices control them (Settings › Remote); else
+ * they may only look.
+ */
+export function servesWith(allowControl: boolean): readonly Capability[] {
+  return allowControl ? SERVES : SERVES.filter((c) => c !== "chat.control");
+}
+
 /** How many lines of a terminal a read gives when it does not say. */
 export const DEFAULT_TERMINAL_LINES = 1000;
 

@@ -708,6 +708,10 @@
       "renameLabel": "이름",
       "renameConfirm": "바꾸기"
     },
+    "control": {
+      "label": "다른 기기에서 조작 허용",
+      "description": "끄면 다른 기기에서는 보기만 할 수 있습니다."
+    },
     "key": {
       "title": "계정 암호",
       "description": "기기끼리 주고받는 내용은 암호화되어 서버도 볼 수 없습니다.",

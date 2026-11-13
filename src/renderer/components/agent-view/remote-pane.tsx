@@ -16,11 +16,16 @@ import { useTranslation } from "react-i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import type { PermissionAnswer } from "../../services/chat/controller";
-import type { PermissionRequest } from "../../services/chat/model";
+import type { ChatModel, PermissionRequest } from "../../services/chat/model";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { usePeerChat } from "../../services/remote/peer-chat";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
-import { type PeerReach, type PeerRead, usePeerReach } from "../../services/remote/room";
+import {
+  type PeerReach,
+  type PeerRead,
+  usePeerControls,
+  usePeerReach,
+} from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
@@ -52,6 +57,7 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
   const { t } = useTranslation();
   const close = useRemoteViewStore((s) => s.close);
   const reach = usePeerReach(target.deviceId);
+  const controls = usePeerControls(target.deviceId);
   useEffect(() => {
     if (!visible) return;
     const onKey = (event: KeyboardEvent) => {
@@ -73,7 +79,7 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
         <span className="min-w-0 flex-1 truncate text-app-ui-sm text-foreground">
           {target.title}
         </span>
-        {target.kind === "terminal" && (
+        {(target.kind === "terminal" || !controls) && (
           <span className="shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground">
             {t("agentView.remote.viewOnly")}
           </span>
@@ -93,7 +99,7 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
         {target.kind === "terminal" ? (
           <RemoteTerminal target={target} visible={visible} reach={reach} />
         ) : (
-          <RemoteChat target={target} visible={visible} reach={reach} />
+          <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
         )}
       </div>
     </div>
@@ -150,6 +156,24 @@ export function Unreachable({ reach, device }: { reach: PeerReach; device: strin
   );
 }
 
+/**
+ * In place of the controls while the device lets this one only look: the
+ * turn's status, and why there is nothing to send with.
+ */
+function ViewOnly({ model, device }: { model: ChatModel; device: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="shrink-0 px-4 py-2" data-testid="remote-view-only">
+      <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+        {(model.permissions.length > 0 || model.running) && <StatusLine model={model} />}
+        <p className="rounded-(--radius-raised) border border-border border-dashed px-3 py-2.5 text-app-ui-sm text-muted-foreground">
+          {t("agentView.remote.viewOnlyNote", { device })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** The protocol's answer for the card's: an always-allow is an allow (the rules stay there). */
 export function remoteAnswerOf(answer: PermissionAnswer): {
   decision: "allow" | "deny";
@@ -180,10 +204,13 @@ function RemoteChat({
   target,
   visible,
   reach,
+  controls,
 }: {
   target: RemoteTarget;
   visible: boolean;
   reach: PeerReach;
+  /** The device lets this one control its chats; else they are only shown. */
+  controls: boolean;
 }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
@@ -225,6 +252,8 @@ function RemoteChat({
       />
       {reach !== "online" ? (
         <Unreachable reach={reach} device={target.deviceName} />
+      ) : !controls ? (
+        <ViewOnly model={model} device={target.deviceName} />
       ) : (
         <>
           {(model.permissions.length > 0 || model.running) && (

@@ -152,6 +152,27 @@ describe("the room", () => {
     expect(a.served).toEqual([]);
   });
 
+  test("tells the room again when what it serves changed, and refuses what it no longer does", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let control = true;
+    const a = device(relay, "a", key, {
+      serves: () => (control ? ["sessions", "chat.control"] : ["sessions"]),
+    });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    expect(b.room.state().peers[0]?.serves).toEqual(["sessions", "chat.control"]);
+    control = false;
+    a.room.announce();
+    await tick();
+    expect(b.room.state().peers[0]?.serves).toEqual(["sessions"]);
+    await expect(
+      b.room.request("a", "chat.interrupt", { workspaceId: "w1", tabId: "t1" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
+  });
+
   test("a device that left is told as unavailable", async () => {
     const relay = new MockRelay();
     const key = await roomKey();
