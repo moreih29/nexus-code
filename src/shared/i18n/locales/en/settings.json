@@ -662,27 +662,27 @@
   "remote": {
     "account": {
       "title": "NexusCode account",
-      "description": "Sign in on each of your computers to reach one's agent sessions from another.",
+      "description": "Sign in to see this computer's sessions from your other computers and phone.",
       "signedOut": "Not signed in",
       "signInWith": {
         "google": "Sign in with Google",
         "github": "Sign in with GitHub",
         "dev": "Sign in (dev server)"
       },
-      "signingIn": "Finish signing in in your browser…",
+      "signingIn": "Continue in your browser…",
       "cancel": "Cancel",
       "signOut": "Sign out",
       "server": "Server: {{server}}",
       "failure": {
-        "cancelled": "The sign-in was cancelled.",
-        "timed-out": "The sign-in took too long. Try again.",
-        "access_denied": "The sign-in was declined.",
-        "unverified_email": "The email of the account you signed in with is not verified.",
-        "server_error": "The server could not finish the sign-in. Try again later.",
-        "invalid_grant": "The sign-in expired before it finished. Try again.",
-        "mismatch": "The browser came back from another sign-in. Try again.",
-        "unreachable": "Could not reach the server.",
-        "failed": "The sign-in did not finish. Try again."
+        "cancelled": "Sign-in cancelled.",
+        "timed-out": "Sign-in timed out. Try again.",
+        "access_denied": "Sign-in was declined.",
+        "unverified_email": "That account's email isn't verified.",
+        "server_error": "The server couldn't sign you in. Try again later.",
+        "invalid_grant": "Sign-in expired. Try again.",
+        "mismatch": "Another sign-in answered. Try again.",
+        "unreachable": "Can't reach the server.",
+        "failed": "Sign-in didn't finish. Try again."
       },
       "localOnly": "Local server only",
       "retry": "Try again"
@@ -693,12 +693,12 @@
       "current": "This device",
       "lastSeen": "last seen {{when}}",
       "empty": "No devices.",
-      "unavailable": "Could not reach the server.",
+      "unavailable": "Can't reach the server.",
       "remove": "Remove {{name}}",
       "removeConfirm": {
         "title": "Remove {{name}}?",
-        "description": "It is signed out of your account and can no longer reach your sessions. If it was lost or stolen, also reset the account password, so the key it holds opens nothing new.",
-        "descriptionSelf": "This computer is signed out of your account.",
+        "description": "It will be signed out. If it was lost, also reset the account password.",
+        "descriptionSelf": "This computer will be signed out.",
         "confirm": "Remove"
       },
       "online": "Online",
@@ -710,20 +710,20 @@
     },
     "key": {
       "title": "Account password",
-      "description": "What your devices send each other is sealed with the account key. The server keeps the key locked with this password and sees neither.",
-      "checking": "Checking the account key…",
-      "unavailable": "Could not check the account key with the server.",
-      "retryLater": "The server asked to wait a minute.",
+      "description": "What your devices send each other is encrypted, so not even the server can read it.",
+      "checking": "Checking…",
+      "unavailable": "Couldn't check with the server.",
+      "retryLater": "Try again in a minute.",
       "retry": "Try again",
-      "missing": "Set the account password, at least {{count}} characters. If you forget it, you can reset it, and then your other devices ask for the new one.",
-      "locked": "Type the account password to use the remote on this device. If it was reset on another device, type the new one.",
-      "unlocked": "This device holds the account key",
+      "missing": "Set a password for connecting your other devices (at least {{count}} characters).",
+      "locked": "Enter the account password.",
+      "unlocked": "Unlocked",
       "version": "Key version {{kid}}",
       "change": "Change password",
       "reset": "Reset",
       "forgot": "Forgot the password?",
-      "resetExplained": "A reset makes a new account key under a new password. Your other devices ask for the new password, and a lost device's copy of the old key opens nothing new.",
-      "mismatch": "The two passwords are not the same.",
+      "resetExplained": "Set a new password. Your other devices will ask for it.",
+      "mismatch": "The passwords don't match.",
       "field": {
         "password": "Account password",
         "current": "Current password",
@@ -740,40 +740,39 @@
       },
       "resetConfirm": {
         "title": "Reset the account password?",
-        "description": "Your other devices stop opening what this one sends until they get the new password.",
+        "description": "Your other devices reconnect once you enter the new password on them.",
         "confirm": "Reset"
       },
       "failure": {
         "too-short": "The password needs at least {{count}} characters.",
-        "wrong-password": "That is not the account password.",
-        "conflict": "Another device changed the account password just now. Check where it stands and try again.",
-        "unavailable": "Could not reach the server. Try again shortly.",
-        "signed-out": "The sign-in ended. Sign in again.",
-        "failed": "That did not go through. Try again."
+        "wrong-password": "Wrong password.",
+        "conflict": "Another device just changed the password. Try again.",
+        "unavailable": "Can't reach the server. Try again shortly.",
+        "signed-out": "You were signed out. Sign in again.",
+        "failed": "That didn't work. Try again."
       }
     },
     "delete": {
       "title": "Delete account",
       "label": "Delete your NexusCode account",
-      "description": "Removes the account from the server with its devices and locked key. This cannot be undone.",
+      "description": "Deletes the account and its devices. This can't be undone.",
       "button": "Delete account",
-      "failed": "Could not delete the account. Try again.",
+      "failed": "Couldn't delete the account. Try again.",
       "confirm": {
         "title": "Delete your NexusCode account?",
-        "description": "The account, its devices and its locked account key are removed from the server, and every device is signed out. This cannot be undone.",
+        "description": "The account and all its devices are deleted from the server. This can't be undone.",
         "confirm": "Delete account"
       }
     },
     "voice": {
       "title": "Voice input",
-      "description": "Click the mic in a chat's box and speak: the text appears as you talk, to edit before you send it.",
-      "descriptionWithShortcut": "Click the mic in a chat's box, or press {{shortcut}}, and speak: the text appears as you talk, to edit before you send it.",
+      "description": "Click the mic in a chat box and speak.",
+      "descriptionWithShortcut": "Click the mic in a chat box, or press {{shortcut}}, and speak.",
       "usage": "This month",
       "usageOf": "{{used}} of {{limit}} minutes used",
       "usageLoading": "Loading…",
-      "usageUnavailable": "Could not load the usage from the server.",
+      "usageUnavailable": "Couldn't load the usage.",
       "language": "Language",
-      "languageHint": "The app's language, or told apart as you speak.",
       "languageMulti": "Detect"
     }
   }

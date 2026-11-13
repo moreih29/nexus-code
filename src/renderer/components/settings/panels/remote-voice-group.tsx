@@ -48,7 +48,7 @@ export function VoiceUsageRow({ usage }: { usage: VoiceUsage | "unavailable" | n
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.min(100, Math.round(share * 100))}
-          className="h-1.5 w-32 overflow-hidden rounded-full bg-muted"
+          className="h-1.5 w-32 overflow-hidden rounded-full bg-border"
         >
           <div
             className={share >= 1 ? "h-full bg-destructive" : "h-full bg-primary"}
@@ -90,7 +90,7 @@ export function VoiceGroup() {
       }
     >
       <VoiceUsageRow usage={usage} />
-      <SettingsRow label={t("remote.voice.language")} description={t("remote.voice.languageHint")}>
+      <SettingsRow label={t("remote.voice.language")}>
         <SegmentedControl
           options={[
             { value: "app", label: NATIVE[appLanguage] ?? appLanguage },

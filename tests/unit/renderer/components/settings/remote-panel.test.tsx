@@ -14,7 +14,7 @@ describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
     const html = render({ status: "signed-out", server, failure: "unverified_email" });
     expect(html).toContain("Sign in with Google");
-    expect(html).toContain("The email of the account you signed in with is not verified.");
+    expect(html).toContain("email isn&#x27;t verified.");
     expect(html).toContain(`Server: ${server}`);
   });
 
@@ -45,7 +45,7 @@ describe("the remote panel's account", () => {
     const html = renderToStaticMarkup(
       <AccountGroup state={{ status: "signed-out", server }} unreachable onRetry={() => {}} />,
     );
-    expect(html).toContain("Could not reach the server.");
+    expect(html).toContain("reach the server.");
     expect(html).toContain("Try again");
     // The sign-in stays: the server may answer it.
     expect(html).toContain("Sign in with Google");
@@ -61,7 +61,7 @@ describe("the remote panel's account", () => {
 
   test("while the browser is out, offers to stop waiting", () => {
     const html = render({ status: "signing-in", server });
-    expect(html).toContain("Finish signing in in your browser");
+    expect(html).toContain("Continue in your browser");
     expect(html).toContain("Cancel");
     expect(html).not.toContain("Sign in with Google");
   });
@@ -122,7 +122,7 @@ describe("the remote panel's account password", () => {
 
   test("a device holding the key offers the change and the reset", () => {
     const html = renderKey({ status: "unlocked", kid: 2 });
-    expect(html).toContain("This device holds the account key");
+    expect(html).toContain(">Unlocked<");
     expect(html).toContain("Key version 2");
     expect(html).toContain("Change password");
     expect(html).toContain("Reset");
@@ -131,8 +131,8 @@ describe("the remote panel's account password", () => {
 
   test("a server that could not be asked offers to try again", () => {
     const html = renderKey({ status: "unavailable", retryAt: 1 });
-    expect(html).toContain("Could not check the account key with the server.");
-    expect(html).toContain("The server asked to wait a minute.");
+    expect(html).toContain("check with the server.");
+    expect(html).toContain("Try again in a minute.");
     expect(html).toContain("Try again");
   });
 });
@@ -141,7 +141,7 @@ describe("the remote panel's account deletion", () => {
   test("offers it, saying it cannot be undone", () => {
     const html = renderToStaticMarkup(<DeleteAccountGroup />);
     expect(html).toContain("Delete your NexusCode account");
-    expect(html).toContain("This cannot be undone.");
+    expect(html).toContain("be undone.");
     expect(html).toContain('data-variant="destructive"');
   });
 });

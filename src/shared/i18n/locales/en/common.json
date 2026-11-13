@@ -1764,7 +1764,7 @@
       "placeholder": "Message {{device}}",
       "send": "Send",
       "stop": "Stop",
-      "failed": "It did not go through: {{message}}",
+      "failed": "Didn't go through: {{message}}",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
       "offlineLast": "{{device}} is offline. Showing what it last sent.",
@@ -1833,25 +1833,25 @@
   "voice": {
     "start": "Voice input",
     "stop": "Stop voice input",
-    "needsSignIn": "Voice input needs a NexusCode account: sign in in Settings › Remote",
-    "unavailable": "This server has no voice input",
+    "needsSignIn": "Sign in to use voice input",
+    "unavailable": "No voice input on this server",
     "signIn": "Sign in",
     "openSettings": "Open System Settings",
     "failure": {
-      "signed-out": "Sign in to NexusCode to use voice input.",
-      "denied": "NexusCode may not use the microphone. Allow it in System Settings › Privacy & Security › Microphone.",
-      "no-microphone": "No microphone was found.",
-      "unavailable": "This server has no voice input.",
-      "quota": "This month's voice input minutes are used up.",
-      "busy": "Voice input is already on on two of your devices. Stop it on one and try again.",
-      "network": "Could not reach the server for voice input.",
-      "failed": "Voice input could not start.",
-      "recognition": "Voice recognition failed. What was heard so far is kept.",
-      "dropped": "Voice input lost the connection. What was heard so far is kept."
+      "signed-out": "Sign in to use voice input.",
+      "denied": "Allow NexusCode to use the microphone in your system settings.",
+      "no-microphone": "No microphone found.",
+      "unavailable": "No voice input on this server.",
+      "quota": "This month's voice minutes are used up.",
+      "busy": "Voice input is already on in two places. Stop one first.",
+      "network": "Can't reach the server.",
+      "failed": "Voice input didn't start.",
+      "recognition": "Voice recognition failed.",
+      "dropped": "Voice input lost the connection."
     },
     "limit": {
-      "session": "Voice input stops after 10 minutes at a time.",
-      "quota": "This month's voice input minutes ran out."
+      "session": "Voice input stops after 10 minutes.",
+      "quota": "This month's voice minutes ran out."
     }
   }
 }
