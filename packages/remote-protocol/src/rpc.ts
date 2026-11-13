@@ -141,9 +141,11 @@ const SessionsSchema = z.object({
 const TabRef = { workspaceId: z.string(), tabId: z.string() };
 
 /**
- * The agent that sends a message, when an agent does (nexus chat send on
+ * The agent that sends a request, when an agent does (nexus chat send on
  * another device): its own tab there, which the receiving chat shows as
- * the reply address. The device is the frame's sender.
+ * the reply address. The device is the frame's sender. A control method
+ * with `from` takes the `agents` capability, not its own, and the serving
+ * device may ask its user first (AGENT_CONSENT_MS) or turn it down.
  */
 export const AgentSenderSchema = z.object({
   /** tab: a Claude or Codex tab; terminal: an agent in a terminal; manager: the agent manager. */
@@ -211,6 +213,15 @@ export type TerminalKey = z.infer<typeof TerminalKeySchema>;
 
 /** Most messages between agents one chain may take; past it, `from` requests are refused. */
 export const MAX_AGENT_HOPS = 8;
+
+/**
+ * How long a serving device may ask its user about a request with `from`
+ * before it turns it down: a requester waits this long, and a little more.
+ */
+export const AGENT_CONSENT_MS = 90_000;
+
+/** Most requests with `from` one agent (a device's tab) may make a minute; more are Unavailable. */
+export const MAX_AGENT_REQUESTS_PER_MINUTE = 20;
 
 /** Longest a chat.wait or terminal.wait holds before it answers that the session is not done yet. */
 export const MAX_WAIT_MS = 10_000;
@@ -602,10 +613,15 @@ export const RPC_METHODS = {
       stop: z.boolean().optional(),
       /** With allow: the request's suggestions to keep from now on, by index ("always allow"). */
       always: z.array(z.number().int().nonnegative()).optional(),
+      from: AgentSenderSchema.optional(),
     }),
     result: Ok,
   },
-  "chat.interrupt": { capability: "chat.control", params: z.object(TabRef), result: Ok },
+  "chat.interrupt": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, from: AgentSenderSchema.optional() }),
+    result: Ok,
+  },
   /**
    * Sets any of model, effort and permission mode, as the composer's chips
    * do; what it runs with after. A mode the serving device's policy does
@@ -618,6 +634,7 @@ export const RPC_METHODS = {
       model: z.string().min(1).max(100).optional(),
       effort: z.string().min(1).max(100).optional(),
       permissionMode: z.string().min(1).max(100).optional(),
+      from: AgentSenderSchema.optional(),
     }),
     result: ChatSettingsSchema,
   },
@@ -685,7 +702,11 @@ export const RPC_METHODS = {
       error: z.string().optional(),
     }),
   },
-  "chat.close": { capability: "chat.control", params: z.object(TabRef), result: Ok },
+  "chat.close": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, from: AgentSenderSchema.optional() }),
+    result: Ok,
+  },
 
   /**
    * A terminal's screen and the lines above it, as text; with `ansi`, with
@@ -792,6 +813,7 @@ export const RPC_METHODS = {
       folder: z.string().min(1).max(4096).optional(),
       command: z.string().min(1).max(10_000).optional(),
       title: z.string().min(1).max(200).optional(),
+      from: AgentSenderSchema.optional(),
     }),
     result: z.object({ tabId: z.string() }),
   },
@@ -803,7 +825,11 @@ export const RPC_METHODS = {
   /** Closes a terminal; one running a program only with `force`. */
   "terminal.close": {
     capability: "terminal.control",
-    params: z.object({ ...TabRef, force: z.boolean().optional() }),
+    params: z.object({
+      ...TabRef,
+      force: z.boolean().optional(),
+      from: AgentSenderSchema.optional(),
+    }),
     result: Ok,
   },
 
