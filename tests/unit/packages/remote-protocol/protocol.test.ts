@@ -130,10 +130,15 @@ describe("the methods", () => {
     expect(ViewItemSchema.safeParse({ kind: "user", key: "u", text: 1 }).success).toBe(false);
   });
 
-  test("terminal input has no method", () => {
+  test("terminal input has no method: a terminal is read or watched, only", () => {
     expect(Object.keys(RPC_METHODS).filter((m) => m.startsWith("terminal."))).toEqual([
       "terminal.read",
+      "terminal.watch",
+      "terminal.unwatch",
     ]);
+    for (const m of ["terminal.read", "terminal.watch", "terminal.unwatch"] as const) {
+      expect(RPC_METHODS[m].capability).toBe("terminal.read");
+    }
   });
 });
 

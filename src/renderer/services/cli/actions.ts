@@ -115,6 +115,8 @@ export const actionHandlers: {
     CliUiOp,
     | "tabs.list"
     | "terminal.read"
+    | "terminal.watch"
+    | "terminal.unwatch"
     | "events.read"
     | "settings.list"
     | "settings.set"

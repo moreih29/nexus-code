@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
-import { ChatUpdateSchema, RPC_METHODS } from "../../../packages/remote-protocol/src/rpc";
+import {
+  ChatUpdateSchema,
+  RPC_METHODS,
+  SessionsUpdateSchema,
+  TerminalUpdateSchema,
+} from "../../../packages/remote-protocol/src/rpc";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -2369,6 +2374,17 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.list"].result,
       ),
+      /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
+      peerSessionsWatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.watch"].result,
+      ),
+      peerSessionsUnwatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["sessions.unwatch"].params),
+        RPC_METHODS["sessions.unwatch"].result,
+      ),
       /** A chat of another device's: its last items, or those before `before`. */
       peerChat: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),
@@ -2401,6 +2417,16 @@ export const ipcContract = {
       ),
       /** A chat another device watched here is gone (the renderer tells main). */
       chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      /** What changed in a terminal another device watches here (the renderer tells main). */
+      terminalChanged: call(
+        z.object({
+          watchId: z.string(),
+          change: TerminalUpdateSchema.omit({ watchId: true, rev: true }),
+        }),
+        z.void(),
+      ),
+      /** A terminal another device watched here is gone (the renderer tells main). */
+      terminalWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
       /** Starts watching another device's chat: its page now, then peerChatUpdate. */
       peerChatWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.watch"].params),
@@ -2416,6 +2442,19 @@ export const ipcContract = {
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.read"].params),
         RPC_METHODS["terminal.read"].result,
+      ),
+      /** Starts watching another device's terminal: its text now, then peerTerminalUpdate. */
+      peerTerminalWatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.watch"].params),
+        RPC_METHODS["terminal.watch"].result,
+      ),
+      peerTerminalUnwatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.unwatch"].params),
+        RPC_METHODS["terminal.unwatch"].result,
       ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),
@@ -2450,6 +2489,10 @@ export const ipcContract = {
       roomChanged: listen(RoomStateSchema),
       /** A chat this device watches on another changed (peerChatWatch). */
       peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),
+      /** A terminal this device watches on another changed (peerTerminalWatch). */
+      peerTerminalUpdate: listen(z.object({ deviceId: z.string(), update: TerminalUpdateSchema })),
+      /** Another device's sessions this device watches changed (peerSessionsWatch). */
+      peerSessionsUpdate: listen(z.object({ deviceId: z.string(), update: SessionsUpdateSchema })),
       /** What the open voice session's server said, then that it closed. */
       voiceEvent: listen(VoiceEventSchema),
     },

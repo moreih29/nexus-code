@@ -15,6 +15,7 @@ import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { readSessionEvents } from "../agent-sessions/session-events";
 import { focusHolder, restoreFocus } from "../keep-focus";
+import { startTerminalWatch, stopTerminalWatch } from "../remote/terminal-watch";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
 import { appHandlers } from "./app-actions";
@@ -72,6 +73,24 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
       );
     }
     return { text: controller.readText(lines) };
+  },
+  "terminal.watch": async ({ tabId, watchId, lines }) => {
+    if (!getTerminalController(tabId)) {
+      throw new UiRequestError(
+        "that terminal has not started: its workspace has not been opened since NexusCode started",
+      );
+    }
+    return startTerminalWatch(
+      watchId,
+      tabId,
+      lines,
+      (change) => void ipcCallResult("remote", "terminalChanged", { watchId, change }),
+      () => void ipcCallResult("remote", "terminalWatchEnded", { watchId }),
+    );
+  },
+  "terminal.unwatch": async ({ watchId }) => {
+    stopTerminalWatch(watchId);
+    return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
   "manager.dispatched": async ({ workspaceId, tabId, text }) => {

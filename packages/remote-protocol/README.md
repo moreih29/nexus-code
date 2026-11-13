@@ -7,7 +7,7 @@ There are two layers:
 - **Relay frames** (`relay.ts`): what a device and its account's room on the relay send each other. The relay reads these: who a message is for, its sequence number, and the account key version it was sealed with. It cannot read the message itself.
 - **Sealed messages** (`sealed.ts`, `rpc.ts`, `view.ts`): what a sealed frame carries between two devices of the account.
   - A `hello` that says which protocol version and capabilities a device serves.
-  - JSON-RPC 2.0 requests, answers and notifications: list and watch sessions, read and drive chats, read terminals.
+  - JSON-RPC 2.0 requests, answers and notifications: list and watch sessions, read and drive chats, read and watch terminals.
   - The chat view: the conversation as the serving device's app already built it, trimmed for drawing.
 
 Beside them:

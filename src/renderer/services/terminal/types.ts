@@ -93,6 +93,12 @@ export interface TerminalController {
    */
   nextOutput: (timeoutMs: number) => Promise<boolean>;
   /**
+   * Calls `listener` each time the program's output (not replayed
+   * scrollback) is on the terminal, and once with true when the terminal
+   * is gone. Returns its removal.
+   */
+  onOutput: (listener: (ended: boolean) => void) => () => void;
+  /**
    * Whether the app in the session turned on bracketed paste, so a pasted
    * line break stays in the paste instead of acting as Enter.
    */

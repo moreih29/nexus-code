@@ -21,8 +21,10 @@ import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
-import { SERVES, serveWith } from "./serve";
+import { listSessions, SERVES, serveWith } from "./serve";
 import { remoteServer } from "./server";
+import { SessionWatches } from "./session-watches";
+import { TerminalWatches } from "./terminal-watches";
 import { TicketSchema, VoiceSessions } from "./voice";
 
 const c = ipcContract.remote.call;
@@ -77,7 +79,8 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
 
 /**
  * Asks another device of the account for the renderer: its answer, or why
- * not (not-found, forbidden, unavailable: not in the room, gone, slow).
+ * not (not-found, forbidden, unsupported: a version without the method,
+ * unavailable: not in the room, gone, slow).
  */
 async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
   try {
@@ -89,7 +92,9 @@ async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
           ? "not-found"
           : error.code === RpcErrorCode.Forbidden
             ? "permission-denied"
-            : "unavailable";
+            : error.code === RpcErrorCode.MethodNotFound
+              ? "unsupported"
+              : "unavailable";
       return ipcErr(kind, error.message);
     }
     throw error;
@@ -136,12 +141,32 @@ export async function registerRemoteChannel(options: {
     services: options.services,
     notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
   });
+  // The sessions' list other devices watch here.
+  const sessionWatches = new SessionWatches({
+    list: async () => {
+      const services = options.services();
+      if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+      return listSessions(services);
+    },
+    notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
+  });
+  // The terminals other devices watch here.
+  const terminalWatches = new TerminalWatches({
+    services: options.services,
+    notify: (to, update) => room?.notify(to, "terminal.update", update) ?? Promise.resolve(false),
+  });
   const setRoomState = (state: RoomState) => {
     // A device that left, or this one leaving, ends the watches it had.
-    if (state.status !== "online") void watches.dropAll();
-    else {
-      for (const id of watches.watchers()) {
-        if (!state.peers.some((p) => p.id === id && p.online)) void watches.dropDevice(id);
+    if (state.status !== "online") {
+      void watches.dropAll();
+      sessionWatches.dropAll();
+      void terminalWatches.dropAll();
+    } else {
+      const here = (id: string) => state.peers.some((p) => p.id === id && p.online);
+      for (const id of watches.watchers()) if (!here(id)) void watches.dropDevice(id);
+      for (const id of sessionWatches.watchers()) if (!here(id)) sessionWatches.dropDevice(id);
+      for (const id of terminalWatches.watchers()) {
+        if (!here(id)) void terminalWatches.dropDevice(id);
       }
     }
     roomState = state;
@@ -199,13 +224,27 @@ export async function registerRemoteChannel(options: {
       app: { name: "NexusCode", version: app.getVersion() },
       serves: SERVES,
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
-      serve: serveWith(options.services, watches),
+      serve: serveWith(options.services, {
+        chats: watches,
+        sessions: sessionWatches,
+        terminals: terminalWatches,
+      }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {
         if (method === "chat.update") {
           broadcast("remote", "peerChatUpdate", {
             deviceId: from,
             update: params as RpcNotificationParams<"chat.update">,
+          });
+        } else if (method === "terminal.update") {
+          broadcast("remote", "peerTerminalUpdate", {
+            deviceId: from,
+            update: params as RpcNotificationParams<"terminal.update">,
+          });
+        } else if (method === "sessions.update") {
+          broadcast("remote", "peerSessionsUpdate", {
+            deviceId: from,
+            update: params as RpcNotificationParams<"sessions.update">,
           });
         }
       },
@@ -251,6 +290,14 @@ export async function registerRemoteChannel(options: {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));
       },
+      peerSessionsWatch: (args: unknown) => {
+        const { deviceId } = validateArgs(c.peerSessionsWatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.watch", {}));
+      },
+      peerSessionsUnwatch: (args: unknown) => {
+        const { deviceId, watchId } = validateArgs(c.peerSessionsUnwatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "sessions.unwatch", { watchId }));
+      },
       chatChanged: async (args: unknown) => {
         const { watchId, change } = validateArgs(c.chatChanged.args, args);
         await watches.changed(watchId, change);
@@ -258,6 +305,15 @@ export async function registerRemoteChannel(options: {
       },
       chatWatchEnded: async (args: unknown) => {
         watches.ended(validateArgs(c.chatWatchEnded.args, args).watchId);
+        return ipcOk(undefined);
+      },
+      terminalChanged: async (args: unknown) => {
+        const { watchId, change } = validateArgs(c.terminalChanged.args, args);
+        await terminalWatches.changed(watchId, change);
+        return ipcOk(undefined);
+      },
+      terminalWatchEnded: async (args: unknown) => {
+        terminalWatches.ended(validateArgs(c.terminalWatchEnded.args, args).watchId);
         return ipcOk(undefined);
       },
       peerChatWatch: (args: unknown) => {
@@ -287,6 +343,14 @@ export async function registerRemoteChannel(options: {
       peerTerminal: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminal.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.read", params));
+      },
+      peerTerminalWatch: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalWatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.watch", params));
+      },
+      peerTerminalUnwatch: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalUnwatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.unwatch", params));
       },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),

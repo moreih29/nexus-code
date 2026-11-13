@@ -226,6 +226,25 @@ describe("serving a chat's controls", () => {
     ]);
   });
 
+  test("opens a chat with the model and effort asked, saying when they could not be set", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        asked.push([op, args]);
+        return { tabId: "t9", error: 'claude has no model "gpt"' };
+      },
+    } as unknown as CliServices;
+    const opened = await serveWith(() => s)({
+      from: "d",
+      method: "chat.new",
+      params: { workspaceId: "w2", agent: "claude", prompt: "hi", model: "haiku", effort: "low" },
+    });
+    expect(opened).toEqual({ tabId: "t9", error: 'claude has no model "gpt"' });
+    expect(asked[0]?.[1]).toMatchObject({ settings: { model: "haiku", effort: "low" } });
+  });
+
   test("stops and closes only a chat; the app refusing is unavailable", async () => {
     const { serve, asked } = recording();
     await serve({ from: "d", method: "chat.interrupt", params: tab });

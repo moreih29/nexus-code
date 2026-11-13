@@ -1,6 +1,6 @@
 {
   "name": "@nexus-code/remote-protocol",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "NexusCode's remote protocol: the relay's frames and the end-to-end RPC between a user's devices",
   "license": "MIT",
   "repository": {

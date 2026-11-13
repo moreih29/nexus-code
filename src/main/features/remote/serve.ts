@@ -19,6 +19,8 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { CliServices } from "../cli/context";
 import type { ChatWatches } from "./chat-watches";
 import { fitsInFrame, RpcFailure } from "./room";
+import type { SessionWatches } from "./session-watches";
+import type { TerminalWatches } from "./terminal-watches";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
 export const SERVES: readonly Capability[] = [
@@ -258,10 +260,14 @@ export async function interruptChat(
 
 export async function newChat(
   services: CliServices,
-  { workspaceId, agent, prompt }: RpcParams<"chat.new">,
+  { workspaceId, agent, prompt, model, effort }: RpcParams<"chat.new">,
 ): Promise<RpcResult<"chat.new">> {
   const workspace = services.listWorkspaces().find((w) => w.id === workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  const settings = {
+    ...(model !== undefined ? { model } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+  };
   const opened = await services
     .ui("chat.open", {
       workspaceId,
@@ -270,9 +276,10 @@ export async function newChat(
       prompt: prompt ?? "",
       // Behind what the window shows: whoever sits at this computer keeps their place.
       placement: { background: true },
+      ...(Object.keys(settings).length > 0 ? { settings } : {}),
     })
     .catch(unavailable);
-  return { tabId: opened.tabId };
+  return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
 export async function closeChat(
@@ -285,15 +292,30 @@ export async function closeChat(
 }
 
 /** Answers another device's request with this device's services. */
-export function serveWith(services: () => CliServices | null, watches?: ChatWatches) {
+export function serveWith(
+  services: () => CliServices | null,
+  watches: { chats?: ChatWatches; sessions?: SessionWatches; terminals?: TerminalWatches } = {},
+) {
+  const { chats, sessions, terminals } = watches;
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-    if (watches && request.method === "chat.watch") {
-      return watches.watch(request.from, request.params as RpcParams<"chat.watch">);
+    const { from, method, params } = request;
+    if (sessions && method === "sessions.watch") return sessions.watch(from);
+    if (sessions && method === "sessions.unwatch") {
+      return sessions.unwatch(from, params as RpcParams<"sessions.unwatch">);
     }
-    if (watches && request.method === "chat.unwatch") {
-      return watches.unwatch(request.from, request.params as RpcParams<"chat.unwatch">);
+    if (chats && method === "chat.watch") {
+      return chats.watch(from, params as RpcParams<"chat.watch">);
+    }
+    if (chats && method === "chat.unwatch") {
+      return chats.unwatch(from, params as RpcParams<"chat.unwatch">);
+    }
+    if (terminals && method === "terminal.watch") {
+      return terminals.watch(from, params as RpcParams<"terminal.watch">);
+    }
+    if (terminals && method === "terminal.unwatch") {
+      return terminals.unwatch(from, params as RpcParams<"terminal.unwatch">);
     }
     switch (request.method) {
       case "sessions.list":

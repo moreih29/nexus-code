@@ -347,6 +347,19 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; lines: number };
     result: { text: string };
   };
+  /**
+   * Starts watching a terminal for another device: its text now, then
+   * what changes, told to main (remote.terminalChanged) under `watchId`.
+   */
+  "terminal.watch": {
+    args: { workspaceId: string; tabId: string; watchId: string; lines: number };
+    result: { text: string };
+  };
+  /** Stops a watch terminal.watch started; nothing when there is none. */
+  "terminal.unwatch": {
+    args: { watchId: string };
+    result: Record<string, never>;
+  };
   /** Opens a file of the workspace, or shows its tab, at a line if given. */
   "editor.open": {
     args: {

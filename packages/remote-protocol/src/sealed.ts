@@ -38,7 +38,7 @@ export const CAPABILITIES = [
   "chat.read",
   /** chat.send, chat.answer, chat.interrupt, chat.new and chat.close. */
   "chat.control",
-  /** terminal.read: a terminal's screen, as text. */
+  /** terminal.read and terminal.watch: a terminal's screen, as text. */
   "terminal.read",
 ] as const;
 export const CapabilitySchema = z.string();

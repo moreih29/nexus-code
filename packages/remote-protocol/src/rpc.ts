@@ -161,6 +161,20 @@ export const ChatUpdateSchema = z.object({
 });
 export type ChatUpdate = z.infer<typeof ChatUpdateSchema>;
 
+/**
+ * A watched terminal's text changed: the text from `start` (a UTF-16
+ * offset into the text as it was) is now `text`. A redraw at the bottom
+ * sends only the bottom; a scroll, all of it from 0.
+ */
+export const TerminalUpdateSchema = z.object({
+  watchId: z.string(),
+  /** Counts the watch's updates from 1, so one lost shows. */
+  rev: z.number().int().positive(),
+  start: z.number().int().nonnegative(),
+  text: z.string(),
+});
+export type TerminalUpdate = z.infer<typeof TerminalUpdateSchema>;
+
 /** The sessions' list as it is now, sent whenever it changes during a sessions.watch. */
 export const SessionsUpdateSchema = SessionsSchema.extend({ watchId: z.string() });
 export type SessionsUpdate = z.infer<typeof SessionsUpdateSchema>;
@@ -237,15 +251,26 @@ export const RPC_METHODS = {
     result: Ok,
   },
   "chat.interrupt": { capability: "chat.control", params: z.object(TabRef), result: Ok },
-  /** Opens a chat in one of the serving device's workspaces, sending it `prompt` if given. */
+  /**
+   * Opens a chat in one of the serving device's workspaces, sending it
+   * `prompt` if given. `model` and `effort` are set before the prompt goes,
+   * named as the agent's own menus name them ("haiku", "low"); the tab's
+   * profile's own otherwise.
+   */
   "chat.new": {
     capability: "chat.control",
     params: z.object({
       workspaceId: z.string(),
       agent: z.enum(["claude", "codex"]),
       prompt: z.string().optional(),
+      model: z.string().min(1).max(100).optional(),
+      effort: z.string().min(1).max(100).optional(),
     }),
-    result: z.object({ tabId: z.string() }),
+    result: z.object({
+      tabId: z.string(),
+      /** The tab opened, but the model or effort could not be set: the prompt was not sent. */
+      error: z.string().optional(),
+    }),
   },
   "chat.close": { capability: "chat.control", params: z.object(TabRef), result: Ok },
 
@@ -254,6 +279,17 @@ export const RPC_METHODS = {
     capability: "terminal.read",
     params: z.object({ ...TabRef, lines: z.number().int().positive().max(5000).optional() }),
     result: z.object({ text: z.string() }),
+  },
+  /** The terminal's text now, as terminal.read; then a terminal.update each time it changes, until terminal.unwatch. */
+  "terminal.watch": {
+    capability: "terminal.read",
+    params: z.object({ ...TabRef, lines: z.number().int().positive().max(5000).optional() }),
+    result: z.object({ text: z.string(), watchId: z.string() }),
+  },
+  "terminal.unwatch": {
+    capability: "terminal.read",
+    params: z.object({ watchId: z.string() }),
+    result: Ok,
   },
 } as const;
 
@@ -265,6 +301,7 @@ export type RpcResult<M extends RpcMethod> = z.infer<(typeof RPC_METHODS)[M]["re
 export const RPC_NOTIFICATIONS = {
   "sessions.update": SessionsUpdateSchema,
   "chat.update": ChatUpdateSchema,
+  "terminal.update": TerminalUpdateSchema,
 } as const;
 
 export type RpcNotificationMethod = keyof typeof RPC_NOTIFICATIONS;

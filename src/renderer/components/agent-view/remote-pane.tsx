@@ -19,12 +19,8 @@ import type { PermissionAnswer } from "../../services/chat/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { usePeerChat } from "../../services/remote/peer-chat";
-import {
-  type PeerReach,
-  type PeerRead,
-  usePeerReach,
-  usePeerRead,
-} from "../../services/remote/room";
+import { usePeerTerminal } from "../../services/remote/peer-terminal";
+import { type PeerReach, type PeerRead, usePeerReach } from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
@@ -382,17 +378,7 @@ function RemoteTerminal({
   reach: PeerReach;
 }) {
   const { deviceId, workspaceId, tabId } = target;
-  const { read } = usePeerRead(
-    `${deviceId}/${workspaceId}/${tabId}`,
-    () =>
-      ipcCallResult("remote", "peerTerminal", {
-        deviceId,
-        workspaceId,
-        tabId,
-        lines: TERMINAL_LINES,
-      }),
-    visible,
-  );
+  const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
   const ref = useRef<HTMLPreElement>(null);
   const text = read.status === "ready" ? read.value.text : null;
   // Kept at the end, as a terminal is, unless the user scrolled up to read.

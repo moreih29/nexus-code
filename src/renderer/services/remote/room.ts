@@ -64,12 +64,14 @@ export type PeerSessions =
   | { status: "ready"; list: SessionsList }
   | { status: "unavailable" };
 
-/** How often a shown device's sessions are asked again. */
+/** How often a shown device's sessions are asked again, where it cannot be watched. */
 export const PEER_POLL_MS = 5000;
 
 /**
- * Each device's sessions, asked now and every PEER_POLL_MS while `shown`;
- * a device's last list stays while the next is on its way.
+ * Each device's sessions while `shown`: watched (sessions.watch), the
+ * device sending the list as it changes; or, from a device that does not
+ * serve the watch, asked now and every PEER_POLL_MS. A device's last list
+ * stays while the next is on its way.
  */
 export function usePeerSessions(
   deviceIds: readonly string[],
@@ -81,26 +83,58 @@ export function usePeerSessions(
     if (!shown || key === "") return;
     const ids = key.split("|");
     let live = true;
-    const ask = () => {
-      for (const deviceId of ids) {
+    const watching = new Map<string, string>();
+    const timers: ReturnType<typeof setInterval>[] = [];
+    const put = (deviceId: string, list: SessionsList | null) =>
+      setLists((now) => ({
+        ...now,
+        [deviceId]: list
+          ? { status: "ready", list }
+          : now[deviceId]?.status === "ready"
+            ? (now[deviceId] as PeerSessions)
+            : { status: "unavailable" },
+      }));
+    const off = ipcListen("remote", "peerSessionsUpdate", ({ deviceId, update }) => {
+      if (!live || watching.get(deviceId) !== update.watchId) return;
+      const { watchId: _, ...list } = update;
+      put(deviceId, list);
+    });
+    const poll = (deviceId: string) => {
+      const ask = () =>
         void ipcCallResult("remote", "peerSessions", { deviceId }).then((result) => {
-          if (!live) return;
-          setLists((now) => ({
-            ...now,
-            [deviceId]: result.ok
-              ? { status: "ready", list: result.value }
-              : now[deviceId]?.status === "ready"
-                ? (now[deviceId] as PeerSessions)
-                : { status: "unavailable" },
-          }));
+          if (live) put(deviceId, result.ok ? result.value : null);
         });
-      }
+      ask();
+      timers.push(setInterval(ask, PEER_POLL_MS));
     };
-    ask();
-    const timer = setInterval(ask, PEER_POLL_MS);
+    for (const deviceId of ids) {
+      void ipcCallResult("remote", "peerSessionsWatch", { deviceId }).then((result) => {
+        if (!live) {
+          if (result.ok) {
+            void ipcCallResult("remote", "peerSessionsUnwatch", {
+              deviceId,
+              watchId: result.value.watchId,
+            });
+          }
+          return;
+        }
+        if (!result.ok) {
+          // A device of an older version, or one that did not answer: asked again and again.
+          poll(deviceId);
+          return;
+        }
+        const { watchId, ...list } = result.value;
+        watching.set(deviceId, watchId);
+        put(deviceId, list);
+      });
+    }
     return () => {
       live = false;
-      clearInterval(timer);
+      off();
+      for (const timer of timers) clearInterval(timer);
+      for (const [deviceId, watchId] of watching) {
+        void ipcCallResult("remote", "peerSessionsUnwatch", { deviceId, watchId });
+      }
     };
   }, [key, shown]);
   return lists;
