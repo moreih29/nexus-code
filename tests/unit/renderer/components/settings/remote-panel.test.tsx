@@ -7,14 +7,14 @@ const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
 );
 
 const server = "http://localhost:8787";
-const render = (state: RemoteAccountState, signIns?: ("google" | "dev")[]) =>
+const render = (state: RemoteAccountState, signIns?: ("google" | "github" | "dev")[]) =>
   renderToStaticMarkup(<AccountGroup state={state} signIns={signIns} />);
 
 describe("the remote panel's account", () => {
   test("offers the sign-in, saying why the last one failed", () => {
     const html = render({ status: "signed-out", server, failure: "unverified_email" });
     expect(html).toContain("Sign in with Google");
-    expect(html).toContain("This Google account&#x27;s email is not verified.");
+    expect(html).toContain("The email of the account you signed in with is not verified.");
     expect(html).toContain(`Server: ${server}`);
   });
 
@@ -22,6 +22,9 @@ describe("the remote panel's account", () => {
     const html = render({ status: "signed-out", server }, ["dev"]);
     expect(html).toContain("Sign in (dev server)");
     expect(html).not.toContain("Sign in with Google");
+    const both = render({ status: "signed-out", server }, ["google", "github"]);
+    expect(both).toContain("Sign in with Google");
+    expect(both).toContain("Sign in with GitHub");
   });
 
   test("says nothing of a sign-in the user cancelled", () => {

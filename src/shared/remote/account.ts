@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 /** The sign-ins the app knows how to offer; the server says which it has (GET /info). */
-export const SIGN_IN_PROVIDERS = ["google", "dev"] as const;
+export const SIGN_IN_PROVIDERS = ["google", "github", "dev"] as const;
 export const SignInProviderSchema = z.enum(SIGN_IN_PROVIDERS);
 export type SignInProvider = z.infer<typeof SignInProviderSchema>;
 

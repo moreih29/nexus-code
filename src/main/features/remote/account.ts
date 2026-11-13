@@ -1,8 +1,9 @@
 /**
- * The app's NexusCode account: signing in with Google through the system
- * browser (OAuth with PKCE and a loopback redirect, as RFC 8252 has it for
- * a desktop app), the server's session token it gets for this device, and
- * the account's devices. The token is what the relay and the API take.
+ * The app's NexusCode account: signing in with Google or GitHub through
+ * the system browser (OAuth with PKCE and a loopback redirect, as RFC 8252
+ * has it for a desktop app), the server's session token it gets for this
+ * device, and the account's devices. The token is what the relay and the
+ * API take.
  */
 
 import os from "node:os";
@@ -117,9 +118,10 @@ export class RemoteAccount {
   }
 
   /**
-   * Opens the server's Google sign-in in the browser and waits for it to
-   * come back; then trades its code for this device's token. A sign-in that
-   * does not finish leaves the app signed out, with why in the state.
+   * Opens the server's sign-in (Google's unless told) in the browser and
+   * waits for it to come back; then trades its code for this device's
+   * token. A sign-in that does not finish leaves the app signed out, with
+   * why in the state.
    */
   async signIn(provider?: SignInProvider): Promise<RemoteAccountState> {
     if (this.signingIn || this.saved) return this.state();

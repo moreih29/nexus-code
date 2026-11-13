@@ -1,8 +1,8 @@
 // src/renderer/components/settings/panels/remote-panel.tsx
 //
-// The NexusCode account the remote runs on: signing in with Google (in the
-// system browser; main waits for it to come back), who the app is signed in
-// as, the account password (remote-key-group), and the account's devices,
+// The NexusCode account the remote runs on: signing in with one of the
+// server's sign-ins, Google or GitHub (in the system browser; main waits
+// for it to come back), who the app is signed in as, the account password (remote-key-group), and the account's devices,
 // each of which can be removed.
 
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";

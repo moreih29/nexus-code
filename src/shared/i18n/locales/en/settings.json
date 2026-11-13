@@ -663,6 +663,7 @@
       "signedOut": "Not signed in",
       "signInWith": {
         "google": "Sign in with Google",
+        "github": "Sign in with GitHub",
         "dev": "Sign in (dev server)"
       },
       "signingIn": "Finish signing in in your browser…",
@@ -672,8 +673,8 @@
       "failure": {
         "cancelled": "The sign-in was cancelled.",
         "timed-out": "The sign-in took too long. Try again.",
-        "access_denied": "The sign-in was declined at Google.",
-        "unverified_email": "This Google account's email is not verified.",
+        "access_denied": "The sign-in was declined.",
+        "unverified_email": "The email of the account you signed in with is not verified.",
         "server_error": "The server could not finish the sign-in. Try again later.",
         "invalid_grant": "The sign-in expired before it finished. Try again.",
         "mismatch": "The browser came back from another sign-in. Try again.",

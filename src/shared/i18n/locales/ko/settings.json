@@ -663,6 +663,7 @@
       "signedOut": "로그인하지 않음",
       "signInWith": {
         "google": "Google로 로그인",
+        "github": "GitHub로 로그인",
         "dev": "로그인 (개발 서버)"
       },
       "signingIn": "브라우저에서 로그인을 마쳐 주세요…",
@@ -672,8 +673,8 @@
       "failure": {
         "cancelled": "로그인을 취소했습니다.",
         "timed-out": "로그인 시간이 지났습니다. 다시 시도해 주세요.",
-        "access_denied": "Google에서 로그인을 거절했습니다.",
-        "unverified_email": "이 Google 계정의 이메일이 인증되지 않았습니다.",
+        "access_denied": "로그인이 거절됐습니다.",
+        "unverified_email": "로그인한 계정의 이메일이 인증되지 않았습니다.",
         "server_error": "서버가 로그인을 마치지 못했습니다. 잠시 후 다시 시도해 주세요.",
         "invalid_grant": "로그인이 끝나기 전에 만료됐습니다. 다시 시도해 주세요.",
         "mismatch": "브라우저가 다른 로그인에서 돌아왔습니다. 다시 시도해 주세요.",
