@@ -73,6 +73,13 @@ export interface RemoteAccountDeps {
   device?: { name: string; platform: string };
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
   timeoutMs?: number;
+  /**
+   * Who signs the user in: Google, or the dev server's own sign-in (only on
+   * a server at localhost), which takes an email and no password.
+   */
+  provider?: "google" | "dev";
+  /** The email to sign in as, when known: the dev sign-in then asks nothing. */
+  loginHint?: string;
 }
 
 export class RemoteAccount {
@@ -126,12 +133,13 @@ export class RemoteAccount {
     try {
       const { verifier, challenge } = makePkce();
       const state = makeState();
-      const start = new URL("/auth/google/start", this.deps.server);
+      const start = new URL(`/auth/${this.deps.provider ?? "google"}/start`, this.deps.server);
       start.search = new URLSearchParams({
         redirect_uri: listener.redirectUri,
         state,
         code_challenge: challenge,
         code_challenge_method: "S256",
+        ...(this.deps.loginHint ? { login_hint: this.deps.loginHint } : {}),
       }).toString();
       await this.deps.openExternal(start.toString());
       const back = await listener.result;

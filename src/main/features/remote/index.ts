@@ -20,6 +20,18 @@ export function remoteServer(): string {
   return process.env.NEXUS_REMOTE_SERVER?.trim() || DEV_SERVER;
 }
 
+/**
+ * For development: NEXUS_REMOTE_PROVIDER=dev signs in with the dev server's
+ * own sign-in instead of Google, as NEXUS_REMOTE_LOGIN_HINT's email when set.
+ */
+function signInOptions(): { provider?: "dev"; loginHint?: string } {
+  const loginHint = process.env.NEXUS_REMOTE_LOGIN_HINT?.trim();
+  return {
+    ...(process.env.NEXUS_REMOTE_PROVIDER?.trim() === "dev" ? { provider: "dev" as const } : {}),
+    ...(loginHint ? { loginHint } : {}),
+  };
+}
+
 /** Asks the server for the renderer: how it failed, where the renderer can act on it. */
 async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
   try {
@@ -64,6 +76,7 @@ export async function registerRemoteChannel(): Promise<{
     server: remoteServer(),
     store,
     openExternal: (url) => shell.openExternal(url),
+    ...signInOptions(),
     onChange: (state) => {
       broadcast("remote", "accountChanged", state);
       void keys?.accountChanged(state).catch(() => {});

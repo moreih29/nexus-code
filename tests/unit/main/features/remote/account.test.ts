@@ -241,6 +241,25 @@ describe("the account", () => {
     expect(platform).toMatch(/^[a-z0-9-]{1,32}$/);
   });
 
+  test("signs in with the dev server's sign-in, as the email given", async () => {
+    const { opened, openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const account = new RemoteAccount({
+      server: SERVER,
+      store: memoryStore(),
+      openExternal,
+      fetch: fakeServer().fetchFn,
+      provider: "dev",
+      loginHint: "a@example.com",
+    });
+    accounts.push(account);
+    expect((await account.signIn()).status).toBe("signed-in");
+    expect(opened[0]?.pathname).toBe("/auth/dev/start");
+    expect(opened[0]?.searchParams.get("login_hint")).toBe("a@example.com");
+  });
+
   test("a sign-in to another server is not this one's", async () => {
     const account = new RemoteAccount({
       server: SERVER,
