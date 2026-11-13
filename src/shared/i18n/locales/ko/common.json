@@ -1757,7 +1757,10 @@
         "new-result": "새 결과",
         "idle": "대기",
         "ended": "종료"
-      }
+      },
+      "viewOnly": "보기 전용",
+      "close": "닫기",
+      "gone": "닫힌 세션입니다"
     }
   },
   "releaseNotes": {

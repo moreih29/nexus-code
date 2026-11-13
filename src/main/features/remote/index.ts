@@ -205,6 +205,20 @@ export async function registerRemoteChannel(options: {
           return room.request(deviceId, "sessions.list", {});
         });
       },
+      peerChat: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChat.args, args);
+        return askPeer(() => {
+          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
+          return room.request(deviceId, "chat.read", params);
+        });
+      },
+      peerTerminal: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminal.args, args);
+        return askPeer(() => {
+          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
+          return room.request(deviceId, "terminal.read", params);
+        });
+      },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),
       createKey: (args: unknown) => {

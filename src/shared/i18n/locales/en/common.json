@@ -1757,7 +1757,10 @@
         "new-result": "New result",
         "idle": "Idle",
         "ended": "Ended"
-      }
+      },
+      "viewOnly": "View only",
+      "close": "Close",
+      "gone": "This session was closed"
     }
   },
   "releaseNotes": {

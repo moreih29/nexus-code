@@ -164,3 +164,61 @@ describe("a chat's page for another device", () => {
     expect(page.tasks.k1).not.toHaveProperty("prompt");
   });
 });
+
+const { modelOfPage } = await import("../../../../../src/renderer/services/remote/chat-model");
+
+describe("a page drawn as this app's chat", () => {
+  test("gives back the items, calls and turn the page told", () => {
+    const page = chatPageOf(
+      source({
+        items: [user("a"), said("b", "t1"), { kind: "notice", key: "n", code: "interrupted" }],
+        tools: { t1: tool("t1", { result: { text: "ok", isError: false, images: [] } }) },
+        running: true,
+        process: "running",
+        turn: { startedAt: 5, outputTokens: 9, thinkingTokens: 2 },
+        streaming: { messageId: "m", blocks: { 0: { type: "text", text: "Hel" } } },
+        permissions: [{ requestId: "r", toolName: "Bash", input: {}, suggestions: [] }],
+      }),
+    );
+    const model = modelOfPage(page);
+    expect(model.items.map((i) => i.key)).toEqual(["a", "b", "n"]);
+    expect(model.tools.t1).toMatchObject({ id: "t1", input: { command: "ls" }, status: "done" });
+    expect(model.tools.t1?.result?.text).toBe("ok");
+    expect(model.turn).toEqual({ startedAt: 5, outputTokens: 9, thinkingTokens: 0 });
+    expect(model.streaming?.blocks[0]?.text).toBe("Hel");
+    expect(model.permissions[0]).toMatchObject({ requestId: "r", suggestions: [] });
+    expect(model.running).toBe(true);
+  });
+
+  test("leaves out an item of a kind it does not know, and an image's missing bytes", () => {
+    const model = modelOfPage({
+      ...chatPageOf(source({})),
+      items: [
+        {
+          kind: "user",
+          key: "a",
+          text: "see",
+          images: [{ mediaType: "image/png", bytes: 9 }],
+          state: "taken",
+        },
+        { kind: "poll", key: "p", question: "?" },
+      ],
+      total: 2,
+    });
+    expect(model.items).toEqual([
+      { kind: "user", key: "a", text: "see", images: [], state: "taken" },
+    ]);
+  });
+
+  test("marks a result that was cut", () => {
+    const page = chatPageOf(
+      source({
+        items: [said("b", "t1")],
+        tools: {
+          t1: tool("t1", { result: { text: "y".repeat(70_000), isError: false, images: [] } }),
+        },
+      }),
+    );
+    expect(modelOfPage(page).tools.t1?.result?.text.endsWith("…")).toBe(true);
+  });
+});

@@ -16,6 +16,7 @@ import {
   usePeerSessions,
   useRemoteRoom,
 } from "../../services/remote/room";
+import { sameTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
@@ -73,6 +74,9 @@ export function PeerGroup({
   const list = sessions?.status === "ready" ? sessions.list : null;
   const shownSessions = list ? list.sessions.filter((s) => matches(s, query)) : [];
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
+  const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
+  const shown = useRemoteViewStore((s) => s.shown);
+  const show = useRemoteViewStore((s) => s.show);
   const byWorkspace = new Map<string, RemoteSession[]>();
   for (const s of shownSessions) {
     byWorkspace.set(s.workspaceId, [...(byWorkspace.get(s.workspaceId) ?? []), s]);
@@ -114,7 +118,23 @@ export function PeerGroup({
                   {names.get(workspaceId) ?? workspaceId}
                 </span>
                 {rows.map((session) => (
-                  <RemoteSessionRow key={session.tabId} session={session} />
+                  <RemoteSessionRow
+                    key={session.tabId}
+                    session={session}
+                    selected={sameTarget(shown, { deviceId: peer.id, ...session })}
+                    onOpen={() =>
+                      show({
+                        deviceId: peer.id,
+                        deviceName: peer.name,
+                        workspaceId,
+                        workspaceName: names.get(workspaceId) ?? workspaceId,
+                        path: paths.get(workspaceId) ?? "",
+                        tabId: session.tabId,
+                        kind: session.kind,
+                        title: session.title,
+                      })
+                    }
+                  />
                 ))}
               </div>
             ))
@@ -125,15 +145,29 @@ export function PeerGroup({
   );
 }
 
-export function RemoteSessionRow({ session }: { session: RemoteSession }) {
+export function RemoteSessionRow({
+  session,
+  selected = false,
+  onOpen,
+}: {
+  session: RemoteSession;
+  selected?: boolean;
+  onOpen?: () => void;
+}) {
   const { t } = useTranslation();
   const group = GROUP_OF[session.state];
   const Icon =
     session.kind === "claude" ? ClaudeIcon : session.kind === "codex" ? CodexIcon : SquareTerminal;
   const state = t(`agentView.remote.state.${session.state}`);
   return (
-    <div
-      className="flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 hover:bg-[var(--state-hover-bg)]"
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-current={selected || undefined}
+      className={cn(
+        "flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left hover:bg-[var(--state-hover-bg)]",
+        selected && "bg-[var(--sidebar-item-selected-bg)]",
+      )}
       title={session.last ? `${session.title}\n${session.last}` : session.title}
       data-testid="remote-session-row"
     >
@@ -153,6 +187,6 @@ export function RemoteSessionRow({ session }: { session: RemoteSession }) {
           {session.waiting?.text ?? session.last}
         </span>
       )}
-    </div>
+    </button>
   );
 }

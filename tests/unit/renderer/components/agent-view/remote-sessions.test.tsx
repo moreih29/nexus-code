@@ -111,4 +111,11 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("Needs you");
     expect(html).toContain("Run bun test?");
   });
+
+  test("a row is a button that opens the session, marked while it is shown", () => {
+    const html = renderToStaticMarkup(
+      <RemoteSessionRow session={session({})} selected onOpen={() => {}} />,
+    );
+    expect(html).toContain('<button type="button" aria-current="true"');
+  });
 });

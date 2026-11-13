@@ -2362,6 +2362,18 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }),
         RPC_METHODS["sessions.list"].result,
       ),
+      /** A chat of another device's: its last items, or those before `before`. */
+      peerChat: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),
+        RPC_METHODS["chat.read"].result,
+      ),
+      /** A terminal of another device's, as text. */
+      peerTerminal: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.read"].params),
+        RPC_METHODS["terminal.read"].result,
+      ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),
       createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
