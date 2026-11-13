@@ -10,7 +10,10 @@
  *   `end` when the user stops;
  * - server, as they come: `partial` (the words so far of the segment being
  *   spoken; each replaces the last) and `final` (a finished segment, to
- *   append; it clears the partial);
+ *   append; it clears the partial). Every partial and final after the
+ *   session's first final starts with the space its language puts between
+ *   segments (none for ja or zh): the text is the finals joined as they
+ *   came, then the partial, with nothing trimmed or added between;
  * - server: `limit` if the audio ran past what the session or the
  *   account's quota allows (audio past it is dropped; finals still come);
  * - server: `done` with the seconds counted, once every final is out; then
