@@ -128,7 +128,7 @@ export function StatusView({
           return (
             <section key={group} aria-label={label}>
               <h3 className="flex items-center gap-1.5 px-2 py-1 text-app-ui-sm text-muted-foreground opacity-60">
-                <StateGlyph state={GROUP_STATE[group]} />
+                <StateGlyph state={GROUP_STATE[group]} still />
                 <span>{label}</span>
                 <span className="tabular-nums">0</span>
               </h3>
