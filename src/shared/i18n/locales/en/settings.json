@@ -317,7 +317,9 @@
       "permission_title": "Answer another session's permission request?",
       "manager_description": "The agent manager asks to {{action}} in {{to}}.",
       "mode_title": "Let an agent loosen a session's permission mode?",
-      "profile_title": "Let an agent change a tab's profile?"
+      "profile_title": "Let an agent change a tab's profile?",
+      "remote_title": "Allow an agent on another computer to change this one?",
+      "remote_description": "\"{{tab}}\" on the computer {{device}} asks to {{action}} in {{to}}."
     },
     "heading": "nexus CLI"
   },
@@ -715,6 +717,13 @@
     "terminal": {
       "label": "Allow terminal control from other devices",
       "description": "Off, your other devices can only read the terminals. On, they can type into them, open and close them: anything you could run there."
+    },
+    "agents": {
+      "label": "Agents on your other computers",
+      "ask": "Ask each time",
+      "allow": "Allow",
+      "deny": "Don't allow",
+      "description": "What their agents may do here through nexus (chat send --device …): send and answer chats, type into terminals. Reading is always allowed. Apart from the switches above, which are for you."
     },
     "key": {
       "title": "Account password",

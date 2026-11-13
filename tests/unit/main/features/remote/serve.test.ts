@@ -1,6 +1,7 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
+import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
@@ -206,6 +207,11 @@ describe("what this device serves", () => {
     expect(servesWith(true, true)).toEqual(
       expect.arrayContaining(["chat.control", "terminal.control"]),
     );
+  });
+
+  test("agents' requests unless the user turned them down", () => {
+    expect(servesWith(false, false, true)).toContain("agents");
+    expect(servesWith(true, true, false)).not.toContain("agents");
   });
 });
 
@@ -505,6 +511,52 @@ describe("serving a chat's controls", () => {
       await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } }),
     ).toEqual({ at: 1000 });
     expect(asked).toEqual([["chat.send", { ...tab, text: "go on", user: true }]]);
+  });
+
+  test("an agent's message, as the user lets agents act here, shows as that agent's", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return op === "chat.settings" ? { agent: "claude", models: [], efforts: [] } : {};
+      },
+    } as unknown as CliServices;
+    const from = {
+      kind: "tab",
+      agent: "claude",
+      name: "Fix",
+      workspaceId: "bw",
+      tabId: "bt",
+      hops: 2,
+    };
+    const params = { ...tab, text: "run the tests", from };
+    // Not taken where no gate says agents may.
+    await expect(
+      serveWith(() => s)({ from: "d", method: "chat.send", params }),
+    ).rejects.toMatchObject({ code: 1002 });
+    const serve = serveWith(() => s, {
+      agents: new AgentGate({ policy: () => "allow" }),
+      deviceName: (id) => (id === "d" ? "MacBook" : undefined),
+    });
+    await serve({ from: "d", method: "chat.send", params });
+    expect(asked[0]).toEqual([
+      "chat.send",
+      {
+        ...tab,
+        text: "run the tests",
+        from: { ...from, device: { id: "d", name: "MacBook" } },
+      },
+    ]);
+    // Its settings never as the user's: no mode that lets everything run.
+    await serve({
+      from: "d",
+      method: "chat.configure",
+      params: { ...tab, model: "haiku", from },
+    });
+    expect(asked.at(-1)?.[1]).not.toHaveProperty("user");
   });
 
   test("sends the images the device attached with it, once, and nothing empty", async () => {

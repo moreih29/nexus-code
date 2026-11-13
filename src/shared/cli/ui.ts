@@ -952,7 +952,9 @@ export interface CliUiOps {
   };
   /**
    * Asks the user whether a terminal of one workspace may make a change in
-   * another. Unanswered after `timeoutMs`, the answer is "timeout".
+   * another, or an agent on another computer of theirs (`fromDevice`, its
+   * name; `fromName`, its tab's title there) here. Unanswered after
+   * `timeoutMs`, the answer is "timeout".
    */
   "consent.ask": {
     args: {
@@ -961,6 +963,8 @@ export interface CliUiOps {
       toWorkspaceId: string;
       change: CliChange;
       timeoutMs: number;
+      fromDevice?: string;
+      fromName?: string;
     };
     result: { answer: CliConsentAnswer };
   };

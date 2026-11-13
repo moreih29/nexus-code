@@ -18,6 +18,7 @@ import {
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
+import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { useRemoteRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
@@ -31,6 +32,7 @@ import {
   SettingsSection,
   SettingsSwitch,
 } from "../section";
+import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
@@ -257,6 +259,39 @@ export function RemoteTerminalSwitch() {
   );
 }
 
+/** What agents on the user's other computers may do here through their nexus command. */
+export function RemoteAgentsPolicyRow() {
+  const { t } = useTranslation("settings");
+  const [policy, setPolicy] = useState<RemoteAgentsPolicy | null>(null);
+  useEffect(() => {
+    let live = true;
+    void ipcCallResult("remote", "agentsPolicy", undefined).then((result) => {
+      if (live && result.ok) setPolicy(result.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const label = t("remote.agents.label");
+  return (
+    <SettingsRow label={label} description={t("remote.agents.description")}>
+      <SegmentedControl
+        options={(["ask", "allow", "deny"] as const).map((value) => ({
+          value,
+          label: t(`remote.agents.${value}`),
+        }))}
+        value={policy ?? "ask"}
+        onChange={(next) => {
+          setPolicy(next);
+          void ipcCallResult("remote", "setAgentsPolicy", { policy: next });
+        }}
+        label={label}
+        disabled={policy === null}
+      />
+    </SettingsRow>
+  );
+}
+
 function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomState | null }) {
   const { t } = useTranslation("settings");
   const [view, setView] = useState<DevicesView>({ status: "loading" });
@@ -333,6 +368,7 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
     >
       <RemoteControlSwitch />
       <RemoteTerminalSwitch />
+      <RemoteAgentsPolicyRow />
       {view.status === "unavailable" && (
         <p className="text-app-ui-sm text-destructive" role="alert">
           {t("remote.devices.unavailable")}

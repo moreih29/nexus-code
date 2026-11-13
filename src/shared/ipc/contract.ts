@@ -124,7 +124,7 @@ import {
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { SystemStatsSchema } from "../system/stats";
-import { AppStateSchema } from "../types/app-state";
+import { AppStateSchema, RemoteAgentsPolicySchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -2380,6 +2380,12 @@ export const ipcContract = {
       /** Whether other devices may control this one's terminals (off unless the user turned it on). */
       allowTerminal: call(z.void(), z.boolean()),
       setAllowTerminal: call(z.object({ allowed: z.boolean() }), z.boolean()),
+      /** Whether agents on the user's other computers may act here: ask, allow or deny. */
+      agentsPolicy: call(z.void(), RemoteAgentsPolicySchema),
+      setAgentsPolicy: call(
+        z.object({ policy: RemoteAgentsPolicySchema }),
+        RemoteAgentsPolicySchema,
+      ),
       /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
       peerSessionsWatch: call(
         z.object({ deviceId: z.string().min(1).max(64) }),

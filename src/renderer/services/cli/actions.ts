@@ -404,14 +404,19 @@ export const actionHandlers: {
     return {};
   },
 
-  "consent.ask": async ({ fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs }) => {
+  "consent.ask": async (args) => {
+    const { fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs, fromDevice } = args;
     const workspaces = useWorkspacesStore.getState().workspaces;
     const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
-    const fromTab = useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
+    // Another computer's ids name nothing here: it tells its tab's title.
+    const fromTab = fromDevice
+      ? undefined
+      : useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
     const answer = await askCliConsent({
-      fromWorkspace: name(fromWorkspaceId),
-      fromTab: fromTab?.title ?? fromTabId.slice(0, 8),
-      fromManager: isManagerWorkspace(fromWorkspaceId),
+      fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
+      fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
+      fromManager: !fromDevice && isManagerWorkspace(fromWorkspaceId),
+      ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
       change,
       timeoutMs,

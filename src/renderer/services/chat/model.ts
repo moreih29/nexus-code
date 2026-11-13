@@ -106,9 +106,13 @@ export interface MessageSource {
   name?: string;
   /** The agent that sent it through the nexus command: claude or codex. */
   agent?: string;
-  /** The tab it was sent from through the nexus command. */
+  /** The tab it was sent from through the nexus command: on `device`, when it names one. */
   workspaceId?: string;
   tabId?: string;
+  /** The user's other computer it was sent from, as it names itself; none for this one. */
+  device?: { id: string; name: string };
+  /** How many messages between agents led to it, the first being 1. */
+  hops?: number;
 }
 
 /**

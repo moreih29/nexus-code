@@ -154,6 +154,34 @@ describe("the room", () => {
     expect(a.served).toEqual([]);
   });
 
+  test("an agent's request goes as agents may act there, not as people may", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let serves = ["sessions", "chat.control"];
+    const a = device(relay, "a", key, { serves: () => serves });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    // People may control the chats; agents may not.
+    await expect(b.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: expect.stringContaining("control by agents is off"),
+    });
+    expect(a.served).toEqual([]);
+    // Agents may; people may not.
+    serves = ["sessions", "agents"];
+    a.room.announce();
+    await tick();
+    await b.room.request("a", "chat.interrupt", { ...tab, from });
+    expect(a.served).toEqual([{ from: "b", method: "chat.interrupt" }]);
+    await expect(b.room.request("a", "chat.interrupt", tab)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+    });
+  });
+
   test("tells the room again when what it serves changed, and refuses what it no longer does", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

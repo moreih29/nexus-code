@@ -4,6 +4,7 @@
  * session list` would.
  */
 import {
+  type AgentSender,
   type Capability,
   type RemoteSession,
   type RemoteWorkspace,
@@ -13,6 +14,7 @@ import {
   type RpcResult,
   type SessionState,
 } from "../../../../packages/remote-protocol/src";
+import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliChatChoices, CliChatState } from "../../../shared/cli/ui";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
@@ -22,6 +24,7 @@ import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
 import type { FsProvider } from "../fs/bridge/provider";
+import { type AgentGate, type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
@@ -48,16 +51,25 @@ export const SERVES: readonly Capability[] = [
   "terminal.control",
   "files",
   "git",
+  "agents",
 ];
 
 /**
  * What this device serves as the user set it: its chats' controls, and
  * its terminals', each only when the user lets other devices have them
- * (Settings › Remote); else they may only look.
+ * (Settings › Remote), else they may only look; agents' requests unless
+ * the user turned them down.
  */
-export function servesWith(allowControl: boolean, allowTerminal = false): readonly Capability[] {
+export function servesWith(
+  allowControl: boolean,
+  allowTerminal = false,
+  allowAgents = false,
+): readonly Capability[] {
   return SERVES.filter(
-    (c) => (c !== "chat.control" || allowControl) && (c !== "terminal.control" || allowTerminal),
+    (c) =>
+      (c !== "chat.control" || allowControl) &&
+      (c !== "terminal.control" || allowTerminal) &&
+      (c !== "agents" || allowAgents),
   );
 }
 
@@ -303,6 +315,7 @@ export async function sendChat(
   services: CliServices,
   { workspaceId, tabId, text, attachments: ids = [] }: RpcParams<"chat.send">,
   attached?: { device: string; attachments: Attachments },
+  relay?: RelaySender,
 ): Promise<RpcResult<"chat.send">> {
   if (!text.trim() && ids.length === 0) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "a message needs text or an image");
@@ -322,7 +335,8 @@ export async function sendChat(
       workspaceId,
       tabId,
       text,
-      user: true,
+      // An agent's shows as its, and waits while the chat asks the user something.
+      ...(relay ? { from: relay } : { user: true }),
       ...(images.length > 0 ? { images } : {}),
     })
     .catch(unavailable);
@@ -432,6 +446,7 @@ export async function chatSettings(
 export async function configureChat(
   services: CliServices,
   { workspaceId, tabId, model, effort, permissionMode }: RpcParams<"chat.configure">,
+  byAgent = false,
 ): Promise<RpcResult<"chat.configure">> {
   const tab = await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const settings = {
@@ -454,7 +469,12 @@ export async function configureChat(
     }
   }
   const choices = await services
-    .ui("chat.settings", { workspaceId, tabId, settings, user: true }, SETTINGS_TIMEOUT_MS)
+    .ui(
+      "chat.settings",
+      // An agent never takes the mode that lets everything run.
+      { workspaceId, tabId, settings, ...(byAgent ? {} : { user: true }) },
+      SETTINGS_TIMEOUT_MS,
+    )
     .catch(unavailable);
   return settingsOf(choices);
 }
@@ -526,6 +546,7 @@ export async function newChat(
     folder,
   }: RpcParams<"chat.new">,
   fs?: (workspaceId: string) => Promise<FsProvider>,
+  relay?: RelaySender,
 ): Promise<RpcResult<"chat.new">> {
   const workspace = workspaceOf(services, workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
@@ -553,7 +574,8 @@ export async function newChat(
         placement: { background: true },
         ...(Object.keys(settings).length > 0 ? { settings } : {}),
         ...(profile !== undefined ? { profile } : {}),
-        user: true,
+        // An agent's prompt shows as its; its settings never the mode that lets everything run.
+        ...(relay ? { from: relay } : { user: true }),
       },
       SETTINGS_TIMEOUT_MS,
     )
@@ -748,6 +770,10 @@ export function serveWith(
     files?: Omit<RemoteFiles, "folders">;
     /** The workspaces' repositories, for git.status, git.diff and git.log. */
     repositories?: RemoteGit;
+    /** Whether an agent on another device may do what it asks (a request with `from`). */
+    agents?: AgentGate;
+    /** A device of the room by its id, as it names itself. */
+    deviceName?: (id: string) => string | undefined;
   } = {},
 ) {
   const { chats, sessions, terminals, git } = watches;
@@ -772,6 +798,21 @@ export function serveWith(
     if (terminals && method === "terminal.unwatch") {
       return terminals.unwatch(from, params as RpcParams<"terminal.unwatch">);
     }
+    // An agent's request: let through as the user set it, and shown as that agent's.
+    const by = (params as { from?: AgentSender } | undefined)?.from;
+    let relay: RelaySender | undefined;
+    if (by) {
+      if (!watches.agents) {
+        throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
+      }
+      const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
+      await watches.agents.check(s, {
+        device,
+        method,
+        params: params as AgentRequest["params"],
+      });
+      relay = relaySenderOf(by, device);
+    }
     switch (request.method) {
       case "sessions.list":
         return listSessions(s, git);
@@ -780,10 +821,12 @@ export function serveWith(
       case "terminal.read":
         return readTerminal(s, request.params as RpcParams<"terminal.read">);
       case "chat.send":
-        return sendChat(s, request.params as RpcParams<"chat.send">, {
-          device: from,
-          attachments,
-        });
+        return sendChat(
+          s,
+          request.params as RpcParams<"chat.send">,
+          { device: from, attachments },
+          relay,
+        );
       case "files.list":
       case "files.read": {
         if (!watches.files) {
@@ -833,13 +876,13 @@ export function serveWith(
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
-        return configureChat(s, request.params as RpcParams<"chat.configure">);
+        return configureChat(s, request.params as RpcParams<"chat.configure">, relay !== undefined);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
       case "chat.command":
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
-        return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs);
+        return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs, relay);
       case "chat.wait":
         return waitOnChat(s, request.params as RpcParams<"chat.wait">);
       case "terminal.wait":

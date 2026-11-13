@@ -603,6 +603,10 @@ app.whenReady().then(async () => {
       get: () => stateService.getState().remoteTerminalControl ?? false,
       set: (allowed) => stateService.setState({ remoteTerminalControl: allowed }),
     },
+    agents: {
+      get: () => stateService.getState().remoteAgents ?? "ask",
+      set: (policy) => stateService.setState({ remoteAgents: policy }),
+    },
     gitStatus: async (workspaceId) => {
       const repository = await gitRegistry?.getOrDetect(workspaceId);
       return repository ? repository.status() : null;

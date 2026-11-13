@@ -12,12 +12,14 @@ import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AccountKeyState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
+import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { CliServices } from "../cli/context";
 import type { FsProvider } from "../fs/bridge/provider";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
+import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import type { RemoteRepository } from "./git";
@@ -157,6 +159,8 @@ export async function registerRemoteChannel(options: {
   allowControl: { get(): boolean; set(allowed: boolean): void };
   /** Whether they may control its terminals too (off unless the user turned it on). */
   allowTerminal: { get(): boolean; set(allowed: boolean): void };
+  /** Whether agents on the user's other computers may act here: ask (the default), allow or deny. */
+  agents: { get(): RemoteAgentsPolicy; set(policy: RemoteAgentsPolicy): void };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
   /** A workspace's file system once its agent is ready, for the files other devices read. */
@@ -192,6 +196,8 @@ export async function registerRemoteChannel(options: {
     services: options.services,
     notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
   });
+  // What agents on the user's other computers may do here, as the user set it.
+  const agentGate = new AgentGate({ policy: () => options.agents.get() });
   // The tasks' branches, looked at now and then for the sessions' list.
   const { gitStatus } = options;
   const taskGit = gitStatus ? new TaskGit(gitStatus) : null;
@@ -278,7 +284,12 @@ export async function registerRemoteChannel(options: {
       room: { kid: want.key.kid, key: roomKeyOf(want.key.key) },
       app: { name: "NexusCode", version: app.getVersion() },
       ...(options.theme ? { theme: options.theme } : {}),
-      serves: () => servesWith(options.allowControl.get(), options.allowTerminal.get()),
+      serves: () =>
+        servesWith(
+          options.allowControl.get(),
+          options.allowTerminal.get(),
+          options.agents.get() !== "deny",
+        ),
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
       serve: serveWith(options.services, {
         chats: watches,
@@ -294,6 +305,8 @@ export async function registerRemoteChannel(options: {
               },
             }
           : {}),
+        agents: agentGate,
+        deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
       }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {
@@ -366,6 +379,14 @@ export async function registerRemoteChannel(options: {
         options.allowTerminal.set(allowed);
         room?.announce();
         return ipcOk(allowed);
+      },
+      agentsPolicy: async () => ipcOk(options.agents.get()),
+      setAgentsPolicy: async (args: unknown) => {
+        const { policy } = validateArgs(c.setAgentsPolicy.args, args);
+        options.agents.set(policy);
+        // Turned off, the others learn it from the hello and send their agents' requests no more.
+        room?.announce();
+        return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);

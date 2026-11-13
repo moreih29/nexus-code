@@ -76,8 +76,16 @@ export function viewItemOf(item: ChatItem): ViewItem {
     }
     case "received": {
       const { uuid: _u, from, ...rest } = item;
-      const { workspaceId: _w, tabId: _t, ...sender } = from;
-      return { ...rest, from: sender };
+      const { workspaceId, tabId, hops: _h, device, ...sender } = from;
+      // Where the sender takes an answer: its tab, on its computer when it is another.
+      const replyTo =
+        workspaceId && tabId
+          ? { ...(device ? { deviceId: device.id } : {}), workspaceId, tabId }
+          : undefined;
+      return {
+        ...rest,
+        from: { ...sender, ...(device ? { device } : {}), ...(replyTo ? { replyTo } : {}) },
+      };
     }
     default:
       return item;

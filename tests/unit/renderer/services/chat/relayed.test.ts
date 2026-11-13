@@ -54,6 +54,29 @@ describe("the line the agent reads", () => {
     );
   });
 
+  it("from another computer, names it, and how to write to the sender later", () => {
+    const device = { id: "3f2a91c0-aaaa", name: "MacBook" };
+    expect(
+      relayHeader({ ...TAB, workspaceId: "5e6f7a8b-bbbb", tabId: "1a2b3c4d-cccc", device }),
+    ).toBe(
+      '[nexus] The "Plan the refactor" tab (Claude) on the computer "MacBook" sent this, not the user. ' +
+        "Your answer here is what it reads; to write to it later: " +
+        "nexus chat send 1a2b3c4d --workspace 5e6f7a8b --device 3f2a91c0 -",
+    );
+    expect(
+      relayHeader({
+        kind: "terminal",
+        agent: "claude",
+        name: "zsh",
+        workspaceId: "w",
+        tabId: "t",
+        device,
+      }),
+    ).toEndWith("nexus terminal send t --workspace w --device 3f2a91c0 -");
+    const text = relayedText({ ...TAB, device }, "Hi.");
+    expect(withoutRelayHeader(text)).toBe("Hi.");
+  });
+
   it("goes before the message, and comes off it again", () => {
     const text = relayedText(TAB, "Run the tests.\n\nThen tell me.");
     expect(text).toStartWith(`${relayHeader(TAB)}\n\nRun the tests.`);

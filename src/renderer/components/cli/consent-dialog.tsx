@@ -19,6 +19,8 @@ export interface CliConsentPrompt {
   readonly fromTab: string;
   /** Whether the agent manager asks: it is in no workspace of the user's. */
   readonly fromManager: boolean;
+  /** The user's other computer the agent asks from, by its name; none for this one. */
+  readonly fromDevice?: string;
   readonly toWorkspace: string;
   readonly change: CliChange;
   readonly timeoutMs: number;
@@ -67,14 +69,21 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const eachTime = permission || kind === "chatMode" || profile;
   const description = !prompt
     ? ""
-    : prompt.fromManager
-      ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
-      : t("agentCli.consent.description", {
+    : prompt.fromDevice
+      ? t("agentCli.consent.remote_description", {
+          device: prompt.fromDevice,
           tab: prompt.fromTab,
-          from: prompt.fromWorkspace,
           to: prompt.toWorkspace,
           action,
-        });
+        })
+      : prompt.fromManager
+        ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
+        : t("agentCli.consent.description", {
+            tab: prompt.fromTab,
+            from: prompt.fromWorkspace,
+            to: prompt.toWorkspace,
+            action,
+          });
 
   return (
     <Dialog
@@ -92,7 +101,9 @@ export function CliConsentDialogRoot(): React.JSX.Element {
               ? "agentCli.consent.mode_title"
               : profile
                 ? "agentCli.consent.profile_title"
-                : "agentCli.consent.title",
+                : prompt?.fromDevice
+                  ? "agentCli.consent.remote_title"
+                  : "agentCli.consent.title",
         )}
         description={description}
       />

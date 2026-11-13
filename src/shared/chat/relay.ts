@@ -16,6 +16,17 @@ export const RelaySenderSchema = z.object({
   name: z.string().max(200).optional(),
   workspaceId: z.string().max(64).optional(),
   tabId: z.string().max(64).optional(),
+  /**
+   * The user's other computer it was sent from, as it names itself; its
+   * workspaceId and tabId are that computer's. Absent: this one.
+   */
+  device: z.object({ id: z.string().max(64), name: z.string().max(200) }).optional(),
+  /**
+   * How many messages between agents led to it, the first being 1: a
+   * message sent in a turn that such a message started counts one more,
+   * and one past MAX_AGENT_HOPS is not sent.
+   */
+  hops: z.number().int().positive().optional(),
 });
 export type RelaySender = z.infer<typeof RelaySenderSchema>;
 
@@ -43,9 +54,14 @@ export const RELAY_MARK = "[nexus] ";
 const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 const TERMINAL_AGENTS = { claude: "Claude Code", codex: "Codex" } as const;
 
+/** How an id is written on the command line: its first characters, as nexus lists them. */
+const short = (id: string) => id.slice(0, 8);
+
 /**
  * The line the agent reads before a message another agent sent it: who sent
  * it, that the user did not, and that its answer goes back to the sender.
+ * From another computer, which one, and the command that writes to the
+ * sender later.
  */
 export function relayHeader(from: RelaySender): string {
   const name = JSON.stringify(from.name ?? "");
@@ -55,7 +71,14 @@ export function relayHeader(from: RelaySender): string {
       : from.kind === "terminal"
         ? `${TERMINAL_AGENTS[from.agent ?? "claude"]} in the ${name} terminal`
         : `The ${name} tab (${AGENT_NAMES[from.agent ?? "claude"]})`;
-  return `${RELAY_MARK}${who} sent this, not the user. Your answer here is what it reads.`;
+  const answer = "Your answer here is what it reads";
+  const { device, workspaceId, tabId } = from;
+  if (!device) return `${RELAY_MARK}${who} sent this, not the user. ${answer}.`;
+  const where = `${who} on the computer ${JSON.stringify(device.name)}`;
+  if (!workspaceId || !tabId) return `${RELAY_MARK}${where} sent this, not the user. ${answer}.`;
+  const command = from.kind === "terminal" ? "nexus terminal send" : "nexus chat send";
+  const reply = `${command} ${short(tabId)} --workspace ${short(workspaceId)} --device ${short(device.id)} -`;
+  return `${RELAY_MARK}${where} sent this, not the user. ${answer}; to write to it later: ${reply}`;
 }
 
 /** The text the agent is sent: the line that says who sent it, then the message. */

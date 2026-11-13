@@ -346,10 +346,20 @@ export class RemoteRoom {
       return { error: { code: RpcErrorCode.MethodNotFound, message: `no method ${method}` } };
     }
     const spec = RPC_METHODS[method];
-    if (!this.serves().includes(spec.capability as Capability)) {
-      return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
-    }
     const parsed = spec.params.safeParse(params ?? {});
+    // An agent's request (`from`) is taken as the user lets agents act here, not as people may.
+    const byAgent = parsed.success && (parsed.data as { from?: unknown }).from !== undefined;
+    const needs = byAgent ? "agents" : (spec.capability as Capability);
+    if (!this.serves().includes(needs)) {
+      return {
+        error: {
+          code: RpcErrorCode.Forbidden,
+          message: byAgent
+            ? "control by agents is off there (Settings › Remote)"
+            : `${method} is not served here`,
+        },
+      };
+    }
     if (!parsed.success) {
       return { error: { code: RpcErrorCode.InvalidParams, message: parsed.error.message } };
     }
