@@ -9,6 +9,7 @@ import {
   type RemoteWorkspace,
   RpcErrorCode,
   type RpcMethod,
+  type RpcParams,
   type RpcResult,
   type SessionState,
 } from "../../../../packages/remote-protocol/src";
@@ -19,7 +20,10 @@ import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
-export const SERVES: readonly Capability[] = ["sessions"];
+export const SERVES: readonly Capability[] = ["sessions", "chat.read", "terminal.read"];
+
+/** How many lines of a terminal a read gives when it does not say. */
+export const DEFAULT_TERMINAL_LINES = 1000;
 
 /** A chat's state as the agent lists show it. */
 const CHAT_STATES: Record<CliChatState, SessionState> = {
@@ -114,6 +118,58 @@ export async function listSessions(services: CliServices): Promise<RpcResult<"se
   return { workspaces: listed, sessions };
 }
 
+/** The tab, when the workspace holds one of that kind; else NotFound. */
+async function tabOf(
+  services: CliServices,
+  workspaceId: string,
+  tabId: string,
+  kinds: readonly string[],
+): Promise<void> {
+  if (!services.listWorkspaces().some((w) => w.id === workspaceId)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  }
+  const { tabs } = await services
+    .ui("tabs.list", { workspaceId })
+    .catch(() => ({ tabs: [] as { id: string; type: string }[] }));
+  const tab = tabs.find((t) => t.id === tabId);
+  if (!tab || !kinds.includes(tab.type)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, `no such ${kinds.join(" or ")} tab`);
+  }
+}
+
+/** A failure of the app's to do it, as another device is told it. */
+function unavailable(error: unknown): never {
+  throw new RpcFailure(
+    RpcErrorCode.Unavailable,
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+export async function readChat(
+  services: CliServices,
+  { workspaceId, tabId, before, limit }: RpcParams<"chat.read">,
+): Promise<RpcResult<"chat.read">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return services
+    .ui("chat.page", {
+      workspaceId,
+      tabId,
+      ...(before !== undefined ? { before } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    })
+    .catch(unavailable);
+}
+
+export async function readTerminal(
+  services: CliServices,
+  { workspaceId, tabId, lines }: RpcParams<"terminal.read">,
+): Promise<RpcResult<"terminal.read">> {
+  await tabOf(services, workspaceId, tabId, ["terminal"]);
+  return services
+    .ui("terminal.read", { workspaceId, tabId, lines: lines ?? DEFAULT_TERMINAL_LINES })
+    .catch(unavailable);
+}
+
 /** Answers another device's request with this device's services. */
 export function serveWith(services: () => CliServices | null) {
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
@@ -122,6 +178,10 @@ export function serveWith(services: () => CliServices | null) {
     switch (request.method) {
       case "sessions.list":
         return listSessions(s);
+      case "chat.read":
+        return readChat(s, request.params as RpcParams<"chat.read">);
+      case "terminal.read":
+        return readTerminal(s, request.params as RpcParams<"terminal.read">);
       default:
         throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
     }

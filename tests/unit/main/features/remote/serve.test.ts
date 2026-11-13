@@ -85,7 +85,77 @@ describe("serving the sessions", () => {
       serveWith(() => null)({ from: "d", method: "sessions.list", params: {} }),
     ).rejects.toMatchObject({ code: 1003 });
     await expect(
-      serveWith(services)({ from: "d", method: "chat.read", params: {} }),
+      serveWith(services)({ from: "d", method: "chat.send", params: {} }),
     ).rejects.toMatchObject({ code: -32601 });
+  });
+});
+
+describe("serving a chat and a terminal to read", () => {
+  /** The services, recording the UI requests other than the tabs' list. */
+  function recording(answer: (op: string) => unknown = () => ({ text: "$ ls" })) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args as { workspaceId: string });
+        asked.push([op, args]);
+        const a = answer(op);
+        if (a instanceof Error) throw a;
+        return a;
+      },
+    } as unknown as CliServices;
+    return { s, asked };
+  }
+
+  test("reads a chat's page from the app, as asked", async () => {
+    const { s, asked } = recording(() => ({ start: 0, total: 0, items: [] }));
+    await serveWith(() => s)({
+      from: "d",
+      method: "chat.read",
+      params: { workspaceId: "w1", tabId: "t1", before: 40, limit: 20 },
+    });
+    expect(asked).toEqual([
+      ["chat.page", { workspaceId: "w1", tabId: "t1", before: 40, limit: 20 }],
+    ]);
+  });
+
+  test("reads a terminal's last 1000 lines unless told", async () => {
+    const { s, asked } = recording();
+    const read = (params: object) =>
+      serveWith(() => s)({ from: "d", method: "terminal.read", params });
+    expect(await read({ workspaceId: "w1", tabId: "t2" })).toEqual({ text: "$ ls" });
+    await read({ workspaceId: "w1", tabId: "t2", lines: 50 });
+    expect(asked.map(([, a]) => (a as { lines: number }).lines)).toEqual([1000, 50]);
+  });
+
+  test("a tab that is not there, or not of that kind, is not found", async () => {
+    const { s, asked } = recording();
+    const serve = serveWith(() => s);
+    for (const params of [
+      { workspaceId: "nope", tabId: "t1" },
+      { workspaceId: "w1", tabId: "nope" },
+      { workspaceId: "w1", tabId: "t3" },
+      { workspaceId: "w3", tabId: "t1" },
+    ]) {
+      await expect(serve({ from: "d", method: "chat.read", params })).rejects.toMatchObject({
+        code: 1001,
+      });
+    }
+    await expect(
+      serve({ from: "d", method: "terminal.read", params: { workspaceId: "w1", tabId: "t1" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toEqual([]);
+  });
+
+  test("the app failing to read it is unavailable, saying why", async () => {
+    const { s } = recording(() => new Error("that tab is gone"));
+    await expect(
+      serveWith(() => s)({
+        from: "d",
+        method: "chat.read",
+        params: { workspaceId: "w1", tabId: "t1" },
+      }),
+    ).rejects.toMatchObject({ code: 1003, message: "that tab is gone" });
   });
 });

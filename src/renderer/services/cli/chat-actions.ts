@@ -28,6 +28,7 @@ import {
 } from "../chat/agent-tab";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
+import { type ChatSource, chatPageOf } from "../remote/chat-page";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import { type ChatTabExtras, chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
@@ -89,6 +90,15 @@ function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTab
     ...(props.relayed ? { relayed: props.relayed } : {}),
     ...(moves ? { moves } : {}),
   };
+}
+
+/** The tab's conversation as another device reads it; throws when the tab is gone. */
+function sourceOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatSource {
+  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+  if (!chat || !tab) throw new UiRequestError("that tab is gone");
+  const relayed = chatPropsOf(workspaceId, tabId)?.relayed;
+  return { agent, title: tab.title, chat, ...(relayed ? { relayed } : {}) };
 }
 
 /** How long a tab's program may take to start and list its models. */
@@ -274,6 +284,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         ...extrasOf(workspaceId, tabId, target.agent),
       }),
     };
+  },
+
+  "chat.page": async ({ workspaceId, tabId, before, limit }) => {
+    const target = await openedTab(workspaceId, tabId);
+    return chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
   },
 
   "chat.tool": async ({ workspaceId, tabId, ref }) => {

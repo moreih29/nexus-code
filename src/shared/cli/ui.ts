@@ -4,6 +4,7 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
+import type { ChatPage } from "../../../packages/remote-protocol/src/rpc";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
@@ -657,6 +658,15 @@ export interface CliUiOps {
     };
     /** `end`: the i of the conversation's last entry, -1 when it has none. */
     result: CliChatInfo & { entries: CliChatEntry[]; end: number };
+  };
+  /**
+   * A Claude or Codex tab's conversation as another device of the account
+   * draws it (the remote's chat.read): the last `limit` items, or those
+   * before `before`, with the tool calls they name and where it stands.
+   */
+  "chat.page": {
+    args: { workspaceId: string; tabId: string; before?: number; limit?: number };
+    result: ChatPage;
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
