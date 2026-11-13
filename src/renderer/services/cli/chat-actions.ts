@@ -30,6 +30,7 @@ import {
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
+import { fitImage, imageOf } from "../remote/chat-image";
 import { type ChatSource, chatPageOf } from "../remote/chat-page";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
@@ -341,14 +342,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return tool;
   },
 
-  "chat.send": async ({ workspaceId, tabId, text, from, user }) => {
+  "chat.send": async ({ workspaceId, tabId, text, from, user, images }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
       throw new UiRequestError(
         "it is waiting for the user to answer a request; that is for the user to answer",
       );
     }
-    await sendToAgentTab(workspaceId, tabId, target, text, from);
+    await sendToAgentTab(workspaceId, tabId, target, text, from, images);
     return {};
   },
 
@@ -368,6 +369,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.image": async ({ workspaceId, tabId, ref, maxChars }) => {
+    const { agent } = await openedTab(workspaceId, tabId);
+    const image = imageOf(sourceOf(workspaceId, tabId, agent), ref);
+    if (!image) throw new UiRequestError("no such image in that tab");
+    return fitImage(image, maxChars);
   },
 
   "chat.commands": async ({ workspaceId, tabId }) => {

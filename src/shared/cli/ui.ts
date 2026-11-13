@@ -11,6 +11,15 @@ import type { SettingsPage } from "./settings";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
+/** An image of a chat, small enough to send. */
+export interface CliChatImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64. */
+  data: string;
+  width?: number;
+  height?: number;
+}
+
 export interface CliShellInfo {
   name: string;
   /** "detected" for one found on this machine, "custom" for one added in the settings. */
@@ -733,6 +742,22 @@ export interface CliUiOps {
     args: { watchId: string };
     result: Record<string, never>;
   };
+  /**
+   * An image of a Claude or Codex tab: a user message's, by its item's key,
+   * or a tool result's, by its call's id; at its index there. Made smaller
+   * when its base64 would take over `maxChars`.
+   */
+  "chat.image": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      ref:
+        | { kind: "user"; itemKey: string; index: number }
+        | { kind: "tool"; toolUseId: string; index: number };
+      maxChars: number;
+    };
+    result: CliChatImage;
+  };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
     args: { workspaceId: string; tabId: string; ref: string };
@@ -763,6 +788,8 @@ export interface CliUiOps {
       text: string;
       from?: RelaySender;
       user?: boolean;
+      /** Images with it, as the composer's pasted ones go (base64). */
+      images?: { mediaType: string; data: string }[];
     };
     result: Record<string, never>;
   };

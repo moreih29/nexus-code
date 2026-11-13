@@ -21,8 +21,9 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
+import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
-import { fitsInFrame, RpcFailure } from "./room";
+import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import type { SessionWatches } from "./session-watches";
 import type { TerminalWatches } from "./terminal-watches";
 
@@ -268,13 +269,70 @@ export async function readTerminal(
  * what it sends is the user's, not an agent's.
  */
 
+/**
+ * Sends the chat a message, with the images the device attached for it
+ * (chat.attach), which then go; text or an image at least.
+ */
 export async function sendChat(
   services: CliServices,
-  { workspaceId, tabId, text }: RpcParams<"chat.send">,
+  { workspaceId, tabId, text, attachments: ids = [] }: RpcParams<"chat.send">,
+  attached?: { device: string; attachments: Attachments },
 ): Promise<RpcResult<"chat.send">> {
+  if (!text.trim() && ids.length === 0) {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "a message needs text or an image");
+  }
+  if (ids.length > 0 && !attached) {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "no images are kept here");
+  }
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.send", { workspaceId, tabId, text, user: true }).catch(unavailable);
+  const images =
+    attached && ids.length > 0
+      ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
+      : [];
+  await services
+    .ui("chat.send", {
+      workspaceId,
+      tabId,
+      text,
+      user: true,
+      ...(images.length > 0 ? { images } : {}),
+    })
+    .catch(unavailable);
+  attached?.attachments.drop(ids);
   return {};
+}
+
+/** Room an image's base64 may take in its answer: the frame, less the envelope and its other fields. */
+const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
+
+/** An image of the chat, drawn smaller where it would not go in a frame. */
+export async function chatImage(
+  services: CliServices,
+  { workspaceId, tabId, ref }: RpcParams<"chat.image">,
+): Promise<RpcResult<"chat.image">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const image = await services
+    .ui("chat.image", { workspaceId, tabId, ref, maxChars: IMAGE_CHARS })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/no such image/.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+      return unavailable(error);
+    });
+  if (!fitsAsResult(image)) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, "the image would not go in a frame");
+  }
+  return image;
+}
+
+/** Keeps an image for the device's next message to the chat. */
+export async function attachToChat(
+  services: CliServices,
+  { workspaceId, tabId, mediaType, data }: RpcParams<"chat.attach">,
+  device: string,
+  attachments: Attachments,
+): Promise<RpcResult<"chat.attach">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return { attachmentId: attachments.take(device, workspaceId, tabId, { mediaType, data }) };
 }
 
 export async function answerChat(
@@ -467,9 +525,12 @@ export function serveWith(
     terminals?: TerminalWatches;
     /** The tasks' git facts the sessions' list tells. */
     git?: WorkspaceGit;
+    /** The images devices attached for their next messages. */
+    attachments?: Attachments;
   } = {},
 ) {
   const { chats, sessions, terminals, git } = watches;
+  const attachments = watches.attachments ?? new Attachments();
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
@@ -498,7 +559,14 @@ export function serveWith(
       case "terminal.read":
         return readTerminal(s, request.params as RpcParams<"terminal.read">);
       case "chat.send":
-        return sendChat(s, request.params as RpcParams<"chat.send">);
+        return sendChat(s, request.params as RpcParams<"chat.send">, {
+          device: from,
+          attachments,
+        });
+      case "chat.image":
+        return chatImage(s, request.params as RpcParams<"chat.image">);
+      case "chat.attach":
+        return attachToChat(s, request.params as RpcParams<"chat.attach">, from, attachments);
       case "chat.answer":
         return answerChat(s, request.params as RpcParams<"chat.answer">);
       case "chat.interrupt":

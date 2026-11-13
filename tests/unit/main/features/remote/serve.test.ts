@@ -313,6 +313,55 @@ describe("serving a chat's controls", () => {
     expect(asked).toEqual([["chat.send", { ...tab, text: "go on", user: true }]]);
   });
 
+  test("sends the images the device attached with it, once, and nothing empty", async () => {
+    const { serve, asked } = recording();
+    const data = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]).toString("base64");
+    const { attachmentId } = (await serve({
+      from: "d",
+      method: "chat.attach",
+      params: { ...tab, mediaType: "image/jpeg", data },
+    })) as { attachmentId: string };
+    const send = (from: string) =>
+      serve({
+        from,
+        method: "chat.send",
+        params: { ...tab, text: "", attachments: [attachmentId] },
+      });
+    await expect(send("other")).rejects.toMatchObject({ code: -32602 });
+    await send("d");
+    expect(asked).toEqual([
+      ["chat.send", { ...tab, text: "", user: true, images: [{ mediaType: "image/jpeg", data }] }],
+    ]);
+    await expect(send("d")).rejects.toMatchObject({ code: -32602 });
+    await expect(
+      serve({ from: "d", method: "chat.send", params: { ...tab, text: "  " } }),
+    ).rejects.toMatchObject({ code: -32602, message: expect.stringContaining("text or an image") });
+  });
+
+  test("an image of the chat, small enough for a frame, and NotFound for none", async () => {
+    const base = services();
+    const asked: unknown[] = [];
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; ref?: { index: number } }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push(args);
+        if (args.ref?.index === 9) throw new Error("no such image in that tab");
+        return { mediaType: "image/png", data: "AAAA" };
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s);
+    const ref = { kind: "user", itemKey: "k1", index: 0 };
+    expect(await serve({ from: "d", method: "chat.image", params: { ...tab, ref } })).toEqual({
+      mediaType: "image/png",
+      data: "AAAA",
+    });
+    expect(asked[0]).toMatchObject({ ref, maxChars: expect.any(Number) });
+    await expect(
+      serve({ from: "d", method: "chat.image", params: { ...tab, ref: { ...ref, index: 9 } } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+
   test("answers the request it names, with a question's answers or a stop", async () => {
     const { serve, asked } = recording();
     await serve({
