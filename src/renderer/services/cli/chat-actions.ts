@@ -50,6 +50,21 @@ async function openedTab(workspaceId: string, tabId: string): Promise<AgentTabCo
   return target;
 }
 
+/**
+ * The tab, opened as far as reading it needs: a Claude tab's transcript
+ * shown, its program perhaps still starting (another device watching a
+ * chat not open here sees it at once); a Codex tab's thread, which comes
+ * with its program.
+ */
+async function readableTab(workspaceId: string, tabId: string): Promise<AgentTabController> {
+  const target = agentTabController(workspaceId, tabId);
+  if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+  if (!opened(workspaceId, tabId)) {
+    await (target.agent === "claude" ? target.controller.openToRead() : target.controller.open());
+  }
+  return target;
+}
+
 /** A profile as the CLI names it: its name, or "default" for the default one unnamed. */
 function cliProfileName(profile: AgentProfile): string {
   return profile.name.trim() || (isDefaultProfileId(profile.id) ? "default" : profile.id);
@@ -287,12 +302,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
-    const target = await openedTab(workspaceId, tabId);
+    const target = await readableTab(workspaceId, tabId);
     return chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
   },
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit }) => {
-    const target = await openedTab(workspaceId, tabId);
+    const target = await readableTab(workspaceId, tabId);
     return startChatWatch(
       watchId,
       () => tabSource(workspaceId, tabId, target.agent),

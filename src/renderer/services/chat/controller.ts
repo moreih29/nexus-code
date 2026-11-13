@@ -218,6 +218,8 @@ export class ChatController {
   private readonly live = new LiveLines();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
+  /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
+  private shown: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
@@ -293,13 +295,29 @@ export class ChatController {
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
     if (this.opening) return this.opening;
-    this.opening = this.doOpen().finally(() => {
+    let show = () => {};
+    this.shown = new Promise((resolve) => {
+      show = resolve;
+    });
+    this.opening = this.doOpen(show).finally(() => {
       this.opening = null;
+      this.shown = null;
+      show();
     });
     return this.opening;
   }
 
-  private async doOpen(): Promise<void> {
+  /**
+   * Opens the tab as open does, but comes back once its conversation is
+   * shown: the transcript read, while a program started on it may still be
+   * starting. Another device reading the chat sees it without waiting.
+   */
+  openToRead(): Promise<void> {
+    const opening = this.open();
+    return this.shown ? Promise.race([opening, this.shown]) : opening;
+  }
+
+  private async doOpen(shown: () => void): Promise<void> {
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
@@ -330,6 +348,7 @@ export class ChatController {
     } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
     }
+    shown();
     await this.start(this.startArgs());
   }
 
