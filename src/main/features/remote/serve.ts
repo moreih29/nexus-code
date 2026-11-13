@@ -17,7 +17,7 @@ import type { CliChatState } from "../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { CliServices } from "../cli/context";
-import { RpcFailure } from "./room";
+import { fitsInFrame, RpcFailure } from "./room";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
 export const SERVES: readonly Capability[] = [
@@ -153,19 +153,41 @@ function unavailable(error: unknown): never {
   );
 }
 
+/** How many items a chat read gives when it does not say (the renderer's default too). */
+export const DEFAULT_READ_ITEMS = 200;
+
+/** Room left in a frame for the answer's envelope around a result. */
+const ENVELOPE_BYTES = 1024;
+
+function fitsAsResult(result: unknown): boolean {
+  return fitsInFrame({ result, pad: "x".repeat(ENVELOPE_BYTES) });
+}
+
+/**
+ * A page of the chat, of up to `limit` items: fewer when that many would
+ * not go in one frame (long tool results, a long reply), down to one item.
+ */
 export async function readChat(
   services: CliServices,
   { workspaceId, tabId, before, limit }: RpcParams<"chat.read">,
 ): Promise<RpcResult<"chat.read">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  return services
-    .ui("chat.page", {
-      workspaceId,
-      tabId,
-      ...(before !== undefined ? { before } : {}),
-      ...(limit !== undefined ? { limit } : {}),
-    })
-    .catch(unavailable);
+  let count = limit ?? DEFAULT_READ_ITEMS;
+  for (;;) {
+    const page = await services
+      .ui("chat.page", {
+        workspaceId,
+        tabId,
+        ...(before !== undefined ? { before } : {}),
+        limit: count,
+      })
+      .catch(unavailable);
+    if (fitsAsResult(page)) return page;
+    if (page.items.length <= 1) {
+      throw new RpcFailure(RpcErrorCode.Unavailable, "that part of the chat is too large to send");
+    }
+    count = Math.max(1, Math.floor(page.items.length / 2));
+  }
 }
 
 export async function readTerminal(
@@ -173,9 +195,13 @@ export async function readTerminal(
   { workspaceId, tabId, lines }: RpcParams<"terminal.read">,
 ): Promise<RpcResult<"terminal.read">> {
   await tabOf(services, workspaceId, tabId, ["terminal"]);
-  return services
+  const { text } = await services
     .ui("terminal.read", { workspaceId, tabId, lines: lines ?? DEFAULT_TERMINAL_LINES })
     .catch(unavailable);
+  // The end of it, as much as goes in a frame.
+  let shown = text;
+  while (!fitsAsResult({ text: shown })) shown = shown.slice(Math.floor(shown.length / 4));
+  return { text: shown };
 }
 
 /*

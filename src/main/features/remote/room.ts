@@ -9,11 +9,15 @@ import {
   type Delivered,
   type Hello,
   isRpcMethod,
+  MAX_FRAME_BYTES,
   PROTOCOL_VERSION,
   RPC_METHODS,
+  RPC_NOTIFICATIONS,
   type RpcError,
   RpcErrorCode,
   type RpcMethod,
+  type RpcNotificationMethod,
+  type RpcNotificationParams,
   type RpcParams,
   type RpcResult,
   type SealedMessage,
@@ -25,6 +29,18 @@ import { openMessage, type RoomKey, sealMessage } from "./seal";
 
 /** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Most bytes a message may take as JSON before it is sealed: its sealed
+ * box goes in the frame as base64url (4 characters for 3 bytes), beside
+ * the frame's routing, all under MAX_FRAME_BYTES.
+ */
+export const MAX_MESSAGE_BYTES = Math.floor(((MAX_FRAME_BYTES - 1024) * 3) / 4) - 64;
+
+/** Whether a message goes in one frame. */
+export function fitsInFrame(message: unknown): boolean {
+  return Buffer.byteLength(JSON.stringify(message), "utf8") <= MAX_MESSAGE_BYTES;
+}
 
 /** A request that failed, with its JSON-RPC error. */
 export class RpcFailure extends Error {
@@ -122,6 +138,10 @@ export class RemoteRoom {
   ): Promise<RpcResult<M>> {
     const id = this.nextId++;
     const key = `${to}|${id}`;
+    const message: SealedMessage = { jsonrpc: "2.0", id, method, params };
+    if (!fitsInFrame(message)) {
+      throw new RpcFailure(RpcErrorCode.InvalidParams, `${method}: too large to send`);
+    }
     const answer = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(key);
@@ -129,7 +149,7 @@ export class RemoteRoom {
       }, this.deps.requestTimeoutMs ?? REQUEST_TIMEOUT_MS);
       this.pending.set(key, { resolve, reject, timer, method });
     });
-    const seq = await this.post(to, { jsonrpc: "2.0", id, method, params });
+    const seq = await this.post(to, message);
     const p = this.pending.get(key);
     if (seq === null) {
       if (p) {
@@ -139,6 +159,20 @@ export class RemoteRoom {
       }
     } else if (p) p.seq = seq;
     return answer as Promise<RpcResult<M>>;
+  }
+
+  /**
+   * Tells another device something it asked to be told (a watched chat's
+   * update); false when it could not go: out of the room, or too large.
+   */
+  async notify<M extends RpcNotificationMethod>(
+    to: string,
+    method: M,
+    params: RpcNotificationParams<M>,
+  ): Promise<boolean> {
+    const message: SealedMessage = { jsonrpc: "2.0", method, params };
+    if (!fitsInFrame(message)) return false;
+    return (await this.post(to, message)) !== null;
   }
 
   /** Seals and sends; its seq, or null when it could not go. */
@@ -237,11 +271,28 @@ export class RemoteRoom {
     }
     if ("method" in message && "id" in message) {
       const answer = await this.answer(frame.from, message.method, message.params);
-      void this.post(frame.from, { jsonrpc: "2.0", id: message.id, ...answer });
+      const reply: SealedMessage = { jsonrpc: "2.0", id: message.id, ...answer };
+      // Too large for a frame, it would never come: the asker is told so instead.
+      void this.post(
+        frame.from,
+        fitsInFrame(reply)
+          ? reply
+          : {
+              jsonrpc: "2.0",
+              id: message.id,
+              error: {
+                code: RpcErrorCode.InternalError,
+                message: `${message.method}: the answer is too large to send`,
+              },
+            },
+      );
       return;
     }
     if ("method" in message) {
-      this.deps.onNotification?.(frame.from, message.method, message.params);
+      const method = message.method;
+      if (!Object.hasOwn(RPC_NOTIFICATIONS, method)) return;
+      const parsed = RPC_NOTIFICATIONS[method as RpcNotificationMethod].safeParse(message.params);
+      if (parsed.success) this.deps.onNotification?.(frame.from, method, parsed.data);
       return;
     }
     const key = `${frame.from}|${message.id}`;

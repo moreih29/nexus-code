@@ -9,6 +9,7 @@ import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import { newAccountKey, roomKeyOf } from "../../../../../src/main/features/remote/account-key";
 import type { RelayConnectionDeps } from "../../../../../src/main/features/remote/relay-connection";
 import {
+  MAX_MESSAGE_BYTES,
   RemoteRoom,
   type RemoteRoomDeps,
   RpcFailure,
@@ -192,5 +193,72 @@ describe("the room", () => {
     await tick();
     expect(foreign).toContain(2);
     expect(a.room.state().peers[0]?.serves).toBeUndefined();
+  });
+});
+
+describe("what goes in a frame", () => {
+  test("an answer too large to send comes back as an error, not as nothing", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key, {
+      serve: async () => ({
+        workspaces: [{ id: "w1", name: "x".repeat(MAX_MESSAGE_BYTES), path: "/ws" }],
+        sessions: [],
+      }),
+    });
+    a.room.start();
+    b.room.start();
+    await tick();
+    const failure = await a.room.request("b", "sessions.list", {}).catch((e: RpcFailure) => e);
+    expect(failure).toMatchObject({ code: RpcErrorCode.InternalError });
+    expect((failure as RpcFailure).message).toContain("too large");
+  });
+
+  test("a request too large to send fails at once", async () => {
+    const relay = new MockRelay();
+    const a = device(relay, "a", await roomKey());
+    a.room.start();
+    await expect(
+      a.room.request("b", "chat.send", {
+        workspaceId: "w",
+        tabId: "t",
+        text: "x".repeat(MAX_MESSAGE_BYTES),
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+  });
+
+  test("a notification of the protocol reaches the device told; another is dropped", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const told: [string, string, unknown][] = [];
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key, {
+      onNotification: (from, method, params) => told.push([from, method, params]),
+    });
+    a.room.start();
+    b.room.start();
+    await tick();
+    const update = {
+      watchId: "w1",
+      rev: 1,
+      total: 0,
+      items: [],
+      tools: {},
+      tasks: {},
+      agentItems: {},
+    };
+    expect(await a.room.notify("b", "chat.update", update)).toBe(true);
+    expect(await a.room.notify("b", "chat.update", { ...update, rev: 0 } as never)).toBe(true);
+    expect(
+      await a.room.notify("b", "chat.update", {
+        ...update,
+        items: [
+          { index: 0, item: { kind: "shell", key: "k", command: "x".repeat(MAX_MESSAGE_BYTES) } },
+        ],
+      }),
+    ).toBe(false);
+    await tick();
+    expect(told).toEqual([["a", "chat.update", update]]);
   });
 });

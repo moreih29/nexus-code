@@ -246,3 +246,52 @@ describe("serving a chat's controls", () => {
     ).rejects.toMatchObject({ code: 1003, message: "it has no turn to stop" });
   });
 });
+
+describe("serving what goes in a frame", () => {
+  test("a chat page too large for a frame is read again with fewer items", async () => {
+    const limits: number[] = [];
+    const base = services();
+    const big = "x".repeat(150_000);
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; limit?: number }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        const n = args.limit ?? 0;
+        limits.push(n);
+        return {
+          start: 0,
+          total: n,
+          items: Array.from({ length: n }, (_, i) => ({
+            kind: "shell",
+            key: `k${i}`,
+            command: big,
+          })),
+        };
+      },
+    } as unknown as CliServices;
+    const page = (await serveWith(() => s)({
+      from: "d",
+      method: "chat.read",
+      params: { workspaceId: "w1", tabId: "t1", limit: 20 },
+    })) as { items: unknown[] };
+    expect(limits).toEqual([20, 10, 5]);
+    expect(page.items).toHaveLength(5);
+  });
+
+  test("a terminal's text too large for a frame keeps its end", async () => {
+    const base = services();
+    const text = `${"a".repeat(2_000_000)}THE END`;
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) =>
+        op === "tabs.list" ? base.ui("tabs.list", args) : { text },
+    } as unknown as CliServices;
+    const read = (await serveWith(() => s)({
+      from: "d",
+      method: "terminal.read",
+      params: { workspaceId: "w1", tabId: "t2" },
+    })) as { text: string };
+    expect(read.text.endsWith("THE END")).toBe(true);
+    expect(read.text.length).toBeLessThan(800_000);
+  });
+});
