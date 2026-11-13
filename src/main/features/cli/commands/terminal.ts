@@ -23,6 +23,7 @@ import {
   DEVICE_FLAG,
   deviceFlag,
   listDevices,
+  offline,
   peerSessions,
   pickPeerWorkspace,
   resolveDevice,
@@ -839,10 +840,13 @@ async function deviceSessionList(
   if (all && flags.workspace !== undefined) {
     throw new CliUsageError("--workspace takes one computer's workspace: give --device NAME");
   }
-  const devices = all
-    ? (await listDevices(ctx)).filter((d) => !d.self)
-    : [(await resolveDevice(ctx, selector)) as CliDevice];
-  const self = all ? (await ctx.services.remote.devices()).find((d) => d.self) : undefined;
+  const listed = all ? await listDevices(ctx) : [(await resolveDevice(ctx, selector)) as CliDevice];
+  const named = listed[0] as CliDevice;
+  if (!all && !named.online) throw offline(named, ctx.services.clock.now());
+  // Every computer's: those offline are counted in a line, not listed one by one.
+  const devices = listed.filter((d) => !d.self && d.online);
+  const away = listed.filter((d) => !d.self && !d.online).length;
+  const self = listed.find((d) => d.self);
   const local = all
     ? (await localSessions(ctx, orderedWorkspaces(ctx.services.listWorkspaces()))).map((s) => ({
         cells: [
@@ -854,6 +858,9 @@ async function deviceSessionList(
       }))
     : [];
   const peers = await peerSessionRows(ctx, devices);
+  if (away > 0) {
+    peers.notes.push(`${away} other computer${away === 1 ? "" : "s"} offline: nexus device list`);
+  }
   let rows = peers.rows;
   if (!all && flags.workspace !== undefined) {
     const device = devices[0] as CliDevice;

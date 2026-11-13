@@ -24,7 +24,12 @@ const deviceList: CliCommand = {
     "requests from agents; -: it does not, or it is offline).",
   async run(ctx, { positionals }) {
     exactArgs(positionals);
-    const devices = await listDevices(ctx);
+    // This computer, those online, then those offline, the latest seen first.
+    const rank = (d: CliDevice) => (d.self ? 0 : d.online ? 1 : 2);
+    const devices = (await listDevices(ctx)).sort(
+      (a, b) =>
+        rank(a) - rank(b) || (b.lastSeen ?? 0) - (a.lastSeen ?? 0) || a.name.localeCompare(b.name),
+    );
     const now = ctx.services.clock.now();
     const state = (d: CliDevice) =>
       d.self

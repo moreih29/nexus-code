@@ -298,7 +298,13 @@ describe("nexus session list", () => {
     ]);
   });
 
-  test("--device all has this computer's too, and an offline one as a line", async () => {
+  test("--device names an offline computer: exit 3", async () => {
+    const result = await nexus(withDevices(), ["session", "list", "--device", "Office PC"]);
+    expect(result.exitCode).toBe(3);
+    expect(result.stderr).toBe('nexus: "Office PC" is offline (last seen 2h ago)\n');
+  });
+
+  test("--device all has this computer's too, and the offline ones counted in a line", async () => {
     const result = await nexus(withDevices(), ["session", "list", "--device", "all"]);
     expect(result.exitCode).toBe(0);
     const lines = result.stdout.trimEnd().split("\n");
@@ -307,7 +313,7 @@ describe("nexus session list", () => {
     expect(
       lines.some((l) => /^1a2b3c4d\s+Mac mini\s+site\s+Review\s+claude-tab\s+running/.test(l)),
     ).toBe(true);
-    expect(lines.at(-1)).toBe('"Office PC" is offline (last seen 2h ago)');
+    expect(lines.at(-1)).toBe("1 other computer offline: nexus device list");
   });
 });
 
