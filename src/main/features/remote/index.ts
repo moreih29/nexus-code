@@ -106,6 +106,11 @@ export async function registerRemoteChannel(options: {
   let room: RemoteRoom | null = null;
   let roomFor = "";
   let roomState: RoomState = { status: "off", peers: [] };
+  /** The room, to ask another device through; Unavailable while out of it. */
+  const inRoom = (): RemoteRoom => {
+    if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
+    return room;
+  };
   const setRoomState = (state: RoomState) => {
     roomState = state;
     broadcast("remote", "roomChanged", state);
@@ -200,24 +205,27 @@ export async function registerRemoteChannel(options: {
       room: async () => ipcOk(roomState),
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
-        return askPeer(() => {
-          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
-          return room.request(deviceId, "sessions.list", {});
-        });
+        return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));
       },
       peerChat: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChat.args, args);
-        return askPeer(() => {
-          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
-          return room.request(deviceId, "chat.read", params);
-        });
+        return askPeer(() => inRoom().request(deviceId, "chat.read", params));
+      },
+      peerChatSend: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatSend.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.send", params));
+      },
+      peerChatAnswer: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatAnswer.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.answer", params));
+      },
+      peerChatInterrupt: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatInterrupt.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.interrupt", params));
       },
       peerTerminal: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminal.args, args);
-        return askPeer(() => {
-          if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
-          return room.request(deviceId, "terminal.read", params);
-        });
+        return askPeer(() => inRoom().request(deviceId, "terminal.read", params));
       },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),

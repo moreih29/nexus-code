@@ -1,19 +1,31 @@
 // A session of another computer, shown over the agent view's panels when
 // its row under Other computers is picked: a chat drawn by this app's
-// message list from what that computer reads of it, or a terminal's text.
-// Both are read again every moment while shown. Nothing is sent to it yet.
+// message list from what that computer reads of it, which the user writes
+// to, answers and stops from here; or a terminal's text, to read only.
+// Both are read again every moment while shown.
 
-import { Monitor, X } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { ArrowUp, Monitor, Square, X } from "lucide-react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
+import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
+import type { PermissionAnswer } from "../../services/chat/controller";
+import type { PermissionRequest } from "../../services/chat/model";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { type PeerRead, usePeerRead } from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { MessageList } from "../chat/message-list";
+import { PermissionCard } from "../chat/permission-card";
 import { StatusLine } from "../chat/status-line";
 import { IconButton } from "../ui/icon-button";
+import { showToast } from "../ui/toast";
 
 /** How many lines of a terminal are shown. */
 const TERMINAL_LINES = 2000;
@@ -54,9 +66,11 @@ export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; v
         <span className="min-w-0 flex-1 truncate text-app-ui-sm text-foreground">
           {target.title}
         </span>
-        <span className="shrink-0 text-app-micro text-muted-foreground">
-          {t("agentView.remote.viewOnly")}
-        </span>
+        {target.kind === "terminal" && (
+          <span className="shrink-0 text-app-micro text-muted-foreground">
+            {t("agentView.remote.viewOnly")}
+          </span>
+        )}
         <IconButton label={t("agentView.remote.close")} onClick={close}>
           <X aria-hidden className="size-3.5" />
         </IconButton>
@@ -87,15 +101,64 @@ function Waiting({ read }: { read: { status: PeerRead<unknown>["status"] } }) {
   );
 }
 
+/** The protocol's answer for the card's: an always-allow is an allow (the rules stay there). */
+export function remoteAnswerOf(answer: PermissionAnswer): {
+  decision: "allow" | "deny";
+  message?: string;
+  updatedInput?: Record<string, unknown>;
+  stop?: boolean;
+} {
+  switch (answer.kind) {
+    case "allow":
+      return {
+        decision: "allow",
+        ...(answer.updatedInput ? { updatedInput: answer.updatedInput } : {}),
+      };
+    case "allow-always":
+      return { decision: "allow" };
+    case "deny":
+      return { decision: "deny", ...(answer.message ? { message: answer.message } : {}) };
+    case "deny-stop":
+      return {
+        decision: "deny",
+        stop: true,
+        ...(answer.message ? { message: answer.message } : {}),
+      };
+  }
+}
+
 function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolean }) {
+  const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
-  const read = usePeerRead(
+  const { read, refresh } = usePeerRead(
     `${deviceId}/${workspaceId}/${tabId}`,
     () => ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId }),
     visible,
   );
   const page = read.status === "ready" ? read.value : null;
   const model = useMemo(() => (page ? modelOfPage(page) : null), [page]);
+  /** Runs a control, then reads the chat again to show it; a refusal is told. */
+  const control = async (sent: Promise<IpcResult<unknown>>): Promise<boolean> => {
+    const result = await sent;
+    refresh();
+    if (!result.ok) {
+      showToast({
+        kind: "error",
+        message: t("agentView.remote.failed", { message: result.message }),
+      });
+    }
+    return result.ok;
+  };
+  const answer = (request: PermissionRequest, given: PermissionAnswer) =>
+    void control(
+      ipcCallResult("remote", "peerChatAnswer", {
+        deviceId,
+        workspaceId,
+        tabId,
+        requestId: request.requestId,
+        ...remoteAnswerOf(given),
+      }),
+    );
   if (read.status !== "ready" || !model) return <Waiting read={read} />;
   return (
     <ChatAgentContext.Provider value={target.kind === "codex" ? "codex" : "claude"}>
@@ -106,20 +169,101 @@ function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolea
         history={null}
         model={model}
       />
-      {model.running && (
-        <div className="shrink-0 px-4 py-2">
-          <div className="mx-auto max-w-[860px]">
+      {(model.permissions.length > 0 || model.running) && (
+        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
+          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+            {model.permissions.length > 0 && (
+              <PermissionCard
+                requests={model.permissions}
+                workspaceId={`remote:${deviceId}`}
+                cwd={target.path}
+                rootPath={target.path}
+                onAnswer={answer}
+              />
+            )}
             <StatusLine model={model} />
           </div>
         </div>
       )}
+      <RemoteComposer
+        running={model.running}
+        onSend={(text) =>
+          control(ipcCallResult("remote", "peerChatSend", { deviceId, workspaceId, tabId, text }))
+        }
+        onStop={() =>
+          void control(
+            ipcCallResult("remote", "peerChatInterrupt", { deviceId, workspaceId, tabId }),
+          )
+        }
+      />
     </ChatAgentContext.Provider>
+  );
+}
+
+/**
+ * Where the user writes to the chat from here: Enter sends, Shift+Enter
+ * starts a line; during a turn the message waits for the turn to read it,
+ * and the stop button stops the turn.
+ */
+export function RemoteComposer({
+  running,
+  onSend,
+  onStop,
+}: {
+  running: boolean;
+  onSend: (text: string) => Promise<boolean>;
+  onStop: () => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const send = async () => {
+    const message = text.trim();
+    if (!message || sending) return;
+    setSending(true);
+    const sent = await onSend(message);
+    setSending(false);
+    if (sent) setText("");
+  };
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void send();
+    }
+  };
+  return (
+    <div className="shrink-0 px-4 pt-1 pb-3">
+      <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-(--radius-raised) border border-border bg-background px-3 py-2 focus-within:ring-1 focus-within:ring-ring">
+        <textarea
+          value={text}
+          rows={Math.min(8, Math.max(1, text.split("\n").length))}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={t("agentView.remote.placeholder")}
+          aria-label={t("agentView.remote.placeholder")}
+          className="min-h-6 flex-1 resize-none bg-transparent text-app-body text-foreground outline-none placeholder:text-muted-foreground"
+          data-testid="remote-composer"
+        />
+        {running && (
+          <IconButton label={t("agentView.remote.stop")} onClick={onStop}>
+            <Square aria-hidden className="size-3.5" />
+          </IconButton>
+        )}
+        <IconButton
+          label={t("agentView.remote.send")}
+          onClick={() => void send()}
+          disabled={sending || text.trim() === ""}
+        >
+          <ArrowUp aria-hidden className="size-3.5" />
+        </IconButton>
+      </div>
+    </div>
   );
 }
 
 function RemoteTerminal({ target, visible }: { target: RemoteTarget; visible: boolean }) {
   const { deviceId, workspaceId, tabId } = target;
-  const read = usePeerRead(
+  const { read } = usePeerRead(
     `${deviceId}/${workspaceId}/${tabId}`,
     () =>
       ipcCallResult("remote", "peerTerminal", {

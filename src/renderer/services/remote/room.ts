@@ -2,7 +2,7 @@
 // this device is in, and the account's other devices; and what another
 // device serves of its sessions, asked while it is shown.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
@@ -92,45 +92,56 @@ export type PeerRead<T> =
 
 /**
  * What `read` answers, read now and every PEER_READ_MS while `shown`, again
- * from the start when `key` changes. A read that fails keeps the last answer
- * up, unless the session is gone.
+ * from the start when `key` changes; `refresh` reads it at once (after a
+ * control, to show its effect). A read that fails keeps the last answer up,
+ * unless the session is gone.
  */
 export function usePeerRead<T>(
   key: string,
   read: () => Promise<IpcResult<T>>,
   shown: boolean,
-): PeerRead<T> {
+): { read: PeerRead<T>; refresh: () => void } {
   const [state, setState] = useState<{ key: string; read: PeerRead<T> }>({
     key,
     read: { status: "loading" },
   });
   const latest = useRef(read);
   latest.current = read;
+  const now = useRef<() => void>(() => {});
   useEffect(() => {
     if (!shown) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Each read numbered: one that comes back after a later one is dropped.
+    let asked = 0;
+    let applied = 0;
     const ask = async () => {
+      clearTimeout(timer);
+      const seq = ++asked;
       const result = await latest.current();
-      if (!live) return;
-      setState((now) => {
-        const was = now.key === key ? now.read : ({ status: "loading" } as PeerRead<T>);
+      if (!live || seq < applied) return;
+      applied = seq;
+      setState((was) => {
+        const before = was.key === key ? was.read : ({ status: "loading" } as PeerRead<T>);
         const next: PeerRead<T> = result.ok
           ? { status: "ready", value: result.value }
           : result.kind === "not-found"
             ? { status: "gone" }
-            : was.status === "ready"
-              ? was
+            : before.status === "ready"
+              ? before
               : { status: "unavailable", message: result.message };
         return { key, read: next };
       });
-      timer = setTimeout(() => void ask(), PEER_READ_MS);
+      if (seq === asked) timer = setTimeout(() => void ask(), PEER_READ_MS);
     };
+    now.current = () => void ask();
     void ask();
     return () => {
       live = false;
       clearTimeout(timer);
+      now.current = () => {};
     };
   }, [key, shown]);
-  return state.key === key ? state.read : { status: "loading" };
+  const refresh = useCallback(() => now.current(), []);
+  return { read: state.key === key ? state.read : { status: "loading" }, refresh };
 }

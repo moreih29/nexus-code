@@ -85,7 +85,7 @@ describe("serving the sessions", () => {
       serveWith(() => null)({ from: "d", method: "sessions.list", params: {} }),
     ).rejects.toMatchObject({ code: 1003 });
     await expect(
-      serveWith(services)({ from: "d", method: "chat.send", params: {} }),
+      serveWith(services)({ from: "d", method: "chat.watch", params: {} }),
     ).rejects.toMatchObject({ code: -32601 });
   });
 });
@@ -157,5 +157,92 @@ describe("serving a chat and a terminal to read", () => {
         params: { workspaceId: "w1", tabId: "t1" },
       }),
     ).rejects.toMatchObject({ code: 1003, message: "that tab is gone" });
+  });
+});
+
+describe("serving a chat's controls", () => {
+  function recording(fail?: string) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        if (fail) throw new Error(fail);
+        return op === "chat.open" ? { tabId: "t9" } : {};
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  const tab = { workspaceId: "w1", tabId: "t1" };
+
+  test("sends as the user, who may write while the chat asks", async () => {
+    const { serve, asked } = recording();
+    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "go on" } });
+    expect(asked).toEqual([["chat.send", { ...tab, text: "go on", user: true }]]);
+  });
+
+  test("answers the request it names, with a question's answers or a stop", async () => {
+    const { serve, asked } = recording();
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r1", decision: "allow", updatedInput: { answers: { q: "a" } } },
+    });
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r2", decision: "deny", message: "no", stop: true },
+    });
+    expect(asked).toEqual([
+      [
+        "chat.answer",
+        { ...tab, decision: "allow", expect: "r1", updatedInput: { answers: { q: "a" } } },
+      ],
+      ["chat.answer", { ...tab, decision: "deny", expect: "r2", message: "no", stop: true }],
+    ]);
+  });
+
+  test("opens a chat in the workspace's folder, behind what this computer shows", async () => {
+    const { serve, asked } = recording();
+    const opened = await serve({
+      from: "d",
+      method: "chat.new",
+      params: { workspaceId: "w2", agent: "codex", prompt: "review" },
+    });
+    expect(opened).toEqual({ tabId: "t9" });
+    expect(asked).toEqual([
+      [
+        "chat.open",
+        {
+          workspaceId: "w2",
+          agent: "codex",
+          cwd: "/src/app-feat",
+          prompt: "review",
+          placement: { background: true },
+        },
+      ],
+    ]);
+  });
+
+  test("stops and closes only a chat; the app refusing is unavailable", async () => {
+    const { serve, asked } = recording();
+    await serve({ from: "d", method: "chat.interrupt", params: tab });
+    await serve({ from: "d", method: "chat.close", params: tab });
+    expect(asked).toEqual([
+      ["chat.interrupt", tab],
+      ["tab.close", { ...tab, force: false }],
+    ]);
+    await expect(
+      serve({ from: "d", method: "chat.close", params: { workspaceId: "w1", tabId: "t2" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      recording("it has no turn to stop").serve({
+        from: "d",
+        method: "chat.interrupt",
+        params: tab,
+      }),
+    ).rejects.toMatchObject({ code: 1003, message: "it has no turn to stop" });
   });
 });

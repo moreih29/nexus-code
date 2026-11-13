@@ -302,9 +302,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return tool;
   },
 
-  "chat.send": async ({ workspaceId, tabId, text, from }) => {
+  "chat.send": async ({ workspaceId, tabId, text, from, user }) => {
     const target = await openedTab(workspaceId, tabId);
-    if (infoOf(workspaceId, tabId, target).state === "asking") {
+    if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
       throw new UiRequestError(
         "it is waiting for the user to answer a request; that is for the user to answer",
       );
@@ -355,7 +355,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { from, to };
   },
 
-  "chat.answer": async ({ workspaceId, tabId, decision, message, expect }) => {
+  "chat.answer": async ({ workspaceId, tabId, decision, message, expect, updatedInput, stop }) => {
     const target = await openedTab(workspaceId, tabId);
     // Main allowed an answer to the request the tab asked then: not to another.
     const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
@@ -365,7 +365,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     }
     await target.controller.answerPermission(
       request,
-      decision === "allow" ? { kind: "allow" } : { kind: "deny", message: message ?? "" },
+      decision === "allow"
+        ? { kind: "allow", ...(updatedInput ? { updatedInput } : {}) }
+        : { kind: stop ? "deny-stop" : "deny", message: message ?? "" },
     );
     return {};
   },

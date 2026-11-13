@@ -687,8 +687,18 @@ export interface CliUiOps {
    * turn, the agent reads it after the tool it runs.
    */
   "chat.send": {
-    /** `from`: the agent that sends it, as the tab shows it; none for the user. */
-    args: { workspaceId: string; tabId: string; text: string; from?: RelaySender };
+    /**
+     * `from`: the agent that sends it, as the tab shows it; none for the user.
+     * `user`: the user sends it (from another computer of theirs), so it goes
+     * even while the tab asks them something, as its composer's would.
+     */
+    args: {
+      workspaceId: string;
+      tabId: string;
+      text: string;
+      from?: RelaySender;
+      user?: boolean;
+    };
     result: Record<string, never>;
   };
   /**
@@ -740,6 +750,10 @@ export interface CliUiOps {
       message?: string;
       /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
+      /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
+      updatedInput?: Record<string, unknown>;
+      /** With deny: stop the turn too. */
+      stop?: boolean;
     };
     result: Record<string, never>;
   };

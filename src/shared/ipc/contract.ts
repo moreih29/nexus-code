@@ -2367,6 +2367,23 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),
         RPC_METHODS["chat.read"].result,
       ),
+      /** Sends another device's chat a message, as the user. */
+      peerChatSend: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.send"].params),
+        RPC_METHODS["chat.send"].result,
+      ),
+      /** Answers the request another device's chat waits on. */
+      peerChatAnswer: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.answer"].params),
+        RPC_METHODS["chat.answer"].result,
+      ),
+      /** Stops another device's chat's turn. */
+      peerChatInterrupt: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.interrupt"].params),
+        RPC_METHODS["chat.interrupt"].result,
+      ),
       /** A terminal of another device's, as text. */
       peerTerminal: call(
         z

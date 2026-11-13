@@ -20,7 +20,12 @@ import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
-export const SERVES: readonly Capability[] = ["sessions", "chat.read", "terminal.read"];
+export const SERVES: readonly Capability[] = [
+  "sessions",
+  "chat.read",
+  "chat.control",
+  "terminal.read",
+];
 
 /** How many lines of a terminal a read gives when it does not say. */
 export const DEFAULT_TERMINAL_LINES = 1000;
@@ -137,7 +142,10 @@ async function tabOf(
   }
 }
 
-/** A failure of the app's to do it, as another device is told it. */
+/**
+ * The app failing or refusing to do it as the session stands (nothing to
+ * stop, a request answered since), as another device is told it.
+ */
 function unavailable(error: unknown): never {
   throw new RpcFailure(
     RpcErrorCode.Unavailable,
@@ -170,6 +178,85 @@ export async function readTerminal(
     .catch(unavailable);
 }
 
+/*
+ * The chat's controls, as its composer, request card, stop button and tab
+ * do: the device asking is the user's own, holding the account key, so
+ * what it sends is the user's, not an agent's.
+ */
+
+export async function sendChat(
+  services: CliServices,
+  { workspaceId, tabId, text }: RpcParams<"chat.send">,
+): Promise<RpcResult<"chat.send">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.send", { workspaceId, tabId, text, user: true }).catch(unavailable);
+  return {};
+}
+
+export async function answerChat(
+  services: CliServices,
+  {
+    workspaceId,
+    tabId,
+    requestId,
+    decision,
+    message,
+    updatedInput,
+    stop,
+  }: RpcParams<"chat.answer">,
+): Promise<RpcResult<"chat.answer">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services
+    .ui("chat.answer", {
+      workspaceId,
+      tabId,
+      decision,
+      expect: requestId,
+      ...(message !== undefined ? { message } : {}),
+      ...(updatedInput ? { updatedInput } : {}),
+      ...(stop ? { stop } : {}),
+    })
+    .catch(unavailable);
+  return {};
+}
+
+export async function interruptChat(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.interrupt">,
+): Promise<RpcResult<"chat.interrupt">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.interrupt", { workspaceId, tabId }).catch(unavailable);
+  return {};
+}
+
+export async function newChat(
+  services: CliServices,
+  { workspaceId, agent, prompt }: RpcParams<"chat.new">,
+): Promise<RpcResult<"chat.new">> {
+  const workspace = services.listWorkspaces().find((w) => w.id === workspaceId);
+  if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  const opened = await services
+    .ui("chat.open", {
+      workspaceId,
+      agent,
+      cwd: workspace.rootPath,
+      prompt: prompt ?? "",
+      // Behind what the window shows: whoever sits at this computer keeps their place.
+      placement: { background: true },
+    })
+    .catch(unavailable);
+  return { tabId: opened.tabId };
+}
+
+export async function closeChat(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.close">,
+): Promise<RpcResult<"chat.close">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("tab.close", { workspaceId, tabId, force: false }).catch(unavailable);
+  return {};
+}
+
 /** Answers another device's request with this device's services. */
 export function serveWith(services: () => CliServices | null) {
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
@@ -182,6 +269,16 @@ export function serveWith(services: () => CliServices | null) {
         return readChat(s, request.params as RpcParams<"chat.read">);
       case "terminal.read":
         return readTerminal(s, request.params as RpcParams<"terminal.read">);
+      case "chat.send":
+        return sendChat(s, request.params as RpcParams<"chat.send">);
+      case "chat.answer":
+        return answerChat(s, request.params as RpcParams<"chat.answer">);
+      case "chat.interrupt":
+        return interruptChat(s, request.params as RpcParams<"chat.interrupt">);
+      case "chat.new":
+        return newChat(s, request.params as RpcParams<"chat.new">);
+      case "chat.close":
+        return closeChat(s, request.params as RpcParams<"chat.close">);
       default:
         throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
     }

@@ -1760,7 +1760,11 @@
       },
       "viewOnly": "View only",
       "close": "Close",
-      "gone": "This session was closed"
+      "gone": "This session was closed",
+      "placeholder": "Write to it from here",
+      "send": "Send",
+      "stop": "Stop",
+      "failed": "It did not go through: {{message}}"
     }
   },
   "releaseNotes": {
