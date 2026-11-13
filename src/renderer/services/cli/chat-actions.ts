@@ -383,6 +383,20 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return chatChoicesOf(target.agent, chat.model);
   },
 
+  "chat.rename": async ({ workspaceId, tabId, title }) => {
+    const target = await readableTab(workspaceId, tabId);
+    useTabsStore.getState().renameTab(workspaceId, tabId, title.trim());
+    // A tab's view names its session when the user renames it; one not shown
+    // has no view to, so a running program is told here (none is started for it).
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (target.agent === "claude" && chat?.model.process === "running") {
+      void target.controller.renameSession(title).catch(() => {});
+    }
+    const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
+    if (!tab) throw new UiRequestError("that tab is gone");
+    return { title: tab.title };
+  },
+
   "chat.toolCall": async ({ workspaceId, tabId, toolUseId, maxText }) => {
     const { agent } = await readableTab(workspaceId, tabId);
     const tool = conversationOf(sourceOf(workspaceId, tabId, agent)).tools[toolUseId];

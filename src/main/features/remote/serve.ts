@@ -511,6 +511,17 @@ export async function newChat(
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
+/** Renames the chat, as its tab's rename does. */
+export async function renameChat(
+  services: CliServices,
+  { workspaceId, tabId, title }: RpcParams<"chat.rename">,
+): Promise<RpcResult<"chat.rename">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  if (!title.trim())
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "a title needs more than spaces");
+  return services.ui("chat.rename", { workspaceId, tabId, title }).catch(unavailable);
+}
+
 /** Most characters of a tool's result asked for: more than a frame takes anyway. */
 const MAX_TOOL_TEXT = MAX_MESSAGE_BYTES;
 
@@ -721,6 +732,8 @@ export function serveWith(
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
+      case "chat.rename":
+        return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":
         return chatTool(s, request.params as RpcParams<"chat.tool">);
       case "chat.panel":

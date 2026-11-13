@@ -775,6 +775,14 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
     result: ChatPage & { panel?: ChatPanel };
   };
+  /**
+   * Renames a Claude or Codex tab, as its tab's rename does; a Claude tab's
+   * running program names its session so too. The title it shows then.
+   */
+  "chat.rename": {
+    args: { workspaceId: string; tabId: string; title: string };
+    result: { title: string };
+  };
   /** What a Claude or Codex tab's side panel shows now. */
   "chat.panel": {
     args: { workspaceId: string; tabId: string };

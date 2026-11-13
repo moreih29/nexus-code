@@ -241,6 +241,30 @@ describe("serving a chat's settings", () => {
   });
 });
 
+describe("renaming a chat", () => {
+  test("as its tab's rename does; refused when only spaces", async () => {
+    const asked: unknown[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; title?: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return { title: args.title };
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s);
+    const params = { workspaceId: "w1", tabId: "t1", title: "Build fix" };
+    expect(await serve({ from: "d", method: "chat.rename", params })).toEqual({
+      title: "Build fix",
+    });
+    expect(asked).toEqual([["chat.rename", params]]);
+    await expect(
+      serve({ from: "d", method: "chat.rename", params: { ...params, title: "   " } }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+});
+
 describe("serving one tool call", () => {
   const tab = { workspaceId: "w1", tabId: "t1" };
   function toolServices() {
