@@ -5,9 +5,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   aadOf,
+  bundleAadOf,
   ChatPageSchema,
   ClientFrameSchema,
   isRpcMethod,
+  KeyBundlePutSchema,
+  KeyBundleSchema,
   RPC_METHODS,
   SealedMessageSchema,
   ServerFrameSchema,
@@ -126,5 +129,29 @@ describe("the methods", () => {
     expect(Object.keys(RPC_METHODS).filter((m) => m.startsWith("terminal."))).toEqual([
       "terminal.read",
     ]);
+  });
+});
+
+describe("the account key's bundle", () => {
+  const bundle = {
+    v: 1,
+    kid: 1,
+    kdf: { alg: "argon2id13", ops: 3, mem: 64 * 1024 * 1024, salt: "c2FsdA" },
+    nonce: "bm9uY2U",
+    box: "Ym94",
+  };
+
+  test("keeps its own settings, within bounds", () => {
+    expect(KeyBundleSchema.parse(bundle)).toEqual(bundle);
+    expect(KeyBundleSchema.safeParse({ ...bundle, kid: 0 }).success).toBe(false);
+    expect(
+      KeyBundleSchema.safeParse({ ...bundle, kdf: { ...bundle.kdf, mem: 1024 } }).success,
+    ).toBe(false);
+    expect(KeyBundlePutSchema.parse({ bundle, expected: null }).expected).toBeNull();
+  });
+
+  test("is sealed for its user and version", () => {
+    expect(bundleAadOf("u1", 2)).toBe("nexus-remote/account-key/v1|u1|2");
+    expect(bundleAadOf("u2", 2)).not.toBe(bundleAadOf("u1", 2));
   });
 });
