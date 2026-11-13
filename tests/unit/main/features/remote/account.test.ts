@@ -212,11 +212,12 @@ describe("the account", () => {
     expect(store.value).toBeNull();
   });
 
-  test("removing this device, or signing out, forgets the sign-in", async () => {
+  test("removing this device, signing out, or deleting the account forgets the sign-in", async () => {
     const saved = { server: SERVER, token: "tok", user, device };
     for (const leave of [
       (a: RemoteAccount) => a.removeDevice("d1"),
       (a: RemoteAccount) => a.signOut(),
+      (a: RemoteAccount) => a.deleteAccount(),
     ]) {
       const store = memoryStore(saved);
       const server = fakeServer();

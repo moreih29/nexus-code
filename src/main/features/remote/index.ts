@@ -104,6 +104,7 @@ export async function registerRemoteChannel(): Promise<{
         await account.signOut();
         return ipcOk(undefined);
       },
+      deleteAccount: () => ask(() => account.deleteAccount()),
       devices: () => ask(() => account.devices()),
       removeDevice: (args: unknown) => {
         const { id } = validateArgs(c.removeDevice.args, args);

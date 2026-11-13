@@ -184,6 +184,15 @@ export class RemoteAccount {
     this.forget();
   }
 
+  /**
+   * Deletes the account on the server: its devices, its key bundle, all
+   * of it. Every device is signed out; this one forgets its sign-in.
+   */
+  async deleteAccount(): Promise<void> {
+    await this.call("DELETE", "/account");
+    this.forget();
+  }
+
   async devices(): Promise<RemoteDeviceInfo[]> {
     return DevicesResponseSchema.parse(await this.call("GET", "/devices")).devices;
   }

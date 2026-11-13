@@ -55,6 +55,7 @@ export function RemotePanel() {
       <AccountGroup state={state} />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} />}
+      {state.status === "signed-in" && <DeleteAccountGroup />}
     </SettingsPage>
   );
 }
@@ -230,5 +231,47 @@ export function DeviceRow({
         <Trash2 className="size-3.5" aria-hidden="true" />
       </button>
     </div>
+  );
+}
+
+/** Deleting the account on the server, after asking: every device is signed out. */
+export function DeleteAccountGroup() {
+  const { t } = useTranslation("settings");
+  const [error, setError] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const remove = async () => {
+    const ok = await showConfirmDialog({
+      title: t("remote.delete.confirm.title"),
+      description: t("remote.delete.confirm.description"),
+      confirmLabel: t("remote.delete.confirm.confirm"),
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setError(false);
+    const result = await ipcCallResult("remote", "deleteAccount", undefined);
+    setBusy(false);
+    // Deleted: the account's state goes to signed out, and this group with it.
+    if (!result.ok && result.kind !== "session-expired") setError(true);
+  };
+  return (
+    <SettingsGroup title={t("remote.delete.title")}>
+      <SettingsRow
+        label={t("remote.delete.label")}
+        description={
+          error ? (
+            <span className="text-destructive" role="alert">
+              {t("remote.delete.failed")}
+            </span>
+          ) : (
+            t("remote.delete.description")
+          )
+        }
+      >
+        <Button variant="destructive" size="sm" onClick={() => void remove()} disabled={busy}>
+          {t("remote.delete.button")}
+        </Button>
+      </SettingsRow>
+    </SettingsGroup>
   );
 }

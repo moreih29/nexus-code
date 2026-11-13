@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
 
-const { AccountGroup, DeviceRow } = await import(
+const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
   "../../../../../src/renderer/components/settings/panels/remote-panel"
 );
 
@@ -94,5 +94,14 @@ describe("the remote panel's account password", () => {
     expect(html).toContain("Could not check the account key with the server.");
     expect(html).toContain("The server asked to wait a minute.");
     expect(html).toContain("Try again");
+  });
+});
+
+describe("the remote panel's account deletion", () => {
+  test("offers it, saying it cannot be undone", () => {
+    const html = renderToStaticMarkup(<DeleteAccountGroup />);
+    expect(html).toContain("Delete your NexusCode account");
+    expect(html).toContain("This cannot be undone.");
+    expect(html).toContain('data-variant="destructive"');
   });
 });

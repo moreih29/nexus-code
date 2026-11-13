@@ -736,6 +736,18 @@
         "signed-out": "The sign-in ended. Sign in again.",
         "failed": "That did not go through. Try again."
       }
+    },
+    "delete": {
+      "title": "Delete account",
+      "label": "Delete your NexusCode account",
+      "description": "Removes the account from the server with its devices and locked key. This cannot be undone.",
+      "button": "Delete account",
+      "failed": "Could not delete the account. Try again.",
+      "confirm": {
+        "title": "Delete your NexusCode account?",
+        "description": "The account, its devices and its locked account key are removed from the server, and every device is signed out. This cannot be undone.",
+        "confirm": "Delete account"
+      }
     }
   }
 }

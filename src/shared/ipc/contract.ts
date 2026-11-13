@@ -2333,6 +2333,8 @@ export const ipcContract = {
       signIn: call(z.void(), RemoteAccountStateSchema),
       cancelSignIn: call(z.void(), z.void()),
       signOut: call(z.void(), z.void()),
+      /** Deletes the account on the server, and signs every device out. */
+      deleteAccount: call(z.void(), z.void()),
       devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
       removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
       /**
