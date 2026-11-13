@@ -93,6 +93,7 @@ import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
+import { RemoteAccountStateSchema, RemoteDeviceInfoSchema } from "../remote/account";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -2313,6 +2314,26 @@ export const ipcContract = {
     listen: {
       loginOutput: listen(z.object({ id: z.string(), text: z.string() })),
       loginExit: listen(z.object({ id: z.string(), code: z.number().int().nullable() })),
+    },
+  },
+
+  // The NexusCode account the remote runs on (shared/remote): signing in
+  // with Google in the browser, and the account's devices.
+  remote: {
+    call: {
+      account: call(z.void(), RemoteAccountStateSchema),
+      /**
+       * Opens the sign-in in the browser and answers once it is over: signed
+       * in, or signed out with why it did not finish.
+       */
+      signIn: call(z.void(), RemoteAccountStateSchema),
+      cancelSignIn: call(z.void(), z.void()),
+      signOut: call(z.void(), z.void()),
+      devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
+      removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
+    },
+    listen: {
+      accountChanged: listen(RemoteAccountStateSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

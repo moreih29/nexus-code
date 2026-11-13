@@ -59,6 +59,7 @@ import { registerPtyChannel } from "./features/pty/ipc";
 import { PortWatcher } from "./features/pty/ports";
 import type { PtyHostHandle } from "./features/pty/types";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
+import { registerRemoteChannel } from "./features/remote";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
@@ -173,6 +174,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
+let remote: { dispose(): void } | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -585,6 +587,9 @@ app.whenReady().then(async () => {
   // Settings' view of the Claude and Codex profiles on this machine.
   agentProfiles = registerAgentProfilesChannel(stateService);
 
+  // The NexusCode account the remote runs on.
+  remote = await registerRemoteChannel();
+
   // The agent manager's workspace and its reports.
   registerManagerChannel({
     workspaceManager,
@@ -767,6 +772,7 @@ app.on("will-quit", () => {
   agentPtyHost?.dispose();
   chatHost?.dispose();
   agentProfiles?.dispose();
+  remote?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();
