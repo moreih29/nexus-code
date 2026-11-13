@@ -67,6 +67,8 @@ export interface SetupClaudeFeatureResult {
   activeContext: ActiveContextStore;
   /** What each session is doing: its tools, todos and agents. */
   activity: SessionActivityLog;
+  /** The permission requests each session holds for the app to answer. */
+  asks: PermissionAsks;
   /**
    * Stops the session's running `claude -p` run `agentId`, as the session's
    * ^C would: false when it is no such run, or could not be told.
@@ -232,6 +234,7 @@ export function setupClaudeFeature(options: SetupClaudeFeatureOptions): SetupCla
     broker,
     activeContext,
     activity,
+    asks,
     stopPrintRun,
   };
 }

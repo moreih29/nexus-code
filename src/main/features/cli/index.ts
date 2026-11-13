@@ -75,10 +75,11 @@ export interface SetupCliFeatureOptions {
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
-    get(
-      workspaceId: string,
-      tabId: string,
-    ): { agents: readonly AgentRun[]; asks?: readonly PermissionAsk[] } | null;
+    get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
+  };
+  /** The permission requests the terminals' Claude sessions hold for the app to answer. */
+  claudeAsks?: {
+    list(workspaceId: string, tabId: string): readonly PermissionAsk[];
   };
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
@@ -223,7 +224,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
-    claudeAsks: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.asks ?? [],
+    claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
     managerWorkspace: () => workspaceManager.managerMeta(),
     claudeAgents: {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],

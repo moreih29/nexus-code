@@ -625,6 +625,7 @@ app.whenReady().then(async () => {
     workspaceManager,
     claudeBroker: claudeSetup.broker,
     claudeActivity: claudeSetup.activity,
+    claudeAsks: claudeSetup.asks,
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
