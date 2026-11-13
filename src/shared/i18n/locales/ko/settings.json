@@ -14,7 +14,8 @@
     "manager": "매니저",
     "claude": "Claude",
     "codex": "Codex",
-    "profileRules": "워크스페이스별 프로필"
+    "profileRules": "워크스페이스별 프로필",
+    "remote": "원격"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -654,5 +655,43 @@
     "noneLeft": "추가할 대상이 없습니다",
     "results": "적용 결과",
     "resultsCount": "워크스페이스 {{count}}개"
+  },
+  "remote": {
+    "account": {
+      "title": "NexusCode 계정",
+      "description": "각 컴퓨터에서 로그인하면 한 컴퓨터의 에이전트 세션을 다른 컴퓨터에서 볼 수 있습니다.",
+      "signedOut": "로그인하지 않음",
+      "signIn": "Google로 로그인",
+      "signingIn": "브라우저에서 로그인을 마쳐 주세요…",
+      "cancel": "취소",
+      "signOut": "로그아웃",
+      "server": "서버: {{server}}",
+      "failure": {
+        "cancelled": "로그인을 취소했습니다.",
+        "timed-out": "로그인 시간이 지났습니다. 다시 시도해 주세요.",
+        "access_denied": "Google에서 로그인을 거절했습니다.",
+        "unverified_email": "이 Google 계정의 이메일이 인증되지 않았습니다.",
+        "server_error": "서버가 로그인을 마치지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        "invalid_grant": "로그인이 끝나기 전에 만료됐습니다. 다시 시도해 주세요.",
+        "mismatch": "브라우저가 다른 로그인에서 돌아왔습니다. 다시 시도해 주세요.",
+        "unreachable": "서버에 연결할 수 없습니다.",
+        "failed": "로그인을 마치지 못했습니다. 다시 시도해 주세요."
+      }
+    },
+    "devices": {
+      "title": "기기",
+      "refresh": "기기 새로고침",
+      "current": "이 기기",
+      "lastSeen": "마지막 접속 {{when}}",
+      "empty": "기기가 없습니다.",
+      "unavailable": "서버에 연결할 수 없습니다.",
+      "remove": "{{name}} 해제",
+      "removeConfirm": {
+        "title": "{{name}}을(를) 해제할까요?",
+        "description": "이 기기는 계정에서 로그아웃되고 더 이상 세션에 접근할 수 없습니다. 분실했거나 도난당한 기기라면 계정 암호도 재설정하세요. 그래야 그 기기에 남은 키로 새 내용을 열 수 없습니다.",
+        "descriptionSelf": "이 컴퓨터가 계정에서 로그아웃됩니다.",
+        "confirm": "해제"
+      }
+    }
   }
 }

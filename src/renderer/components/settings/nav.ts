@@ -113,6 +113,22 @@ export function settingsNav(
       keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
     },
     {
+      id: "remote",
+      label: t("nav.remote"),
+      keywords: [
+        "remote",
+        "account",
+        "google",
+        "sign in",
+        "device",
+        "nexuscode",
+        "원격",
+        "계정",
+        "로그인",
+        "기기",
+      ],
+    },
+    {
       id: "about",
       label: t("nav.about"),
       footer: true,

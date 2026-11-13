@@ -20,6 +20,7 @@ import { LanguageServersPanel } from "./components/settings/panels/language-serv
 import { ManagerPanel } from "./components/settings/panels/manager-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
+import { RemotePanel } from "./components/settings/panels/remote-panel";
 import { TerminalPanel } from "./components/settings/panels/terminal-panel";
 import { SettingsDialog } from "./components/settings/settings-dialog";
 import { ErrorBoundary } from "./components/ui/error-boundary";
@@ -280,6 +281,7 @@ export function App() {
             if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;
             if (activeId === "profile-rules") return <ProfileRulesPanel />;
             if (activeId === "manager") return <ManagerPanel />;
+            if (activeId === "remote") return <RemotePanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
             if (activeId === "about") return <AboutPanel />;
