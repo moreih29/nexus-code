@@ -511,6 +511,34 @@ export async function newChat(
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
+/** What the chat's side panel shows; its changed files cut to what goes in a frame. */
+export async function chatPanel(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.panel">,
+): Promise<RpcResult<"chat.panel">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const panel = await services.ui("chat.panel", { workspaceId, tabId }).catch(unavailable);
+  let { changedFiles } = panel;
+  while (changedFiles.length > 0 && !fitsAsResult({ ...panel, changedFiles })) {
+    changedFiles = changedFiles.slice(0, Math.floor(changedFiles.length / 2));
+  }
+  return { ...panel, changedFiles };
+}
+
+/** Stops one of the chat's tasks, as its panel's stop button does. */
+export async function stopChatTask(
+  services: CliServices,
+  { workspaceId, tabId, taskId }: RpcParams<"chat.stopTask">,
+): Promise<RpcResult<"chat.stopTask">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.stopTask", { workspaceId, tabId, taskId }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/^no task /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+    return unavailable(error);
+  });
+  return {};
+}
+
 /** The workspace's conversations of the past that a new chat can go on with. */
 export async function listHistory(
   services: CliServices,
@@ -666,6 +694,10 @@ export function serveWith(
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
+      case "chat.panel":
+        return chatPanel(s, request.params as RpcParams<"chat.panel">);
+      case "chat.stopTask":
+        return stopChatTask(s, request.params as RpcParams<"chat.stopTask">);
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":

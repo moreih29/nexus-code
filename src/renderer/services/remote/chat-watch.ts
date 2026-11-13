@@ -6,7 +6,7 @@
  * messages that is not the object sent last time is sent again.
  */
 
-import type { ChatPage, ChatUpdate } from "../../../../packages/remote-protocol/src";
+import type { ChatPage, ChatPanel, ChatUpdate } from "../../../../packages/remote-protocol/src";
 import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { useTabsStore } from "../../state/stores/tabs";
 import { chatKey, useChatStore } from "../chat/store";
@@ -23,6 +23,7 @@ import {
   viewTaskOf,
   viewToolOf,
 } from "./chat-page";
+import { chatPanelOf } from "./chat-panel";
 
 /** What a watch sends: an update but for its id and rev, which main gives it. */
 export type ChatChange = Omit<ChatUpdate, "watchId" | "rev">;
@@ -30,14 +31,19 @@ export type ChatChange = Omit<ChatUpdate, "watchId" | "rev">;
 /** How often a watched chat's changes are sent at most: a reply streams in at this pace. */
 export const UPDATES_PER_SECOND = 15;
 
-/** What a watch sent last: the window, by the store's objects, and the status as sent. */
+/** What a watch sent last: the window, by the store's objects, and the status and panel as sent. */
 export interface Sent {
   window: ChatWindow;
   status: string;
+  panel: string;
 }
 
 export function sentOf(source: ChatSource, start: number): Sent {
-  return { window: chatWindowOf(source, start), status: JSON.stringify(chatStatusOf(source)) };
+  return {
+    window: chatWindowOf(source, start),
+    status: JSON.stringify(chatStatusOf(source)),
+    panel: JSON.stringify(chatPanelOf(source)),
+  };
 }
 
 /**
@@ -71,10 +77,12 @@ export function changesOf(was: Sent, now: Sent): ChatChange | null {
     if (before.agents.get(id) !== list) agentItems[id] = list.map(viewAssistantOf);
   }
   const status = now.status !== was.status ? JSON.parse(now.status) : undefined;
+  const panel = now.panel !== was.panel ? JSON.parse(now.panel) : undefined;
   const cut = after.total !== before.total;
   if (
     !cut &&
     !status &&
+    !panel &&
     items.length === 0 &&
     Object.keys(tools).length === 0 &&
     Object.keys(tasks).length === 0 &&
@@ -82,7 +90,15 @@ export function changesOf(was: Sent, now: Sent): ChatChange | null {
   ) {
     return null;
   }
-  return { ...(status ? { status } : {}), total: after.total, items, tools, tasks, agentItems };
+  return {
+    ...(status ? { status } : {}),
+    total: after.total,
+    items,
+    tools,
+    tasks,
+    agentItems,
+    ...(panel ? { panel } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +124,7 @@ export function startChatWatch(
   limit: number | undefined,
   push: (change: ChatChange) => void,
   onGone: () => void,
-): ChatPage {
+): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
   const source = sourceOf();
   if (!source) throw new Error("that tab is gone");
@@ -147,7 +163,7 @@ export function startChatWatch(
     watches.delete(watchId);
   };
   watches.set(watchId, { stop });
-  return page;
+  return { ...page, panel: JSON.parse(sent.panel) };
 }
 
 export function stopChatWatch(watchId: string): void {

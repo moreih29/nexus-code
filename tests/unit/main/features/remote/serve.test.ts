@@ -241,6 +241,49 @@ describe("serving a chat's settings", () => {
   });
 });
 
+describe("serving a chat's side panel", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  function panelServices(files: number) {
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        if (op === "chat.stopTask") throw new Error("no task b9 in that tab");
+        return {
+          todos: [],
+          tasks: [],
+          agents: [],
+          changedFiles: Array.from({ length: files }, (_, i) => ({
+            path: `/src/app/${"d/".repeat(200)}${i}.ts`,
+          })),
+          context: null,
+          goal: null,
+        };
+      },
+    } as unknown as CliServices;
+    return serveWith(() => s);
+  }
+
+  test("its changed files cut to what goes in a frame", async () => {
+    const few = (await panelServices(3)({ from: "d", method: "chat.panel", params: tab })) as {
+      changedFiles: unknown[];
+    };
+    expect(few.changedFiles).toHaveLength(3);
+    const many = (await panelServices(5000)({ from: "d", method: "chat.panel", params: tab })) as {
+      changedFiles: unknown[];
+    };
+    expect(many.changedFiles.length).toBeLessThan(5000);
+    expect(many.changedFiles.length).toBeGreaterThan(0);
+  });
+
+  test("NotFound for a task the chat does not have", async () => {
+    await expect(
+      panelServices(0)({ from: "d", method: "chat.stopTask", params: { ...tab, taskId: "b9" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
 describe("serving the conversations of the past", () => {
   function historyServices(fail?: string) {
     const asked: [string, unknown][] = [];

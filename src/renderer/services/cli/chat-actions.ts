@@ -31,9 +31,11 @@ import {
 } from "../chat/agent-tab";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
+import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { type ChatSource, chatPageOf } from "../remote/chat-page";
+import { chatPanelOf } from "../remote/chat-panel";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
@@ -379,6 +381,26 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.panel": async ({ workspaceId, tabId }) => {
+    const { agent } = await readableTab(workspaceId, tabId);
+    return chatPanelOf(sourceOf(workspaceId, tabId, agent));
+  },
+
+  "chat.stopTask": async ({ workspaceId, tabId, taskId }) => {
+    const target = await openedTab(workspaceId, tabId);
+    if (target.agent !== "claude") throw new UiRequestError("a Codex chat has no tasks to stop");
+    const task = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.tasks[taskId];
+    if (!task) throw new UiRequestError(`no task ${taskId} in that tab`);
+    if (task.status !== "running") throw new UiRequestError(`the task ${taskId} is not running`);
+    if (!target.controller.supports("stop_task")) {
+      throw new UiRequestError(
+        `its Claude Code cannot stop a task: ${firstVersionOf("stop_task")} or later can`,
+      );
+    }
+    await target.controller.stopTask(taskId);
+    return {};
   },
 
   "chat.history": async ({ workspaceId, agent, query, limit }) => {

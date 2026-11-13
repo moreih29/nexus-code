@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
+import type { ChatPanel } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
@@ -772,7 +773,17 @@ export interface CliUiOps {
    */
   "chat.watch": {
     args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
-    result: ChatPage;
+    result: ChatPage & { panel?: ChatPanel };
+  };
+  /** What a Claude or Codex tab's side panel shows now. */
+  "chat.panel": {
+    args: { workspaceId: string; tabId: string };
+    result: ChatPanel;
+  };
+  /** Stops one of a Claude tab's tasks (a background run), by its id, as the panel's stop button does. */
+  "chat.stopTask": {
+    args: { workspaceId: string; tabId: string; taskId: string };
+    result: Record<string, never>;
   };
   /** Stops a watch chat.watch started; nothing when there is none. */
   "chat.unwatch": {
