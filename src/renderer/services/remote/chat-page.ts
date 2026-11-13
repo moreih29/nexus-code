@@ -5,6 +5,7 @@
  * the tool calls, tasks and subagents' messages they name. Pure.
  */
 
+import i18next from "i18next";
 import {
   type ChatPage,
   type ChatStatus,
@@ -28,6 +29,7 @@ import type {
   TaskInfo,
   ToolCall,
 } from "../chat/model";
+import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
 
@@ -104,9 +106,18 @@ export function viewToolOf(tool: ToolCall, maxText = MAX_RESULT_TEXT): ViewToolC
   };
 }
 
+/**
+ * A request as another device reads it: what "always allow" would add
+ * named in this app's words, by the index chat.answer's `always` gives back.
+ */
 function viewPermissionOf(request: PermissionRequest): ViewPermission {
-  const { suggestions: _s, preview, ...rest } = request;
-  return { ...rest, ...(preview ? { preview: viewToolOf(preview) } : {}) };
+  const { suggestions, preview, ...rest } = request;
+  const scopes = scopesOf(suggestions, (key, options) => String(i18next.t(key, options)));
+  return {
+    ...rest,
+    ...(preview ? { preview: viewToolOf(preview) } : {}),
+    ...(scopes.length > 0 ? { suggestions: scopes.map(({ label }) => ({ label })) } : {}),
+  };
 }
 
 export function viewTaskOf(task: TaskInfo): ViewTask {

@@ -910,6 +910,11 @@ export interface CliUiOps {
       updatedInput?: Record<string, unknown>;
       /** With deny: stop the turn too. */
       stop?: boolean;
+      /**
+       * With allow: the request's "always allow" suggestions to keep from
+       * now on, by their index as chat.read words them; the user only.
+       */
+      always?: number[];
     };
     result: Record<string, never>;
   };

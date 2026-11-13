@@ -165,6 +165,31 @@ describe("a chat's page for another device", () => {
   });
 });
 
+describe("a request's always-allow suggestions", () => {
+  test("are worded, by the index chat.answer's always gives back; those it cannot word left out", () => {
+    const page = chatPageOf(
+      source({
+        permissions: [
+          {
+            requestId: "r1",
+            toolName: "Bash",
+            input: { command: "npm test" },
+            suggestions: [
+              { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }] },
+              { type: "unknown" },
+              { type: "addDirectories", directories: ["/tmp/x"] },
+            ],
+          },
+        ],
+      }),
+    );
+    const suggestions = page.status.permissions[0]?.suggestions ?? [];
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]).toEqual({ label: "Bash(npm test:*)" });
+    expect(suggestions[1]?.label).toContain("/tmp/x");
+  });
+});
+
 const { modelOfPage } = await import("../../../../../src/renderer/services/remote/chat-model");
 
 describe("a page drawn as this app's chat", () => {

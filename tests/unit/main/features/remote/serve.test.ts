@@ -549,6 +549,24 @@ describe("serving a chat's controls", () => {
     ]);
   });
 
+  test("keeps the suggestions the user picked with an allow, and none with a denial", async () => {
+    const { serve, asked } = recording();
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r1", decision: "allow", always: [0, 2] },
+    });
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r2", decision: "deny", always: [0] },
+    });
+    expect(asked).toEqual([
+      ["chat.answer", { ...tab, decision: "allow", expect: "r1", always: [0, 2] }],
+      ["chat.answer", { ...tab, decision: "deny", expect: "r2" }],
+    ]);
+  });
+
   test("opens a chat in the workspace's folder, behind what this computer shows", async () => {
     const { serve, asked } = recording();
     const opened = await serve({

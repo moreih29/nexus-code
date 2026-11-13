@@ -8,6 +8,7 @@
  * gone.
  */
 
+import i18next from "i18next";
 import {
   type AgentProfile,
   defaultProfileId,
@@ -29,6 +30,7 @@ import {
   sendUnseen,
   startAgentTab,
 } from "../chat/agent-tab";
+import { scopesOf } from "../chat/permission-scopes";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
@@ -524,13 +526,35 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { from, to };
   },
 
-  "chat.answer": async ({ workspaceId, tabId, decision, message, expect, updatedInput, stop }) => {
+  "chat.answer": async ({
+    workspaceId,
+    tabId,
+    decision,
+    message,
+    expect,
+    updatedInput,
+    stop,
+    always,
+  }) => {
     const target = await openedTab(workspaceId, tabId);
     // Main allowed an answer to the request the tab asked then: not to another.
     const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
     if (!request) throw new UiRequestError("it no longer asks anything");
     if (request.requestId !== expect) {
       throw new UiRequestError("its request changed or was answered; read it again");
+    }
+    if (decision === "allow" && always && always.length > 0) {
+      // By the index chat.read words them: the same wording, so the same list.
+      const scopes = scopesOf(request.suggestions, (key, options) =>
+        String(i18next.t(key, options)),
+      );
+      const suggestions = always.map((i) => {
+        const scope = scopes[i];
+        if (!scope) throw new UiRequestError(`the request has no suggestion ${i} to keep`);
+        return scope.suggestion;
+      });
+      await target.controller.answerPermission(request, { kind: "allow-always", suggestions });
+      return {};
     }
     await target.controller.answerPermission(
       request,

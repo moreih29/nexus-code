@@ -349,6 +349,7 @@ export async function answerChat(
     message,
     updatedInput,
     stop,
+    always,
   }: RpcParams<"chat.answer">,
 ): Promise<RpcResult<"chat.answer">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -361,6 +362,7 @@ export async function answerChat(
       ...(message !== undefined ? { message } : {}),
       ...(updatedInput ? { updatedInput } : {}),
       ...(stop ? { stop } : {}),
+      ...(decision === "allow" && always?.length ? { always } : {}),
     })
     .catch(unavailable);
   return {};
