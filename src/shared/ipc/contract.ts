@@ -93,7 +93,11 @@ import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
-import { RemoteAccountStateSchema, RemoteDeviceInfoSchema } from "../remote/account";
+import {
+  AccountKeyStateSchema,
+  RemoteAccountStateSchema,
+  RemoteDeviceInfoSchema,
+} from "../remote/account";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -2331,9 +2335,24 @@ export const ipcContract = {
       signOut: call(z.void(), z.void()),
       devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
       removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
+      /**
+       * The account key and the account password's flows. A flow that does
+       * not go through fails with a KeyFailure as its kind (too-short,
+       * wrong-password, conflict, unavailable, signed-out).
+       */
+      key: call(z.void(), AccountKeyStateSchema),
+      refreshKey: call(z.void(), AccountKeyStateSchema),
+      createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      unlockKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      changePassword: call(
+        z.object({ current: z.string().max(1024), next: z.string().max(1024) }),
+        AccountKeyStateSchema,
+      ),
+      resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
     },
     listen: {
       accountChanged: listen(RemoteAccountStateSchema),
+      keyChanged: listen(AccountKeyStateSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

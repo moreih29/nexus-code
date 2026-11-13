@@ -8,12 +8,21 @@ export class SignedOutError extends Error {
   }
 }
 
+/** The server could not be reached, or did not answer in time. */
+export class UnreachableError extends Error {
+  constructor(cause: unknown) {
+    super(`the NexusCode server did not answer: ${cause instanceof Error ? cause.message : cause}`);
+  }
+}
+
 /** The server answered with an error; `code` is its body's `error`, when it had one. */
 export class ServerError extends Error {
   constructor(
     readonly status: number,
     readonly code: string | undefined,
     what: string,
+    /** How long the server asked to wait (Retry-After), in seconds. */
+    readonly retryAfter?: number,
   ) {
     super(`${what}: ${status}${code ? ` ${code}` : ""}`);
   }

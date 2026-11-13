@@ -692,6 +692,50 @@
         "descriptionSelf": "This computer is signed out of your account.",
         "confirm": "Remove"
       }
+    },
+    "key": {
+      "title": "Account password",
+      "description": "What your devices send each other is sealed with the account key. The server keeps the key locked with this password and sees neither.",
+      "checking": "Checking the account key…",
+      "unavailable": "Could not check the account key with the server.",
+      "retryLater": "The server asked to wait a minute.",
+      "retry": "Try again",
+      "missing": "Set the account password, at least {{count}} characters. If you forget it, you can reset it, and then your other devices ask for the new one.",
+      "locked": "Type the account password to use the remote on this device. If it was reset on another device, type the new one.",
+      "unlocked": "This device holds the account key",
+      "version": "Key version {{kid}}",
+      "change": "Change password",
+      "reset": "Reset",
+      "forgot": "Forgot the password?",
+      "resetExplained": "A reset makes a new account key under a new password. Your other devices ask for the new password, and a lost device's copy of the old key opens nothing new.",
+      "mismatch": "The two passwords are not the same.",
+      "field": {
+        "password": "Account password",
+        "current": "Current password",
+        "next": "New password",
+        "confirm": "New password again",
+        "create-next": "Account password",
+        "create-confirm": "Account password again"
+      },
+      "submit": {
+        "create": "Set password",
+        "unlock": "Unlock",
+        "change": "Change password",
+        "reset": "Reset"
+      },
+      "resetConfirm": {
+        "title": "Reset the account password?",
+        "description": "Your other devices stop opening what this one sends until they get the new password.",
+        "confirm": "Reset"
+      },
+      "failure": {
+        "too-short": "The password needs at least {{count}} characters.",
+        "wrong-password": "That is not the account password.",
+        "conflict": "Another device changed the account password just now. Check where it stands and try again.",
+        "unavailable": "Could not reach the server. Try again shortly.",
+        "signed-out": "The sign-in ended. Sign in again.",
+        "failed": "That did not go through. Try again."
+      }
     }
   }
 }

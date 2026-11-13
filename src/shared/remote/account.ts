@@ -71,3 +71,48 @@ export const RemoteAccountStateSchema = z.discriminatedUnion("status", [
   }),
 ]);
 export type RemoteAccountState = z.infer<typeof RemoteAccountStateSchema>;
+
+/**
+ * The fewest characters an account password may have. Whoever gets the
+ * locked bundle can guess offline; its length and Argon2id are what slow
+ * them down.
+ */
+export const MIN_PASSWORD_LENGTH = 12;
+
+/**
+ * Where this device stands with the account key:
+ * - checking: asking the server for the bundle;
+ * - missing: the account has no key yet: the user sets the account password;
+ * - locked: the account has one this device does not hold (or holds an
+ *   older one, after a reset elsewhere): the user types the password;
+ * - unlocked: this device holds the key, version `kid`;
+ * - unavailable: the server could not be asked; `retryAt` (Unix ms) when it
+ *   asked to wait.
+ */
+export const AccountKeyStateSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("signed-out") }),
+  z.object({ status: z.literal("checking") }),
+  z.object({ status: z.literal("missing") }),
+  z.object({ status: z.literal("locked"), kid: z.number().int().positive() }),
+  z.object({ status: z.literal("unlocked"), kid: z.number().int().positive() }),
+  z.object({ status: z.literal("unavailable"), retryAt: z.number().optional() }),
+]);
+export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
+
+/**
+ * Why setting, typing, changing or resetting the account password failed:
+ * - too-short: under MIN_PASSWORD_LENGTH;
+ * - wrong-password: it did not open the bundle;
+ * - conflict: another device changed the bundle meanwhile (the state says
+ *   what it is now);
+ * - unavailable: the server could not be asked, or asked to wait;
+ * - signed-out: the sign-in ended.
+ */
+export const KEY_FAILURES = [
+  "too-short",
+  "wrong-password",
+  "conflict",
+  "unavailable",
+  "signed-out",
+] as const;
+export type KeyFailure = (typeof KEY_FAILURES)[number];

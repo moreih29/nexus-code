@@ -56,3 +56,43 @@ describe("the remote panel's account", () => {
     expect(html).toContain('aria-label="Remove Work PC"');
   });
 });
+
+const { AccountKeyGroup } = await import(
+  "../../../../../src/renderer/components/settings/panels/remote-key-group"
+);
+
+describe("the remote panel's account password", () => {
+  const renderKey = (state: Parameters<typeof AccountKeyGroup>[0]["state"]) =>
+    renderToStaticMarkup(<AccountKeyGroup state={state} />);
+
+  test("the first device sets it, typed twice, at 12 characters or more", () => {
+    const html = renderKey({ status: "missing" });
+    expect(html).toContain("at least 12 characters");
+    expect(html.match(/type="password"/g)).toHaveLength(2);
+    expect(html).toContain("Set password");
+  });
+
+  test("another device types it, or resets it when it is forgotten", () => {
+    const html = renderKey({ status: "locked", kid: 1 });
+    expect(html.match(/type="password"/g)).toHaveLength(1);
+    expect(html).toContain('autoComplete="current-password"');
+    expect(html).toContain("Unlock");
+    expect(html).toContain("Forgot the password?");
+  });
+
+  test("a device holding the key offers the change and the reset", () => {
+    const html = renderKey({ status: "unlocked", kid: 2 });
+    expect(html).toContain("This device holds the account key");
+    expect(html).toContain("Key version 2");
+    expect(html).toContain("Change password");
+    expect(html).toContain("Reset");
+    expect(html).not.toContain('type="password"');
+  });
+
+  test("a server that could not be asked offers to try again", () => {
+    const html = renderKey({ status: "unavailable", retryAt: 1 });
+    expect(html).toContain("Could not check the account key with the server.");
+    expect(html).toContain("The server asked to wait a minute.");
+    expect(html).toContain("Try again");
+  });
+});

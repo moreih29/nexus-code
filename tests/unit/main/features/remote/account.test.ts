@@ -3,32 +3,19 @@
  * browser comes back to, and the token traded for its code.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import type { SavedAccount } from "../../../../../src/main/features/remote/account";
 import {
   RemoteAccount,
   SignedOutError,
   thisDevice,
 } from "../../../../../src/main/features/remote/account";
-import type { SavedAccount } from "../../../../../src/main/features/remote/account-store";
 import { listenForCallback } from "../../../../../src/main/features/remote/loopback";
 import { challengeOf } from "../../../../../src/main/features/remote/pkce";
+import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
 
 const SERVER = "http://localhost:8787";
 
-function memoryStore(initial: SavedAccount | null = null) {
-  let saved = initial;
-  return {
-    load: async () => saved,
-    save: async (a: SavedAccount) => {
-      saved = a;
-    },
-    clear: () => {
-      saved = null;
-    },
-    get saved() {
-      return saved;
-    },
-  };
-}
+const memoryStore = (initial: SavedAccount | null = null) => keptInMemory(initial);
 
 const user = { id: "u1", email: "me@example.com", name: "Me" };
 const device = { id: "d1", name: "Mac", platform: "darwin" };
@@ -135,7 +122,7 @@ describe("the account", () => {
     expect(body.redirect_uri).toBe(start.searchParams.get("redirect_uri") ?? "");
     expect(body.code).toBe("c1");
     expect(trade?.auth).toBeUndefined();
-    expect(store.saved?.token).toBe("tok");
+    expect(store.value?.token).toBe("tok");
     expect(account.token()).toBe("tok");
   });
 
@@ -160,7 +147,7 @@ describe("the account", () => {
       });
       accounts.push(account);
       expect(await account.signIn()).toEqual({ status: "signed-out", server: SERVER, failure });
-      expect(store.saved).toBeNull();
+      expect(store.value).toBeNull();
     }
   });
 
@@ -222,7 +209,7 @@ describe("the account", () => {
     await gone.restore();
     await expect(gone.devices()).rejects.toBeInstanceOf(SignedOutError);
     expect(gone.state().status).toBe("signed-out");
-    expect(store.saved).toBeNull();
+    expect(store.value).toBeNull();
   });
 
   test("removing this device, or signing out, forgets the sign-in", async () => {
@@ -242,7 +229,7 @@ describe("the account", () => {
       await account.restore();
       await leave(account);
       expect(account.state().status).toBe("signed-out");
-      expect(store.saved).toBeNull();
+      expect(store.value).toBeNull();
       expect(server.requests[0]?.auth).toBe("Bearer tok");
     }
   });

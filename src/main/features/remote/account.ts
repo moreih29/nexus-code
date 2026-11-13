@@ -14,15 +14,27 @@ import {
   RemoteUserSchema,
   type SignInFailure,
 } from "../../../shared/remote/account";
-import type { AccountStore, SavedAccount } from "./account-store";
-import { ServerError, SignedOutError, SignInError } from "./errors";
+import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
+import type { Kept } from "./sealed-file";
 
 export { SignedOutError } from "./errors";
 
+/** How long a call to the server may take. */
+export const REQUEST_TIMEOUT_MS = 20_000;
+
 /** How long the browser has to come back: the server gives a sign-in 10 minutes. */
 export const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
+
+/** The sign-in as the app keeps it, sealed. */
+export const SavedAccountSchema = z.object({
+  server: z.string(),
+  token: z.string(),
+  user: RemoteUserSchema,
+  device: RemoteDeviceInfoSchema,
+});
+export type SavedAccount = z.infer<typeof SavedAccountSchema>;
 
 const TokenResponseSchema = z.object({
   token: z.string().min(1),
@@ -52,7 +64,7 @@ export function thisDevice(): { name: string; platform: string } {
 export interface RemoteAccountDeps {
   /** The server's address, e.g. http://localhost:8787. */
   readonly server: string;
-  readonly store: Pick<AccountStore, "load" | "save" | "clear">;
+  readonly store: Kept<SavedAccount>;
   openExternal(url: string): Promise<void>;
   fetch?: typeof fetch;
   /** Told each time the state changes. */
@@ -174,6 +186,14 @@ export class RemoteAccount {
     if (id === this.saved?.device.id) this.forget();
   }
 
+  /**
+   * Asks the server as this device: the JSON it answered, or a ServerError;
+   * a 401 signs the app out and throws SignedOutError.
+   */
+  request(method: string, path: string, body?: unknown): Promise<unknown> {
+    return this.call(method, path, body === undefined ? {} : { body });
+  }
+
   /** Asks the server, signed in unless told not to; a 401 signs the app out. */
   private async call(
     method: string,
@@ -186,11 +206,18 @@ export class RemoteAccount {
       headers.authorization = `Bearer ${this.saved.token}`;
     }
     if (options.body !== undefined) headers["content-type"] = "application/json";
-    const res = await this.fetch(new URL(path, this.deps.server), {
-      method,
-      headers,
-      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-    });
+    let res: Response;
+    try {
+      res = await this.fetch(new URL(path, this.deps.server), {
+        method,
+        headers,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+      });
+    } catch (error) {
+      // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it is slow.
+      throw new UnreachableError(error);
+    }
     if (res.status === 401 && options.signedIn !== false) {
       this.forget();
       throw new SignedOutError();
@@ -199,7 +226,13 @@ export class RemoteAccount {
     const body = parseJson(text);
     if (!res.ok) {
       const code = isRecord(body) && typeof body.error === "string" ? body.error : undefined;
-      throw new ServerError(res.status, code, `${method} ${path}`);
+      const retryAfter = Number(res.headers.get("retry-after"));
+      throw new ServerError(
+        res.status,
+        code,
+        `${method} ${path}`,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      );
     }
     return body ?? {};
   }
@@ -219,8 +252,7 @@ function failureOf(error: unknown): SignInFailure {
   if (error instanceof SignInError) return error.failure;
   if (error instanceof ServerError)
     return error.code === "invalid_grant" ? "invalid_grant" : "failed";
-  // fetch fails with a TypeError when the server cannot be reached.
-  if (error instanceof TypeError) return "unreachable";
+  if (error instanceof UnreachableError) return "unreachable";
   return "failed";
 }
 

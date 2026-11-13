@@ -2,7 +2,8 @@
 //
 // The NexusCode account the remote runs on: signing in with Google (in the
 // system browser; main waits for it to come back), who the app is signed in
-// as, and the account's devices, each of which can be removed.
+// as, the account password (remote-key-group), and the account's devices,
+// each of which can be removed.
 
 import { RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -14,6 +15,7 @@ import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsPage, SettingsRow } from "../section";
+import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
 
 const iconButtonClass = cn(
   "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center",
@@ -46,10 +48,12 @@ function useRemoteAccount(): RemoteAccountState | null {
 
 export function RemotePanel() {
   const state = useRemoteAccount();
+  const key = useAccountKey();
   if (!state) return null;
   return (
     <SettingsPage>
       <AccountGroup state={state} />
+      {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
       {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} />}
     </SettingsPage>
   );

@@ -1,12 +1,10 @@
-/** Where the sign-in is kept: sealed on disk, or only in memory where it cannot be sealed. */
+/** Where the sign-in and the account key are kept: sealed on disk, or only in memory where nothing seals. */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AccountStore,
-  type SecretBox,
-} from "../../../../../src/main/features/remote/account-store";
+import { SavedAccountSchema } from "../../../../../src/main/features/remote/account";
+import { SealedFile, type SecretBox } from "../../../../../src/main/features/remote/sealed-file";
 
 const account = {
   server: "http://localhost:8787",
@@ -34,27 +32,27 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-describe("AccountStore", () => {
+describe("SealedFile", () => {
   test("seals the sign-in on disk, owner-only, and reads it back", async () => {
     const file = fileIn();
-    await new AccountStore(file, box(true)).save(account);
+    await new SealedFile(file, box(true), SavedAccountSchema).save(account);
     expect(readFileSync(file).toString()).not.toContain("tok");
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(await new AccountStore(file, box(true)).load()).toEqual(account);
+    expect(await new SealedFile(file, box(true), SavedAccountSchema).load()).toEqual(account);
   });
 
   test("where nothing seals, keeps it in memory only", async () => {
     const file = fileIn();
-    const store = new AccountStore(file, box(false));
+    const store = new SealedFile(file, box(false), SavedAccountSchema);
     await store.save(account);
     expect(existsSync(file)).toBe(false);
     expect(await store.load()).toEqual(account);
-    expect(await new AccountStore(file, box(false)).load()).toBeNull();
+    expect(await new SealedFile(file, box(false), SavedAccountSchema).load()).toBeNull();
   });
 
   test("a damaged file is as good as signed out, and clear removes it", async () => {
     const file = fileIn();
-    const store = new AccountStore(file, box(true));
+    const store = new SealedFile(file, box(true), SavedAccountSchema);
     await store.save(account);
     writeFileSync(file, "garbage");
     expect(await store.load()).toBeNull();

@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { app, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
+import type { AccountKeyState } from "../../../shared/remote/account";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
-import { RemoteAccount } from "./account";
-import { AccountStore, electronSecretBox } from "./account-store";
-import { ServerError, SignedOutError } from "./errors";
+import { RemoteAccount, SavedAccountSchema } from "./account";
+import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
+import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { electronSecretBox, SealedFile } from "./sealed-file";
 
 const c = ipcContract.remote.call;
 
@@ -27,9 +29,20 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
     if (error instanceof ServerError && error.status === 404) {
       return ipcErr("not-found", error.message);
     }
-    if (error instanceof ServerError || error instanceof TypeError) {
-      // TypeError: fetch could not reach the server.
+    if (error instanceof ServerError || error instanceof UnreachableError) {
       return ipcErr("unavailable", error.message);
+    }
+    throw error;
+  }
+}
+
+/** Runs an account password flow for the renderer: its KeyFailure as the kind when it fails. */
+async function keyFlow(flow: () => Promise<AccountKeyState>): Promise<IpcResult<AccountKeyState>> {
+  try {
+    return ipcOk(await flow());
+  } catch (error) {
+    if (error instanceof KeyError) {
+      return ipcErr(error.failure, error.message, error.retryAt ? { retryAt: error.retryAt } : {});
     }
     throw error;
   }
@@ -37,19 +50,34 @@ async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
 
 export async function registerRemoteChannel(): Promise<{
   account: RemoteAccount;
+  keys: AccountKeys;
   dispose(): void;
 }> {
-  const store = new AccountStore(
+  const box = await electronSecretBox();
+  const store = new SealedFile(
     join(app.getPath("userData"), "remote-account.bin"),
-    await electronSecretBox(),
+    box,
+    SavedAccountSchema,
   );
+  let keys: AccountKeys | null = null;
   const account = new RemoteAccount({
     server: remoteServer(),
     store,
     openExternal: (url) => shell.openExternal(url),
-    onChange: (state) => broadcast("remote", "accountChanged", state),
+    onChange: (state) => {
+      broadcast("remote", "accountChanged", state);
+      void keys?.accountChanged(state).catch(() => {});
+    },
   });
   await account.restore();
+  const accountKeys = new AccountKeys({
+    account,
+    store: new SealedFile(join(app.getPath("userData"), "remote-key.bin"), box, SavedKeySchema),
+    onChange: (state) => broadcast("remote", "keyChanged", state),
+  });
+  keys = accountKeys;
+  // Asks the server where the key stands; the app does not wait for it.
+  void accountKeys.restore();
 
   register("remote", {
     call: {
@@ -68,11 +96,30 @@ export async function registerRemoteChannel(): Promise<{
         const { id } = validateArgs(c.removeDevice.args, args);
         return ask(() => account.removeDevice(id));
       },
+      key: async () => ipcOk(accountKeys.state()),
+      refreshKey: () => keyFlow(() => accountKeys.refresh()),
+      createKey: (args: unknown) => {
+        const { password } = validateArgs(c.createKey.args, args);
+        return keyFlow(() => accountKeys.create(password));
+      },
+      unlockKey: (args: unknown) => {
+        const { password } = validateArgs(c.unlockKey.args, args);
+        return keyFlow(() => accountKeys.unlock(password));
+      },
+      changePassword: (args: unknown) => {
+        const { current, next } = validateArgs(c.changePassword.args, args);
+        return keyFlow(() => accountKeys.changePassword(current, next));
+      },
+      resetKey: (args: unknown) => {
+        const { password } = validateArgs(c.resetKey.args, args);
+        return keyFlow(() => accountKeys.reset(password));
+      },
     },
     listen: {
       accountChanged: {},
+      keyChanged: {},
     },
   });
 
-  return { account, dispose: () => account.cancelSignIn() };
+  return { account, keys: accountKeys, dispose: () => account.cancelSignIn() };
 }
