@@ -584,9 +584,46 @@ describe("serving a chat's controls", () => {
           cwd: "/src/app-feat",
           prompt: "review",
           placement: { background: true },
+          user: true,
         },
       ],
     ]);
+  });
+
+  test("opens one in a folder of the workspace, with a mode and a profile, and nowhere else", async () => {
+    const { serve, asked } = recording();
+    await serve({
+      from: "d",
+      method: "chat.new",
+      params: {
+        workspaceId: "w2",
+        agent: "claude",
+        folder: "packages/ui/",
+        permissionMode: "acceptEdits",
+        profile: "Work",
+      },
+    });
+    expect(asked[0]?.[1]).toMatchObject({
+      cwd: "/src/app-feat/packages/ui",
+      settings: { mode: "acceptEdits" },
+      profile: "Work",
+      user: true,
+    });
+    for (const folder of ["../other", "/etc"]) {
+      await expect(
+        serve({
+          from: "d",
+          method: "chat.new",
+          params: { workspaceId: "w2", agent: "claude", folder },
+        }),
+      ).rejects.toMatchObject({ code: 1002 });
+    }
+  });
+
+  test("lists the profiles a chat may run with", async () => {
+    const { serve, asked } = recording();
+    await serve({ from: "d", method: "profiles.list", params: { agent: "codex" } });
+    expect(asked).toEqual([["chat.profiles", { agent: "codex" }]]);
   });
 
   test("opens a chat with the model and effort asked, saying when they could not be set", async () => {

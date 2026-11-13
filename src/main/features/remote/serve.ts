@@ -21,9 +21,10 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
+import type { FsProvider } from "../fs/bridge/provider";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
-import { listFiles, type RemoteFiles, readFile } from "./files";
+import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { gitDiff, gitLog, gitStatus, type RemoteGit } from "./git";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import type { SessionWatches } from "./session-watches";
@@ -491,26 +492,63 @@ export async function interruptChat(
 
 export async function newChat(
   services: CliServices,
-  { workspaceId, agent, prompt, model, effort }: RpcParams<"chat.new">,
+  {
+    workspaceId,
+    agent,
+    prompt,
+    model,
+    effort,
+    permissionMode,
+    profile,
+    folder,
+  }: RpcParams<"chat.new">,
+  fs?: (workspaceId: string) => Promise<FsProvider>,
 ): Promise<RpcResult<"chat.new">> {
   const workspace = workspaceOf(services, workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  const cwd = folder
+    ? await folderIn(
+        fs ? await fs(workspaceId).catch(unavailable) : null,
+        workspace.rootPath,
+        folder,
+      )
+    : workspace.rootPath;
   const settings = {
     ...(model !== undefined ? { model } : {}),
     ...(effort !== undefined ? { effort } : {}),
+    ...(permissionMode !== undefined ? { mode: permissionMode } : {}),
   };
   const opened = await services
-    .ui("chat.open", {
-      workspaceId,
-      agent,
-      cwd: workspace.rootPath,
-      prompt: prompt ?? "",
-      // Behind what the window shows: whoever sits at this computer keeps their place.
-      placement: { background: true },
-      ...(Object.keys(settings).length > 0 ? { settings } : {}),
-    })
-    .catch(unavailable);
+    .ui(
+      "chat.open",
+      {
+        workspaceId,
+        agent,
+        cwd,
+        prompt: prompt ?? "",
+        // Behind what the window shows: whoever sits at this computer keeps their place.
+        placement: { background: true },
+        ...(Object.keys(settings).length > 0 ? { settings } : {}),
+        ...(profile !== undefined ? { profile } : {}),
+        user: true,
+      },
+      SETTINGS_TIMEOUT_MS,
+    )
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/ has no profile /.test(message))
+        throw new RpcFailure(RpcErrorCode.InvalidParams, message);
+      return unavailable(error);
+    });
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
+}
+
+/** The agent profiles a new chat may run with. */
+export async function listProfiles(
+  services: CliServices,
+  { agent }: RpcParams<"profiles.list">,
+): Promise<RpcResult<"profiles.list">> {
+  return services.ui("chat.profiles", agent ? { agent } : {}).catch(unavailable);
 }
 
 /** Renames the chat, as its tab's rename does. */
@@ -733,7 +771,9 @@ export function serveWith(
       case "chat.command":
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
-        return newChat(s, request.params as RpcParams<"chat.new">);
+        return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs);
+      case "profiles.list":
+        return listProfiles(s, request.params as RpcParams<"profiles.list">);
       case "chat.rename":
         return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":

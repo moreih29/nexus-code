@@ -117,6 +117,27 @@ async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
   return stat;
 }
 
+/**
+ * A folder inside the workspace's own, absolute, for a new chat to run in:
+ * Forbidden outside it or through a link, InvalidParams for a file.
+ */
+export async function folderIn(
+  fs: FsProvider | null,
+  root: string,
+  asked: string,
+): Promise<string> {
+  const place = placeOf(root, [], asked);
+  if (place.kind !== "workspace") throw forbidden(`${asked} is outside the workspace's folder`);
+  if (fs) {
+    const stat = await throughNoLink(fs, place.rel, asked);
+    if (stat.type !== "dir") {
+      throw new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a file, not a folder`);
+    }
+  }
+  const base = trimSlashes(path.posix.normalize(root));
+  return place.rel ? `${base}/${place.rel}` : base;
+}
+
 /** Refuses a folder's path whose real place, past its links, is outside the folders given; on this computer only. */
 async function realWithin(
   fs: FsProvider,

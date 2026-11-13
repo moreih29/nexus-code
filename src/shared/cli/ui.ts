@@ -653,8 +653,18 @@ export interface CliUiOps {
       profile?: string;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
+      /**
+       * The user opens it, from another device (the remote): `settings` may
+       * take the mode that lets everything run, unless a policy keeps it off.
+       */
+      user?: boolean;
     };
     result: { tabId: string; error?: string };
+  };
+  /** The agent profiles a new chat may run with, of one agent or both. */
+  "chat.profiles": {
+    args: { agent?: ChatAgent };
+    result: { profiles: { id: string; name: string; agent: ChatAgent; isDefault: boolean }[] };
   };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {

@@ -272,7 +272,32 @@ const hasSettings = (settings: CliChatSettings | undefined): settings is CliChat
   (settings.model !== undefined || settings.effort !== undefined || settings.mode !== undefined);
 
 export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
-  "chat.open": async ({ workspaceId, agent, cwd, prompt, placement, settings, profile, from }) => {
+  "chat.profiles": async ({ agent }) => {
+    const config = useAgentProfilesStore.getState().config;
+    const agents: ChatAgent[] = agent ? [agent] : ["claude", "codex"];
+    return {
+      profiles: agents.flatMap((a) =>
+        profilesOf(config, a).map((p) => ({
+          id: p.id,
+          name: cliProfileName(p),
+          agent: a,
+          isDefault: isDefaultProfileId(p.id),
+        })),
+      ),
+    };
+  },
+
+  "chat.open": async ({
+    workspaceId,
+    agent,
+    cwd,
+    prompt,
+    placement,
+    settings,
+    profile,
+    from,
+    user,
+  }) => {
     const props = chatPropsWithProfile(workspaceId, agent, {
       cwd,
       ...(profile !== undefined ? { profileId: profileNamed(agent, profile) } : {}),
@@ -291,7 +316,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (!target) throw new UiRequestError("the new tab is gone");
     try {
       await target.controller.open();
-      await applySettings(workspaceId, tabId, target, settings);
+      await applySettings(workspaceId, tabId, target, settings, user);
       if (prompt.trim() !== "") {
         await sendToAgentTab(workspaceId, tabId, target, prompt.trim(), from);
       }
