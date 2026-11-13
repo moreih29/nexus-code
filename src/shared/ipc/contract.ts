@@ -98,6 +98,7 @@ import {
   RemoteAccountStateSchema,
   RemoteDeviceInfoSchema,
 } from "../remote/account";
+import { RoomStateSchema } from "../remote/room";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -2342,6 +2343,8 @@ export const ipcContract = {
        * not go through fails with a KeyFailure as its kind (too-short,
        * wrong-password, conflict, unavailable, signed-out).
        */
+      /** The account's room: whether this device is in, and the other devices. */
+      room: call(z.void(), RoomStateSchema),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),
       createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
@@ -2355,6 +2358,7 @@ export const ipcContract = {
     listen: {
       accountChanged: listen(RemoteAccountStateSchema),
       keyChanged: listen(AccountKeyStateSchema),
+      roomChanged: listen(RoomStateSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

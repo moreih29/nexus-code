@@ -103,6 +103,8 @@ export interface SetupCliFeatureOptions {
 }
 
 export interface CliFeature {
+  /** What the commands work with: the remote serves its own requests with them too. */
+  readonly services: CliServices;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
@@ -313,6 +315,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
 
   return {
+    services,
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();

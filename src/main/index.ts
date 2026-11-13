@@ -588,7 +588,7 @@ app.whenReady().then(async () => {
   agentProfiles = registerAgentProfilesChannel(stateService);
 
   // The NexusCode account the remote runs on.
-  remote = await registerRemoteChannel();
+  remote = await registerRemoteChannel({ services: () => cliFeature?.services ?? null });
 
   // The agent manager's workspace and its reports.
   registerManagerChannel({
