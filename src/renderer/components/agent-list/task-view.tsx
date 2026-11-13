@@ -275,9 +275,11 @@ function TaskHeader({
           {changed}
         </span>
       )}
+      {/* The buttons stand over the header's padding, so showing them does
+          not make the line taller than its text. */}
       <div
         className={cn(
-          "relative shrink-0 items-center gap-0.5",
+          "relative -my-1 shrink-0 items-center gap-0.5",
           menuOpen ? "flex" : "hidden group-focus-within/task:flex group-hover/task:flex",
         )}
       >
