@@ -49,6 +49,7 @@ export async function registerRemoteChannel(): Promise<{
     openExternal: (url) => shell.openExternal(url),
     onChange: (state) => broadcast("remote", "accountChanged", state),
   });
+  await account.restore();
 
   register("remote", {
     call: {

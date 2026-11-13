@@ -18,9 +18,9 @@ const account = {
 /** Seals by reversing the bytes: enough to tell sealed from plain. */
 function box(available: boolean): SecretBox {
   return {
-    available: () => available,
-    encrypt: (text) => Buffer.from(text).reverse(),
-    decrypt: (data) => Buffer.from(data).reverse().toString(),
+    available,
+    encrypt: async (text) => Buffer.from(text).reverse(),
+    decrypt: async (data) => Buffer.from(data).reverse().toString(),
   };
 }
 
@@ -35,29 +35,29 @@ afterEach(() => {
 });
 
 describe("AccountStore", () => {
-  test("seals the sign-in on disk, owner-only, and reads it back", () => {
+  test("seals the sign-in on disk, owner-only, and reads it back", async () => {
     const file = fileIn();
-    new AccountStore(file, box(true)).save(account);
+    await new AccountStore(file, box(true)).save(account);
     expect(readFileSync(file).toString()).not.toContain("tok");
     if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(new AccountStore(file, box(true)).load()).toEqual(account);
+    expect(await new AccountStore(file, box(true)).load()).toEqual(account);
   });
 
-  test("where nothing seals, keeps it in memory only", () => {
+  test("where nothing seals, keeps it in memory only", async () => {
     const file = fileIn();
     const store = new AccountStore(file, box(false));
-    store.save(account);
+    await store.save(account);
     expect(existsSync(file)).toBe(false);
-    expect(store.load()).toEqual(account);
-    expect(new AccountStore(file, box(false)).load()).toBeNull();
+    expect(await store.load()).toEqual(account);
+    expect(await new AccountStore(file, box(false)).load()).toBeNull();
   });
 
-  test("a damaged file is as good as signed out, and clear removes it", () => {
+  test("a damaged file is as good as signed out, and clear removes it", async () => {
     const file = fileIn();
     const store = new AccountStore(file, box(true));
-    store.save(account);
+    await store.save(account);
     writeFileSync(file, "garbage");
-    expect(store.load()).toBeNull();
+    expect(await store.load()).toBeNull();
     store.clear();
     expect(existsSync(file)).toBe(false);
   });

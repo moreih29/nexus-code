@@ -13,20 +13,21 @@ import { RemoteDeviceInfoSchema, RemoteUserSchema } from "../../../shared/remote
 /** What seals and opens the file. */
 export interface SecretBox {
   /** Whether it seals for real: false where it would write plain text. */
-  available(): boolean;
-  encrypt(text: string): Buffer;
-  decrypt(data: Buffer): string;
+  readonly available: boolean;
+  encrypt(text: string): Promise<Buffer>;
+  decrypt(data: Buffer): Promise<string>;
 }
 
-/** The system's keychain, through Electron. */
+/** The system's keychain, through Electron's asynchronous safeStorage. */
 export async function electronSecretBox(): Promise<SecretBox> {
   const { safeStorage } = await import("electron");
+  const available =
+    (await safeStorage.isAsyncEncryptionAvailable()) &&
+    !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text");
   return {
-    available: () =>
-      safeStorage.isEncryptionAvailable() &&
-      !(process.platform === "linux" && safeStorage.getSelectedStorageBackend() === "basic_text"),
-    encrypt: (text) => safeStorage.encryptString(text),
-    decrypt: (data) => safeStorage.decryptString(data),
+    available,
+    encrypt: (text) => safeStorage.encryptStringAsync(text),
+    decrypt: async (data) => (await safeStorage.decryptStringAsync(data)).result,
   };
 }
 
@@ -47,24 +48,26 @@ export class AccountStore {
     private readonly box: SecretBox,
   ) {}
 
-  load(): SavedAccount | null {
+  async load(): Promise<SavedAccount | null> {
     if (this.held) return this.held;
-    if (!this.box.available() || !existsSync(this.file)) return null;
+    if (!this.box.available || !existsSync(this.file)) return null;
     try {
-      return SavedAccountSchema.parse(JSON.parse(this.box.decrypt(readFileSync(this.file))));
+      const text = await this.box.decrypt(readFileSync(this.file));
+      return SavedAccountSchema.parse(JSON.parse(text));
     } catch {
       // Sealed by another user or machine, or damaged: as good as signed out.
       return null;
     }
   }
 
-  save(account: SavedAccount): void {
-    if (!this.box.available()) {
+  async save(account: SavedAccount): Promise<void> {
+    if (!this.box.available) {
       this.held = account;
       return;
     }
+    const sealed = await this.box.encrypt(JSON.stringify(account));
     mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, this.box.encrypt(JSON.stringify(account)), { mode: 0o600 });
+    writeFileSync(this.file, sealed, { mode: 0o600 });
   }
 
   clear(): void {

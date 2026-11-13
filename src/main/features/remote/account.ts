@@ -64,17 +64,24 @@ export interface RemoteAccountDeps {
 }
 
 export class RemoteAccount {
-  private saved: SavedAccount | null;
+  private saved: SavedAccount | null = null;
   private signingIn: LoopbackListener | null = null;
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
   private readonly fetch: typeof fetch;
 
   constructor(private readonly deps: RemoteAccountDeps) {
-    const saved = deps.store.load();
-    // A sign-in to another server is not this one's.
-    this.saved = saved && saved.server === deps.server ? saved : null;
     this.fetch = deps.fetch ?? fetch;
+  }
+
+  /** Picks up the sign-in kept from the last run, if there is one for this server. */
+  async restore(): Promise<void> {
+    const saved = await this.deps.store.load();
+    // A sign-in to another server is not this one's.
+    if (saved && saved.server === this.deps.server && !this.saved) {
+      this.saved = saved;
+      this.changed();
+    }
   }
 
   state(): RemoteAccountState {
@@ -133,7 +140,7 @@ export class RemoteAccount {
       });
       const { token, user, device } = TokenResponseSchema.parse(answer);
       this.saved = { server: this.deps.server, token, user, device };
-      this.deps.store.save(this.saved);
+      await this.deps.store.save(this.saved);
     } catch (error) {
       this.failure = failureOf(error);
       console.warn("[remote] sign-in failed:", error instanceof Error ? error.message : error);

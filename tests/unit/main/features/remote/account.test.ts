@@ -17,8 +17,8 @@ const SERVER = "http://localhost:8787";
 function memoryStore(initial: SavedAccount | null = null) {
   let saved = initial;
   return {
-    load: () => saved,
-    save: (a: SavedAccount) => {
+    load: async () => saved,
+    save: async (a: SavedAccount) => {
       saved = a;
     },
     clear: () => {
@@ -207,6 +207,8 @@ describe("the account", () => {
       openExternal: async () => {},
       fetch: ok.fetchFn,
     });
+    await account.restore();
+    expect(account.state().status).toBe("signed-in");
     expect(await account.devices()).toEqual([{ ...device, current: true }]);
     expect(ok.requests[0]?.auth).toBe("Bearer tok");
 
@@ -217,6 +219,7 @@ describe("the account", () => {
       openExternal: async () => {},
       fetch: fakeServer({ devicesStatus: 401 }).fetchFn,
     });
+    await gone.restore();
     await expect(gone.devices()).rejects.toBeInstanceOf(SignedOutError);
     expect(gone.state().status).toBe("signed-out");
     expect(store.saved).toBeNull();
@@ -236,6 +239,7 @@ describe("the account", () => {
         openExternal: async () => {},
         fetch: server.fetchFn,
       });
+      await account.restore();
       await leave(account);
       expect(account.state().status).toBe("signed-out");
       expect(store.saved).toBeNull();
@@ -250,12 +254,13 @@ describe("the account", () => {
     expect(platform).toMatch(/^[a-z0-9-]{1,32}$/);
   });
 
-  test("a sign-in to another server is not this one's", () => {
+  test("a sign-in to another server is not this one's", async () => {
     const account = new RemoteAccount({
       server: SERVER,
       store: memoryStore({ server: "https://elsewhere", token: "t", user, device }),
       openExternal: async () => {},
     });
+    await account.restore();
     expect(account.state().status).toBe("signed-out");
   });
 });
