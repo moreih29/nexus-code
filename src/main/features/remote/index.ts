@@ -84,6 +84,14 @@ export async function registerRemoteChannel(options: {
     box,
     SavedAccountSchema,
   );
+  // In the account's room while signed in with the account key; out of it otherwise.
+  let room: RemoteRoom | null = null;
+  let roomFor = "";
+  let roomState: RoomState = { status: "off", peers: [] };
+  const setRoomState = (state: RoomState) => {
+    roomState = state;
+    broadcast("remote", "roomChanged", state);
+  };
   let keys: AccountKeys | null = null;
   const account = new RemoteAccount({
     server: remoteServer(),
@@ -107,14 +115,6 @@ export async function registerRemoteChannel(options: {
   });
   keys = accountKeys;
 
-  // In the account's room while signed in with the account key; out of it otherwise.
-  let room: RemoteRoom | null = null;
-  let roomFor = "";
-  let roomState: RoomState = { status: "off", peers: [] };
-  const setRoomState = (state: RoomState) => {
-    roomState = state;
-    broadcast("remote", "roomChanged", state);
-  };
   const relayUrl = async () => {
     const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
     const url = new URL("/relay", account.state().server);

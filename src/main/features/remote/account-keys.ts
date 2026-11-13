@@ -170,7 +170,9 @@ export class AccountKeys {
       this.set({ status: "signed-out" });
       return this.current;
     }
-    if (this.current.status !== "unlocked") this.set({ status: "checking" });
+    // A key this device holds is used at once: the server only says whether it is still the current one.
+    if (this.held) this.set({ status: "unlocked", kid: this.held.kid });
+    else this.set({ status: "checking" });
     try {
       const found = await this.fetch();
       if (!found) this.set({ status: "missing" });
@@ -180,7 +182,8 @@ export class AccountKeys {
     } catch (error) {
       const failure = keyErrorOf(error, this.now());
       if (failure.failure === "signed-out") this.set({ status: "signed-out" });
-      else
+      // The server could not say: the key held stays in use until it says otherwise.
+      else if (!this.held)
         this.set({
           status: "unavailable",
           ...(failure.retryAt ? { retryAt: failure.retryAt } : {}),

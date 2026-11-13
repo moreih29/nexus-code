@@ -164,6 +164,19 @@ describe("the account key's flows", () => {
     expect(store.value).toBeNull();
   });
 
+  test("a key held is used at once, and while the server cannot say whether it is current", async () => {
+    const { server, request } = bundleServer();
+    const a = device(request);
+    await a.keys.restore();
+    await a.keys.create(PASSWORD);
+    const store = keptInMemory<SavedKey>(a.store.value);
+    server.fail = new ServerError(429, "rate_limited", "GET", 60);
+    const keys = new AccountKeys({ account: { state: () => signedIn(), request }, store, kdf });
+    await keys.restore();
+    expect(keys.state()).toEqual({ status: "unlocked", kid: 1 });
+    expect(keys.key()?.key).toEqual(a.keys.key()?.key as Uint8Array);
+  });
+
   test("a server that asks to wait, cannot be reached, or signed the device out", async () => {
     const { server, request } = bundleServer();
     const a = device(request);
