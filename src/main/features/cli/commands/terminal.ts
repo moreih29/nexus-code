@@ -39,6 +39,13 @@ import {
 import { closePeerTab } from "./chat-remote";
 import { otherSessionsHint, peerSessionRows } from "./device";
 import { WORKSPACE_FLAG } from "./flags";
+import {
+  newPeerTerminal,
+  pressPeerKeys,
+  readPeerTerminal,
+  sendToPeerTerminal,
+  waitOnPeer as waitOnPeerTerminal,
+} from "./terminal-remote";
 import { orderedWorkspaces } from "./workspace";
 
 /** The tabs of a workspace, as the renderer has them. */
@@ -114,6 +121,11 @@ function waitTimes(flags: ParsedArgs["flags"]): { timeoutMs: number; quietMs: nu
   const quietMs =
     flags.quiet === undefined ? DEFAULT_QUIET_MS : parseDuration(flags.quiet as string, "quiet");
   return { timeoutMs, quietMs };
+}
+
+/** --quiet, for another computer, which has its own default otherwise. */
+function quietGiven(flags: ParsedArgs["flags"], times: { quietMs: number }): { quietMs?: number } {
+  return flags.quiet === undefined ? {} : { quietMs: times.quietMs };
 }
 
 /** A wait's result as the command prints it; exit 124 when the wait ran out. */
@@ -485,13 +497,16 @@ const terminalRead: CliCommand = {
   flags: {
     workspace: WORKSPACE_FLAG,
     lines: { type: "number", value: "N", description: "How many of the last lines (default 100)" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveTerminal(ctx, workspace, positionals[0] ?? ".");
     const lines = (flags.lines as number | undefined) ?? 100;
     if (!Number.isInteger(lines) || lines < 1)
       throw new CliError("--lines takes a positive whole number", 2);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return readPeerTerminal(ctx, device, flags, positionals[0], lines);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, positionals[0] ?? ".");
     const { text } = await ctx.services.ui("terminal.read", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -521,9 +536,12 @@ const terminalNew: CliCommand = {
     },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return newPeerTerminal(ctx, device, flags);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const shell = flags.shell as string | undefined;
     const { location } = workspace;
@@ -592,6 +610,7 @@ const terminalSend: CliCommand = {
     wait: { type: "boolean", description: "Then wait until the terminal is idle again" },
     ...WAIT_FLAGS,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, ...words] = positionals;
@@ -601,6 +620,17 @@ const terminalSend: CliCommand = {
     const enter = flags["no-enter"] !== true;
     if (text === "" && !enter) throw new CliUsageError("nothing to send");
     const times = flags.wait === true ? waitTimes(flags) : null;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      return sendToPeerTerminal(
+        ctx,
+        device,
+        flags,
+        selector,
+        { text, enter },
+        times && { timeoutMs: times.timeoutMs, ...quietGiven(flags, times) },
+      );
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
@@ -640,11 +670,13 @@ const terminalKey: CliCommand = {
   summary: "Press keys in a terminal, such as ctrl-c or down enter",
   args: "<tab> <key...>",
   details: KEY_NAMES_HELP,
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, ...keys] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     if (keys.length === 0) throw new CliUsageError("missing <key>");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return pressPeerKeys(ctx, device, flags, selector, keys);
     const text = keys.map(keySequence).join("");
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
@@ -687,6 +719,7 @@ const terminalWait: CliCommand = {
     },
     ...WAIT_FLAGS,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
@@ -703,6 +736,15 @@ const terminalWait: CliCommand = {
       }
     }
     const times = waitTimes(flags);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const waitFor = {
+        ...(target.kind === "exit" ? { exit: true } : {}),
+        ...(target.kind === "match" ? { match: flags.match as string } : {}),
+        ...quietGiven(flags, times),
+      };
+      return waitOnPeerTerminal(ctx, device, flags, selector, waitFor, times.timeoutMs);
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {

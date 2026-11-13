@@ -310,3 +310,13 @@ describe("nexus session list", () => {
     expect(lines.at(-1)).toBe('"Office PC" is offline (last seen 2h ago)');
   });
 });
+
+describe("nexus agent-context", () => {
+  test("tells a session of the other computers only when this one is in the room", async () => {
+    const app = withDevices();
+    app.settings.agentContext = true;
+    expect((await nexus(app, ["agent-context"])).stdout).toContain("--device NAME");
+    app.peers.inRoom = false;
+    expect((await nexus(app, ["agent-context"])).stdout).not.toContain("--device");
+  });
+});
