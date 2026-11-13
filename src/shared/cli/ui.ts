@@ -590,6 +590,11 @@ export interface CliUiOps {
     args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
   };
+  /** The folders a workspace's Claude tabs were given beside its own (/add-dir), absolute. */
+  "workspace.folders": {
+    args: { workspaceId: string };
+    result: { folders: string[] };
+  };
   /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {
     args: { workspaceId: string };

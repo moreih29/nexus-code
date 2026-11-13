@@ -1,7 +1,7 @@
 // The remote IPC channel: the NexusCode account the remote runs on.
 
 import { join } from "node:path";
-import { app, shell, systemPreferences } from "electron";
+import { app, nativeImage, shell, systemPreferences } from "electron";
 import {
   RELAY_VERSION,
   RpcErrorCode,
@@ -14,6 +14,7 @@ import type { AccountKeyState } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { CliServices } from "../cli/context";
+import type { FsProvider } from "../fs/bridge/provider";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
@@ -115,6 +116,30 @@ async function keyFlow(flow: () => Promise<AccountKeyState>): Promise<IpcResult<
   }
 }
 
+/**
+ * An image file drawn as a JPEG small enough that its base64 takes at most
+ * `maxChars`: whole first, then smaller; null for one Electron cannot read.
+ */
+function shrinkImage(
+  bytes: Buffer,
+  maxChars: number,
+): { mediaType: "image/jpeg"; data: string } | null {
+  const image = nativeImage.createFromBuffer(bytes);
+  if (image.isEmpty()) return null;
+  const { width } = image.getSize();
+  let scale = 1;
+  for (let tries = 0; tries < 6; tries++) {
+    const drawn =
+      scale === 1
+        ? image
+        : image.resize({ width: Math.max(1, Math.round(width * scale)), quality: "good" });
+    const data = drawn.toJPEG(85).toString("base64");
+    if (data.length <= maxChars) return { mediaType: "image/jpeg", data };
+    scale *= Math.sqrt(maxChars / data.length) * 0.9;
+  }
+  return null;
+}
+
 export async function registerRemoteChannel(options: {
   /** The services the nexus CLI uses, once the app made them: the room serves with them. */
   services: () => CliServices | null;
@@ -122,6 +147,8 @@ export async function registerRemoteChannel(options: {
   allowControl: { get(): boolean; set(allowed: boolean): void };
   /** A workspace's git status now, for the tasks' branches the sessions' list tells; null where it is no repository. */
   gitStatus?: (workspaceId: string) => Promise<GitStatus | null>;
+  /** A workspace's file system once its agent is ready, for the files other devices read. */
+  fs?: (workspaceId: string) => Promise<FsProvider>;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -239,6 +266,7 @@ export async function registerRemoteChannel(options: {
         sessions: sessionWatches,
         terminals: terminalWatches,
         ...(git ? { git } : {}),
+        ...(options.fs ? { files: { fs: options.fs, shrink: shrinkImage } } : {}),
       }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {

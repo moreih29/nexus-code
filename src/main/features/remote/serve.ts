@@ -23,6 +23,7 @@ import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
+import { listFiles, type RemoteFiles, readFile } from "./files";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import type { SessionWatches } from "./session-watches";
 import type { TerminalWatches } from "./terminal-watches";
@@ -33,6 +34,7 @@ export const SERVES: readonly Capability[] = [
   "chat.read",
   "chat.control",
   "terminal.read",
+  "files",
 ];
 
 /**
@@ -527,6 +529,8 @@ export function serveWith(
     git?: WorkspaceGit;
     /** The images devices attached for their next messages. */
     attachments?: Attachments;
+    /** The workspaces' file systems, and how an image is drawn smaller. */
+    files?: Omit<RemoteFiles, "folders">;
   } = {},
 ) {
   const { chats, sessions, terminals, git } = watches;
@@ -563,6 +567,26 @@ export function serveWith(
           device: from,
           attachments,
         });
+      case "files.list":
+      case "files.read": {
+        if (!watches.files) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
+        }
+        const { workspaceId } = request.params as { workspaceId: string };
+        const workspace = workspaceOf(s, workspaceId);
+        if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        const files: RemoteFiles = {
+          ...watches.files,
+          folders: (id) =>
+            s
+              .ui("workspace.folders", { workspaceId: id })
+              .then((r) => r.folders)
+              .catch(() => []),
+        };
+        return request.method === "files.list"
+          ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
+          : readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
+      }
       case "chat.image":
         return chatImage(s, request.params as RpcParams<"chat.image">);
       case "chat.attach":

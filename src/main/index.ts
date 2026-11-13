@@ -599,6 +599,7 @@ app.whenReady().then(async () => {
       const repository = await gitRegistry?.getOrDetect(workspaceId);
       return repository ? repository.status() : null;
     },
+    fs: (workspaceId) => workspaceManager.getFs(workspaceId),
   }).catch((error: unknown) => {
     logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
     return null;

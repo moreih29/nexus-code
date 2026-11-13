@@ -27,6 +27,7 @@ import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
+import { existingChatController } from "../chat/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
@@ -338,6 +339,18 @@ export const actionHandlers: {
       await callOrFail(ipcCallResult("browser", "goForward", { tabId }));
     } else await callOrFail(ipcCallResult("browser", "reload", { tabId }));
     return {};
+  },
+
+  "workspace.folders": async ({ workspaceId }) => {
+    // Given to a tab's running program: a tab never shown has none.
+    const folders = new Set<string>();
+    for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
+      if (tab.type !== "claude") continue;
+      for (const dir of existingChatController(workspaceId, tab.id)?.addedDirectories() ?? []) {
+        folders.add(dir);
+      }
+    }
+    return { folders: [...folders] };
   },
 
   "workspace.show": async ({ workspaceId }) => {
