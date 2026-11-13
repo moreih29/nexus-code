@@ -3,7 +3,11 @@
 import { join } from "node:path";
 import { app, shell } from "electron";
 import { z } from "zod";
-import { RELAY_VERSION, RpcErrorCode } from "../../../../packages/remote-protocol/src";
+import {
+  RELAY_VERSION,
+  RpcErrorCode,
+  type RpcNotificationParams,
+} from "../../../../packages/remote-protocol/src";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
 import type { AccountKeyState } from "../../../shared/remote/account";
@@ -13,6 +17,7 @@ import type { CliServices } from "../cli/context";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
+import { ChatWatches } from "./chat-watches";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
@@ -111,7 +116,19 @@ export async function registerRemoteChannel(options: {
     if (!room) throw new RpcFailure(RpcErrorCode.Unavailable, "not in the room");
     return room;
   };
+  // The chats other devices watch here, told through the room.
+  const watches = new ChatWatches({
+    services: options.services,
+    notify: (to, update) => room?.notify(to, "chat.update", update) ?? Promise.resolve(false),
+  });
   const setRoomState = (state: RoomState) => {
+    // A device that left, or this one leaving, ends the watches it had.
+    if (state.status !== "online") void watches.dropAll();
+    else {
+      for (const id of watches.watchers()) {
+        if (!state.peers.some((p) => p.id === id && p.online)) void watches.dropDevice(id);
+      }
+    }
     roomState = state;
     broadcast("remote", "roomChanged", state);
   };
@@ -163,8 +180,16 @@ export async function registerRemoteChannel(options: {
       app: { name: "NexusCode", version: app.getVersion() },
       serves: SERVES,
       connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
-      serve: serveWith(options.services),
+      serve: serveWith(options.services, watches),
       onChange: setRoomState,
+      onNotification: (from, method, params) => {
+        if (method === "chat.update") {
+          broadcast("remote", "peerChatUpdate", {
+            deviceId: from,
+            update: params as RpcNotificationParams<"chat.update">,
+          });
+        }
+      },
       // Another key version: the account password may have been reset on another device.
       onForeignKey: () => void keys?.refresh().catch(() => {}),
       // The relay says the sign-in ended: the server's 401 then signs the app out.
@@ -206,6 +231,23 @@ export async function registerRemoteChannel(options: {
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
         return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));
+      },
+      chatChanged: async (args: unknown) => {
+        const { watchId, change } = validateArgs(c.chatChanged.args, args);
+        await watches.changed(watchId, change);
+        return ipcOk(undefined);
+      },
+      chatWatchEnded: async (args: unknown) => {
+        watches.ended(validateArgs(c.chatWatchEnded.args, args).watchId);
+        return ipcOk(undefined);
+      },
+      peerChatWatch: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatWatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.watch", params));
+      },
+      peerChatUnwatch: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUnwatch.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.unwatch", params));
       },
       peerChat: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChat.args, args);

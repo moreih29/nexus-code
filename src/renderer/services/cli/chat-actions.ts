@@ -16,6 +16,7 @@ import {
 } from "../../../shared/agent-profiles/profiles";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -29,6 +30,7 @@ import {
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { type ChatSource, chatPageOf } from "../remote/chat-page";
+import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import { type ChatTabExtras, chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
@@ -94,11 +96,9 @@ function extrasOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatTab
 
 /** The tab's conversation as another device reads it; throws when the tab is gone. */
 function sourceOf(workspaceId: string, tabId: string, agent: ChatAgent): ChatSource {
-  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-  const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
-  if (!chat || !tab) throw new UiRequestError("that tab is gone");
-  const relayed = chatPropsOf(workspaceId, tabId)?.relayed;
-  return { agent, title: tab.title, chat, ...(relayed ? { relayed } : {}) };
+  const source = tabSource(workspaceId, tabId, agent);
+  if (!source) throw new UiRequestError("that tab is gone");
+  return source;
 }
 
 /** How long a tab's program may take to start and list its models. */
@@ -289,6 +289,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
     const target = await openedTab(workspaceId, tabId);
     return chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
+  },
+
+  "chat.watch": async ({ workspaceId, tabId, watchId, limit }) => {
+    const target = await openedTab(workspaceId, tabId);
+    return startChatWatch(
+      watchId,
+      () => tabSource(workspaceId, tabId, target.agent),
+      limit,
+      (change) => void ipcCallResult("remote", "chatChanged", { watchId, change }),
+      () => void ipcCallResult("remote", "chatWatchEnded", { watchId }),
+    );
+  },
+
+  "chat.unwatch": async ({ watchId }) => {
+    stopChatWatch(watchId);
+    return {};
   },
 
   "chat.tool": async ({ workspaceId, tabId, ref }) => {

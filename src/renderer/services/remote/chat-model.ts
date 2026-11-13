@@ -4,7 +4,7 @@
  * page leaves out stays empty: an image's bytes stay on that device. Pure.
  */
 
-import type { ChatPage, ViewItem } from "../../../../packages/remote-protocol/src";
+import type { ChatPage, ChatUpdate, ViewItem } from "../../../../packages/remote-protocol/src";
 import {
   type AssistantItem,
   type ChatItem,
@@ -87,5 +87,38 @@ export function modelOfPage(page: ChatPage): ChatModel {
       : null,
     tasks: page.tasks as Record<string, TaskInfo>,
     agentItems: page.agentItems as Record<string, AssistantItem[]>,
+  };
+}
+
+/**
+ * A watched chat's page with an update put in: items at their index (one
+ * before the page's start moves the start back), the list cut at `total`,
+ * calls, tasks and subagents' messages put by id, the status replaced
+ * when sent. Pure.
+ */
+export function applyUpdate(page: ChatPage, update: ChatUpdate): ChatPage {
+  const lowest = update.items.reduce((low, { index }) => Math.min(low, index), page.start);
+  const start = Math.min(lowest, update.total);
+  const length = Math.max(0, update.total - start);
+  const items: (ViewItem | undefined)[] = new Array(length);
+  for (const [i, item] of page.items.entries()) {
+    const at = page.start + i - start;
+    if (at >= 0 && at < length) items[at] = item;
+  }
+  for (const { index, item } of update.items) {
+    const at = index - start;
+    if (at >= 0 && at < length) items[at] = item;
+  }
+  // A place no update filled, before the old start, has nothing to show.
+  const filled = items.findIndex((item) => item !== undefined);
+  const from = filled === -1 ? length : filled;
+  return {
+    status: update.status ?? page.status,
+    start: start + from,
+    total: update.total,
+    items: items.slice(from).filter((item): item is ViewItem => item !== undefined),
+    tools: { ...page.tools, ...update.tools },
+    tasks: { ...page.tasks, ...update.tasks },
+    agentItems: { ...page.agentItems, ...update.agentItems },
   };
 }

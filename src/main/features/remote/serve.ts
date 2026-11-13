@@ -17,6 +17,7 @@ import type { CliChatState } from "../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import type { CliServices } from "../cli/context";
+import type { ChatWatches } from "./chat-watches";
 import { fitsInFrame, RpcFailure } from "./room";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
@@ -124,7 +125,7 @@ export async function listSessions(services: CliServices): Promise<RpcResult<"se
 }
 
 /** The tab, when the workspace holds one of that kind; else NotFound. */
-async function tabOf(
+export async function tabOf(
   services: CliServices,
   workspaceId: string,
   tabId: string,
@@ -146,7 +147,7 @@ async function tabOf(
  * The app failing or refusing to do it as the session stands (nothing to
  * stop, a request answered since), as another device is told it.
  */
-function unavailable(error: unknown): never {
+export function unavailable(error: unknown): never {
   throw new RpcFailure(
     RpcErrorCode.Unavailable,
     error instanceof Error ? error.message : String(error),
@@ -159,7 +160,7 @@ export const DEFAULT_READ_ITEMS = 200;
 /** Room left in a frame for the answer's envelope around a result. */
 const ENVELOPE_BYTES = 1024;
 
-function fitsAsResult(result: unknown): boolean {
+export function fitsAsResult(result: unknown): boolean {
   return fitsInFrame({ result, pad: "x".repeat(ENVELOPE_BYTES) });
 }
 
@@ -284,10 +285,16 @@ export async function closeChat(
 }
 
 /** Answers another device's request with this device's services. */
-export function serveWith(services: () => CliServices | null) {
+export function serveWith(services: () => CliServices | null, watches?: ChatWatches) {
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
+    if (watches && request.method === "chat.watch") {
+      return watches.watch(request.from, request.params as RpcParams<"chat.watch">);
+    }
+    if (watches && request.method === "chat.unwatch") {
+      return watches.unwatch(request.from, request.params as RpcParams<"chat.unwatch">);
+    }
     switch (request.method) {
       case "sessions.list":
         return listSessions(s);

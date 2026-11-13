@@ -668,6 +668,20 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; before?: number; limit?: number };
     result: ChatPage;
   };
+  /**
+   * Starts telling main what changes in a Claude or Codex tab's
+   * conversation, for another device watching it (the remote's chat.watch):
+   * its page now, then remote.chatChanged with `watchId` as it changes.
+   */
+  "chat.watch": {
+    args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
+    result: ChatPage;
+  };
+  /** Stops a watch chat.watch started; nothing when there is none. */
+  "chat.unwatch": {
+    args: { watchId: string };
+    result: Record<string, never>;
+  };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
     args: { workspaceId: string; tabId: string; ref: string };

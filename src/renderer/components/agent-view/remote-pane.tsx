@@ -2,7 +2,7 @@
 // its row under Other computers is picked: a chat drawn by this app's
 // message list from what that computer reads of it, which the user writes
 // to, answers and stops from here; or a terminal's text, to read only.
-// Both are read again every moment while shown.
+// A chat is watched, a terminal read again every moment, while shown.
 
 import { ArrowUp, Monitor, Square, X } from "lucide-react";
 import {
@@ -18,6 +18,7 @@ import { ipcCallResult } from "../../ipc/client";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { PermissionRequest } from "../../services/chat/model";
 import { modelOfPage } from "../../services/remote/chat-model";
+import { usePeerChat } from "../../services/remote/peer-chat";
 import { type PeerRead, usePeerRead } from "../../services/remote/room";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { ChatAgentContext } from "../chat/chat-agent";
@@ -130,17 +131,12 @@ export function remoteAnswerOf(answer: PermissionAnswer): {
 function RemoteChat({ target, visible }: { target: RemoteTarget; visible: boolean }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
-  const { read, refresh } = usePeerRead(
-    `${deviceId}/${workspaceId}/${tabId}`,
-    () => ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId }),
-    visible,
-  );
+  const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
   const page = read.status === "ready" ? read.value : null;
   const model = useMemo(() => (page ? modelOfPage(page) : null), [page]);
-  /** Runs a control, then reads the chat again to show it; a refusal is told. */
+  /** Runs a control; the watch shows what it did, and a refusal is told. */
   const control = async (sent: Promise<IpcResult<unknown>>): Promise<boolean> => {
     const result = await sent;
-    refresh();
     if (!result.ok) {
       showToast({
         kind: "error",

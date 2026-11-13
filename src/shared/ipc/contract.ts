@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
-import { RPC_METHODS } from "../../../packages/remote-protocol/src/rpc";
+import { ChatUpdateSchema, RPC_METHODS } from "../../../packages/remote-protocol/src/rpc";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -2384,6 +2384,25 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.interrupt"].params),
         RPC_METHODS["chat.interrupt"].result,
       ),
+      /** What changed in a chat another device watches here (the renderer tells main). */
+      chatChanged: call(
+        z.object({
+          watchId: z.string(),
+          change: ChatUpdateSchema.omit({ watchId: true, rev: true }),
+        }),
+        z.void(),
+      ),
+      /** A chat another device watched here is gone (the renderer tells main). */
+      chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      /** Starts watching another device's chat: its page now, then peerChatUpdate. */
+      peerChatWatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.watch"].params),
+        RPC_METHODS["chat.watch"].result,
+      ),
+      peerChatUnwatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unwatch"].params),
+        RPC_METHODS["chat.unwatch"].result,
+      ),
       /** A terminal of another device's, as text. */
       peerTerminal: call(
         z
@@ -2405,6 +2424,8 @@ export const ipcContract = {
       accountChanged: listen(RemoteAccountStateSchema),
       keyChanged: listen(AccountKeyStateSchema),
       roomChanged: listen(RoomStateSchema),
+      /** A chat this device watches on another changed (peerChatWatch). */
+      peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
