@@ -26,6 +26,7 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
+import { refuseLoop } from "../hops";
 import { absolutePath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import { senderOf } from "../sender";
@@ -386,6 +387,7 @@ const chatNew: CliCommand = {
     }
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
+    refuseLoop(from);
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
@@ -716,6 +718,7 @@ const chatSend: CliCommand = {
     await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
     // An agent's message shows as its, and the tab's agent is told who sent it.
     const from = await senderOf(ctx);
+    refuseLoop(from);
     // Starting a program that is gone comes before the message.
     await ctx.services.ui(
       "chat.send",

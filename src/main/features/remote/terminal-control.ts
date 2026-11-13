@@ -20,7 +20,7 @@ import { tabOf, unavailable, workspaceOf } from "./serve";
 /** Types into the terminal: the text pasted, then the keys, then Enter; when it was typed. */
 export async function inputTerminal(
   services: CliServices,
-  { workspaceId, tabId, text, keys, enter }: RpcParams<"terminal.input">,
+  { workspaceId, tabId, text, keys, enter, from }: RpcParams<"terminal.input">,
   now: () => number = Date.now,
 ): Promise<RpcResult<"terminal.input">> {
   if (!text && !keys?.length && !enter) {
@@ -38,6 +38,8 @@ export async function inputTerminal(
   } else {
     await type(text ?? "", "paste", enter ?? false);
   }
+  // An agent's input: the turn it starts here is down the chain from it.
+  if (from) services.agentInputs.record(workspaceId, tabId, from.hops, at);
   return { at };
 }
 

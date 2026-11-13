@@ -20,6 +20,7 @@ import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
 import type { StartedAgents } from "./started-agents";
+import type { AgentInputs } from "./hops";
 import type { WaitRegistry } from "./waits";
 
 /** A failure the command reports as is, with its exit code. */
@@ -74,6 +75,8 @@ export interface CliServices {
   readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
+  /** The agents' input into terminals, for how far down a chain of agents' messages they are. */
+  readonly agentInputs: AgentInputs;
   /**
    * Asks the renderer, which owns the tabs and the terminals' screens; a
    * longer `timeoutMs` for an answer that waits on git.

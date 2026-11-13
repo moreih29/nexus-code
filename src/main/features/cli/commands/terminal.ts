@@ -14,9 +14,11 @@ import {
   shortId,
 } from "../context";
 import { ago, oneLine, table } from "../format";
+import { refuseLoop } from "../hops";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import { senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
   DEFAULT_WAIT_MS,
@@ -585,6 +587,8 @@ const terminalSend: CliCommand = {
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
     await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    const from = await senderOf(ctx);
+    refuseLoop(from);
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -593,6 +597,10 @@ const terminalSend: CliCommand = {
       mode: "paste",
       enter,
     });
+    // An agent's input: the turn it starts there is down the chain from it.
+    if (from?.hops !== undefined) {
+      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, startedAt);
+    }
     if (enter && text.trim() !== "") {
       await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
     }
@@ -624,6 +632,9 @@ const terminalKey: CliCommand = {
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
     await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    const from = await senderOf(ctx);
+    refuseLoop(from);
+    const at = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -631,6 +642,8 @@ const terminalKey: CliCommand = {
       mode: "keys",
       enter: false,
     });
+    if (from?.hops !== undefined)
+      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, at);
     return output(`Pressed ${keys.join(" ")} in ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,
       workspaceId: workspace.id,

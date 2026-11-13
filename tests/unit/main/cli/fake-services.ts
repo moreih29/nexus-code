@@ -24,6 +24,7 @@ import {
   CliError,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
+import { AgentInputs } from "../../../../src/main/features/cli/hops";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -171,6 +172,8 @@ export interface FakeApp {
   waits: WaitRegistry;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
+  /** The hops of the message that started each chat tab's latest turn, by tab id; 0 when absent. */
+  turnHops: Map<string, number>;
   /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
@@ -450,8 +453,13 @@ export function fakeApp(now = Date.now()): FakeApp {
       return answers.shift() ?? "deny";
     },
   });
+  const turnHops: FakeApp["turnHops"] = new Map();
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
+    if (op === "chat.turnHops") {
+      const { tabId } = args as CliUiOps["chat.turnHops"]["args"];
+      return { hops: turnHops.get(tabId) ?? 0 } as CliUiOps[K]["result"];
+    }
     if (op === "tabs.list") {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
@@ -629,6 +637,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
     claudeAsks: () => [],
     answerClaudeAsk: async () => false,
+    agentInputs: new AgentInputs(),
     managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
@@ -692,6 +701,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     stops,
     waits,
     foreground,
+    turnHops,
     settings,
     answers,
     asked,

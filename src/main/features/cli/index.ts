@@ -43,6 +43,7 @@ import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
 import { RendererBridge, type UiWindow } from "./renderer-bridge";
 import { StartedAgents } from "./started-agents";
+import { AgentInputs } from "./hops";
 import { WaitRegistry } from "./waits";
 
 const log = createLogger("cli");
@@ -141,6 +142,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     foregroundGroup(workspaceId, tabId, true),
   );
   const waits = new WaitRegistry(agentHost);
+  const agentInputs = new AgentInputs();
   const startedAgents = new StartedAgents(agentHost);
   // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
   const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
@@ -242,6 +244,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
+    agentInputs,
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
       bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>

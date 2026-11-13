@@ -10,10 +10,36 @@ import type { CliContext } from "./context";
 
 /**
  * The agent a command is run by: the manager, a Claude or Codex tab's
- * agent, or an agent in a terminal (Claude Code, Codex). Undefined for the
- * user, at a shell of theirs: what they send is theirs.
+ * agent, or an agent in a terminal (Claude Code, Codex), with how far down
+ * a chain of agents' messages what it sends is (see ./hops). Undefined for
+ * the user, at a shell of theirs: what they send is theirs.
  */
 export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined> {
+  const sender = await agentOf(ctx);
+  if (!sender) return undefined;
+  return { ...sender, hops: (await turnHops(ctx, sender)) + 1 };
+}
+
+/** The hops of the message that started the sender's turn: 0 for the user's. */
+async function turnHops(ctx: CliContext, sender: RelaySender): Promise<number> {
+  const { workspaceId, tabId } = ctx.caller;
+  if (!workspaceId || !tabId) return 0;
+  if (sender.kind === "terminal") {
+    const turnStartedAt = ctx.services.claudeStatus(workspaceId, tabId)?.turnStartedAt;
+    return ctx.services.agentInputs.turnHops(
+      workspaceId,
+      tabId,
+      turnStartedAt,
+      ctx.services.clock.now(),
+    );
+  }
+  return ctx.services
+    .ui("chat.turnHops", { workspaceId, tabId })
+    .then((r) => r.hops)
+    .catch(() => 0);
+}
+
+async function agentOf(ctx: CliContext): Promise<RelaySender | undefined> {
   if (isManager(ctx.caller)) return { kind: "manager" };
   const { workspaceId, tabId } = ctx.caller;
   if (!workspaceId || !tabId) return undefined;
