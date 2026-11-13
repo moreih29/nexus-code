@@ -241,6 +241,59 @@ describe("serving a chat's settings", () => {
   });
 });
 
+describe("serving the conversations of the past", () => {
+  function historyServices(fail?: string) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: unknown) => {
+        asked.push([op, args]);
+        if (fail) throw new Error(fail);
+        return op === "chat.history"
+          ? { sessions: [{ sessionId: "s1", title: "t", at: 1, cwd: "/src/app", profile: "p" }] }
+          : { tabId: "t7" };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("lists them for a workspace, and opens one in a new chat", async () => {
+    const { serve, asked } = historyServices();
+    const listed = (await serve({
+      from: "d",
+      method: "history.list",
+      params: { workspaceId: "w1", agent: "claude", query: "build" },
+    })) as { sessions: unknown[] };
+    expect(listed.sessions).toHaveLength(1);
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.resume",
+        params: { workspaceId: "w1", agent: "codex", sessionId: "th1" },
+      }),
+    ).toEqual({ tabId: "t7" });
+    expect(asked).toEqual([
+      ["chat.history", { workspaceId: "w1", agent: "claude", query: "build" }],
+      ["chat.resume", { workspaceId: "w1", agent: "codex", sessionId: "th1" }],
+    ]);
+  });
+
+  test("NotFound for no such workspace or conversation", async () => {
+    const params = { workspaceId: "nope", agent: "claude", sessionId: "s9" };
+    await expect(
+      historyServices().serve({ from: "d", method: "chat.resume", params }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      historyServices("no conversation s9 in that workspace's folder").serve({
+        from: "d",
+        method: "chat.resume",
+        params: { ...params, workspaceId: "w1" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
 describe("serving a chat's slash commands", () => {
   const commands = [
     { name: "review", description: "Review", runs: "send" },

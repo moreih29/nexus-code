@@ -511,6 +511,45 @@ export async function newChat(
   return { tabId: opened.tabId, ...(opened.error ? { error: opened.error } : {}) };
 }
 
+/** The workspace's conversations of the past that a new chat can go on with. */
+export async function listHistory(
+  services: CliServices,
+  { workspaceId, agent, query, limit }: RpcParams<"history.list">,
+): Promise<RpcResult<"history.list">> {
+  if (!workspaceOf(services, workspaceId)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  }
+  const { sessions } = await services
+    .ui("chat.history", {
+      workspaceId,
+      agent,
+      ...(query ? { query } : {}),
+      ...(limit ? { limit } : {}),
+    })
+    .catch(unavailable);
+  // Long first prompts for titles: as many as go in a frame.
+  let shown = sessions;
+  while (shown.length > 0 && !fitsAsResult({ sessions: shown })) {
+    shown = shown.slice(0, Math.floor(shown.length / 2));
+  }
+  return { sessions: shown };
+}
+
+/** Goes on with a conversation of the past in a new chat, behind what this computer shows. */
+export async function resumeChat(
+  services: CliServices,
+  { workspaceId, agent, sessionId }: RpcParams<"chat.resume">,
+): Promise<RpcResult<"chat.resume">> {
+  if (!workspaceOf(services, workspaceId)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  }
+  return services.ui("chat.resume", { workspaceId, agent, sessionId }).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+    return unavailable(error);
+  });
+}
+
 export async function closeChat(
   services: CliServices,
   { workspaceId, tabId }: RpcParams<"chat.close">,
@@ -627,6 +666,10 @@ export function serveWith(
         return runChatCommand(s, request.params as RpcParams<"chat.command">);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">);
+      case "history.list":
+        return listHistory(s, request.params as RpcParams<"history.list">);
+      case "chat.resume":
+        return resumeChat(s, request.params as RpcParams<"chat.resume">);
       case "chat.close":
         return closeChat(s, request.params as RpcParams<"chat.close">);
       default:

@@ -11,6 +11,20 @@ import type { SettingsPage } from "./settings";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
+/** A conversation of the past, as chat.history lists it. */
+export interface CliPastSession {
+  sessionId: string;
+  title: string;
+  /** When it last changed, in Unix milliseconds. */
+  at: number;
+  /** Its log's size in bytes, when known. */
+  bytes?: number;
+  /** The folder it ran in. */
+  cwd: string;
+  /** The profile that keeps it. */
+  profile: string;
+}
+
 /** An image of a chat, small enough to send. */
 export interface CliChatImage {
   mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
@@ -663,6 +677,24 @@ export interface CliUiOps {
       user?: boolean;
     };
     result: CliChatChoices;
+  };
+  /**
+   * The conversations of the past in a workspace's folder that a new tab
+   * can go on with: Claude Code's sessions in each Claude profile, or the
+   * threads a Codex tab's Codex keeps; newest first, those whose title or
+   * first prompt has every word of `query`.
+   */
+  "chat.history": {
+    args: { workspaceId: string; agent: ChatAgent; query?: string; limit?: number };
+    result: { sessions: CliPastSession[] };
+  };
+  /**
+   * Goes on with a conversation of the past in a new tab, behind what the
+   * window shows; the tab that has it open already, if one does.
+   */
+  "chat.resume": {
+    args: { workspaceId: string; agent: ChatAgent; sessionId: string };
+    result: { tabId: string };
   };
   /**
    * A Claude or Codex tab's slash commands that another device may use: the

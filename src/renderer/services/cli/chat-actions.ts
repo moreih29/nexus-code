@@ -10,6 +10,7 @@
 
 import {
   type AgentProfile,
+  defaultProfileId,
   isDefaultProfileId,
   profileOf,
   profilesOf,
@@ -20,6 +21,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
+import { useWorkspacesStore } from "../../state/stores/workspaces";
 import {
   type AgentTabController,
   agentTabController,
@@ -33,6 +35,7 @@ import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { type ChatSource, chatPageOf } from "../remote/chat-page";
 import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
+import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import { type ChatTabExtras, chatEntriesOf, chatInfoOf, chatToolOf } from "./chat-view";
 import { type CliUiHandler, UiRequestError } from "./handler";
@@ -70,6 +73,13 @@ async function readableTab(workspaceId: string, tabId: string): Promise<AgentTab
 /** A profile as the CLI names it: its name, or "default" for the default one unnamed. */
 function cliProfileName(profile: AgentProfile): string {
   return profile.name.trim() || (isDefaultProfileId(profile.id) ? "default" : profile.id);
+}
+
+/** The workspace's folder, where its past conversations ran. */
+function workspaceRoot(workspaceId: string): string {
+  const root = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath;
+  if (!root) throw new UiRequestError("no such workspace");
+  return root;
 }
 
 /** The tab's props: a Claude or Codex tab's; null when it is gone. */
@@ -369,6 +379,57 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
     if (!chat) throw new UiRequestError("that tab is gone");
     return chatChoicesOf(target.agent, chat.model);
+  },
+
+  "chat.history": async ({ workspaceId, agent, query, limit }) => {
+    const cwd = workspaceRoot(workspaceId);
+    const config = useAgentProfilesStore.getState().config;
+    const listed =
+      agent === "claude"
+        ? await claudeSessions(
+            workspaceId,
+            cwd,
+            profilesOf(config, "claude").map((p) => p.id),
+          )
+        : await codexThreads(workspaceId, defaultProfileId("codex"));
+    const name = (profileId: string) => cliProfileName(profileOf(config, agent, profileId));
+    return { sessions: pastSessionsOf(listed, cwd, name, query, limit) };
+  },
+
+  "chat.resume": async ({ workspaceId, agent, sessionId }) => {
+    const open = tabWithSession(workspaceId, agent, sessionId);
+    if (open) return { tabId: open };
+    const cwd = workspaceRoot(workspaceId);
+    const config = useAgentProfilesStore.getState().config;
+    const listed =
+      agent === "claude"
+        ? await claudeSessions(
+            workspaceId,
+            cwd,
+            profilesOf(config, "claude").map((p) => p.id),
+          )
+        : await codexThreads(workspaceId, defaultProfileId("codex"));
+    const session = listed.find((s) => s.sessionId === sessionId);
+    if (!session)
+      throw new UiRequestError(`no conversation ${sessionId} in that workspace's folder`);
+    // Its own profile's, the default too: not the one the workspace's rules would pick.
+    const profileId = { profileId: session.profileId };
+    const tab =
+      agent === "claude"
+        ? ({
+            type: "claude",
+            props: chatPropsWithProfile(workspaceId, "claude", { cwd, sessionId, ...profileId }),
+          } as const)
+        : ({
+            type: "codex",
+            props: chatPropsWithProfile(workspaceId, "codex", {
+              cwd,
+              threadId: sessionId,
+              ...profileId,
+            }),
+          } as const);
+    // Behind what the window shows: whoever sits at this computer keeps their place.
+    return { tabId: openTab(workspaceId, tab, { background: true }) };
   },
 
   "chat.image": async ({ workspaceId, tabId, ref, maxChars }) => {
