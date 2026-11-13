@@ -1,8 +1,7 @@
 // The remote IPC channel: the NexusCode account the remote runs on.
 
 import { join } from "node:path";
-import { app, shell } from "electron";
-import { z } from "zod";
+import { app, shell, systemPreferences } from "electron";
 import {
   RELAY_VERSION,
   RpcErrorCode,
@@ -24,8 +23,7 @@ import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { SERVES, serveWith } from "./serve";
 import { remoteServer } from "./server";
-
-const TicketSchema = z.object({ ticket: z.string().min(1) });
+import { TicketSchema, VoiceSessions } from "./voice";
 
 const c = ipcContract.remote.call;
 
@@ -39,6 +37,29 @@ function signInOptions(): { loginHint?: string } {
 }
 
 /** Asks the server for the renderer: how it failed, where the renderer can act on it. */
+/** The system's microphone privacy settings, where it has a page for them. */
+const MICROPHONE_SETTINGS: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+  win32: "ms-settings:privacy-microphone",
+};
+
+/**
+ * Whether the app may use the microphone. macOS asks the user the first
+ * time (the prompt names NSMicrophoneUsageDescription); a fake capture
+ * device (Chromium's --use-fake-device-for-media-stream, for testing) needs
+ * no asking. Elsewhere the page's getUserMedia finds out.
+ */
+async function microphoneAccess(): Promise<"granted" | "denied"> {
+  if (process.platform !== "darwin") return "granted";
+  if (app.commandLine.hasSwitch("use-fake-device-for-media-stream")) return "granted";
+  const status = systemPreferences.getMediaAccessStatus("microphone");
+  if (status === "granted") return "granted";
+  if (status === "not-determined") {
+    return (await systemPreferences.askForMediaAccess("microphone")) ? "granted" : "denied";
+  }
+  return "denied";
+}
+
 async function ask<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
   try {
     return ipcOk(await question());
@@ -148,6 +169,10 @@ export async function registerRemoteChannel(options: {
     },
   });
   keys = accountKeys;
+  const voice = new VoiceSessions({
+    account,
+    emit: (event) => broadcast("remote", "voiceEvent", event),
+  });
 
   const relayUrl = async () => {
     const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
@@ -281,6 +306,30 @@ export async function registerRemoteChannel(options: {
         const { password } = validateArgs(c.resetKey.args, args);
         return keyFlow(() => accountKeys.reset(password));
       },
+      voiceStart: async (args: unknown) => {
+        const { language } = validateArgs(c.voiceStart.args, args);
+        return ipcOk(await voice.start(language));
+      },
+      voiceAudio: async (args: unknown) => {
+        const { id, audio } = validateArgs(c.voiceAudio.args, args);
+        voice.audio(id, audio);
+        return ipcOk(undefined);
+      },
+      voiceStop: async (args: unknown) => {
+        voice.stop(validateArgs(c.voiceStop.args, args).id);
+        return ipcOk(undefined);
+      },
+      voiceCancel: async (args: unknown) => {
+        voice.cancel(validateArgs(c.voiceCancel.args, args).id);
+        return ipcOk(undefined);
+      },
+      voiceUsage: () => ask(() => voice.usage()),
+      voiceMicrophone: async () => ipcOk(await microphoneAccess()),
+      openMicrophoneSettings: async () => {
+        const url = MICROPHONE_SETTINGS[process.platform];
+        if (url) await shell.openExternal(url);
+        return ipcOk(undefined);
+      },
     },
     listen: {
       accountChanged: {},
@@ -294,6 +343,7 @@ export async function registerRemoteChannel(options: {
     keys: accountKeys,
     dispose: () => {
       account.cancelSignIn();
+      voice.cancel();
       room?.stop();
     },
   };

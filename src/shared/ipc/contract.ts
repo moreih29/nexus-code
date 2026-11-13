@@ -102,6 +102,13 @@ import {
   SignInProviderSchema,
 } from "../remote/account";
 import { RoomStateSchema } from "../remote/room";
+import {
+  VoiceAudioArgsSchema,
+  VoiceEventSchema,
+  VoiceStartArgsSchema,
+  VoiceStartResultSchema,
+  VoiceUsageSchema,
+} from "../remote/voice";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -2419,6 +2426,23 @@ export const ipcContract = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      /** Opens a voice session: ready with the rate to capture at, or why not. */
+      voiceStart: call(VoiceStartArgsSchema, VoiceStartResultSchema),
+      /** About 100 ms of audio for the open session. */
+      voiceAudio: call(VoiceAudioArgsSchema, z.void()),
+      /** The user stopped speaking: the rest of the text comes, then the session closes. */
+      voiceStop: call(z.object({ id: z.string() }), z.void()),
+      /** Drops the session at once. */
+      voiceCancel: call(z.object({ id: z.string() }), z.void()),
+      /** This month's voice minutes (GET /voice/usage). */
+      voiceUsage: call(z.void(), VoiceUsageSchema),
+      /**
+       * Whether the app may use the microphone, asking the system first
+       * where it has not been asked (macOS): granted, or denied there.
+       */
+      voiceMicrophone: call(z.void(), z.enum(["granted", "denied"])),
+      /** Opens the system's microphone privacy settings. */
+      openMicrophoneSettings: call(z.void(), z.void()),
     },
     listen: {
       accountChanged: listen(RemoteAccountStateSchema),
@@ -2426,6 +2450,8 @@ export const ipcContract = {
       roomChanged: listen(RoomStateSchema),
       /** A chat this device watches on another changed (peerChatWatch). */
       peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),
+      /** What the open voice session's server said, then that it closed. */
+      voiceEvent: listen(VoiceEventSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;
