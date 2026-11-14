@@ -185,6 +185,8 @@ export interface FakeApp {
     requests: Array<{ deviceId: string; method: string; params: unknown; timeoutMs?: number }>;
     answer: (deviceId: string, method: string, params: unknown) => Promise<unknown>;
   };
+  /** Each terminal's screen as terminal.read gives it, by tab id; a test may change one. */
+  screens: Map<string, string>;
   /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
@@ -768,6 +770,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     foreground,
     turnHops,
     peers,
+    screens,
     settings,
     answers,
     asked,

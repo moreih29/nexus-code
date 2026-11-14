@@ -421,6 +421,42 @@ describe("terminal wait", () => {
   });
 });
 
+describe("terminal wait --match", () => {
+  test("ends on the first line the pattern matches", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, [
+      "terminal",
+      "wait",
+      "codex",
+      "--workspace",
+      "api",
+      "--match",
+      "Work(ing|ed)",
+      "--json",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({ state: "matched" });
+  });
+
+  test("a pattern that backtracks without end ends the wait, not the app", async () => {
+    const app = fakeApp();
+    app.screens.set(CODEX_TAB, `${" ".repeat(40)}x`);
+    const result = await nexus(app, [
+      "terminal",
+      "wait",
+      "codex",
+      "--workspace",
+      "api",
+      "--match",
+      "( +)+$",
+      "--json",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      state: "error",
+      message: "the pattern took too long to match: give a simpler one",
+    });
+  });
+});
+
 describe("terminal wait after worktree new --command", () => {
   const started = async (
     app: FakeApp,
