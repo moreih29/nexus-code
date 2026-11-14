@@ -15,7 +15,8 @@
  *
  * NEXUS_UPDATE_FEED_URL points the updater at a generic feed — a directory
  * holding the feed file and the release file — to try an update without
- * publishing a release. Squirrel.Mac still requires the release signature.
+ * publishing a release: https, or http on this machine (./feed-url).
+ * Squirrel.Mac still requires the release signature.
  */
 
 import { readFileSync } from "node:fs";
@@ -24,6 +25,7 @@ import { autoUpdater as nativeUpdater } from "electron";
 import type { AppUpdater } from "electron-updater";
 import type { Logger } from "../../../shared/log/types";
 import { isLinux, isMac } from "../../infra/platform";
+import { updateFeedUrl } from "./feed-url";
 import type { DownloadProgress, UpdateBackend } from "./installer";
 
 const OWNER = "moreih29";
@@ -75,7 +77,7 @@ export function createElectronUpdateBackend(logger: Logger): UpdateBackend {
       // A staged update the user does not restart for goes in at the next quit,
       // except a deb, whose install asks for the admin password.
       autoUpdater.autoInstallOnAppQuit = !deb;
-      const feed = process.env.NEXUS_UPDATE_FEED_URL;
+      const feed = updateFeedUrl(process.env.NEXUS_UPDATE_FEED_URL, (m) => logger.warn(m));
       autoUpdater.setFeedURL(
         feed
           ? { provider: "generic", url: feed }
