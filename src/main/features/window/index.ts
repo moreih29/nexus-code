@@ -11,7 +11,13 @@ import {
 import { getMainT } from "../../i18n";
 import { isMac, isWindows, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
-import { opensHere, UserActivation, watchActivation } from "./activation";
+import {
+  APP_ACTIVATION_MS,
+  opensHere,
+  USER_ACTIVATION_MS,
+  UserActivation,
+  watchActivation,
+} from "./activation";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -227,10 +233,11 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // Popups need fresh user input, like Chrome's popup blocker: a previewed
   // page calling window.open from a timer would otherwise open browser tabs
   // without limit. Preview and markdown link clicks call window.open from the
-  // click handler itself, so they always follow the input. One input lets
-  // one popup through; typing does not. Input in the HTML preview's page,
-  // which runs out of process, counts too, but only for its own links, and
-  // the app's only for the app's (./activation).
+  // click handler itself, so they always follow the input; a link the app
+  // looks up first (an MCP sign-in page) may come up to APP_ACTIVATION_MS
+  // later. One input lets one popup through; typing does not. Input in the
+  // HTML preview's page, which runs out of process, counts too, but only
+  // for its own links, and the app's only for the app's (./activation).
   const activation = new UserActivation();
   watchActivation(win.webContents, activation);
 
@@ -239,11 +246,12 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
     const main = win.webContents.mainFrame;
     const keyboardInApp =
       !focused || (focused.processId === main.processId && focused.routingId === main.routingId);
+    const previewLink = frameName === PREVIEW_LINK_WINDOW;
     if (!isExternalSchemeAllowed(url)) {
       logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
-    } else if (!opensHere(frameName === PREVIEW_LINK_WINDOW, keyboardInApp)) {
+    } else if (!opensHere(previewLink, keyboardInApp)) {
       logger.warn(`Blocked window.open from where the keyboard is not: ${url}`);
-    } else if (!activation.take()) {
+    } else if (!activation.take(previewLink ? USER_ACTIVATION_MS : APP_ACTIVATION_MS)) {
       logger.warn(`Blocked window.open without user input: ${url}`);
     } else {
       shell.openExternal(url);

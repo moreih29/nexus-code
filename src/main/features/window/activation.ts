@@ -19,11 +19,21 @@
  * page's timer through. So the page opens no window itself (its sandbox
  * has no allow-popups); the app opens its links under PREVIEW_LINK_WINDOW.
  * Such a link opens only while the keyboard is in a frame of the page's,
- * and the app's own only while it is in the app's frame (opensHere).
+ * and the app's own only while it is in the app's frame (opensHere). The
+ * page's must follow the input at once (USER_ACTIVATION_MS); the app's may
+ * come later (APP_ACTIVATION_MS), as Chromium allows.
  */
 
 /** How long an activating input lets one window.open through. */
 export const USER_ACTIVATION_MS = 1_000;
+
+/**
+ * How long it lets the app's own window.open through: Chromium's transient
+ * activation. A link the app looks up first opens later than at once, as an
+ * MCP server's sign-in page, which the agent is asked for, or a local
+ * address of an SSH workspace, whose forward is set up first.
+ */
+export const APP_ACTIVATION_MS = 5_000;
 
 /** The keys (KeyboardEvent.key, as Electron gives it) that activate a focused link or button. */
 const ACTIVATING_KEYS = new Set(["Enter", " "]);
@@ -78,9 +88,12 @@ export class UserActivation {
     if (activates(input)) this.lastAt = this.now();
   }
 
-  /** Whether a window.open may go through now; it uses up the input that let it. */
-  take(): boolean {
-    if (this.now() - this.lastAt > this.windowMs) return false;
+  /**
+   * Whether a window.open may go through now, an input within `windowMs`
+   * before; it uses up the input that let it.
+   */
+  take(windowMs: number = this.windowMs): boolean {
+    if (this.now() - this.lastAt > windowMs) return false;
     this.lastAt = Number.NEGATIVE_INFINITY;
     return true;
   }

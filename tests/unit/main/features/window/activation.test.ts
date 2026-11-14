@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
+  APP_ACTIVATION_MS,
   activates,
   opensHere,
   USER_ACTIVATION_MS,
@@ -81,6 +82,16 @@ describe("the window's activation", () => {
     wait(USER_ACTIVATION_MS);
     expect(activation.take()).toBe(true);
     expect(activation.take()).toBe(false);
+  });
+
+  test("the app's own window.open may come later, for a link it looks up first", () => {
+    const { contents, activation, wait } = setup();
+    contents.emit("before-mouse-event", {}, { type: "mouseUp" });
+    wait(USER_ACTIVATION_MS + 1);
+    expect(activation.take(APP_ACTIVATION_MS)).toBe(true);
+    contents.emit("before-mouse-event", {}, { type: "mouseUp" });
+    wait(APP_ACTIVATION_MS + 1);
+    expect(activation.take(APP_ACTIVATION_MS)).toBe(false);
   });
 
   test("not once the moment has passed", () => {
