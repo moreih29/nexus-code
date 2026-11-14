@@ -51,11 +51,15 @@ export function conversationOf({ chat, relayed }: ChatSource): {
   agentItems: Record<string, AssistantItem[]>;
 } {
   const { history, model } = chat;
+  // Received messages are found by the keys the program gave (u-<id>), so
+  // the history is keyed apart only after.
+  const items = withRelayed(history ? [...history.items, ...model.items] : model.items, relayed);
+  const fromHistory = history?.items.length ?? 0;
   return {
-    items: withRelayed(
-      history ? [...history.items.map(asHistory), ...model.items] : model.items,
-      relayed,
-    ),
+    items:
+      fromHistory === 0
+        ? items
+        : items.map((item, i) => (i < fromHistory ? asHistory(item) : item)),
     tools: history ? { ...history.tools, ...model.tools } : model.tools,
     agentItems: history ? { ...history.agentItems, ...model.agentItems } : model.agentItems,
   };

@@ -86,6 +86,24 @@ describe("a chat's page for another device", () => {
     expect(conversationOf(chat).items[0]).toBe(conversationOf(chat).items[0]);
   });
 
+  test("a message another agent sent shows as received in the history too", () => {
+    // Codex keys a message the tab sent by its client id (u-<id>), which the record names.
+    const sent: ChatItem = {
+      kind: "user",
+      key: "u-r1",
+      text: "Run the tests.",
+      images: [],
+      state: "taken",
+    };
+    const chat = {
+      ...source({ items: [said("a1")] }, { items: [sent] }),
+      relayed: [{ id: "r1", from: { kind: "manager" as const }, at: 1 }],
+    };
+    const items = conversationOf(chat).items;
+    expect(items[0]).toMatchObject({ kind: "received", key: "h-u-r1", from: { kind: "manager" } });
+    expect(conversationOf(chat).items[0]).toBe(items[0]);
+  });
+
   test("pages back by `before`, naming only its items' calls", () => {
     const items = Array.from({ length: 10 }, (_, i) => said(`i${i}`, `t${i}`));
     const tools = Object.fromEntries(items.map((_, i) => [`t${i}`, tool(`t${i}`)]));
