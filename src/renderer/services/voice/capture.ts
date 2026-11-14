@@ -26,35 +26,12 @@ export interface Capture {
   stop(): void;
 }
 
-/** The worklet: collects `frame` samples of the first channel, then posts them. */
-const WORKLET = `
-class FrameCollector extends AudioWorkletProcessor {
-  constructor(options) {
-    super();
-    this.frame = options.processorOptions.frame;
-    this.buffer = new Float32Array(this.frame);
-    this.filled = 0;
-  }
-  process(inputs) {
-    const channel = inputs[0] && inputs[0][0];
-    if (!channel) return true;
-    let read = 0;
-    while (read < channel.length) {
-      const take = Math.min(channel.length - read, this.frame - this.filled);
-      this.buffer.set(channel.subarray(read, read + take), this.filled);
-      this.filled += take;
-      read += take;
-      if (this.filled === this.frame) {
-        this.port.postMessage(this.buffer, [this.buffer.buffer]);
-        this.buffer = new Float32Array(this.frame);
-        this.filled = 0;
-      }
-    }
-    return true;
-  }
-}
-registerProcessor("nexus-frame-collector", FrameCollector);
-`;
+/**
+ * The worklet that collects `frame` samples of the first channel, then posts
+ * them: a file of the app's own, which Vite serves and builds next to the
+ * renderer (new URL(…, import.meta.url)).
+ */
+const WORKLET_URL = new URL("./frame-collector.worklet.js", import.meta.url).href;
 
 /** Asks for the microphone; the stream, or why not. */
 export async function openMicrophone(): Promise<MediaStream> {
@@ -95,10 +72,9 @@ export async function startCapture(
     if (!options.keepStream) for (const track of stream.getTracks()) track.stop();
   };
   let context: AudioContext | null = null;
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
   try {
     context = new AudioContext({ sampleRate, latencyHint: "interactive" });
-    await context.audioWorklet.addModule(url);
+    await context.audioWorklet.addModule(WORKLET_URL);
     const source = context.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(context, "nexus-frame-collector", {
       numberOfInputs: 1,
@@ -131,7 +107,5 @@ export async function startCapture(
     release();
     void context?.close().catch(() => {});
     throw new CaptureError("failed", error instanceof Error ? error.message : String(error));
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }

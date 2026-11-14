@@ -307,9 +307,14 @@ export default defineConfig({
       // bundle and every user (including the default Minimal theme, which never
       // shows them) would pay for it. Emitting them as separate files preserves
       // on-demand, browser-cached loading (VS Code-style) and keeps startup lean.
+      // AudioWorklet modules (*.worklet.js) stay files too: the window's
+      // Content-Security-Policy runs scripts from the app's files only, not
+      // from data: URLs (src/main/features/window/app-csp.ts).
       // All other assets keep Vite's default inline threshold.
       assetsInlineLimit: (filePath: string) =>
-        filePath.includes("assets/icons/material/") ? false : undefined,
+        filePath.includes("assets/icons/material/") || filePath.endsWith(".worklet.js")
+          ? false
+          : undefined,
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
