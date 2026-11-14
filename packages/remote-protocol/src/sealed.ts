@@ -20,7 +20,7 @@ export const PROTOCOL_VERSION = 1;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.2.0";
+export const SCHEMA_VERSION = "0.3.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -43,7 +43,10 @@ export const CAPABILITIES = [
   "sessions",
   /** Reading a chat: chat.read and chat.watch, its settings, commands, panel, images, tool calls; history.list. */
   "chat.read",
-  /** Acting in a chat: sending, answering, stopping, settings, commands, opening, resuming, renaming, closing. */
+  /**
+   * Acting in a chat: sending, answering, stopping, settings, commands, opening, resuming,
+   * renaming, closing; and answering the consent prompts waiting on the user.
+   */
   "chat.control",
   /** terminal.read and terminal.watch: a terminal's screen, as text. */
   "terminal.read",
@@ -85,7 +88,7 @@ export const HelloSchema = z.object({
   }),
   serves: z.array(CapabilitySchema),
   /**
-   * The protocol package's version it speaks (SCHEMA_VERSION, "0.2.0");
+   * The protocol package's version it speaks (SCHEMA_VERSION, "0.3.0");
    * absent before 0.2.0. A method it does not have is answered MethodNotFound.
    */
   schema: z.string().max(40).optional(),

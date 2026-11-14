@@ -153,6 +153,44 @@ describe("the methods", () => {
     expect(SCHEMA_VERSION).toBe(pkg.version);
   });
 
+  test("sessions.list carries the consent prompts waiting on the user; an older list has none", () => {
+    const consent = {
+      id: "c1",
+      at: 1000,
+      expiresAt: 91_000,
+      expiresInMs: 85_000,
+      from: {
+        device: { id: "d1", name: "MacBook" },
+        workspaceId: "w9",
+        tabId: "t9",
+        name: "Fix build",
+      },
+      workspaceId: "w1",
+      change: { kind: "terminalInput", detail: "dev server", body: "npm test<enter>" },
+      eachTime: false,
+      answerable: false,
+    };
+    const { result } = RPC_METHODS["sessions.list"];
+    const listed = result.parse({ workspaces: [], sessions: [], consents: [consent] });
+    expect(listed.consents?.[0]?.change.kind).toBe("terminalInput");
+    // A kind this version does not name is still a prompt.
+    expect(
+      result.safeParse({
+        workspaces: [],
+        sessions: [],
+        consents: [{ ...consent, change: { kind: "somethingNew" } }],
+      }).success,
+    ).toBe(true);
+    expect(result.parse({ workspaces: [], sessions: [] }).consents).toBeUndefined();
+  });
+
+  test("consent.answer takes once, session or deny, under chat.control", () => {
+    const spec = RPC_METHODS["consent.answer"];
+    expect(spec.capability).toBe("chat.control");
+    expect(spec.params.safeParse({ id: "c1", answer: "session" }).success).toBe(true);
+    expect(spec.params.safeParse({ id: "c1", answer: "always" }).success).toBe(false);
+  });
+
   test("every method's capability is one the protocol names", () => {
     for (const spec of Object.values(RPC_METHODS)) {
       expect(CAPABILITIES as readonly string[]).toContain(spec.capability);

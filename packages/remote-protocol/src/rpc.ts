@@ -132,9 +132,67 @@ export const RemoteSessionSchema = z.object({
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 
+/** How the user answers a consent prompt: this once, until the serving app restarts, or no. */
+export const ConsentAnswerSchema = z.enum(["once", "session", "deny"]);
+export type ConsentAnswer = z.infer<typeof ConsentAnswerSchema>;
+
+/**
+ * A change an agent asks to make that waits on the user's consent on the
+ * serving device: an agent of another device of the account, a nexus
+ * command changing another workspace there, or its agent manager. The user
+ * may answer it there or, when `answerable`, from the device that lists it
+ * (consent.answer); unanswered by `expiresAt`, it counts as turned down.
+ */
+export const RemoteConsentSchema = z.object({
+  id: z.string(),
+  /** When it was asked, by the serving device's clock (Unix ms). */
+  at: z.number(),
+  /** When it counts as turned down, by the serving device's clock. */
+  expiresAt: z.number(),
+  /** How long it has left as the list is sent: a countdown that needs no clock in common. */
+  expiresInMs: z.number().int().nonnegative(),
+  /** Who asks. */
+  from: z.object({
+    /** An agent of another device of the account; absent: one of the serving device's own. */
+    device: z.object({ id: z.string(), name: z.string() }).optional(),
+    /** The serving device's agent manager asks. */
+    manager: z.boolean().optional(),
+    workspaceId: z.string(),
+    /** The asking workspace's name, when it is one of the serving device's. */
+    workspaceName: z.string().optional(),
+    tabId: z.string(),
+    /** The asking tab's title. */
+    name: z.string().optional(),
+  }),
+  /** The serving device's workspace it would change. */
+  workspaceId: z.string(),
+  /**
+   * What it would do: `kind` as the serving device names it (chatInput,
+   * terminalInput, tabClose, permissionAllow, ...; new ones may come), a
+   * line on what to, and the whole of it when a line does not tell it (a
+   * command to allow).
+   */
+  change: z.object({
+    kind: z.string(),
+    detail: z.string().optional(),
+    body: z.string().optional(),
+  }),
+  /** It is asked about each time: "session" is not an answer to it. */
+  eachTime: z.boolean(),
+  /**
+   * Whether the device the list goes to may answer it: one that serves it
+   * chat.control, and terminal.control too for a change to a terminal; never
+   * the device whose agent asks.
+   */
+  answerable: z.boolean(),
+});
+export type RemoteConsent = z.infer<typeof RemoteConsentSchema>;
+
 const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
   sessions: z.array(RemoteSessionSchema),
+  /** The consent prompts waiting on the user, in the order they are asked; absent before 0.3.0. */
+  consents: z.array(RemoteConsentSchema).optional(),
 });
 
 /** A session of the serving device, by its ids there. */
@@ -830,6 +888,19 @@ export const RPC_METHODS = {
       force: z.boolean().optional(),
       from: AgentSenderSchema.optional(),
     }),
+    result: Ok,
+  },
+
+  /**
+   * Answers a consent prompt of sessions.list's `consents`, as the user would
+   * on the serving device, where it closes. NotFound when it is no longer
+   * waiting (answered there, or timed out); Forbidden when it is not
+   * `answerable`, or for "session" to one asked about each time. An
+   * agent's request (`from`) is refused: only people answer these.
+   */
+  "consent.answer": {
+    capability: "chat.control",
+    params: z.object({ id: z.string(), answer: ConsentAnswerSchema }),
     result: Ok,
   },
 
