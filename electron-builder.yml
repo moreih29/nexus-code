@@ -92,6 +92,12 @@ appx:
   # both.
   minVersion: 10.0.22000.0
   maxVersionTested: 10.0.26200.0
+  # Voice input and note recording capture the microphone (getUserMedia). A
+  # packaged app reaches it only when its manifest declares it, and is listed
+  # under Settings > Privacy > Microphone then. electron-builder always adds
+  # runFullTrust, its only default.
+  capabilities:
+    - microphone
 
 toolsets:
   # The AppImage tools' newer, statically linked runtime. The default one
