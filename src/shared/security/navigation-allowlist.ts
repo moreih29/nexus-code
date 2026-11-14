@@ -68,6 +68,17 @@ export function isNavigationSchemeAllowed(rawUrl: string): boolean {
 }
 
 /**
+ * Whether main may load `rawUrl` in a browser tab when the app asks it to
+ * (a new tab, the address bar, nexus browser goto): a top-level scheme, or
+ * the blank page a new tab starts on. loadURL does not go through
+ * will-navigate, so this is that guard for the app's own loads: a
+ * `javascript:` URL would run in whatever page the tab shows.
+ */
+export function isTabLoadAllowed(rawUrl: string): boolean {
+  return rawUrl === "about:blank" || isNavigationSchemeAllowed(rawUrl);
+}
+
+/**
  * Returns true when `rawUrl` is allowed to load in a SUB-FRAME.
  *
  * Superset of `isNavigationSchemeAllowed`: everything valid at top-level, plus

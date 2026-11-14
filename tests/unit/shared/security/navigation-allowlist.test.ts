@@ -12,6 +12,7 @@ import {
   isBuiltinPdfViewerUrl,
   isNavigationSchemeAllowed,
   isSubframeNavigationAllowed,
+  isTabLoadAllowed,
 } from "../../../../src/shared/security/navigation-allowlist";
 
 describe("isNavigationSchemeAllowed", () => {
@@ -152,5 +153,22 @@ describe("isSubframeNavigationAllowed", () => {
   test("rejects empty / malformed input", () => {
     expect(isSubframeNavigationAllowed("")).toBe(false);
     expect(isSubframeNavigationAllowed("::nope")).toBe(false);
+  });
+});
+
+describe("isTabLoadAllowed", () => {
+  test("loads what a tab opens at the top level, and the blank page a new tab starts on", () => {
+    expect(isTabLoadAllowed("https://example.com/")).toBe(true);
+    expect(isTabLoadAllowed("http://localhost:3000/")).toBe(true);
+    expect(isTabLoadAllowed("file:///tmp/report.html")).toBe(true);
+    expect(isTabLoadAllowed("about:blank")).toBe(true);
+  });
+
+  test("does not load a script, a data page or the browser's own pages", () => {
+    expect(isTabLoadAllowed("javascript:alert(document.cookie)")).toBe(false);
+    expect(isTabLoadAllowed("data:text/html,<script>1</script>")).toBe(false);
+    expect(isTabLoadAllowed("chrome://gpu")).toBe(false);
+    expect(isTabLoadAllowed("devtools://devtools/bundled/inspector.html")).toBe(false);
+    expect(isTabLoadAllowed("about:srcdoc")).toBe(false);
   });
 });
