@@ -10,6 +10,7 @@ import {
 import { getMainT } from "../../i18n";
 import { isMac, isWindows, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
+import { activates, USER_ACTIVATION_MS } from "./activation";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -20,11 +21,6 @@ import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from 
 const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
-
-// Input that grants transient user activation in Chromium, and how long that
-// activation lasts.
-const ACTIVATING_INPUTS = new Set(["mouseDown", "keyDown", "rawKeyDown", "touchEnd", "gestureTap"]);
-const USER_ACTIVATION_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
@@ -231,10 +227,10 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // page calling window.open from a timer would otherwise open browser tabs
   // without limit. Preview and markdown link clicks call window.open from the
   // click handler itself, so they always follow the input. One input lets
-  // one popup through.
+  // one popup through; typing does not (./activation).
   let lastActivationAt = 0;
   win.webContents.on("input-event", (_event, input) => {
-    if (ACTIVATING_INPUTS.has(input.type)) lastActivationAt = Date.now();
+    if (activates(input as { type: string; key?: string })) lastActivationAt = Date.now();
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
