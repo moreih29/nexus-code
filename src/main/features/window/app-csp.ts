@@ -21,6 +21,12 @@ import { PREVIEW_SCHEME } from "../../../shared/preview/document-url";
 // Previewed workspace HTML is not under it: the preview serves its pages from
 // nexus-preview:// with a policy of its own (custom-protocols/nexus-preview.ts),
 // and a page from a scheme of its own does not take on the window's.
+//
+// In a build the page is a file, and 'self' takes in every file:// address:
+// markup let through could run a script of an open repository with the
+// app's IPC. The app session's request guard (custom-protocols/app-schemes.ts)
+// keeps code, and what script reads, to the renderer's folder
+// (cancelsAppFileRequest).
 // ---------------------------------------------------------------------------
 
 const logger = createLogger("app-csp");
@@ -79,10 +85,61 @@ export interface AppPage {
   readonly devServerUrl?: string;
 }
 
+/** `p` resolved (no `..`), in one case on Windows, whose paths ignore it. */
+function comparablePath(p: string): string {
+  const resolved = path.resolve(p);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 function samePath(a: string, b: string): boolean {
-  const left = path.resolve(a);
-  const right = path.resolve(b);
-  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+  return comparablePath(a) === comparablePath(b);
+}
+
+/** Whether `file` is inside `dir`, `dir` itself not included. */
+function isInsideDir(file: string, dir: string): boolean {
+  const relative = path.relative(comparablePath(dir), comparablePath(file));
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+/**
+ * The resource types through which a file runs as code or page script reads
+ * it: a page, frame, script, style sheet, object, fetch or XHR, and "other"
+ * (a worker's script among them). An image, font or media file only renders.
+ */
+const FILE_CODE_TYPES = new Set([
+  "mainFrame",
+  "subFrame",
+  "script",
+  "stylesheet",
+  "object",
+  "xhr",
+  "other",
+]);
+
+/**
+ * Whether a file:// request of the app's session is cancelled: one that
+ * would run, or let script read, a file outside the renderer's folder
+ * (`rendererDir`, where index.html is). What only renders is let through.
+ */
+export function cancelsAppFileRequest(
+  resourceType: string,
+  url: string,
+  rendererDir: string,
+): boolean {
+  if (!FILE_CODE_TYPES.has(resourceType)) return false;
+  let file: string;
+  try {
+    file = fileURLToPath(url);
+  } catch {
+    // Another host's file, an encoded separator, or no file URL at all.
+    return true;
+  }
+  return !isInsideDir(file, rendererDir);
 }
 
 /** Whether `url` is the app's page, which the policy goes with. */

@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { pathToFileURL } from "node:url";
 import type { CustomScheme } from "electron";
 // Namespace import (not `import { net, protocol }`): under Bun's test runtime
 // the real electron entry is a CJS shim with no named exports, so a static
@@ -214,8 +213,8 @@ export function buildNexusWorkspaceHandler(
     }
 
     // SSH workspaces are served through the agent's fs.readRange method.
-    // Local workspaces stay on the file:// fetch path below because it
-    // streams directly off disk without a base64 round-trip.
+    // Local workspaces are read straight off disk below, without a base64
+    // round-trip.
     if (meta.location.kind !== "local") {
       return serveViaAgent(workspaceManager, workspaceId, relPath, req.headers.get("range"));
     }
@@ -285,17 +284,17 @@ async function serveLocalFile(realPath: string, rangeHeader: string | null): Pro
     }
   }
 
-  // Step 7 — serve via net.fetch using a file:// URL.
-  // net.fetch handles streaming for us and avoids manually wrapping Node
-  // streams into a Web ReadableStream across Electron versions.
+  // Step 7 — the whole file, streamed off disk. Not by net.fetch of its
+  // file:// URL: that goes through the app session's request guard, which
+  // cancels a file outside the renderer's folder (window/app-csp.ts).
   try {
-    const fileUrl = pathToFileURL(realPath).href;
-    const fileResp = await electron.net.fetch(fileUrl);
-    if (!fileResp.ok) {
-      logger.warn(`net.fetch failed (${fileResp.status}): ${realPath}`);
+    const stat = await fs.promises.stat(realPath);
+    if (!stat.isFile()) {
+      logger.warn(`Not a file: ${realPath}`);
       return new Response(null, { status: 404 });
     }
-    return new Response(fileResp.body, { status: 200, headers: responseHeaders(realPath) });
+    const body = Readable.toWeb(fs.createReadStream(realPath)) as ReadableStream<Uint8Array>;
+    return new Response(body, { status: 200, headers: responseHeaders(realPath) });
   } catch (err) {
     logger.warn(`Failed to read file: ${realPath} — ${(err as Error).message}`);
     return new Response(null, { status: 404 });

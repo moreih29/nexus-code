@@ -30,7 +30,7 @@ import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
-  installAppSchemeRequestGuard,
+  installAppRequestGuard,
   registerAppSchemes,
 } from "./features/custom-protocols/app-schemes";
 import {
@@ -448,6 +448,9 @@ app.whenReady().then(async () => {
     appPage(),
     !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
   );
+  // The session's request guard: the app's schemes, and file:// outside the
+  // renderer's folder, which the policy's 'self' takes in in a build.
+  installAppRequestGuard(session.defaultSession, path.dirname(appPage().indexPath));
   // On Linux, find out whether the notification service answers before the
   // first notification has to wait on it (infra/platform/desktop-notifications).
   startDesktopNotifications();
@@ -508,7 +511,6 @@ app.whenReady().then(async () => {
   // manager is initialised so workspace lookups resolve correctly.
   installNexusWorkspaceProtocol(workspaceManager);
   installNexusPreviewProtocol(previewDocuments);
-  installAppSchemeRequestGuard(session.defaultSession);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });

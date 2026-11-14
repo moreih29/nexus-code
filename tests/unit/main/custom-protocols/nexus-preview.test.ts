@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { cancelsAppSchemeRequest } from "../../../../src/main/features/custom-protocols/app-schemes";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  cancelsAppRequest,
+  cancelsAppSchemeRequest,
+} from "../../../../src/main/features/custom-protocols/app-schemes";
 import {
   buildNexusPreviewHandler,
   cancelsPreviewRequest,
@@ -148,5 +153,17 @@ describe("cancelsAppSchemeRequest", () => {
     expect(cancelsAppSchemeRequest("image", "nexus-workspace://ws-1/logo.png")).toBe(false);
     expect(cancelsAppSchemeRequest("subFrame", "nexus-workspace://ws-1/page.html")).toBe(false);
     expect(cancelsAppSchemeRequest("xhr", "nexus-workspace://ws-1/.env")).toBe(true);
+  });
+
+  test("guards the app's file:// requests in the same listener", () => {
+    const renderer = path.resolve("/app/out/renderer");
+    const own = pathToFileURL(path.join(renderer, "assets", "index.js")).href;
+    const repo = pathToFileURL(path.resolve("/Users/u/repo/evil.js")).href;
+    expect(cancelsAppRequest("script", own, renderer)).toBe(false);
+    expect(cancelsAppRequest("script", repo, renderer)).toBe(true);
+    expect(cancelsAppRequest("xhr", repo, renderer)).toBe(true);
+    expect(cancelsAppRequest("image", repo, renderer)).toBe(false);
+    expect(cancelsAppRequest("subFrame", preview, renderer)).toBe(false);
+    expect(cancelsAppRequest("xhr", "nexus-workspace://ws-1/.env", renderer)).toBe(true);
   });
 });

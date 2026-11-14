@@ -5,6 +5,7 @@ import type { Session } from "electron";
 import {
   appContentSecurityPolicy,
   appPageUrlPatterns,
+  cancelsAppFileRequest,
   installAppCsp,
   isAppPageUrl,
 } from "../../../../../src/main/features/window/app-csp";
@@ -65,6 +66,54 @@ describe("isAppPageUrl", () => {
   test("filters webRequest to file:// in a build and to the dev server in dev", () => {
     expect(appPageUrlPatterns({ indexPath: INDEX })).toEqual(["file:///*"]);
     expect(appPageUrlPatterns({ indexPath: INDEX, devServerUrl: `${DEV}/` })).toEqual([`${DEV}/*`]);
+  });
+});
+
+describe("cancelsAppFileRequest", () => {
+  const RENDERER = path.dirname(INDEX);
+  const inRenderer = (rel: string) => pathToFileURL(path.join(RENDERER, rel)).href;
+  const repo = pathToFileURL(path.resolve("/Users/u/repo/evil.js")).href;
+
+  test("runs and reads only the renderer's own files", () => {
+    for (const type of [
+      "script",
+      "stylesheet",
+      "subFrame",
+      "object",
+      "xhr",
+      "other",
+      "mainFrame",
+    ]) {
+      expect(cancelsAppFileRequest(type, repo, RENDERER)).toBe(true);
+      expect(cancelsAppFileRequest(type, inRenderer("assets/index-abc.js"), RENDERER)).toBe(false);
+    }
+    expect(cancelsAppFileRequest("script", inRenderer("monaco/vs/loader.js"), RENDERER)).toBe(
+      false,
+    );
+    expect(cancelsAppFileRequest("mainFrame", INDEX_URL, RENDERER)).toBe(false);
+  });
+
+  test("lets what only renders through from anywhere", () => {
+    for (const type of ["image", "font", "media"]) {
+      expect(cancelsAppFileRequest(type, repo, RENDERER)).toBe(false);
+    }
+  });
+
+  test("is not fooled by a way out of the folder, or a folder of a like name", () => {
+    const parent = `${pathToFileURL(RENDERER).href}/../main/index.js`;
+    expect(cancelsAppFileRequest("script", parent, RENDERER)).toBe(true);
+    const encoded = `${pathToFileURL(RENDERER).href}/%2e%2e/main/index.js`;
+    expect(cancelsAppFileRequest("script", encoded, RENDERER)).toBe(true);
+    const sibling = pathToFileURL(`${RENDERER}-evil${path.sep}x.js`).href;
+    expect(cancelsAppFileRequest("script", sibling, RENDERER)).toBe(true);
+    expect(cancelsAppFileRequest("xhr", pathToFileURL(RENDERER).href, RENDERER)).toBe(true);
+    expect(cancelsAppFileRequest("script", "file://other-host/share/x.js", RENDERER)).toBe(true);
+    expect(cancelsAppFileRequest("script", "not a url", RENDERER)).toBe(true);
+  });
+
+  test.if(process.platform === "win32")("takes the folder in any case on Windows", () => {
+    const upper = pathToFileURL(path.join(RENDERER.toUpperCase(), "assets", "a.js")).href;
+    expect(cancelsAppFileRequest("script", upper, RENDERER)).toBe(false);
   });
 });
 
