@@ -700,11 +700,18 @@ export const RPC_METHODS = {
       decision: z.enum(["allow", "deny"]),
       /** Why, for a denial: the program reads it. */
       message: z.string().optional(),
-      /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
+      /**
+       * With allow: the input the tool runs with, as the user filled it (a
+       * question's answers). Refused from an agent (`from`): the user is
+       * asked about the request as it came.
+       */
       updatedInput: z.record(z.unknown()).optional(),
       /** With deny: the turn stops too, as the card's "No, and stop" does. */
       stop: z.boolean().optional(),
-      /** With allow: the request's suggestions to keep from now on, by index ("always allow"). */
+      /**
+       * With allow: the request's suggestions to keep from now on, by index
+       * ("always allow"). Refused from an agent (`from`), as allowAlways is.
+       */
       always: z.array(z.number().int().nonnegative()).optional(),
       from: AgentSenderSchema.optional(),
     }),

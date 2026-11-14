@@ -60,6 +60,7 @@ export class AgentGate {
       throw forbidden(`the agents' chain is too long (${MAX_AGENT_HOPS} messages): a loop?`);
     }
     this.count(`${device.id}|${from.workspaceId}|${from.tabId}`);
+    refuseBeyondAsked(request);
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
@@ -112,6 +113,22 @@ export class AgentGate {
     for (const [k, list] of this.recent) {
       if (list.every((at) => now - at >= MINUTE_MS)) this.recent.delete(k);
     }
+  }
+}
+
+/**
+ * An agent answers a permission request only as it was asked, and once:
+ * the consent prompt shows the request as it came, so a changed one
+ * (updatedInput) would run what the user never saw, and a rule kept for
+ * good (always, allowAlways) would outlast the one answer they allowed.
+ */
+function refuseBeyondAsked({ method, params }: AgentRequest): void {
+  const changed =
+    method === "chat.answer" &&
+    (params.updatedInput !== undefined ||
+      (Array.isArray(params.always) && params.always.length > 0));
+  if (changed || (method === "terminal.answer" && params.decision === "allowAlways")) {
+    throw forbidden("an agent may answer a request only as it was asked, and only once");
   }
 }
 
