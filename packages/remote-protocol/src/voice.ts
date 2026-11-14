@@ -63,7 +63,7 @@ export type VoicePurpose = z.infer<typeof VoicePurposeSchema>;
 export const TRANSCRIBE_TOKEN_MS = 24 * 60 * 60 * 1000;
 
 /** Most bytes of a recording POST /voice/transcriptions takes (about 8 hours of 24 kbps Opus). */
-export const MAX_TRANSCRIBE_BYTES = 96 * 1024 * 1024;
+export const MAX_TRANSCRIBE_BYTES = 90 * 1024 * 1024;
 
 /** What a device sends besides audio: that the user stopped speaking. */
 export const VoiceClientMessageSchema = z.object({ t: z.literal("end") });
