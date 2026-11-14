@@ -14,7 +14,6 @@ import type {
 import type { NetworkEntry } from "../../../../src/main/features/cli/browser/network-log";
 import type { PickedElement, PickResult } from "../../../../src/main/features/cli/browser/pick";
 import {
-  askEachTime,
   type ChangeRequest,
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
@@ -707,11 +706,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     notify: () => true,
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
-    askUser: (request) =>
-      askEachTime(request, async (asking) => {
-        asked.push(asking);
-        return answers.shift() ?? "deny";
-      }),
+    askUser: (request) => consent.ask(request),
     managerPermissions: () => settings.managerPermissions,
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,

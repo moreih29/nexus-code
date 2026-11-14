@@ -49,7 +49,7 @@ describe("the agent manager", () => {
 
   // What it reads of the sessions may say anything: what it types, runs or
   // sends is the user's to allow, as the setting says.
-  test("asks the user each time before it types, runs or sends", async () => {
+  test("asks the user before it types, runs or sends", async () => {
     const app = fakeApp();
     const send = ["terminal", "send", "codex", "go on", "--workspace", "api"];
     expect((await nexus(app, send)).stderr).toBe("nexus: the user did not allow it\n");
@@ -65,6 +65,18 @@ describe("the agent manager", () => {
       toWorkspaceId: API,
       change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
     });
+  });
+
+  test("types, runs and sends there unasked after until restart", async () => {
+    const app = fakeApp();
+    app.answers.push("session");
+    const send = ["terminal", "send", "codex", "go on", "--workspace", "api"];
+    expect((await nexus(app, send)).exitCode).toBe(0);
+    expect((await nexus(app, send)).exitCode).toBe(0);
+    expect(
+      (await nexus(app, ["terminal", "new", "--command", "make", "--workspace", "api"])).exitCode,
+    ).toBe(0);
+    expect(app.asked).toHaveLength(1);
   });
 
   test("types, runs and sends unasked when the setting allows changes", async () => {
@@ -143,16 +155,22 @@ describe("chat answer", () => {
     ]);
   });
 
-  test("asks the user each time for any other caller, whatever the setting", async () => {
+  test("asks the user for any other caller, whatever the setting, but once until restart", async () => {
     const app = withChat(ASKS);
     app.settings.managerPermissions = "answer";
-    app.answers.push("session", "deny");
+    app.settings.crossWorkspace = "allow";
     const shell = { workspaceId: APP, tabId: SHELL_TAB };
+    app.answers.push("once");
     await nexus(app, ["chat", "answer", "release", "allow"], shell);
-    const again = await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    // "Once" holds for that answer alone.
+    const denied = await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    expect(denied.exitCode).toBe(1);
     expect(app.asked).toHaveLength(2);
-    expect(again.exitCode).toBe(1);
-    expect(app.chatAnswered).toHaveLength(1);
+    app.answers.push("session");
+    await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    expect(app.asked).toHaveLength(3);
+    expect(app.chatAnswered).toHaveLength(3);
   });
 
   test.each([

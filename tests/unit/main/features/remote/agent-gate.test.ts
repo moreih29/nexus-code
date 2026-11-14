@@ -175,35 +175,49 @@ describe("an agent's request from another computer", () => {
     });
   });
 
-  test("allowed until restart for that kind of change between those workspaces", async () => {
-    const { g, services, asked } = gate("ask", ["session", "once", "once"]);
+  test("allowed until restart for any change between those workspaces", async () => {
+    const { g, services, asked } = gate("ask", ["session", "once"]);
     const interrupt = (workspaceId = "w1") => ({
       device,
       method: "chat.interrupt" as const,
       params: { workspaceId, tabId: "t1", from },
     });
-    const close = {
+    await g.check(services, interrupt());
+    await g.check(services, interrupt());
+    await g.check(services, {
       device,
       method: "chat.close" as const,
       params: { workspaceId: "w1", tabId: "t1", from },
-    };
-    await g.check(services, interrupt());
-    await g.check(services, interrupt());
+    });
+    // What it sends or runs there too.
+    await g.check(services, send());
+    await g.check(services, {
+      device,
+      method: "terminal.open",
+      params: { workspaceId: "w1", command: "make deploy", from },
+    });
     expect(asked).toHaveLength(1);
-    // Another workspace here is asked about again, and so is another kind of change.
+    // Another workspace here is asked about again.
     await g.check(services, interrupt("w2"));
-    await g.check(services, close);
-    expect(asked.map((a) => (a.change as { kind: string }).kind)).toEqual([
-      "chatInterrupt",
-      "chatInterrupt",
-      "tabClose",
-    ]);
+    expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
 
-  test("what it types, sends or runs, and an answer, are asked about each time", async () => {
-    const { g, services, asked } = gate("ask", ["session", "session", "session", "session"]);
+  test("until restart holds for an answer to a permission request too", async () => {
+    const { g, services, asked } = gate("ask", ["session"]);
     await g.check(services, send());
-    await g.check(services, send());
+    const answer = {
+      device,
+      method: "chat.answer" as const,
+      params: { workspaceId: "w1", tabId: "t1", requestId: "r", decision: "allow", from },
+    };
+    await g.check(services, answer);
+    expect(asked).toHaveLength(1);
+    // What it sends is shown whole when asked.
+    expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
+  });
+
+  test("a new tab's prompt and a new terminal's command are shown when asked", async () => {
+    const { g, services, asked } = gate("ask", ["once", "once"]);
     await g.check(services, {
       device,
       method: "chat.new",
@@ -215,20 +229,9 @@ describe("an agent's request from another computer", () => {
       params: { workspaceId: "w1", command: "make deploy", from },
     });
     expect(asked.map((a) => a.change)).toEqual([
-      { kind: "chatInput", detail: "Review", body: "hi" },
-      { kind: "chatInput", detail: "Review", body: "hi" },
       { kind: "chatNew", detail: "Claude", body: "delete the tests" },
       { kind: "terminalNew", body: "make deploy" },
     ]);
-    const answer = {
-      device,
-      method: "chat.answer" as const,
-      params: { workspaceId: "w1", tabId: "t1", requestId: "r", decision: "allow", from },
-    };
-    await expect(g.check(services, answer)).rejects.toMatchObject({ code: 1002 });
-    expect(asked.at(-1)).toMatchObject({
-      change: { kind: "permissionAllow", detail: "Bash rm -rf dist" },
-    });
   });
 
   test("typing into a terminal shows what it would type", async () => {
