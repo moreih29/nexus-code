@@ -19,6 +19,7 @@ import {
 import { FS_ERROR, hasFsErrorCode } from "../../../shared/fs/errors";
 import type { DirEntry } from "../../../shared/fs/types";
 import type { FsProvider } from "../fs/bridge/provider";
+import { decodable } from "./image-size";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 
 /** How much of a text file a read gives when it does not say. */
@@ -425,7 +426,9 @@ export async function readFile(
       if (whole.base64.length <= IMAGE_CHARS) {
         return { kind: "image", path: absolute, mediaType, data: whole.base64, size: total };
       }
-      const shrunk = files.shrink(Buffer.from(whole.base64, "base64"), IMAGE_CHARS);
+      const bytes = Buffer.from(whole.base64, "base64");
+      // One whose header says it is huge is not decoded: told as binary.
+      const shrunk = decodable(bytes) ? files.shrink(bytes, IMAGE_CHARS) : null;
       if (shrunk) return { kind: "image", path: absolute, ...shrunk, size: total };
     }
     return { kind: "binary", path: absolute, size: total };

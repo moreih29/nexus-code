@@ -208,6 +208,16 @@ describe("listing a folder", () => {
   });
 });
 
+/** A PNG whose header says `width` by `height`, padded to `bytes`. */
+function pngSaying(width: number, height: number, bytes: number): Buffer {
+  const b = Buffer.alloc(bytes, 1);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
+  b.write("IHDR", 12, "ascii");
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b;
+}
+
 describe("reading a file", () => {
   const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(8)]);
   const tree: Record<string, Node> = {
@@ -215,7 +225,9 @@ describe("reading a file", () => {
     "bin.dat": { type: "file", bytes: Buffer.from([1, 0, 2]) },
     "pic.png": { type: "file", bytes: png },
     big: { type: "file", bytes: Buffer.alloc(2_000_000, "x") },
-    "huge.png": { type: "file", bytes: Buffer.alloc(900_000, 1) },
+    "huge.png": { type: "file", bytes: pngSaying(4000, 3000, 900_000) },
+    // A small file whose header says 50000 by 50000: decoding it would take 10 GB.
+    "bomb.png": { type: "file", bytes: pngSaying(50_000, 50_000, 900_000) },
     src: { type: "dir" },
     link: { type: "symlink" },
   };
@@ -254,6 +266,7 @@ describe("reading a file", () => {
       data: "c21hbGw=",
     });
     expect(await read("huge.png", undefined, null)).toMatchObject({ kind: "binary" });
+    expect(await read("bomb.png", undefined, "c21hbGw=")).toMatchObject({ kind: "binary" });
   });
 
   test("as bytes, a piece of whatever it holds, from where asked", async () => {
