@@ -6,12 +6,13 @@ import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remot
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
-import type {
-  CliChange,
-  CliPlacement,
-  CliTabInfo,
-  CliUiOp,
-  CliUiOps,
+import {
+  askedEachTime,
+  type CliChange,
+  type CliPlacement,
+  type CliTabInfo,
+  type CliUiOp,
+  type CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
@@ -279,15 +280,23 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
 /**
  * Lets a command make `change` in `workspace`: always in the caller's own,
  * in another as the setting or the user allows. Throws a CliError if not.
+ *
+ * The user turned the manager on to direct every workspace, and it runs
+ * nexus unasked; but what it reads of the sessions (their titles, what they
+ * said) may say anything. So what it would type, run or send is up to the
+ * setting or the user, as an agent's in another workspace is
+ * (askedEachTime): the rest it does.
  */
 export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
 ): Promise<void> {
-  if (workspace.id === ctx.caller.workspaceId) return;
-  // The user turned the manager on to direct every workspace.
-  if (isManager(ctx.caller)) return;
+  if (isManager(ctx.caller)) {
+    if (!askedEachTime(change)) return;
+  } else if (workspace.id === ctx.caller.workspaceId) {
+    return;
+  }
   await ctx.services.allowChange({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,

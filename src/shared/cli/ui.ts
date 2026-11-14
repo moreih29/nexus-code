@@ -221,7 +221,11 @@ export interface CliChange {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
-  /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
+  /**
+   * What it would run or say, whole and shown as it is: the command a
+   * permission answer lets run or a new terminal runs, what is typed, the
+   * message or the prompt.
+   */
   readonly body?: string;
   /** A tabClose's tab is a terminal (or one of the tabs is). */
   readonly terminal?: boolean;
@@ -250,6 +254,29 @@ export function isTerminalChange(change: CliChange): boolean {
     change.kind === "groupClose" ||
     (change.kind === "tabClose" && change.terminal === true)
   );
+}
+
+/**
+ * The changes the user is asked about each time, never allowed until the
+ * app restarts: an answer to a permission request, a mode that lets more run
+ * unasked, another profile (another account) for a tab, what is typed into
+ * a terminal or sent a tab, and any change that carries what it would run
+ * or say (a new terminal's command, a new tab's or task's prompt). Allowing
+ * one of these says nothing of the next, which may say anything.
+ */
+export function askedEachTime(change: CliChange): boolean {
+  switch (change.kind) {
+    case "permissionAllow":
+    case "permissionDeny":
+    case "chatMode":
+    case "chatProfile":
+    case "chatProfileNew":
+    case "terminalInput":
+    case "chatInput":
+      return true;
+    default:
+      return change.body !== undefined;
+  }
 }
 
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */

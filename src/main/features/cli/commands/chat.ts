@@ -362,7 +362,11 @@ const chatNew: CliCommand = {
         : workspace.id === ctx.caller.workspaceId
           ? ctx.invocation.cwd
           : workspace.rootPath;
-    await mayChange(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    await mayChange(ctx, workspace, {
+      kind: "chatNew",
+      detail: AGENT_NAMES[agent],
+      ...(prompt !== "" ? { body: prompt } : {}),
+    });
     if (settings.mode !== undefined) {
       // A new tab's title is its agent's name until its first message.
       const tab = { what: `a new ${AGENT_NAMES[agent]} tab`, name: `"${AGENT_NAMES[agent]}"` };
@@ -742,7 +746,7 @@ const chatSend: CliCommand = {
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
-    await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
+    await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title, body: text });
     // An agent's message shows as its, and the tab's agent is told who sent it.
     const from = await senderOf(ctx);
     refuseLoop(from);
