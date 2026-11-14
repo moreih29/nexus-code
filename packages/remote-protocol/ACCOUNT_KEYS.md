@@ -160,7 +160,7 @@ A device without AK gets it from one that holds it through a QR code, without th
 - `{ t: "pair-request", v: 1 }`: the scanning device, without AK, asks the showing one for it.
 - `{ t: "pair-key", v: 1, kid, key }`: AK (32 bytes) and its version.
 - `{ t: "pair-done", v: 1 }`: the device took the key.
-- `{ t: "pair-refused", v: 1 }`: the user turned it down, or the code ran out.
+- `{ t: "pair-refused", v: 1 }`: the user turned it down, or the code ran out; or the device showing the code cannot pair with the one that scanned it, as both hold the account key or neither does (it answers a `pair-key` while holding the key, or a `pair-request` without it, and keeps showing the code).
 
 **Shown by the device without AK** (a phone scans a new desktop's code)
 1. The new device shows the code.

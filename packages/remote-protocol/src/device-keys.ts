@@ -219,7 +219,8 @@ export function pairKeyInfoOf(userId: string, deviceId: string): string {
  *   code a device holding it shows, asks for it;
  * - pair-key: the account key and its version;
  * - pair-done: the device took it;
- * - pair-refused: the user turned it down, or the code ran out.
+ * - pair-refused: the user turned it down, or the code ran out; or the two
+ *   devices cannot pair, as both hold the account key or neither does.
  */
 export const PairMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("pair-request"), v: z.literal(1) }),

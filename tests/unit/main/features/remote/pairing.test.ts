@@ -144,6 +144,27 @@ describe("pairing, holding the key", () => {
     });
   });
 
+  test("a device that holds the key too is told so; the code stays up", async () => {
+    const { pairing, sent } = setup({ holds: true });
+    const shown = await pairing.start();
+    if (shown.status !== "showing") throw new Error();
+    pairing.onRoomFrame(
+      await fromScanner(shown.uri, {
+        t: "pair-key",
+        v: 1,
+        kid: 2,
+        key: Buffer.from(AK).toString("base64url"),
+      }),
+    );
+    await Bun.sleep(5);
+    expect(pairing.current()).toMatchObject({ status: "showing" });
+    expect(sent[0]?.to).toBe("dev-p");
+    expect(await opened(shown.uri, sent[0]?.frame as Delivered)).toEqual({
+      t: "pair-refused",
+      v: 1,
+    });
+  });
+
   test("a frame sealed with another code is dropped", async () => {
     const { pairing } = setup({ holds: true });
     const first = await pairing.start();
@@ -176,6 +197,20 @@ describe("pairing, without the key", () => {
     expect(sent[0]?.to).toBe("dev-p");
     expect(await opened(shown.uri, sent[0]?.frame as Delivered)).toEqual({ t: "pair-done", v: 1 });
     expect(socket.stopped).toBe(true);
+  });
+
+  test("a device without the key either is told so; the code stays up", async () => {
+    const { pairing, sent, adopted, frameToSocket } = setup({ holds: false });
+    const shown = await pairing.start();
+    if (shown.status !== "showing") throw new Error();
+    frameToSocket(await fromScanner(shown.uri, { t: "pair-request", v: 1 }));
+    await Bun.sleep(10);
+    expect(adopted).toEqual([]);
+    expect(pairing.current()).toMatchObject({ status: "showing" });
+    expect(await opened(shown.uri, sent[0]?.frame as Delivered)).toEqual({
+      t: "pair-refused",
+      v: 1,
+    });
   });
 
   test("stopping drops the socket and the code", async () => {

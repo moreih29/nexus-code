@@ -181,6 +181,12 @@ export class Pairing {
     const key = pairKeyOf(showing.secret, showing.userId, showing.deviceId);
     const message = await openPair(key, frame);
     if (!message || this.showing !== showing) return;
+    if (showing.giving ? message.t === "pair-key" : message.t === "pair-request") {
+      // Both hold the key, or neither does: the device is told at once, and
+      // the code stays up for one that can pair.
+      await this.send(showing, frame.from, { t: "pair-refused", v: 1 });
+      return;
+    }
     if (showing.giving && message.t === "pair-request") {
       // The code is spent: the user is asked about this device alone.
       showing.asked = frame.from;
