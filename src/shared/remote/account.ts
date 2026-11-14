@@ -38,6 +38,8 @@ export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
  *   browser back with (the user said no at Google; Google has not verified
  *   the email; the server failed);
  * - invalid_grant: the server would not trade the code (expired, or used);
+ * - too_many_devices: the account has as many devices signed in as it may,
+ *   so one is to be removed from another device before signing in again;
  * - mismatch: the browser came back for another sign-in;
  * - unreachable: the server could not be reached;
  * - failed: anything else.
@@ -49,6 +51,7 @@ export const SIGN_IN_FAILURES = [
   "unverified_email",
   "server_error",
   "invalid_grant",
+  "too_many_devices",
   "mismatch",
   "unreachable",
   "failed",

@@ -688,6 +688,7 @@
         "unverified_email": "That account's email isn't verified.",
         "server_error": "The server couldn't sign you in. Try again later.",
         "invalid_grant": "Sign-in expired. Try again.",
+        "too_many_devices": "This account has too many devices signed in. Remove one you no longer use in Settings › Devices on another device, then sign in again.",
         "mismatch": "Another sign-in answered. Try again.",
         "unreachable": "Can't reach the server.",
         "failed": "Sign-in didn't finish. Try again."

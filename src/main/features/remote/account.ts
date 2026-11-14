@@ -314,8 +314,11 @@ export class RemoteAccount {
 
 function failureOf(error: unknown): SignInFailure {
   if (error instanceof SignInError) return error.failure;
-  if (error instanceof ServerError)
-    return error.code === "invalid_grant" ? "invalid_grant" : "failed";
+  if (error instanceof ServerError) {
+    if (error.code === "invalid_grant") return "invalid_grant";
+    if (error.status === 409 && error.code === "too_many_devices") return "too_many_devices";
+    return "failed";
+  }
   if (error instanceof UnreachableError) return "unreachable";
   return "failed";
 }

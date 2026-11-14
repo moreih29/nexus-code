@@ -21,7 +21,9 @@ const user = { id: "u1", email: "me@example.com", name: "Me" };
 const device = { id: "d1", name: "Mac", platform: "darwin" };
 
 /** A server that signs in whoever comes, and the requests it got. */
-function fakeServer(options: { tokenStatus?: number; devicesStatus?: number } = {}) {
+function fakeServer(
+  options: { tokenStatus?: number; tokenError?: string; devicesStatus?: number } = {},
+) {
   const requests: { method: string; path: string; body?: unknown; auth?: string }[] = [];
   const fetchFn = (async (input: URL | string, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -37,7 +39,7 @@ function fakeServer(options: { tokenStatus?: number; devicesStatus?: number } = 
       const body =
         status === 200
           ? { token: "tok", expiresAt: Date.now() + 30 * 86_400_000, user, device }
-          : { error: "invalid_grant" };
+          : { error: options.tokenError ?? "invalid_grant" };
       return new Response(JSON.stringify(body), { status });
     }
     if (url.pathname === "/devices") {
@@ -133,6 +135,8 @@ describe("the account", () => {
       [{ error: "unverified_email" }, {}, "unverified_email"],
       [{ error: "something_new" }, {}, "failed"],
       [{ code: "c1" }, { tokenStatus: 400 }, "invalid_grant"],
+      [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
+      [{ code: "c1" }, { tokenStatus: 409, tokenError: "conflict" }, "failed"],
     ] as const;
     for (const [back, serverOptions, failure] of cases) {
       const store = memoryStore();
