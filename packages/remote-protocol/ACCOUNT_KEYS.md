@@ -1,4 +1,4 @@
-# The account key (draft, v1)
+# The account key (v1, and v2 below)
 
 A user's devices seal what they send each other with a key only those devices hold. The relay passes the sealed messages on but cannot open them. A new device gets the key when the user signs in with Google and types the **account password**. The server keeps the key locked with that password and never sees the password or the key.
 
@@ -62,8 +62,8 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 4. Nothing is lost: the server keeps no history, only the sealed bundle.
 
 **Removing a device**
-- `DELETE /devices/:id` ends its sign-in and closes its socket. AK stays the same.
-- For a lost or stolen device, the user should also reset, so the device's copy of AK opens nothing new.
+- v1: `DELETE /devices/:id` ends its sign-in and closes its socket. AK stays the same, so the removed device's copy still opens what comes after.
+- v2: removing a device rotates AK (see "Rotation" below). The devices that stay take the new AK without the password; the removed one does not get it.
 
 ## What the server needs to provide
 
@@ -78,7 +78,166 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 - On Linux without a keyring, `safeStorage` falls back to plain text (`basic_text`). There, AK is not written to disk; the password is asked at each start.
 - Crypto: `libsodium-wrappers-sumo` (wasm: `crypto_pwhash`, XChaCha20-Poly1305) and Node's `crypto.hkdfSync`. No native modules, so the three OSes and the Store build stay simple.
 
-## Later (not v1)
+# Version 2: device keys, pairing, rotation, the password's proof
 
-- Per-device X25519 keys, signed with AK. These allow approving a new device from the phone or a QR code, and removing a device without a reset.
-- Forward secrecy for sealed frames (pairwise ephemeral keys).
+Schemas and strings: `src/device-keys.ts`, with `VerifierSchema`, `PendingResetSchema` and the new fields in `src/account.ts`, `AccountEventSchema` in `src/relay.ts`, and `accountKeys` in `src/info.ts`. A server with v2 says `accountKeys: { version: 2 }` in `GET /info`; a device keeps to v1 where it does not. Pairing needs nothing new of the server.
+
+## Primitives
+
+Every device must make the same bytes; `Test vectors` below checks it.
+
+- Binary values travel as unpadded base64url. Strings (infos, inputs, associated data) are UTF-8.
+- **X25519** (RFC 7748). Secret key: 32 random bytes. Public key: `crypto_scalarmult_base` (libsodium), `x25519.getPublicKey` (noble). Shared secret: `crypto_scalarmult` / `x25519.getSharedSecret`. An all-zero shared secret is refused.
+- **HKDF-SHA256**, always with an empty salt and 32 bytes out: `HKDF(ikm, info)` below.
+- **HMAC-SHA256**, compared in constant time.
+- **XChaCha20-Poly1305** (IETF), a fresh random 24-byte nonce each time. The box is the ciphertext followed by the 16-byte tag (libsodium `crypto_aead_xchacha20poly1305_ietf_encrypt`, noble `xchacha20poly1305(key, nonce, aad).encrypt`).
+- **SHA-256**.
+
+## The password's proof
+
+The server never learns the password, but it can tell whether a request comes from someone who knows it.
+
+- `KEK` is the key the password makes with the bundle's `kdf`, as in v1.
+- `authKey = HKDF(KEK, "nexus-remote/account-auth/v1")` (`ACCOUNT_AUTH_INFO`).
+- `verifier = base64url(SHA-256(authKey))`.
+- A request that needs the password carries `X-Account-Auth: base64url(authKey)` (`ACCOUNT_AUTH_HEADER`), the proof for the bundle on the server now. The server compares `SHA-256(header)` with the verifier it keeps, in constant time.
+- Missing or wrong: `403 { "error": "account-auth" }` (`ACCOUNT_AUTH_ERROR`). Failures are rate-limited per account (10 in 10 minutes), then `429` with `Retry-After`.
+- Offline guessing gets nothing new: the verifier, like the bundle, costs one Argon2id per guess. If the server or a request is read, authKey lets one act as the owner toward the server, but it does not open the bundle (HKDF is one-way).
+
+**Needs the proof**, once the account has a verifier:
+- `PUT /account/key-bundle` (a new password, or a reset when the password is known);
+- `POST /account/key-rotation`;
+- `DELETE /devices/:id` for another device;
+- `DELETE /account`;
+- `DELETE /account/key-reset` (calling off a reset that waits).
+
+**Never needs it**: signing this device out, renaming a device, `PUT /devices/current/key`, `GET /devices/current/key-envelopes`, pairing.
+
+**Writing the verifier**
+- Each bundle a v2 device writes carries the verifier of the password it is locked with (`verifier` in the body). The server keeps it with the bundle, in the same statement.
+- An account without one yet (made before v2): `PUT /account/key-verifier { verifier }` sets it once; `409` if it has one. The server cannot check it, so a v2 desktop asks the user for the password soon after it finds `hasVerifier: false` in `GET /account/key-bundle`, opens the bundle with it to be sure it is right, and puts the verifier. Until then the account takes the v1 requests without the proof.
+- A device before v2 writes a bundle without a verifier and without the proof: the server takes it while the account has no verifier, and refuses it (`403`) once it has one.
+
+## A forgotten password: a reset that waits
+
+Without the password, no request can carry the proof. A stolen device does not know the password either, so a reset without it waits, and the devices that know the password can call it off.
+
+- `POST /account/key-reset { bundle, verifier }`, without the header: a new AK (`kid + 1`) locked with a new password. The server keeps it aside and answers `202 { appliesAt, deviceId }` (`PendingResetSchema`). `409` while another waits.
+- It is put in place after `RESET_DELAY_MS` (72 hours), by the hourly job: bundle and verifier replaced, version + 1, envelopes dropped. The room is told `{ t: "account", event: "key-reset", kid }`. Devices then find frames or a bundle of a newer `kid` and ask for the new password, as in v1.
+- While it waits, `GET /account/key-bundle` says `pendingReset: { appliesAt, deviceId }`, and the room is told `{ t: "account", event: "reset-pending", appliesAt }` at once. A device shows it, with the device that asked, and a way to call it off.
+- `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any write with the proof (a new password, a rotation) calls it off too.
+- With the password known, a reset is a `PUT` with the proof, at once, as in v1.
+
+## Device keys
+
+- Each v2 device that holds AK makes one X25519 key pair and keeps the secret key beside AK (desktop: `safeStorage`; phone: Keychain, `WHEN_UNLOCKED_THIS_DEVICE_ONLY`). It keeps the pair across rotations, and makes a new one only when it signs in anew.
+- **Certificate** of a device's public key under the AK of version `kid`:
+  - `certKey = HKDF(AK, "nexus-remote/device-cert-key/v1")` (`DEVICE_CERT_KEY_INFO`);
+  - `cert = base64url(HMAC-SHA256(certKey, "nexus-remote/device-cert/v1|<userId>|<deviceId>|<publicKey>|<kid>"))` (`deviceCertInputOf`; `publicKey` as base64url).
+  - Only a device holding that AK can make or check one; any of them may.
+- `PUT /devices/current/key { publicKey, kid, cert }` (`DeviceKeySchema`) registers this device's key: when it gets AK (first device, the password, pairing, an envelope), and when it holds a newer AK whose certificate no rotation made for it. The server keeps one key a device (`device_keys`), and drops that device's envelopes of `kid` or older.
+- `GET /devices` gives each device that has one its `key: { publicKey, kid, cert }`.
+- A device trusts another's public key only after it checked the certificate with the AK of that `kid`.
+
+## Pairing
+
+A device without AK gets it from one that holds it through a QR code, without the password. Desktops have no camera as a rule, so both ways are needed: a phone scans a new desktop's code, and a new phone scans a desktop's.
+
+**The code** (`PairCodeSchema`, `pairUriOf`, `parsePairUri`)
+- `nexuscode://pair?v=1&u=<userId>&d=<deviceId>&s=<secret>`: the account, the device showing it, and 32 random bytes.
+- It holds for `PAIR_TTL_MS` (2 minutes) and is taken once. The device showing it makes a new one each time, and forgets it when it is taken or runs out.
+- The secret goes from screen to camera, never through the server. So the server cannot make or open a pairing frame, and no code to compare (SAS) is needed. A photo of the code is of use only to someone signed in to the same account within those 2 minutes.
+
+**The frames**
+- `pairKey = HKDF(secret, "nexus-remote/pair-key/v1|<userId>|<deviceId of the device showing the code>")` (`pairKeyInfoOf`).
+- A relay `send` frame with `kid: 0` (`PAIR_KID`), to one device (the relay refuses `kid: 0` to `ALL_DEVICES`), with the connection's next `seq` as any frame. `box` is XChaCha20-Poly1305 of a `PairMessage`'s JSON under `pairKey`, with `aadOf({ from, to, seq, kid: 0 })` (`sealed.ts`) as the associated data. A device signed in but without AK may join the room to send and take these.
+- A device takes a `kid: 0` frame only while it shows a code or waits on one it scanned; the scanning one only from the device the code names. It drops a frame that does not open, without an answer. The device showing the code takes the first frame that opens and then forgets the secret.
+
+**The messages** (`PairMessageSchema`)
+- `{ t: "pair-request", v: 1 }`: the scanning device, without AK, asks the showing one for it.
+- `{ t: "pair-key", v: 1, kid, key }`: AK (32 bytes) and its version.
+- `{ t: "pair-done", v: 1 }`: the device took the key.
+- `{ t: "pair-refused", v: 1 }`: the user turned it down, or the code ran out.
+
+**Shown by the device without AK** (a phone scans a new desktop's code)
+1. The new device shows the code.
+2. The phone scans it and checks that `userId` is its own. The user allows it (Face ID).
+3. The phone sends `pair-key` to the code's device.
+4. The new device opens it, keeps AK, registers its device key, and answers `pair-done`.
+
+**Shown by a device holding AK** (a new phone scans a desktop's code)
+1. The desktop shows the code.
+2. The new phone scans it and sends `pair-request` to the code's device.
+3. The desktop asks its user: "<device name> asks for the account key", the name as the room tells it.
+4. Allowed, the desktop sends `pair-key` to the device that asked; turned down or run out, `pair-refused`.
+5. The phone keeps AK, registers its device key, and answers `pair-done`.
+
+## Rotation
+
+Removing a device puts a new AK in place, which the devices that stay get sealed for each of them. The removed device's AK opens nothing that comes after.
+
+**The rotating device R**, which holds AK of version `k`, its device key, and the user's password typed now:
+1. Fetches the bundle and opens it with the password: the password is right, and R has the proof for the bundle now.
+2. Makes AK′ (`k + 1`), and locks it with the same password, a new salt, as a new bundle with its verifier.
+3. Lists the devices (`GET /devices`). For each device D that stays (not removed, not R) whose key is of version `k`, R checks its certificate with AK, then makes D an envelope and D's certificate under AK′. A device whose key is older, or that has none, gets nothing; it asks for the password, as in v1. A certificate of version `k` that does not check stops the rotation: the server, or someone, changed the key.
+4. Makes its own certificate under AK′.
+5. Sends `POST /account/key-rotation` with the proof:
+   ```json
+   {
+     "bundle": "<the new bundle, kid k + 1>",
+     "expected": "<the bundle's version now>",
+     "verifier": "<the new password key's verifier>",
+     "removeDeviceIds": ["<device id>"],
+     "envelopes": [{ "deviceId": "<D>", "envelope": "<KeyEnvelope>" }],
+     "certs": [{ "deviceId": "<D or R>", "publicKey": "...", "kid": "k + 1", "cert": "..." }]
+   }
+   ```
+6. Keeps AK′ and goes on with it.
+
+`removeDeviceIds` may be empty: a rotation alone, as after a doubt.
+
+**The envelope** (`KeyEnvelopeSchema`) for D, made by R:
+- `info = "nexus-remote/key-envelope/v1|<userId>|<R's id>|<D's id>|<k + 1>"` (`envelopeInfoOf`);
+- `envKey = HKDF(X25519(R's secret key, D's public key), info)`;
+- `box = XChaCha20-Poly1305(envKey, AK′'s 32 bytes, nonce, aad = info)`;
+- `{ v: 1, kid: k + 1, from: R's id, fromKey: R's key under version k ({ publicKey, kid: k, cert }), nonce, box }`.
+
+**The server**, in one D1 batch, all or nothing:
+- the proof checks, else `403`; `expected` is the version now, else `409`;
+- each device that stays with a key of version `k` but R has an envelope, else `400`;
+- each certificate's `publicKey` is the one it keeps for that device, else `400`;
+- removes the devices (their sign-ins, keys and envelopes with them);
+- puts the bundle and the verifier, version + 1;
+- keeps the envelopes, and the certificates with their new `kid`;
+- calls off a reset that waits.
+
+Then it closes the removed devices' sockets and tells the room `{ t: "account", event: "key-rotated", kid: k + 1 }`.
+
+**A device D that stays**
+- On `key-rotated`, or when it finds a newer `kid` (a frame, the bundle), it fetches `GET /devices/current/key-envelopes`: its envelopes, oldest version first.
+- For each whose `kid` is above its own, in order, it:
+  1. checks that `fromKey.kid` is its own `kid`;
+  2. checks `fromKey.cert` with its AK;
+  3. opens the box with `X25519(its secret key, fromKey.publicKey)`;
+  4. takes AK′.
+  So a device that missed two rotations takes both, one after the other.
+- When none fits, it asks for the password, as in v1.
+- The server keeps a device's envelopes until the device registers a key of that version or newer, or is removed.
+
+**What stays open**: the removed device together with the server could make a certificate under the old AK and slip an envelope of their own to a device that stays. That is still far less than v1, where the removed device alone opened everything. Per-device sessions (below) would close it.
+
+## Who may remove a device
+
+Removing another device, and rotating, needs the password: R types it, and the server checks the proof. A stolen device that does not know the password cannot push out the others. A device signs itself out without it.
+
+## Test vectors
+
+Every implementation checks these (desktop: `tests/unit/main/features/remote/device-keys.test.ts`).
+
+_To come with the desktop's implementation._
+
+## Later
+
+- Per-device sessions: pairwise keys between devices' static keys, vouched for with AK (a Noise pattern). These give forward secrecy for sealed frames, and stop a removed device and the server together.
+- Approving a new sign-in on the phone, with a push notification (needs the Apple Developer Program).
+- Passkeys for signing in, and their PRF to open the bundle.

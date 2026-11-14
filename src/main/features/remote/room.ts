@@ -7,6 +7,7 @@
  */
 import { randomBytes } from "node:crypto";
 import {
+  type AccountEvent,
   ALL_DEVICES,
   type Capability,
   type ClientFrame,
@@ -105,6 +106,8 @@ export interface RemoteRoomDeps {
    * have been reset. Told at most once a minute.
    */
   onForeignKey?(kid: number): void;
+  /** Something the server tells of the account (account keys v2): a rotation, a reset. */
+  onAccountEvent?(event: AccountEvent): void;
   onSignedOut(): void;
   readonly requestTimeoutMs?: number;
 }
@@ -333,6 +336,10 @@ export class RemoteRoom {
       this.inbox = this.inbox
         .then(() => this.take(frame))
         .catch((error) => console.warn("[remote] taking a message failed:", error));
+      return;
+    }
+    if (frame.t === "account") {
+      this.deps.onAccountEvent?.(frame);
       return;
     }
     if (frame.code === "no-such-device" && frame.seq !== undefined) {
