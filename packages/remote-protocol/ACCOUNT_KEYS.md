@@ -32,7 +32,7 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 
 ## Sealed frames
 
-- Content: `XChaCha20-Poly1305(room key, json, nonce = 24 random bytes, aad = aadOf({from, to, seq, kid}))`.
+- Content: `XChaCha20-Poly1305(room key, json, nonce = 24 random bytes, aad = aadOf({from, to, seq, kid}))`. The JSON is an envelope `{epoch, peer, message}`: the sender's connection epoch, the receiver's, and the message. A device takes only frames addressed to it whose `peer` is its epoch now, each seq once and in order (see `sealed.ts`).
 - `kid` in each frame names the AK version it was sealed with.
 - A device that gets a frame with a `kid` it does not hold fetches the bundle again and asks for the password (see "Reset").
 

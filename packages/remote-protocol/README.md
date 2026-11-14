@@ -15,7 +15,7 @@ Beside them:
 - **The account key's bundle** (`account.ts`): the account key locked with the account password, as the server keeps it. See `ACCOUNT_KEYS.md`.
 - **The voice socket** (`voice.ts`): audio to the server, text back while the user speaks.
 
-Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing.
+Sealing is XChaCha20-Poly1305. The key is the room key, derived from the account key. The associated data comes from `aadOf()` and binds a message to its routing. What is sealed is an envelope (`SealedEnvelopeSchema`): the message, the sender's epoch and the receiver's. Each connection to the relay has a random epoch, which devices learn from each other's hellos in three steps. A device takes a message only when it names its epoch now, is addressed to it, and has a seq higher than the last it took from that sender's epoch, so the relay cannot send an old message again or pass one on to another device. `sealed.ts` has the rules. Protocol version 2 (0.7.0) brought these; devices of version 1 open nothing of version 2.
 
 Until it is published, other repos use it by a local path, e.g. `"@nexus-code/remote-protocol": "file:../nexus-code/packages/remote-protocol"`, after `npm run build` here: its exports point at `dist`. They need `zod` 3.25 or later.
 

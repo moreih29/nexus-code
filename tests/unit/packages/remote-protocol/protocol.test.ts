@@ -15,6 +15,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   RPC_METHODS,
   SCHEMA_VERSION,
+  SealedEnvelopeSchema,
   SealedMessageSchema,
   ServerFrameSchema,
   ViewItemSchema,
@@ -59,7 +60,7 @@ describe("the relay's frames", () => {
 
   test("the associated data binds a message to its routing", () => {
     const frame = { from: "dev-a", to: "dev-b", seq: 7, kid: 2 };
-    expect(aadOf(frame)).toBe("nexus-remote/v1|dev-a|dev-b|7|2");
+    expect(aadOf(frame)).toBe("nexus-remote/v2|dev-a|dev-b|7|2");
     expect(aadOf({ ...frame, to: "dev-c" })).not.toBe(aadOf(frame));
   });
 });
@@ -68,7 +69,7 @@ describe("a sealed message", () => {
   test("a hello, a request, an answer and a notification", () => {
     const hello = {
       type: "hello",
-      protocol: 1,
+      protocol: 2,
       device: { id: "dev-a", name: "Mac", platform: "darwin" },
       app: { name: "nexus-code", version: "0.27.0" },
       serves: ["sessions", "chat.read"],
@@ -88,6 +89,18 @@ describe("a sealed message", () => {
   test("an error answer keeps its error", () => {
     const answer = { jsonrpc: "2.0", id: 1, error: { code: 1001, message: "no such tab" } };
     expect(SealedMessageSchema.parse(answer)).toEqual(answer);
+  });
+
+  test("goes sealed with the sender's epoch and the receiver's, null only to all", () => {
+    const message = { jsonrpc: "2.0", id: 1, method: "sessions.list", params: {} };
+    const epoch = "AAAAAAAAAAAAAAAAAAAAAA";
+    const envelope = { epoch, peer: "BBBBBBBBBBBBBBBBBBBBBB", message };
+    expect(SealedEnvelopeSchema.parse(envelope)).toEqual(envelope);
+    expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: null }).success).toBe(true);
+    // A message of the first version, with no epochs, is not one.
+    expect(SealedEnvelopeSchema.safeParse(message).success).toBe(false);
+    expect(SealedEnvelopeSchema.safeParse({ ...envelope, epoch: "short" }).success).toBe(false);
+    expect(SealedEnvelopeSchema.safeParse({ ...envelope, peer: undefined }).success).toBe(false);
   });
 });
 

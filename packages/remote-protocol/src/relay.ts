@@ -22,8 +22,9 @@ export const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]*$/);
 /**
  * A sealed message, as the sender gives it to the relay. `to` is one device
  * or ALL_DEVICES. `seq` counts the sender's messages since it connected,
- * from 1, so the other side can tell one lost or repeated. `kid` is the
- * account key's version the message was sealed with.
+ * from 1: the other side takes them in its order, each once (see
+ * ./sealed.ts). `kid` is the account key's version the message was sealed
+ * with.
  */
 export const OutgoingSchema = z.object({
   t: z.literal("send"),
