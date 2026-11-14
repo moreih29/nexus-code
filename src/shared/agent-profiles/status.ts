@@ -17,8 +17,16 @@ export const AgentProfileStatusSchema = z.discriminatedUnion("state", [
     accountId: z.string().optional(),
   }),
   z.object({ state: z.literal("signed-out") }),
-  /** The agent's program was not found, or did not answer. */
-  z.object({ state: z.literal("unavailable"), message: z.string() }),
+  /**
+   * The agent's program was not found ("missing"), or gave nothing to read
+   * when asked who is signed in ("no-answer"). With no reason the sign-in
+   * could not be checked for another one, which `message` gives.
+   */
+  z.object({
+    state: z.literal("unavailable"),
+    message: z.string(),
+    reason: z.enum(["missing", "no-answer"]).optional(),
+  }),
 ]);
 export type AgentProfileStatus = z.infer<typeof AgentProfileStatusSchema>;
 

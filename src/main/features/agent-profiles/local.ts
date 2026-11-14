@@ -226,11 +226,16 @@ export async function localProfileStatus(profile: AgentProfile): Promise<AgentPr
   if (profile.agent === "claude") {
     const result = await run("claude", ["auth", "status", "--json"], env);
     if (result.missing)
-      return { state: "unavailable", message: "claude was not found on the PATH" };
+      return {
+        state: "unavailable",
+        message: "claude was not found on the PATH",
+        reason: "missing",
+      };
     return (
       claudeStatusOf(result.stdout) ?? {
         state: "unavailable",
         message: "claude auth status gave no answer",
+        reason: "no-answer",
       }
     );
   }
@@ -242,7 +247,8 @@ export async function localProfileStatus(profile: AgentProfile): Promise<AgentPr
   // A sign-in kept in the keychain leaves no auth.json.
   if (profile.dir.trim() !== "") await fs.mkdir(localProfileDir(profile), { recursive: true });
   const result = await run("codex", ["login", "status"], env);
-  if (result.missing) return { state: "unavailable", message: "codex was not found on the PATH" };
+  if (result.missing)
+    return { state: "unavailable", message: "codex was not found on the PATH", reason: "missing" };
   return result.code === 0 ? { state: "signed-in" } : { state: "signed-out" };
 }
 

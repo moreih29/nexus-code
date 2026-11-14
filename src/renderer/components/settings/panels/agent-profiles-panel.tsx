@@ -237,8 +237,14 @@ function ProfileRow({
   );
 }
 
+/** What asks an agent who is signed in, as a row names it when it gives no answer. */
+const STATUS_COMMAND: Record<ChatAgent, string> = {
+  claude: "claude auth status",
+  codex: "codex login status",
+};
+
 /** Who the profile is signed in as, or a sign-in button. */
-function ProfileStatusText({
+export function ProfileStatusText({
   agent,
   profile,
   profiles,
@@ -266,7 +272,11 @@ function ProfileStatusText({
         className="max-w-[14rem] shrink-0 truncate text-app-ui-sm text-muted-foreground"
         title={status.message}
       >
-        {t("profiles.status.unavailable", { program: agent })}
+        {status.reason === "missing"
+          ? t("profiles.status.unavailable", { program: agent })
+          : status.reason === "no-answer"
+            ? t("profiles.status.noAnswer", { command: STATUS_COMMAND[agent] })
+            : t("profiles.status.unchecked")}
       </span>
     );
   }
