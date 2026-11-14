@@ -394,6 +394,18 @@ export const MAX_LIST_ENTRIES = 2000;
 /** Most bytes of text one files.read gives. */
 export const MAX_READ_BYTES = 512 * 1024;
 
+/** Most bytes one files.read `as: "bytes"` gives: a piece of a file, base64 inside a frame. */
+export const MAX_BYTES_CHUNK = 512 * 1024;
+
+/** Most paths one files.find gives. */
+export const MAX_FIND_RESULTS = 200;
+
+/** Most matches one files.search gives, all files together. */
+export const MAX_SEARCH_MATCHES = 1000;
+
+/** A commit by its hash, whole or a prefix of it: hex only, so nothing else is taken for one. */
+export const CommitHashSchema = z.string().regex(/^[0-9a-fA-F]{4,64}$/);
+
 // ---------------------------------------------------------------------------
 // Chats
 // ---------------------------------------------------------------------------
@@ -926,13 +938,22 @@ export const RPC_METHODS = {
       truncated: z.boolean().optional(),
     }),
   },
-  /** A file: text (its start, up to `maxBytes`), an image made small enough for a frame, or that it is binary. */
+  /**
+   * A file: text (its start, up to `maxBytes`), an image made small enough
+   * for a frame, or that it is binary. With `as: "bytes"`, a piece of it as
+   * it is, whatever it holds: `length` bytes (at most MAX_BYTES_CHUNK, which
+   * is the default) from `offset`, for a viewer that needs the whole file
+   * (a PDF, a document) to take it piece by piece.
+   */
   "files.read": {
     capability: "files",
     params: z.object({
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
       maxBytes: z.number().int().positive().max(MAX_READ_BYTES).optional(),
+      as: z.literal("bytes").optional(),
+      offset: z.number().int().nonnegative().optional(),
+      length: z.number().int().positive().max(MAX_BYTES_CHUNK).optional(),
     }),
     result: z.discriminatedUnion("kind", [
       z.object({
@@ -954,7 +975,80 @@ export const RPC_METHODS = {
         path: z.string(),
         size: z.number().int().nonnegative(),
       }),
+      z.object({
+        kind: z.literal("bytes"),
+        path: z.string(),
+        /** Base64; fewer bytes than asked at the end of the file, none past it. */
+        data: z.string(),
+        offset: z.number().int().nonnegative(),
+        /** The whole file's. */
+        size: z.number().int().nonnegative(),
+      }),
     ]),
+  },
+  /**
+   * Files by name, as quick open finds them: `query`'s characters in order
+   * in the path, the best matches first (in the file name, at word starts,
+   * together). The files are those the search panel looks through (hidden
+   * folders and the usual build and dependency folders left out). Paths
+   * are relative to the workspace's folder.
+   */
+  "files.find": {
+    capability: "files",
+    params: z.object({
+      workspaceId: z.string(),
+      query: z.string().min(1).max(256),
+      /** At most MAX_FIND_RESULTS; 50 when not said. */
+      limit: z.number().int().positive().max(MAX_FIND_RESULTS).optional(),
+    }),
+    result: z.object({
+      files: z.array(z.string()),
+      /** The workspace has more files than were looked through: some may be missing. */
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /**
+   * Text in the workspace's files, as the search panel finds it, with the
+   * same engine (so in an SSH or WSL workspace too) and the same files.
+   * `include` and `exclude` are globs on file names ("*.ts"). Paths are
+   * relative to the workspace's folder.
+   */
+  "files.search": {
+    capability: "files",
+    params: z.object({
+      workspaceId: z.string(),
+      query: z.string().min(1).max(1024),
+      regex: z.boolean().optional(),
+      caseSensitive: z.boolean().optional(),
+      wholeWord: z.boolean().optional(),
+      include: z.array(z.string().max(256)).max(32).optional(),
+      exclude: z.array(z.string().max(256)).max(32).optional(),
+      /** Matches, at most MAX_SEARCH_MATCHES; 200 when not said. */
+      limit: z.number().int().positive().max(MAX_SEARCH_MATCHES).optional(),
+    }),
+    result: z.object({
+      files: z.array(
+        z.object({
+          path: z.string(),
+          matches: z.array(
+            z.object({
+              /** From 1. */
+              line: z.number().int().positive(),
+              /** From 0, in UTF-16 units of the whole line. */
+              column: z.number().int().nonnegative(),
+              /** In UTF-16 units. */
+              length: z.number().int().nonnegative(),
+              /** The line; a long one cut to a window around the match. */
+              text: z.string(),
+              /** Where `text` begins in the line when it was cut (UTF-16 units); 0 when absent. */
+              textStart: z.number().int().nonnegative().optional(),
+            }),
+          ),
+        }),
+      ),
+      /** More matches than `limit` or a frame takes: the rest left out. */
+      truncated: z.boolean().optional(),
+    }),
   },
 
   /** The workspace's branch, how it stands against its upstream, and its changed files. */
@@ -972,13 +1066,19 @@ export const RPC_METHODS = {
       truncated: z.boolean().optional(),
     }),
   },
-  /** A file's changes, staged or not, in hunks as an edit's patch has them. */
+  /**
+   * A file's changes, staged or not, in hunks as an edit's patch has them.
+   * With `commit`, its change in that commit against the commit's first
+   * parent (against nothing for a root commit), by the path git.show lists
+   * it at; `staged` is not taken with it.
+   */
   "git.diff": {
     capability: "git",
     params: z.object({
       workspaceId: z.string(),
       path: z.string().min(1).max(4096),
       staged: z.boolean().optional(),
+      commit: CommitHashSchema.optional(),
     }),
     result: z.object({
       path: z.string(),
@@ -1008,6 +1108,37 @@ export const RPC_METHODS = {
           refs: z.array(z.string()).optional(),
         }),
       ),
+    }),
+  },
+  /**
+   * A commit: who made it and when, its message, and the files it changed
+   * against its first parent, as the commit tab shows them. Paths are the
+   * repository's, relative to its top level, as git.status gives them.
+   */
+  "git.show": {
+    capability: "git",
+    params: z.object({ workspaceId: z.string(), hash: CommitHashSchema }),
+    result: z.object({
+      /** The whole hash. */
+      hash: z.string(),
+      parents: z.array(z.string()),
+      subject: z.string(),
+      /** The message after its subject line; absent when there is none. */
+      body: z.string().optional(),
+      author: z.string(),
+      /** When it was committed, Unix milliseconds. */
+      at: z.number(),
+      files: z.array(
+        z.object({
+          path: z.string(),
+          /** A renamed or copied file's path before. */
+          oldPath: z.string().optional(),
+          /** git's letter: A, M, D, R, C or T. */
+          status: z.string(),
+        }),
+      ),
+      /** More files than a frame takes: the rest left out. */
+      truncated: z.boolean().optional(),
     }),
   },
 } as const;

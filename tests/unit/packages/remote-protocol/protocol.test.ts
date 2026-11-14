@@ -191,6 +191,84 @@ describe("the methods", () => {
     expect(spec.params.safeParse({ id: "c1", answer: "always" }).success).toBe(false);
   });
 
+  test("a commit is named by its hash alone: git.show, and git.diff's commit", () => {
+    const show = RPC_METHODS["git.show"];
+    expect(show.capability).toBe("git");
+    expect(show.params.safeParse({ workspaceId: "w", hash: "8021fbfd" }).success).toBe(true);
+    // Not a ref, nor an option git would take.
+    for (const hash of ["HEAD", "main", "--output=x", "abc", "8021fbfd~1"]) {
+      expect(show.params.safeParse({ workspaceId: "w", hash }).success).toBe(false);
+    }
+    const diff = RPC_METHODS["git.diff"].params;
+    expect(diff.safeParse({ workspaceId: "w", path: "a.ts", commit: "8021fbfd" }).success).toBe(
+      true,
+    );
+    expect(diff.safeParse({ workspaceId: "w", path: "a.ts", commit: "HEAD~1" }).success).toBe(
+      false,
+    );
+    expect(
+      show.result.safeParse({
+        hash: "8021fbfd".repeat(5),
+        parents: ["3c315849".repeat(5)],
+        subject: "feat: x",
+        author: "A",
+        at: 1,
+        files: [{ path: "b.ts", oldPath: "a.ts", status: "R" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  test("files are found by name and searched in, under files, within bounds", () => {
+    const find = RPC_METHODS["files.find"];
+    expect(find.capability).toBe("files");
+    expect(find.params.safeParse({ workspaceId: "w", query: "rpc" }).success).toBe(true);
+    expect(find.params.safeParse({ workspaceId: "w", query: "" }).success).toBe(false);
+    expect(find.params.safeParse({ workspaceId: "w", query: "x", limit: 201 }).success).toBe(false);
+    const search = RPC_METHODS["files.search"];
+    expect(search.capability).toBe("files");
+    expect(
+      search.params.safeParse({ workspaceId: "w", query: "todo", regex: true, include: ["*.ts"] })
+        .success,
+    ).toBe(true);
+    expect(search.params.safeParse({ workspaceId: "w", query: "x", limit: 1001 }).success).toBe(
+      false,
+    );
+    expect(
+      search.result.safeParse({
+        files: [
+          {
+            path: "a.ts",
+            matches: [{ line: 1, column: 0, length: 4, text: "todo", textStart: 0 }],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    // Lines count from 1.
+    expect(
+      search.result.safeParse({
+        files: [{ path: "a.ts", matches: [{ line: 0, column: 0, length: 1, text: "x" }] }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("files.read gives a file's bytes piece by piece, at most a chunk at once", () => {
+    const read = RPC_METHODS["files.read"];
+    const ask = (more: object) =>
+      read.params.safeParse({ workspaceId: "w", path: "a.pdf", ...more });
+    expect(ask({ as: "bytes", offset: 524288, length: 524288 }).success).toBe(true);
+    expect(ask({ as: "bytes", length: 524289 }).success).toBe(false);
+    expect(ask({ as: "text" }).success).toBe(false);
+    expect(
+      read.result.safeParse({
+        kind: "bytes",
+        path: "/w/a.pdf",
+        data: "JVBERi0=",
+        offset: 0,
+        size: 5,
+      }).success,
+    ).toBe(true);
+  });
+
   test("every method's capability is one the protocol names", () => {
     for (const spec of Object.values(RPC_METHODS)) {
       expect(CAPABILITIES as readonly string[]).toContain(spec.capability);
