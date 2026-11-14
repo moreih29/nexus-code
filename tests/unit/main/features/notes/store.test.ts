@@ -3,11 +3,13 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  assetsOf,
   countsOf,
   excerptOf,
   locationDirName,
   NoteError,
   NotesStore,
+  PRUNE_AFTER_MS,
   safeName,
 } from "../../../../../src/main/features/notes/store";
 import type { NoteLocation } from "../../../../../src/shared/notes/types";
@@ -105,6 +107,50 @@ describe("notes on disk", () => {
     });
     expect(again.id).toBe(sketch.id);
     expect((await store.readAsset(here, note.id, again.scene)).toString()).toBe("{1}");
+  });
+
+  test("prune clears the files the document no longer uses, but not ones just written", async () => {
+    const note = await store.create(here);
+    const sketch = await store.saveSketch(here, note.id, { scene: "{}", svg: "<svg/>" });
+    const kept = await store.addImage(here, note.id, Buffer.from("png"), "png", "kept.png");
+    const gone = await store.addImage(here, note.id, Buffer.from("png"), "png", "gone.png");
+    await store.save(here, note.id, {
+      doc: {
+        type: "doc",
+        content: [
+          { type: "sketch", attrs: { id: sketch.id, src: sketch.src } },
+          { type: "noteImage", attrs: { src: kept.src } },
+        ],
+      },
+    });
+    const now = Date.now();
+    // Only just written: nothing goes, used or not.
+    expect(await store.prune(here, note.id, now)).toEqual([]);
+    const later = now + PRUNE_AFTER_MS + 1000;
+    expect(await store.prune(here, note.id, later)).toEqual([gone.src]);
+    const dir = store.noteDir(here, note.id);
+    expect(await fs.readdir(path.join(dir, "screens"))).toEqual(["kept.png"]);
+    expect((await fs.readdir(path.join(dir, "sketches"))).sort()).toEqual(
+      [`${sketch.id}.excalidraw`, `${sketch.id}.svg`].sort(),
+    );
+  });
+
+  test("the files a document uses: a sketch's scene and picture, images and files", () => {
+    const used = assetsOf({
+      type: "doc",
+      content: [
+        { type: "sketch", attrs: { id: "s1234", src: "sketches/s1234.svg" } },
+        { type: "sketch", attrs: {} },
+        { type: "noteFile", attrs: { src: "materials/a.pdf", name: "a.pdf" } },
+        { type: "paragraph", content: [{ type: "noteImage", attrs: { src: "screens/b.png" } }] },
+      ],
+    });
+    expect([...used].sort()).toEqual([
+      "materials/a.pdf",
+      "screens/b.png",
+      "sketches/s1234.excalidraw",
+      "sketches/s1234.svg",
+    ]);
   });
 
   test("an asset path never leaves the note's folder", async () => {

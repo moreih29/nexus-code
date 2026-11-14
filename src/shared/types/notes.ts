@@ -70,6 +70,7 @@ export const NotesArgs = {
   read: z.object(note),
   save: z.object({ ...note, title: z.string().max(500).optional(), doc: NoteDocSchema.optional() }),
   remove: z.object(note),
+  prune: z.object(note),
   addFiles: z.object({ ...note, paths: z.array(z.string().min(1).max(4096)).min(1).max(100) }),
   addImage: z.object({
     ...note,

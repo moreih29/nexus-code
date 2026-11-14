@@ -30,6 +30,9 @@ import {
 
 const EMPTY_DOC: DocNode = { type: "doc", content: [{ type: "paragraph" }] };
 
+/** How long a file the note does not use is kept: one just written may be about to be. */
+export const PRUNE_AFTER_MS = 10 * 60 * 1000;
+
 export class NoteError extends Error {
   constructor(
     readonly code: "not-found" | "bad-request",
@@ -55,7 +58,7 @@ export class NotesStore {
   constructor(
     /** The notes folder: <app data>/notes. */
     readonly root: string,
-    /** Moves a folder somewhere it can be got back from (the Trash); deletes it if not given. */
+    /** Moves a folder or file somewhere it can be got back from (the Trash); deletes it if not given. */
     private readonly trash?: (dir: string) => Promise<void>,
   ) {}
 
@@ -181,6 +184,33 @@ export class NotesStore {
     };
   }
 
+  /**
+   * Clears away, to the Trash, the files in a note's folder its document no
+   * longer uses: a sketch, image or file whose block was deleted. Run as a
+   * note opens, when no undo can bring such a block back. A file written in
+   * the last PRUNE_AFTER_MS stays (another tab of the note may be about to
+   * use it). Returns what it cleared, by place in the folder.
+   */
+  async prune(location: NoteLocation, id: string, now = Date.now()): Promise<string[]> {
+    const dir = this.noteDir(location, id);
+    const note = await readNote(dir).catch(() => {
+      throw new NoteError("not-found", `no note ${id}`);
+    });
+    const used = assetsOf(note.doc);
+    const unused: string[] = [];
+    for (const sub of [NOTE_DIRS.sketches, NOTE_DIRS.files, NOTE_DIRS.images]) {
+      for (const name of await readdirSafe(path.join(dir, sub))) {
+        const src = `${sub}/${name}`;
+        if (used.has(src)) continue;
+        const stat = await fs.stat(path.join(dir, src)).catch(() => null);
+        if (!stat?.isFile() || now - stat.mtimeMs < PRUNE_AFTER_MS) continue;
+        unused.push(src);
+      }
+    }
+    for (const src of unused) await this.discard(path.join(dir, src));
+    return unused;
+  }
+
   /** A file in the note's folder, by its path there; never outside it. */
   assetPath(location: NoteLocation, id: string, src: string): string {
     const dir = this.noteDir(location, id);
@@ -269,6 +299,25 @@ export function countsOf(doc: DocNode): NoteCounts {
   };
   walk(doc);
   return counts;
+}
+
+/** The files a document uses, by place in its note's folder. */
+export function assetsOf(doc: DocNode): Set<string> {
+  const used = new Set<string>();
+  const walk = (n: DocNode) => {
+    const src = typeof n.attrs?.src === "string" ? n.attrs.src : "";
+    if (n.type === "sketch") {
+      const id = typeof n.attrs?.id === "string" ? n.attrs.id : "";
+      if (id) {
+        used.add(`${NOTE_DIRS.sketches}/${id}.excalidraw`);
+        used.add(`${NOTE_DIRS.sketches}/${id}.svg`);
+      }
+      if (src) used.add(src);
+    } else if ((n.type === "noteImage" || n.type === "noteFile") && src) used.add(src);
+    for (const c of n.content ?? []) walk(c);
+  };
+  walk(doc);
+  return used;
 }
 
 /** The first words of a document's text. */

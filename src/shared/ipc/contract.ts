@@ -2290,6 +2290,8 @@ export const ipcContract = {
       create: call(NotesArgs.create, NoteContentSchema),
       read: call(NotesArgs.read, NoteContentSchema),
       save: call(NotesArgs.save, NoteSummarySchema),
+      /** Clears away the files the note's document no longer uses; what it cleared. */
+      prune: call(NotesArgs.prune, z.array(z.string())),
       /** Moves the note's folder to the Trash. */
       remove: call(NotesArgs.remove, z.void()),
       /** Copies files into the note's materials/. */

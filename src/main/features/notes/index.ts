@@ -96,6 +96,13 @@ export function registerNotesChannel(opts: {
         changed({ locationKey: location.key, noteId, change: "saved" });
         return ipcOk(summary);
       },
+      prune: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.prune.args, args);
+        const location = locationOf(workspaceId);
+        const removed = await store.prune(location, noteId);
+        if (removed.length) changed({ locationKey: location.key, noteId, change: "saved" });
+        return ipcOk(removed);
+      },
       remove: async (args: unknown) => {
         const { workspaceId, noteId } = validateArgs(c.remove.args, args);
         const location = locationOf(workspaceId);

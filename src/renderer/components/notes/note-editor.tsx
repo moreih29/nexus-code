@@ -50,7 +50,11 @@ export function NoteEditor({
   useEffect(() => {
     let alive = true;
     notesApi.read(workspaceId, noteId).then(
-      (n) => alive && setNote(n),
+      (n) => {
+        if (alive) setNote(n);
+        // Opened, with no undo yet: the files of blocks deleted before can go.
+        void notesApi.prune(workspaceId, noteId).catch(() => {});
+      },
       () => alive && setMissing(true),
     );
     return () => {

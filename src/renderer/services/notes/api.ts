@@ -32,6 +32,8 @@ export const notesApi = {
         ...(change.doc !== undefined ? { doc: change.doc as { type: "doc" } } : {}),
       }),
     ),
+  prune: (workspaceId: string, noteId: string): Promise<string[]> =>
+    call(ipcCallResult("notes", "prune", { workspaceId, noteId })),
   remove: (workspaceId: string, noteId: string): Promise<void> =>
     call(ipcCallResult("notes", "remove", { workspaceId, noteId })),
   addFiles: (workspaceId: string, noteId: string, paths: string[]): Promise<NoteAsset[]> =>
