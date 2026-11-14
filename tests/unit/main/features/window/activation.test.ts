@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import {
   activates,
+  opensHere,
   USER_ACTIVATION_MS,
   UserActivation,
   watchActivation,
@@ -111,5 +112,16 @@ describe("the window's activation", () => {
     contents.emit("input-event", {}, { type: "rawKeyDown", key: "Enter" });
     contents.emit("input-event", {}, { type: "mouseDown" });
     expect(activation.take()).toBe(false);
+  });
+});
+
+describe("where a window.open may follow the keyboard", () => {
+  test("a previewed page's link only from the page, the app's own only from the app", () => {
+    expect(opensHere(true, false)).toBe(true);
+    expect(opensHere(false, true)).toBe(true);
+    // Enter typed in the editor: the page's timer does not get it.
+    expect(opensHere(true, true)).toBe(false);
+    // Keys in the page do not let the app's frame open a link for it.
+    expect(opensHere(false, false)).toBe(false);
   });
 });

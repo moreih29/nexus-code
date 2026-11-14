@@ -5,10 +5,6 @@
 //   (mermaid, chart.js, d3) that the user expects to "just work" — the same
 //   way they would when the file is opened directly in Chrome. Sandbox grants:
 //     - `allow-scripts`  → script execution + CDN fetches.
-//     - `allow-popups`   → `window.open` (and our injected link-handler) can
-//                          reach main's setWindowOpenHandler. That handler
-//                          is the actual gate — only http/https/mailto are
-//                          allowed through to shell.openExternal.
 //     - `allow-forms`    → form submission. Without it the browser drops a
 //                          submit before the `submit` event fires, so pages
 //                          that handle forms in script stop working. A
@@ -21,6 +17,11 @@
 //     - `allow-same-origin` → iframe at opaque origin; no cross-talk with
 //                             our renderer's globals or storage.
 //     - `allow-top-navigation` → cannot navigate the outer window.
+//     - `allow-popups` → the page cannot call window.open itself. Its
+//        links go through the host (2. below), so main can tell them from
+//        the app's own and let them open only while the keyboard is in the
+//        preview: keys typed in the editor do not let a page's timer open
+//        links.
 //     - `allow-downloads` / `allow-popups-to-escape-sandbox` → keep
 //        workspace HTML on the same restricted floor as scripts inside it.
 //
@@ -41,11 +42,14 @@
 //      on both light and dark page backgrounds).
 //
 //   2. Link interception — `document.addEventListener('click', …)` in the
-//      capture phase rewrites every <a href> click (other than in-page
-//      `#anchor`) into a `window.open(href, '_blank')` call. main's
-//      setWindowOpenHandler then routes the URL through the allowlist:
+//      capture phase turns every <a href> click (other than in-page
+//      `#anchor`) into a message asking the host to open the link, its
+//      address resolved against the document's base. The host opens it
+//      with window.open under PREVIEW_LINK_WINDOW; main's
+//      setWindowOpenHandler routes the URL through the allowlist:
 //      http/https/mailto open in the OS default browser, everything else
-//      is denied silently. Without this interception, clicking a link
+//      is denied silently. The page's own window.open asks the host the
+//      same way. Without this interception, clicking a link
 //      would navigate the iframe itself — most external sites refuse
 //      iframe embedding (X-Frame-Options / frame-ancestors), so the user
 //      would see a blank pane and lose the preview.
@@ -72,6 +76,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { isWithinWorkspace, relPath } from "@/utils/path";
+import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
 import {
   createDomFinder,
   FIND_COLORS,
@@ -120,6 +125,18 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 </style>
 <script>
 (function () {
+  // The page's own window.open asks the host too, as its links do: the
+  // sandbox lets it open nothing itself.
+  try {
+    window.open = function (url) {
+      try {
+        var href = new URL(String(url), document.baseURI).href;
+        parent.postMessage({ nexusHtmlPreview: 'open', href: href }, '*');
+      } catch (_) {}
+      return null;
+    };
+  } catch (_) {}
+
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || typeof t.closest !== 'function') return;
@@ -146,11 +163,11 @@ const HTML_PREVIEW_PREAMBLE = `<style>
       }
       return;
     }
-    // Everything else: defer to the host. window.open is intercepted by
-    // main's setWindowOpenHandler, which applies the http/https/mailto
-    // allowlist and calls shell.openExternal for allowed URLs.
+    // Everything else: the host opens it (the sandbox has no allow-popups),
+    // resolved against the document's base. main's setWindowOpenHandler
+    // applies the http/https/mailto allowlist.
     e.preventDefault();
-    try { window.open(href, '_blank'); } catch (_) {}
+    try { parent.postMessage({ nexusHtmlPreview: 'open', href: a.href }, '*'); } catch (_) {}
   }, true);
 
   // Scroll persistence. While a restore is pending we keep re-applying it as
@@ -256,6 +273,9 @@ const HTML_PREVIEW_PREAMBLE = `<style>
 
 /** Trailing debounce for live-edit reloads (see RELOAD CADENCE). */
 const RELOAD_DEBOUNCE_MS = 300;
+
+/** The longest link address a previewed page may ask the host to open. */
+const MAX_LINK_CHARS = 8192;
 
 interface ScrollPosition {
   x: number;
@@ -400,6 +420,7 @@ export function HtmlPreview({
         total?: unknown;
         current?: unknown;
         direction?: unknown;
+        href?: unknown;
       };
       switch (msg.nexusHtmlPreview) {
         case "find": {
@@ -419,6 +440,12 @@ export function HtmlPreview({
         case "find-move":
           if (findRef.current)
             postFind({ nexusHtmlPreviewFind: "move", direction: msg.direction === -1 ? -1 : 1 });
+          return;
+        case "open":
+          // Named, so main knows the link is the page's (PREVIEW_LINK_WINDOW).
+          if (typeof msg.href === "string" && msg.href.length <= MAX_LINK_CHARS) {
+            window.open(msg.href, PREVIEW_LINK_WINDOW, "noopener,noreferrer");
+          }
           return;
       }
       if (msg.nexusHtmlPreview !== "scroll") return;
@@ -465,7 +492,7 @@ export function HtmlPreview({
     <div className="flex flex-col h-full min-h-0">
       <iframe
         ref={iframeRef}
-        sandbox="allow-scripts allow-popups allow-forms allow-modals"
+        sandbox="allow-scripts allow-forms allow-modals"
         allow=""
         referrerPolicy="no-referrer"
         title={t("preview.html_title")}

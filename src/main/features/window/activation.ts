@@ -13,6 +13,13 @@
  * there would never open. before-input-event and before-mouse-event see the
  * keys and the mouse in every frame; input-event still gives a tap, in the
  * app's own frame (watchActivation).
+ *
+ * An input says nothing of the frame it went to, nor window.open of the
+ * frame that called it: Enter typed in the editor would let a previewed
+ * page's timer through. So the page opens no window itself (its sandbox
+ * has no allow-popups); the app opens its links under PREVIEW_LINK_WINDOW.
+ * Such a link opens only while the keyboard is in a frame of the page's,
+ * and the app's own only while it is in the app's frame (opensHere).
  */
 
 /** How long an activating input lets one window.open through. */
@@ -93,4 +100,15 @@ export function watchActivation(contents: ActivationSource, activation: UserActi
   contents.on("input-event", (_event, input) => {
     if (input.type === "touchEnd" || input.type === "gestureTap") activation.note(input);
   });
+}
+
+/**
+ * Whether a window.open may follow the keyboard: a previewed page's link
+ * (opened under PREVIEW_LINK_WINDOW) while the keyboard is in a frame of
+ * the page's, the app's own while it is in the app's frame. Asked before
+ * the input is taken, so an open that does not fit leaves it to one that
+ * does.
+ */
+export function opensHere(previewLink: boolean, keyboardInApp: boolean): boolean {
+  return previewLink !== keyboardInApp;
 }
