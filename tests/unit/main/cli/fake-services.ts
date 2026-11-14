@@ -171,6 +171,8 @@ export interface FakeApp {
   waits: WaitRegistry;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
+  /** Each terminal's screen as terminal.read gives it, by tab id; a test may change one. */
+  screens: Map<string, string>;
   /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
@@ -689,6 +691,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     stops,
     waits,
     foreground,
+    screens,
     settings,
     answers,
     asked,

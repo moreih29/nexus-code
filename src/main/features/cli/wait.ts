@@ -10,6 +10,7 @@
 import type { CliTabInfo } from "../../../shared/cli/ui";
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { firstMatch, PatternTooSlowError } from "../../infra/security/bounded-match";
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
 import { oneLine } from "./format";
@@ -149,7 +150,13 @@ class Waiter {
       tabId: this.tab.id,
       lines: MATCH_LINES,
     });
-    const line = text.split("\n").find((l) => pattern.test(l));
+    let line: string | undefined;
+    try {
+      line = firstMatch(pattern, text.split("\n"));
+    } catch (error) {
+      if (error instanceof PatternTooSlowError) return settled("error", "", error.message);
+      throw error;
+    }
     return line === undefined ? null : settled("matched", line);
   }
 
