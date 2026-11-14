@@ -523,7 +523,7 @@ const terminalNew: CliCommand = {
           : workspace.rootPath;
     const title = flags.title as string | undefined;
     const command = flags.command as string | undefined;
-    await mayChange(ctx, workspace, { kind: "terminalNew" });
+    await mayChange(ctx, workspace, { kind: "terminalNew", ...(command ? { body: command } : {}) });
     const { tabId } = await ctx.services.ui("terminal.open", {
       workspaceId: workspace.id,
       cwd,
@@ -584,7 +584,11 @@ const terminalSend: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "terminalInput",
+      detail: tab.title,
+      body: enter ? `${text}\n` : text,
+    });
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -623,7 +627,11 @@ const terminalKey: CliCommand = {
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "terminalInput",
+      detail: tab.title,
+      body: keys.join(" "),
+    });
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,

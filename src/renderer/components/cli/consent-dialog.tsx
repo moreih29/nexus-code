@@ -11,7 +11,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
-import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import { askedEachTime, type CliChange, type CliConsentAnswer } from "../../../shared/cli/ui";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
@@ -59,12 +59,13 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  // An answer to a permission request, a mode that lets more run unasked,
-  // and another profile (another account) for a tab are asked about each time.
+  // What is typed, sent or run, an answer to a permission request, a mode
+  // that lets more run unasked, and another profile (another account) for a
+  // tab are asked about each time.
   const kind = prompt?.change.kind;
   const permission = kind === "permissionAllow" || kind === "permissionDeny";
   const profile = kind === "chatProfile" || kind === "chatProfileNew";
-  const eachTime = permission || kind === "chatMode" || profile;
+  const eachTime = prompt !== undefined && askedEachTime(prompt.change);
   const description = !prompt
     ? ""
     : prompt.fromManager

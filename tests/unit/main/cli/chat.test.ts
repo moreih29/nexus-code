@@ -94,7 +94,11 @@ describe("chat send", () => {
     api.tabs[API]?.push(chat);
     const result = await nexus(api, ["chat", "send", "eeee", "hi", "--workspace", "api"]);
     expect(result.stderr).toBe("nexus: the user did not allow it\n");
-    expect(api.asked[0]?.change).toEqual({ kind: "chatInput", detail: "Fix the login" });
+    expect(api.asked[0]?.change).toEqual({
+      kind: "chatInput",
+      detail: "Fix the login",
+      body: "hi",
+    });
     expect(api.chatSent).toEqual([]);
   });
 });

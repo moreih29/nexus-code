@@ -39,19 +39,44 @@ describe("changing another workspace", () => {
         fromWorkspaceId: APP,
         fromTabId: SHELL_TAB,
         toWorkspaceId: API,
-        change: { kind: "terminalInput", detail: "codex" },
+        // What would be typed, Enter and all, shown whole.
+        change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
       },
     ]);
     expect(app.uiCalls.at(-1)).toMatchObject({ op: "terminal.input", args: { tabId: CODEX_TAB } });
   });
 
-  test("asks again after once, not after until-restart", async () => {
+  test("asks again after once, not after until-restart, for that kind of change alone", async () => {
     const app = fakeApp();
+    const rename = ["tab", "rename", "codex", "x", "--workspace", "api"];
     app.answers.push("once", "session");
-    await nexus(app, argv);
-    await nexus(app, argv);
-    await nexus(app, argv);
+    await nexus(app, rename);
+    await nexus(app, rename);
+    await nexus(app, rename);
     expect(app.asked).toHaveLength(2);
+    // Renaming its tabs says nothing of closing them.
+    await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["tabRename", "tabRename", "tabClose"]);
+  });
+
+  test("asks each time before typing, running or sending, whatever was answered before", async () => {
+    const app = fakeApp();
+    app.answers.push("session", "session", "session", "session");
+    await nexus(app, argv);
+    await nexus(app, argv);
+    await nexus(app, ["terminal", "key", "codex", "ctrl-c", "--workspace", "api"]);
+    await nexus(app, ["terminal", "new", "--command", "make deploy", "--workspace", "api"]);
+    expect(app.asked.map((r) => r.change)).toEqual([
+      { kind: "terminalInput", detail: "codex", body: "go on\n" },
+      { kind: "terminalInput", detail: "codex", body: "go on\n" },
+      { kind: "terminalInput", detail: "codex", body: "ctrl-c" },
+      { kind: "terminalNew", body: "make deploy" },
+    ]);
+    // A new terminal with no command is not: until restart holds for it.
+    app.answers.push("session");
+    await nexus(app, ["terminal", "new", "--workspace", "api"]);
+    await nexus(app, ["terminal", "new", "--workspace", "api"]);
+    expect(app.asked.slice(4).map((r) => r.change)).toEqual([{ kind: "terminalNew" }]);
   });
 
   test.each([
