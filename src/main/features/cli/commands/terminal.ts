@@ -67,6 +67,15 @@ function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo
     throw new CliError("that is this terminal; nexus types only into other terminals");
   }
   if (tab.dead) throw new CliError(`${tab.title} has exited`);
+  refuseWhileAsking(ctx, workspace, tab);
+}
+
+/**
+ * Refuses typing into a terminal whose Claude Code waits for the user to
+ * allow a tool: what is typed would answer it. Asked again just before the
+ * keys go, as it may have come to wait while the user was asked.
+ */
+function refuseWhileAsking(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo): void {
   if (ctx.services.claudeStatus(workspace.id, tab.id)?.status === "permissionPending") {
     throw new CliError(
       "Claude Code there is waiting for the user to allow a tool; that is for the user to answer",
@@ -585,6 +594,7 @@ const terminalSend: CliCommand = {
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
     await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    refuseWhileAsking(ctx, workspace, tab);
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -624,6 +634,7 @@ const terminalKey: CliCommand = {
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
     await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    refuseWhileAsking(ctx, workspace, tab);
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
