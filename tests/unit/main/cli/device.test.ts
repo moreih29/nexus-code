@@ -227,9 +227,15 @@ describe("--device", () => {
     expect(app.peers.requests).toEqual([]);
   });
 
-  test("the sender an agent's request goes with: its tab, the manager's own", async () => {
+  test("the sender a request goes with: its tab, the manager's own, the user's terminal", async () => {
     const app = withDevices();
-    expect(await agentSenderOf(ctx(app))).toBeUndefined();
+    // The user at a shell is not told from an agent there: it goes as one in that terminal.
+    expect(await agentSenderOf(ctx(app))).toEqual({
+      kind: "terminal",
+      workspaceId: APP,
+      tabId: SHELL_TAB,
+      hops: 1,
+    });
     expect(await agentSenderOf(ctx(app, CLAUDE_TAB))).toMatchObject({
       kind: "terminal",
       agent: "claude",

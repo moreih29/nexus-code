@@ -87,13 +87,18 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
 }
 
 /**
- * The agent running the command, as the other computer is told it: what
- * it sends there is that agent's, gated by that computer's setting for
- * agents. Undefined for the user at a shell of theirs.
+ * Who runs the command, as the other computer is told it: what it does
+ * there is an agent's, gated by that computer's setting for agents. So is
+ * what the user runs at a shell of theirs: the command is what agents run,
+ * and one in a terminal that is no Claude Code or Codex is not told from
+ * the user, so it goes as an agent in that terminal.
  */
-export async function agentSenderOf(ctx: CliContext): Promise<AgentSender | undefined> {
+export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
-  if (!sender) return undefined;
+  if (!sender) {
+    const { workspaceId, tabId } = ctx.caller;
+    return { kind: "terminal", workspaceId, tabId, hops: 1 };
+  }
   refuseLoop(sender);
   return {
     kind: sender.kind,

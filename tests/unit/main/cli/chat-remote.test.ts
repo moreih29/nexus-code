@@ -84,6 +84,8 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
+/** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
+const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER, stdin?: string) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
@@ -136,7 +138,7 @@ describe("chat send --device", () => {
     });
   });
 
-  test("the user's own message goes as theirs; JSON names the computer", async () => {
+  test("the user's own message goes as an agent's in their terminal; JSON names the computer", async () => {
     const app = withPeer({ "chat.send": () => ({ at: NOW }) });
     const result = await nexus(app, ["chat", "send", "1a2b", "--device", MINI, "hi", "--json"]);
     expect(JSON.parse(result.stdout)).toEqual({
@@ -145,7 +147,7 @@ describe("chat send --device", () => {
       device: { id: MINI, name: "Mac mini" },
       text: "hi",
     });
-    expect(asked(app, "chat.send")[0]).not.toHaveProperty("from");
+    expect(asked(app, "chat.send")[0]).toMatchObject({ from: FROM_SHELL });
   });
 
   test("a tab is found among the computer's, in --workspace when given; . is this computer's", async () => {
@@ -360,6 +362,7 @@ describe("chat answer --device", () => {
       tabId: TERM,
       requestId: "ask-1",
       decision: "allow",
+      from: FROM_SHELL,
     });
   });
 
@@ -439,9 +442,12 @@ describe("chat interrupt, set and tab close --device", () => {
       workspaceId: SITE,
       tabId: TERM,
       force: true,
+      from: FROM_SHELL,
     });
     await nexus(app, ["tab", "close", "Review", "--device", "Mac mini"]);
-    expect(asked(app, "chat.close")).toEqual([{ workspaceId: SITE, tabId: REVIEW }]);
+    expect(asked(app, "chat.close")).toEqual([
+      { workspaceId: SITE, tabId: REVIEW, from: FROM_SHELL },
+    ]);
     expect((await nexus(app, ["tab", "close", "--all", "--device", "Mac mini"])).exitCode).toBe(2);
   });
 });

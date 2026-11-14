@@ -2,8 +2,9 @@
  * nexus chat ... --device and tab close --device: a Claude or Codex tab of
  * another computer of the user's, read and driven through the remote's
  * room as chat read, send, wait, new, answer, interrupt and set drive this
- * computer's. What an agent sends there goes as its own (from), for that
- * computer's user to allow; the output is the local commands'.
+ * computer's. What is sent there goes as an agent's (from), for that
+ * computer's user to allow, the user's at a shell too (see agentSenderOf);
+ * the output is the local commands'.
  */
 import {
   MAX_READ_ITEMS,
@@ -158,7 +159,7 @@ export async function sendToPeer(
   const { at } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
-    ...(from ? { from } : {}),
+    from,
   });
   const sent = `Sent to ${named(peer)}.`;
   const json = { ...targetJson(peer), text };
@@ -288,7 +289,7 @@ export async function newPeerChat(
   const { workspaces } = await peerSessions(ctx, device);
   const workspace = pickPeerWorkspace(device, workspaces, flags.workspace as string | undefined);
   const { agent, prompt, folder, settings } = request;
-  const from = prompt !== "" ? await agentSenderOf(ctx) : undefined;
+  const from = await agentSenderOf(ctx);
   const profile = typeof flags.profile === "string" ? flags.profile.trim() : "";
   const { tabId, error } = await askDevice(ctx, device, "chat.new", {
     workspaceId: workspace.id,
@@ -299,7 +300,7 @@ export async function newPeerChat(
     ...(settings.mode ? { permissionMode: settings.mode } : {}),
     ...(profile ? { profile } : {}),
     ...(folder ? { folder } : {}),
-    ...(from ? { from } : {}),
+    from,
   });
   const where = `${folder ?? workspace.path} on "${device.name}"`;
   const json = {
@@ -340,7 +341,7 @@ export async function interruptPeer(
     CHATS,
   );
   const from = await agentSenderOf(ctx);
-  await askDevice(ctx, device, "chat.interrupt", { ...target(peer), ...(from ? { from } : {}) });
+  await askDevice(ctx, device, "chat.interrupt", { ...target(peer), from });
   return output(`Stopped the turn of ${named(peer)}.`, targetJson(peer));
 }
 
@@ -388,7 +389,7 @@ export async function setPeerChat(
     ...(settings.model ? { model: settings.model } : {}),
     ...(settings.effort ? { effort: settings.effort } : {}),
     ...(settings.mode ? { permissionMode: settings.mode } : {}),
-    ...(from ? { from } : {}),
+    from,
   });
   const choices = choicesOf(set);
   const runs = [
@@ -433,7 +434,7 @@ export async function answerPeer(
       ...target(peer),
       requestId,
       decision,
-      ...(from ? { from } : {}),
+      from,
     });
     return done(session.waiting?.text ?? "the tool");
   }
@@ -450,7 +451,7 @@ export async function answerPeer(
     requestId: request.requestId,
     decision,
     ...(message ? { message } : {}),
-    ...(from ? { from } : {}),
+    from,
   });
   return done(request.displayName ?? request.toolName);
 }
@@ -468,10 +469,10 @@ export async function closePeerTab(
     await askDevice(ctx, device, "terminal.close", {
       ...target(peer),
       ...(flags.force === true ? { force: true } : {}),
-      ...(from ? { from } : {}),
+      from,
     });
   } else {
-    await askDevice(ctx, device, "chat.close", { ...target(peer), ...(from ? { from } : {}) });
+    await askDevice(ctx, device, "chat.close", { ...target(peer), from });
   }
   return output(`Closed ${named(peer)}.`, targetJson(peer));
 }

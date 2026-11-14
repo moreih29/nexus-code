@@ -1,9 +1,10 @@
 /**
  * nexus terminal ... --device: a terminal of another computer of the
  * user's, read, typed into, waited on and opened through the remote's room
- * as terminal read, send, key, wait and new do this computer's. What an
- * agent types there goes as its own (from), for that computer's user to
- * allow; the output is the local commands'.
+ * as terminal read, send, key, wait and new do this computer's. What is
+ * typed there goes as an agent's (from), for that computer's user to
+ * allow, the user's at a shell too (see agentSenderOf); the output is the
+ * local commands'.
  */
 import {
   MAX_WAIT_MS as MAX_REQUEST_WAIT_MS,
@@ -170,7 +171,7 @@ export async function sendToPeerTerminal(
     ...target(peer),
     ...(input.text !== "" ? { text: input.text } : {}),
     ...(input.enter ? { enter: true } : {}),
-    ...(from ? { from } : {}),
+    from,
   });
   const sent = `Sent to ${named(peer)}.`;
   const json = { ...targetJson(peer), text: input.text, enter: input.enter };
@@ -231,7 +232,7 @@ export async function pressPeerKeys(
     await askDevice(ctx, device, "terminal.input", {
       ...target(peer),
       ...run,
-      ...(from ? { from } : {}),
+      from,
     });
   }
   return output(`Pressed ${keys.join(" ")} in ${named(peer)}.`, { ...targetJson(peer), keys });
@@ -275,7 +276,7 @@ export async function newPeerTerminal(
     ...(folder ? { folder } : {}),
     ...(command ? { command } : {}),
     ...(title ? { title } : {}),
-    ...(from ? { from } : {}),
+    from,
   });
   const cwd = folder ?? workspace.path;
   return output(`Opened terminal ${shortId(tabId)} in ${cwd} on "${device.name}".`, {

@@ -55,6 +55,8 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
+/** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
+const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
@@ -141,9 +143,9 @@ describe("terminal --device", () => {
     ]);
     expect(result.stdout).toBe('Pressed ctrl-c y Return q in server (5e6f7a8b) on "Mac mini".\n');
     expect(asked(app, "terminal.input")).toEqual([
-      { workspaceId: SITE, tabId: TERM, keys: ["ctrl-c"] },
-      { workspaceId: SITE, tabId: TERM, text: "y", keys: ["enter"] },
-      { workspaceId: SITE, tabId: TERM, text: "q" },
+      { workspaceId: SITE, tabId: TERM, keys: ["ctrl-c"], from: FROM_SHELL },
+      { workspaceId: SITE, tabId: TERM, text: "y", keys: ["enter"], from: FROM_SHELL },
+      { workspaceId: SITE, tabId: TERM, text: "q", from: FROM_SHELL },
     ]);
     expect(
       (await nexus(app, ["terminal", "key", "server", "f13", "--device", "Mac mini"])).exitCode,
