@@ -567,6 +567,8 @@
     "remove": "Delete {{name}}",
     "refresh": "Check again",
     "login": "Sign in",
+    "loginAgain": "Sign {{name}} in again",
+    "loginAgainTitle": "Sign in again, to another account or organization",
     "codexNote": "The app makes the folders; the codex program is shared",
     "status": {
       "checking": "Checking…",
