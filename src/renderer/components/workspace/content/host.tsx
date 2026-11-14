@@ -15,6 +15,7 @@ import { isImageFile } from "@/services/editor/preview/previewable";
 import { isSpreadsheetFile } from "@/services/editor/preview/spreadsheet";
 import { useAgentViewStore } from "@/state/stores/agent-view";
 import type { Tab } from "@/state/stores/tabs";
+import { NoteEditor } from "../../notes/note-editor";
 import { BrowserTabView } from "./browser-view";
 import { DocxEditorView } from "./docx-editor-view";
 import { EditorView, ImageEditorView } from "./editor-view";
@@ -287,6 +288,8 @@ export function ContentHost({
             props={tab.props}
             isVisible={isVisible}
           />
+        ) : tab.type === "note" ? (
+          <NoteEditor workspaceId={workspaceId} tabId={tab.id} noteId={tab.props.noteId} />
         ) : null}
       </div>
     );
@@ -303,7 +306,7 @@ export function ContentHost({
  * language servers' problems follow.
  */
 function builtWhenShown(tab: Tab): boolean {
-  if (tab.type === "editor.diff" || tab.type === "git.commit") return true;
+  if (tab.type === "editor.diff" || tab.type === "git.commit" || tab.type === "note") return true;
   if (tab.type !== "editor") return false;
   const path = tab.props.filePath;
   return (

@@ -15,6 +15,7 @@ import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { startManager } from "./services/manager/runtime";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
+import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
 import {
   initBrowserLastUrlPersistence,
@@ -116,6 +117,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
+
+  // Close the tabs of notes removed elsewhere (Settings, another window).
+  startNoteRemovalListener();
 
   // Toast git failures the Source Control panel does not show itself.
   initGitErrorToasts();

@@ -5,7 +5,8 @@
       "tree": "파일 트리",
       "search": "워크스페이스에서 찾기",
       "git": "소스 제어",
-      "agents": "에이전트"
+      "agents": "에이전트",
+      "notes": "노트"
     },
     "offline": {
       "title": "연결되지 않음",

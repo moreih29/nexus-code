@@ -52,6 +52,7 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { registerManagerChannel } from "./features/manager";
 import { installAppMenu } from "./features/menu";
+import { type NotesFeature, registerNotesChannel } from "./features/notes";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { PortForwards } from "./features/pty/forwards";
@@ -173,6 +174,7 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
+let notesFeature: NotesFeature | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -585,6 +587,12 @@ app.whenReady().then(async () => {
   // Settings' view of the Claude and Codex profiles on this machine.
   agentProfiles = registerAgentProfilesChannel(stateService);
 
+  // A workspace's notes, kept under the app's data folder by where its folder is.
+  notesFeature = registerNotesChannel({
+    userData: app.getPath("userData"),
+    workspaces: () => workspaceManager.list(),
+  });
+
   // The agent manager's workspace and its reports.
   registerManagerChannel({
     workspaceManager,
@@ -626,6 +634,16 @@ app.whenReady().then(async () => {
     broadcast: forwardBroadcast,
     ports: portWatcher,
     forwards,
+    notes: {
+      list: (workspaceId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.list(notesFeature.locationOf(workspaceId));
+      },
+      read: (workspaceId, noteId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.read(notesFeature.locationOf(workspaceId), noteId);
+      },
+    },
   });
 
   // The hookserver connection info is looked up by pull from workspaceManager.getHookInfo().

@@ -156,6 +156,53 @@ function monacoAssetsPlugin(): Plugin {
 }
 
 // ---------------------------------------------------------------------------
+// Vite plugin: ship Excalidraw's fonts with the renderer.
+//
+// The sketch blocks of notes draw with Excalidraw, which loads its fonts
+// from window.EXCALIDRAW_ASSET_PATH (set in notes/editor/excalidraw-assets.ts)
+// and from a CDN when that is not set. They are served from here in dev and
+// copied next to the renderer's index.html in a build, so a sketch draws
+// offline and the app asks no one else for them.
+// ---------------------------------------------------------------------------
+const EXCALIDRAW_FONTS_DIR = "excalidraw/fonts";
+
+function excalidrawAssetsPlugin(): Plugin {
+  // The package exports no ./package.json: its root is found from its entry.
+  const entry = createRequire(resolve(__dirname, "package.json")).resolve("@excalidraw/excalidraw");
+  const marker = `${sep}@excalidraw${sep}excalidraw${sep}`;
+  const root = entry.slice(0, entry.lastIndexOf(marker) + marker.length);
+  const source = resolve(root, "dist/prod/fonts");
+  const types: Record<string, string> = {
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+  };
+  return {
+    name: "vite-plugin-excalidraw-assets",
+    configureServer(server) {
+      server.middlewares.use(`/${EXCALIDRAW_FONTS_DIR}`, (req, res, next) => {
+        const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+        const file = resolve(source, `.${pathname}`);
+        if (!file.startsWith(`${source}${sep}`) || !existsSync(file) || !statSync(file).isFile()) {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
+        createReadStream(file).pipe(res);
+      });
+    },
+    writeBundle(options) {
+      if (!options.dir) return;
+      if (!existsSync(source)) {
+        this.warn(`Excalidraw's fonts are not at ${source}: sketches fall back to its CDN`);
+        return;
+      }
+      cpSync(source, resolve(options.dir, EXCALIDRAW_FONTS_DIR), { recursive: true });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Vite plugin: keep UMD dependencies off Monaco's AMD loader.
 //
 // The editor's loader (@monaco-editor/react, AMD build) leaves a global
@@ -277,6 +324,7 @@ export default defineConfig({
     plugins: [
       themeTokensPlugin(),
       monacoAssetsPlugin(),
+      excalidrawAssetsPlugin(),
       noAmdPlugin(),
       tailwindcss(),
       react(),

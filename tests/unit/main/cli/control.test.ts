@@ -110,7 +110,8 @@ describe("changing another workspace", () => {
     panel list | panel show files | panel hide files | agent list --tab codex
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
-    browser console | browser wait --text hi | browser pick | browser network`;
+    browser console | browser wait --text hi | browser pick | browser network
+    note list | note read nmhz00cc | note path nmhz00cc`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
@@ -175,6 +176,18 @@ function apiAtWork(): FakeApp {
     name: "api-feat",
     task: { parentId: API, branch: "feat", worktreePath: "/w/api-feat" },
   });
+  app.notes[API] = [
+    {
+      id: "nmhz00cc0003",
+      title: "API",
+      createdAt: 0,
+      updatedAt: 0,
+      counts: { sketches: 0, files: 0, images: 0, todos: 0, todosDone: 0 },
+      excerpt: "",
+      doc: { type: "doc", content: [] },
+      dir: "/data/notes/api/nmhz00cc0003",
+    },
+  ];
   app.tabs[API]?.push(
     { id: CHAT_TAB, type: "claude", title: "Fix the login", groupId: "g3", shown: false },
     {

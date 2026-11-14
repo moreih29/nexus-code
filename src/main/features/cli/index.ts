@@ -37,7 +37,7 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "./consent";
-import { CliError, type CliForwards, type CliServices, shortId } from "./context";
+import { CliError, type CliForwards, type CliNotes, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -100,6 +100,8 @@ export interface SetupCliFeatureOptions {
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
   /** The SSH workspaces' ports forwarded to this machine. */
   forwards: CliForwards;
+  /** The workspaces' notes. */
+  notes: CliNotes;
 }
 
 export interface CliFeature {
@@ -262,6 +264,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     },
     browser,
+    notes: options.notes,
   };
 
   const run = (

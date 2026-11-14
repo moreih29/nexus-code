@@ -116,6 +116,14 @@ import {
   FolderBookmarkSchema,
 } from "../types/entry-points";
 import {
+  NoteAssetSchema,
+  NoteChangedSchema,
+  NoteContentSchema,
+  NoteStorageEntrySchema,
+  NoteSummarySchema,
+  NotesArgs,
+} from "../types/notes";
+import {
   PanelGetViewOptionsArgsSchema,
   PanelSetViewOptionsArgsSchema,
   PanelViewOptionsSchema,
@@ -2272,6 +2280,45 @@ export const ipcContract = {
   // Settings › Claude and Codex: the profiles' folders and sign-ins on this
   // machine. A chat tab's profile is set up on its workspace's host instead,
   // as it starts (chat.start's profileId).
+  /**
+   * Notes: a workspace's notes, kept by the app under its data folder by
+   * where the workspace's folder is (shared/notes/types.ts).
+   */
+  notes: {
+    call: {
+      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
+      create: call(NotesArgs.create, NoteContentSchema),
+      read: call(NotesArgs.read, NoteContentSchema),
+      save: call(NotesArgs.save, NoteSummarySchema),
+      /** Moves the note's folder to the Trash. */
+      remove: call(NotesArgs.remove, z.void()),
+      /** Copies files into the note's materials/. */
+      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
+      /** Writes a pasted image into the note's screens/. */
+      addImage: call(NotesArgs.addImage, NoteAssetSchema),
+      saveSketch: call(
+        NotesArgs.saveSketch,
+        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
+      ),
+      /** A file of the note's folder, as base64. */
+      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
+      /** Opens a file of the note's folder with the system's app for it. */
+      openAsset: call(NotesArgs.openAsset, z.void()),
+      revealAsset: call(NotesArgs.revealAsset, z.void()),
+      /** Shows the note's folder in the system's file manager. */
+      revealNote: call(NotesArgs.revealNote, z.void()),
+      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
+      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
+      /** Every location with notes, and what they take. */
+      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
+      /** Moves every note of a location to the Trash. */
+      removeLocation: call(NotesArgs.removeLocation, z.void()),
+      revealLocation: call(NotesArgs.revealLocation, z.void()),
+    },
+    listen: {
+      changed: listen(NoteChangedSchema),
+    },
+  },
   agentProfiles: {
     call: {
       /**

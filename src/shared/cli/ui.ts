@@ -116,7 +116,7 @@ export interface CliAgentView {
 export type CliPanel = "sidebar" | "files";
 
 /** What the files panel shows: the file tree, search, git, or the agent list. */
-export type CliFilesMode = "tree" | "search" | "git" | "agents";
+export type CliFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export interface CliPanels {
   readonly sidebar: { readonly visible: boolean; readonly width: number };
