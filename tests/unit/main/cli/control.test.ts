@@ -39,19 +39,51 @@ describe("changing another workspace", () => {
         fromWorkspaceId: APP,
         fromTabId: SHELL_TAB,
         toWorkspaceId: API,
-        change: { kind: "terminalInput", detail: "codex" },
+        // What would be typed, Enter and all, shown whole.
+        change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
       },
     ]);
     expect(app.uiCalls.at(-1)).toMatchObject({ op: "terminal.input", args: { tabId: CODEX_TAB } });
   });
 
-  test("asks again after once, not after until-restart", async () => {
+  test("closing a terminal there says it is a terminal's, for who may answer it", async () => {
     const app = fakeApp();
+    app.answers.push("once");
+    await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
+    expect(app.asked[0]?.change).toEqual({ kind: "tabClose", detail: "codex", terminal: true });
+  });
+
+  test("asks again after once, not after until-restart, for that kind of change alone", async () => {
+    const app = fakeApp();
+    const rename = ["tab", "rename", "codex", "x", "--workspace", "api"];
     app.answers.push("once", "session");
-    await nexus(app, argv);
-    await nexus(app, argv);
-    await nexus(app, argv);
+    await nexus(app, rename);
+    await nexus(app, rename);
+    await nexus(app, rename);
     expect(app.asked).toHaveLength(2);
+    // Renaming its tabs says nothing of closing them.
+    await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
+    expect(app.asked.map((r) => r.change.kind)).toEqual(["tabRename", "tabRename", "tabClose"]);
+  });
+
+  test("asks each time before typing, running or sending, whatever was answered before", async () => {
+    const app = fakeApp();
+    app.answers.push("session", "session", "session", "session");
+    await nexus(app, argv);
+    await nexus(app, argv);
+    await nexus(app, ["terminal", "key", "codex", "ctrl-c", "--workspace", "api"]);
+    await nexus(app, ["terminal", "new", "--command", "make deploy", "--workspace", "api"]);
+    expect(app.asked.map((r) => r.change)).toEqual([
+      { kind: "terminalInput", detail: "codex", body: "go on\n" },
+      { kind: "terminalInput", detail: "codex", body: "go on\n" },
+      { kind: "terminalInput", detail: "codex", body: "ctrl-c" },
+      { kind: "terminalNew", body: "make deploy" },
+    ]);
+    // A new terminal with no command is not: until restart holds for it.
+    app.answers.push("session");
+    await nexus(app, ["terminal", "new", "--workspace", "api"]);
+    await nexus(app, ["terminal", "new", "--workspace", "api"]);
+    expect(app.asked.slice(4).map((r) => r.change)).toEqual([{ kind: "terminalNew" }]);
   });
 
   test.each([
@@ -66,6 +98,24 @@ describe("changing another workspace", () => {
     app.answers.push(answer);
     const result = await nexus(app, argv);
     expect(result.stderr).toBe(stderr);
+    expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
+  });
+
+  test("types nothing when the agent there came to wait on the user while they were asked", async () => {
+    const app = fakeApp();
+    // The user allows it; meanwhile Claude Code there asks to run a tool.
+    app.answers.shift = () => {
+      app.claude.set(`${API}:${CODEX_TAB}`, { status: "permissionPending", since: Date.now() });
+      return "once";
+    };
+    for (const line of [argv, ["terminal", "key", "codex", "y", "enter", "--workspace", "api"]]) {
+      const result = await nexus(app, line);
+      expect(result.stderr).toBe(
+        "nexus: Claude Code there is waiting for the user to allow a tool; that is for the user to answer\n",
+      );
+      app.claude.delete(`${API}:${CODEX_TAB}`);
+    }
+    expect(app.asked).toHaveLength(2);
     expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
   });
 
@@ -110,7 +160,8 @@ describe("changing another workspace", () => {
     panel list | panel show files | panel hide files | agent list --tab codex
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
-    browser console | browser wait --text hi | browser pick | browser network`;
+    browser console | browser wait --text hi | browser pick | browser network
+    note list | note read nmhz00cc | note path nmhz00cc`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
@@ -175,6 +226,18 @@ function apiAtWork(): FakeApp {
     name: "api-feat",
     task: { parentId: API, branch: "feat", worktreePath: "/w/api-feat" },
   });
+  app.notes[API] = [
+    {
+      id: "nmhz00cc0003",
+      title: "API",
+      createdAt: 0,
+      updatedAt: 0,
+      counts: { sketches: 0, files: 0, images: 0, todos: 0, todosDone: 0 },
+      excerpt: "",
+      doc: { type: "doc", content: [] },
+      dir: "/data/notes/api/nmhz00cc0003",
+    },
+  ];
   app.tabs[API]?.push(
     { id: CHAT_TAB, type: "claude", title: "Fix the login", groupId: "g3", shown: false },
     {
@@ -398,6 +461,42 @@ describe("terminal wait", () => {
     const result = await nexus(app, ["terminal", "wait", "build"]);
     expect(result.stdout).toBe("build is back at its prompt.\n");
     expect(app.time.now - start).toBe(2_500);
+  });
+});
+
+describe("terminal wait --match", () => {
+  test("ends on the first line the pattern matches", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, [
+      "terminal",
+      "wait",
+      "codex",
+      "--workspace",
+      "api",
+      "--match",
+      "Work(ing|ed)",
+      "--json",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({ state: "matched" });
+  });
+
+  test("a pattern that backtracks without end ends the wait, not the app", async () => {
+    const app = fakeApp();
+    app.screens.set(CODEX_TAB, `${" ".repeat(40)}x`);
+    const result = await nexus(app, [
+      "terminal",
+      "wait",
+      "codex",
+      "--workspace",
+      "api",
+      "--match",
+      "( +)+$",
+      "--json",
+    ]);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      state: "error",
+      message: "the pattern took too long to match: give a simpler one",
+    });
   });
 });
 

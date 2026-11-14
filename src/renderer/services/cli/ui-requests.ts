@@ -15,6 +15,7 @@ import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
 import { readSessionEvents } from "../agent-sessions/session-events";
 import { focusHolder, restoreFocus } from "../keep-focus";
+import { startTerminalWatch, stopTerminalWatch } from "../remote/terminal-watch";
 import { getTerminalController } from "../terminal/terminal-registry";
 import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
 import { appHandlers } from "./app-actions";
@@ -64,14 +65,33 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
-  "terminal.read": async ({ tabId, lines }) => {
+  "terminal.read": async ({ tabId, lines, ansi }) => {
     const controller = getTerminalController(tabId);
     if (!controller) {
       throw new UiRequestError(
         "that terminal has not started: its workspace has not been opened since NexusCode started",
       );
     }
-    return { text: controller.readText(lines) };
+    return { text: controller.readText(lines, ansi) };
+  },
+  "terminal.watch": async ({ tabId, watchId, lines, ansi }) => {
+    if (!getTerminalController(tabId)) {
+      throw new UiRequestError(
+        "that terminal has not started: its workspace has not been opened since NexusCode started",
+      );
+    }
+    return startTerminalWatch(
+      watchId,
+      tabId,
+      lines,
+      (change) => void ipcCallResult("remote", "terminalChanged", { watchId, change }),
+      () => void ipcCallResult("remote", "terminalWatchEnded", { watchId }),
+      ansi ?? false,
+    );
+  },
+  "terminal.unwatch": async ({ watchId }) => {
+    stopTerminalWatch(watchId);
+    return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
   "manager.dispatched": async ({ workspaceId, tabId, text }) => {
@@ -96,16 +116,27 @@ export function markCliUiReady(): void {
   markReady();
 }
 
+/** Removes the cli:uiRequest listener installed last, if it is still there. */
+let stopListening: (() => void) | null = null;
+
+// Hot reload may load this module anew; its listener goes with the old one.
+import.meta.hot?.dispose(() => stopListening?.());
+
 /**
- * Installs the cli:uiRequest listener. Requests wait until markCliUiReady,
- * since before it the stores are empty. Returns the unlisten function.
+ * Installs the cli:uiRequest listener, in place of one installed before.
+ * Requests wait until markCliUiReady, since before it the stores are empty.
+ * Returns the unlisten function.
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
  * focus (see ../keep-focus).
  */
 export function startCliUiListener(): () => void {
-  return ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
+  // One listener, however often the app boots: a second would carry out
+  // each request again, typing or sending twice. The dev build's hot reload
+  // boots the app again with each edit.
+  stopListening?.();
+  const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       await ready;
       const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
@@ -123,4 +154,10 @@ export function startCliUiListener(): () => void {
       }
     })();
   });
+  const stopThis = (): void => {
+    stop();
+    if (stopListening === stopThis) stopListening = null;
+  };
+  stopListening = stopThis;
+  return stopThis;
 }

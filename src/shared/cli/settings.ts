@@ -94,6 +94,7 @@ export const SETTINGS_PAGES = [
   "language-servers",
   "terminal",
   "notifications",
+  "notes",
   "agent",
   "manager",
   "browser-permissions",

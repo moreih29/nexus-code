@@ -404,14 +404,20 @@ function Step({ state, children }: { state: "done" | "busy" | "failed"; children
   );
 }
 
-/** Makes the profile's folder and links, then runs its sign-in here. */
+/**
+ * Makes the profile's folder and links, then runs its sign-in here. A folder
+ * signed in already is left as it is unless `again` asks to sign it in anew
+ * (another account, or another organization of the same one).
+ */
 export function LoginDialog({
   profileId,
   agent,
+  again = false,
   onClose,
 }: {
   profileId: string;
   agent: ChatAgent;
+  again?: boolean;
   onClose: () => void;
 }) {
   const { t } = useTranslation(["settings", "common"]);
@@ -427,7 +433,8 @@ export function LoginDialog({
   const [exit, setExit] = useState<{ code: number | null } | null>(null);
   const [status, setStatus] = useState<AgentProfileStatus | undefined>(undefined);
   const [code, setCode] = useState("");
-  const [round, setRound] = useState(0);
+  // Round 0 looks for a sign-in first; a later one signs in whatever it finds.
+  const [round, setRound] = useState(again ? 1 : 0);
   const [already, setAlready] = useState(false);
   const loginRef = useRef<string | null>(null);
 

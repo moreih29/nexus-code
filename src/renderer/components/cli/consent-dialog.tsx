@@ -3,22 +3,29 @@
  * terminal's own, or answer another session's permission request, for the
  * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
  * their turn. A prompt left unanswered is taken down after its timeout and
- * counts as turned down.
+ * counts as turned down; one answered on another device of the user's
+ * (the remote's consent.answer) is taken down with a toast saying so.
  */
 
+import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
-import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import { showToast } from "@/components/ui/toast";
+import { askedEachTime, type CliChange, type CliConsentAnswer } from "../../../shared/cli/ui";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
+  /** Main's id for it, for another device to answer it by. */
+  readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
   /** Whether the agent manager asks: it is in no workspace of the user's. */
   readonly fromManager: boolean;
+  /** The user's other computer the agent asks from, by its name; none for this one. */
+  readonly fromDevice?: string;
   readonly toWorkspace: string;
   readonly change: CliChange;
   readonly timeoutMs: number;
@@ -37,6 +44,28 @@ function settle(pending: Pending, answer: CliConsentAnswer): void {
   queue = queue.filter((p) => p !== pending);
   pending.resolve(answer);
   bus.notify();
+}
+
+/**
+ * Answers the prompt `id` as the user would, from their device named `by`,
+ * taking it down (or out of the queue) with a toast saying so. False when
+ * no prompt `id` waits.
+ */
+export function settleCliConsent(
+  id: string,
+  answer: "once" | "session" | "deny",
+  by?: string,
+): boolean {
+  const pending = queue.find((p) => p.prompt.id === id);
+  if (!pending) return false;
+  settle(pending, answer);
+  if (by) {
+    showToast({
+      kind: "info",
+      message: i18next.t(`settings:agentCli.consent.answered_${answer}`, { device: by }),
+    });
+  }
+  return true;
 }
 
 /** Shows the prompt and resolves to the user's answer, or "timeout". */
@@ -59,22 +88,30 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const action = prompt
     ? t(`agentCli.consent.action.${prompt.change.kind}`, { detail: prompt.change.detail ?? "" })
     : "";
-  // An answer to a permission request, a mode that lets more run unasked,
-  // and another profile (another account) for a tab are asked about each time.
+  // What is typed, sent or run, an answer to a permission request, a mode
+  // that lets more run unasked, and another profile (another account) for a
+  // tab are asked about each time.
   const kind = prompt?.change.kind;
   const permission = kind === "permissionAllow" || kind === "permissionDeny";
   const profile = kind === "chatProfile" || kind === "chatProfileNew";
-  const eachTime = permission || kind === "chatMode" || profile;
+  const eachTime = prompt !== undefined && askedEachTime(prompt.change);
   const description = !prompt
     ? ""
-    : prompt.fromManager
-      ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
-      : t("agentCli.consent.description", {
+    : prompt.fromDevice
+      ? t("agentCli.consent.remote_description", {
+          device: prompt.fromDevice,
           tab: prompt.fromTab,
-          from: prompt.fromWorkspace,
           to: prompt.toWorkspace,
           action,
-        });
+        })
+      : prompt.fromManager
+        ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
+        : t("agentCli.consent.description", {
+            tab: prompt.fromTab,
+            from: prompt.fromWorkspace,
+            to: prompt.toWorkspace,
+            action,
+          });
 
   return (
     <Dialog
@@ -92,13 +129,15 @@ export function CliConsentDialogRoot(): React.JSX.Element {
               ? "agentCli.consent.mode_title"
               : profile
                 ? "agentCli.consent.profile_title"
-                : "agentCli.consent.title",
+                : prompt?.fromDevice
+                  ? "agentCli.consent.remote_title"
+                  : "agentCli.consent.title",
         )}
         description={description}
       />
       {prompt?.change.body && (
         // What an answer lets run, whole: its first line can hide the rest.
-        <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
+        <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-(--radius-control) bg-muted px-2 py-1.5 font-mono text-app-ui-sm text-foreground">
           {prompt.change.body}
         </pre>
       )}

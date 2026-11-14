@@ -3,7 +3,7 @@
  * config folder with its own sign-in. The default-folder profile comes
  * first and stays; the others are added, edited and deleted here. Each row
  * says who the profile is signed in as on this machine, and offers a sign-in
- * when it is not.
+ * when it is not, or a fresh one (another account or organization) when it is.
  */
 
 import { ChevronRight, LogIn, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
@@ -53,7 +53,7 @@ export function AgentProfilesPanel({
   const statuses = useProfileStatusStore((s) => s.byId);
   const refresh = useProfileStatusStore((s) => s.refresh);
   const [editing, setEditing] = useState<AgentProfile | "new" | null>(null);
-  const [loggingIn, setLoggingIn] = useState<string | null>(null);
+  const [loggingIn, setLoggingIn] = useState<{ id: string; again: boolean } | null>(null);
 
   const ids = profiles.map((p) => p.id).join(",");
   useEffect(() => {
@@ -94,7 +94,8 @@ export function AgentProfilesPanel({
               onRefresh={() => void refresh(profile.id)}
               onEdit={() => setEditing(profile)}
               onRemove={isDefaultProfileId(profile.id) ? undefined : () => void remove(profile)}
-              onLogin={() => setLoggingIn(profile.id)}
+              onLogin={() => setLoggingIn({ id: profile.id, again: false })}
+              onLoginAgain={() => setLoggingIn({ id: profile.id, again: true })}
             />
           ))}
         </div>
@@ -127,16 +128,17 @@ export function AgentProfilesPanel({
           onClose={() => setEditing(null)}
           onCreated={(id) => {
             setEditing(null);
-            setLoggingIn(id);
+            setLoggingIn({ id, again: false });
           }}
         />
       )}
       {loggingIn !== null && (
         <LoginDialog
-          profileId={loggingIn}
+          profileId={loggingIn.id}
           agent={agent}
+          again={loggingIn.again}
           onClose={() => {
-            void refresh(loggingIn);
+            void refresh(loggingIn.id);
             setLoggingIn(null);
           }}
         />
@@ -145,7 +147,7 @@ export function AgentProfilesPanel({
   );
 }
 
-function ProfileRow({
+export function ProfileRow({
   agent,
   profile,
   profiles,
@@ -154,6 +156,7 @@ function ProfileRow({
   onEdit,
   onRemove,
   onLogin,
+  onLoginAgain,
 }: {
   agent: ChatAgent;
   profile: AgentProfile;
@@ -163,11 +166,14 @@ function ProfileRow({
   onEdit: () => void;
   onRemove: (() => void) | undefined;
   onLogin: () => void;
+  /** Signs a signed-in profile in anew, to another account or organization. */
+  onLoginAgain: () => void;
 }) {
   const { t } = useTranslation("settings");
   const name = profileName(profile, t);
   const isDefault = isDefaultProfileId(profile.id);
   const entry = statuses[profile.id];
+  const signedIn = entry?.status?.state === "signed-in";
   const shared = profile.shared?.length ?? 0;
   const defaultFolder = useAgentProfilesStore((s) => defaultFolderLabel(agent, s));
   const folder = isDefault ? defaultFolder : tildePath(profile.dir);
@@ -213,6 +219,17 @@ function ProfileRow({
             aria-hidden="true"
           />
         </button>
+        {/* A signed-out profile has its sign-in button beside its status. */}
+        <button
+          type="button"
+          aria-label={t("profiles.loginAgain", { name })}
+          title={t("profiles.loginAgainTitle")}
+          onClick={onLoginAgain}
+          disabled={!signedIn}
+          className={cn(iconButtonClass, !signedIn && "invisible")}
+        >
+          <LogIn className="size-3.5" aria-hidden="true" />
+        </button>
         <button
           type="button"
           aria-label={t("profiles.edit", { name })}
@@ -237,8 +254,14 @@ function ProfileRow({
   );
 }
 
+/** What asks an agent who is signed in, as a row names it when it gives no answer. */
+const STATUS_COMMAND: Record<ChatAgent, string> = {
+  claude: "claude auth status",
+  codex: "codex login status",
+};
+
 /** Who the profile is signed in as, or a sign-in button. */
-function ProfileStatusText({
+export function ProfileStatusText({
   agent,
   profile,
   profiles,
@@ -266,7 +289,11 @@ function ProfileStatusText({
         className="max-w-[14rem] shrink-0 truncate text-app-ui-sm text-muted-foreground"
         title={status.message}
       >
-        {t("profiles.status.unavailable", { program: agent })}
+        {status.reason === "missing"
+          ? t("profiles.status.unavailable", { program: agent })
+          : status.reason === "no-answer"
+            ? t("profiles.status.noAnswer", { command: STATUS_COMMAND[agent] })
+            : t("profiles.status.unchecked")}
       </span>
     );
   }

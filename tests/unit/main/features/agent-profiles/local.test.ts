@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   inspectLocalFolder,
   localProfileEnv,
+  localProfileStatus,
   loginCommand,
   prepareLocalProfile,
 } from "../../../../../src/main/features/agent-profiles/local";
@@ -179,5 +180,48 @@ describe("the environment a profile's program runs with", () => {
     const env = localProfileEnv(profile, base, false);
     expect(env.PATH).toBe("C:/Windows");
     expect(env.Path).toBe("C:/fake;C:/Windows");
+  });
+});
+
+describe("a Claude profile whose sign-in can't be read", () => {
+  let root: string;
+  const profile = (bin: string): AgentProfile => ({
+    id: "claude-work",
+    agent: "claude",
+    name: "Work",
+    color: "violet",
+    dir: path.join(root, "config"),
+    env: { PATH: bin },
+  });
+
+  beforeEach(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "nexus-profile-status-"));
+  });
+
+  afterEach(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  test("gave no answer when claude prints nothing to read", async () => {
+    const bin = path.join(root, "bin");
+    await fs.mkdir(bin);
+    if (posix) await fs.writeFile(path.join(bin, "claude"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    else await fs.writeFile(path.join(bin, "claude.cmd"), "@exit /b 1\r\n");
+
+    expect(await localProfileStatus(profile(bin))).toEqual({
+      state: "unavailable",
+      message: "claude auth status gave no answer",
+      reason: "no-answer",
+    });
+  });
+
+  test("is missing when claude is not on the PATH", async () => {
+    const empty = path.join(root, "empty");
+    await fs.mkdir(empty);
+
+    expect(await localProfileStatus(profile(empty))).toMatchObject({
+      state: "unavailable",
+      reason: "missing",
+    });
   });
 });

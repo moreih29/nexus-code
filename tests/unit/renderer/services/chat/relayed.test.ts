@@ -6,7 +6,11 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatItem, UserItem } from "../../../../../src/renderer/services/chat/model";
 import { followsMessage } from "../../../../../src/renderer/services/chat/profile-moves";
-import { relaySenderText, withRelayed } from "../../../../../src/renderer/services/chat/relayed";
+import {
+  relaySenderText,
+  turnHopsOf,
+  withRelayed,
+} from "../../../../../src/renderer/services/chat/relayed";
 import {
   RELAYED_KEPT,
   type RelayedMessage,
@@ -52,6 +56,29 @@ describe("the line the agent reads", () => {
     expect(relayHeader({ kind: "manager" })).toStartWith(
       "[nexus] The manager (an agent the user runs) sent this, not the user.",
     );
+  });
+
+  it("from another computer, names it, and how to write to the sender later", () => {
+    const device = { id: "3f2a91c0-aaaa", name: "MacBook" };
+    expect(
+      relayHeader({ ...TAB, workspaceId: "5e6f7a8b-bbbb", tabId: "1a2b3c4d-cccc", device }),
+    ).toBe(
+      '[nexus] The "Plan the refactor" tab (Claude) on the computer "MacBook" sent this, not the user. ' +
+        "Your answer here is what it reads; to write to it later: " +
+        "nexus chat send 1a2b3c4d --workspace 5e6f7a8b --device 3f2a91c0 -",
+    );
+    expect(
+      relayHeader({
+        kind: "terminal",
+        agent: "claude",
+        name: "zsh",
+        workspaceId: "w",
+        tabId: "t",
+        device,
+      }),
+    ).toEndWith("nexus terminal send t --workspace w --device 3f2a91c0 -");
+    const text = relayedText({ ...TAB, device }, "Hi.");
+    expect(withoutRelayHeader(text)).toBe("Hi.");
   });
 
   it("goes before the message, and comes off it again", () => {
@@ -139,5 +166,26 @@ describe("withRelayed", () => {
     );
     expect(relaySenderText({ kind: "manager" })).toBe("the manager");
     expect(relaySenderText({ kind: "peer", name: "other" })).toBeUndefined();
+  });
+});
+
+describe("the hops of what started the latest turn", () => {
+  const user = (key: string, over: Record<string, unknown> = {}) =>
+    ({ kind: "user", key, text: "x", images: [], state: "sent", ...over }) as never;
+  const received = (key: string, from: Record<string, unknown>) =>
+    ({ kind: "received", key, text: "x", from }) as never;
+  const reply = { kind: "assistant", key: "a", blocks: [] } as never;
+
+  it("an agent's message: its hops; one from before they were counted: 1", () => {
+    expect(turnHopsOf([user("u1"), reply, received("r", { kind: "tab", hops: 3 }), reply])).toBe(3);
+    expect(turnHopsOf([received("r", { kind: "terminal" }), reply])).toBe(1);
+  });
+
+  it("the user's, or none: 0; a message still waiting started nothing yet", () => {
+    expect(turnHopsOf([received("r", { kind: "tab", hops: 3 }), reply, user("u2")])).toBe(0);
+    expect(turnHopsOf([])).toBe(0);
+    expect(
+      turnHopsOf([received("r", { kind: "tab", hops: 2 }), reply, user("q", { queued: true })]),
+    ).toBe(2);
   });
 });

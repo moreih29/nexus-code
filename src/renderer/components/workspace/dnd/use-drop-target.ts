@@ -21,9 +21,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveTabToZone, openFileAtZone } from "@/state/operations";
-import { DND_TAB_BAR_SELECTOR } from "./markers";
+import { DND_FILE_SURFACE_SELECTOR, DND_TAB_BAR_SELECTOR } from "./markers";
 import { hasSupportedMime, parseDragPayload } from "./payload";
-import { type DropZone, MIME_FILE } from "./types";
+import { type DropZone, MIME_FILE, MIME_TAB } from "./types";
 
 const EDGE_THRESHOLD = 1 / 3;
 
@@ -70,6 +70,17 @@ export function zoneFromCoords(rect: DOMRect, clientX: number, clientY: number):
  */
 function isInTabBar(target: EventTarget | null): boolean {
   return (target as HTMLElement | null)?.closest(DND_TAB_BAR_SELECTOR) != null;
+}
+
+/**
+ * Test whether a file from the file tree is dragged over a surface that takes
+ * it itself (a note's body, which links the file where it is dropped). The
+ * group defers to it as to the tab bar; a dragged tab still splits the group.
+ */
+function isOnFileSurface(e: DragEvent): boolean {
+  const types = e.dataTransfer?.types ?? [];
+  if (!types.includes(MIME_FILE) || types.includes(MIME_TAB)) return false;
+  return (e.target as HTMLElement | null)?.closest?.(DND_FILE_SURFACE_SELECTOR) != null;
 }
 
 export interface UseDropTargetOptions {
@@ -141,7 +152,7 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
       // stopPropagation prevents Monaco/xterm from interpreting our drag.
       e.stopPropagation();
       enterCountRef.current += 1;
-      if (enterCountRef.current === 1) {
+      if (enterCountRef.current === 1 && !isOnFileSurface(e)) {
         const rect = getZoneRect();
         setDropZone(zoneFromCoords(rect, e.clientX, e.clientY));
       }
@@ -150,7 +161,7 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
     function onOver(e: DragEvent) {
       if (!e.dataTransfer) return;
       if (!hasSupportedMime(e.dataTransfer.types)) return;
-      if (isInTabBar(e.target)) {
+      if (isInTabBar(e.target) || isOnFileSurface(e)) {
         setDropZone((prev) => (prev === null ? prev : null));
         return;
       }
@@ -185,6 +196,11 @@ export function useDropTarget(opts: UseDropTargetOptions): UseDropTargetResult {
       if (!e.dataTransfer) return;
       // Tab item handled it — exit before consuming the event.
       if (isInTabBar(e.target)) return;
+      // The surface handles the drop; the drag is over for us.
+      if (isOnFileSurface(e)) {
+        reset();
+        return;
+      }
       const parsed = parseDragPayload(e.dataTransfer);
       if (!parsed) return;
 

@@ -83,6 +83,7 @@ import { showToast } from "../ui/toast";
 import { type ChatAgent, ChatAgentContext, useAgentContext } from "./chat-agent";
 import { type CompletionItem, CompletionMenu } from "./completion-menu";
 import { maxTextHeight } from "./composer-height";
+import { DictationOverlay, MicButton, useComposerDictation } from "./dictation";
 
 /** What the composer drives: a Claude tab's controller, or a Codex tab's. */
 export interface ComposerController {
@@ -203,8 +204,17 @@ export function Composer({
   const { model, phase } = state;
   const running = model.running;
   const blocked = phase === "not-found" || phase === "held" || phase === "starting";
+  const dictation = useComposerDictation({ text, setText, areaRef, disabled: blocked });
   const hasText = text.trim() !== "" || images.length > 0 || files.length > 0;
-  const canSend = !blocked && hasText && !sending;
+  // Sent while listening, the dictation ends first and its whole text goes (submit);
+  // not while it connects or finishes.
+  const canSend =
+    !blocked &&
+    hasText &&
+    !sending &&
+    (dictation.phase === "idle" || dictation.phase === "listening");
+  // Listening with nothing heard yet: the box says so.
+  const listening = dictation.phase === "starting" || dictation.phase === "listening";
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
@@ -226,7 +236,7 @@ export function Composer({
     setMenuOf((now) => (open ? part : now === part ? null : now));
   const fit = useFitStep(
     footerRef,
-    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}`,
+    `${model.permissionMode}|${model.model}|${model.effort}|${model.init?.models.length}|${model.process}|${running}|${hasText}|${menuOf}|${state.reveal?.part}|${dictation.phase}`,
     FIT.TRUNCATE_MODE,
   );
 
@@ -378,8 +388,8 @@ export function Composer({
   };
 
   /** The message with its attached files' mentions after the text. */
-  const withAttachments = async (): Promise<string> => {
-    if (files.length === 0) return text;
+  const withAttachments = async (body: string): Promise<string> => {
+    if (files.length === 0) return body;
     const paths = await Promise.all(
       files.map(
         async (attachment) =>
@@ -388,20 +398,28 @@ export function Composer({
       ),
     );
     const mentions = paths.map(fileMention).join(" ");
-    return text.trim() ? `${text}\n\n${mentions}` : mentions;
+    return body.trim() ? `${body}\n\n${mentions}` : mentions;
   };
 
-  /** send: as ↩ sends; now: read at once (⌘↩); queue: after the turn (⌘⇧↩). */
-  const submit = async (how: "send" | "queue" | "now") => {
-    if (!canSend) return;
-    if (images.length === 0 && files.length === 0 && onCommand?.(text)) {
+  /**
+   * send: as ↩ sends; now: read at once (⌘↩); queue: after the turn (⌘⇧↩).
+   * While listening, the dictation ends first and its whole text goes.
+   */
+  const submit = async (how: "send" | "queue" | "now", body = text) => {
+    if (dictation.active) {
+      if (canSend) dictation.finish((heard) => void submitRef.current(how, heard));
+      return;
+    }
+    const hasBody = body.trim() !== "" || images.length > 0 || files.length > 0;
+    if (blocked || sending || !hasBody) return;
+    if (images.length === 0 && files.length === 0 && onCommand?.(body)) {
       clear();
       return;
     }
     let message: string;
     setSending(true);
     try {
-      message = await withAttachments();
+      message = await withAttachments(body);
     } catch (err) {
       showError(err as Error);
       return;
@@ -414,6 +432,9 @@ export function Composer({
     } else void controller.send(message, images).catch((err: Error) => showError(err));
     clear();
   };
+  // The submit of the latest render, for a send that waits on the dictation's end.
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
 
   const addFiles = useCallback(
     async (picked: Iterable<File>) => {
@@ -442,6 +463,14 @@ export function Composer({
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
+    if (dictation.active) {
+      if (e.key === "Escape" || e.key === "Enter") {
+        e.preventDefault();
+        dictation.toggle();
+      }
+      return;
+    }
     // A request's card has the keys, which the box passes on to it.
     if (e.currentTarget.dataset.cardKeys !== undefined) return;
     // Escape closes the "no matching commands" box as it closes the list,
@@ -692,24 +721,41 @@ export function Composer({
               ))}
             </div>
           )}
-          <textarea
-            ref={areaRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setCaret(e.target.selectionStart);
-            }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            readOnly={sending}
-            rows={2}
-            placeholder={placeholder}
-            aria-label={t("chat.composer.aria", agent)}
-            className="app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground"
-          />
+          <div className="relative">
+            <textarea
+              ref={areaRef}
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                setCaret(e.target.selectionStart);
+              }}
+              onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+              onFocus={() => {
+                setFocused(true);
+                dictation.onFocus();
+              }}
+              onBlur={() => setFocused(false)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              readOnly={sending || dictation.active}
+              rows={2}
+              placeholder={listening ? t("voice.listeningPlaceholder") : placeholder}
+              aria-label={t("chat.composer.aria", agent)}
+              className={cn(
+                "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground",
+                // The overlay draws the text meanwhile, the partial lighter.
+                dictation.partial && "text-transparent caret-transparent",
+              )}
+            />
+            {dictation.partial && (
+              <DictationOverlay
+                text={text}
+                partial={dictation.partial}
+                areaRef={areaRef}
+                className="px-3 py-2 text-app-body"
+              />
+            )}
+          </div>
           <div ref={footerRef} className="flex items-center gap-1 overflow-hidden px-1.5 pb-1.5">
             <ModeChip controller={controller} state={state} truncate={fit >= FIT.TRUNCATE_MODE} />
             {(fit < FIT.NO_MODEL || kept("model")) && (
@@ -748,6 +794,7 @@ export function Composer({
                 e.target.value = "";
               }}
             />
+            <MicButton dictation={dictation} compact={fit >= FIT.NO_MODEL} />
             {running && (
               <IconButton
                 label={t("chat.composer.stop")}

@@ -7,6 +7,7 @@
     "terminal": "터미널",
     "workspaces": "워크스페이스",
     "notifications": "알림",
+    "notes": "노트",
     "browserPermissions": "브라우저 권한",
     "keybindings": "단축키",
     "about": "정보",
@@ -14,7 +15,8 @@
     "manager": "매니저",
     "claude": "Claude",
     "codex": "Codex",
-    "profileRules": "워크스페이스별 프로필"
+    "profileRules": "워크스페이스별 프로필",
+    "remote": "원격"
   },
   "dialog": {
     "close": "설정 닫기",
@@ -316,7 +318,12 @@
       "permission_title": "다른 세션의 권한 요청에 답할까요?",
       "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다.",
       "mode_title": "에이전트가 세션의 권한 모드를 느슨하게 바꾸도록 허용할까요?",
-      "profile_title": "에이전트가 탭의 프로필을 바꾸도록 허용할까요?"
+      "profile_title": "에이전트가 탭의 프로필을 바꾸도록 허용할까요?",
+      "remote_title": "다른 컴퓨터의 에이전트가 이 컴퓨터를 변경하도록 허용할까요?",
+      "remote_description": "{{device}} 컴퓨터의 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
+      "answered_once": "{{device}}에서 이번만 허용했습니다.",
+      "answered_session": "{{device}}에서 재시작 전까지 허용했습니다.",
+      "answered_deny": "{{device}}에서 거절했습니다."
     },
     "heading": "nexus CLI"
   },
@@ -465,6 +472,9 @@
       },
       "updates": {
         "releaseNotes": "릴리스 노트 보기"
+      },
+      "chat": {
+        "voiceToggle": "음성 입력"
       }
     }
   },
@@ -567,6 +577,8 @@
     "remove": "{{name}} 삭제",
     "refresh": "다시 확인",
     "login": "로그인",
+    "loginAgain": "{{name}} 다시 로그인",
+    "loginAgainTitle": "다시 로그인 (다른 계정이나 조직으로)",
     "codexNote": "폴더는 앱이 만들고, codex 프로그램은 함께 씁니다",
     "status": {
       "checking": "확인 중…",
@@ -575,6 +587,8 @@
       "sameAccount": "{{name}} 프로필과 같은 계정",
       "sameOrg": "{{name}} 프로필과 같은 조직",
       "unavailable": "{{program}}을(를) 찾을 수 없습니다",
+      "noAnswer": "{{command}}에서 답이 없습니다",
+      "unchecked": "로그인 상태를 확인하지 못했습니다",
       "apiKey": "API 키",
       "signedIn": "로그인됨"
     },
@@ -654,5 +668,140 @@
     "noneLeft": "추가할 대상이 없습니다",
     "results": "적용 결과",
     "resultsCount": "워크스페이스 {{count}}개"
+  },
+  "remote": {
+    "account": {
+      "title": "NexusCode 계정",
+      "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 볼 수 있습니다.",
+      "signedOut": "로그인하지 않음",
+      "signInWith": {
+        "google": "Google로 로그인",
+        "github": "GitHub로 로그인",
+        "dev": "로그인 (개발 서버)"
+      },
+      "signingIn": "브라우저에서 로그인하세요…",
+      "cancel": "취소",
+      "signOut": "로그아웃",
+      "server": "서버: {{server}}",
+      "failure": {
+        "cancelled": "로그인을 취소했습니다.",
+        "timed-out": "로그인 시간이 지났습니다. 다시 시도하세요.",
+        "access_denied": "로그인이 거절됐습니다.",
+        "unverified_email": "이메일이 인증되지 않은 계정입니다.",
+        "not_invited": "이 서버는 아직 초대된 계정만 쓸 수 있습니다.",
+        "server_error": "서버에서 로그인하지 못했습니다. 잠시 후 다시 시도하세요.",
+        "invalid_grant": "로그인이 만료됐습니다. 다시 시도하세요.",
+        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 기기에서 쓰지 않는 기기를 지운 뒤 다시 로그인하세요.",
+        "mismatch": "다른 로그인의 응답이 왔습니다. 다시 시도하세요.",
+        "unreachable": "서버에 연결할 수 없습니다.",
+        "failed": "로그인하지 못했습니다. 다시 시도하세요."
+      },
+      "localOnly": "로컬 서버 전용",
+      "retry": "다시 시도"
+    },
+    "devices": {
+      "title": "기기",
+      "refresh": "기기 새로고침",
+      "current": "이 기기",
+      "lastSeen": "마지막 접속 {{when}}",
+      "empty": "기기가 없습니다.",
+      "unavailable": "서버에 연결할 수 없습니다.",
+      "remove": "{{name}} 해제",
+      "removeConfirm": {
+        "title": "{{name}}을(를) 해제할까요?",
+        "description": "이 기기가 로그아웃됩니다. 잃어버린 기기라면 계정 암호도 재설정하세요.",
+        "descriptionSelf": "이 컴퓨터가 로그아웃됩니다.",
+        "confirm": "해제"
+      },
+      "online": "온라인",
+      "offline": "오프라인",
+      "rename": "{{name}} 이름 바꾸기",
+      "renameTitle": "{{name}} 이름 바꾸기",
+      "renameLabel": "이름",
+      "renameConfirm": "바꾸기"
+    },
+    "control": {
+      "label": "다른 기기에서 채팅 조작 허용",
+      "description": "끄면 다른 기기에서는 채팅을 보기만 할 수 있습니다."
+    },
+    "terminal": {
+      "label": "다른 기기에서 터미널 조작 허용",
+      "description": "끄면 다른 기기에서는 터미널을 보기만 할 수 있습니다. 켜면 입력하고 열고 닫을 수 있어, 이 컴퓨터에서 무엇이든 실행할 수 있습니다."
+    },
+    "agents": {
+      "label": "다른 컴퓨터의 에이전트",
+      "ask": "매번 묻기",
+      "allow": "허용",
+      "deny": "허용 안 함",
+      "description": "다른 컴퓨터의 에이전트가 nexus(chat send --device …)로 여기서 하는 일: 채팅에 보내고 답하기, 터미널에 입력하기. 읽기는 항상 허용됩니다. 위의 채팅·터미널 조작 스위치도 켜져 있어야 합니다."
+    },
+    "key": {
+      "title": "계정 암호",
+      "description": "기기끼리 주고받는 내용은 암호화되어 서버도 볼 수 없습니다.",
+      "checking": "확인하는 중…",
+      "unavailable": "서버에서 확인하지 못했습니다.",
+      "retryLater": "잠시 후 다시 시도하세요.",
+      "retry": "다시 시도",
+      "missing": "다른 기기를 연결할 때 쓸 암호를 정하세요({{count}}자 이상).",
+      "locked": "계정 암호를 입력하세요.",
+      "unlocked": "잠금 해제됨",
+      "version": "키 버전 {{kid}}",
+      "change": "암호 변경",
+      "reset": "재설정",
+      "forgot": "암호를 잊었나요?",
+      "resetExplained": "새 암호를 정합니다. 다른 기기에서도 새 암호를 입력해야 합니다.",
+      "mismatch": "두 암호가 다릅니다.",
+      "field": {
+        "password": "계정 암호",
+        "current": "현재 암호",
+        "next": "새 암호",
+        "confirm": "새 암호 확인",
+        "create-next": "계정 암호",
+        "create-confirm": "계정 암호 확인"
+      },
+      "submit": {
+        "create": "암호 설정",
+        "unlock": "잠금 해제",
+        "change": "암호 변경",
+        "reset": "재설정"
+      },
+      "resetConfirm": {
+        "title": "계정 암호를 재설정할까요?",
+        "description": "다른 기기는 새 암호를 입력해야 다시 연결됩니다.",
+        "confirm": "재설정"
+      },
+      "failure": {
+        "too-short": "암호는 {{count}}자 이상이어야 합니다.",
+        "wrong-password": "암호가 맞지 않습니다.",
+        "conflict": "다른 기기에서 방금 암호를 바꿨습니다. 다시 시도하세요.",
+        "unavailable": "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
+        "signed-out": "로그아웃됐습니다. 다시 로그인하세요.",
+        "too-heavy": "서버가 잠근 방식으로는 이 앱이 키를 열 수 없습니다. NexusCode를 업데이트하세요.",
+        "failed": "처리하지 못했습니다. 다시 시도하세요."
+      }
+    },
+    "delete": {
+      "title": "계정 삭제",
+      "label": "NexusCode 계정 삭제",
+      "description": "계정과 기기를 모두 지웁니다. 되돌릴 수 없습니다.",
+      "button": "계정 삭제",
+      "failed": "계정을 삭제하지 못했습니다. 다시 시도하세요.",
+      "confirm": {
+        "title": "NexusCode 계정을 삭제할까요?",
+        "description": "계정과 모든 기기가 서버에서 지워집니다. 되돌릴 수 없습니다.",
+        "confirm": "계정 삭제"
+      }
+    },
+    "voice": {
+      "title": "음성 입력",
+      "description": "입력창의 마이크를 누르고 말하세요.",
+      "descriptionWithShortcut": "입력창의 마이크나 {{shortcut}} 키를 누르고 말하세요.",
+      "usage": "이번 달",
+      "usageOf": "{{limit}}분 중 {{used}}분 사용",
+      "usageLoading": "불러오는 중…",
+      "usageUnavailable": "사용량을 불러오지 못했습니다.",
+      "language": "언어",
+      "languageMulti": "자동 감지"
+    }
   }
 }

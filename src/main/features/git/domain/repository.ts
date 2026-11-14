@@ -594,6 +594,55 @@ export class GitRepository {
     }, signal);
   }
 
+  /** The branch checked out in the worktree at `worktreePath`; null when its HEAD is detached. */
+  worktreeBranch(worktreePath: string, signal?: AbortSignal): Promise<string | null> {
+    return this.queue(async (queuedSignal) => {
+      try {
+        const { stdout } = await this.run(
+          ["-C", worktreePath, "symbolic-ref", "--quiet", "--short", "HEAD"],
+          queuedSignal,
+        );
+        return stdout.trim() || null;
+      } catch (error) {
+        if (error instanceof GitError) return null;
+        throw error;
+      }
+    }, signal);
+  }
+
+  /** Whether the local branch `name` is there. */
+  hasBranch(name: string, signal?: AbortSignal): Promise<boolean> {
+    return this.queue(async (queuedSignal) => {
+      try {
+        await this.run(["rev-parse", "--verify", "--quiet", `refs/heads/${name}`], queuedSignal);
+        return true;
+      } catch (error) {
+        if (error instanceof GitError) return false;
+        throw error;
+      }
+    }, signal);
+  }
+
+  /**
+   * Whether the local branch `name` was once `from`, renamed (git branch
+   * -m), as its reflog says: a rename carries the reflog along.
+   */
+  branchRenamedFrom(name: string, from: string, signal?: AbortSignal): Promise<boolean> {
+    return this.queue(async (queuedSignal) => {
+      try {
+        const { stdout } = await this.run(
+          ["reflog", "show", "--format=%gs", `refs/heads/${name}`, "--"],
+          queuedSignal,
+        );
+        const renamed = `Branch: renamed refs/heads/${from} to refs/heads/`;
+        return stdout.split("\n").some((line) => line.startsWith(renamed));
+      } catch (error) {
+        if (error instanceof GitError) return false;
+        throw error;
+      }
+    }, signal);
+  }
+
   /** Drops git's records of worktrees whose folders are gone. */
   pruneWorktrees(signal?: AbortSignal): Promise<void> {
     return this.queue(async (queuedSignal) => {

@@ -8,6 +8,7 @@ import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 import type { HookInfo } from "../workspace/manager";
+import { tabHookToken } from "../workspace/tab-token";
 import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
@@ -209,7 +210,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
                 tabId,
                 agentBin: wrapperAgentBin ?? undefined,
                 agentSocket: hookInfo?.socketPath,
-                hookToken: hookInfo?.token,
+                hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
               })
             : injectHarnessTerminalEnv(env);
 

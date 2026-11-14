@@ -18,6 +18,8 @@ import {
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
+import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
+import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -72,13 +74,11 @@ interface ParserLike {
 }
 
 /** The part of xterm's active buffer the controller reads. */
-interface BufferLike {
+interface BufferLike extends AnsiBufferLike {
   readonly type: "normal" | "alternate";
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
-  getLine?(
-    y: number,
-  ): { readonly isWrapped: boolean; translateToString(trimRight?: boolean): string } | undefined;
+  getLine?(y: number): AnsiLineLike | undefined;
 }
 
 interface TerminalLike {
@@ -393,6 +393,7 @@ class XtermTerminalController implements TerminalController {
   private replayWritesPending = 0;
   /** Who waits for the program's next output; see nextOutput. */
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
+  private readonly outputListeners = new Set<(ended: boolean) => void>();
   /**
    * Focus asked for before xterm existed: applied once it opens, if what
    * asked for it still wants it then.
@@ -435,10 +436,10 @@ class XtermTerminalController implements TerminalController {
     else this.focusOnOpen = wanted;
   }
 
-  readText(lines: number): string {
+  readText(lines: number, ansi = false): string {
     const buffer = this.term?.buffer.active;
     if (!buffer?.getLine || buffer.length === undefined) return "";
-    return bufferText(buffer, lines);
+    return ansi ? bufferAnsi(buffer, lines) : bufferText(buffer, lines);
   }
 
   /**
@@ -459,6 +460,20 @@ class XtermTerminalController implements TerminalController {
     });
   }
 
+  /**
+   * Calls `listener` each time the program's output (not replayed
+   * scrollback) is on the terminal, readText showing it; and once with
+   * true when the terminal is gone. Returns its removal.
+   */
+  onOutput(listener: (ended: boolean) => void): () => void {
+    if (this.disposed) {
+      listener(true);
+      return () => {};
+    }
+    this.outputListeners.add(listener);
+    return () => this.outputListeners.delete(listener);
+  }
+
   input(text: string, mode: "paste" | "keys"): boolean {
     const term = this.term;
     const ptyClient = this.ptyClient;
@@ -476,6 +491,8 @@ class XtermTerminalController implements TerminalController {
     if (this.disposed) return;
     this.disposed = true;
     for (const waiter of [...this.outputWaiters]) waiter(false);
+    for (const listener of [...this.outputListeners]) listener(true);
+    this.outputListeners.clear();
 
     if (this.pendingRaf != null) {
       this.deps.cancelAnimationFrame(this.pendingRaf);
@@ -649,7 +666,9 @@ class XtermTerminalController implements TerminalController {
       shell: this.options.shell,
       onData: (chunk, replay) => {
         if (!replay) {
-          term.write(chunk);
+          term.write(chunk, () => {
+            for (const listener of [...this.outputListeners]) listener(false);
+          });
           for (const waiter of [...this.outputWaiters]) waiter(true);
           return;
         }
@@ -1187,28 +1206,21 @@ class XtermTerminalController implements TerminalController {
     };
 
     const writeClipboardFromBase64 = (b64: string): void => {
-      try {
-        // Uses the IPC path: OSC 52 arrives from the PTY data callback, so there is no user
-        // activation and `navigator.clipboard.writeText` is rejected.
-        //
-        // `atob` returns a binary string with one Latin-1 char per byte, so writing it to the
-        // clipboard as is turns multi-byte text (Korean etc.) into mojibake
-        // ("저" EC A0 80 → "ì \x80"). The OSC 52 payload is the base64 encoding of UTF-8 bytes,
-        // so restore a byte array and then UTF-8 decode it.
-        const bin = atob(b64);
-        const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
-        copyTextViaIpc(new TextDecoder().decode(bytes));
-      } catch {
-        // A base64 decode failure is silently dropped. The shell sent a malformed sequence, so
-        // it is not worth giving the user feedback.
-      }
+      // A program the user works in copies; output scrolling past in a tab
+      // they are not typing into (a file shown, a page fetched) does not.
+      if (!hasKeyboardFocus(term)) return;
+      const text = clipboardTextOf(b64);
+      // The IPC path: OSC 52 comes from the PTY's data, with no user
+      // activation for navigator.clipboard.writeText.
+      if (text !== null) copyTextViaIpc(text);
     };
 
     // OSC 52 — set/get clipboard (xterm standard).
     //   `ESC ] 52 ; <targets> ; <base64|?> ST`
     //   targets: c|p|q|s|0..7. A payload of "?" is a read request — not answered for security
     //   (letting an arbitrary TUI read the system clipboard risks leaking passwords etc.).
-    //   Used by Claude Code, neovim "+register, tmux set-clipboard, lazygit, etc.
+    //   Used by Claude Code, neovim "+register, tmux set-clipboard, lazygit, etc. Taken only
+    //   while the user's keys go to this terminal (see writeClipboardFromBase64).
     this.oscDisposables.push(
       term.parser.registerOscHandler(52, (data) => {
         const semi = data.indexOf(";");

@@ -274,6 +274,8 @@ func newHookGetInfoHandler(hs hookInfoProvider) dispatch.Handler {
 		return map[string]any{
 			"socketPath": hs.SocketPath(),
 			"token":      hs.Token(),
+			// Tabs are started with their own tokens (hookserver.TabToken).
+			"tabTokens": true,
 		}, nil
 	}
 }

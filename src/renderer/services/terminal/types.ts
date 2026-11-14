@@ -78,8 +78,11 @@ export interface TerminalController {
    * `wanted` (asked then) still says so.
    */
   focus: (wanted?: () => boolean) => void;
-  /** The last `lines` lines it shows, scrollback included, as plain text. */
-  readText: (lines: number) => string;
+  /**
+   * The last `lines` lines it shows, scrollback included, as plain text;
+   * with `ansi`, with their colors and styles as SGR escapes.
+   */
+  readText: (lines: number, ansi?: boolean) => string;
   /**
    * Types `text` into the session: as one paste, which an app that turned on
    * bracketed paste takes as a whole, or as keystrokes. False before the
@@ -92,6 +95,12 @@ export interface TerminalController {
    * is gone.
    */
   nextOutput: (timeoutMs: number) => Promise<boolean>;
+  /**
+   * Calls `listener` each time the program's output (not replayed
+   * scrollback) is on the terminal, and once with true when the terminal
+   * is gone. Returns its removal.
+   */
+  onOutput: (listener: (ended: boolean) => void) => () => void;
   /**
    * Whether the app in the session turned on bracketed paste, so a pasted
    * line break stays in the paste instead of acting as Enter.

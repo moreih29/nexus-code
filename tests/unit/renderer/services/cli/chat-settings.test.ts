@@ -5,7 +5,10 @@
  */
 import { describe, expect, it } from "bun:test";
 import { type ChatModel, emptyModel } from "../../../../../src/renderer/services/chat/model";
-import { planChatSettings } from "../../../../../src/renderer/services/cli/chat-settings";
+import {
+  chatChoicesOf,
+  planChatSettings,
+} from "../../../../../src/renderer/services/cli/chat-settings";
 import { loosens } from "../../../../../src/shared/sessions/chat-modes";
 
 function claude(patch: Partial<ChatModel> = {}): ChatModel {
@@ -87,6 +90,17 @@ describe("planChatSettings", () => {
     expect(() => planChatSettings("codex", claude(), { mode: "plan" }, true)).toThrow(
       'no mode "plan"; the modes are readOnly, auto, fullAccess',
     );
+  });
+
+  it("lets the user pick that one from another device, unless a policy turned it off", () => {
+    expect(planChatSettings("claude", claude(), { mode: "bypassPermissions" }, true, true)).toEqual(
+      { mode: "bypassPermissions" },
+    );
+    const blocked = claude({ bypassBlocked: "disabled by your organization" });
+    expect(() =>
+      planChatSettings("claude", blocked, { mode: "bypassPermissions" }, true, true),
+    ).toThrow("turned off here: disabled by your organization");
+    expect(chatChoicesOf("claude", blocked).dangerousBlocked).toBe("disabled by your organization");
   });
 });
 

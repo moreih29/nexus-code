@@ -273,12 +273,24 @@ export function uuidBefore(model: ChatModel, uuid: string): string | undefined {
   return undefined;
 }
 
-/** One history out of two: what was shown before, then what came after. */
+/**
+ * One history out of two: what was shown before, then what came after. Each
+ * numbers its keys from its own log's lines, so one of after's that before
+ * has already is keyed anew (a33~2): a list keys its rows by them.
+ */
 export function joinHistory(before: ChatModel | null, after: ChatModel): ChatModel {
   if (!before) return { ...after, running: false, turn: null, streaming: null, permissions: [] };
+  const keys = new Set(before.items.map((item) => item.key));
+  const items = [...before.items];
+  for (const item of after.items) {
+    let key = item.key;
+    for (let n = 2; keys.has(key); n++) key = `${item.key}~${n}`;
+    keys.add(key);
+    items.push(key === item.key ? item : { ...item, key });
+  }
   return {
     ...emptyModel(),
-    items: [...before.items, ...after.items],
+    items,
     tools: { ...before.tools, ...after.tools },
   };
 }

@@ -10,8 +10,18 @@
 import type { CliTabInfo } from "../../../shared/cli/ui";
 import { isLoginShell } from "../../../shared/pty/login-shell";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { firstMatch, PatternTooSlowError } from "../../infra/security/bounded-match";
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
+
+/**
+ * Who waits: the services, and the terminal the command runs in, which the
+ * sessions view lists as waiting; none for another device of the user's.
+ */
+export type WaitingContext = Pick<CliContext, "services" | "signal"> & {
+  readonly caller?: CliContext["caller"];
+};
+
 import { oneLine } from "./format";
 import { FIRST_TURN_GRACE_MS } from "./started-agents";
 
@@ -102,7 +112,7 @@ class Waiter {
   private readonly agentStartedAt: number | undefined;
 
   constructor(
-    private readonly ctx: CliContext,
+    private readonly ctx: WaitingContext,
     private readonly workspace: WorkspaceMeta,
     private readonly tab: CliTabInfo,
     private readonly options: WaitOptions,
@@ -149,7 +159,13 @@ class Waiter {
       tabId: this.tab.id,
       lines: MATCH_LINES,
     });
-    const line = text.split("\n").find((l) => pattern.test(l));
+    let line: string | undefined;
+    try {
+      line = firstMatch(pattern, text.split("\n"));
+    } catch (error) {
+      if (error instanceof PatternTooSlowError) return settled("error", "", error.message);
+      throw error;
+    }
     return line === undefined ? null : settled("matched", line);
   }
 
@@ -223,7 +239,7 @@ class Waiter {
 
 /** Waits on a terminal as `options` say; never throws for a timeout. */
 export async function waitOnTerminal(
-  ctx: CliContext,
+  ctx: WaitingContext,
   workspace: WorkspaceMeta,
   tab: CliTabInfo,
   options: WaitOptions,
@@ -231,11 +247,13 @@ export async function waitOnTerminal(
   const { clock } = ctx.services;
   const waiter = new Waiter(ctx, workspace, tab, options);
   const deadline = options.startedAt + options.timeoutMs;
-  const end = ctx.services.waits.begin(
-    ctx.caller,
-    { workspaceId: workspace.id, tabId: tab.id },
-    options.startedAt,
-  );
+  const end = ctx.caller
+    ? ctx.services.waits.begin(
+        ctx.caller,
+        { workspaceId: workspace.id, tabId: tab.id },
+        options.startedAt,
+      )
+    : () => {};
   try {
     for (;;) {
       const now = clock.now();

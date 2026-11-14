@@ -11,7 +11,9 @@ import {
   CHROMIUM_PDF_VIEWER_EXTENSION_ID,
   isBuiltinPdfViewerUrl,
   isNavigationSchemeAllowed,
+  isPopupNavigationAllowed,
   isSubframeNavigationAllowed,
+  isTabLoadAllowed,
 } from "../../../../src/shared/security/navigation-allowlist";
 
 describe("isNavigationSchemeAllowed", () => {
@@ -123,12 +125,25 @@ describe("isBuiltinPdfViewerUrl", () => {
   });
 });
 
+describe("isPopupNavigationAllowed", () => {
+  test("permits the web, never a local file its opener could read", () => {
+    expect(isPopupNavigationAllowed("https://accounts.example.com/login")).toBe(true);
+    expect(isPopupNavigationAllowed("http://localhost:3000")).toBe(true);
+    expect(isPopupNavigationAllowed("file:///Users/x/.ssh/id_rsa")).toBe(false);
+    expect(isPopupNavigationAllowed("javascript:alert(1)")).toBe(false);
+    expect(isPopupNavigationAllowed("")).toBe(false);
+  });
+});
+
 describe("isSubframeNavigationAllowed", () => {
-  // Superset of the top-level allowlist.
-  test("permits everything the top-level allowlist permits", () => {
+  test("permits the web the top-level allowlist permits", () => {
     expect(isSubframeNavigationAllowed("https://example.com")).toBe(true);
     expect(isSubframeNavigationAllowed("http://example.com")).toBe(true);
-    expect(isSubframeNavigationAllowed("file:///x.html")).toBe(true);
+  });
+
+  test("blocks a local file: a file:// page could read the frame", () => {
+    expect(isSubframeNavigationAllowed("file:///Users/x/.ssh/id_rsa")).toBe(false);
+    expect(isSubframeNavigationAllowed("FILE:///x.html")).toBe(false);
   });
 
   test("ADDITIONALLY permits data: in sub-frames (blocked at top-level)", () => {
@@ -152,5 +167,22 @@ describe("isSubframeNavigationAllowed", () => {
   test("rejects empty / malformed input", () => {
     expect(isSubframeNavigationAllowed("")).toBe(false);
     expect(isSubframeNavigationAllowed("::nope")).toBe(false);
+  });
+});
+
+describe("isTabLoadAllowed", () => {
+  test("loads what a tab opens at the top level, and the blank page a new tab starts on", () => {
+    expect(isTabLoadAllowed("https://example.com/")).toBe(true);
+    expect(isTabLoadAllowed("http://localhost:3000/")).toBe(true);
+    expect(isTabLoadAllowed("file:///tmp/report.html")).toBe(true);
+    expect(isTabLoadAllowed("about:blank")).toBe(true);
+  });
+
+  test("does not load a script, a data page or the browser's own pages", () => {
+    expect(isTabLoadAllowed("javascript:alert(document.cookie)")).toBe(false);
+    expect(isTabLoadAllowed("data:text/html,<script>1</script>")).toBe(false);
+    expect(isTabLoadAllowed("chrome://gpu")).toBe(false);
+    expect(isTabLoadAllowed("devtools://devtools/bundled/inspector.html")).toBe(false);
+    expect(isTabLoadAllowed("about:srcdoc")).toBe(false);
   });
 });

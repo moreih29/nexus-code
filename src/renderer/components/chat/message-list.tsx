@@ -76,6 +76,7 @@ import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, tallyRun } from "../../services/chat/tool-runs";
 import { isReport, reportedSessions } from "../../services/manager/report";
+import { showPeerSession } from "../../services/remote/show-peer";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { isAgentViewShown } from "../../state/stores/agent-view";
 import { sentIn, useManagerStore } from "../../state/stores/manager";
@@ -622,12 +623,17 @@ function showTab(workspaceId: string, tabId: string): void {
  */
 function RelaySenderLine({ from }: { from: MessageSource }) {
   const { t } = useTranslation();
-  const { workspaceId, tabId } = from;
+  const { workspaceId, tabId, device } = from;
   const title = useTabsStore((s) =>
-    workspaceId && tabId ? s.byWorkspace[workspaceId]?.[tabId]?.title : undefined,
+    !device && workspaceId && tabId ? s.byWorkspace[workspaceId]?.[tabId]?.title : undefined,
   );
+  if (device) return <PeerSenderLine from={from} device={device} />;
   if (from.kind === "manager") {
     return <span className="shrink-0">{t("chat.received.manager")}</span>;
+  }
+  // One whose tab could not be told is named by none: the ids it gave are any process's to give.
+  if (from.kind === "terminal" && !from.agent) {
+    return <span className="shrink-0">{t("chat.received.unknown")}</span>;
   }
   const name = title || from.name;
   const closed = title === undefined && tabId !== undefined;
@@ -656,6 +662,57 @@ function RelaySenderLine({ from }: { from: MessageSource }) {
         {what}
         {closed && ` · ${t("chat.received.closed")}`}
       </span>
+    </>
+  );
+}
+
+/**
+ * Who sent a message from another computer of the user's: "COMPUTER · TAB",
+ * which a click shows in the agent view, as its list's Other computers does.
+ */
+function PeerSenderLine({
+  from,
+  device,
+}: {
+  from: MessageSource;
+  device: { id: string; name: string };
+}) {
+  const { t } = useTranslation();
+  const { workspaceId, tabId } = from;
+  const agent = from.agent === "codex" ? "Codex" : "Claude Code";
+  const what =
+    from.kind === "manager"
+      ? t("chat.received.manager")
+      : from.kind === "terminal"
+        ? t("chat.received.from_terminal", { agent })
+        : t("chat.received.from_tab");
+  const label =
+    from.name && from.kind !== "manager" ? `${device.name} · ${from.name}` : device.name;
+  const nameClass = "min-w-0 truncate font-medium text-[var(--chat-received-fg)]";
+  return (
+    <>
+      {workspaceId && tabId ? (
+        <button
+          type="button"
+          className={cn(nameClass, "hover:underline")}
+          title={t("chat.received.show_tab")}
+          onClick={() =>
+            void showPeerSession({
+              device,
+              workspaceId,
+              tabId,
+              kind:
+                from.kind === "terminal" ? "terminal" : from.agent === "codex" ? "codex" : "claude",
+              title: from.name ?? tabId.slice(0, 8),
+            })
+          }
+        >
+          {label}
+        </button>
+      ) : (
+        <span className={nameClass}>{label}</span>
+      )}
+      <span className="shrink-0">{what}</span>
     </>
   );
 }

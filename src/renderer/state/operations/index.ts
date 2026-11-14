@@ -18,8 +18,10 @@ export {
 export { closeGroup } from "./groups";
 export { normalizeWorkspaceTabOrder, toggleTabPin } from "./tab-order";
 export {
+  closeNoteTabs,
   closeTab,
   findCommitTab,
+  findNoteTab,
   openClaudeTab,
   openCodexTab,
   openDiffTab,
@@ -27,6 +29,7 @@ export {
   openNewBrowserTab,
   openNewUntitledTab,
   openOrRevealCommitTab,
+  openOrRevealNoteTab,
   openTabInNewSplit,
   openTerminalTab,
   revealTab,

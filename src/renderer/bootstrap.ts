@@ -15,6 +15,7 @@ import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
 import { startManager } from "./services/manager/runtime";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
+import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
 import {
   initBrowserLastUrlPersistence,
@@ -54,6 +55,7 @@ import { useTerminalStore } from "./state/stores/terminal";
 import { useThemeStore } from "./state/stores/theme";
 import { useUIStore } from "./state/stores/ui";
 import { useUpdatesStore } from "./state/stores/updates";
+import { useVoiceStore } from "./state/stores/voice";
 import { useWindowOpacityStore } from "./state/stores/window-opacity";
 import { restoredWorkspace } from "./state/stores/workspaces";
 import { startTerminalExitListener } from "./state/terminal-exit";
@@ -116,6 +118,9 @@ export async function bootstrapAppState(): Promise<void> {
 
   // Mark terminal tabs dead on PTY exit even while their view is unmounted.
   startTerminalExitListener();
+
+  // Close the tabs of notes removed elsewhere (Settings, another window).
+  startNoteRemovalListener();
 
   // Toast git failures the Source Control panel does not show itself.
   initGitErrorToasts();
@@ -269,6 +274,7 @@ export async function bootstrapAppState(): Promise<void> {
   // Hydrate OS notification toggle so the Notifications panel reflects
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state);
+  useVoiceStore.getState().hydrate(state);
   useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
   useAgentListViewStore.getState().hydrate(state);

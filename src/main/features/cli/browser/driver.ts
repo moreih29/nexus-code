@@ -17,6 +17,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { BaseWindow, type Input, screen, type View, type WebContents } from "electron";
+import { firstMatch } from "../../../infra/security/bounded-match";
 import { CliError } from "../context";
 import { DESCRIBE_COMPONENT, type PickedComponent } from "./component";
 import { type ConsoleEntry, type ConsoleLog, watchConsole } from "./console-log";
@@ -1470,7 +1471,8 @@ export class CdpBrowserDriver implements BrowserDriver {
       case "load":
         return !contents.isLoading();
       case "url":
-        return condition.pattern.test(contents.getURL());
+        // A pattern the agent gave: PatternTooSlowError ends the wait if it backtracks without end.
+        return firstMatch(condition.pattern, [contents.getURL()]) !== undefined;
       case "text":
       case "selector": {
         const expression =

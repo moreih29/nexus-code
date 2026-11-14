@@ -8,7 +8,7 @@
  */
 
 import i18next from "i18next";
-import { askCliConsent } from "@/components/cli/consent-dialog";
+import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
 import { holdsUnsavedChanges } from "@/state/operations/tabs";
@@ -27,6 +27,7 @@ import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
+import { existingChatController } from "../chat/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
@@ -115,6 +116,8 @@ export const actionHandlers: {
     CliUiOp,
     | "tabs.list"
     | "terminal.read"
+    | "terminal.watch"
+    | "terminal.unwatch"
     | "events.read"
     | "settings.list"
     | "settings.set"
@@ -338,6 +341,18 @@ export const actionHandlers: {
     return {};
   },
 
+  "workspace.folders": async ({ workspaceId }) => {
+    // Given to a tab's running program: a tab never shown has none.
+    const folders = new Set<string>();
+    for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
+      if (tab.type !== "claude") continue;
+      for (const dir of existingChatController(workspaceId, tab.id)?.addedDirectories() ?? []) {
+        folders.add(dir);
+      }
+    }
+    return { folders: [...folders] };
+  },
+
   "workspace.show": async ({ workspaceId }) => {
     activateWorkspace(workspaceId);
     return {};
@@ -389,20 +404,28 @@ export const actionHandlers: {
     return {};
   },
 
-  "consent.ask": async ({ fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs }) => {
+  "consent.ask": async (args) => {
+    const { id, fromWorkspaceId, fromTabId, toWorkspaceId, change, timeoutMs, fromDevice } = args;
     const workspaces = useWorkspacesStore.getState().workspaces;
     const name = (id: string) => workspaces.find((w) => w.id === id)?.name ?? id.slice(0, 8);
-    const fromTab = useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
+    // Another computer's ids name nothing here: it tells its tab's title.
+    const fromTab = fromDevice
+      ? undefined
+      : useTabsStore.getState().byWorkspace[fromWorkspaceId]?.[fromTabId];
     const answer = await askCliConsent({
-      fromWorkspace: name(fromWorkspaceId),
-      fromTab: fromTab?.title ?? fromTabId.slice(0, 8),
-      fromManager: isManagerWorkspace(fromWorkspaceId),
+      ...(id ? { id } : {}),
+      fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
+      fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
+      fromManager: !fromDevice && isManagerWorkspace(fromWorkspaceId),
+      ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
       change,
       timeoutMs,
     });
     return { answer };
   },
+
+  "consent.settle": async ({ id, answer, by }) => ({ settled: settleCliConsent(id, answer, by) }),
 };
 
 /** The shells "New terminal with" lists, and the one a new terminal runs. */

@@ -10,6 +10,7 @@ import {
   Lock,
   type LucideIcon,
   MessageCircleQuestion,
+  NotebookPen,
   SquareTerminal,
   TriangleAlert,
   X,
@@ -105,6 +106,7 @@ function tabTypeIcon(tab: Tab): LucideIcon | null {
   if (tab.type === "untitled") return File;
   if (tab.type === "claude") return ClaudeIcon;
   if (tab.type === "codex") return CodexIcon;
+  if (tab.type === "note") return NotebookPen;
   return null; // editor (handled via FileIcon) and browser (handled via BrowserFaviconIcon)
 }
 

@@ -168,7 +168,15 @@ export async function runCli(commands: readonly CliCommand[], ctx: CliContext): 
     if (error instanceof CliUsageError) {
       return result("", `nexus: ${error.message}\nusage: ${usageLine(command)}\n`, 2);
     }
-    if (error instanceof CliError) return result("", `nexus: ${error.message}\n`, error.exitCode);
+    if (error instanceof CliError) {
+      const json =
+        error.json !== undefined && (rest.includes("--json") || rest.includes("--jsonl"));
+      return result(
+        json ? `${asciiJson(error.json, 2)}\n` : "",
+        `nexus: ${error.message}\n`,
+        error.exitCode,
+      );
+    }
     log.warn(`nexus ${command.path.join(" ")} failed: ${(error as Error).message}`);
     return result("", `nexus: ${(error as Error).message}\n`, 1);
   }

@@ -5,7 +5,7 @@
  */
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import type { AgentRun } from "../../../shared/claude/activity";
+import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import {
   CliCancelSchema,
   type CliInvocation,
@@ -37,7 +37,17 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "./consent";
-import { CliError, type CliForwards, type CliServices, shortId } from "./context";
+import { ConsentPrompts } from "./consent-prompts";
+import {
+  type CliCaller,
+  CliError,
+  type CliForwards,
+  type CliNotes,
+  type CliRemote,
+  type CliServices,
+  shortId,
+} from "./context";
+import { AgentInputs } from "./hops";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -69,12 +79,26 @@ export interface SetupCliFeatureOptions {
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
+    /** The agent manager's workspace, once opened; list leaves it out. */
+    managerMeta(): WorkspaceMeta | null;
   };
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
   claudeActivity?: {
     get(workspaceId: string, tabId: string): { agents: readonly AgentRun[] } | null;
   };
+  /** The permission requests the terminals' Claude sessions hold for the app to answer. */
+  claudeAsks?: {
+    list(workspaceId: string, tabId: string): readonly PermissionAsk[];
+    answer(
+      workspaceId: string,
+      tabId: string,
+      askId: string,
+      answer: PermissionAnswer,
+    ): Promise<boolean>;
+  };
+  /** The user's other computers, once the remote is set up; none before. */
+  remote?: () => CliRemote | null;
   /** Stops a session's running `claude -p` run; false when the app cannot tell it to. */
   stopPrintRun?: (workspaceId: string, tabId: string, agentId: string) => Promise<boolean>;
   activeContext: ActiveContextStore;
@@ -100,9 +124,13 @@ export interface SetupCliFeatureOptions {
   ports: { refresh(workspaceId: string): Promise<readonly ListeningPort[]> };
   /** The SSH workspaces' ports forwarded to this machine. */
   forwards: CliForwards;
+  /** The workspaces' notes. */
+  notes: CliNotes;
 }
 
 export interface CliFeature {
+  /** What the commands work with: the remote serves its own requests with them too. */
+  readonly services: CliServices;
   /** A key typed into a terminal (activity.ts). */
   noteInput(workspaceId: string, tabId: string): void;
   dispose(): void;
@@ -127,10 +155,16 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     foregroundGroup(workspaceId, tabId, true),
   );
   const waits = new WaitRegistry(agentHost);
+  const agentInputs = new AgentInputs();
   const startedAgents = new StartedAgents(agentHost);
-  // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
+  // Every consent prompt, kept by id while it waits, for another device to answer too.
+  const consents = new ConsentPrompts({
+    ask: (args, timeoutMs) => bridge.ask("consent.ask", args, timeoutMs),
+    settle: async (id, answer, by) =>
+      (await bridge.ask("consent.settle", { id, answer, by })).settled,
+  });
   const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
-    (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer;
+    (await consents.ask({ ...request, timeoutMs })).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
@@ -216,6 +250,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
+    claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
+    answerClaudeAsk: async (workspaceId, tabId, askId, answer) =>
+      (await options.claudeAsks?.answer(workspaceId, tabId, askId, answer)) ?? false,
+    managerWorkspace: () => workspaceManager.managerMeta(),
     claudeAgents: {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
       stop: async (workspaceId, tabId, agentId) =>
@@ -224,8 +262,25 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
+    agentInputs,
+    remote: {
+      inRoom: () => options.remote?.()?.inRoom() ?? false,
+      devices: async () => (await options.remote?.()?.devices()) ?? [],
+      request: (deviceId, method, params, timeoutMs) => {
+        const remote = options.remote?.();
+        if (!remote) {
+          throw new CliError("this computer is not in the remote room (Settings › Remote)", 3);
+        }
+        return remote.request(deviceId, method, params, timeoutMs);
+      },
+    },
+    consents,
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
-      bridge.ask(op, args, timeoutMs),
+      op === "consent.ask"
+        ? (consents.ask(args as CliUiOps["consent.ask"]["args"], timeoutMs) as Promise<
+            CliUiOps[K]["result"]
+          >)
+        : bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>
       notifyTab(
         {
@@ -262,13 +317,10 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     },
     browser,
+    notes: options.notes,
   };
 
-  const run = (
-    caller: { workspaceId: string; tabId: string },
-    request: CliInvocation,
-    signal: AbortSignal,
-  ) => {
+  const run = (caller: CliCaller, request: CliInvocation, signal: AbortSignal) => {
     if (!options.settings().enabled) {
       // The SessionStart hook asks for the agent note in every session; it gets none.
       if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
@@ -295,10 +347,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       log.warn("Dropped a malformed cli.request");
       return;
     }
-    const { requestId, workspaceId, tabId, request } = parsed.data;
+    const { requestId, workspaceId, tabId, request, verified } = parsed.data;
     const controller = new AbortController();
     running.set(requestId, controller);
-    run({ workspaceId, tabId }, request, controller.signal)
+    run(
+      { workspaceId, tabId, ...(verified !== undefined ? { verified } : {}) },
+      request,
+      controller.signal,
+    )
       .then((result) => {
         if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
       })
@@ -313,6 +369,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   });
 
   return {
+    services,
     noteInput: (workspaceId, tabId) => activity.noteInput(workspaceId, tabId),
     dispose: () => {
       off();

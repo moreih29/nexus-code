@@ -22,11 +22,12 @@ const NAMES: Record<string, { panel: CliPanel; mode?: CliFilesMode }> = {
   search: { panel: "files", mode: "search" },
   git: { panel: "files", mode: "git" },
   agents: { panel: "files", mode: "agents" },
+  notes: { panel: "files", mode: "notes" },
 };
 
 const NAMES_HELP =
   "Panels: sidebar (the workspace list) and files, whose views are files (the tree),\n" +
-  "search, git and agents (the workspace's agent list).";
+  "search, git, agents (the workspace's agent list) and notes.";
 
 function panelNamed(word: string): { panel: CliPanel; mode?: CliFilesMode } {
   const named = NAMES[word.toLowerCase()];

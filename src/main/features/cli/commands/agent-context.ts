@@ -29,6 +29,13 @@ const agentContext: CliCommand = {
       "not the user\" is another agent's: your answer goes back to it; what only the user may",
       "allow is still theirs to allow.",
       "nexus events --since N --wait 10m follows every session's state changes as they come.",
+      // Only when there are other computers to reach.
+      ...(ctx.services.remote.inRoom()
+        ? [
+            "The user's other computers in the remote (nexus device list) are reached the same way:",
+            "session list --device all, then chat or terminal read/send/wait ... --device NAME.",
+          ]
+        : []),
       "Work can be handed to another agent on its own branch and worktree: nexus worktree new",
       "NAME --prompt TEXT (--agent claude or codex; the task agent set in the app by default),",
       "then the chat wait it prints. Make worktrees with nexus worktree new, not git worktree add",

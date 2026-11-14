@@ -14,6 +14,7 @@ import {
   shortId,
 } from "../context";
 import { table } from "../format";
+import { refuseLoop } from "../hops";
 import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { senderOf } from "../sender";
@@ -287,9 +288,18 @@ const worktreeNew: CliCommand = {
       ctx,
       resolveWorkspace(ctx, flags.workspace as string | undefined),
     ) as [WorkspaceMeta];
-    await mayChange(ctx, parent, { kind: "worktreeNew", detail: name });
+    // What the task would run and be told, shown whole to a user asked.
+    const body = [flags.command as string | undefined, prompt]
+      .filter((part): part is string => part !== undefined && part.trim() !== "")
+      .join("\n\n");
+    await mayChange(ctx, parent, {
+      kind: "worktreeNew",
+      detail: name,
+      ...(body !== "" ? { body } : {}),
+    });
     // An agent's prompt shows as its in the task's tab, and the agent there is told.
     const from = prompt.trim() !== "" ? await senderOf(ctx) : undefined;
+    refuseLoop(from);
     const created = await ctx.services.ui(
       "task.create",
       {

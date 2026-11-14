@@ -838,6 +838,7 @@
       "tab": "Sent from another tab",
       "from_tab": "sent from a tab",
       "from_terminal": "sent from {{agent}} in a terminal",
+      "unknown": "Sent by an agent whose tab could not be told",
       "manager": "Sent by the manager",
       "closed": "closed",
       "show_tab": "Go to the tab that sent it",
@@ -1745,6 +1746,32 @@
       "agent": "Agent",
       "resume": "Resume",
       "resume_title": "Types {{line}} in the terminal"
+    },
+    "remote": {
+      "title": "Other computers",
+      "loading": "Loading…",
+      "unavailable": "Not answering",
+      "empty": "No sessions",
+      "state": {
+        "needs-you": "Needs you",
+        "running": "Running",
+        "new-result": "New result",
+        "idle": "Idle",
+        "ended": "Ended"
+      },
+      "viewOnly": "View only",
+      "viewOnlyNote": "Control from other devices is off on {{device}}: you can only look.",
+      "close": "Close",
+      "gone": "This session was closed",
+      "placeholder": "Message {{device}}",
+      "send": "Send",
+      "stop": "Stop",
+      "failed": "Didn't go through: {{message}}",
+      "offline": "{{device}} is offline",
+      "disconnected": "Not connected to the server",
+      "offlineLast": "{{device}} is offline. Showing what it last sent.",
+      "disconnectedLast": "Not connected to the server. Showing what came last.",
+      "offlineTag": "Offline"
     }
   },
   "releaseNotes": {
@@ -1804,5 +1831,34 @@
     "this_computer": "This computer",
     "cpu_title": "CPU: {{percent}}% in use",
     "memory_title": "Memory: {{used}} of {{total}} in use ({{percent}}%)"
+  },
+  "voice": {
+    "start": "Voice input",
+    "stop": "Finish voice input",
+    "finish": "Finish",
+    "connecting": "Connecting",
+    "finishing": "Finishing",
+    "listening": "Listening",
+    "listeningPlaceholder": "Speak… Enter to finish",
+    "needsSignIn": "Sign in to use voice input",
+    "unavailable": "No voice input on this server",
+    "signIn": "Sign in",
+    "openSettings": "Open System Settings",
+    "failure": {
+      "signed-out": "Sign in to use voice input.",
+      "denied": "Allow NexusCode to use the microphone in your system settings.",
+      "no-microphone": "No microphone found.",
+      "unavailable": "No voice input on this server.",
+      "quota": "This month's voice minutes are used up.",
+      "busy": "Voice input is already on in two places. Stop one first.",
+      "network": "Can't reach the server.",
+      "failed": "Voice input didn't start.",
+      "recognition": "Voice recognition failed.",
+      "dropped": "Voice input lost the connection."
+    },
+    "limit": {
+      "session": "Voice input stops after 10 minutes.",
+      "quota": "This month's voice minutes ran out."
+    }
   }
 }

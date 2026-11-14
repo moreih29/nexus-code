@@ -11,7 +11,7 @@
  * the `node` (main) and `browser` (renderer) Rollup targets.
  *
  * Namespace list (domain-axis, not process-axis):
- *   common, menu, dialog, errors, settings, files
+ *   common, menu, dialog, errors, settings, files, notes
  *
  * Usage — main process:
  *   import { createI18n } from "../shared/i18n";
@@ -37,6 +37,7 @@ import enDialog from "./locales/en/dialog.json";
 import enErrors from "./locales/en/errors.json";
 import enFiles from "./locales/en/files.json";
 import enMenu from "./locales/en/menu.json";
+import enNotes from "./locales/en/notes.json";
 import enSettings from "./locales/en/settings.json";
 
 import koCommon from "./locales/ko/common.json";
@@ -44,13 +45,22 @@ import koDialog from "./locales/ko/dialog.json";
 import koErrors from "./locales/ko/errors.json";
 import koFiles from "./locales/ko/files.json";
 import koMenu from "./locales/ko/menu.json";
+import koNotes from "./locales/ko/notes.json";
 import koSettings from "./locales/ko/settings.json";
 
 // ---------------------------------------------------------------------------
 // Namespace list — single source of truth consumed by the type augmentation
 // and by `createI18n`.
 // ---------------------------------------------------------------------------
-export const I18N_NAMESPACES = ["common", "menu", "dialog", "errors", "settings", "files"] as const;
+export const I18N_NAMESPACES = [
+  "common",
+  "menu",
+  "dialog",
+  "errors",
+  "settings",
+  "files",
+  "notes",
+] as const;
 export type I18nNamespace = (typeof I18N_NAMESPACES)[number];
 
 export const I18N_DEFAULT_NS: I18nNamespace = "common";
@@ -66,6 +76,7 @@ export const resources = {
     errors: enErrors,
     settings: enSettings,
     files: enFiles,
+    notes: enNotes,
   },
   ko: {
     common: koCommon,
@@ -74,6 +85,7 @@ export const resources = {
     errors: koErrors,
     settings: koSettings,
     files: koFiles,
+    notes: koNotes,
   },
 } as const;
 

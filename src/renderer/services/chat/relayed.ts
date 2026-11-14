@@ -33,12 +33,15 @@ function recordFinder(
 }
 
 /** Who sent a message through the nexus command, as a received message names it. */
-export function relaySource({ kind, agent, name, workspaceId, tabId }: RelayedMessage["from"]) {
+export function relaySource(from: RelayedMessage["from"]) {
+  const { kind, agent, name, workspaceId, tabId, device, hops } = from;
   const source: MessageSource = { kind };
   if (name) source.name = name;
   if (agent) source.agent = agent;
   if (workspaceId) source.workspaceId = workspaceId;
   if (tabId) source.tabId = tabId;
+  if (device) source.device = { id: device.id, name: device.name };
+  if (hops !== undefined) source.hops = hops;
   return source;
 }
 
@@ -88,6 +91,23 @@ function asReceived(item: UserItem, record: RelayedMessage): ChatItem {
   };
 }
 
+/**
+ * How many messages between agents led to the message that started the
+ * conversation's latest turn: what another agent sent (its hops; 1 for one
+ * from before they were counted), or 0 for the user's. A message still
+ * waiting to be read started nothing yet.
+ */
+export function turnHopsOf(items: readonly ChatItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item?.kind === "received") {
+      return item.from.hops ?? (RELAY_KINDS.has(item.from.kind) ? 1 : 0);
+    }
+    if (item?.kind === "user" && !(item.state === "sent" && item.queued === true)) return 0;
+  }
+  return 0;
+}
+
 /** The senders of messages sent through the nexus command, as MessageSource kinds. */
 export const RELAY_KINDS: ReadonlySet<string> = new Set(["tab", "terminal", "manager"]);
 
@@ -98,8 +118,9 @@ export const RELAY_KINDS: ReadonlySet<string> = new Set(["tab", "terminal", "man
  */
 export function relaySenderText(from: MessageSource): string | undefined {
   if (!RELAY_KINDS.has(from.kind)) return undefined;
-  if (from.kind === "manager") return "the manager";
+  const on = from.device ? ` on ${JSON.stringify(from.device.name)}` : "";
+  if (from.kind === "manager") return `the manager${on}`;
   const name = from.name ? ` ${JSON.stringify(from.name)}` : "";
-  if (from.kind === "tab") return `tab${name}`;
-  return `${from.agent === "codex" ? "Codex" : "Claude Code"} in terminal${name}`;
+  if (from.kind === "tab") return `tab${name}${on}`;
+  return `${from.agent === "codex" ? "Codex" : "Claude Code"} in terminal${name}${on}`;
 }
