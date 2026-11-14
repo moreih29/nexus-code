@@ -141,6 +141,7 @@ func (s *Service) SetEventSink(sink EventSink) {
 func Register(d *dispatch.Dispatcher, service *Service) {
 	d.Register("search.text", service.Text)
 	d.Register("search.cancel", service.Cancel)
+	d.Register("search.files", service.Files)
 }
 
 func (s *Service) Text(ctx context.Context, raw json.RawMessage) (any, error) {
