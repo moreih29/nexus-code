@@ -170,7 +170,9 @@ export const RemoteConsentSchema = z.object({
    * What it would do: `kind` as the serving device names it (chatInput,
    * terminalInput, tabClose, permissionAllow, ...; new ones may come), a
    * line on what to, and the whole of it when a line does not tell it (a
-   * command to allow).
+   * command to allow or run, what would be typed, a message or a prompt).
+   * A body too long to tell whole (the desktop's past 8000 characters)
+   * comes cut short, and the prompt is not answerable.
    */
   change: z.object({
     kind: z.string(),

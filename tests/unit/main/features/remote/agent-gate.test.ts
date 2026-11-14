@@ -118,7 +118,7 @@ describe("an agent's request from another computer", () => {
       fromName: "Fix build",
       fromWorkspaceId: "bw",
       toWorkspaceId: "w1",
-      change: { kind: "chatInput", detail: "Review" },
+      change: { kind: "chatInput", detail: "Review", body: "hi" },
       timeoutMs: 90_000,
     });
     await expect(g.check(services, send())).rejects.toMatchObject({
@@ -129,14 +129,51 @@ describe("an agent's request from another computer", () => {
     });
   });
 
-  test("allowed until restart for that pair of workspaces; an answer each time", async () => {
-    const { g, services, asked } = gate("ask", ["session", "once"]);
-    await g.check(services, send());
-    await g.check(services, send());
+  test("allowed until restart for that kind of change between those workspaces", async () => {
+    const { g, services, asked } = gate("ask", ["session", "once", "once"]);
+    const interrupt = (workspaceId = "w1") => ({
+      device,
+      method: "chat.interrupt" as const,
+      params: { workspaceId, tabId: "t1", from },
+    });
+    const close = {
+      device,
+      method: "chat.close" as const,
+      params: { workspaceId: "w1", tabId: "t1", from },
+    };
+    await g.check(services, interrupt());
+    await g.check(services, interrupt());
     expect(asked).toHaveLength(1);
-    // Another workspace here is asked about again.
-    await g.check(services, send({}, "w2"));
-    expect(asked).toHaveLength(2);
+    // Another workspace here is asked about again, and so is another kind of change.
+    await g.check(services, interrupt("w2"));
+    await g.check(services, close);
+    expect(asked.map((a) => (a.change as { kind: string }).kind)).toEqual([
+      "chatInterrupt",
+      "chatInterrupt",
+      "tabClose",
+    ]);
+  });
+
+  test("what it types, sends or runs, and an answer, are asked about each time", async () => {
+    const { g, services, asked } = gate("ask", ["session", "session", "session", "session"]);
+    await g.check(services, send());
+    await g.check(services, send());
+    await g.check(services, {
+      device,
+      method: "chat.new",
+      params: { workspaceId: "w1", agent: "claude", prompt: "delete the tests", from },
+    });
+    await g.check(services, {
+      device,
+      method: "terminal.open",
+      params: { workspaceId: "w1", command: "make deploy", from },
+    });
+    expect(asked.map((a) => a.change)).toEqual([
+      { kind: "chatInput", detail: "Review", body: "hi" },
+      { kind: "chatInput", detail: "Review", body: "hi" },
+      { kind: "chatNew", detail: "Claude", body: "delete the tests" },
+      { kind: "terminalNew", body: "make deploy" },
+    ]);
     const answer = {
       device,
       method: "chat.answer" as const,

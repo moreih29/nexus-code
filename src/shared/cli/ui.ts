@@ -231,21 +231,6 @@ export interface CliChange {
   readonly terminal?: boolean;
 }
 
-/**
- * Whether the user is asked about a change each time, never "until restart":
- * an answer to a permission request, a mode that lets more run unasked,
- * another profile (another account) for a tab.
- */
-export function isEachTimeChange(kind: CliChangeKind): boolean {
-  return (
-    kind === "permissionAllow" ||
-    kind === "permissionDeny" ||
-    kind === "chatMode" ||
-    kind === "chatProfile" ||
-    kind === "chatProfileNew"
-  );
-}
-
 /** Whether a change is a terminal's: typed into, opened, or closed with the rest. */
 export function isTerminalChange(change: CliChange): boolean {
   return (

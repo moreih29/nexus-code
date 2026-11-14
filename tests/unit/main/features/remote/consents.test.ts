@@ -2,7 +2,11 @@
 import { describe, expect, test } from "bun:test";
 import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
-import { answerConsent, remoteConsents } from "../../../../../src/main/features/remote/consents";
+import {
+  answerConsent,
+  MAX_REMOTE_BODY_CHARS,
+  remoteConsents,
+} from "../../../../../src/main/features/remote/consents";
 import type { CliChange, CliUiOps } from "../../../../../src/shared/cli/ui";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
@@ -16,7 +20,7 @@ const pendingOf = (id: string, over: Partial<AskArgs> = {}, at = 1000): PendingC
     fromWorkspaceId: "w1",
     fromTabId: "t1",
     toWorkspaceId: "w2",
-    change: { kind: "chatInput", detail: "Review" },
+    change: { kind: "chatInterrupt", detail: "Review" },
     timeoutMs: 60_000,
     id,
     ...over,
@@ -76,7 +80,7 @@ describe("the consent prompts another device is told", () => {
       expiresInMs: 30_000,
       from: { workspaceId: "w1", workspaceName: "app", tabId: "t1", name: "zsh" },
       workspaceId: "w2",
-      change: { kind: "chatInput", detail: "Review" },
+      change: { kind: "chatInterrupt", detail: "Review" },
       eachTime: false,
       answerable: true,
     });
@@ -120,6 +124,21 @@ describe("the consent prompts another device is told", () => {
       false,
     ]);
     expect(await answerable("mac", both)).toEqual([true, true, false]);
+  });
+
+  test("a body too long to tell whole is cut short, and not answerable from there", async () => {
+    const long = "x".repeat(MAX_REMOTE_BODY_CHARS + 5);
+    const { services } = setup([
+      pendingOf("c1", { change: { kind: "chatInput", detail: "Review", body: long } }),
+    ]);
+    const [listed] = await remoteConsents(services, "phone", both);
+    expect(listed?.change.body).toBe(
+      `${"x".repeat(MAX_REMOTE_BODY_CHARS)}\n… (5 more characters: see it whole at the computer)`,
+    );
+    expect(listed?.answerable).toBe(false);
+    await expect(
+      answerConsent(services, phone, both, { id: "c1", answer: "once" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.Forbidden });
   });
 
   test("none waiting: nothing is looked up", async () => {

@@ -14,7 +14,7 @@ import {
   type RemoteConsent,
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
-import { isEachTimeChange, isTerminalChange } from "../../../shared/cli/ui";
+import { askedEachTime, isTerminalChange } from "../../../shared/cli/ui";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { CliServices, PendingConsent } from "../cli/context";
 import { RpcFailure } from "./room";
@@ -25,6 +25,12 @@ export interface ConsentControls {
   readonly terminal: boolean;
 }
 
+/**
+ * The most of a prompt's body (the command, what would be typed, the
+ * message) another device is told: a list of prompts goes in one answer.
+ */
+export const MAX_REMOTE_BODY_CHARS = 8000;
+
 /** Whether `deviceId` may answer `pending`, and why not when not. */
 function refusalFor(
   pending: PendingConsent,
@@ -34,6 +40,10 @@ function refusalFor(
   const { request } = pending;
   if (request.fromDeviceId === deviceId) {
     return "the prompt is about this device's own agent; the user answers it at the other computer";
+  }
+  // What another device cannot show whole is not allowed from it.
+  if ((request.change.body?.length ?? 0) > MAX_REMOTE_BODY_CHARS) {
+    return "it is too long to show whole there: the user answers it at this computer";
   }
   if (!controls.chat) return "control of the chats is off there (Settings › Remote)";
   if (isTerminalChange(request.change) && !controls.terminal) {
@@ -96,13 +106,19 @@ export async function remoteConsents(
         change: {
           kind,
           ...(detail !== undefined ? { detail } : {}),
-          ...(body !== undefined ? { body } : {}),
+          ...(body !== undefined ? { body: clipBody(body) } : {}),
         },
-        eachTime: isEachTimeChange(kind),
+        eachTime: askedEachTime(request.change),
         answerable: refusalFor(p, deviceId, controls) === null,
       };
     }),
   );
+}
+
+function clipBody(body: string): string {
+  if (body.length <= MAX_REMOTE_BODY_CHARS) return body;
+  const more = body.length - MAX_REMOTE_BODY_CHARS;
+  return `${body.slice(0, MAX_REMOTE_BODY_CHARS)}\n… (${more} more characters: see it whole at the computer)`;
 }
 
 /**
@@ -122,7 +138,7 @@ export async function answerConsent(
   }
   const refusal = refusalFor(pending, device.id, controls);
   if (refusal) throw new RpcFailure(RpcErrorCode.Forbidden, refusal);
-  if (answer === "session" && isEachTimeChange(pending.request.change.kind)) {
+  if (answer === "session" && askedEachTime(pending.request.change)) {
     throw new RpcFailure(
       RpcErrorCode.Forbidden,
       "it is asked about each time: allow it once, or turn it down",

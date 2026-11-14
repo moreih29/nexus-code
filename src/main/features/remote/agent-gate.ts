@@ -5,7 +5,9 @@
  * MAX_AGENT_REQUESTS_PER_MINUTE from one agent, and as the user set it
  * (Settings › Remote): allowed, turned down, or asked about as the nexus
  * command's changes to another workspace are: for this once, or for that
- * computer's workspace and this one until the app restarts.
+ * kind of change from that computer's workspace to this one until the app
+ * restarts. What is typed, sent or run is asked about each time
+ * (askedEachTime).
  */
 import {
   AGENT_CONSENT_MS,
@@ -16,7 +18,7 @@ import {
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
-import { type CliChange, isEachTimeChange } from "../../../shared/cli/ui";
+import { askedEachTime, type CliChange } from "../../../shared/cli/ui";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
@@ -43,7 +45,7 @@ const forbidden = (message: string) => new RpcFailure(RpcErrorCode.Forbidden, me
 export class AgentGate {
   /** When each agent ("device|workspace|tab") asked lately, within the last minute. */
   private readonly recent = new Map<string, number[]>();
-  /** "device|its workspace>this workspace" pairs the user allowed until restart. */
+  /** "device|its workspace>this workspace>kind" the user allowed until restart. */
   private readonly allowed = new Set<string>();
 
   constructor(private readonly deps: AgentGateDeps) {}
@@ -65,10 +67,11 @@ export class AgentGate {
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
     const change = await changeOf(services, request);
-    // Answers, a looser mode, a profile: asked about each time, never for a while.
-    const eachTime = isEachTimeChange(change.kind);
-    const pair = `${device.id}|${from.workspaceId}>${params.workspaceId}`;
-    if (!eachTime && this.allowed.has(pair)) return;
+    // What it types, sends or runs, an answer, a looser mode, a profile:
+    // asked about each time, never for a while.
+    const eachTime = askedEachTime(change);
+    const key = `${device.id}|${from.workspaceId}>${params.workspaceId}>${change.kind}`;
+    if (!eachTime && this.allowed.has(key)) return;
     const { answer } = await services
       .ui(
         "consent.ask",
@@ -90,7 +93,7 @@ export class AgentGate {
           error instanceof Error ? error.message : String(error),
         );
       });
-    if (answer === "session" && !eachTime) this.allowed.add(pair);
+    if (answer === "session" && !eachTime) this.allowed.add(key);
     if (answer === "once" || answer === "session") return;
     throw forbidden(
       answer === "timeout"
@@ -164,9 +167,15 @@ async function changeOf(
   const title = () => tabTitle(services, workspaceId, tabId);
   switch (method) {
     case "chat.send":
-      return { kind: "chatInput", detail: await title() };
+      return { kind: "chatInput", detail: await title(), body: String(params.text) };
     case "chat.new":
-      return { kind: "chatNew", detail: AGENT_NAMES[String(params.agent)] ?? String(params.agent) };
+      return {
+        kind: "chatNew",
+        detail: AGENT_NAMES[String(params.agent)] ?? String(params.agent),
+        ...(typeof params.prompt === "string" && params.prompt.trim() !== ""
+          ? { body: params.prompt }
+          : {}),
+      };
     case "chat.interrupt":
       return { kind: "chatInterrupt", detail: await title() };
     case "chat.configure":
@@ -178,7 +187,10 @@ async function changeOf(
     case "terminal.close":
       return { kind: "tabClose", detail: await title(), terminal: true };
     case "terminal.open":
-      return { kind: "terminalNew" };
+      return {
+        kind: "terminalNew",
+        ...(typeof params.command === "string" ? { body: params.command } : {}),
+      };
     case "terminal.input": {
       const typed = [
         typeof params.text === "string" ? params.text : "",
