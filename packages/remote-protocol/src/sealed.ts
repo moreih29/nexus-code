@@ -88,7 +88,7 @@ export const HelloSchema = z.object({
   }),
   serves: z.array(CapabilitySchema),
   /**
-   * The protocol package's version it speaks (SCHEMA_VERSION, "0.3.0");
+   * The protocol package's version it speaks (SCHEMA_VERSION, "0.4.0");
    * absent before 0.2.0. A method it does not have is answered MethodNotFound.
    */
   schema: z.string().max(40).optional(),
