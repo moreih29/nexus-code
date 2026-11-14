@@ -26,6 +26,8 @@ export { SignedOutError } from "./errors";
 
 /** How long a call to the server may take. */
 export const REQUEST_TIMEOUT_MS = 20_000;
+/** How long sending a file may take (a recording of hours is tens of MB). */
+export const UPLOAD_TIMEOUT_MS = 15 * 60_000;
 
 /** How long the browser has to come back: the server gives a sign-in 10 minutes. */
 export const SIGN_IN_TIMEOUT_MS = 10 * 60_000;
@@ -230,25 +232,51 @@ export class RemoteAccount {
     return this.call(method, path, body === undefined ? {} : { body });
   }
 
+  /**
+   * Sends bytes to the server as this device (a recording, say): the JSON
+   * it answered, or a ServerError; a 401 signs the app out.
+   */
+  upload(
+    path: string,
+    bytes: Uint8Array,
+    options: { type: string; headers?: Record<string, string>; timeoutMs?: number },
+  ): Promise<unknown> {
+    return this.call("POST", path, {
+      raw: { bytes, type: options.type, headers: options.headers ?? {} },
+      timeoutMs: options.timeoutMs ?? UPLOAD_TIMEOUT_MS,
+    });
+  }
+
   /** Asks the server, signed in unless told not to; a 401 signs the app out. */
   private async call(
     method: string,
     path: string,
-    options: { body?: unknown; signedIn?: boolean } = {},
+    options: {
+      body?: unknown;
+      raw?: { bytes: Uint8Array; type: string; headers: Record<string, string> };
+      signedIn?: boolean;
+      timeoutMs?: number;
+    } = {},
   ): Promise<unknown> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...options.raw?.headers };
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
       headers.authorization = `Bearer ${this.saved.token}`;
     }
     if (options.body !== undefined) headers["content-type"] = "application/json";
+    if (options.raw) headers["content-type"] = options.raw.type;
+    const body = options.raw
+      ? options.raw.bytes
+      : options.body !== undefined
+        ? JSON.stringify(options.body)
+        : undefined;
     let res: Response;
     try {
       res = await this.fetch(new URL(path, this.deps.server), {
         method,
         headers,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+        signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
+        ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
     } catch (error) {
       // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it is slow.
@@ -259,9 +287,9 @@ export class RemoteAccount {
       throw new SignedOutError();
     }
     const text = await res.text();
-    const body = parseJson(text);
+    const answer = parseJson(text);
     if (!res.ok) {
-      const code = isRecord(body) && typeof body.error === "string" ? body.error : undefined;
+      const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;
       const retryAfter = Number(res.headers.get("retry-after"));
       throw new ServerError(
         res.status,
@@ -270,7 +298,7 @@ export class RemoteAccount {
         Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
       );
     }
-    return body ?? {};
+    return answer ?? {};
   }
 
   private forget(): void {

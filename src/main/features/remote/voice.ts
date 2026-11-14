@@ -4,19 +4,32 @@
  * error (403 quota_exceeded, 429 too_many_sessions, 503 voice_unavailable),
  * which `ws` reads and a page's WebSocket cannot. The renderer sends the
  * captured audio; what the server says comes back as events. One session
- * at a time: the app has one place being dictated into.
+ * at a time: the app has one place being dictated into (and, in a second
+ * VoiceSessions, one note being recorded).
+ *
+ * A note's recording also goes once more, whole, to the server for a
+ * second pass (POST /voice/transcriptions), which is asked after until it
+ * is done and then deleted there.
  */
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { z } from "zod";
 import {
+  type Transcription,
+  TranscriptionSchema,
   VOICE_VERSION,
+  type VoicePurpose,
   type VoiceServerMessage,
   VoiceServerMessageSchema,
   type VoiceUsage,
   VoiceUsageSchema,
 } from "../../../../packages/remote-protocol/src/voice";
-import type { VoiceEvent, VoiceFailure, VoiceStartResult } from "../../../shared/remote/voice";
+import type {
+  TranscribeResult,
+  VoiceEvent,
+  VoiceFailure,
+  VoiceStartResult,
+} from "../../../shared/remote/voice";
 import type { RemoteAccount } from "./account";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 
@@ -52,7 +65,9 @@ export interface UpgradeRefusal {
 }
 
 export interface VoiceSessionsDeps {
-  account: Pick<RemoteAccount, "state" | "info" | "request">;
+  account: Pick<RemoteAccount, "state" | "info" | "request" | "upload">;
+  /** What the sessions are for; a note's carry voices, times and a second pass. */
+  purpose?: VoicePurpose;
   emit(event: VoiceEvent): void;
   socket?: (url: string) => VoiceSocket;
 }
@@ -82,6 +97,11 @@ export class VoiceSessions {
   private starting = false;
 
   constructor(private readonly deps: VoiceSessionsDeps) {}
+
+  /** Whether `id` is this one's open session. */
+  has(id: string): boolean {
+    return this.open?.id === id;
+  }
 
   /** Opens a session in `language`: ready with the rate to send at, or why not. */
   async start(language: string): Promise<VoiceStartResult> {
@@ -114,6 +134,7 @@ export class VoiceSessions {
     url.search = new URLSearchParams({
       v: String(VOICE_VERSION),
       lang: language,
+      ...(this.deps.purpose === "note" ? { purpose: "note" } : {}),
       ticket,
     }).toString();
     const socket = (this.deps.socket ?? ((u) => new WebSocket(u) as unknown as VoiceSocket))(
@@ -213,7 +234,53 @@ export class VoiceSessions {
   async usage(): Promise<VoiceUsage> {
     return VoiceUsageSchema.parse(await this.deps.account.request("GET", "/voice/usage"));
   }
+
+  /**
+   * Sends a note's recording (one session's audio) for a second pass, with
+   * the token that session's `done` gave: the transcription's id, or why
+   * not.
+   */
+  async transcribe(
+    recording: Uint8Array,
+    type: string,
+    token: string,
+    language: string,
+  ): Promise<TranscribeResult> {
+    const query = new URLSearchParams({ v: String(VOICE_VERSION), lang: language });
+    try {
+      const answer = await this.deps.account.upload(`/voice/transcriptions?${query}`, recording, {
+        type,
+        headers: { "x-transcribe-token": token },
+      });
+      return { status: "submitted", id: SubmittedSchema.parse(answer).id };
+    } catch (error) {
+      if (error instanceof SignedOutError)
+        return { status: "failed", reason: "signed-out", message: error.message };
+      if (error instanceof UnreachableError)
+        return { status: "failed", reason: "network", message: error.message };
+      if (error instanceof ServerError) {
+        const reason =
+          error.status === 403 ? "expired" : error.status === 413 ? "too-big" : "failed";
+        return { status: "failed", reason, message: error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** A second pass: pending, done with its segments, or failed. */
+  async transcription(id: string): Promise<Transcription> {
+    return TranscriptionSchema.parse(
+      await this.deps.account.request("GET", `/voice/transcriptions/${encodeURIComponent(id)}`),
+    );
+  }
+
+  /** Has the server (and its provider) drop a second pass's recording and text. */
+  async dropTranscription(id: string): Promise<void> {
+    await this.deps.account.request("DELETE", `/voice/transcriptions/${encodeURIComponent(id)}`);
+  }
 }
+
+const SubmittedSchema = z.object({ id: z.string().min(1) });
 
 function errorOf(body: string): string | undefined {
   try {

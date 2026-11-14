@@ -6,7 +6,9 @@
  */
 import { z } from "zod";
 import {
+  TranscriptionSchema,
   VoiceLanguageSchema,
+  VoicePurposeSchema,
   VoiceServerMessageSchema,
   VoiceUsageSchema,
 } from "../../../packages/remote-protocol/src/voice";
@@ -31,7 +33,11 @@ export const VOICE_FAILURES = [
 export const VoiceFailureSchema = z.enum(VOICE_FAILURES);
 export type VoiceFailure = z.infer<typeof VoiceFailureSchema>;
 
-export const VoiceStartArgsSchema = z.object({ language: VoiceLanguageSchema });
+export const VoiceStartArgsSchema = z.object({
+  language: VoiceLanguageSchema,
+  /** A note's recording rather than a dictation (its own session, beside a dictation's). */
+  purpose: VoicePurposeSchema.optional(),
+});
 
 export const VoiceStartResultSchema = z.discriminatedUnion("status", [
   z.object({
@@ -66,4 +72,33 @@ export const VoiceEventSchema = z.object({
 });
 export type VoiceEvent = z.infer<typeof VoiceEventSchema>;
 
-export { VoiceUsageSchema };
+/** Sends a note's recording, one take's file, for a second pass. */
+export const VoiceTranscribeArgsSchema = z.object({
+  workspaceId: z.string().min(1),
+  noteId: z.string().min(1),
+  /** The take's file, by place in the note's folder. */
+  file: z.string().min(1).max(200),
+  token: z.string().min(1).max(4096),
+  language: VoiceLanguageSchema,
+});
+
+/** Why a second pass was not taken. */
+export const TranscribeFailureSchema = z.enum([
+  "signed-out",
+  /** The token was used, or is older than a day (403). */
+  "expired",
+  /** The file is over MAX_TRANSCRIBE_BYTES (413). */
+  "too-big",
+  /** The take's file is not in the note. */
+  "missing",
+  "network",
+  "failed",
+]);
+
+export const TranscribeResultSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("submitted"), id: z.string() }),
+  z.object({ status: z.literal("failed"), reason: TranscribeFailureSchema, message: z.string() }),
+]);
+export type TranscribeResult = z.infer<typeof TranscribeResultSchema>;
+
+export { TranscriptionSchema, VoiceUsageSchema };

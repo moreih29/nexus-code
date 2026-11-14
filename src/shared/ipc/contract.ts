@@ -108,10 +108,13 @@ import {
 } from "../remote/account";
 import { RoomStateSchema } from "../remote/room";
 import {
+  TranscribeResultSchema,
+  TranscriptionSchema,
   VoiceAudioArgsSchema,
   VoiceEventSchema,
   VoiceStartArgsSchema,
   VoiceStartResultSchema,
+  VoiceTranscribeArgsSchema,
   VoiceUsageSchema,
 } from "../remote/voice";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
@@ -2536,6 +2539,12 @@ export const ipcContract = {
       voiceCancel: call(z.object({ id: z.string() }), z.void()),
       /** This month's voice minutes (GET /voice/usage). */
       voiceUsage: call(z.void(), VoiceUsageSchema),
+      /** Sends a note recording's take for a second pass: its id, or why not. */
+      voiceTranscribe: call(VoiceTranscribeArgsSchema, TranscribeResultSchema),
+      /** A second pass: pending, done (its segments) or failed; not-found once it is gone. */
+      voiceTranscription: call(z.object({ id: z.string().min(1) }), TranscriptionSchema),
+      /** Has the server drop a second pass's recording and text. */
+      voiceTranscriptionDrop: call(z.object({ id: z.string().min(1) }), z.void()),
       /**
        * Whether the app may use the microphone, asking the system first
        * where it has not been asked (macOS): granted, or denied there.

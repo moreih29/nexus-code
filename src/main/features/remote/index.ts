@@ -7,6 +7,7 @@ import {
   RpcErrorCode,
   type RpcNotificationParams,
 } from "../../../../packages/remote-protocol/src";
+import { MAX_TRANSCRIBE_BYTES } from "../../../../packages/remote-protocol/src/voice";
 import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
@@ -170,6 +171,8 @@ export async function registerRemoteChannel(options: {
   repository?: (workspaceId: string) => Promise<RemoteRepository | null>;
   /** The app's color theme now, by its id: a phone may follow it. */
   theme?: () => string | undefined;
+  /** A file of a note's folder (a recording's take), for its second pass; throws if it is not there. */
+  noteFile?: (workspaceId: string, noteId: string, src: string) => Promise<Uint8Array>;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -271,6 +274,13 @@ export async function registerRemoteChannel(options: {
     account,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
+  // A note's recording: its own session, so a dictation can go on beside it.
+  const noteVoice = new VoiceSessions({
+    account,
+    purpose: "note",
+    emit: (event) => broadcast("remote", "voiceEvent", event),
+  });
+  const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
   const relayUrl = async () => {
     const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
@@ -486,23 +496,59 @@ export async function registerRemoteChannel(options: {
         return keyFlow(() => accountKeys.reset(password));
       },
       voiceStart: async (args: unknown) => {
-        const { language } = validateArgs(c.voiceStart.args, args);
-        return ipcOk(await voice.start(language));
+        const { language, purpose } = validateArgs(c.voiceStart.args, args);
+        return ipcOk(await (purpose === "note" ? noteVoice : voice).start(language));
       },
       voiceAudio: async (args: unknown) => {
         const { id, audio } = validateArgs(c.voiceAudio.args, args);
-        voice.audio(id, audio);
+        sessionOf(id).audio(id, audio);
         return ipcOk(undefined);
       },
       voiceStop: async (args: unknown) => {
-        voice.stop(validateArgs(c.voiceStop.args, args).id);
+        const { id } = validateArgs(c.voiceStop.args, args);
+        sessionOf(id).stop(id);
         return ipcOk(undefined);
       },
       voiceCancel: async (args: unknown) => {
-        voice.cancel(validateArgs(c.voiceCancel.args, args).id);
+        const { id } = validateArgs(c.voiceCancel.args, args);
+        sessionOf(id).cancel(id);
         return ipcOk(undefined);
       },
       voiceUsage: () => ask(() => voice.usage()),
+      voiceTranscribe: async (args: unknown) => {
+        const { workspaceId, noteId, file, token, language } = validateArgs(
+          c.voiceTranscribe.args,
+          args,
+        );
+        let bytes: Uint8Array;
+        try {
+          if (!options.noteFile) throw new Error("no notes");
+          bytes = await options.noteFile(workspaceId, noteId, file);
+        } catch (error) {
+          return ipcOk({
+            status: "failed" as const,
+            reason: "missing" as const,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+        if (bytes.byteLength > MAX_TRANSCRIBE_BYTES) {
+          return ipcOk({
+            status: "failed" as const,
+            reason: "too-big" as const,
+            message: `${bytes.byteLength} bytes`,
+          });
+        }
+        const type = file.endsWith(".ogg") ? "audio/ogg" : "audio/webm";
+        return ipcOk(await noteVoice.transcribe(bytes, type, token, language));
+      },
+      voiceTranscription: (args: unknown) => {
+        const { id } = validateArgs(c.voiceTranscription.args, args);
+        return ask(() => noteVoice.transcription(id));
+      },
+      voiceTranscriptionDrop: (args: unknown) => {
+        const { id } = validateArgs(c.voiceTranscriptionDrop.args, args);
+        return ask(() => noteVoice.dropTranscription(id));
+      },
       voiceMicrophone: async () => ipcOk(await microphoneAccess()),
       openMicrophoneSettings: async () => {
         const url = MICROPHONE_SETTINGS[process.platform];
@@ -554,6 +600,7 @@ export async function registerRemoteChannel(options: {
     dispose: () => {
       account.cancelSignIn();
       voice.cancel();
+      noteVoice.cancel();
       room?.stop();
     },
   };

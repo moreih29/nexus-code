@@ -54,6 +54,8 @@ function setup(options: {
   state?: unknown;
   info?: () => Promise<unknown>;
   request?: (method: string, path: string) => Promise<unknown>;
+  upload?: (path: string, bytes: Uint8Array, options: unknown) => Promise<unknown>;
+  purpose?: "dictation" | "note";
 }) {
   const sockets: FakeSocket[] = [];
   const events: VoiceEvent[] = [];
@@ -63,7 +65,9 @@ function setup(options: {
       info: (options.info ??
         (async () => ({ signIn: ["google"], voice: { version: 1 } }))) as never,
       request: (options.request ?? (async () => ({ ticket: "t-1" }))) as never,
+      upload: (options.upload ?? (async () => ({ id: "tr-1" }))) as never,
     },
+    ...(options.purpose ? { purpose: options.purpose } : {}),
     emit: (event) => events.push(event),
     socket: (url) => {
       const socket = new FakeSocket(url);
@@ -188,5 +192,87 @@ describe("voice input's socket", () => {
       { t: "final", text: "안녕" },
       { t: "closed", code: 1006 },
     ]);
+  });
+});
+
+describe("a note's recording", () => {
+  test("asks for a note's session, and passes its voices, times and token on", async () => {
+    const { voice, events, socket } = setup({ purpose: "note" });
+    const started = voice.start("ko");
+    const s = await socket();
+    expect(s.url).toBe("wss://nexus.example/voice?v=1&lang=ko&purpose=note&ticket=t-1");
+    s.say({ t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 3600 });
+    const result = await started;
+    if (result.status !== "ready") throw new Error("not ready");
+    expect(voice.has(result.id)).toBe(true);
+    expect(voice.has("another")).toBe(false);
+    s.say({ t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 });
+    s.say({ t: "done", seconds: 1, transcribeToken: "tok" });
+    expect(events.map((e) => e.event)).toEqual([
+      { t: "final", text: "안녕하세요", speaker: "2", startMs: 100, endMs: 900 },
+      { t: "done", seconds: 1, transcribeToken: "tok" },
+    ]);
+  });
+
+  test("sends a take for a second pass with its token, and tells why one was refused", async () => {
+    const calls: { path: string; bytes: Uint8Array; options: unknown }[] = [];
+    let answer: () => Promise<unknown> = async () => ({ id: "tr-9" });
+    const { voice } = setup({
+      purpose: "note",
+      upload: async (path, bytes, options) => {
+        calls.push({ path, bytes, options });
+        return answer();
+      },
+    });
+    const bytes = new Uint8Array([1, 2, 3]);
+    expect(await voice.transcribe(bytes, "audio/webm", "tok", "ko")).toEqual({
+      status: "submitted",
+      id: "tr-9",
+    });
+    expect(calls[0]).toEqual({
+      path: "/voice/transcriptions?v=1&lang=ko",
+      bytes,
+      options: { type: "audio/webm", headers: { "x-transcribe-token": "tok" } },
+    });
+    for (const [status, reason] of [
+      [403, "expired"],
+      [413, "too-big"],
+      [500, "failed"],
+    ] as const) {
+      answer = async () => {
+        throw new ServerError(status, undefined, "POST /voice/transcriptions");
+      };
+      expect(await voice.transcribe(bytes, "audio/webm", "tok", "ko")).toMatchObject({
+        status: "failed",
+        reason,
+      });
+    }
+    answer = async () => {
+      throw new UnreachableError(new TypeError("fetch failed"));
+    };
+    expect(await voice.transcribe(bytes, "audio/webm", "tok", "ko")).toMatchObject({
+      status: "failed",
+      reason: "network",
+    });
+  });
+
+  test("asks after a second pass, and has it dropped", async () => {
+    const asked: string[] = [];
+    const { voice } = setup({
+      purpose: "note",
+      request: async (method, path) => {
+        asked.push(`${method} ${path}`);
+        if (method === "DELETE") return {};
+        return {
+          id: "tr-1",
+          status: "done",
+          seconds: 3,
+          segments: [{ speaker: "1", startMs: 0, endMs: 1200, text: "hi" }],
+        };
+      },
+    });
+    expect(await voice.transcription("tr-1")).toMatchObject({ status: "done", seconds: 3 });
+    await voice.dropTranscription("tr-1");
+    expect(asked).toEqual(["GET /voice/transcriptions/tr-1", "DELETE /voice/transcriptions/tr-1"]);
   });
 });
