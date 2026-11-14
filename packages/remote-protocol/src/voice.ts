@@ -6,8 +6,11 @@
  * /relay is (a Bearer header, or ?ticket= from POST /relay/ticket). Then:
  * - server: `ready`, naming the audio format and sample rate to send, and
  *   the most seconds this session may take;
- * - client: binary frames of audio in that format, about 100 ms each, then
- *   `end` when the user stops;
+ * - client: binary frames of audio in that format, about 100 ms each, as
+ *   they are captured (no faster than real time, give or take a burst of
+ *   a few seconds: audio coming much faster ends the session with a
+ *   `bad-frame` error and 1008), then `end` when the user stops. A
+ *   session open far longer than the audio it has had is ended;
  * - server, as they come: `partial` (the words so far of the segment being
  *   spoken; each replaces the last) and `final` (a finished segment, to
  *   append; it clears the partial). Every partial and final after the
@@ -29,16 +32,21 @@
  *   change of speaker ends a segment;
  * - each final carries `startMs` and `endMs`, where its words start and end
  *   in the session's audio, from its first frame;
- * - `done` carries `transcribeToken`: it lets the device send the session's
- *   recording once to POST /voice/transcriptions for a second pass over the
- *   whole file (a more accurate text and speakers), not counted again.
+ * - `done` carries `transcribeToken` (not for a session under 5 seconds):
+ *   it lets the device send the session's recording once to POST
+ *   /voice/transcriptions for a second pass over the whole file (a more
+ *   accurate text and speakers). Only the recording's seconds beyond the
+ *   live session's count against the quota again.
  *
  * The second pass (`purpose=note` sessions only), signed in as /voice is:
  * - POST /voice/transcriptions?v=1&lang=<language>, header
  *   `X-Transcribe-Token`, body the recording (audio/webm or audio/ogg with
- *   Opus, or audio/wav), at most MAX_TRANSCRIBE_BYTES: 202 with
- *   `{ id }`; 403 if the token is unknown, used or expired, 413 if the body
- *   is too big;
+ *   Opus, or audio/wav), at most MAX_TRANSCRIBE_BYTES and about as long
+ *   as the live session: 202 with `{ id }`. 403 if the token is unknown,
+ *   used or expired; 403 `quota_exceeded` if it would go over the month's
+ *   note quota, and 429 `too_many_transcriptions` while the account has
+ *   three under way whose length is not known yet (the token stays good
+ *   after either); 413 if the body is too big or too long;
  * - GET /voice/transcriptions/<id>: a Transcription, `pending` until it is
  *   `done` (with its segments) or `error`; ask again every few seconds;
  * - DELETE /voice/transcriptions/<id>: 204; the server and its provider
@@ -103,12 +111,19 @@ export const VoiceServerMessageSchema = z.discriminatedUnion("t", [
   z.object({
     t: z.literal("done"),
     seconds: z.number().nonnegative(),
-    /** A note's session: lets its recording go once to POST /voice/transcriptions. */
+    /**
+     * A note's session of 5 seconds or more: lets its recording go once to
+     * POST /voice/transcriptions.
+     */
     transcribeToken: z.string().min(1).optional(),
   }),
   z.object({
     t: z.literal("error"),
-    /** unauthorized: the device's sign-in ended (the socket closes 4001 after it). */
+    /**
+     * bad-frame: a frame not of the format, or audio coming much faster than
+     * real time. unauthorized: the device's sign-in ended (the socket closes
+     * 4001 after it).
+     */
     code: z.enum(["bad-frame", "provider-error", "unauthorized"]),
     message: z.string(),
   }),
