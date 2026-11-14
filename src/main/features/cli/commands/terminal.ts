@@ -654,9 +654,10 @@ const terminalSend: CliCommand = {
       detail: tab.title,
       body: enter ? `${text}\n` : text,
     });
-    refuseWhileAsking(ctx, workspace, tab);
     const from = await senderOf(ctx);
     refuseLoop(from);
+    // Last, right before the keys go: nothing awaited between.
+    refuseWhileAsking(ctx, workspace, tab);
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -706,9 +707,10 @@ const terminalKey: CliCommand = {
       detail: tab.title,
       body: keys.join(" "),
     });
-    refuseWhileAsking(ctx, workspace, tab);
     const from = await senderOf(ctx);
     refuseLoop(from);
+    // Last, right before the keys go: nothing awaited between.
+    refuseWhileAsking(ctx, workspace, tab);
     const at = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
