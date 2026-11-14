@@ -88,6 +88,10 @@ describe("a note as Markdown", () => {
     expect(escapeText("# 아님")).toBe("\\# 아님");
     expect(escapeText("1. 아님")).toBe("1\\. 아님");
     expect(escapeText("a*b*_c_ [x]")).toBe("a\\*b\\*\\_c\\_ \\[x\\]");
+    // A backslash only where it would escape what follows: a Windows path reads as written.
+    expect(escapeText("C:\\Users\\kih")).toBe("C:\\Users\\kih");
+    expect(escapeText("a\\*b")).toBe("a\\\\\\*b");
+    expect(escapeText("end\\")).toBe("end\\\\");
     expect(docToMarkdown(doc(p(t("a", "code"), t(" "), t("x`y", "code"))))).toBe("`a` `` x`y ``\n");
   });
 

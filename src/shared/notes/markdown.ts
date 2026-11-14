@@ -122,10 +122,14 @@ function codeSpan(t: string): string {
 
 /** Text with what Markdown would read as markup escaped. */
 export function escapeText(t: string): string {
-  return t
-    .replace(/[\\`*_[\]<>]/g, (c) => `\\${c}`)
-    .replace(/^(\s*)([#+-])(\s)/gm, "$1\\$2$3")
-    .replace(/^(\s*\d+)([.)])(\s)/gm, "$1\\$2$3");
+  return (
+    t
+      // A backslash is markup only before ASCII punctuation (or at a line's
+      // end): "C:\Users" stays as it is.
+      .replace(/\\(?=[!-/:-@[-`{-~]|\n|$)|[`*_[\]<>]/g, (c) => `\\${c}`)
+      .replace(/^(\s*)([#+-])(\s)/gm, "$1\\$2$3")
+      .replace(/^(\s*\d+)([.)])(\s)/gm, "$1\\$2$3")
+  );
 }
 
 function prefixLines(text: string, prefix: string): string {
