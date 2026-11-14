@@ -5,6 +5,7 @@ import { isAgentSession, type TerminalState, terminalState } from "../agent-stat
 import { CliUsageError, exactArgs, type ParsedArgs, parseDuration } from "../args";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
   mayChange,
   noteDispatch,
@@ -14,9 +15,20 @@ import {
   shortId,
 } from "../context";
 import { ago, oneLine, table } from "../format";
+import { refuseLoop } from "../hops";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
+import {
+  DEVICE_FLAG,
+  deviceFlag,
+  listDevices,
+  offline,
+  peerSessions,
+  pickPeerWorkspace,
+  resolveDevice,
+} from "../remote";
+import { senderOf } from "../sender";
 import {
   DEFAULT_QUIET_MS,
   DEFAULT_WAIT_MS,
@@ -25,7 +37,16 @@ import {
   type WaitTarget,
   waitOnTerminal,
 } from "../wait";
+import { closePeerTab } from "./chat-remote";
+import { otherSessionsHint, peerSessionRows } from "./device";
 import { WORKSPACE_FLAG } from "./flags";
+import {
+  newPeerTerminal,
+  pressPeerKeys,
+  readPeerTerminal,
+  sendToPeerTerminal,
+  waitOnPeer as waitOnPeerTerminal,
+} from "./terminal-remote";
 import { orderedWorkspaces } from "./workspace";
 
 /** The tabs of a workspace, as the renderer has them. */
@@ -67,6 +88,15 @@ function checkTypable(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo
     throw new CliError("that is this terminal; nexus types only into other terminals");
   }
   if (tab.dead) throw new CliError(`${tab.title} has exited`);
+  refuseWhileAsking(ctx, workspace, tab);
+}
+
+/**
+ * Refuses typing into a terminal whose Claude Code waits for the user to
+ * allow a tool: what is typed would answer it. Asked again just before the
+ * keys go, as it may have come to wait while the user was asked.
+ */
+function refuseWhileAsking(ctx: CliContext, workspace: WorkspaceMeta, tab: CliTabInfo): void {
   if (ctx.services.claudeStatus(workspace.id, tab.id)?.status === "permissionPending") {
     throw new CliError(
       "Claude Code there is waiting for the user to allow a tool; that is for the user to answer",
@@ -101,6 +131,11 @@ function waitTimes(flags: ParsedArgs["flags"]): { timeoutMs: number; quietMs: nu
   const quietMs =
     flags.quiet === undefined ? DEFAULT_QUIET_MS : parseDuration(flags.quiet as string, "quiet");
   return { timeoutMs, quietMs };
+}
+
+/** --quiet, for another computer, which has its own default otherwise. */
+function quietGiven(flags: ParsedArgs["flags"], times: { quietMs: number }): { quietMs?: number } {
+  return flags.quiet === undefined ? {} : { quietMs: times.quietMs };
 }
 
 /** A wait's result as the command prints it; exit 124 when the wait ran out. */
@@ -388,10 +423,17 @@ const tabClose: CliCommand = {
     others: { type: "boolean", description: "The other tabs of TAB's group, pinned ones aside" },
     saved: { type: "boolean", description: "The editors with nothing unsaved" },
     all: { type: "boolean", description: "Every tab, pinned ones too" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const bulk = bulkCloseFlag(flags);
     const force = flags.force === true;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      if (bulk !== null) throw new CliUsageError(`--${bulk} is for this computer's tabs`);
+      const [selector] = exactArgs(positionals, "tab") as [string];
+      return closePeerTab(ctx, device, flags, selector);
+    }
     if (bulk !== null) {
       if (positionals.length > 1) {
         throw new CliUsageError(`unexpected argument "${positionals[1]}"`);
@@ -411,6 +453,7 @@ const tabClose: CliCommand = {
       await mayChange(ctx, workspace, {
         kind: "tabClose",
         detail: targets.map((t) => t.title).join('", "'),
+        ...(targets.some((t) => t.type === "terminal") ? { terminal: true } : {}),
       });
       return closeTabs(ctx, workspace, targets, force);
     }
@@ -420,7 +463,11 @@ const tabClose: CliCommand = {
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this terminal; close it in the app or exit its shell");
     }
-    await mayChange(ctx, workspace, { kind: "tabClose", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "tabClose",
+      detail: tab.title,
+      ...(tab.type === "terminal" ? { terminal: true } : {}),
+    });
     await ctx.services.ui("tab.close", { workspaceId: workspace.id, tabId: tab.id, force });
     return output(`Closed ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,
@@ -465,13 +512,16 @@ const terminalRead: CliCommand = {
   flags: {
     workspace: WORKSPACE_FLAG,
     lines: { type: "number", value: "N", description: "How many of the last lines (default 100)" },
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
-    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveTerminal(ctx, workspace, positionals[0] ?? ".");
     const lines = (flags.lines as number | undefined) ?? 100;
     if (!Number.isInteger(lines) || lines < 1)
       throw new CliError("--lines takes a positive whole number", 2);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return readPeerTerminal(ctx, device, flags, positionals[0], lines);
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const tab = await resolveTerminal(ctx, workspace, positionals[0] ?? ".");
     const { text } = await ctx.services.ui("terminal.read", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -501,9 +551,12 @@ const terminalNew: CliCommand = {
     },
     show: { type: "boolean", description: "Show it, beside this terminal" },
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return newPeerTerminal(ctx, device, flags);
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const shell = flags.shell as string | undefined;
     const { location } = workspace;
@@ -523,7 +576,7 @@ const terminalNew: CliCommand = {
           : workspace.rootPath;
     const title = flags.title as string | undefined;
     const command = flags.command as string | undefined;
-    await mayChange(ctx, workspace, { kind: "terminalNew" });
+    await mayChange(ctx, workspace, { kind: "terminalNew", ...(command ? { body: command } : {}) });
     const { tabId } = await ctx.services.ui("terminal.open", {
       workspaceId: workspace.id,
       cwd,
@@ -572,6 +625,7 @@ const terminalSend: CliCommand = {
     wait: { type: "boolean", description: "Then wait until the terminal is idle again" },
     ...WAIT_FLAGS,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector, ...words] = positionals;
@@ -581,10 +635,29 @@ const terminalSend: CliCommand = {
     const enter = flags["no-enter"] !== true;
     if (text === "" && !enter) throw new CliUsageError("nothing to send");
     const times = flags.wait === true ? waitTimes(flags) : null;
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      return sendToPeerTerminal(
+        ctx,
+        device,
+        flags,
+        selector,
+        { text, enter },
+        times && { timeoutMs: times.timeoutMs, ...quietGiven(flags, times) },
+      );
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "terminalInput",
+      detail: tab.title,
+      body: enter ? `${text}\n` : text,
+    });
+    const from = await senderOf(ctx);
+    refuseLoop(from);
+    // Last, right before the keys go: nothing awaited between.
+    refuseWhileAsking(ctx, workspace, tab);
     const startedAt = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
@@ -593,6 +666,10 @@ const terminalSend: CliCommand = {
       mode: "paste",
       enter,
     });
+    // An agent's input: the turn it starts there is down the chain from it.
+    if (from?.hops !== undefined) {
+      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, startedAt);
+    }
     if (enter && text.trim() !== "") {
       await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
     }
@@ -614,16 +691,27 @@ const terminalKey: CliCommand = {
   summary: "Press keys in a terminal, such as ctrl-c or down enter",
   args: "<tab> <key...>",
   details: KEY_NAMES_HELP,
-  flags: { workspace: WORKSPACE_FLAG },
+  flags: { workspace: WORKSPACE_FLAG, device: DEVICE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector, ...keys] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
     if (keys.length === 0) throw new CliUsageError("missing <key>");
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return pressPeerKeys(ctx, device, flags, selector, keys);
     const text = keys.map(keySequence).join("");
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     checkTypable(ctx, workspace, tab);
-    await mayChange(ctx, workspace, { kind: "terminalInput", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "terminalInput",
+      detail: tab.title,
+      body: keys.join(" "),
+    });
+    const from = await senderOf(ctx);
+    refuseLoop(from);
+    // Last, right before the keys go: nothing awaited between.
+    refuseWhileAsking(ctx, workspace, tab);
+    const at = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -631,6 +719,8 @@ const terminalKey: CliCommand = {
       mode: "keys",
       enter: false,
     });
+    if (from?.hops !== undefined)
+      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, at);
     return output(`Pressed ${keys.join(" ")} in ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,
       workspaceId: workspace.id,
@@ -656,6 +746,7 @@ const terminalWait: CliCommand = {
     },
     ...WAIT_FLAGS,
     workspace: WORKSPACE_FLAG,
+    device: DEVICE_FLAG,
   },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "tab") as [string];
@@ -672,6 +763,15 @@ const terminalWait: CliCommand = {
       }
     }
     const times = waitTimes(flags);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) {
+      const waitFor = {
+        ...(target.kind === "exit" ? { exit: true } : {}),
+        ...(target.kind === "match" ? { match: flags.match as string } : {}),
+        ...quietGiven(flags, times),
+      };
+      return waitOnPeerTerminal(ctx, device, flags, selector, waitFor, times.timeoutMs);
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveTerminal(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
@@ -724,72 +824,144 @@ const sessionList: CliCommand = {
     'To follow the changes as they come, see "nexus events".',
   flags: {
     workspace: { ...WORKSPACE_FLAG, description: "Only this workspace (id, id prefix or name)" },
+    device: {
+      ...DEVICE_FLAG,
+      description:
+        "Another computer's sessions (id, id prefix or name), or \"all\" for every one's",
+    },
   },
   async run(ctx, { flags }) {
+    const device = deviceFlag(flags);
+    if (device !== undefined) return deviceSessionList(ctx, device, flags);
     const workspaces =
       flags.workspace === undefined
         ? orderedWorkspaces(ctx.services.listWorkspaces())
         : [resolveWorkspace(ctx, flags.workspace as string)];
-    const now = Date.now();
-    const you = (tab: CliTabInfo, state: string) =>
-      tab.id === ctx.caller.tabId ? `${state} (you)` : state;
-    // A workspace's terminals, then its Claude and Codex tabs.
-    const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
-      ...(await terminalRows(ctx, workspaces))
-        .filter((r) => isAgentSession(r.state))
-        .map((r) => ({
-          workspace: r.workspace,
-          cells: [
-            shortId(r.tab.id),
-            r.workspace.name,
-            oneLine(r.tab.title, 30),
-            r.state.agent ?? "?",
-            you(r.tab, r.state.state),
-            r.state.since ? ago(r.state.since, now) : "",
-            r.state.message ? oneLine(r.state.message, 60) : "",
-          ],
-          json: rowJson(ctx, r),
-        })),
-      ...(await chatRows(ctx, workspaces)).map((c) => ({
-        workspace: c.workspace,
-        cells: [
-          shortId(c.tab.id),
-          c.workspace.name,
-          oneLine(c.tab.title, 30),
-          `${c.info.agent}-tab${c.info.profile ? ` (${oneLine(c.info.profile, 20)})` : ""}`,
-          `${you(c.tab, c.info.state)}${c.info.goal ? ` · goal ${c.info.goal.status}` : ""}`,
-          c.info.since ? ago(c.info.since, now) : "",
-          c.info.message ? oneLine(c.info.message, 60) : "",
-        ],
-        json: {
-          id: c.tab.id,
-          workspaceId: c.workspace.id,
-          workspace: c.workspace.name,
-          ...taskJson(c.workspace),
-          title: c.tab.title,
-          current: c.tab.id === ctx.caller.tabId,
-          tab: c.tab.type,
-          agent: c.info.agent,
-          state: c.info.state,
-          ...(c.info.message ? { message: c.info.message } : {}),
-          ...(c.info.since !== undefined ? { since: c.info.since } : {}),
-          ...(c.info.profile ? { profile: c.info.profile } : {}),
-          ...(c.info.goal ? { goal: c.info.goal } : {}),
-        },
-      })),
-    ];
-    const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
-    sessions.sort((a, b) => order(a) - order(b));
+    const sessions = await localSessions(ctx, workspaces);
     const text = table(
-      ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"],
+      SESSION_HEADER,
       sessions.map((s) => s.cells),
     );
+    // The other computers' sessions are a command away, said under the text only.
+    const hint =
+      flags.json === true || flags.jsonl === true || flags.workspace !== undefined
+        ? ""
+        : await otherSessionsHint(ctx);
     return output(
-      text || "No agent sessions.",
+      [text || "No agent sessions.", hint].filter(Boolean).join("\n"),
       sessions.map((s) => s.json),
     );
   },
 };
+
+const SESSION_HEADER = ["ID", "WORKSPACE", "TITLE", "AGENT", "STATE", "SINCE", "LAST"];
+
+/** session list --device: another computer's sessions, or every computer's with "all". */
+async function deviceSessionList(
+  ctx: CliContext,
+  selector: string,
+  flags: ParsedArgs["flags"],
+): Promise<CliOutput> {
+  const all = selector === "all";
+  if (all && flags.workspace !== undefined) {
+    throw new CliUsageError("--workspace takes one computer's workspace: give --device NAME");
+  }
+  const listed = all ? await listDevices(ctx) : [(await resolveDevice(ctx, selector)) as CliDevice];
+  const named = listed[0] as CliDevice;
+  if (!all && !named.online) throw offline(named, ctx.services.clock.now());
+  // Every computer's: those offline are counted in a line, not listed one by one.
+  const devices = listed.filter((d) => !d.self && d.online);
+  const away = listed.filter((d) => !d.self && !d.online).length;
+  const self = listed.find((d) => d.self);
+  const local = all
+    ? (await localSessions(ctx, orderedWorkspaces(ctx.services.listWorkspaces()))).map((s) => ({
+        cells: [
+          s.cells[0] as string,
+          oneLine(self?.name ?? "this computer", 20),
+          ...s.cells.slice(1),
+        ],
+        json: s.json,
+      }))
+    : [];
+  const peers = await peerSessionRows(ctx, devices);
+  if (away > 0) {
+    peers.notes.push(`${away} other computer${away === 1 ? "" : "s"} offline: nexus device list`);
+  }
+  let rows = peers.rows;
+  if (!all && flags.workspace !== undefined) {
+    const device = devices[0] as CliDevice;
+    const { workspaces } = await peerSessions(ctx, device);
+    const workspace = pickPeerWorkspace(device, workspaces, flags.workspace as string);
+    rows = rows.filter((r) => (r.json as { workspaceId: string }).workspaceId === workspace.id);
+  }
+  const sessions = [...local, ...rows];
+  const text = table(
+    ["ID", "DEVICE", ...SESSION_HEADER.slice(1)],
+    sessions.map((s) => s.cells),
+  );
+  return output(
+    [text || "No agent sessions.", ...peers.notes].join("\n"),
+    sessions.map((s) => s.json),
+  );
+}
+
+/** This computer's agent sessions in `workspaces`, as session list lists them. */
+async function localSessions(
+  ctx: CliContext,
+  workspaces: readonly WorkspaceMeta[],
+): Promise<Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }>> {
+  const now = Date.now();
+  const you = (tab: CliTabInfo, state: string) =>
+    tab.id === ctx.caller.tabId ? `${state} (you)` : state;
+  // A workspace's terminals, then its Claude and Codex tabs.
+  const sessions: Array<{ workspace: WorkspaceMeta; cells: string[]; json: object }> = [
+    ...(await terminalRows(ctx, workspaces))
+      .filter((r) => isAgentSession(r.state))
+      .map((r) => ({
+        workspace: r.workspace,
+        cells: [
+          shortId(r.tab.id),
+          r.workspace.name,
+          oneLine(r.tab.title, 30),
+          r.state.agent ?? "?",
+          you(r.tab, r.state.state),
+          r.state.since ? ago(r.state.since, now) : "",
+          r.state.message ? oneLine(r.state.message, 60) : "",
+        ],
+        json: rowJson(ctx, r),
+      })),
+    ...(await chatRows(ctx, workspaces)).map((c) => ({
+      workspace: c.workspace,
+      cells: [
+        shortId(c.tab.id),
+        c.workspace.name,
+        oneLine(c.tab.title, 30),
+        `${c.info.agent}-tab${c.info.profile ? ` (${oneLine(c.info.profile, 20)})` : ""}`,
+        `${you(c.tab, c.info.state)}${c.info.goal ? ` · goal ${c.info.goal.status}` : ""}`,
+        c.info.since ? ago(c.info.since, now) : "",
+        c.info.message ? oneLine(c.info.message, 60) : "",
+      ],
+      json: {
+        id: c.tab.id,
+        workspaceId: c.workspace.id,
+        workspace: c.workspace.name,
+        ...taskJson(c.workspace),
+        title: c.tab.title,
+        current: c.tab.id === ctx.caller.tabId,
+        tab: c.tab.type,
+        agent: c.info.agent,
+        state: c.info.state,
+        ...(c.info.message ? { message: c.info.message } : {}),
+        ...(c.info.since !== undefined ? { since: c.info.since } : {}),
+        ...(c.info.profile ? { profile: c.info.profile } : {}),
+        ...(c.info.goal ? { goal: c.info.goal } : {}),
+      },
+    })),
+  ];
+  const order = (s: (typeof sessions)[number]) => workspaces.indexOf(s.workspace);
+  sessions.sort((a, b) => order(a) - order(b));
+  return sessions;
+}
 
 export const terminalCommands: CliCommand[] = [
   tabList,

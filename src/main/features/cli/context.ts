@@ -2,38 +2,100 @@
  * What a nexus command runs with: who asked, what the app can tell it, and
  * how it names workspaces and tabs on the command line.
  */
-import type { AgentRun } from "../../../shared/claude/activity";
+import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remote-protocol/src";
+import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
-import type {
-  CliChange,
-  CliPlacement,
-  CliTabInfo,
-  CliUiOp,
-  CliUiOps,
+import {
+  askedEachTime,
+  type CliChange,
+  type CliPlacement,
+  type CliTabInfo,
+  type CliUiOp,
+  type CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
+import type { TranscriptFile } from "../../../shared/notes/transcript";
+import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
+import type { AgentInputs } from "./hops";
 import type { StartedAgents } from "./started-agents";
 import type { WaitRegistry } from "./waits";
 
-/** A failure the command reports as is, with its exit code. */
+/** A failure the command reports as is, with its exit code; with --json, `json` too. */
 export class CliError extends Error {
   constructor(
     message: string,
     readonly exitCode = 1,
+    readonly json?: unknown,
   ) {
     super(message);
   }
 }
 
+/** A device of the user's account, as `nexus device list` shows it. */
+export interface CliDevice {
+  readonly id: string;
+  readonly name: string;
+  readonly platform: string;
+  /** Whether it is this computer. */
+  readonly self: boolean;
+  readonly online: boolean;
+  /** When the server last heard from it, in Unix ms. */
+  readonly lastSeen?: number;
+  /** What it serves its account's other devices, as its hello said; none until it said one. */
+  readonly serves: readonly string[];
+  /** The protocol package's version it speaks; absent from an older NexusCode. */
+  readonly schema?: string;
+}
+
+/** The user's other computers, through the remote's room, for `--device`. */
+export interface CliRemote {
+  /** Whether this computer is in its account's room now: signed in, its key unlocked, connected. */
+  inRoom(): boolean;
+  /** The account's devices, as the server and the room know them; the room's alone without the server. */
+  devices(): Promise<CliDevice[]>;
+  /** Asks another device; a RpcFailure for its refusal or its silence. */
+  request<M extends RpcMethod>(
+    deviceId: string,
+    method: M,
+    params: RpcParams<M>,
+    timeoutMs?: number,
+  ): Promise<RpcResult<M>>;
+}
+
+/** A consent prompt waiting on the user (consent-prompts.ts). */
+export interface PendingConsent {
+  readonly id: string;
+  /** When it was asked, and when it counts as turned down (Unix ms). */
+  readonly at: number;
+  readonly expiresAt: number;
+  /** What was asked, as the renderer shows it. */
+  readonly request: CliUiOps["consent.ask"]["args"];
+}
+
+/** The consent prompts waiting on the user, for another device of theirs to list and answer. */
+export interface CliConsents {
+  /** In the order asked. */
+  list(): readonly PendingConsent[];
+  /**
+   * Answers one as the user would, from the device named `by`; false when
+   * it no longer waits.
+   */
+  answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
+  /** The consent prompts waiting on the user. */
+  readonly consents: CliConsents;
+  /** The user's other computers, for --device. */
+  readonly remote: CliRemote;
   readonly appVersion: string;
   listWorkspaces(): WorkspaceMeta[];
   /**
@@ -56,10 +118,26 @@ export interface CliServices {
     tabId: string,
   ): { status: ClaudeStatus; message?: string; since: number; turnStartedAt?: number } | null;
   activity(workspaceId: string, tabId: string): TabActivity | null;
+  /** The permission requests a terminal's Claude Code holds for the app to answer, oldest first. */
+  claudeAsks(workspaceId: string, tabId: string): readonly PermissionAsk[];
+  /**
+   * Answers a request a terminal's Claude Code holds, as the app's card
+   * does: false when it no longer waits, or cannot be answered so.
+   */
+  answerClaudeAsk(
+    workspaceId: string,
+    tabId: string,
+    askId: string,
+    answer: PermissionAnswer,
+  ): Promise<boolean>;
+  /** The agent manager's own workspace, once the manager opened it; listWorkspaces leaves it out. */
+  managerWorkspace(): WorkspaceMeta | null;
   /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
   readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
+  /** The agents' input into terminals, for how far down a chain of agents' messages they are. */
+  readonly agentInputs: AgentInputs;
   /**
    * Asks the renderer, which owns the tabs and the terminals' screens; a
    * longer `timeoutMs` for an answer that waits on git.
@@ -105,11 +183,35 @@ export interface CliServices {
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
   /** Reads and drives the pages of browser tabs. */
   readonly browser: BrowserDriver;
+  /** The workspaces' notes, kept by the app (features/notes). */
+  readonly notes: CliNotes;
+}
+
+/** A workspace's notes, as the nexus note commands read them. */
+export interface CliNotes {
+  /** Newest first. */
+  list(workspaceId: string): Promise<NoteSummary[]>;
+  /** Fails when there is no such note. */
+  read(workspaceId: string, noteId: string): Promise<NoteContent>;
+  /** Its recordings' words; an empty transcript for a note with none. */
+  transcript(workspaceId: string, noteId: string): Promise<TranscriptFile>;
+}
+
+/**
+ * The tab a command runs in, as its request named it. `verified` false:
+ * the request did not come with that tab's token (see
+ * ../workspace/tab-token.ts), so it may be any process of the workspace's
+ * that says so, and it is taken for no tab's, nor for the user's.
+ */
+export interface CliCaller {
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly verified?: boolean;
 }
 
 export interface CliContext {
   /** The terminal the command runs in. */
-  readonly caller: { readonly workspaceId: string; readonly tabId: string };
+  readonly caller: CliCaller;
   readonly invocation: CliInvocation;
   readonly services: CliServices;
   /** Aborted when the command's client has gone, as one stopped with Ctrl-C. */
@@ -178,15 +280,23 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
 /**
  * Lets a command make `change` in `workspace`: always in the caller's own,
  * in another as the setting or the user allows. Throws a CliError if not.
+ *
+ * The user turned the manager on to direct every workspace, and it runs
+ * nexus unasked; but what it reads of the sessions (their titles, what they
+ * said) may say anything. So what it would type, run or send is up to the
+ * setting or the user, as an agent's in another workspace is
+ * (askedEachTime): the rest it does.
  */
 export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
 ): Promise<void> {
-  if (workspace.id === ctx.caller.workspaceId) return;
-  // The user turned the manager on to direct every workspace.
-  if (isManager(ctx.caller)) return;
+  if (isManager(ctx.caller)) {
+    if (!askedEachTime(change)) return;
+  } else if (workspace.id === ctx.caller.workspaceId) {
+    return;
+  }
   await ctx.services.allowChange({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,

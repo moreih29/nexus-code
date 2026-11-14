@@ -16,6 +16,10 @@ const themeIds = THEME_SOURCES.map((s) => s.id) as [string, ...string[]];
 export const ThemePreferenceSchema = z.enum(themeIds);
 export type ThemePreference = z.infer<typeof ThemePreferenceSchema>;
 
+/** Whether agents on the user's other computers may act on this one (Settings › Remote). */
+export const RemoteAgentsPolicySchema = z.enum(["ask", "allow", "deny"]);
+export type RemoteAgentsPolicy = z.infer<typeof RemoteAgentsPolicySchema>;
+
 export const WindowBoundsSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -223,6 +227,24 @@ export const AppStateSchema = z.object({
   // Whether a Claude tab warns, above its composer, that the account's usage
   // limit is near. Off hides the warning only: a limit reached still shows.
   rateLimitWarnings: z.boolean().default(true),
+
+  // The language voice input listens for: the app's ("app", ko or en), or
+  // "multi", which lets the server tell the language as the user speaks.
+  voiceLanguage: z.enum(["app", "multi"]).default("app"),
+
+  // Whether the account's other devices may control this one's chats
+  // (send, answer, stop, open, close) or only look (main/features/remote).
+  remoteControl: z.boolean().default(false),
+
+  // Whether they may control its terminals too (type, open, rename, close),
+  // which runs anything the user could; off, they only read them.
+  remoteTerminalControl: z.boolean().default(false),
+
+  // Whether agents on the user's other computers may act here through their
+  // nexus command (chat send --device ...): asked about each time (until
+  // restart, for a pair of workspaces), allowed, or not taken at all.
+  // Apart from the switches above, which are for the user's own hands.
+  remoteAgents: RemoteAgentsPolicySchema.default("ask"),
 
   // The nexus command in the app's terminals (main/features/cli). Off, every
   // nexus command fails with a note saying so.

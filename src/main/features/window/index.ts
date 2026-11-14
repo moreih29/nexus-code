@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog, shell } from "electron";
 import { DEFAULT_THEME, THEME_SOURCE_BY_ID, type ThemeId } from "../../../shared/design-tokens";
 import { createLogger } from "../../../shared/log/main";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { PREVIEW_LINK_WINDOW } from "../../../shared/window/preview-link";
 import {
   OPAQUE_WINDOW_ARG,
   TRANSPARENT_WINDOW_ARG,
@@ -10,6 +11,13 @@ import {
 import { getMainT } from "../../i18n";
 import { isMac, isWindows, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
+import {
+  APP_ACTIVATION_MS,
+  opensHere,
+  USER_ACTIVATION_MS,
+  UserActivation,
+  watchActivation,
+} from "./activation";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -20,11 +28,6 @@ import { DEATH_WINDOW_MS, pageDiedQuestion, reloadsPage, watchPageHealth } from 
 const TITLEBAR_HEIGHT = 36;
 
 const logger = createLogger("window-open-handler");
-
-// Input that grants transient user activation in Chromium, and how long that
-// activation lasts.
-const ACTIVATING_INPUTS = new Set(["mouseDown", "keyDown", "rawKeyDown", "touchEnd", "gestureTap"]);
-const USER_ACTIVATION_MS = 5_000;
 
 // ---------------------------------------------------------------------------
 // titleBarOverlay color helpers
@@ -230,20 +233,27 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // Popups need fresh user input, like Chrome's popup blocker: a previewed
   // page calling window.open from a timer would otherwise open browser tabs
   // without limit. Preview and markdown link clicks call window.open from the
-  // click handler itself, so they always follow the input. One input lets
-  // one popup through.
-  let lastActivationAt = 0;
-  win.webContents.on("input-event", (_event, input) => {
-    if (ACTIVATING_INPUTS.has(input.type)) lastActivationAt = Date.now();
-  });
+  // click handler itself, so they always follow the input; a link the app
+  // looks up first (an MCP sign-in page) may come up to APP_ACTIVATION_MS
+  // later. One input lets one popup through; typing does not. Input in the
+  // HTML preview's page, which runs out of process, counts too, but only
+  // for its own links, and the app's only for the app's (./activation).
+  const activation = new UserActivation();
+  watchActivation(win.webContents, activation);
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    const focused = win.webContents.focusedFrame;
+    const main = win.webContents.mainFrame;
+    const keyboardInApp =
+      !focused || (focused.processId === main.processId && focused.routingId === main.routingId);
+    const previewLink = frameName === PREVIEW_LINK_WINDOW;
     if (!isExternalSchemeAllowed(url)) {
       logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
-    } else if (Date.now() - lastActivationAt > USER_ACTIVATION_MS) {
+    } else if (!opensHere(previewLink, keyboardInApp)) {
+      logger.warn(`Blocked window.open from where the keyboard is not: ${url}`);
+    } else if (!activation.take(previewLink ? USER_ACTIVATION_MS : APP_ACTIVATION_MS)) {
       logger.warn(`Blocked window.open without user input: ${url}`);
     } else {
-      lastActivationAt = 0;
       shell.openExternal(url);
     }
     return { action: "deny" };

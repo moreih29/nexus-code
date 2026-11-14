@@ -43,10 +43,10 @@ interface HydrateOpts {
   filesPanelModeByWorkspace?: Readonly<Record<string, string>>;
 }
 
-/** What the files panel shows: the file tree, search, source control, or the agent list. */
-export type FilesPanelMode = "tree" | "search" | "git" | "agents";
+/** What the files panel shows: the file tree, search, source control, the agent list, or the notes. */
+export type FilesPanelMode = "tree" | "search" | "git" | "agents" | "notes";
 
-const FILES_PANEL_MODES: readonly FilesPanelMode[] = ["tree", "search", "git", "agents"];
+const FILES_PANEL_MODES: readonly FilesPanelMode[] = ["tree", "search", "git", "agents", "notes"];
 
 function isFilesPanelMode(value: string): value is FilesPanelMode {
   return (FILES_PANEL_MODES as readonly string[]).includes(value);

@@ -18,8 +18,11 @@
  * cross-fetch another `file://` document outside its directory).
  *
  * file: is included so users can open local HTML / documents (the user
- * explicitly opted in to this).  Cross-origin reads from file: documents
- * stay constrained by Chromium's `webSecurity` even with this entry.
+ * explicitly opted in to this), at the top of a tab only. Electron grants
+ * file:// pages access to one another that Chrome does not, so a local page
+ * could read any local file through a frame or popup of it: neither may be
+ * one (isSubframeNavigationAllowed, isPopupNavigationAllowed), and the
+ * session cancels script-readable file:// requests (installLocalFileReadGuard).
  *
  * TOP-LEVEL vs SUB-FRAME
  * `data:` and `blob:` are permitted in SUB-FRAMES only (see
@@ -68,6 +71,17 @@ export function isNavigationSchemeAllowed(rawUrl: string): boolean {
 }
 
 /**
+ * Whether main may load `rawUrl` in a browser tab when the app asks it to
+ * (a new tab, the address bar, nexus browser goto): a top-level scheme, or
+ * the blank page a new tab starts on. loadURL does not go through
+ * will-navigate, so this is that guard for the app's own loads: a
+ * `javascript:` URL would run in whatever page the tab shows.
+ */
+export function isTabLoadAllowed(rawUrl: string): boolean {
+  return rawUrl === "about:blank" || isNavigationSchemeAllowed(rawUrl);
+}
+
+/**
  * Returns true when `rawUrl` is allowed to load in a SUB-FRAME.
  *
  * Superset of `isNavigationSchemeAllowed`: everything valid at top-level, plus
@@ -76,7 +90,6 @@ export function isNavigationSchemeAllowed(rawUrl: string): boolean {
  * top-level `will-navigate`.
  */
 export function isSubframeNavigationAllowed(rawUrl: string): boolean {
-  if (isNavigationSchemeAllowed(rawUrl)) return true;
   if (!rawUrl) return false;
 
   let parsed: URL;
@@ -85,8 +98,23 @@ export function isSubframeNavigationAllowed(rawUrl: string): boolean {
   } catch {
     return false;
   }
+  // A local file only at the top: Electron gives file:// pages access to one
+  // another, so a page opened from disk could read any file the user can
+  // through a frame of it (only a file:// page may frame one).
+  if (parsed.protocol === "file:") return false;
+  if (isNavigationSchemeAllowed(rawUrl)) return true;
 
   return (SUBFRAME_SCHEME_ALLOWLIST as readonly string[]).includes(parsed.protocol);
+}
+
+/**
+ * Whether a popup may navigate to, or open at, `rawUrl`: as a tab may,
+ * but never a local file, which its opener, a file:// page, could read
+ * (see isSubframeNavigationAllowed).
+ */
+export function isPopupNavigationAllowed(rawUrl: string): boolean {
+  if (!isNavigationSchemeAllowed(rawUrl)) return false;
+  return new URL(rawUrl).protocol !== "file:";
 }
 
 /**

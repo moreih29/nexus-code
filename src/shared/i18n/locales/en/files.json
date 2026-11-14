@@ -5,7 +5,8 @@
       "tree": "File tree",
       "search": "Find in workspace",
       "git": "Source control",
-      "agents": "Agents"
+      "agents": "Agents",
+      "notes": "Notes"
     },
     "offline": {
       "title": "Not connected",

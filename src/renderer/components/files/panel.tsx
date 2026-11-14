@@ -1,5 +1,5 @@
 import i18next from "i18next";
-import { Bot, Folder, GitBranch, Search } from "lucide-react";
+import { Bot, Folder, GitBranch, NotebookPen, Search } from "lucide-react";
 import { memo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
@@ -18,6 +18,7 @@ import {
 import { selectIsWorkspaceOnline, useWorkspacesStore } from "../../state/stores/workspaces";
 import { AgentsPanel } from "../agent-list/agents-panel";
 import { EMPTY_TREE } from "../editor/diff-refs";
+import { NotesPanel } from "../notes/notes-panel";
 import { Button } from "../ui/button";
 import { EmptyState } from "../ui/empty-state";
 import { ErrorBoundary } from "../ui/error-boundary";
@@ -39,6 +40,8 @@ const MODE_BUTTONS: ModeButton[] = [
   { mode: "git", labelKey: "files:panel.tab.git", Icon: GitBranch },
   // The agent list; the same mark as the agent view's.
   { mode: "agents", labelKey: "files:panel.tab.agents", Icon: Bot },
+  // The workspace's notes, kept by the app: there even when an SSH workspace is not connected.
+  { mode: "notes", labelKey: "files:panel.tab.notes", Icon: NotebookPen },
 ];
 
 // ---------------------------------------------------------------------------
@@ -131,8 +134,10 @@ export const FilesPanel = memo(function FilesPanel() {
                     // The panel shown, drawn like an active tab: a tint and an
                     // underline indicator (design.md §8, "selected"). aria-pressed
                     // carries it to assistive tech.
+                    // At the panel's narrowest the five buttons share what is
+                    // there (each still wider than its icon), none cut off.
                     className={cn(
-                      "relative",
+                      "relative min-w-0 shrink",
                       isActive && [
                         "bg-[var(--sidebar-item-selected-bg)] text-foreground",
                         "after:absolute after:right-1.5 after:bottom-0 after:left-1.5 after:h-0.5",
@@ -150,7 +155,14 @@ export const FilesPanel = memo(function FilesPanel() {
               })}
             </div>
             <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-              {showOffline ? (
+              {filesPanelMode === "notes" ? (
+                // ErrorBoundary: a notes panel crash leaves the other views working.
+                <ErrorBoundary logSource="notes-panel">
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+                    <NotesPanel key={activeWorkspace.id} workspace={activeWorkspace} />
+                  </div>
+                </ErrorBoundary>
+              ) : showOffline ? (
                 <EmptyState
                   title={t("panel.offline.title")}
                   description={t("panel.offline.description")}

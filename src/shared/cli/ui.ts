@@ -4,12 +4,37 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
+import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
+import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
 import type { SettingsPage } from "./settings";
 
 /** One tab as the CLI lists it. */
 /** A shell a terminal can run. */
+/** A conversation of the past, as chat.history lists it. */
+export interface CliPastSession {
+  sessionId: string;
+  title: string;
+  /** When it last changed, in Unix milliseconds. */
+  at: number;
+  /** Its log's size in bytes, when known. */
+  bytes?: number;
+  /** The folder it ran in. */
+  cwd: string;
+  /** The profile that keeps it. */
+  profile: string;
+}
+
+/** An image of a chat, small enough to send. */
+export interface CliChatImage {
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64. */
+  data: string;
+  width?: number;
+  height?: number;
+}
+
 export interface CliShellInfo {
   name: string;
   /** "detected" for one found on this machine, "custom" for one added in the settings. */
@@ -116,7 +141,7 @@ export interface CliAgentView {
 export type CliPanel = "sidebar" | "files";
 
 /** What the files panel shows: the file tree, search, git, or the agent list. */
-export type CliFilesMode = "tree" | "search" | "git" | "agents";
+export type CliFilesMode = "tree" | "search" | "git" | "agents" | "notes";
 
 export interface CliPanels {
   readonly sidebar: { readonly visible: boolean; readonly width: number };
@@ -196,8 +221,47 @@ export interface CliChange {
   readonly kind: CliChangeKind;
   /** The file, tab title or URL it is about, if any. */
   readonly detail?: string;
-  /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
+  /**
+   * What it would run or say, whole and shown as it is: the command a
+   * permission answer lets run or a new terminal runs, what is typed, the
+   * message or the prompt.
+   */
   readonly body?: string;
+  /** A tabClose's tab is a terminal (or one of the tabs is). */
+  readonly terminal?: boolean;
+}
+
+/** Whether a change is a terminal's: typed into, opened, or closed with the rest. */
+export function isTerminalChange(change: CliChange): boolean {
+  return (
+    change.kind === "terminalInput" ||
+    change.kind === "terminalNew" ||
+    change.kind === "groupClose" ||
+    (change.kind === "tabClose" && change.terminal === true)
+  );
+}
+
+/**
+ * The changes the user is asked about each time, never allowed until the
+ * app restarts: an answer to a permission request, a mode that lets more run
+ * unasked, another profile (another account) for a tab, what is typed into
+ * a terminal or sent a tab, and any change that carries what it would run
+ * or say (a new terminal's command, a new tab's or task's prompt). Allowing
+ * one of these says nothing of the next, which may say anything.
+ */
+export function askedEachTime(change: CliChange): boolean {
+  switch (change.kind) {
+    case "permissionAllow":
+    case "permissionDeny":
+    case "chatMode":
+    case "chatProfile":
+    case "chatProfileNew":
+    case "terminalInput":
+    case "chatInput":
+      return true;
+    default:
+      return change.body !== undefined;
+  }
 }
 
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
@@ -218,6 +282,8 @@ export interface CliChatChoices {
   readonly models: readonly { readonly value: string; readonly name: string }[];
   /** The effort levels its model takes; none when it takes none. */
   readonly efforts: readonly string[];
+  /** Why the mode that lets everything run cannot be picked here (a policy), when it cannot. */
+  readonly dangerousBlocked?: string;
 }
 
 /** The user's answer: allowed this once, until the app restarts, refused, or no answer in time. */
@@ -240,10 +306,19 @@ export interface CliChatInfo {
   readonly since?: number;
   /** When asking to run a tool: the request, whole. */
   readonly request?: CliChatRequest;
+  /** When asking: what for (a tool to allow, a question, a plan to approve), in a line. */
+  readonly waiting?: CliChatWaiting;
   /** The agent profile it runs with, by name, where the agent has more than the default. */
   readonly profile?: string;
   /** The goal it works toward (/goal), while it shows one. */
   readonly goal?: CliChatGoal;
+}
+
+/** What a tab asks the user for. */
+export interface CliChatWaiting {
+  readonly kind: "permission" | "question" | "plan";
+  /** The question, the plan's start, or the tool and what it works on. */
+  readonly text: string;
 }
 
 /** A tab's goal (/goal) as the CLI tells it. */
@@ -343,8 +418,22 @@ export interface CliUiOps {
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
   "terminal.read": {
-    args: { workspaceId: string; tabId: string; lines: number };
+    /** `ansi`: with the colors and styles as SGR escapes, for another device. */
+    args: { workspaceId: string; tabId: string; lines: number; ansi?: boolean };
     result: { text: string };
+  };
+  /**
+   * Starts watching a terminal for another device: its text now, then
+   * what changes, told to main (remote.terminalChanged) under `watchId`.
+   */
+  "terminal.watch": {
+    args: { workspaceId: string; tabId: string; watchId: string; lines: number; ansi?: boolean };
+    result: { text: string };
+  };
+  /** Stops a watch terminal.watch started; nothing when there is none. */
+  "terminal.unwatch": {
+    args: { watchId: string };
+    result: Record<string, never>;
   };
   /** Opens a file of the workspace, or shows its tab, at a line if given. */
   "editor.open": {
@@ -556,6 +645,11 @@ export interface CliUiOps {
     args: { grouping: CliAgentGrouping };
     result: Record<string, never>;
   };
+  /** The folders a workspace's Claude tabs were given beside its own (/add-dir), absolute. */
+  "workspace.folders": {
+    args: { workspaceId: string };
+    result: { folders: string[] };
+  };
   /** Shows a workspace, as clicking it in the sidebar does. */
   "workspace.show": {
     args: { workspaceId: string };
@@ -599,8 +693,18 @@ export interface CliUiOps {
       profile?: string;
       /** The agent that sends the prompt, as the tab shows it; none for the user. */
       from?: RelaySender;
+      /**
+       * The user opens it, from another device (the remote): `settings` may
+       * take the mode that lets everything run, unless a policy keeps it off.
+       */
+      user?: boolean;
     };
     result: { tabId: string; error?: string };
+  };
+  /** The agent profiles a new chat may run with, of one agent or both. */
+  "chat.profiles": {
+    args: { agent?: ChatAgent };
+    result: { profiles: { id: string; name: string; agent: ChatAgent; isDefault: boolean }[] };
   };
   /** Stops the turn a Claude or Codex tab is working on, as its stop button does. */
   "chat.interrupt": {
@@ -613,8 +717,53 @@ export interface CliUiOps {
    * what it takes. Its program is started if it was not.
    */
   "chat.settings": {
-    args: { workspaceId: string; tabId: string; settings: CliChatSettings };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      settings: CliChatSettings;
+      /**
+       * The user sets them, from another device (the remote): the mode that
+       * lets everything run too, unless a policy keeps it off. An agent never.
+       */
+      user?: boolean;
+    };
     result: CliChatChoices;
+  };
+  /**
+   * The conversations of the past in a workspace's folder that a new tab
+   * can go on with: Claude Code's sessions in each Claude profile, or the
+   * threads a Codex tab's Codex keeps; newest first, those whose title or
+   * first prompt has every word of `query`.
+   */
+  "chat.history": {
+    args: { workspaceId: string; agent: ChatAgent; query?: string; limit?: number };
+    result: { sessions: CliPastSession[] };
+  };
+  /**
+   * Goes on with a conversation of the past in a new tab, behind what the
+   * window shows; the tab that has it open already, if one does.
+   */
+  "chat.resume": {
+    args: { workspaceId: string; agent: ChatAgent; sessionId: string };
+    result: { tabId: string };
+  };
+  /**
+   * A Claude or Codex tab's slash commands that another device may use: the
+   * agent's own, the model and effort chat.settings sets, and the app's own
+   * that change the conversation. Its program is started if it was not.
+   */
+  "chat.commands": {
+    args: { workspaceId: string; tabId: string };
+    result: { commands: ChatCommand[] };
+  };
+  /**
+   * Runs one of the app's own commands in a Claude or Codex tab as its
+   * composer runs it typed, for the user on another device; what it said,
+   * and the tab it opened, when it opened one.
+   */
+  "chat.command": {
+    args: { workspaceId: string; tabId: string; name: string; args?: string };
+    result: { message?: string; tabId?: string };
   };
   /**
    * Has a Claude or Codex tab run with another agent profile (by name or id),
@@ -658,6 +807,87 @@ export interface CliUiOps {
     /** `end`: the i of the conversation's last entry, -1 when it has none. */
     result: CliChatInfo & { entries: CliChatEntry[]; end: number };
   };
+  /**
+   * A Claude or Codex tab's conversation as another device of the account
+   * draws it (the remote's chat.read): the last `limit` items, or those
+   * before `before`, with the tool calls they name and where it stands.
+   */
+  "chat.page": {
+    args: { workspaceId: string; tabId: string; before?: number; limit?: number };
+    result: ChatPage;
+  };
+  /**
+   * Starts telling main what changes in a Claude or Codex tab's
+   * conversation, for another device watching it (the remote's chat.watch):
+   * its page now, then remote.chatChanged with `watchId` as it changes.
+   */
+  "chat.watch": {
+    args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
+    result: ChatPage & { panel?: ChatPanel };
+  };
+  /**
+   * Renames a Claude or Codex tab, as its tab's rename does; a Claude tab's
+   * running program names its session so too. The title it shows then.
+   */
+  "chat.rename": {
+    args: { workspaceId: string; tabId: string; title: string };
+    result: { title: string };
+  };
+  /**
+   * How many messages between agents led to the one that started the tab's
+   * latest turn: 0 for the user's. A message its agent sends counts one more.
+   */
+  "chat.turnHops": {
+    args: { workspaceId: string; tabId: string };
+    result: { hops: number };
+  };
+  /**
+   * A page of a chat on another device (its chat.read) as chat read tells
+   * it here: each item's entries, numbered by the item's index there.
+   */
+  "chat.pageEntries": {
+    args: { page: ChatPage; subagents?: boolean };
+    result: { entries: CliChatEntry[] };
+  };
+  /** What a Claude or Codex tab's side panel shows now. */
+  "chat.panel": {
+    args: { workspaceId: string; tabId: string };
+    result: ChatPanel;
+  };
+  /** Stops one of a Claude tab's tasks (a background run), by its id, as the panel's stop button does. */
+  "chat.stopTask": {
+    args: { workspaceId: string; tabId: string; taskId: string };
+    result: Record<string, never>;
+  };
+  /** Stops a watch chat.watch started; nothing when there is none. */
+  "chat.unwatch": {
+    args: { watchId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * An image of a Claude or Codex tab: a user message's, by its item's key,
+   * or a tool result's, by its call's id; at its index there. Made smaller
+   * when its base64 would take over `maxChars`.
+   */
+  "chat.image": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      ref:
+        | { kind: "user"; itemKey: string; index: number }
+        | { kind: "tool"; toolUseId: string; index: number };
+      maxChars: number;
+    };
+    result: CliChatImage;
+  };
+  /**
+   * A tool call of a Claude or Codex tab as another device reads it, by its
+   * id: a subagent's too, its result's text cut at `maxText` characters.
+   */
+  "chat.toolCall": {
+    args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
+    result: ViewToolCall;
+  };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
     args: { workspaceId: string; tabId: string; ref: string };
@@ -677,8 +907,20 @@ export interface CliUiOps {
    * turn, the agent reads it after the tool it runs.
    */
   "chat.send": {
-    /** `from`: the agent that sends it, as the tab shows it; none for the user. */
-    args: { workspaceId: string; tabId: string; text: string; from?: RelaySender };
+    /**
+     * `from`: the agent that sends it, as the tab shows it; none for the user.
+     * `user`: the user sends it (from another computer of theirs), so it goes
+     * even while the tab asks them something, as its composer's would.
+     */
+    args: {
+      workspaceId: string;
+      tabId: string;
+      text: string;
+      from?: RelaySender;
+      user?: boolean;
+      /** Images with it, as the composer's pasted ones go (base64). */
+      images?: { mediaType: string; data: string }[];
+    };
     result: Record<string, never>;
   };
   /**
@@ -730,6 +972,15 @@ export interface CliUiOps {
       message?: string;
       /** The request's id (CliChatRequest): main allowed an answer to it, not to another. */
       expect: string;
+      /** With allow: the input the tool runs with, as the user filled it (a question's answers). */
+      updatedInput?: Record<string, unknown>;
+      /** With deny: stop the turn too. */
+      stop?: boolean;
+      /**
+       * With allow: the request's "always allow" suggestions to keep from
+       * now on, by their index as chat.read words them; the user only.
+       */
+      always?: number[];
     };
     result: Record<string, never>;
   };
@@ -756,7 +1007,9 @@ export interface CliUiOps {
   };
   /**
    * Asks the user whether a terminal of one workspace may make a change in
-   * another. Unanswered after `timeoutMs`, the answer is "timeout".
+   * another, or an agent on another computer of theirs (`fromDevice`, its
+   * name; `fromName`, its tab's title there) here. Unanswered after
+   * `timeoutMs`, the answer is "timeout". `id` names it for consent.settle.
    */
   "consent.ask": {
     args: {
@@ -765,8 +1018,22 @@ export interface CliUiOps {
       toWorkspaceId: string;
       change: CliChange;
       timeoutMs: number;
+      fromDevice?: string;
+      /** That computer's id, which may not answer its own agent's request. */
+      fromDeviceId?: string;
+      fromName?: string;
+      id?: string;
     };
     result: { answer: CliConsentAnswer };
+  };
+  /**
+   * Answers a consent prompt (consent.ask's `id`) as the user would, from
+   * another device of theirs (`by`, its name): the prompt closes, and the
+   * user is told where it was answered. `settled` false when it no longer waits.
+   */
+  "consent.settle": {
+    args: { id: string; answer: "once" | "session" | "deny"; by?: string };
+    result: { settled: boolean };
   };
 }
 

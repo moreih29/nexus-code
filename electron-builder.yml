@@ -49,6 +49,12 @@ mac:
   identity: "NexusCode Release Signing"
   sign: scripts/sign-mac.cjs
   notarize: false
+  # Voice input captures the microphone; macOS shows this when it asks the user.
+  # scripts/sign-mac.cjs signs without the hardened runtime, so no entitlement
+  # is needed for it; signing with `--options runtime` would also need
+  # com.apple.security.device.audio-input in the entitlements.
+  extendInfo:
+    NSMicrophoneUsageDescription: "NexusCode uses the microphone for voice input: what you say is turned into text in the chat box."
 
 linux:
   # Both update in place (src/main/features/updates): the AppImage replaces
@@ -86,6 +92,12 @@ appx:
   # both.
   minVersion: 10.0.22000.0
   maxVersionTested: 10.0.26200.0
+  # Voice input and note recording capture the microphone (getUserMedia). A
+  # packaged app reaches it only when its manifest declares it, and is listed
+  # under Settings > Privacy > Microphone then. electron-builder always adds
+  # runFullTrust, its only default.
+  capabilities:
+    - microphone
 
 toolsets:
   # The AppImage tools' newer, statically linked runtime. The default one

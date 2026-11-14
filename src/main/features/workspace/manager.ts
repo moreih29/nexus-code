@@ -178,6 +178,8 @@ function normalizeWorkspaceUpdate(
 export interface HookInfo {
   readonly socketPath: string;
   readonly token: string;
+  /** Whether the server takes tabs' own tokens (./tab-token.ts): an older agent does not. */
+  readonly tabTokens?: boolean;
 }
 
 /**
@@ -459,6 +461,11 @@ export class WorkspaceManager {
     return Array.from(this.contexts.values())
       .map((ctx) => ctx.getMeta())
       .filter((meta) => !isManagerWorkspace(meta.id));
+  }
+
+  /** The agent manager's workspace, once opened (openManagerWorkspace); list leaves it out. */
+  managerMeta(): WorkspaceMeta | null {
+    return this.contexts.get(MANAGER_WORKSPACE_ID)?.getMeta() ?? null;
   }
 
   /**

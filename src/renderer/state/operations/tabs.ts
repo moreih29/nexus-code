@@ -381,6 +381,56 @@ export function openOrRevealCommitTab(
   return { groupId, tabId: tab.id };
 }
 
+/** The tab showing a note, the active group's first. */
+export function findNoteTab(workspaceId: string, noteId: string): TabLocation | null {
+  const layout = useLayoutStore.getState().byWorkspace[workspaceId];
+  if (!layout) return null;
+  const tabsById = useTabsStore.getState().byWorkspace[workspaceId] ?? {};
+  const isNote = (tabId: string) => {
+    const tab = tabsById[tabId];
+    return tab?.type === "note" && tab.props.noteId === noteId;
+  };
+  const activeLeaf = findLeaf(layout.root, layout.activeGroupId);
+  const activeTabId = activeLeaf?.tabIds.find(isNote);
+  if (activeLeaf && activeTabId) return { groupId: activeLeaf.id, tabId: activeTabId };
+  for (const leaf of allLeaves(layout.root)) {
+    const tabId = leaf.tabIds.find(isNote);
+    if (tabId) return { groupId: leaf.id, tabId };
+  }
+  return null;
+}
+
+/** Shows a note: its tab if it has one, else a new one in the active group. */
+export function openOrRevealNoteTab(
+  workspaceId: string,
+  noteId: string,
+  title?: string,
+): TabLocation {
+  useLayoutStore.getState().ensureLayout(workspaceId);
+  const existing = findNoteTab(workspaceId, noteId);
+  if (existing) {
+    revealTab(workspaceId, existing.groupId, existing.tabId);
+    return existing;
+  }
+  const groupId = resolveTargetGroupId(workspaceId, undefined);
+  const tab = openTabRecord(
+    workspaceId,
+    { type: "note", props: { noteId, ...(title ? { title } : {}) } },
+    { groupId },
+    false,
+  );
+  return { groupId, tabId: tab.id };
+}
+
+/** Closes every tab of a note (it was deleted). */
+export function closeNoteTabs(workspaceId: string, noteId: string): void {
+  for (;;) {
+    const found = findNoteTab(workspaceId, noteId);
+    if (!found) return;
+    closeTab(workspaceId, found.tabId);
+  }
+}
+
 export function revealTab(workspaceId: string, groupId: string, tabId: string): void {
   useLayoutStore.getState().setActiveTabInGroup({
     workspaceId,

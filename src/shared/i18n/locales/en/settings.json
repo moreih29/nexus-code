@@ -7,6 +7,7 @@
     "terminal": "Terminal",
     "workspaces": "Workspaces",
     "notifications": "Notifications",
+    "notes": "Notes",
     "browserPermissions": "Browser Permissions",
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
@@ -14,7 +15,8 @@
     "manager": "Manager",
     "claude": "Claude",
     "codex": "Codex",
-    "profileRules": "Profiles by workspace"
+    "profileRules": "Profiles by workspace",
+    "remote": "Remote"
   },
   "dialog": {
     "close": "Close settings",
@@ -316,7 +318,12 @@
       "permission_title": "Answer another session's permission request?",
       "manager_description": "The agent manager asks to {{action}} in {{to}}.",
       "mode_title": "Let an agent loosen a session's permission mode?",
-      "profile_title": "Let an agent change a tab's profile?"
+      "profile_title": "Let an agent change a tab's profile?",
+      "remote_title": "Allow an agent on another computer to change this one?",
+      "remote_description": "\"{{tab}}\" on the computer {{device}} asks to {{action}} in {{to}}.",
+      "answered_once": "Allowed once on {{device}}.",
+      "answered_session": "Allowed until restart on {{device}}.",
+      "answered_deny": "Turned down on {{device}}."
     },
     "heading": "nexus CLI"
   },
@@ -465,6 +472,9 @@
       },
       "updates": {
         "releaseNotes": "Show Release Notes"
+      },
+      "chat": {
+        "voiceToggle": "Voice Input"
       }
     }
   },
@@ -567,6 +577,8 @@
     "remove": "Delete {{name}}",
     "refresh": "Check again",
     "login": "Sign in",
+    "loginAgain": "Sign {{name}} in again",
+    "loginAgainTitle": "Sign in again, to another account or organization",
     "codexNote": "The app makes the folders; the codex program is shared",
     "status": {
       "checking": "Checking…",
@@ -575,6 +587,8 @@
       "sameAccount": "Same account as {{name}}",
       "sameOrg": "Same organization as {{name}}",
       "unavailable": "{{program}} not found",
+      "noAnswer": "No answer from {{command}}",
+      "unchecked": "Could not check the sign-in",
       "apiKey": "API key",
       "signedIn": "Signed in"
     },
@@ -654,5 +668,140 @@
     "noneLeft": "Nothing left to add",
     "results": "Results",
     "resultsCount": "{{count}} workspaces"
+  },
+  "remote": {
+    "account": {
+      "title": "NexusCode account",
+      "description": "Sign in to see this computer's sessions from your other computers and phone.",
+      "signedOut": "Not signed in",
+      "signInWith": {
+        "google": "Sign in with Google",
+        "github": "Sign in with GitHub",
+        "dev": "Sign in (dev server)"
+      },
+      "signingIn": "Continue in your browser…",
+      "cancel": "Cancel",
+      "signOut": "Sign out",
+      "server": "Server: {{server}}",
+      "failure": {
+        "cancelled": "Sign-in cancelled.",
+        "timed-out": "Sign-in timed out. Try again.",
+        "access_denied": "Sign-in was declined.",
+        "unverified_email": "That account's email isn't verified.",
+        "not_invited": "This server is open only to invited accounts for now.",
+        "server_error": "The server couldn't sign you in. Try again later.",
+        "invalid_grant": "Sign-in expired. Try again.",
+        "too_many_devices": "This account has too many devices signed in. Remove one you no longer use in Settings › Devices on another device, then sign in again.",
+        "mismatch": "Another sign-in answered. Try again.",
+        "unreachable": "Can't reach the server.",
+        "failed": "Sign-in didn't finish. Try again."
+      },
+      "localOnly": "Local server only",
+      "retry": "Try again"
+    },
+    "devices": {
+      "title": "Devices",
+      "refresh": "Refresh devices",
+      "current": "This device",
+      "lastSeen": "last seen {{when}}",
+      "empty": "No devices.",
+      "unavailable": "Can't reach the server.",
+      "remove": "Remove {{name}}",
+      "removeConfirm": {
+        "title": "Remove {{name}}?",
+        "description": "It will be signed out. If it was lost, also reset the account password.",
+        "descriptionSelf": "This computer will be signed out.",
+        "confirm": "Remove"
+      },
+      "online": "Online",
+      "offline": "Offline",
+      "rename": "Rename {{name}}",
+      "renameTitle": "Rename {{name}}",
+      "renameLabel": "Name",
+      "renameConfirm": "Rename"
+    },
+    "control": {
+      "label": "Allow chat control from other devices",
+      "description": "Off, your other devices can only read the chats."
+    },
+    "terminal": {
+      "label": "Allow terminal control from other devices",
+      "description": "Off, your other devices can only read the terminals. On, they can type into them, open and close them: anything you could run there."
+    },
+    "agents": {
+      "label": "Agents on your other computers",
+      "ask": "Ask each time",
+      "allow": "Allow",
+      "deny": "Don't allow",
+      "description": "What their agents may do here through nexus (chat send --device …): send and answer chats, type into terminals. Reading is always allowed. The chat and terminal control switches above must be on as well."
+    },
+    "key": {
+      "title": "Account password",
+      "description": "What your devices send each other is encrypted, so not even the server can read it.",
+      "checking": "Checking…",
+      "unavailable": "Couldn't check with the server.",
+      "retryLater": "Try again in a minute.",
+      "retry": "Try again",
+      "missing": "Set a password for connecting your other devices (at least {{count}} characters).",
+      "locked": "Enter the account password.",
+      "unlocked": "Unlocked",
+      "version": "Key version {{kid}}",
+      "change": "Change password",
+      "reset": "Reset",
+      "forgot": "Forgot the password?",
+      "resetExplained": "Set a new password. Your other devices will ask for it.",
+      "mismatch": "The passwords don't match.",
+      "field": {
+        "password": "Account password",
+        "current": "Current password",
+        "next": "New password",
+        "confirm": "New password again",
+        "create-next": "Account password",
+        "create-confirm": "Account password again"
+      },
+      "submit": {
+        "create": "Set password",
+        "unlock": "Unlock",
+        "change": "Change password",
+        "reset": "Reset"
+      },
+      "resetConfirm": {
+        "title": "Reset the account password?",
+        "description": "Your other devices reconnect once you enter the new password on them.",
+        "confirm": "Reset"
+      },
+      "failure": {
+        "too-short": "The password needs at least {{count}} characters.",
+        "wrong-password": "Wrong password.",
+        "conflict": "Another device just changed the password. Try again.",
+        "unavailable": "Can't reach the server. Try again shortly.",
+        "signed-out": "You were signed out. Sign in again.",
+        "too-heavy": "This app can't open the key as the server locked it. Update NexusCode.",
+        "failed": "That didn't work. Try again."
+      }
+    },
+    "delete": {
+      "title": "Delete account",
+      "label": "Delete your NexusCode account",
+      "description": "Deletes the account and its devices. This can't be undone.",
+      "button": "Delete account",
+      "failed": "Couldn't delete the account. Try again.",
+      "confirm": {
+        "title": "Delete your NexusCode account?",
+        "description": "The account and all its devices are deleted from the server. This can't be undone.",
+        "confirm": "Delete account"
+      }
+    },
+    "voice": {
+      "title": "Voice input",
+      "description": "Click the mic in a chat box and speak.",
+      "descriptionWithShortcut": "Click the mic in a chat box, or press {{shortcut}}, and speak.",
+      "usage": "This month",
+      "usageOf": "{{used}} of {{limit}} minutes used",
+      "usageLoading": "Loading…",
+      "usageUnavailable": "Couldn't load the usage.",
+      "language": "Language",
+      "languageMulti": "Detect"
+    }
   }
 }

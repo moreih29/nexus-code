@@ -10,6 +10,7 @@ import { useActiveStore } from "../../state/stores/active";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useMountedWorkspacesStore } from "../../state/stores/mounted-workspaces";
+import { useRemoteViewStore } from "../../state/stores/remote-view";
 import { useTabsStore } from "../../state/stores/tabs";
 import { sessionKey } from "../agent-sessions/model";
 import { requestTabFocus } from "../tab-focus";
@@ -110,6 +111,8 @@ export function showInAgentView(
   opts: { leafId?: string; focus?: boolean } = {},
 ): void {
   useMountedWorkspacesStore.getState().mount(workspaceId);
+  // Another computer's session shown over the panels gives way.
+  useRemoteViewStore.getState().close();
   useAgentViewStore
     .getState()
     .update((layout) => openKey(layout, sessionKey(workspaceId, tabId), opts.leafId));

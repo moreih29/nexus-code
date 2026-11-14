@@ -20,6 +20,7 @@ export function chatChoicesOf(agent: ChatAgent, model: ChatModel): CliChatChoice
     mode: model.permissionMode ?? CHAT_MODES[agent].fallback,
     models: models.map((m) => ({ value: m.value, name: m.displayName ?? m.value })),
     efforts: current?.supportedEffortLevels ?? [],
+    ...(model.bypassBlocked ? { dangerousBlocked: model.bypassBlocked } : {}),
   };
 }
 
@@ -52,6 +53,8 @@ export function planChatSettings(
   model: ChatModel,
   wanted: CliChatSettings,
   effortSettable: boolean,
+  /** The user asks, from another device: the dangerous mode too, unless a policy keeps it off. */
+  user = false,
 ): ChatSettingsPlan {
   const models = model.init?.models ?? [];
   const now = chatChoicesOf(agent, model);
@@ -83,8 +86,11 @@ export function planChatSettings(
     const set = CHAT_MODES[agent];
     mode = chatModeNamed(agent, wanted.mode);
     if (!mode) throw new Error(`no mode "${wanted.mode}"; the modes are ${listed(set.modes)}`);
-    if (mode === set.dangerous) {
+    if (mode === set.dangerous && !user) {
       throw new Error(`${mode} lets every tool run unasked; that is the user's to pick in the app`);
+    }
+    if (mode === set.dangerous && model.bypassBlocked) {
+      throw new Error(`${mode} is turned off here: ${model.bypassBlocked}`);
     }
   }
   const newModel = nextModel && nextModel.value !== now.model ? nextModel.value : undefined;

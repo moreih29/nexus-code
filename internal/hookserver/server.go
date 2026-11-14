@@ -340,12 +340,16 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 
 	// 토큰 불일치는 즉시 연결을 끊는다.
-	if req.Token != s.token {
+	kind := s.tokenOf(req)
+	if kind == tokenRefused {
+		if req.Type == "cli" {
+			_ = writeNDJSON(conn, cliWireResponse{Error: refusedCLI})
+		}
 		conn.Close()
 		return
 	}
 	if req.Type == "cli" {
-		s.handleCLI(conn, req)
+		s.handleCLI(conn, req, kind == tokenTab)
 		return
 	}
 

@@ -218,6 +218,8 @@ export class ChatController {
   private readonly live = new LiveLines();
   private readonly pending = new Map<string, PendingControl>();
   private opening: Promise<void> | null = null;
+  /** While opening: resolves once the conversation is shown, perhaps before its program is ready. */
+  private shown: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
@@ -227,6 +229,13 @@ export class ChatController {
   /** The name the program last said its session has. */
   private sessionName: string | undefined;
   private sessionId: string | undefined;
+  /**
+   * A name the user gave the tab before its conversation began: the session
+   * takes it once it has an id. Until then there is no session to name.
+   */
+  private pendingName: string | undefined;
+  /** Whether the session was given a name, which Claude's title from the first message would replace. */
+  private named = false;
 
   /** The profile the tab's program runs with, for a tab made from it to keep. */
   get profileId(): string {
@@ -286,13 +295,29 @@ export class ChatController {
   /** Shows the tab's conversation: the agent's log, else a new or resumed program. */
   open(): Promise<void> {
     if (this.opening) return this.opening;
-    this.opening = this.doOpen().finally(() => {
+    let show = () => {};
+    this.shown = new Promise((resolve) => {
+      show = resolve;
+    });
+    this.opening = this.doOpen(show).finally(() => {
       this.opening = null;
+      this.shown = null;
+      show();
     });
     return this.opening;
   }
 
-  private async doOpen(): Promise<void> {
+  /**
+   * Opens the tab as open does, but comes back once its conversation is
+   * shown: the transcript read, while a program started on it may still be
+   * starting. Another device reading the chat sees it without waiting.
+   */
+  openToRead(): Promise<void> {
+    const opening = this.open();
+    return this.shown ? Promise.race([opening, this.shown]) : opening;
+  }
+
+  private async doOpen(shown: () => void): Promise<void> {
     this.flushNow();
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined, model: emptyModel() }));
     let replay: ReplayResult;
@@ -323,6 +348,7 @@ export class ChatController {
     } else if (this.sessionId) {
       await this.loadTranscript(this.sessionId);
     }
+    shown();
     await this.start(this.startArgs());
   }
 
@@ -612,6 +638,9 @@ export class ChatController {
     this.hooks.onTarget?.(fork ? { fork } : { sessionId });
     this.hooks.onMoves?.([]);
     this.titled = false;
+    // The session gone on with has its own name.
+    this.pendingName = undefined;
+    this.named = false;
     // A command's card told of the session the tab had.
     this.update((prev) => ({
       ...prev,
@@ -721,17 +750,26 @@ export class ChatController {
 
   /**
    * Names the tab's session, as /rename does: its program is started for it
-   * when it is not running. False when the session cannot be named: it has
-   * no conversation yet, or its version cannot.
+   * when it is not running. A tab with no conversation yet keeps the name
+   * for the session it starts, in place of the title Claude makes from the
+   * first message. False when the session cannot be named now: it has no
+   * conversation yet, or its version cannot.
    */
   async renameSession(title: string): Promise<boolean> {
+    const name = title.trim();
+    if (!name) return false;
+    this.named = true;
     const sessionId = this.state.model.sessionId ?? this.sessionId;
-    if (!sessionId || !title.trim()) return false;
+    if (!sessionId) {
+      this.pendingName = name;
+      return false;
+    }
+    this.pendingName = undefined;
     // The tab took the name from the session: it has it already.
-    if (title.trim() === this.sessionName) return true;
+    if (name === this.sessionName) return true;
     if (!(await this.ensureRunning()) || !this.supports("rename_session")) return false;
     await this.request("rename_session", {
-      title: title.trim(),
+      title: name,
       // The user's own rename, for the session it was made on.
       source: "host",
       session_id: sessionId,
@@ -885,7 +923,8 @@ export class ChatController {
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
-    if (first) void this.nameSession(first);
+    // A session the user named keeps that name; Claude makes it none.
+    if (first && !this.named) void this.nameSession(first);
   }
 
   /**
@@ -1599,11 +1638,12 @@ export class ChatController {
     if (model.sessionId && model.sessionId !== this.sessionId) {
       // The copy a fork made has its own id now: the tab goes on with it,
       // and a branch takes its name.
-      const branch = this.target.fork?.title;
+      // A name the user gave the tab before goes first.
+      const name = this.pendingName ?? this.target.fork?.title;
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
-      if (branch) void this.renameSession(branch).catch(() => {});
+      if (name) void this.renameSession(name).catch(() => {});
     }
     // What the tab showed before a /clear, a command's card too, is another session's.
     if ((model.clears ?? 0) !== (before.clears ?? 0)) {

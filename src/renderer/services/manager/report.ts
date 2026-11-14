@@ -88,11 +88,12 @@ export function reportOf({ events, tasks, workspaceName }: ReportInput): string 
     const ws = workspaceName(event.workspaceId) ?? "a workspace";
     const ids = `--workspace ${event.workspaceId.slice(0, 8)}, tab ${event.tabId.slice(0, 8)}`;
     const mine = tasks.has(`${event.workspaceId}:${event.tabId}`) ? " — your task" : "";
+    // A title, which any program in a terminal may set, and what a session
+    // says are quoted, each as one JSON string: they cannot pass for the
+    // report's own words nor the app's.
     lines.push(
-      `- "${clip(oneLine(event.title), 80)}" ${stateLine(event.to)}: ${whatOf(event)} in ${ws} (${ids})${mine}`,
+      `- ${JSON.stringify(clip(oneLine(event.title), 80))} ${stateLine(event.to)}: ${whatOf(event)} in ${ws} (${ids})${mine}`,
     );
-    // What a session says is quoted, as one JSON string: its lines cannot
-    // pass for the report's own, nor its words for the app's.
     if (event.message) {
       lines.push(`  Last said (quoted): ${JSON.stringify(clip(event.message, MESSAGE_CHARS))}`);
     }
@@ -112,15 +113,51 @@ export interface ReportedSession {
   readonly state: ReportState | undefined;
 }
 
+/**
+ * Where a line's title, a JSON string from its opening quote at 2, ends:
+ * the index of its closing quote; -1 when it does not.
+ */
+function quotedEnd(line: string): number {
+  for (let i = 3; i < line.length; i++) {
+    if (line[i] === "\\") i++;
+    else if (line[i] === '"') return i;
+  }
+  return -1;
+}
+
+/**
+ * A line's title and what follows it, as reportOf wrote them: a state with
+ * no quote in it, then a colon. Null for a line of an older report.
+ */
+function splitTitle(line: string): { title: string; rest: string } | null {
+  const end = quotedEnd(line);
+  if (end < 0 || !/^ [^":]+: /.test(line.slice(end + 1))) return null;
+  try {
+    const title: unknown = JSON.parse(line.slice(2, end + 1));
+    return typeof title === "string" ? { title, rest: line.slice(end + 1) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** The sessions a report tells of, in its order. */
 export function reportedSessions(text: string): ReportedSession[] {
   const sessions: ReportedSession[] = [];
   for (const line of text.split("\n")) {
     if (!line.startsWith('- "')) continue;
+    const split = splitTitle(line);
+    if (split) {
+      const entry = Object.entries(STATE_LINES).find(([, said]) =>
+        split.rest.startsWith(` ${said}: `),
+      );
+      sessions.push({ title: split.title, state: entry?.[0] as ReportState | undefined });
+      continue;
+    }
+    // A report made before titles were JSON strings: in quotes as they were.
     const entry = Object.entries(STATE_LINES).find(([, said]) => line.includes(`" ${said}: `));
-    const end = entry ? line.indexOf(`" ${entry[1]}: `) : line.lastIndexOf('"');
+    const close = entry ? line.indexOf(`" ${entry[1]}: `) : line.lastIndexOf('"');
     sessions.push({
-      title: line.slice(3, end > 3 ? end : undefined),
+      title: line.slice(3, close > 3 ? close : undefined),
       state: entry?.[0] as ReportState | undefined,
     });
   }

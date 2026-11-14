@@ -1,4 +1,11 @@
 import { z } from "zod";
+import { ServerInfoSchema } from "../../../packages/remote-protocol/src/info";
+import {
+  ChatUpdateSchema,
+  RPC_METHODS,
+  SessionsUpdateSchema,
+  TerminalUpdateSchema,
+} from "../../../packages/remote-protocol/src/rpc";
 import { AgentProfilesSchema } from "../agent-profiles/profiles";
 import { AgentProfileStatusSchema } from "../agent-profiles/status";
 import {
@@ -91,8 +98,26 @@ import {
 import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
+import { TranscriptFileSchema } from "../notes/transcript";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
+import {
+  AccountKeyStateSchema,
+  RemoteAccountStateSchema,
+  RemoteDeviceInfoSchema,
+  SignInProviderSchema,
+} from "../remote/account";
+import { RoomStateSchema } from "../remote/room";
+import {
+  TranscribeResultSchema,
+  TranscriptionSchema,
+  VoiceAudioArgsSchema,
+  VoiceEventSchema,
+  VoiceStartArgsSchema,
+  VoiceStartResultSchema,
+  VoiceTranscribeArgsSchema,
+  VoiceUsageSchema,
+} from "../remote/voice";
 import { SearchCompleteSchema, SearchProgressSchema, TextSearchQuerySchema } from "../search/types";
 import { BrowserPermissionKindSchema } from "../security/browser-permissions";
 import { TabActivityEntrySchema, TerminalWaitSchema } from "../sessions/agent-state";
@@ -103,7 +128,7 @@ import {
 } from "../ssh/auth-prompt";
 import { SshErrorCodeSchema } from "../ssh/errors";
 import { SystemStatsSchema } from "../system/stats";
-import { AppStateSchema } from "../types/app-state";
+import { AppStateSchema, RemoteAgentsPolicySchema } from "../types/app-state";
 import { ColorToneSchema } from "../types/color-tone";
 import {
   ConnectionProfileFavoriteArgsSchema,
@@ -115,6 +140,15 @@ import {
   FolderBookmarkRecordArgsSchema,
   FolderBookmarkSchema,
 } from "../types/entry-points";
+import {
+  NoteAssetSchema,
+  NoteChangedSchema,
+  NoteContentSchema,
+  NotePhotoAddedSchema,
+  NoteStorageEntrySchema,
+  NoteSummarySchema,
+  NotesArgs,
+} from "../types/notes";
 import {
   PanelGetViewOptionsArgsSchema,
   PanelSetViewOptionsArgsSchema,
@@ -2272,6 +2306,57 @@ export const ipcContract = {
   // Settings › Claude and Codex: the profiles' folders and sign-ins on this
   // machine. A chat tab's profile is set up on its workspace's host instead,
   // as it starts (chat.start's profileId).
+  /**
+   * Notes: a workspace's notes, kept by the app under its data folder by
+   * where the workspace's folder is (shared/notes/types.ts).
+   */
+  notes: {
+    call: {
+      list: call(NotesArgs.list, z.array(NoteSummarySchema)),
+      create: call(NotesArgs.create, NoteContentSchema),
+      read: call(NotesArgs.read, NoteContentSchema),
+      save: call(NotesArgs.save, NoteSummarySchema),
+      /** Clears away the files the note's document no longer uses; what it cleared. */
+      prune: call(NotesArgs.prune, z.array(z.string())),
+      /** Moves the note's folder to the Trash. */
+      remove: call(NotesArgs.remove, z.void()),
+      /** Copies files into the note's materials/. */
+      addFiles: call(NotesArgs.addFiles, z.array(NoteAssetSchema)),
+      /** Writes a pasted image into the note's screens/. */
+      addImage: call(NotesArgs.addImage, NoteAssetSchema),
+      saveSketch: call(
+        NotesArgs.saveSketch,
+        z.object({ id: z.string(), src: z.string(), scene: z.string() }),
+      ),
+      /** A file of the note's folder, as base64. */
+      readAsset: call(NotesArgs.readAsset, z.object({ base64: z.string(), mime: z.string() })),
+      /** Opens a file of the note's folder with the system's app for it. */
+      openAsset: call(NotesArgs.openAsset, z.void()),
+      revealAsset: call(NotesArgs.revealAsset, z.void()),
+      /** Shows the note's folder in the system's file manager. */
+      revealNote: call(NotesArgs.revealNote, z.void()),
+      /** Asks for files (or images) to put into a note: their paths, none if canceled. */
+      pickFiles: call(NotesArgs.pickFiles, z.array(z.string())),
+      /** Every location with notes, and what they take. */
+      storage: call(NotesArgs.storage, z.array(NoteStorageEntrySchema)),
+      /** Moves every note of a location to the Trash. */
+      removeLocation: call(NotesArgs.removeLocation, z.void()),
+      revealLocation: call(NotesArgs.revealLocation, z.void()),
+      /** What this window's recorder does; other devices see it (remote sessions' list). */
+      recording: call(NotesArgs.recording, z.void()),
+      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
+      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
+      /** Writes transcript.json, and transcript.md beside it. */
+      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
+      appendAudio: call(NotesArgs.appendAudio, z.void()),
+      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
+    },
+    listen: {
+      changed: listen(NoteChangedSchema),
+      /** Another device put a photo at the end of a note: an editor open on it does too. */
+      photoAdded: listen(NotePhotoAddedSchema),
+    },
+  },
   agentProfiles: {
     call: {
       /**
@@ -2313,6 +2398,185 @@ export const ipcContract = {
     listen: {
       loginOutput: listen(z.object({ id: z.string(), text: z.string() })),
       loginExit: listen(z.object({ id: z.string(), code: z.number().int().nullable() })),
+    },
+  },
+
+  // The NexusCode account the remote runs on (shared/remote): signing in
+  // with Google in the browser, and the account's devices.
+  remote: {
+    call: {
+      account: call(z.void(), RemoteAccountStateSchema),
+      /**
+       * Opens the sign-in in the browser and answers once it is over: signed
+       * in, or signed out with why it did not finish.
+       */
+      signIn: call(
+        z.object({ provider: SignInProviderSchema }).optional(),
+        RemoteAccountStateSchema,
+      ),
+      /** What the server offers (GET /info): its sign-ins, the relay, voice. */
+      serverInfo: call(z.void(), ServerInfoSchema),
+      cancelSignIn: call(z.void(), z.void()),
+      signOut: call(z.void(), z.void()),
+      /** Deletes the account on the server, and signs every device out. */
+      deleteAccount: call(z.void(), z.void()),
+      devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
+      removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
+      renameDevice: call(
+        z.object({ id: z.string().min(1).max(64), name: z.string().trim().min(1).max(100) }),
+        z.void(),
+      ),
+      /**
+       * The account key and the account password's flows. A flow that does
+       * not go through fails with a KeyFailure as its kind (too-short,
+       * wrong-password, conflict, unavailable, signed-out).
+       */
+      /** The account's room: whether this device is in, and the other devices. */
+      room: call(z.void(), RoomStateSchema),
+      /** Another device's workspaces and sessions, asked through the room. */
+      peerSessions: call(
+        z.object({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.list"].result,
+      ),
+      /** Whether the account's other devices may control this one's chats. */
+      allowControl: call(z.void(), z.boolean()),
+      setAllowControl: call(z.object({ allowed: z.boolean() }), z.boolean()),
+      /** Whether other devices may control this one's terminals (off unless the user turned it on). */
+      allowTerminal: call(z.void(), z.boolean()),
+      setAllowTerminal: call(z.object({ allowed: z.boolean() }), z.boolean()),
+      /** Whether agents on the user's other computers may act here: ask, allow or deny. */
+      agentsPolicy: call(z.void(), RemoteAgentsPolicySchema),
+      setAgentsPolicy: call(
+        z.object({ policy: RemoteAgentsPolicySchema }),
+        RemoteAgentsPolicySchema,
+      ),
+      /** Starts watching another device's sessions: the list now, then peerSessionsUpdate. */
+      peerSessionsWatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }),
+        RPC_METHODS["sessions.watch"].result,
+      ),
+      peerSessionsUnwatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["sessions.unwatch"].params),
+        RPC_METHODS["sessions.unwatch"].result,
+      ),
+      /** A chat of another device's: its last items, or those before `before`. */
+      peerChat: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.read"].params),
+        RPC_METHODS["chat.read"].result,
+      ),
+      /** Sends another device's chat a message, as the user. */
+      peerChatSend: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.send"].params),
+        RPC_METHODS["chat.send"].result,
+      ),
+      /** Answers the request another device's chat waits on. */
+      peerChatAnswer: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.answer"].params),
+        RPC_METHODS["chat.answer"].result,
+      ),
+      /** Stops another device's chat's turn. */
+      peerChatInterrupt: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.interrupt"].params),
+        RPC_METHODS["chat.interrupt"].result,
+      ),
+      /** What changed in a chat another device watches here (the renderer tells main). */
+      chatChanged: call(
+        z.object({
+          watchId: z.string(),
+          change: ChatUpdateSchema.omit({ watchId: true, rev: true }),
+        }),
+        z.void(),
+      ),
+      /** A chat another device watched here is gone (the renderer tells main). */
+      chatWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      /** What changed in a terminal another device watches here (the renderer tells main). */
+      terminalChanged: call(
+        z.object({
+          watchId: z.string(),
+          change: TerminalUpdateSchema.omit({ watchId: true, rev: true }),
+        }),
+        z.void(),
+      ),
+      /** A terminal another device watched here is gone (the renderer tells main). */
+      terminalWatchEnded: call(z.object({ watchId: z.string() }), z.void()),
+      /** Starts watching another device's chat: its page now, then peerChatUpdate. */
+      peerChatWatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.watch"].params),
+        RPC_METHODS["chat.watch"].result,
+      ),
+      peerChatUnwatch: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unwatch"].params),
+        RPC_METHODS["chat.unwatch"].result,
+      ),
+      /** A terminal of another device's, as text. */
+      peerTerminal: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.read"].params),
+        RPC_METHODS["terminal.read"].result,
+      ),
+      /** Starts watching another device's terminal: its text now, then peerTerminalUpdate. */
+      peerTerminalWatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.watch"].params),
+        RPC_METHODS["terminal.watch"].result,
+      ),
+      peerTerminalUnwatch: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.unwatch"].params),
+        RPC_METHODS["terminal.unwatch"].result,
+      ),
+      key: call(z.void(), AccountKeyStateSchema),
+      refreshKey: call(z.void(), AccountKeyStateSchema),
+      createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      unlockKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      changePassword: call(
+        z.object({ current: z.string().max(1024), next: z.string().max(1024) }),
+        AccountKeyStateSchema,
+      ),
+      resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      /** Opens a voice session: ready with the rate to capture at, or why not. */
+      voiceStart: call(VoiceStartArgsSchema, VoiceStartResultSchema),
+      /** About 100 ms of audio for the open session. */
+      voiceAudio: call(VoiceAudioArgsSchema, z.void()),
+      /** The user stopped speaking: the rest of the text comes, then the session closes. */
+      voiceStop: call(z.object({ id: z.string() }), z.void()),
+      /** Drops the session at once. */
+      voiceCancel: call(z.object({ id: z.string() }), z.void()),
+      /** This month's voice minutes (GET /voice/usage). */
+      voiceUsage: call(z.void(), VoiceUsageSchema),
+      /** Sends a note recording's take for a second pass: its id, or why not. */
+      voiceTranscribe: call(VoiceTranscribeArgsSchema, TranscribeResultSchema),
+      /** A second pass: pending, done (its segments) or failed; not-found once it is gone. */
+      voiceTranscription: call(z.object({ id: z.string().min(1) }), TranscriptionSchema),
+      /** Has the server drop a second pass's recording and text. */
+      voiceTranscriptionDrop: call(z.object({ id: z.string().min(1) }), z.void()),
+      /**
+       * Whether the app may use the microphone, asking the system first
+       * where it has not been asked (macOS): granted, or denied there.
+       */
+      voiceMicrophone: call(z.void(), z.enum(["granted", "denied"])),
+      /** Opens the system's microphone privacy settings. */
+      openMicrophoneSettings: call(z.void(), z.void()),
+    },
+    listen: {
+      accountChanged: listen(RemoteAccountStateSchema),
+      keyChanged: listen(AccountKeyStateSchema),
+      roomChanged: listen(RoomStateSchema),
+      /** A chat this device watches on another changed (peerChatWatch). */
+      peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),
+      /** A terminal this device watches on another changed (peerTerminalWatch). */
+      peerTerminalUpdate: listen(z.object({ deviceId: z.string(), update: TerminalUpdateSchema })),
+      /** Another device's sessions this device watches changed (peerSessionsWatch). */
+      peerSessionsUpdate: listen(z.object({ deviceId: z.string(), update: SessionsUpdateSchema })),
+      /** What the open voice session's server said, then that it closed. */
+      voiceEvent: listen(VoiceEventSchema),
     },
   },
 } as const satisfies Record<string, ChannelDefinition>;

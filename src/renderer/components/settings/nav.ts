@@ -71,6 +71,11 @@ export function settingsNav(
       keywords: ["alert", "desktop", "os", "notification", "claude"],
     },
     {
+      id: "notes",
+      label: t("nav.notes"),
+      keywords: ["notes", "storage", "disk", "노트", "저장 공간", "용량"],
+    },
+    {
       id: "browser-permissions",
       label: t("nav.browserPermissions"),
       keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],
@@ -111,6 +116,22 @@ export function settingsNav(
       label: t("nav.manager"),
       parent: "agent",
       keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
+    },
+    {
+      id: "remote",
+      label: t("nav.remote"),
+      keywords: [
+        "remote",
+        "account",
+        "google",
+        "sign in",
+        "device",
+        "nexuscode",
+        "원격",
+        "계정",
+        "로그인",
+        "기기",
+      ],
     },
     {
       id: "about",

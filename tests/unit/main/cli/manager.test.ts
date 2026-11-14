@@ -1,14 +1,15 @@
 /**
  * nexus as the agent manager runs it: in no workspace, directing every one
- * without asking, its handed-out work told to the app; and chat answer, a
- * tab's permission request answered as Settings › Agent manager says.
+ * without asking but for what it types, runs or sends, its handed-out work
+ * told to the app; and chat answer, a tab's permission request answered as
+ * Settings › Agent manager says.
  */
 import { describe, expect, test } from "bun:test";
 import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import type { CliChatInfo } from "../../../../src/shared/cli/ui";
 import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
-import { APP, CODEX_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
+import { API, APP, CODEX_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
 const MANAGER = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
 const CHAT_TAB = "eeeeeeee-0000-4000-8000-000000000008";
@@ -41,12 +42,37 @@ function withChat(info: Partial<CliChatInfo> = {}): FakeApp {
 describe("the agent manager", () => {
   test("changes another workspace without asking the user", async () => {
     const app = fakeApp();
-    const result = await nexus(app, ["terminal", "send", "codex", "go on", "--workspace", "api"]);
+    const result = await nexus(app, ["tab", "rename", "codex", "x", "--workspace", "api"]);
     expect(result.exitCode).toBe(0);
     expect(app.asked).toEqual([]);
+  });
+
+  // What it reads of the sessions may say anything: what it types, runs or
+  // sends is the user's to allow, as the setting says.
+  test("asks the user each time before it types, runs or sends", async () => {
+    const app = fakeApp();
+    const send = ["terminal", "send", "codex", "go on", "--workspace", "api"];
+    expect((await nexus(app, send)).stderr).toBe("nexus: the user did not allow it\n");
+    expect(app.uiCalls.some((call) => call.op === "terminal.input")).toBe(false);
+    app.answers.push("once");
+    expect((await nexus(app, send)).exitCode).toBe(0);
     expect(app.uiCalls.find((call) => call.op === "terminal.input")?.args).toMatchObject({
       tabId: CODEX_TAB,
     });
+    expect(app.asked.at(-1)).toEqual({
+      fromWorkspaceId: MANAGER_WORKSPACE_ID,
+      fromTabId: MANAGER_TAB_ID,
+      toWorkspaceId: API,
+      change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
+    });
+  });
+
+  test("types, runs and sends unasked when the setting allows changes", async () => {
+    const app = fakeApp();
+    app.settings.crossWorkspace = "allow";
+    const result = await nexus(app, ["terminal", "send", "codex", "go on", "--workspace", "api"]);
+    expect(result.exitCode).toBe(0);
+    expect(app.asked).toEqual([]);
   });
 });
 

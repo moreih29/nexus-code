@@ -1,9 +1,11 @@
 /**
  * Whether nexus may change a workspace other than its terminal's own. The
  * Agents setting answers, or, set to "ask", the user does: for this once,
- * or for that pair of workspaces until the app restarts.
+ * or for that kind of change from that workspace to that one until the app
+ * restarts. What is typed, sent or run is asked about each time
+ * (askedEachTime).
  */
-import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import { askedEachTime, type CliChange, type CliConsentAnswer } from "../../../shared/cli/ui";
 import type { AppState } from "../../../shared/types/app-state";
 import { CliError } from "./context";
 
@@ -44,7 +46,11 @@ function refusal(answer: CliConsentAnswer): CliError {
 }
 
 export class CrossWorkspaceConsent {
-  /** "from>to" pairs the user allowed until restart. */
+  /**
+   * The kinds of change the user allowed until restart, by the workspace
+   * asking and the one changed: opening a file there says nothing of
+   * closing its tabs.
+   */
   private readonly allowed = new Set<string>();
 
   constructor(private readonly deps: ConsentDeps) {}
@@ -58,10 +64,12 @@ export class CrossWorkspaceConsent {
         "changing other workspaces is turned off in NexusCode's settings (Agents)",
       );
     }
-    const pair = `${request.fromWorkspaceId}>${request.toWorkspaceId}`;
-    if (this.allowed.has(pair)) return;
+    const key = `${request.fromWorkspaceId}>${request.toWorkspaceId}>${request.change.kind}`;
+    const eachTime = askedEachTime(request.change);
+    if (!eachTime && this.allowed.has(key)) return;
     const answer = await this.deps.ask(request, CONSENT_TIMEOUT_MS);
-    if (answer === "session") this.allowed.add(pair);
+    // What is asked each time is allowed for this once, however the answer came.
+    if (answer === "session" && !eachTime) this.allowed.add(key);
     if (answer === "once" || answer === "session") return;
     throw refusal(answer);
   }

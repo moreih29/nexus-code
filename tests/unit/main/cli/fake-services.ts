@@ -21,9 +21,12 @@ import {
 } from "../../../../src/main/features/cli/consent";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
+  type CliRemote,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
+import { AgentInputs } from "../../../../src/main/features/cli/hops";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -45,6 +48,8 @@ import type {
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
+import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
+import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
@@ -171,6 +176,17 @@ export interface FakeApp {
   waits: WaitRegistry;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
+  /** The hops of the message that started each chat tab's latest turn, by tab id; 0 when absent. */
+  turnHops: Map<string, number>;
+  /** The user's other computers: the room, its devices, what was asked of them and how they answer. */
+  peers: {
+    inRoom: boolean;
+    devices: CliDevice[];
+    requests: Array<{ deviceId: string; method: string; params: unknown; timeoutMs?: number }>;
+    answer: (deviceId: string, method: string, params: unknown) => Promise<unknown>;
+  };
+  /** Each terminal's screen as terminal.read gives it, by tab id; a test may change one. */
+  screens: Map<string, string>;
   /** The Agent CLI settings. */
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
@@ -187,6 +203,10 @@ export interface FakeApp {
   time: { now: number; onTick?: (now: number) => void };
   /** What was asked of the browser driver, and what it answers. */
   browser: FakeBrowser;
+  /** Each workspace's notes (by workspace id), as the notes service gives them. */
+  notes: Record<string, NoteContent[]>;
+  /** Notes' transcripts, by "<workspace id>/<note id>". */
+  transcripts: Record<string, TranscriptFile>;
   /** Each workspace's editor area; a test may replace one. */
   layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
   /** What problems.list gives. */
@@ -384,6 +404,8 @@ export function fakeApp(now = Date.now()): FakeApp {
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
+  const notes: FakeApp["notes"] = {};
+  const transcripts: FakeApp["transcripts"] = {};
   const browser: FakeBrowser = {
     calls: [],
     console: [],
@@ -450,8 +472,48 @@ export function fakeApp(now = Date.now()): FakeApp {
       return answers.shift() ?? "deny";
     },
   });
+  const turnHops: FakeApp["turnHops"] = new Map();
+  const peers: FakeApp["peers"] = {
+    inRoom: true,
+    devices: [],
+    requests: [],
+    answer: async (_d, method) => {
+      throw new Error(`no answer for ${method}`);
+    },
+  };
+  const remote: CliRemote = {
+    inRoom: () => peers.inRoom,
+    devices: async () => peers.devices,
+    request: async (deviceId, method, params, timeoutMs) => {
+      peers.requests.push({
+        deviceId,
+        method,
+        params,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      });
+      return (await peers.answer(deviceId, method, params)) as never;
+    },
+  };
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
+    if (op === "chat.turnHops") {
+      const { tabId } = args as CliUiOps["chat.turnHops"]["args"];
+      return { hops: turnHops.get(tabId) ?? 0 } as CliUiOps[K]["result"];
+    }
+    // Another device's chat page, its user messages and the agent's text told as chat read tells them.
+    if (op === "chat.pageEntries") {
+      const { page } = args as CliUiOps["chat.pageEntries"]["args"];
+      const entries = page.items.flatMap((item, k) => {
+        const i = page.start + k;
+        if (item.kind === "user") return [{ i, role: "user" as const, text: String(item.text) }];
+        if (item.kind !== "assistant") return [];
+        const blocks = item.blocks as Array<{ type: string; text?: string }>;
+        return blocks
+          .filter((b) => b.type === "text")
+          .map((b) => ({ i, role: "agent" as const, text: String(b.text) }));
+      });
+      return { entries } as CliUiOps[K]["result"];
+    }
     if (op === "tabs.list") {
       const { workspaceId } = args as CliUiOps["tabs.list"]["args"];
       return { tabs: tabs[workspaceId] ?? [] } as CliUiOps[K]["result"];
@@ -627,6 +689,12 @@ export function fakeApp(now = Date.now()): FakeApp {
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
+    claudeAsks: () => [],
+    answerClaudeAsk: async () => false,
+    agentInputs: new AgentInputs(),
+    consents: { list: () => [], answer: async () => false },
+    remote,
+    managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
       stop: async (_ws, _t, agentId) => {
@@ -661,6 +729,17 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
     },
     browser: fakeBrowserDriver(browser),
+    notes: {
+      list: async (workspaceId) =>
+        (notes[workspaceId] ?? []).map(({ doc: _doc, dir: _dir, ...summary }) => summary),
+      read: async (workspaceId, noteId) => {
+        const note = (notes[workspaceId] ?? []).find((n) => n.id === noteId);
+        if (!note) throw new Error(`no note ${noteId}`);
+        return note;
+      },
+      transcript: async (workspaceId, noteId) =>
+        transcripts[`${workspaceId}/${noteId}`] ?? { version: 1, recordings: [] },
+    },
     forwards: {
       list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
       forward,
@@ -689,6 +768,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     stops,
     waits,
     foreground,
+    turnHops,
+    peers,
+    screens,
     settings,
     answers,
     asked,
@@ -698,6 +780,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     problems,
     ports,
     forwarding,
+    notes,
+    transcripts,
     chats,
     chatSent,
     events,

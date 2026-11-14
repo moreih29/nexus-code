@@ -156,6 +156,100 @@ function monacoAssetsPlugin(): Plugin {
 }
 
 // ---------------------------------------------------------------------------
+// Vite plugin: ship Excalidraw's fonts with the renderer.
+//
+// The sketch blocks of notes draw with Excalidraw, which loads its fonts
+// from window.EXCALIDRAW_ASSET_PATH (set in notes/editor/excalidraw-assets.ts)
+// and from a CDN when that is not set. They are served from here in dev and
+// copied next to the renderer's index.html in a build, so a sketch draws
+// offline and the app asks no one else for them.
+// ---------------------------------------------------------------------------
+const EXCALIDRAW_FONTS_DIR = "excalidraw/fonts";
+
+function excalidrawAssetsPlugin(): Plugin {
+  // The package exports no ./package.json: its root is found from its entry.
+  const entry = createRequire(resolve(__dirname, "package.json")).resolve("@excalidraw/excalidraw");
+  const marker = `${sep}@excalidraw${sep}excalidraw${sep}`;
+  const root = entry.slice(0, entry.lastIndexOf(marker) + marker.length);
+  const source = resolve(root, "dist/prod/fonts");
+  const types: Record<string, string> = {
+    ".woff2": "font/woff2",
+    ".woff": "font/woff",
+    ".ttf": "font/ttf",
+  };
+  return {
+    name: "vite-plugin-excalidraw-assets",
+    configureServer(server) {
+      server.middlewares.use(`/${EXCALIDRAW_FONTS_DIR}`, (req, res, next) => {
+        const pathname = decodeURIComponent(new URL(req.url ?? "/", "http://localhost").pathname);
+        const file = resolve(source, `.${pathname}`);
+        if (!file.startsWith(`${source}${sep}`) || !existsSync(file) || !statSync(file).isFile()) {
+          next();
+          return;
+        }
+        res.setHeader("Content-Type", types[extname(file)] ?? "application/octet-stream");
+        createReadStream(file).pipe(res);
+      });
+    },
+    writeBundle(options) {
+      if (!options.dir) return;
+      if (!existsSync(source)) {
+        this.warn(`Excalidraw's fonts are not at ${source}: sketches fall back to its CDN`);
+        return;
+      }
+      cpSync(source, resolve(options.dir, EXCALIDRAW_FONTS_DIR), { recursive: true });
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Vite plugin: keep UMD dependencies off Monaco's AMD loader.
+//
+// The editor's loader (@monaco-editor/react, AMD build) leaves a global
+// `define` with `define.amd` set. A UMD module bundled into the renderer (as
+// Excalidraw's es6-promise-pool is) that runs after it registers itself with
+// that loader instead of filling `module.exports`, and what imports it gets an
+// empty object ("import_es6_promise_pool.default is not a constructor"). The
+// dependencies' AMD check is turned off, in the dev server's pre-bundling and
+// in a build alike; an assignment to `define.amd` (a loader's own) is kept.
+// ---------------------------------------------------------------------------
+const AMD_CHECK = /\bdefine\.amd\b(?!\s*=(?!=))/g;
+
+function withoutAmdCheck(code: string): string | null {
+  if (!code.includes("define.amd")) return null;
+  const out = code.replace(AMD_CHECK, "false");
+  return out === code ? null : out;
+}
+
+function noAmdPlugin(): Plugin {
+  return {
+    name: "vite-plugin-no-amd",
+    config: () => ({
+      optimizeDeps: {
+        esbuildOptions: {
+          plugins: [
+            {
+              name: "no-amd",
+              setup(build) {
+                build.onLoad({ filter: /[\\/]node_modules[\\/].*\.c?js$/ }, (args) => {
+                  const contents = withoutAmdCheck(readFileSync(args.path, "utf8"));
+                  return contents === null ? undefined : { contents, loader: "js" };
+                });
+              },
+            },
+          ],
+        },
+      },
+    }),
+    transform(code, id) {
+      if (!id.includes("/node_modules/")) return null;
+      const out = withoutAmdCheck(code);
+      return out === null ? null : { code: out, map: null };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Vite plugin: ship the git editor helper with the main process.
 //
 // Git starts the helper as a script of its own (the app run as node), so
@@ -227,6 +321,14 @@ export default defineConfig({
         "@": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [themeTokensPlugin(), monacoAssetsPlugin(), tailwindcss(), react(), svgr()],
+    plugins: [
+      themeTokensPlugin(),
+      monacoAssetsPlugin(),
+      excalidrawAssetsPlugin(),
+      noAmdPlugin(),
+      tailwindcss(),
+      react(),
+      svgr(),
+    ],
   },
 });

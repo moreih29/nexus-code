@@ -13,6 +13,7 @@ import { openClaudeTab, openCodexTab } from "../../state/operations/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
 import { type CodexController, type CodexTabHooks, codexController } from "./codex-controller";
 import { type ChatController, type ChatTabHooks, chatController } from "./controller";
+import type { ImageBlock } from "./model";
 import { chatKey, useChatStore } from "./store";
 import { clipTitle, titleOf } from "./tab-title";
 
@@ -144,6 +145,7 @@ export async function sendToAgentTab(
   { controller }: AgentTabController,
   text: string,
   from?: RelaySender,
+  images: ImageBlock[] = [],
 ): Promise<void> {
   const key = chatKey(workspaceId, tabId);
   // Working from now, though the program may be starting and a conversation
@@ -153,7 +155,7 @@ export async function sendToAgentTab(
   try {
     await controller.prepareSend();
     unseenSends.set(key, userMessages(key));
-    await controller.send(text, [], from);
+    await controller.send(text, images, from);
   } catch (err) {
     unseenSends.delete(key);
     throw err;

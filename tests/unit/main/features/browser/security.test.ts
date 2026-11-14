@@ -10,7 +10,7 @@
  * All Electron APIs are mocked; no real WebContents or BrowserWindow is created.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Electron mock — must be set up before importing the module under test.
@@ -21,8 +21,13 @@ mock.module("electron", () => ({
 }));
 
 // Lazy import after mock registration
-const { buildBrowserTabWebPreferences, installPermissionHandler, installNavigationGuards } =
-  await import("../../../../../src/main/features/browser/security");
+const {
+  buildBrowserTabWebPreferences,
+  cancelsLocalFileRequest,
+  installPermissionHandler,
+  installNavigationGuards,
+  POPUP_ACTIVATION_MS,
+} = await import("../../../../../src/main/features/browser/security");
 
 // ---------------------------------------------------------------------------
 // Helpers — fake WebContents and Session factories
@@ -371,14 +376,48 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     installNavigationGuards(wc as unknown as import("electron").WebContents);
   });
 
+  /** A click in the page, as before-mouse-event tells it. */
+  const click = () => wc.emit("before-mouse-event", {}, { type: "mouseUp" });
+
   test("allows http/https popups (action:'allow') so OAuth window handles work", () => {
+    click();
     const result = wc._windowOpenHandler!({ url: "https://accounts.example.com/oauth" });
     expect(result.action).toBe("allow");
   });
 
-  test("allows file: popups", () => {
-    const result = wc._windowOpenHandler!({ url: "file:///tmp/local.html" });
-    expect(result.action).toBe("allow");
+  test("opens a popup only after input in the page, one for each input", () => {
+    expect(wc._windowOpenHandler!({ url: "https://example.com/timer" }).action).toBe("deny");
+    click();
+    expect(wc._windowOpenHandler!({ url: "https://example.com/a" }).action).toBe("allow");
+    expect(wc._windowOpenHandler!({ url: "https://example.com/b" }).action).toBe("deny");
+    wc.emit("before-input-event", {}, { type: "keyDown", key: "Enter" });
+    expect(wc._windowOpenHandler!({ url: "https://example.com/c" }).action).toBe("allow");
+    // A letter typed, or a scheme turned down, lets nothing through nor uses the input up.
+    wc.emit("before-input-event", {}, { type: "keyDown", key: "a" });
+    expect(wc._windowOpenHandler!({ url: "https://example.com/d" }).action).toBe("deny");
+    click();
+    expect(wc._windowOpenHandler!({ url: "javascript:alert(1)" }).action).toBe("deny");
+    expect(wc._windowOpenHandler!({ url: "https://example.com/e" }).action).toBe("allow");
+  });
+
+  test("not once the input is POPUP_ACTIVATION_MS old", () => {
+    const start = Date.now();
+    try {
+      setSystemTime(new Date(start));
+      click();
+      setSystemTime(new Date(start + POPUP_ACTIVATION_MS + 1));
+      expect(wc._windowOpenHandler!({ url: "https://example.com/late" }).action).toBe("deny");
+      click();
+      setSystemTime(new Date(start + 2 * POPUP_ACTIVATION_MS));
+      expect(wc._windowOpenHandler!({ url: "https://example.com/in-time" }).action).toBe("allow");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("denies file: popups: the file:// page that opens one could read it", () => {
+    const result = wc._windowOpenHandler!({ url: "file:///Users/x/.ssh/id_rsa" });
+    expect(result.action).toBe("deny");
   });
 
   test("denies non-navigable schemes (javascript:)", () => {
@@ -393,6 +432,7 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
   });
 
   test("hardens the allowed popup's webPreferences (sandbox, isolation, no node)", () => {
+    click();
     const result = wc._windowOpenHandler!({ url: "https://example.com" });
     const prefs = result.overrideBrowserWindowOptions?.webPreferences ?? {};
     expect(prefs.sandbox).toBe(true);
@@ -426,6 +466,17 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     expect((child._handlers.get("will-frame-navigate") ?? []).length).toBeGreaterThan(0);
   });
 
+  test("a popup does not go to a local file, which its opener could read", () => {
+    const child = makeFakeWebContents();
+    wc.emit("did-create-window", { webContents: child });
+    const toFile = makeFakeEvent();
+    child.emit("will-navigate", toFile, "file:///Users/x/.ssh/id_rsa");
+    expect(toFile.prevented).toBe(true);
+    const toWeb = makeFakeEvent();
+    child.emit("will-navigate", toWeb, "https://accounts.example.com/");
+    expect(toWeb.prevented).toBe(false);
+  });
+
   test("the popup recursively denies non-navigable window.open schemes", () => {
     const child = makeFakeWebContents();
     wc.emit("did-create-window", { webContents: child });
@@ -448,5 +499,19 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     child.webContents.emit("did-create-window", grandchild);
 
     expect(popups).toEqual([child, grandchild]);
+  });
+});
+
+describe("a browser tab's file:// requests", () => {
+  test("a page renders local images, styles and module scripts; it reads no file", () => {
+    const file = "file:///Users/x/site/";
+    expect(cancelsLocalFileRequest("mainFrame", `${file}index.html`)).toBe(false);
+    expect(cancelsLocalFileRequest("image", `${file}logo.png`)).toBe(false);
+    expect(cancelsLocalFileRequest("stylesheet", `${file}site.css`)).toBe(false);
+    expect(cancelsLocalFileRequest("script", `${file}app.js`)).toBe(false);
+    expect(cancelsLocalFileRequest("xhr", "file:///Users/x/.ssh/id_rsa")).toBe(true);
+    // A frame or object of a local file is the page's to read.
+    expect(cancelsLocalFileRequest("subFrame", "file:///Users/x/.ssh/id_rsa")).toBe(true);
+    expect(cancelsLocalFileRequest("object", "file:///Users/x/.ssh/id_rsa")).toBe(true);
   });
 });

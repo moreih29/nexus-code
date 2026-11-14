@@ -1,6 +1,7 @@
 import path from "node:path";
 import { app, type BrowserWindow, powerMonitor, session } from "electron";
 import { EMPTY_AGENT_PROFILES } from "../shared/agent-profiles/profiles";
+import { DEFAULT_THEME } from "../shared/design-tokens";
 import { createLogger, initMainLogger } from "../shared/log/main";
 import {
   isLspLanguageOnForWorkspace,
@@ -26,6 +27,7 @@ import type { ChatHost } from "./features/chat/host";
 import { registerChatChannel } from "./features/chat/ipc";
 import { setupClaudeFeature } from "./features/claude/index";
 import { type CliFeature, setupCliFeature } from "./features/cli";
+import type { CliRemote } from "./features/cli/context";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
   installNexusWorkspaceProtocol,
@@ -52,6 +54,7 @@ import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host"
 import { registerLspChannel } from "./features/lsp/ipc";
 import { registerManagerChannel } from "./features/manager";
 import { installAppMenu } from "./features/menu";
+import { type NotesFeature, registerNotesChannel } from "./features/notes";
 import { registerPanelChannel } from "./features/panel";
 import { startAgentPtyHost } from "./features/pty/agent-host";
 import { PortForwards } from "./features/pty/forwards";
@@ -59,6 +62,7 @@ import { registerPtyChannel } from "./features/pty/ipc";
 import { PortWatcher } from "./features/pty/ports";
 import type { PtyHostHandle } from "./features/pty/types";
 import { installWindowsAgentFiles } from "./features/pty/windows-shell-shim";
+import { registerRemoteChannel } from "./features/remote";
 import { registerSystemChannel } from "./features/shell/ipc";
 import { SshBrowseSessionRegistry } from "./features/ssh/browse-session-registry";
 import { registerSshBrowseHandlers, registerSshChannel } from "./features/ssh/ipc";
@@ -173,6 +177,8 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
+let remote: { themeChanged(): void; cli: CliRemote; dispose(): void } | null = null;
+let notesFeature: NotesFeature | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
 let portWatcher: PortWatcher | null = null;
@@ -373,6 +379,8 @@ registerAppStateChannel(stateService, {
   /** The theme changed: the window controls Electron draws follow it. */
   onThemeChanged(theme) {
     updateTitleBarOverlays(theme);
+    // Another device may follow it.
+    remote?.themeChanged();
   },
 });
 
@@ -585,6 +593,55 @@ app.whenReady().then(async () => {
   // Settings' view of the Claude and Codex profiles on this machine.
   agentProfiles = registerAgentProfilesChannel(stateService);
 
+  // The NexusCode account the remote runs on. A failure there leaves the
+  // app without the remote, never without its window.
+  remote = await registerRemoteChannel({
+    services: () => cliFeature?.services ?? null,
+    allowControl: {
+      get: () => stateService.getState().remoteControl ?? false,
+      set: (allowed) => stateService.setState({ remoteControl: allowed }),
+    },
+    theme: () => stateService.getState().themePreference ?? DEFAULT_THEME,
+    allowTerminal: {
+      get: () => stateService.getState().remoteTerminalControl ?? false,
+      set: (allowed) => stateService.setState({ remoteTerminalControl: allowed }),
+    },
+    agents: {
+      get: () => stateService.getState().remoteAgents ?? "ask",
+      set: (policy) => stateService.setState({ remoteAgents: policy }),
+    },
+    gitStatus: async (workspaceId) => {
+      const repository = await gitRegistry?.getOrDetect(workspaceId);
+      return repository ? repository.status() : null;
+    },
+    fs: (workspaceId) => workspaceManager.getFs(workspaceId),
+    repository: async (workspaceId) => (await gitRegistry?.getOrDetect(workspaceId)) ?? null,
+    noteFile: async (workspaceId, noteId, src) => {
+      if (!notesFeature) throw new Error("notes are not ready");
+      return notesFeature.store.readAsset(notesFeature.locationOf(workspaceId), noteId, src);
+    },
+    notes: {
+      list: async (workspaceId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.list(notesFeature.locationOf(workspaceId));
+      },
+      attach: async (workspaceId, noteId, bytes, ext, name) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.attachPhoto(workspaceId, noteId, bytes, ext, name);
+      },
+      recording: () => notesFeature?.recording(),
+    },
+  }).catch((error: unknown) => {
+    logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
+    return null;
+  });
+
+  // A workspace's notes, kept under the app's data folder by where its folder is.
+  notesFeature = registerNotesChannel({
+    userData: app.getPath("userData"),
+    workspaces: () => workspaceManager.list(),
+  });
+
   // The agent manager's workspace and its reports.
   registerManagerChannel({
     workspaceManager,
@@ -604,6 +661,8 @@ app.whenReady().then(async () => {
     workspaceManager,
     claudeBroker: claudeSetup.broker,
     claudeActivity: claudeSetup.activity,
+    claudeAsks: claudeSetup.asks,
+    remote: () => remote?.cli ?? null,
     stopPrintRun: claudeSetup.stopPrintRun,
     activeContext: claudeSetup.activeContext,
     appVersion: app.getVersion(),
@@ -626,6 +685,20 @@ app.whenReady().then(async () => {
     broadcast: forwardBroadcast,
     ports: portWatcher,
     forwards,
+    notes: {
+      list: (workspaceId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.list(notesFeature.locationOf(workspaceId));
+      },
+      read: (workspaceId, noteId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.read(notesFeature.locationOf(workspaceId), noteId);
+      },
+      transcript: (workspaceId, noteId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.readTranscript(notesFeature.locationOf(workspaceId), noteId);
+      },
+    },
   });
 
   // The hookserver connection info is looked up by pull from workspaceManager.getHookInfo().
@@ -767,6 +840,7 @@ app.on("will-quit", () => {
   agentPtyHost?.dispose();
   chatHost?.dispose();
   agentProfiles?.dispose();
+  remote?.dispose();
   lspHost?.dispose();
   agentFsWatcher?.dispose();
   gitStatusCoalescer?.clearAll();

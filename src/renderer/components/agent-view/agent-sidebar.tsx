@@ -9,7 +9,7 @@
 // the agent list's does. The grouping and the folded groups are kept across
 // restarts.
 
-import { CheckCheck, ChevronDown, ChevronRight, Eye, GitBranch, Plus } from "lucide-react";
+import { CheckCheck, ChevronDown, ChevronRight, GitBranch, Plus } from "lucide-react";
 import { type DragEvent, type KeyboardEvent, memo, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ActivityByKey } from "@/services/agent-sessions/agents";
@@ -52,6 +52,7 @@ import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
+import { RemoteSessions } from "./remote-sessions";
 
 type DropEdge = "before" | "after";
 
@@ -142,6 +143,7 @@ export const AgentSidebar = memo(function AgentSidebar() {
           ) : (
             <WorkspaceGroups agents={agents} activity={activity} chats={chats} query={query} />
           )}
+          <RemoteSessions query={query} />
         </div>
         <SystemStatsFooter />
       </div>
@@ -620,6 +622,20 @@ function AgentItem({
           data-testid="agent-sidebar-drop"
         />
       )}
+      {/* In a panel: a bar at its left edge, bright where the panel shows it,
+          dim where another tab is in front, so the state and time line up. */}
+      {where && (
+        <span
+          role="img"
+          aria-label={t(where === "shown" ? "agentView.list.shown" : "agentView.list.held")}
+          className={cn(
+            "pointer-events-none absolute top-1.5 bottom-1.5 left-px w-0.5 rounded-full",
+            where === "shown" ? "bg-[var(--state-selected-indicator)]" : "bg-muted-foreground/60",
+          )}
+          data-testid="agent-sidebar-panel"
+          data-where={where}
+        />
+      )}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
@@ -668,24 +684,6 @@ function AgentItem({
               </span>
             )}
           </span>
-          {where && (
-            <span
-              role="img"
-              aria-label={t(where === "shown" ? "agentView.list.shown" : "agentView.list.held")}
-              title={t(where === "shown" ? "agentView.list.shown" : "agentView.list.held")}
-              className="inline-flex shrink-0"
-            >
-              <Eye
-                aria-hidden
-                className={cn(
-                  "size-3.5",
-                  where === "shown"
-                    ? "text-[var(--state-selected-indicator)]"
-                    : "text-muted-foreground/60",
-                )}
-              />
-            </span>
-          )}
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
           {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
