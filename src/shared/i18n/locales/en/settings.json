@@ -794,7 +794,7 @@
         "cancelDescription": "Type the account password now to call off the waiting reset.",
         "remove": "Remove the device that asked",
         "removeTitle": "Remove {{name}}?",
-        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off."
+        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off, but keeps the account key: if that device may hold it, remove it from Devices with the password instead, which changes the key."
       }
     },
     "delete": {
