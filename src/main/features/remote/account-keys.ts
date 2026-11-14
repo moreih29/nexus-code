@@ -238,13 +238,13 @@ export class AccountKeys {
     return new KeyError("conflict");
   }
 
-  private lock(key: Uint8Array, kid: number, password: string, userId: string) {
-    return lockAccountKey({ key, kid, password, userId, kdf: this.deps.kdf });
+  private async lock(key: Uint8Array, kid: number, password: string, userId: string) {
+    return (await lockAccountKey({ key, kid, password, userId, kdf: this.deps.kdf })).bundle;
   }
 
   private async open(bundle: KeyBundle, password: string, userId: string): Promise<Uint8Array> {
     try {
-      return await unlockAccountKey(bundle, password, userId);
+      return (await unlockAccountKey(bundle, password, userId)).key;
     } catch (error) {
       if (error instanceof WrongPasswordError) throw new KeyError("wrong-password");
       if (error instanceof KdfTooHeavyError) {

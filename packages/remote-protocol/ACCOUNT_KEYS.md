@@ -101,7 +101,7 @@ The server never learns the password, but it can tell whether a request comes fr
 - `authKey = HKDF(KEK, "nexus-remote/account-auth/v1")` (`ACCOUNT_AUTH_INFO`).
 - `verifier = base64url(SHA-256(authKey))`.
 - A request that needs the password carries `X-Account-Auth: base64url(authKey)` (`ACCOUNT_AUTH_HEADER`), the proof for the bundle on the server now. The server compares `SHA-256(header)` with the verifier it keeps, in constant time.
-- Missing or wrong: `403 { "error": "account-auth" }` (`ACCOUNT_AUTH_ERROR`). Failures are rate-limited per account (10 in 10 minutes), then `429` with `Retry-After`.
+- Missing or wrong: `403 { "error": "account-auth" }` (`ACCOUNT_AUTH_ERROR`). Failures are counted per account (10 in 10 minutes); past that, the server answers `429` with `Retry-After` before it checks the proof, a right one too.
 - Offline guessing gets nothing new: the verifier, like the bundle, costs one Argon2id per guess. If the server or a request is read, authKey lets one act as the owner toward the server, but it does not open the bundle (HKDF is one-way).
 
 **Needs the proof**, once the account has a verifier:
@@ -123,9 +123,12 @@ The server never learns the password, but it can tell whether a request comes fr
 Without the password, no request can carry the proof. A stolen device does not know the password either, so a reset without it waits, and the devices that know the password can call it off.
 
 - `POST /account/key-reset { bundle, verifier }`, without the header: a new AK (`kid + 1`) locked with a new password. The server keeps it aside and answers `202 { appliesAt, deviceId }` (`PendingResetSchema`). `409` while another waits.
-- It is put in place after `RESET_DELAY_MS` (72 hours), by the hourly job: bundle and verifier replaced, version + 1, envelopes dropped. The room is told `{ t: "account", event: "key-reset", kid }`. Devices then find frames or a bundle of a newer `kid` and ask for the new password, as in v1.
+- Its `bundle.kid` must be the bundle's `kid` now + 1, else `400`. An account without a verifier takes it too, so a device has one flow.
+- It is put in place after `RESET_DELAY_MS` (72 hours): by the hourly job, or sooner by `GET /account/key-bundle` or a request that needs the proof once the time has come. Bundle and verifier replaced, version + 1, envelopes dropped. The room is told `{ t: "account", event: "key-reset", kid }`. Devices then find frames or a bundle of a newer `kid` and ask for the new password, as in v1.
 - While it waits, `GET /account/key-bundle` says `pendingReset: { appliesAt, deviceId }`, and the room is told `{ t: "account", event: "reset-pending", appliesAt }` at once. A device shows it, with the device that asked, and a way to call it off.
-- `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any write with the proof (a new password, a rotation) calls it off too.
+- `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any bundle write that goes through calls it off too (a new password, a rotation, a v1 `PUT` on an account without a verifier).
+- The device that asked for it may be removed by any other device of the account without the proof, which calls the reset off. So an owner who forgot the password can still stop a stolen device's reset; a thief can only do the same to the owner's, which holds them up but takes nothing.
+- Removing the device that asked, in any way, calls it off.
 - With the password known, a reset is a `PUT` with the proof, at once, as in v1.
 
 ## Device keys
@@ -135,7 +138,7 @@ Without the password, no request can carry the proof. A stolen device does not k
   - `certKey = HKDF(AK, "nexus-remote/device-cert-key/v1")` (`DEVICE_CERT_KEY_INFO`);
   - `cert = base64url(HMAC-SHA256(certKey, "nexus-remote/device-cert/v1|<userId>|<deviceId>|<publicKey>|<kid>"))` (`deviceCertInputOf`; `publicKey` as base64url).
   - Only a device holding that AK can make or check one; any of them may.
-- `PUT /devices/current/key { publicKey, kid, cert }` (`DeviceKeySchema`) registers this device's key: when it gets AK (first device, the password, pairing, an envelope), and when it holds a newer AK whose certificate no rotation made for it. The server keeps one key a device (`device_keys`), and drops that device's envelopes of `kid` or older.
+- `PUT /devices/current/key { publicKey, kid, cert }` (`DeviceKeySchema`) registers this device's key: when it gets AK (first device, the password, pairing, an envelope), and when it holds a newer AK whose certificate no rotation made for it. The server keeps one key a device (`device_keys`), and drops that device's envelopes of `kid` or older. A `kid` above the bundle's is `400`. A new public key replaces the old one: a device that lost its stored secret makes a new pair under the same device id.
 - `GET /devices` gives each device that has one its `key: { publicKey, kid, cert }`.
 - A device trusts another's public key only after it checked the certificate with the AK of that `kid`.
 
@@ -204,14 +207,19 @@ Removing a device puts a new AK in place, which the devices that stay get sealed
 
 **The server**, in one D1 batch, all or nothing:
 - the proof checks, else `403`; `expected` is the version now, else `409`;
+- `bundle.kid` is `k + 1`, else `400`;
+- R (the device of the session asking) has a key of version `k` registered, and is not in `removeDeviceIds`, else `400`; each id in `removeDeviceIds` is a device of the account, else `400`;
+- each envelope has `kid` `k + 1`, `from` R, and `fromKey.publicKey` the key it keeps for R, else `400`;
 - each device that stays with a key of version `k` but R has an envelope, else `400`;
-- each certificate's `publicKey` is the one it keeps for that device, else `400`;
+- certificates are only of devices that stay and of R, each of `kid` `k + 1` and with the `publicKey` it keeps for that device, else `400`;
 - removes the devices (their sign-ins, keys and envelopes with them);
 - puts the bundle and the verifier, version + 1;
 - keeps the envelopes, and the certificates with their new `kid`;
 - calls off a reset that waits.
 
 Then it closes the removed devices' sockets and tells the room `{ t: "account", event: "key-rotated", kid: k + 1 }`.
+
+The server cannot open an envelope, so these checks only keep out mistakes and a device that is not R; what D checks (below) is what holds against a server.
 
 **A device D that stays**
 - On `key-rotated`, or when it finds a newer `kid` (a frame, the bundle), it fetches `GET /devices/current/key-envelopes`: its envelopes, oldest version first.
@@ -234,7 +242,37 @@ Removing another device, and rotating, needs the password: R types it, and the s
 
 Every implementation checks these (desktop: `tests/unit/main/features/remote/device-keys.test.ts`).
 
-_To come with the desktop's implementation._
+Inputs (bytes in hex unless said):
+
+- `userId` = `u-test`; device ids `dev-r` (R), `dev-d` (D), `dev-n` (a device showing a pairing code).
+- AK of version 1 = `01 02 … 20` (the bytes 1 to 32); AK of version 2 = `21 22 … 40` (33 to 64).
+- R's secret key = 32 × `11`; D's secret key = 32 × `22`.
+- The envelope's nonce = 24 × `33`; the pairing frame's nonce = 24 × `44`.
+- A KEK = 32 × `55`; a pairing code's secret = 32 × `66`.
+
+Outputs (base64url):
+
+| What | Value |
+|---|---|
+| R's public key | `e06Qm75__kTEZaIgA31gjuNYl9Me-XLwf3SJLLD3PxM` |
+| D's public key | `D6poTtKIZ7l_Smot7l34zpdOdrcBjj8iocTPJnhXDyA` |
+| X25519(R's secret, D's public) | `ngBAmO_AkdTsJmO06fXP1NcGRXFpC0vql6sUarnzUFY` |
+| certKey of AK 1 | `OZRgyTIPftaTo2Er28SQNTQUqkqQbftbRO3m9Is9mJs` |
+| R's certificate, kid 1 | `qmxegIswL1TgiZUR2YgGqdqZ8Nkqc8kKELgJvryL_ek` |
+| D's certificate, kid 1 | `-HgUIp9pdMhySKA2Kf1O34whREP8ZWTDWqIsIvOcgf8` |
+| envKey, R to D, kid 2 | `YIasQKVyjSgXD4qzss5GxNxRijXZ10oFR5Wckz4eRLo` |
+| The envelope's box (AK 2, R to D) | `cXri2q_ASnh6Dx_0BwQlLdHplhLVYCAyUBOL2bgjfKxAM21gEgBh1oUzsirOn59k` |
+| authKey of the KEK | `jJTpQk2bT0n4gIGDN1syBxyPQGKWWcXMICbGG-vMiY8` |
+| verifier | `7t6_BWeqf8hbHMaKHS9t6LXYHGTVIR4zzAGxU8-Yt9Q` |
+| pairKey (code shown by `dev-n`) | `hRhozLvHdlIJpmMklAUvZZqGFPeCjcmos3qFrRM8XCU` |
+
+The pairing frame: from `dev-r` to `dev-n`, `seq` 1, `kid` 0, carrying `{"t":"pair-key","v":1,"kid":2,"key":"<AK 2, base64url>"}` (that JSON exactly, keys in that order, no spaces). Its box:
+
+```
+_lLu0rzSSPV5fae1azJ40q5GXrJ9yIQRHD1-jBSAeXAgesX0Ox7io0rWyvPjhq1f1ulm9ALdzHLncPCjL2vG4yc6OwTCRSF1TCu-Irlgy0RyAgjyX7Vsi6z9_L5NhYKtMbE
+```
+
+AK 2 as base64url is `ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-P0A`.
 
 ## Later
 
