@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { ServerInfo } from "../../../../../packages/remote-protocol/src/info";
+import type { AccountKeyState } from "../../../../shared/remote/account";
 import {
   type RemoteAccountState,
   type RemoteDeviceInfo,
@@ -33,7 +34,8 @@ import {
   SettingsSwitch,
 } from "../section";
 import { SegmentedControl } from "../segmented-control";
-import { AccountKeyGroup, useAccountKey } from "./remote-key-group";
+import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
+import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
 
@@ -114,9 +116,11 @@ export function RemotePanel() {
         onRetry={signIns.retry}
       />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
-      {state.status === "signed-in" && <DevicesGroup thisDevice={state.device.id} room={room} />}
+      {state.status === "signed-in" && (
+        <DevicesGroup thisDevice={state.device.id} room={room} keyState={key} />
+      )}
       {state.status === "signed-in" && <VoiceGroup />}
-      {state.status === "signed-in" && <DeleteAccountGroup />}
+      {state.status === "signed-in" && <DeleteAccountGroup keyState={key} />}
     </SettingsPage>
   );
 }
@@ -292,8 +296,22 @@ export function RemoteAgentsPolicyRow() {
   );
 }
 
-function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomState | null }) {
+/** Whether the server asks for the account password before removing a device or deleting the account (account keys v2). */
+function asksPassword(key: AccountKeyState | null): boolean {
+  return (key?.status === "unlocked" || key?.status === "locked") && key.v2 === true;
+}
+
+function DevicesGroup({
+  thisDevice,
+  room,
+  keyState,
+}: {
+  thisDevice: string;
+  room: RoomState | null;
+  keyState: AccountKeyState | null;
+}) {
   const { t } = useTranslation("settings");
+  const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
   const [view, setView] = useState<DevicesView>({ status: "loading" });
   const [busy, setBusy] = useState(false);
   const [renaming, setRenaming] = useState<RemoteDeviceInfo | null>(null);
@@ -326,6 +344,27 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;
+    // Another device, on a server of account keys v2: the account key is rotated, with the password.
+    if (!self && asksPassword(keyState)) {
+      setPasswordRequest({
+        title: t("remote.devices.removeConfirm.title", { name: device.name }),
+        description: t("remote.devices.removeConfirm.descriptionRotate"),
+        confirmLabel: t("remote.devices.removeConfirm.confirm"),
+        destructive: true,
+        run: async (password) => {
+          const result = await ipcCallResult("remote", "removeDevice", {
+            id: device.id,
+            password,
+          });
+          if (result.ok || result.kind === "not-found") {
+            void load();
+            return null;
+          }
+          return keyFailureText(t, result.kind);
+        },
+      });
+      return;
+    }
     const ok = await showConfirmDialog({
       title: t("remote.devices.removeConfirm.title", { name: device.name }),
       description: self
@@ -404,6 +443,7 @@ function DevicesGroup({ thisDevice, room }: { thisDevice: string; room: RoomStat
         onCancel={() => setRenaming(null)}
         onConfirm={(name) => void rename(name.trim().slice(0, 100))}
       />
+      <PasswordDialog request={passwordRequest} onClose={() => setPasswordRequest(null)} />
     </SettingsGroup>
   );
 }
@@ -481,11 +521,28 @@ export function DeviceRow({
 }
 
 /** Deleting the account on the server, after asking: every device is signed out. */
-export function DeleteAccountGroup() {
+export function DeleteAccountGroup({ keyState }: { keyState: AccountKeyState | null }) {
   const { t } = useTranslation("settings");
   const [error, setError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
   const remove = async () => {
+    if (asksPassword(keyState)) {
+      setPasswordRequest({
+        title: t("remote.delete.confirm.title"),
+        description: t("remote.delete.confirm.descriptionPassword"),
+        confirmLabel: t("remote.delete.confirm.confirm"),
+        destructive: true,
+        run: async (password) => {
+          const result = await ipcCallResult("remote", "deleteAccount", { password });
+          if (result.ok || result.kind === "session-expired") return null;
+          return result.kind === "unavailable"
+            ? t("remote.delete.failed")
+            : keyFailureText(t, result.kind);
+        },
+      });
+      return;
+    }
     const ok = await showConfirmDialog({
       title: t("remote.delete.confirm.title"),
       description: t("remote.delete.confirm.description"),
@@ -518,6 +575,7 @@ export function DeleteAccountGroup() {
           {t("remote.delete.button")}
         </Button>
       </SettingsRow>
+      <PasswordDialog request={passwordRequest} onClose={() => setPasswordRequest(null)} />
     </SettingsGroup>
   );
 }

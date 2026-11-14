@@ -6,10 +6,13 @@
  *   devices of the account, which only they can open;
  * - ./account: the account key, locked with the account password, as the
  *   server keeps it;
+ * - ./device-keys: each device's key, envelopes and rotation, pairing, and
+ *   the password's proof (account keys v2);
  * - ./voice: the voice socket, speech to text while the user speaks;
  * - ./info: what the server offers (GET /info).
  */
 export * from "./account.js";
+export * from "./device-keys.js";
 export * from "./info.js";
 export * from "./relay.js";
 export * from "./rpc.js";
