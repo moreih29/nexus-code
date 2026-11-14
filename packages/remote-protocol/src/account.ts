@@ -5,7 +5,7 @@
  * the key, or anything made from them; it only checks the bundle's shape.
  */
 import { z } from "zod";
-import { Base64UrlSchema } from "./relay.js";
+import { Base64UrlSchema, DeviceIdSchema } from "./relay.js";
 
 /** The associated data the key is sealed with: the user's id and the key's version, so a bundle cannot pass for another's. */
 export function bundleAadOf(userId: string, kid: number): string {
@@ -55,11 +55,33 @@ export const KeyBundleSchema = z.object({
 });
 export type KeyBundle = z.infer<typeof KeyBundleSchema>;
 
+/**
+ * SHA-256 of the password's proof (authKey, see ./device-keys.ts),
+ * base64url: what the server keeps to check the proof with.
+ */
+export const VerifierSchema = Base64UrlSchema.length(43);
+
+/** A reset asked for without the password, which waits (see ./device-keys.ts). */
+export const PendingResetSchema = z.object({
+  /** When it is put in place, in Unix ms. */
+  appliesAt: z.number().int(),
+  /** The device that asked for it. */
+  deviceId: DeviceIdSchema,
+});
+export type PendingReset = z.infer<typeof PendingResetSchema>;
+
 /** GET /account/key-bundle: the bundle and its version on the server, or 404 before there is one. */
 export const KeyBundleResponseSchema = z.object({
   bundle: KeyBundleSchema,
   /** Counts the bundle's writes, for the next PUT to say which one it replaces. */
   version: z.number().int().positive(),
+  /**
+   * Whether the server keeps the password's verifier, and so asks for its
+   * proof (account keys v2). Absent from a server before v2.
+   */
+  hasVerifier: z.boolean().optional(),
+  /** A reset that waits, if one does (v2). */
+  pendingReset: PendingResetSchema.nullable().optional(),
 });
 export type KeyBundleResponse = z.infer<typeof KeyBundleResponseSchema>;
 
@@ -73,5 +95,11 @@ export type KeyBundleResponse = z.infer<typeof KeyBundleResponseSchema>;
 export const KeyBundlePutSchema = z.object({
   bundle: KeyBundleSchema,
   expected: z.number().int().positive().nullable(),
+  /**
+   * The verifier of the password the bundle is locked with (v2). A v2
+   * device always sends it; once the server keeps one, the write needs the
+   * password's proof of the bundle it replaces (ACCOUNT_AUTH_HEADER).
+   */
+  verifier: VerifierSchema.optional(),
 });
 export type KeyBundlePut = z.infer<typeof KeyBundlePutSchema>;

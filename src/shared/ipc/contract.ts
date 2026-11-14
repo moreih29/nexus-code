@@ -107,6 +107,7 @@ import {
   RemoteDeviceInfoSchema,
   SignInProviderSchema,
 } from "../remote/account";
+import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
 import {
   TranscribeResultSchema,
@@ -2419,9 +2420,21 @@ export const ipcContract = {
       cancelSignIn: call(z.void(), z.void()),
       signOut: call(z.void(), z.void()),
       /** Deletes the account on the server, and signs every device out. */
-      deleteAccount: call(z.void(), z.void()),
+      /** With the account password where the server keeps its verifier (account keys v2). */
+      deleteAccount: call(
+        z.object({ password: z.string().max(1024).optional() }).optional(),
+        z.void(),
+      ),
       devices: call(z.void(), z.array(RemoteDeviceInfoSchema)),
-      removeDevice: call(z.object({ id: z.string().min(1).max(64) }), z.void()),
+      /**
+       * Removes a device; another one, on a server of account keys v2, with
+       * the account password, which rotates the account key (its KeyFailure
+       * as the kind when that fails).
+       */
+      removeDevice: call(
+        z.object({ id: z.string().min(1).max(64), password: z.string().max(1024).optional() }),
+        z.void(),
+      ),
       renameDevice: call(
         z.object({ id: z.string().min(1).max(64), name: z.string().trim().min(1).max(100) }),
         z.void(),
@@ -2541,6 +2554,17 @@ export const ipcContract = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      /** Types the password once, for a server that keeps no verifier of it yet. */
+      confirmPassword: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      /** Calls off a reset that waits, with the password. */
+      cancelReset: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
+      /** Where a pairing through a QR code stands. */
+      pairing: call(z.void(), PairingStateSchema),
+      /** Shows a new pairing code: giving the key when this device holds it, taking it else. */
+      pairStart: call(z.void(), PairingStateSchema),
+      pairStop: call(z.void(), PairingStateSchema),
+      /** The user's answer to the device that asked for the key. */
+      pairAnswer: call(z.object({ allow: z.boolean() }), PairingStateSchema),
       /** Opens a voice session: ready with the rate to capture at, or why not. */
       voiceStart: call(VoiceStartArgsSchema, VoiceStartResultSchema),
       /** About 100 ms of audio for the open session. */
@@ -2568,6 +2592,7 @@ export const ipcContract = {
     listen: {
       accountChanged: listen(RemoteAccountStateSchema),
       keyChanged: listen(AccountKeyStateSchema),
+      pairChanged: listen(PairingStateSchema),
       roomChanged: listen(RoomStateSchema),
       /** A chat this device watches on another changed (peerChatWatch). */
       peerChatUpdate: listen(z.object({ deviceId: z.string(), update: ChatUpdateSchema })),

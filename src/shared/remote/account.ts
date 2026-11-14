@@ -91,11 +91,38 @@ export type RemoteAccountState = z.infer<typeof RemoteAccountStateSchema>;
 export const MIN_PASSWORD_LENGTH = 12;
 
 /**
+ * A reset of the account password asked for without it, which waits
+ * (account keys v2): when it is put in place, and the device that asked
+ * (`self` when it is this one).
+ */
+export const PendingResetInfoSchema = z.object({
+  appliesAt: z.number(),
+  deviceId: z.string(),
+  self: z.boolean().optional(),
+});
+export type PendingResetInfo = z.infer<typeof PendingResetInfoSchema>;
+
+/**
+ * What a server with account keys v2 adds to where the key stands:
+ * - v2: the server has them (a removal rotates the key, and needs the
+ *   password);
+ * - needsProof: the server keeps no verifier of the password yet: the user
+ *   is asked to type it once;
+ * - pendingReset: a reset that waits.
+ */
+const KeyExtrasSchema = z.object({
+  v2: z.boolean().optional(),
+  needsProof: z.boolean().optional(),
+  pendingReset: PendingResetInfoSchema.optional(),
+});
+
+/**
  * Where this device stands with the account key:
  * - checking: asking the server for the bundle;
  * - missing: the account has no key yet: the user sets the account password;
  * - locked: the account has one this device does not hold (or holds an
- *   older one, after a reset elsewhere): the user types the password;
+ *   older one, after a reset elsewhere): the user types the password, or
+ *   pairs with a device that holds it;
  * - unlocked: this device holds the key, version `kid`;
  * - unavailable: the server could not be asked; `retryAt` (Unix ms) when it
  *   asked to wait.
@@ -104,8 +131,12 @@ export const AccountKeyStateSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("signed-out") }),
   z.object({ status: z.literal("checking") }),
   z.object({ status: z.literal("missing") }),
-  z.object({ status: z.literal("locked"), kid: z.number().int().positive() }),
-  z.object({ status: z.literal("unlocked"), kid: z.number().int().positive() }),
+  z
+    .object({ status: z.literal("locked"), kid: z.number().int().positive() })
+    .merge(KeyExtrasSchema),
+  z
+    .object({ status: z.literal("unlocked"), kid: z.number().int().positive() })
+    .merge(KeyExtrasSchema),
   z.object({ status: z.literal("unavailable"), retryAt: z.number().optional() }),
 ]);
 export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
@@ -119,7 +150,12 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  * - unavailable: the server could not be asked, or asked to wait;
  * - signed-out: the sign-in ended;
  * - too-heavy: the bundle is locked with heavier settings than this app
- *   opens one with (MAX_OPEN_KDF): a newer app's, or a server's doing.
+ *   opens one with (MAX_OPEN_KDF): a newer app's, or a server's doing;
+ * - account-auth: the password opened the bundle, but the server did not
+ *   take its proof (its verifier is another's: a reset sets it anew);
+ * - device-key: a device's key does not check under the account key, so
+ *   the key was not rotated (someone changed it on the server);
+ * - reset-pending: a reset already waits.
  */
 export const KEY_FAILURES = [
   "too-short",
@@ -128,5 +164,8 @@ export const KEY_FAILURES = [
   "unavailable",
   "signed-out",
   "too-heavy",
+  "account-auth",
+  "device-key",
+  "reset-pending",
 ] as const;
 export type KeyFailure = (typeof KEY_FAILURES)[number];

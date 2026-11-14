@@ -24,7 +24,8 @@ export const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]*$/);
  * or ALL_DEVICES. `seq` counts the sender's messages since it connected,
  * from 1: the other side takes them in its order, each once (see
  * ./sealed.ts). `kid` is the account key's version the message was sealed
- * with.
+ * with, or PAIR_KID (0) for a pairing frame, which goes to one device only
+ * (see ./device-keys.ts): the relay refuses one to ALL_DEVICES.
  */
 export const OutgoingSchema = z.object({
   t: z.literal("send"),
@@ -78,6 +79,25 @@ export const RelayErrorSchema = z.object({
 });
 export type RelayError = z.infer<typeof RelayErrorSchema>;
 
+/**
+ * Something that befell the account, which the server tells every device
+ * in the room (account keys v2):
+ * - key-rotated: a rotation put the account key of version `kid` in place;
+ *   a device fetches its envelope (GET /devices/current/key-envelopes);
+ * - key-reset: a reset that waited is in place (version `kid`);
+ * - reset-pending: a reset was asked for without the password, and is put
+ *   in place at `appliesAt` unless called off;
+ * - reset-cancelled: it was called off.
+ * A device before v2 does not know the frame and drops it.
+ */
+export const AccountEventSchema = z.object({
+  t: z.literal("account"),
+  event: z.enum(["key-rotated", "key-reset", "reset-pending", "reset-cancelled"]),
+  kid: z.number().int().positive().optional(),
+  appliesAt: z.number().int().optional(),
+});
+export type AccountEvent = z.infer<typeof AccountEventSchema>;
+
 /** What a device sends the relay. */
 export const ClientFrameSchema = OutgoingSchema;
 export type ClientFrame = z.infer<typeof ClientFrameSchema>;
@@ -87,6 +107,7 @@ export const ServerFrameSchema = z.discriminatedUnion("t", [
   DeliveredSchema,
   PresenceSchema,
   RelayErrorSchema,
+  AccountEventSchema,
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;
 

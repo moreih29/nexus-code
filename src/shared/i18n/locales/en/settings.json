@@ -711,7 +711,8 @@
         "title": "Remove {{name}}?",
         "description": "It will be signed out. If it was lost, also reset the account password.",
         "descriptionSelf": "This computer will be signed out.",
-        "confirm": "Remove"
+        "confirm": "Remove",
+        "descriptionRotate": "That device is signed out and the account key is made anew. Your other devices take the new key on their own; the removed one does not. Type the account password."
       },
       "online": "Online",
       "offline": "Offline",
@@ -763,7 +764,8 @@
         "create": "Set password",
         "unlock": "Unlock",
         "change": "Change password",
-        "reset": "Reset"
+        "reset": "Reset",
+        "confirm": "Confirm"
       },
       "resetConfirm": {
         "title": "Reset the account password?",
@@ -777,7 +779,22 @@
         "unavailable": "Can't reach the server. Try again shortly.",
         "signed-out": "You were signed out. Sign in again.",
         "too-heavy": "This app can't open the key as the server locked it. Update NexusCode.",
-        "failed": "That didn't work. Try again."
+        "failed": "That didn't work. Try again.",
+        "account-auth": "The server did not take this password. It may have been changed on another device. If this goes on, reset the password.",
+        "device-key": "A device's key could not be checked, so the account key was not changed. Try again in a while.",
+        "reset-pending": "A reset is already waiting."
+      },
+      "needsProof": "The server now checks the account password before a device is removed or the account deleted. Type the password once.",
+      "resetDelayed": "Set a new password. A reset without the password takes effect in 72 hours, and a device that knows the password can call it off meanwhile. Your other devices will ask for the new password then.",
+      "pendingReset": {
+        "self": "This device asked to reset the account password. It takes effect {{when}}. Then connect again with the new password.",
+        "other": "{{name}} asked to reset the account password. It takes effect {{when}}. If it was not you, call it off or remove that device.",
+        "cancel": "Call off the reset",
+        "cancelTitle": "Call off the reset?",
+        "cancelDescription": "Type the account password now to call off the waiting reset.",
+        "remove": "Remove the device that asked",
+        "removeTitle": "Remove {{name}}?",
+        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off, but keeps the account key: if that device may hold it, remove it from Devices with the password instead, which changes the key."
       }
     },
     "delete": {
@@ -789,7 +806,8 @@
       "confirm": {
         "title": "Delete your NexusCode account?",
         "description": "The account and all its devices are deleted from the server. This can't be undone.",
-        "confirm": "Delete account"
+        "confirm": "Delete account",
+        "descriptionPassword": "The account and all its devices are deleted from the server. This cannot be undone. Type the account password."
       }
     },
     "voice": {
@@ -802,6 +820,29 @@
       "usageUnavailable": "Couldn't load the usage.",
       "language": "Language",
       "languageMulti": "Detect"
+    },
+    "pair": {
+      "giveLabel": "Connect a new device",
+      "giveDescription": "Scan this QR code on the new device to connect it without the account password.",
+      "takeLabel": "Connect with another device",
+      "takeDescription": "Scan the QR code with a phone that holds the account key to connect without the password.",
+      "show": "Show QR code",
+      "qrAlt": "QR code for connecting",
+      "showingGive": "Scan this code in NexusCode on the new device. When it asks to connect, you will be asked here.",
+      "showingTake": "Scan this code in NexusCode on a phone that holds the account key.",
+      "expires": "Valid for {{seconds}} s.",
+      "askedTitle": "{{name}} asks for the account key",
+      "askedDescription": "Allow it if this is the device that just scanned the code. It is turned down in {{seconds}} s without an answer.",
+      "allow": "Allow",
+      "deny": "Turn down",
+      "done": "The account key came here.",
+      "doneGive": "The account key went to {{name}}.",
+      "failed": {
+        "expired": "The code ran out. Try again.",
+        "refused": "The connection was turned down.",
+        "offline": "This device is not connected to remote. Try again in a while.",
+        "unavailable": "The server cannot be reached. Try again in a while."
+      }
     }
   }
 }
