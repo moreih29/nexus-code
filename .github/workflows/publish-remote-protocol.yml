@@ -1,0 +1,68 @@
+# Publishes @nexus-code/remote-protocol to npm when a tag remote-protocol-vX.Y.Z is pushed,
+# the version in packages/remote-protocol/package.json.
+#
+# Trusted publishing (OIDC): npm takes this workflow run's short-lived identity, as the
+# package's settings on npmjs.com allow it (Trusted Publisher: GitHub Actions,
+# moreih29/nexus-code, this file's name). No token is kept anywhere and no one-time password
+# is asked; npm adds provenance, which ties the published version to this commit and run.
+# It needs npm 11.5.1 or later, and the id-token permission below.
+#
+# To publish: raise the version in packages/remote-protocol/package.json, commit, then
+#   git tag remote-protocol-v0.2.0 && git push origin remote-protocol-v0.2.0
+
+name: Publish remote protocol
+
+on:
+  push:
+    tags: ["remote-protocol-v*"]
+
+permissions:
+  contents: read
+  id-token: write # npm's trusted publishing takes this run's OIDC identity
+
+# One publish at a time; one under way is not cut short.
+concurrency:
+  group: publish-remote-protocol
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: npm with trusted publishing
+        # The runner's npm may be older than the 11.5.1 trusted publishing needs.
+        run: npm install -g npm@^11.5.1 && npm --version
+
+      - name: Check the tag names the package's version
+        run: |
+          version=$(node -p "require('./packages/remote-protocol/package.json').version")
+          if [ "$GITHUB_REF_NAME" != "remote-protocol-v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME is not remote-protocol-v$version (package.json)"
+            exit 1
+          fi
+
+      - name: Install JS dependencies
+        # The package builds with the repo's TypeScript and zod; nothing here runs a native module.
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Test the protocol
+        run: bun test tests/unit/packages/remote-protocol
+
+      - name: Publish
+        # prepublishOnly builds dist first.
+        working-directory: packages/remote-protocol
+        run: npm publish

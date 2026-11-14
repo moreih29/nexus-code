@@ -26,3 +26,7 @@ declarations in `dist`, and `zod` 3.25 or later as a peer. The desktop app
 imports `src` directly; `npm run build` (run by `prepublishOnly`) makes
 `dist`. Relative imports in `src` end in `.js`, as Node's ES modules need
 them.
+
+A version is published by GitHub Actions (`.github/workflows/publish-remote-protocol.yml`)
+when a tag `remote-protocol-vX.Y.Z` naming the version in `package.json` is pushed:
+trusted publishing, with no token or one-time password, and with provenance.
