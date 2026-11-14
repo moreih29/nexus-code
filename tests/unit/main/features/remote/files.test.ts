@@ -1,5 +1,8 @@
 /** A workspace's files as another device reads them: only its folders, never through a link. */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { promises as nodeFs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { MAX_LIST_ENTRIES } from "../../../../../packages/remote-protocol/src";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import {
@@ -55,10 +58,14 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
   } as unknown as FsProvider;
 }
 
-function files(tree: Record<string, Node>, shrunk: string | null = null): RemoteFiles {
+function files(
+  tree: Record<string, Node>,
+  shrunk: string | null = null,
+  { folders = ["/home/me/shared"], kind = "ssh" as FsProvider["kind"] } = {},
+): RemoteFiles {
   return {
-    fs: async () => fakeFs(tree),
-    folders: async () => ["/home/me/shared"],
+    fs: async () => fakeFs(tree, kind),
+    folders: async () => folders,
     shrink: () => (shrunk ? { mediaType: "image/jpeg", data: shrunk } : null),
   };
 }
@@ -82,6 +89,74 @@ describe("where a path is", () => {
     });
     for (const outside of ["../etc", "src/../../x", "/src/apple", "/etc/passwd", "/home/me"]) {
       expect(() => placeOf(root, ["/home/me/shared"], outside)).toThrow("outside");
+    }
+  });
+
+  test("a backslash is a character of a name in a POSIX folder", () => {
+    expect(placeOf(root, [], String.raw`a\b`)).toEqual({ kind: "workspace", rel: String.raw`a\b` });
+    expect(placeOf(root, [], String.raw`..\x`)).toEqual({
+      kind: "workspace",
+      rel: String.raw`..\x`,
+    });
+  });
+});
+
+describe("where a path is, in a Windows folder", () => {
+  const win = String.raw`C:\Users\me\app`;
+
+  test("inside the workspace's folder: either separator, any case, parts between /", () => {
+    expect(placeOf(win, [], "")).toEqual({ kind: "workspace", rel: "" });
+    expect(placeOf(win, [], String.raw`src\.\a.ts`)).toEqual({
+      kind: "workspace",
+      rel: "src/a.ts",
+    });
+    expect(placeOf(win, [], "src/a.ts")).toEqual({ kind: "workspace", rel: "src/a.ts" });
+    expect(placeOf(win, [], "C:\\Users\\me\\app\\src\\")).toEqual({
+      kind: "workspace",
+      rel: "src",
+    });
+    expect(placeOf(win, [], "c:/users/ME/App/src/a.ts")).toEqual({
+      kind: "workspace",
+      rel: "src/a.ts",
+    });
+    expect(placeOf(win, [], String.raw`C:\Users\me\app/src`)).toEqual({
+      kind: "workspace",
+      rel: "src",
+    });
+    expect(placeOf(win, [], "C:/Users/me/app")).toEqual({ kind: "workspace", rel: "" });
+  });
+
+  test("a drive's or a share's own folder as the workspace's", () => {
+    expect(placeOf("C:\\", [], String.raw`c:\x\y`)).toEqual({ kind: "workspace", rel: "x/y" });
+    expect(placeOf(String.raw`\\srv\share\app`, [], "//srv/share/app/a")).toEqual({
+      kind: "workspace",
+      rel: "a",
+    });
+  });
+
+  test("in a folder a chat was given, written as Windows writes it", () => {
+    expect(placeOf(win, ["D:\\shared\\"], "d:/Shared/x")).toEqual({
+      kind: "folder",
+      absolute: String.raw`d:\Shared\x`,
+    });
+  });
+
+  test("nowhere else: not by climbing, another drive, the current drive's root, or a device", () => {
+    for (const outside of [
+      String.raw`..\etc`,
+      String.raw`src\..\..\x`,
+      "src/../../x",
+      String.raw`C:\Users\me\apple`,
+      String.raw`C:\Users\me\app\..\other`,
+      String.raw`C:\Windows\win.ini`,
+      String.raw`\Windows`,
+      "/Windows",
+      "C:x",
+      "D:\\",
+      String.raw`\\srv\share\x`,
+      String.raw`\\?\C:\Users\me\app\x`,
+    ]) {
+      expect(() => placeOf(win, [String.raw`D:\shared`], outside)).toThrow("outside");
     }
   });
 });
@@ -219,4 +294,86 @@ describe("reading a file", () => {
     await expect(read("")).rejects.toThrow();
     await expect(read("gone.ts")).rejects.toMatchObject({ code: 1001 });
   });
+
+  test("a folder a chat was given is read only on this computer: its host's agent follows links", async () => {
+    await expect(read("/home/me/shared/notes.md")).rejects.toMatchObject({ code: 1003 });
+  });
+});
+
+describe("a Windows workspace's files", () => {
+  const win = String.raw`C:\Users\me\app`;
+  const tree: Record<string, Node> = {
+    src: { type: "dir" },
+    "src/a.ts": text("a"),
+    out: { type: "symlink" },
+    "out/secret.txt": text("secret"),
+  };
+  const opts = { folders: [String.raw`D:\shared`] };
+
+  test("tell their folder as Windows writes it, however it was asked", async () => {
+    const list = (path: string) =>
+      listFiles(files(tree, null, opts), win, { workspaceId: ws, path });
+    expect((await list("")).path).toBe(win);
+    expect((await list("src")).path).toBe(String.raw`C:\Users\me\app\src`);
+    expect((await list("c:/users/me/app/src")).path).toBe(String.raw`C:\Users\me\app\src`);
+    const got = await readFile(files(tree, null, opts), win, {
+      workspaceId: ws,
+      path: String.raw`src\a.ts`,
+    });
+    expect(got).toMatchObject({ kind: "text", path: String.raw`C:\Users\me\app\src\a.ts` });
+  });
+
+  test("refuse a path through a link, written with either separator", async () => {
+    for (const path of [
+      "out/secret.txt",
+      String.raw`out\secret.txt`,
+      String.raw`C:\Users\me\app\out\secret.txt`,
+    ]) {
+      await expect(
+        readFile(files(tree, null, opts), win, { workspaceId: ws, path }),
+      ).rejects.toMatchObject({ code: 1002 });
+    }
+    await expect(
+      listFiles(files(tree, null, opts), win, { workspaceId: ws, path: "out\\" }),
+    ).rejects.toMatchObject({ code: 1002 });
+  });
+});
+
+describe("a folder a chat was given, on this computer", () => {
+  let top = "";
+  let work = "";
+  let shared = "";
+
+  beforeAll(async () => {
+    top = await nodeFs.mkdtemp(path.join(os.tmpdir(), "remote-files-"));
+    work = path.join(top, "work");
+    shared = path.join(top, "shared");
+    await nodeFs.mkdir(work);
+    await nodeFs.mkdir(path.join(shared, "sub"), { recursive: true });
+    await nodeFs.writeFile(path.join(shared, "notes.md"), "# notes");
+  });
+  afterAll(async () => {
+    await nodeFs.rm(top, { recursive: true, force: true });
+  });
+
+  const local = () => files({}, null, { folders: [shared], kind: "local" });
+
+  test("is listed by its own path", async () => {
+    const got = await listFiles(local(), work, { workspaceId: ws, path: shared });
+    expect(got.path).toBe(shared);
+    expect(got.entries).toEqual([
+      { name: "sub", kind: "dir" },
+      { name: "notes.md", kind: "file", size: 7 },
+    ]);
+  });
+
+  test.if(process.platform === "win32")(
+    "on Windows, with either separator, in any case",
+    async () => {
+      const asked = path.join(shared, "sub").replaceAll("\\", "/").toUpperCase();
+      const got = await listFiles(local(), work, { workspaceId: ws, path: asked });
+      expect(got.path.toLowerCase()).toBe(path.join(shared, "sub").toLowerCase());
+      expect(got.entries).toEqual([]);
+    },
+  );
 });

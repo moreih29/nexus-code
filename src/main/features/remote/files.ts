@@ -3,7 +3,9 @@
  * files.read, as text, an image or bytes): its folder's, and those of the folders its chats were
  * given (/add-dir). Nothing else: a path that climbs out of those, or one
  * that goes through a link inside the workspace (which could point
- * anywhere), is refused. Reading is always allowed, as it is here.
+ * anywhere), is refused. Reading is always allowed, as it is here. A
+ * workspace in a Windows folder takes its paths as Windows does: with
+ * either separator, in any case.
  */
 import { promises as nodeFs } from "node:fs";
 import path from "node:path";
@@ -60,31 +62,90 @@ function forbidden(message: string): RpcFailure {
   return new RpcFailure(RpcErrorCode.Forbidden, message);
 }
 
-const trimSlashes = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+/**
+ * A Windows path from its start: a drive's (C:\, C:/) or a share's
+ * (\\server\share, //server/share), and a device's (\\?\, \\.\).
+ */
+const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 
-/** Whether `inner` is `outer` or inside it. */
-function within(outer: string, inner: string): boolean {
-  return inner === outer || inner.startsWith(outer === "/" ? "/" : `${outer}/`);
+/** A path Windows reads against the current drive or folder: \x, /x, C:x. */
+const WINDOWS_ANCHORED = /^(?:[\\/]|[A-Za-z]:)/;
+
+/**
+ * How a workspace's paths are written, by its folder's: a Windows folder's
+ * take either separator and any case, as Windows does; any other's are
+ * POSIX, where a backslash is a character of a name.
+ */
+interface PathStyle {
+  readonly windows: boolean;
+  readonly sep: "/" | "\\";
+  readonly path: typeof path.posix;
 }
 
-/** Where `asked` is, or Forbidden when it is outside the workspace's folders. */
+const POSIX: PathStyle = { windows: false, sep: "/", path: path.posix };
+const WINDOWS: PathStyle = { windows: true, sep: "\\", path: path.win32 };
+
+function styleOf(root: string): PathStyle {
+  return WINDOWS_ABSOLUTE.test(root) ? WINDOWS : POSIX;
+}
+
+const trimSlashes = (p: string) => (p.length > 1 ? p.replace(/\/+$/, "") : p);
+
+/** `p` normalized, without a separator at its end but a root's own (/, C:\, \\server\share\). */
+function clean(style: PathStyle, p: string): string {
+  if (!style.windows) return trimSlashes(path.posix.normalize(p));
+  const normal = path.win32.normalize(p);
+  const root = path.win32.parse(normal).root;
+  return normal.length > root.length ? normal.replace(/\\+$/, "") : normal;
+}
+
+/** What of `inner` is inside `outer`, both clean ("" for `outer` itself); undefined when it is not. */
+function inside(style: PathStyle, outer: string, inner: string): string | undefined {
+  const head = inner.slice(0, outer.length);
+  if (style.windows ? head.toLowerCase() !== outer.toLowerCase() : head !== outer) return;
+  if (inner.length === outer.length) return "";
+  if (outer.endsWith(style.sep)) return inner.slice(outer.length);
+  return inner[outer.length] === style.sep ? inner.slice(outer.length + 1) : undefined;
+}
+
+/** Whether `inner` is `outer` or inside it, both clean. */
+function within(style: PathStyle, outer: string, inner: string): boolean {
+  return inside(style, outer, inner) !== undefined;
+}
+
+/** `rel` (workspace-relative, "/"-separated) as an absolute path in the workspace's folder. */
+function absoluteIn(style: PathStyle, base: string, rel: string): string {
+  if (!rel) return base;
+  return style.windows ? path.win32.join(base, rel) : `${base}/${rel}`;
+}
+
+/**
+ * Where `asked` is, or Forbidden when it is outside the workspace's folders.
+ * A path inside the workspace's folder is given as relative to it, with "/"
+ * between its parts on Windows too; one in a folder a chat was given, as
+ * absolute and written as the workspace's folder is.
+ */
 export function placeOf(root: string, folders: readonly string[], asked: string): Place {
   if (asked.includes("\0")) throw forbidden("that is no path");
-  const base = trimSlashes(path.posix.normalize(root));
-  if (!asked.startsWith("/")) {
-    const rel = trimSlashes(path.posix.normalize(asked || "."));
-    if (rel === ".." || rel.startsWith("../")) {
+  const style = styleOf(root);
+  const base = clean(style, root);
+  const absolutePath = style.windows ? WINDOWS_ABSOLUTE.test(asked) : asked.startsWith("/");
+  if (!absolutePath) {
+    if (style.windows && WINDOWS_ANCHORED.test(asked)) {
+      throw forbidden(`${asked} is outside the workspace's folders`);
+    }
+    const rel = clean(style, asked || ".");
+    if (rel === ".." || rel.startsWith(`..${style.sep}`)) {
       throw forbidden(`${asked} is outside the workspace's folder`);
     }
-    return { kind: "workspace", rel: rel === "." ? "" : rel };
+    return { kind: "workspace", rel: rel === "." ? "" : rel.split(style.sep).join("/") };
   }
-  const absolute = trimSlashes(path.posix.normalize(asked));
-  if (within(base, absolute)) {
-    return { kind: "workspace", rel: absolute === base ? "" : absolute.slice(base.length + 1) };
+  const absolute = clean(style, asked);
+  const rest = inside(style, base, absolute);
+  if (rest !== undefined) {
+    return { kind: "workspace", rel: style.windows ? rest.split("\\").join("/") : rest };
   }
-  const folder = folders
-    .map((f) => trimSlashes(path.posix.normalize(f)))
-    .find((f) => within(f, absolute));
+  const folder = folders.map((f) => clean(style, f)).find((f) => within(style, f, absolute));
   if (folder) return { kind: "folder", absolute };
   throw forbidden(`${asked} is outside the workspace's folders`);
 }
@@ -105,7 +166,9 @@ function notFound(error: unknown, asked: string): never {
 /**
  * Refuses a path inside the workspace that goes through a link: the agent
  * keeps paths inside the folder by their names only, and follows a link
- * to wherever it points. What the path's last part is, otherwise.
+ * to wherever it points. What the path's last part is, otherwise. `rel`
+ * is placeOf's, its parts between "/" on Windows too: the agent there
+ * takes "\" as a separator as well, and would pass a link it hid.
  */
 async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
   const parts = rel ? rel.split("/") : [];
@@ -135,24 +198,35 @@ export async function folderIn(
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a file, not a folder`);
     }
   }
-  const base = trimSlashes(path.posix.normalize(root));
-  return place.rel ? `${base}/${place.rel}` : base;
+  const style = styleOf(root);
+  return absoluteIn(style, clean(style, root), place.rel);
 }
 
-/** Refuses a folder's path whose real place, past its links, is outside the folders given; on this computer only. */
+/**
+ * Refuses a path in a folder a chat was given whose real place, past its
+ * links, is outside the folders given. That is told only on this computer:
+ * the agent of a workspace on another host (SSH, WSL) has no way to, and
+ * would follow a link out of the folder, so such a folder is not read there.
+ */
 async function realWithin(
   fs: FsProvider,
+  style: PathStyle,
   folders: readonly string[],
   absolute: string,
 ): Promise<void> {
-  if (fs.kind !== "local") return;
+  if (fs.kind !== "local") {
+    throw new RpcFailure(
+      RpcErrorCode.Unavailable,
+      "a folder outside the workspace's is read only on this computer, not on its host",
+    );
+  }
   const real = await nodeFs.realpath(absolute).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT")
       throw new RpcFailure(RpcErrorCode.NotFound, `${absolute} does not exist`);
     throw new RpcFailure(RpcErrorCode.Unavailable, error.message);
   });
   const reals = await Promise.all(folders.map((f) => nodeFs.realpath(f).catch(() => f)));
-  if (!reals.some((f) => within(trimSlashes(f), real))) {
+  if (!reals.some((f) => within(style, clean(style, f), clean(style, real)))) {
     throw forbidden(`${absolute} leads outside the workspace's folders`);
   }
 }
@@ -206,6 +280,7 @@ export async function listFiles(
 ): Promise<RpcResult<"files.list">> {
   const folders = await files.folders(workspaceId);
   const place = placeOf(root, folders, asked);
+  const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   let entries: Entry[];
   let absolute: string;
@@ -217,7 +292,7 @@ export async function listFiles(
     entries = (await fs.readdir(place.rel).catch((error: unknown) => notFound(error, asked))).map(
       entryOf,
     );
-    absolute = place.rel ? `${trimSlashes(root)}/${place.rel}` : trimSlashes(root);
+    absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
     if (fs.kind !== "local") {
       throw new RpcFailure(
@@ -225,7 +300,7 @@ export async function listFiles(
         "a folder outside the workspace's is listed only on this computer, not on its host",
       );
     }
-    await realWithin(fs, folders, place.absolute);
+    await realWithin(fs, style, folders, place.absolute);
     entries = await listHere(place.absolute);
     absolute = place.absolute;
   }
@@ -273,6 +348,7 @@ export async function readFile(
   }
   const folders = await files.folders(workspaceId);
   const place = placeOf(root, folders, asked);
+  const style = styleOf(root);
   const fs = await files.fs(workspaceId);
   let absolute: string;
   let size: number | undefined;
@@ -287,9 +363,9 @@ export async function readFile(
       throw new RpcFailure(RpcErrorCode.InvalidParams, `${asked} is a folder: files.list lists it`);
     }
     size = stat.size;
-    absolute = `${trimSlashes(root)}/${place.rel}`;
+    absolute = absoluteIn(style, clean(style, root), place.rel);
   } else {
-    await realWithin(fs, folders, place.absolute);
+    await realWithin(fs, style, folders, place.absolute);
     absolute = place.absolute;
   }
   const range = (length: number, from = 0) =>
@@ -306,7 +382,7 @@ export async function readFile(
     return { kind: "bytes", path: absolute, data: read.base64, offset: from, size: read.sizeBytes };
   }
 
-  const mediaType = IMAGE_TYPES[path.posix.extname(absolute).toLowerCase()];
+  const mediaType = IMAGE_TYPES[style.path.extname(absolute).toLowerCase()];
   if (mediaType) {
     let total = size;
     if (total === undefined) {
