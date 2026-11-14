@@ -19,6 +19,7 @@ import {
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
 import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
+import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient } from "./pty-client";
 import type {
   PtyClient,
@@ -1205,28 +1206,21 @@ class XtermTerminalController implements TerminalController {
     };
 
     const writeClipboardFromBase64 = (b64: string): void => {
-      try {
-        // Uses the IPC path: OSC 52 arrives from the PTY data callback, so there is no user
-        // activation and `navigator.clipboard.writeText` is rejected.
-        //
-        // `atob` returns a binary string with one Latin-1 char per byte, so writing it to the
-        // clipboard as is turns multi-byte text (Korean etc.) into mojibake
-        // ("저" EC A0 80 → "ì \x80"). The OSC 52 payload is the base64 encoding of UTF-8 bytes,
-        // so restore a byte array and then UTF-8 decode it.
-        const bin = atob(b64);
-        const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
-        copyTextViaIpc(new TextDecoder().decode(bytes));
-      } catch {
-        // A base64 decode failure is silently dropped. The shell sent a malformed sequence, so
-        // it is not worth giving the user feedback.
-      }
+      // A program the user works in copies; output scrolling past in a tab
+      // they are not typing into (a file shown, a page fetched) does not.
+      if (!hasKeyboardFocus(term)) return;
+      const text = clipboardTextOf(b64);
+      // The IPC path: OSC 52 comes from the PTY's data, with no user
+      // activation for navigator.clipboard.writeText.
+      if (text !== null) copyTextViaIpc(text);
     };
 
     // OSC 52 — set/get clipboard (xterm standard).
     //   `ESC ] 52 ; <targets> ; <base64|?> ST`
     //   targets: c|p|q|s|0..7. A payload of "?" is a read request — not answered for security
     //   (letting an arbitrary TUI read the system clipboard risks leaking passwords etc.).
-    //   Used by Claude Code, neovim "+register, tmux set-clipboard, lazygit, etc.
+    //   Used by Claude Code, neovim "+register, tmux set-clipboard, lazygit, etc. Taken only
+    //   while the user's keys go to this terminal (see writeClipboardFromBase64).
     this.oscDisposables.push(
       term.parser.registerOscHandler(52, (data) => {
         const semi = data.indexOf(";");

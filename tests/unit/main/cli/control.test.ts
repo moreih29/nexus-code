@@ -101,6 +101,24 @@ describe("changing another workspace", () => {
     expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
   });
 
+  test("types nothing when the agent there came to wait on the user while they were asked", async () => {
+    const app = fakeApp();
+    // The user allows it; meanwhile Claude Code there asks to run a tool.
+    app.answers.shift = () => {
+      app.claude.set(`${API}:${CODEX_TAB}`, { status: "permissionPending", since: Date.now() });
+      return "once";
+    };
+    for (const line of [argv, ["terminal", "key", "codex", "y", "enter", "--workspace", "api"]]) {
+      const result = await nexus(app, line);
+      expect(result.stderr).toBe(
+        "nexus: Claude Code there is waiting for the user to allow a tool; that is for the user to answer\n",
+      );
+      app.claude.delete(`${API}:${CODEX_TAB}`);
+    }
+    expect(app.asked).toHaveLength(2);
+    expect(app.uiCalls.some((c) => c.op === "terminal.input")).toBe(false);
+  });
+
   test("follows the setting without asking when it says allow or deny", async () => {
     const app = fakeApp();
     app.settings.crossWorkspace = "allow";

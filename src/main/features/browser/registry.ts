@@ -53,6 +53,7 @@
 import type { BrowserWindow, WebContents } from "electron";
 import { WebContentsView } from "electron";
 import { createLogger } from "../../../shared/log/main";
+import { isTabLoadAllowed } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { showDialogsOverWindow } from "./dialogs";
 import { installAppScrollbarStyle } from "./page-style";
@@ -285,6 +286,12 @@ export class BrowserTabRegistry {
 
   /** Loads `url` in the tab, through the address resolver when it has a say. */
   private load(tabId: string, entry: TabEntry, url: string, label: string): void {
+    if (!isTabLoadAllowed(url)) {
+      const error = new Error("a browser tab opens only http, https and file addresses");
+      logger.warn(`[${label}] ${url} not opened in ${tabId}: ${error.message}`);
+      for (const listener of this.refusedListeners) listener(tabId, url, error);
+      return;
+    }
     const loadNow = (target: string) => {
       entry.view.webContents.loadURL(target).catch((err: Error) => {
         logger.warn(`[${label}] loadURL failed for ${tabId}: ${err.message}`);
@@ -713,8 +720,8 @@ export class BrowserTabRegistry {
   // -------------------------------------------------------------------------
 
   /**
-   * Navigates the tab to `url`.  Will-navigate guards are already installed,
-   * so navigation to non-http/https URLs will be silently blocked.
+   * Navigates the tab to `url`: loadURL skips will-navigate, so load()
+   * refuses a scheme a tab does not open (isTabLoadAllowed).
    */
   navigate(args: { tabId: string; url: string }): void {
     const { tabId, url } = args;
