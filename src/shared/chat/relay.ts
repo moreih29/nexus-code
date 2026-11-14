@@ -69,7 +69,10 @@ export function relayHeader(from: RelaySender): string {
     from.kind === "manager"
       ? "The manager (an agent the user runs)"
       : from.kind === "terminal"
-        ? `${TERMINAL_AGENTS[from.agent ?? "claude"]} in the ${name} terminal`
+        ? from.agent
+          ? `${TERMINAL_AGENTS[from.agent]} in the ${name} terminal`
+          : // One whose tab could not be told (no tab token), or names none there is.
+            "An agent in a terminal"
         : `The ${name} tab (${AGENT_NAMES[from.agent ?? "claude"]})`;
   const answer = "Your answer here is what it reads";
   const { device, workspaceId, tabId } = from;

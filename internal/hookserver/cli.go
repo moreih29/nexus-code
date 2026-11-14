@@ -28,6 +28,11 @@ type CLIEventPayload struct {
 	WorkspaceID string          `json:"workspaceId"`
 	TabID       string          `json:"tabId"`
 	Request     json.RawMessage `json:"request"`
+	// Verified says the request came with its tab's token (see TabToken):
+	// it is that tab's. Without, it came with the server's own, which any
+	// process of the workspace's tabs an older app started may hold: whose
+	// it is cannot be told.
+	Verified bool `json:"verified"`
 }
 
 // CLICancelPayload is the "cli.cancel" event main receives when a request's
@@ -48,7 +53,7 @@ type cliWireResponse struct {
 
 // handleCLI passes one CLI request to main and keeps the connection open
 // until main answers, the deadline passes or the server closes.
-func (s *Server) handleCLI(conn net.Conn, req hookWireRequest) {
+func (s *Server) handleCLI(conn net.Conn, req hookWireRequest, verified bool) {
 	requestID, err := newHookID()
 	if err != nil {
 		_ = writeNDJSON(conn, cliWireResponse{Error: "request id generation failed"})
@@ -72,6 +77,7 @@ func (s *Server) handleCLI(conn net.Conn, req hookWireRequest) {
 		WorkspaceID: req.WorkspaceID,
 		TabID:       req.TabID,
 		Request:     req.Payload,
+		Verified:    verified,
 	}
 	if err := sink("cli.request", payload); err != nil {
 		if val, ok := s.cliInflight.LoadAndDelete(requestID); ok {

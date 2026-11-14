@@ -344,6 +344,31 @@ describe("who sends a message", () => {
     ).toMatchObject({ hops: 4 });
   });
 
+  test("one that could be any process's, or names no terminal or chat tab, is an agent's, not the user's", async () => {
+    const app = withChat();
+    const unknown = (tabId: string) => ({ kind: "terminal", workspaceId: APP, tabId, hops: 1 });
+    // The user's shell, but the request came without that tab's token: any process may say it.
+    expect(
+      await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: false })),
+    ).toEqual(unknown(SHELL_TAB));
+    expect(
+      await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: true })),
+    ).toBeUndefined();
+    // No such tab.
+    const gone = "99999999-0000-4000-8000-000000000099";
+    expect(await senderOf(contextFor(app, [], { workspaceId: APP, tabId: gone }))).toEqual(
+      unknown(gone),
+    );
+    // Nor is the manager's tab without its token the manager.
+    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID, verified: false };
+    expect(await senderOf(contextFor(app, [], manager))).toEqual({
+      kind: "terminal",
+      workspaceId: MANAGER_WORKSPACE_ID,
+      tabId: MANAGER_TAB_ID,
+      hops: 1,
+    });
+  });
+
   test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {
     const app = withChat();
     const at = contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB });

@@ -178,6 +178,8 @@ function normalizeWorkspaceUpdate(
 export interface HookInfo {
   readonly socketPath: string;
   readonly token: string;
+  /** Whether the server takes tabs' own tokens (./tab-token.ts): an older agent does not. */
+  readonly tabTokens?: boolean;
 }
 
 /**

@@ -631,6 +631,10 @@ function RelaySenderLine({ from }: { from: MessageSource }) {
   if (from.kind === "manager") {
     return <span className="shrink-0">{t("chat.received.manager")}</span>;
   }
+  // One whose tab could not be told is named by none: the ids it gave are any process's to give.
+  if (from.kind === "terminal" && !from.agent) {
+    return <span className="shrink-0">{t("chat.received.unknown")}</span>;
+  }
   const name = title || from.name;
   const closed = title === undefined && tabId !== undefined;
   const agent = from.agent === "codex" ? "Codex" : "Claude Code";
