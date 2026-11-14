@@ -137,6 +137,21 @@ describe("removeTask", () => {
     expect(localBranches()).not.toContain("drop-branch");
   });
 
+  it("deletes the branch renamed in its worktree, and no other branch checked out there", async () => {
+    const { deps, parent } = setup();
+    const renamed = await createTask(deps, { parentId: parent.id, name: "notes" });
+    git(renamed.rootPath, "branch", "-m", "notes", "feat/notes");
+    const switched = await createTask(deps, { parentId: parent.id, name: "switched" });
+    git(switched.rootPath, "switch", "-q", "-c", "someone-elses");
+    git(switched.rootPath, "branch", "-D", "switched");
+
+    await removeTask(deps, { id: renamed.id, force: false, deleteBranch: true });
+    await removeTask(deps, { id: switched.id, force: false, deleteBranch: true });
+
+    expect(localBranches()).not.toContain("feat/notes");
+    expect(localBranches()).toContain("someone-elses");
+  });
+
   it('deletes a merged branch for "merged", and keeps one with commits of its own', async () => {
     const { deps, parent } = setup();
     const merged = await createTask(deps, { parentId: parent.id, name: "nothing new" });

@@ -143,11 +143,34 @@ export async function removeTask(
   deps.manager.remove(id);
   if (!repo) return;
 
+  // Read before the worktree goes: the branch may have been renamed there.
+  const checkedOut = deleteBranch
+    ? await repo.worktreeBranch(task.worktreePath).catch(() => null)
+    : null;
   const wait = deps.sleep ?? sleep;
   await removeWorktree(repo, task.worktreePath, wait);
   if (workspace.location.kind === "local") await removeEmptyFolder(task.worktreePath, wait);
-  if (deleteBranch === true) await repo.deleteBranch(task.branch, true);
-  if (deleteBranch === "merged") await repo.deleteBranch(task.branch, false).catch(() => {});
+  if (!deleteBranch) return;
+  const branch = await taskBranch(repo, task.branch, checkedOut);
+  if (branch === null) return;
+  if (deleteBranch === true) await repo.deleteBranch(branch, true);
+  else await repo.deleteBranch(branch, false).catch(() => {});
+}
+
+/**
+ * The task's branch as it is now: the one it was made with, or, renamed
+ * since, the one its worktree had checked out, when its reflog says it was
+ * renamed from it. Null when it is gone: another branch checked out there
+ * is not the task's to delete.
+ */
+async function taskBranch(
+  repo: GitRepository,
+  made: string,
+  checkedOut: string | null,
+): Promise<string | null> {
+  if (await repo.hasBranch(made)) return made;
+  if (checkedOut && (await repo.branchRenamedFrom(checkedOut, made))) return checkedOut;
+  return null;
 }
 
 /** False when the folder is already gone, since there is nothing to lose. */
