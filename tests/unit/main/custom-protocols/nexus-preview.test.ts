@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -11,7 +12,9 @@ import {
   MAX_DOCUMENTS_PER_OWNER,
   PREVIEW_DOCUMENT_CSP,
   PreviewDocuments,
+  type PreviewOwner,
   previewHandlers,
+  releaseWithPage,
 } from "../../../../src/main/features/custom-protocols/nexus-preview";
 import type { CallContext } from "../../../../src/main/infra/ipc-router";
 
@@ -63,16 +66,59 @@ describe("PreviewDocuments", () => {
     expect(documents.get(kept)).toBe("<p>3</p>");
   });
 
-  test("keeps a window's newest documents past its limit", () => {
+  test("refuses a new document past a window's limit, and keeps every one it holds", () => {
     const documents = new PreviewDocuments(tokens());
-    const first = documents.put(WINDOW_A, "first");
-    const second = documents.put(WINDOW_A, "second");
-    // Put again: now newer than `second`.
-    documents.put(WINDOW_A, "first again", first);
-    for (let i = 0; i < MAX_DOCUMENTS_PER_OWNER - 1; i++) documents.put(WINDOW_A, `doc ${i}`);
+    const held: string[] = [];
+    for (let i = 0; i < MAX_DOCUMENTS_PER_OWNER; i++)
+      held.push(documents.put(WINDOW_A, `doc ${i}`));
+    expect(() => documents.put(WINDOW_A, "one more")).toThrow();
     expect(documents.size(WINDOW_A)).toBe(MAX_DOCUMENTS_PER_OWNER);
-    expect(documents.get(second)).toBeUndefined();
-    expect(documents.get(first)).toBe("first again");
+    for (const [i, token] of held.entries()) expect(documents.get(token)).toBe(`doc ${i}`);
+    // A held one is still put again, another window still puts, and one let go of makes room.
+    const first = held[0] ?? "";
+    expect(documents.put(WINDOW_A, "doc 0 again", first)).toBe(first);
+    expect(documents.get(first)).toBe("doc 0 again");
+    expect(documents.get(documents.put(WINDOW_B, "b"))).toBe("b");
+    documents.release(WINDOW_A, first);
+    expect(documents.get(documents.put(WINDOW_A, "one more"))).toBe("one more");
+  });
+});
+
+describe("releaseWithPage", () => {
+  /** A webContents' page events, on a plain emitter. */
+  function owner(id: number): EventEmitter & PreviewOwner {
+    return Object.assign(new EventEmitter(), { id });
+  }
+
+  function holding(): { documents: PreviewDocuments; a: string; b: string } {
+    const documents = new PreviewDocuments(tokens());
+    documents.put(WINDOW_A, "<p>1</p>");
+    const a = documents.put(WINDOW_A, "<p>2</p>");
+    const b = documents.put(WINDOW_B, "<p>3</p>");
+    return { documents, a, b };
+  }
+
+  for (const event of ["did-navigate", "render-process-gone", "destroyed"]) {
+    test(`lets go of a window's documents on ${event}, and only its own`, () => {
+      const { documents, a, b } = holding();
+      const window = owner(WINDOW_A);
+      releaseWithPage(documents, window);
+      window.emit(event);
+      expect(documents.size(WINDOW_A)).toBe(0);
+      expect(documents.get(a)).toBeUndefined();
+      expect(documents.get(b)).toBe("<p>3</p>");
+    });
+  }
+
+  test("lets go of what the next page puts on its next navigation, not before", () => {
+    const { documents } = holding();
+    const window = owner(WINDOW_A);
+    releaseWithPage(documents, window);
+    window.emit("did-navigate");
+    const next = documents.put(WINDOW_A, "<p>next page</p>");
+    expect(documents.get(next)).toBe("<p>next page</p>");
+    window.emit("did-navigate");
+    expect(documents.get(next)).toBeUndefined();
   });
 });
 

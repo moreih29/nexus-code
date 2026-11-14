@@ -54,7 +54,13 @@ export const NEXUS_PREVIEW_SCHEME: CustomScheme = {
   },
 };
 
-/** How many documents one window keeps; past it, its oldest goes. */
+/**
+ * How many documents one window holds. A pane holds one and lets go of it
+ * when it closes, and a window lets go of all of its own when its page goes
+ * (releaseWithPage), so a window holds one per preview open in it. Past this
+ * a new document is refused, not made room for: each one held is an open
+ * pane's, whose frame would come up blank once it moved or reloaded.
+ */
 export const MAX_DOCUMENTS_PER_OWNER = 32;
 
 const TOKEN_PATTERN = /^[0-9a-f]{32}$/;
@@ -67,29 +73,30 @@ interface PreviewDocument {
 /**
  * The documents the preview panes of each window put, by the token that
  * names each one. A pane puts its document again as it is edited, under the
- * same token, and releases it when it closes; a window's go when it does.
+ * same token, and releases it when it closes; a window's go when its page
+ * does.
  */
 export class PreviewDocuments {
-  /** In order of last put: a window's first is its oldest. */
   private readonly documents = new Map<string, PreviewDocument>();
 
   constructor(private readonly newToken: () => string = () => randomBytes(16).toString("hex")) {}
 
   /**
    * Puts `html` under `token` when `owner` holds that token, and under a new
-   * one otherwise; returns the token it is under.
+   * one otherwise; returns the token it is under. Throws when a new one would
+   * take `owner` past MAX_DOCUMENTS_PER_OWNER.
    */
   put(owner: number, html: string, token?: string): string {
     const held = token === undefined ? undefined : this.documents.get(token);
     if (token !== undefined && held?.owner === owner) {
-      this.documents.delete(token);
       held.html = html;
-      this.documents.set(token, held);
       return token;
+    }
+    if (this.size(owner) >= MAX_DOCUMENTS_PER_OWNER) {
+      throw new Error(`A window holds at most ${MAX_DOCUMENTS_PER_OWNER} preview documents`);
     }
     const minted = this.newToken();
     this.documents.set(minted, { owner, html });
-    this.evictOldest(owner);
     return minted;
   }
 
@@ -116,16 +123,6 @@ export class PreviewDocuments {
     let count = 0;
     for (const document of this.documents.values()) if (document.owner === owner) count++;
     return count;
-  }
-
-  private evictOldest(owner: number): void {
-    let excess = this.size(owner) - MAX_DOCUMENTS_PER_OWNER;
-    if (excess <= 0) return;
-    for (const [token, document] of this.documents) {
-      if (document.owner !== owner) continue;
-      this.documents.delete(token);
-      if (--excess === 0) return;
-    }
   }
 }
 
@@ -207,7 +204,37 @@ export function previewHandlers(
   };
 }
 
-/** Registers the preview channel, whose documents a window's own lose when it closes. */
+/** The events of a window's webContents that end its page. */
+export interface PreviewOwner {
+  readonly id: number;
+  on(event: "did-navigate" | "render-process-gone", listener: () => void): unknown;
+  once(event: "destroyed", listener: () => void): unknown;
+}
+
+/**
+ * Lets go of `owner`'s documents when its page goes: its main frame commits
+ * a page anew (Ctrl+R, a reload after a crash, the dev server's full reload),
+ * its renderer is gone, or it closes. No pane of the page that comes next
+ * holds them; its panes put their own.
+ *
+ * On did-navigate, not did-start-navigation: that comes before will-navigate,
+ * so it comes too for a navigation the window's guard then cancels
+ * (window/index.ts), and the page it would release for stays.
+ * did-navigate is the main frame's only, and not an in-page one's.
+ */
+export function releaseWithPage(documents: PreviewDocuments, owner: PreviewOwner): void {
+  const id = owner.id;
+  const release = (why: string) => {
+    if (documents.size(id) === 0) return;
+    documents.releaseOwner(id);
+    logger.debug(`Released the preview documents of webContents ${id}: ${why}`);
+  };
+  owner.on("did-navigate", () => release("its page navigated"));
+  owner.on("render-process-gone", () => release("its renderer is gone"));
+  owner.once("destroyed", () => release("it closed"));
+}
+
+/** Registers the preview channel, whose documents a window's own lose when its page goes. */
 export function registerPreviewChannel(documents: PreviewDocuments): void {
   const watched = new WeakSet<object>();
   register("preview", {
@@ -215,11 +242,7 @@ export function registerPreviewChannel(documents: PreviewDocuments): void {
       const sender = ctx?.sender;
       if (!sender || watched.has(sender)) return;
       watched.add(sender);
-      const owner = sender.id;
-      sender.once("destroyed", () => {
-        documents.releaseOwner(owner);
-        logger.debug(`Released the preview documents of webContents ${owner}`);
-      });
+      releaseWithPage(documents, sender);
     }),
     listen: {},
   });
