@@ -48,6 +48,7 @@ import type {
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
+import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
@@ -199,6 +200,8 @@ export interface FakeApp {
   time: { now: number; onTick?: (now: number) => void };
   /** What was asked of the browser driver, and what it answers. */
   browser: FakeBrowser;
+  /** Each workspace's notes (by workspace id), as the notes service gives them. */
+  notes: Record<string, NoteContent[]>;
   /** Each workspace's editor area; a test may replace one. */
   layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
   /** What problems.list gives. */
@@ -396,6 +399,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
+  const notes: FakeApp["notes"] = {};
   const browser: FakeBrowser = {
     calls: [],
     console: [],
@@ -719,6 +723,15 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
     },
     browser: fakeBrowserDriver(browser),
+    notes: {
+      list: async (workspaceId) =>
+        (notes[workspaceId] ?? []).map(({ doc: _doc, dir: _dir, ...summary }) => summary),
+      read: async (workspaceId, noteId) => {
+        const note = (notes[workspaceId] ?? []).find((n) => n.id === noteId);
+        if (!note) throw new Error(`no note ${noteId}`);
+        return note;
+      },
+    },
     forwards: {
       list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
       forward,
@@ -758,6 +771,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     problems,
     ports,
     forwarding,
+    notes,
     chats,
     chatSent,
     events,

@@ -15,6 +15,7 @@ import type {
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
+import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
@@ -180,6 +181,16 @@ export interface CliServices {
   readonly clock: { now(): number; sleep(ms: number): Promise<void> };
   /** Reads and drives the pages of browser tabs. */
   readonly browser: BrowserDriver;
+  /** The workspaces' notes, kept by the app (features/notes). */
+  readonly notes: CliNotes;
+}
+
+/** A workspace's notes, as the nexus note commands read them. */
+export interface CliNotes {
+  /** Newest first. */
+  list(workspaceId: string): Promise<NoteSummary[]>;
+  /** Fails when there is no such note. */
+  read(workspaceId: string, noteId: string): Promise<NoteContent>;
 }
 
 export interface CliContext {

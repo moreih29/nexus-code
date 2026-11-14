@@ -10,6 +10,9 @@
 
 export const DND_TAB_BAR_ATTR = "data-dnd-tab-bar";
 export const DND_TAB_ITEM_ATTR = "data-dnd-tab-item";
+/** A surface that takes a file dragged from the file tree itself (a note's body links it). */
+export const DND_FILE_SURFACE_ATTR = "data-dnd-file-surface";
 
 export const DND_TAB_BAR_SELECTOR = `[${DND_TAB_BAR_ATTR}]`;
 export const DND_TAB_ITEM_SELECTOR = `[${DND_TAB_ITEM_ATTR}]`;
+export const DND_FILE_SURFACE_SELECTOR = `[${DND_FILE_SURFACE_ATTR}]`;

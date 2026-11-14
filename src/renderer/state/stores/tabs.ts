@@ -7,6 +7,7 @@ import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/re
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
+  type NoteTabProps,
   PROFILE_MOVES_KEPT,
   type ProfileMove,
   type SerializedTab,
@@ -44,6 +45,7 @@ export type EditorTabProps = EditorInput;
 export type DiffTabProps = DiffTabPayload;
 export type GitCommitTabProps = GitCommitTabPayload;
 export type BrowserTabProps = BrowserTabPayload;
+export type { NoteTabProps };
 
 export interface ClaudeTabProps {
   cwd: string;
@@ -158,6 +160,12 @@ export interface BrowserTab extends TabBase {
   props: BrowserTabProps;
 }
 
+/** A note of the workspace's notes. */
+export interface NoteTab extends TabBase {
+  type: "note";
+  props: NoteTabProps;
+}
+
 /** A conversation with Claude Code, driven through its stream-json mode. */
 export interface ClaudeTab extends TabBase {
   type: "claude";
@@ -177,6 +185,7 @@ export type Tab =
   | GitCommitTab
   | UntitledTab
   | BrowserTab
+  | NoteTab
   | ClaudeTab
   | CodexTab;
 
@@ -197,6 +206,7 @@ export type CreateTabArgs =
   | { type: "terminal"; props: TerminalTabProps }
   | { type: "untitled"; props: UntitledTabProps }
   | { type: "browser"; props: BrowserTabProps }
+  | { type: "note"; props: NoteTabProps }
   | { type: "claude"; props: ClaudeTabProps }
   | { type: "codex"; props: CodexTabProps };
 
@@ -343,6 +353,7 @@ export function defaultTitle(args: CreateTabArgs): string {
   if (args.type === "untitled") return `Untitled-${args.props.untitledIndex}`;
   if (args.type === "claude") return i18next.t("common:chat.tab_title");
   if (args.type === "codex") return i18next.t("common:chat.codex.tab_title");
+  if (args.type === "note") return args.props.title?.trim() || i18next.t("notes:panel.untitled");
   if (args.type === "browser") {
     if (!args.props.initialUrl) return "New Tab";
     try {
@@ -457,6 +468,8 @@ export const useTabsStore = create<TabsState>((set, get) => {
         tab = { ...base, type: "untitled", props: args.props };
       } else if (args.type === "browser") {
         tab = { ...base, type: "browser", props: args.props };
+      } else if (args.type === "note") {
+        tab = { ...base, type: "note", props: args.props };
       } else if (args.type === "claude") {
         tab = { ...base, type: "claude", props: args.props };
       } else if (args.type === "codex") {

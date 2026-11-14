@@ -1,0 +1,104 @@
+{
+  "panel": {
+    "title": "노트",
+    "new": "새 노트",
+    "search": "노트 검색",
+    "searchPlaceholder": "제목이나 내용으로 찾기",
+    "recent": "최근",
+    "empty": "아직 노트가 없습니다. 글, 파일, 그림을 한곳에 모아 두세요.",
+    "noMatch": "찾는 노트가 없습니다.",
+    "untitled": "제목 없음",
+    "loadError": "노트를 불러오지 못했습니다."
+  },
+  "chip": {
+    "text": "글",
+    "sketches": "그림 {{count}}",
+    "files": "파일 {{count}}",
+    "images": "이미지 {{count}}",
+    "todos": "할 일 {{done}}/{{total}}"
+  },
+  "editor": {
+    "titlePlaceholder": "제목",
+    "placeholder": "/를 입력해 블록 추가 · 파일은 끌어다 놓기 · 스크린샷은 붙여넣기",
+    "kept": "앱에 보관",
+    "saving": "저장 중…",
+    "saved": "저장됨",
+    "saveError": "저장하지 못했습니다",
+    "loading": "노트를 여는 중…",
+    "missing": "이 노트를 찾을 수 없습니다. 지워졌을 수 있습니다.",
+    "closeTab": "탭 닫기",
+    "toAgent": "에이전트에게",
+    "more": "더 보기",
+    "reveal": "노트 폴더 보기",
+    "copyCommand": "읽기 명령 복사",
+    "delete": "노트 지우기",
+    "deleteConfirm": {
+      "title": "‘{{title}}’ 노트를 지울까요?",
+      "description": "노트 폴더(글, 그림, 파일)가 휴지통으로 이동합니다.",
+      "confirm": "지우기"
+    },
+    "addFailed": "노트에 넣지 못했습니다: {{message}}",
+    "linkHint": "⌘ 또는 Ctrl을 누른 채 클릭해 열기"
+  },
+  "slash": {
+    "title": "블록 추가",
+    "text": "글",
+    "h1": "제목 1",
+    "h2": "제목 2",
+    "h3": "제목 3",
+    "todo": "할 일",
+    "bullets": "목록",
+    "numbers": "번호 목록",
+    "sketch": "그림",
+    "file": "파일",
+    "image": "이미지",
+    "quote": "인용",
+    "code": "코드",
+    "divider": "구분선"
+  },
+  "sketch": {
+    "edit": "그리기",
+    "empty": "빈 그림 · 눌러서 그리기",
+    "done": "완료",
+    "full": "전체 화면",
+    "exitFull": "전체 화면 끝내기",
+    "resize": "끌어서 높이 조절",
+    "saveFailed": "그림을 저장하지 못했습니다: {{message}}"
+  },
+  "file": {
+    "openHint": "두 번 눌러 열기",
+    "copied": "노트에 복사됨",
+    "reveal": "폴더에서 보기"
+  },
+  "agent": {
+    "title": "에이전트에게 보내기",
+    "destination": "보낼 곳",
+    "claude": "새 Claude 채팅",
+    "codex": "새 Codex 채팅",
+    "message": "메시지",
+    "defaultMessage": "이 노트를 읽고 작업을 시작해 줘.",
+    "hint": "에이전트는 nexus note read로 노트를 읽습니다. 파일은 복사하지 않습니다.",
+    "send": "보내기",
+    "prompt": "{{message}}\n\n노트 ‘{{title}}’: `nexus note read {{id}}` 로 읽을 수 있습니다."
+  },
+  "storage": {
+    "heading": "노트 저장 공간",
+    "description": "노트는 앱 데이터 폴더에 워크스페이스 위치별로 보관됩니다. 워크스페이스를 빼도 노트는 남습니다.",
+    "total": "합계 {{size}} · 노트 {{count}}개",
+    "empty": "보관된 노트가 없습니다.",
+    "notes": "노트 {{count}}개",
+    "text": "글",
+    "sketches": "그림",
+    "files": "파일",
+    "images": "이미지",
+    "orphan": "연결 안 된 노트",
+    "orphanHint": "이 위치의 워크스페이스가 앱에 없습니다. 같은 폴더를 다시 추가하면 노트가 돌아옵니다.",
+    "reveal": "폴더 보기",
+    "remove": "지우기",
+    "removeConfirm": {
+      "title": "‘{{label}}’의 노트를 모두 지울까요?",
+      "description": "노트 {{count}}개({{size}})가 휴지통으로 이동합니다.",
+      "confirm": "모두 지우기"
+    }
+  }
+}

@@ -71,6 +71,11 @@ export function settingsNav(
       keywords: ["alert", "desktop", "os", "notification", "claude"],
     },
     {
+      id: "notes",
+      label: t("nav.notes"),
+      keywords: ["notes", "storage", "disk", "노트", "저장 공간", "용량"],
+    },
+    {
       id: "browser-permissions",
       label: t("nav.browserPermissions"),
       keywords: ["browser", "permission", "camera", "microphone", "location", "clipboard"],

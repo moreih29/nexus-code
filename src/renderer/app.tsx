@@ -18,6 +18,7 @@ import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
 import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
 import { ManagerPanel } from "./components/settings/panels/manager-panel";
+import { NotesPanel } from "./components/settings/panels/notes-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
 import { RemotePanel } from "./components/settings/panels/remote-panel";
@@ -276,6 +277,7 @@ export function App() {
             if (activeId === "language-servers") return <LanguageServersPanel />;
             if (activeId === "terminal") return <TerminalPanel />;
             if (activeId === "notifications") return <NotificationsPanel />;
+            if (activeId === "notes") return <NotesPanel />;
             if (activeId === "agent") return <AgentPanel />;
             if (activeId === "claude") return <AgentProfilesPanel agent="claude" onNavigate={go} />;
             if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;

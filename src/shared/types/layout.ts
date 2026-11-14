@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { RelayedMessagesSchema } from "../chat/relay";
 import { ShellChoiceSchema } from "../pty/shell";
+import { NoteIdSchema } from "./notes";
 import { BrowserTabPayloadSchema, DiffTabPayloadSchema, GitCommitTabPayloadSchema } from "./tab";
 import { WorkspaceIdSchema } from "./workspace-id";
 
@@ -27,6 +28,13 @@ export type DiffTabProps = z.infer<typeof DiffTabPropsSchema>;
 
 export const GitCommitTabPropsSchema = GitCommitTabPayloadSchema;
 export type GitCommitTabProps = z.infer<typeof GitCommitTabPropsSchema>;
+
+/** A note tab: the note, by its id in the workspace's notes; its title as last seen. */
+export const NoteTabPropsSchema = z.object({
+  noteId: NoteIdSchema,
+  title: z.string().max(500).optional(),
+});
+export type NoteTabProps = z.infer<typeof NoteTabPropsSchema>;
 
 export const BrowserTabPropsSchema = BrowserTabPayloadSchema;
 export type BrowserTabProps = z.infer<typeof BrowserTabPropsSchema>;
@@ -165,6 +173,15 @@ export const SerializedTabSchema = z.discriminatedUnion("type", [
     title: z.string(),
     ...TAB_TITLES,
     props: GitCommitTabPropsSchema,
+    isPreview: z.boolean().optional(),
+    isPinned: z.boolean().optional(),
+  }),
+  z.object({
+    id: z.string().uuid(),
+    type: z.literal("note"),
+    title: z.string(),
+    ...TAB_TITLES,
+    props: NoteTabPropsSchema,
     isPreview: z.boolean().optional(),
     isPinned: z.boolean().optional(),
   }),

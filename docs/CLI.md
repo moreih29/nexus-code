@@ -50,6 +50,16 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 
 에이전트 뷰가 떠 있을 때는 세션(Claude · Codex 탭, 터미널)을 에이전트 뷰 안에 보여줍니다. 명령을 실행한 세션이 패널에 보이면 그 패널을 덮지 않고 다른 패널에, 패널이 하나뿐이면 오른쪽으로 나눠 엽니다. 그 밖의 탭(파일, diff, 커밋, 브라우저)은 워크스페이스 화면으로 바꿔서 보여주고, 명령을 실행한 세션도 그 워크스페이스에서 앞에 두어 키보드를 이어 씁니다.
 
+## 노트 읽기
+
+| 명령 | 하는 일 |
+|---|---|
+| `nexus note list` | 이 워크스페이스의 노트 목록 (최신순. id, 제목, 수정 시각, 든 것) |
+| `nexus note read <노트>` | 노트를 마크다운으로 출력 (id, id 앞부분, 제목으로 지정) |
+| `nexus note path <노트>` | 노트 파일이 든 폴더 (앱이 도는 컴퓨터의 터미널에서만) |
+
+노트는 워크스페이스 폴더가 아니라 앱 데이터 폴더에 워크스페이스 위치별로 보관됩니다. 그림·이미지·파일은 노트 폴더 안의 `sketches/`·`screens/`·`materials/` 상대 경로로, 파일 트리에서 끌어 온 워크스페이스 파일은 `workspace:<경로>` 로 링크됩니다. 로컬 워크스페이스의 터미널에서는 `note read` 끝에 노트 폴더 경로가 함께 나옵니다. SSH·WSL 워크스페이스의 터미널에서는 그 폴더를 열 수 없으므로 `note read` 로 읽습니다.
+
 ## SSH 워크스페이스의 포트
 
 SSH 워크스페이스의 개발 서버는 원격 호스트에서 돕니다. 앱 브라우저 탭에서 로컬 주소(`localhost:5173`, `127.0.0.1:8080` 등)를 열면, 앱이 그 포트를 워크스페이스의 SSH 연결로 이 컴퓨터에 포워딩하고 거기서 엽니다. 주소창에 쳐도, `nexus browser open` 으로 열어도, Claude 탭의 링크를 눌러도 같습니다.
@@ -317,7 +327,7 @@ nexus tab close . --all              # 이 터미널 그룹의 탭 전부 (탭�
 nexus tab save <탭>                  # 편집기의 저장 안 한 변경을 파일에 저장 (--all 로 전부)
 nexus tab revert <탭>                # 저장 안 한 변경을 버리고 디스크 내용으로 (--all 로 전부)
 nexus panel list                     # 왼쪽 패널이 보이는지, 너비, 파일 패널의 보기
-nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git · agents)
+nexus panel show git                 # 파일 패널을 git 보기로 (sidebar · files · search · git · agents · notes)
 nexus panel show agents              # 파일 패널을 에이전트 목록으로
 nexus panel hide sidebar
 nexus panel resize files 320         # 패널 너비(px)
