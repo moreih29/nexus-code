@@ -182,6 +182,26 @@ describe("the room", () => {
     });
   });
 
+  test("an agent's request to a method that takes none from agents is refused, not taken as the user's", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key, { serves: () => ["sessions", "chat.control", "agents"] });
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    // consent.answer's params have no `from`: parsing them drops it.
+    const params = { id: "c1", answer: "once" as const, from } as { id: string; answer: "once" };
+    await expect(b.room.request("a", "consent.answer", params)).rejects.toMatchObject({
+      code: RpcErrorCode.Forbidden,
+      message: "consent.answer is not taken from agents",
+    });
+    expect(a.served).toEqual([]);
+    await b.room.request("a", "consent.answer", { id: "c1", answer: "once" });
+    expect(a.served).toEqual([{ from: "b", method: "consent.answer" }]);
+  });
+
   test("tells the room again when what it serves changed, and refuses what it no longer does", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

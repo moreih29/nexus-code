@@ -66,8 +66,31 @@ export interface CliRemote {
   ): Promise<RpcResult<M>>;
 }
 
+/** A consent prompt waiting on the user (consent-prompts.ts). */
+export interface PendingConsent {
+  readonly id: string;
+  /** When it was asked, and when it counts as turned down (Unix ms). */
+  readonly at: number;
+  readonly expiresAt: number;
+  /** What was asked, as the renderer shows it. */
+  readonly request: CliUiOps["consent.ask"]["args"];
+}
+
+/** The consent prompts waiting on the user, for another device of theirs to list and answer. */
+export interface CliConsents {
+  /** In the order asked. */
+  list(): readonly PendingConsent[];
+  /**
+   * Answers one as the user would, from the device named `by`; false when
+   * it no longer waits.
+   */
+  answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
+  /** The consent prompts waiting on the user. */
+  readonly consents: CliConsents;
   /** The user's other computers, for --device. */
   readonly remote: CliRemote;
   readonly appVersion: string;

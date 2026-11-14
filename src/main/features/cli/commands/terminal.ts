@@ -444,6 +444,7 @@ const tabClose: CliCommand = {
       await mayChange(ctx, workspace, {
         kind: "tabClose",
         detail: targets.map((t) => t.title).join('", "'),
+        ...(targets.some((t) => t.type === "terminal") ? { terminal: true } : {}),
       });
       return closeTabs(ctx, workspace, targets, force);
     }
@@ -453,7 +454,11 @@ const tabClose: CliCommand = {
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this terminal; close it in the app or exit its shell");
     }
-    await mayChange(ctx, workspace, { kind: "tabClose", detail: tab.title });
+    await mayChange(ctx, workspace, {
+      kind: "tabClose",
+      detail: tab.title,
+      ...(tab.type === "terminal" ? { terminal: true } : {}),
+    });
     await ctx.services.ui("tab.close", { workspaceId: workspace.id, tabId: tab.id, force });
     return output(`Closed ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,

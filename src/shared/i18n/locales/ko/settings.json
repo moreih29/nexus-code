@@ -319,7 +319,10 @@
       "mode_title": "에이전트가 세션의 권한 모드를 느슨하게 바꾸도록 허용할까요?",
       "profile_title": "에이전트가 탭의 프로필을 바꾸도록 허용할까요?",
       "remote_title": "다른 컴퓨터의 에이전트가 이 컴퓨터를 변경하도록 허용할까요?",
-      "remote_description": "{{device}} 컴퓨터의 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다."
+      "remote_description": "{{device}} 컴퓨터의 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
+      "answered_once": "{{device}}에서 이번만 허용했습니다.",
+      "answered_session": "{{device}}에서 재시작 전까지 허용했습니다.",
+      "answered_deny": "{{device}}에서 거절했습니다."
     },
     "heading": "nexus CLI"
   },

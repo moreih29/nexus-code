@@ -27,6 +27,7 @@ import type { FsProvider } from "../fs/bridge/provider";
 import { type AgentGate, type AgentRequest, relaySenderOf } from "./agent-gate";
 import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
+import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { gitDiff, gitLog, gitStatus, type RemoteGit } from "./git";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
@@ -774,6 +775,11 @@ export function serveWith(
     agents?: AgentGate;
     /** A device of the room by its id, as it names itself. */
     deviceName?: (id: string) => string | undefined;
+    /**
+     * What the user lets other devices control here, for the consent prompts
+     * they may answer; none when not told.
+     */
+    controls?: () => ConsentControls;
   } = {},
 ) {
   const { chats, sessions, terminals, git } = watches;
@@ -813,9 +819,19 @@ export function serveWith(
       });
       relay = relaySenderOf(by, device);
     }
+    const controls = watches.controls?.() ?? { chat: false, terminal: false };
     switch (request.method) {
-      case "sessions.list":
-        return listSessions(s, git);
+      case "sessions.list": {
+        const list = await listSessions(s, git);
+        return { ...list, consents: await remoteConsents(s, from, controls) };
+      }
+      case "consent.answer":
+        return answerConsent(
+          s,
+          { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) },
+          controls,
+          request.params as RpcParams<"consent.answer">,
+        );
       case "chat.read":
         return readChat(s, request.params as RpcParams<"chat.read">);
       case "terminal.read":

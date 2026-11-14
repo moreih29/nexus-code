@@ -3,18 +3,23 @@
  * terminal's own, or answer another session's permission request, for the
  * nexus CLI (main/features/cli/consent). One prompt at a time; more wait
  * their turn. A prompt left unanswered is taken down after its timeout and
- * counts as turned down.
+ * counts as turned down; one answered on another device of the user's
+ * (the remote's consent.answer) is taken down with a toast saying so.
  */
 
+import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
-import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import { showToast } from "@/components/ui/toast";
+import { type CliChange, type CliConsentAnswer, isEachTimeChange } from "../../../shared/cli/ui";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
+  /** Main's id for it, for another device to answer it by. */
+  readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
   /** Whether the agent manager asks: it is in no workspace of the user's. */
@@ -39,6 +44,28 @@ function settle(pending: Pending, answer: CliConsentAnswer): void {
   queue = queue.filter((p) => p !== pending);
   pending.resolve(answer);
   bus.notify();
+}
+
+/**
+ * Answers the prompt `id` as the user would, from their device named `by`,
+ * taking it down (or out of the queue) with a toast saying so. False when
+ * no prompt `id` waits.
+ */
+export function settleCliConsent(
+  id: string,
+  answer: "once" | "session" | "deny",
+  by?: string,
+): boolean {
+  const pending = queue.find((p) => p.prompt.id === id);
+  if (!pending) return false;
+  settle(pending, answer);
+  if (by) {
+    showToast({
+      kind: "info",
+      message: i18next.t(`settings:agentCli.consent.answered_${answer}`, { device: by }),
+    });
+  }
+  return true;
 }
 
 /** Shows the prompt and resolves to the user's answer, or "timeout". */
@@ -66,7 +93,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const kind = prompt?.change.kind;
   const permission = kind === "permissionAllow" || kind === "permissionDeny";
   const profile = kind === "chatProfile" || kind === "chatProfileNew";
-  const eachTime = permission || kind === "chatMode" || profile;
+  const eachTime = kind !== undefined && isEachTimeChange(kind);
   const description = !prompt
     ? ""
     : prompt.fromDevice

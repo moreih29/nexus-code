@@ -42,6 +42,45 @@ function setup() {
 }
 
 describe("watching the sessions' list", () => {
+  test("each device is sent the consent prompts as it may answer them; time running out is no change", async () => {
+    let left = 60_000;
+    let answerable = true;
+    const sent: { to: string; update: SessionsUpdate }[] = [];
+    const consent = (to: string) => ({
+      id: "c1",
+      at: 0,
+      expiresAt: 60_000,
+      expiresInMs: left,
+      from: { workspaceId: "w1", tabId: "t1" },
+      workspaceId: "w2",
+      change: { kind: "chatInput" },
+      eachTime: false,
+      answerable: answerable && to === "phone",
+    });
+    const watches = new SessionWatches({
+      list: async () => listOf("first"),
+      consents: async (to) => [consent(to)],
+      notify: async (to, update) => {
+        sent.push({ to, update });
+        return true;
+      },
+      pollMs: 60_000,
+    });
+    made.push(watches);
+    const phone = await watches.watch("phone");
+    const mac = await watches.watch("mac");
+    expect(phone.consents?.[0]?.answerable).toBe(true);
+    expect(mac.consents?.[0]?.answerable).toBe(false);
+    left = 30_000;
+    await watches.poll();
+    expect(sent).toHaveLength(0);
+    // The user turned the chats' controls off: the phone may no longer answer.
+    answerable = false;
+    await watches.poll();
+    expect(sent.map((s) => s.to)).toEqual(["phone"]);
+    expect(sent[0]?.update.consents?.[0]).toMatchObject({ answerable: false, expiresInMs: 30_000 });
+  });
+
   test("starts with the list, then sends it only when it changed", async () => {
     const { watches, sent, set } = setup();
     const first = await watches.watch("phone");

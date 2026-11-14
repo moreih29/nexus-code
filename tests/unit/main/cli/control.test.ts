@@ -45,6 +45,13 @@ describe("changing another workspace", () => {
     expect(app.uiCalls.at(-1)).toMatchObject({ op: "terminal.input", args: { tabId: CODEX_TAB } });
   });
 
+  test("closing a terminal there says it is a terminal's, for who may answer it", async () => {
+    const app = fakeApp();
+    app.answers.push("once");
+    await nexus(app, ["tab", "close", "codex", "--workspace", "api"]);
+    expect(app.asked[0]?.change).toEqual({ kind: "tabClose", detail: "codex", terminal: true });
+  });
+
   test("asks again after once, not after until-restart", async () => {
     const app = fakeApp();
     app.answers.push("once", "session");

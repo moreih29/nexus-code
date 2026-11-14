@@ -223,6 +223,33 @@ export interface CliChange {
   readonly detail?: string;
   /** What it lets happen, whole and shown as it is: the command a permission answer lets run. */
   readonly body?: string;
+  /** A tabClose's tab is a terminal (or one of the tabs is). */
+  readonly terminal?: boolean;
+}
+
+/**
+ * Whether the user is asked about a change each time, never "until restart":
+ * an answer to a permission request, a mode that lets more run unasked,
+ * another profile (another account) for a tab.
+ */
+export function isEachTimeChange(kind: CliChangeKind): boolean {
+  return (
+    kind === "permissionAllow" ||
+    kind === "permissionDeny" ||
+    kind === "chatMode" ||
+    kind === "chatProfile" ||
+    kind === "chatProfileNew"
+  );
+}
+
+/** Whether a change is a terminal's: typed into, opened, or closed with the rest. */
+export function isTerminalChange(change: CliChange): boolean {
+  return (
+    change.kind === "terminalInput" ||
+    change.kind === "terminalNew" ||
+    change.kind === "groupClose" ||
+    (change.kind === "tabClose" && change.terminal === true)
+  );
 }
 
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
@@ -970,7 +997,7 @@ export interface CliUiOps {
    * Asks the user whether a terminal of one workspace may make a change in
    * another, or an agent on another computer of theirs (`fromDevice`, its
    * name; `fromName`, its tab's title there) here. Unanswered after
-   * `timeoutMs`, the answer is "timeout".
+   * `timeoutMs`, the answer is "timeout". `id` names it for consent.settle.
    */
   "consent.ask": {
     args: {
@@ -980,9 +1007,21 @@ export interface CliUiOps {
       change: CliChange;
       timeoutMs: number;
       fromDevice?: string;
+      /** That computer's id, which may not answer its own agent's request. */
+      fromDeviceId?: string;
       fromName?: string;
+      id?: string;
     };
     result: { answer: CliConsentAnswer };
+  };
+  /**
+   * Answers a consent prompt (consent.ask's `id`) as the user would, from
+   * another device of theirs (`by`, its name): the prompt closes, and the
+   * user is told where it was answered. `settled` false when it no longer waits.
+   */
+  "consent.settle": {
+    args: { id: string; answer: "once" | "session" | "deny"; by?: string };
+    result: { settled: boolean };
   };
 }
 

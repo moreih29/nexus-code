@@ -319,7 +319,10 @@
       "mode_title": "Let an agent loosen a session's permission mode?",
       "profile_title": "Let an agent change a tab's profile?",
       "remote_title": "Allow an agent on another computer to change this one?",
-      "remote_description": "\"{{tab}}\" on the computer {{device}} asks to {{action}} in {{to}}."
+      "remote_description": "\"{{tab}}\" on the computer {{device}} asks to {{action}} in {{to}}.",
+      "answered_once": "Allowed once on {{device}}.",
+      "answered_session": "Allowed until restart on {{device}}.",
+      "answered_deny": "Turned down on {{device}}."
     },
     "heading": "nexus CLI"
   },

@@ -21,6 +21,7 @@ import { roomKeyOf } from "./account-key";
 import { AccountKeys, KeyError, SavedKeySchema } from "./account-keys";
 import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
+import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import type { RemoteRepository } from "./git";
 import { RelayConnection } from "./relay-connection";
@@ -204,12 +205,21 @@ export async function registerRemoteChannel(options: {
   const { gitStatus } = options;
   const taskGit = gitStatus ? new TaskGit(gitStatus) : null;
   const git = taskGit?.facts;
+  // What the user lets other devices control here, for the consent prompts they may answer.
+  const controls = () => ({
+    chat: options.allowControl.get(),
+    terminal: options.allowTerminal.get(),
+  });
   // The sessions' list other devices watch here.
   const sessionWatches = new SessionWatches({
     list: async () => {
       const services = options.services();
       if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
       return listSessions(services, git);
+    },
+    consents: async (to) => {
+      const services = options.services();
+      return services ? remoteConsents(services, to, controls()) : [];
     },
     notify: (to, update) => room?.notify(to, "sessions.update", update) ?? Promise.resolve(false),
   });
@@ -309,6 +319,7 @@ export async function registerRemoteChannel(options: {
           : {}),
         agents: agentGate,
         deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
+        controls,
       }),
       onChange: setRoomState,
       onNotification: (from, method, params) => {

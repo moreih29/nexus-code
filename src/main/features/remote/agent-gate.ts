@@ -16,19 +16,10 @@ import {
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
-import type { CliChange, CliChangeKind } from "../../../shared/cli/ui";
+import { type CliChange, isEachTimeChange } from "../../../shared/cli/ui";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
-
-/** What the user is asked about each time, never for a while: answers, a looser mode, a profile. */
-const EACH_TIME: ReadonlySet<CliChangeKind> = new Set([
-  "permissionAllow",
-  "permissionDeny",
-  "chatMode",
-  "chatProfile",
-  "chatProfileNew",
-]);
 
 const MINUTE_MS = 60_000;
 
@@ -73,7 +64,8 @@ export class AgentGate {
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
     const change = await changeOf(services, request);
-    const eachTime = EACH_TIME.has(change.kind);
+    // Answers, a looser mode, a profile: asked about each time, never for a while.
+    const eachTime = isEachTimeChange(change.kind);
     const pair = `${device.id}|${from.workspaceId}>${params.workspaceId}`;
     if (!eachTime && this.allowed.has(pair)) return;
     const { answer } = await services
@@ -86,6 +78,7 @@ export class AgentGate {
           change,
           timeoutMs: AGENT_CONSENT_MS,
           fromDevice: device.name,
+          fromDeviceId: device.id,
           ...(from.name ? { fromName: from.name } : {}),
         },
         AGENT_CONSENT_MS + 10_000,
@@ -164,8 +157,9 @@ async function changeOf(
         ? { kind: "chatMode", detail: `"${await title()}" (${params.permissionMode})` }
         : { kind: "chatSettings", detail: await title() };
     case "chat.close":
-    case "terminal.close":
       return { kind: "tabClose", detail: await title() };
+    case "terminal.close":
+      return { kind: "tabClose", detail: await title(), terminal: true };
     case "terminal.open":
       return { kind: "terminalNew" };
     case "terminal.input": {

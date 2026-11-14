@@ -37,6 +37,7 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "./consent";
+import { ConsentPrompts } from "./consent-prompts";
 import { CliError, type CliForwards, type CliRemote, type CliServices, shortId } from "./context";
 import { AgentInputs } from "./hops";
 import { listedAt } from "./listed";
@@ -146,9 +147,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
   const waits = new WaitRegistry(agentHost);
   const agentInputs = new AgentInputs();
   const startedAgents = new StartedAgents(agentHost);
-  // The renderer takes the prompt down at timeoutMs; the bridge waits a little longer.
+  // Every consent prompt, kept by id while it waits, for another device to answer too.
+  const consents = new ConsentPrompts({
+    ask: (args, timeoutMs) => bridge.ask("consent.ask", args, timeoutMs),
+    settle: async (id, answer, by) =>
+      (await bridge.ask("consent.settle", { id, answer, by })).settled,
+  });
   const askConsent = async (request: ChangeRequest, timeoutMs: number) =>
-    (await bridge.ask("consent.ask", { ...request, timeoutMs }, timeoutMs + 10_000)).answer;
+    (await consents.ask({ ...request, timeoutMs })).answer;
   const consent = new CrossWorkspaceConsent({
     policy: () => options.settings().crossWorkspace,
     ask: askConsent,
@@ -258,8 +264,13 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         return remote.request(deviceId, method, params, timeoutMs);
       },
     },
+    consents,
     ui: <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"], timeoutMs?: number) =>
-      bridge.ask(op, args, timeoutMs),
+      op === "consent.ask"
+        ? (consents.ask(args as CliUiOps["consent.ask"]["args"], timeoutMs) as Promise<
+            CliUiOps[K]["result"]
+          >)
+        : bridge.ask(op, args, timeoutMs),
     notify: (workspaceId, tabId, title, body) =>
       notifyTab(
         {

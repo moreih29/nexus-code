@@ -4,10 +4,12 @@
  * SESSIONS_POLL_MS here, where it is cheap, and sent to each watcher as a
  * sessions.update when it is not what that watcher was sent last. The
  * watcher no longer asks over the network every few seconds, and sees a
- * change within a second.
+ * change within a second. The consent prompts waiting on the user go with
+ * it, as that watcher may answer them.
  */
 import { randomUUID } from "node:crypto";
 import {
+  type RemoteConsent,
   RpcErrorCode,
   type RpcParams,
   type RpcResult,
@@ -25,13 +27,23 @@ type SessionsList = RpcResult<"sessions.list">;
 
 interface Watch {
   from: string;
-  /** The list as last sent, as JSON. */
+  /** The list as last sent, as compared (sameness). */
   sent: string;
+}
+
+/**
+ * A list as compared with the one sent last: a prompt's time left goes
+ * down by itself, and is no change to send.
+ */
+function sameness(list: SessionsList): string {
+  return JSON.stringify(list, (key, value) => (key === "expiresInMs" ? undefined : value));
 }
 
 export interface SessionWatchesDeps {
   /** The list now (listSessions). */
   list(): Promise<SessionsList>;
+  /** The consent prompts waiting on the user, as the device `to` is told them. */
+  consents?(to: string): Promise<RemoteConsent[]>;
   notify(to: string, update: SessionsUpdate): Promise<boolean>;
   readonly pollMs?: number;
 }
@@ -50,9 +62,9 @@ export class SessionWatches {
       const [oldest] = mine[0] ?? [];
       if (oldest) this.watches.delete(oldest);
     }
-    const list = await this.deps.list();
+    const list = await this.listFor(from, await this.deps.list());
     const watchId = randomUUID();
-    this.watches.set(watchId, { from, sent: JSON.stringify(list) });
+    this.watches.set(watchId, { from, sent: sameness(list) });
     this.schedule();
     return { ...list, watchId };
   }
@@ -90,11 +102,15 @@ export class SessionWatches {
     if (this.polling || this.watches.size === 0) return;
     this.polling = true;
     try {
-      const list = await this.deps.list();
-      const json = JSON.stringify(list);
+      const base = await this.deps.list();
+      // Each device's own list: the prompts it may answer differ.
+      const lists = new Map<string, SessionsList>();
+      for (const from of this.watchers()) lists.set(from, await this.listFor(from, base));
       for (const [watchId, watch] of this.watches) {
-        if (watch.sent === json) continue;
-        watch.sent = json;
+        const list = lists.get(watch.from) ?? base;
+        const same = sameness(list);
+        if (watch.sent === same) continue;
+        watch.sent = same;
         await this.deps.notify(watch.from, { ...list, watchId });
       }
     } catch (error) {
@@ -102,6 +118,10 @@ export class SessionWatches {
     } finally {
       this.polling = false;
     }
+  }
+
+  private async listFor(to: string, base: SessionsList): Promise<SessionsList> {
+    return this.deps.consents ? { ...base, consents: await this.deps.consents(to) } : base;
   }
 
   /** Polls while anything watches, and not otherwise. */

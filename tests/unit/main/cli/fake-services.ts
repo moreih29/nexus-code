@@ -682,6 +682,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     claudeAsks: () => [],
     answerClaudeAsk: async () => false,
     agentInputs: new AgentInputs(),
+    consents: { list: () => [], answer: async () => false },
     remote,
     managerWorkspace: () => null,
     claudeAgents: {

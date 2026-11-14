@@ -82,6 +82,8 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
     expect(asked[0]).toMatchObject({
       fromDevice: "MacBook",
+      // That computer may not answer its own agent's prompt from there.
+      fromDeviceId: "dev-1",
       fromName: "Fix build",
       fromWorkspaceId: "bw",
       toWorkspaceId: "w1",
@@ -132,6 +134,19 @@ describe("an agent's request from another computer", () => {
     expect(asked[0]).toMatchObject({
       change: { kind: "terminalInput", body: "rm -rf dist<ctrl-c><enter>" },
     });
+  });
+
+  test("closing a terminal says it is a terminal's, for who may answer it", async () => {
+    const { g, services, asked } = gate("ask", ["once", "once"]);
+    const close = (method: "terminal.close" | "chat.close") => ({
+      device,
+      method,
+      params: { workspaceId: "w1", tabId: "t1", from },
+    });
+    await g.check(services, close("terminal.close"));
+    await g.check(services, close("chat.close"));
+    expect(asked[0]).toMatchObject({ change: { kind: "tabClose", terminal: true } });
+    expect(asked[1]?.change).toEqual({ kind: "tabClose", detail: "Review" });
   });
 });
 

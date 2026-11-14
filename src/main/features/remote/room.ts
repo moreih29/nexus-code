@@ -352,8 +352,18 @@ export class RemoteRoom {
     }
     const spec = RPC_METHODS[method];
     const parsed = spec.params.safeParse(params ?? {});
-    // An agent's request (`from`) is taken as the user lets agents act here, not as people may.
-    const byAgent = parsed.success && (parsed.data as { from?: unknown }).from !== undefined;
+    // An agent's request (`from`) is taken as the user lets agents act here, not as people may;
+    // `from` is looked for as it came, since a method whose params have none drops it.
+    const byAgent =
+      typeof params === "object" &&
+      params !== null &&
+      (params as { from?: unknown }).from !== undefined;
+    if (byAgent && parsed.success && (parsed.data as { from?: unknown }).from === undefined) {
+      // Answering the user's consent prompts, say: that is the user's, not an agent's.
+      return {
+        error: { code: RpcErrorCode.Forbidden, message: `${method} is not taken from agents` },
+      };
+    }
     const needs = byAgent ? "agents" : (spec.capability as Capability);
     if (!this.serves().includes(needs)) {
       return {

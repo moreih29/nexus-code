@@ -1,11 +1,11 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
-import type { CliServices } from "../../../../../src/main/features/cli/context";
+import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
-function services(): CliServices {
+function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
     { id: "w1", name: "app", rootPath: "/src/app" },
     { id: "w2", name: "feat", rootPath: "/src/app-feat", task: { parentId: "w1", branch: "feat" } },
@@ -29,6 +29,14 @@ function services(): CliServices {
     claudeStatus: (_w: string, tab: string) =>
       tab === "t2" ? { status: "permissionPending", message: "Allow rm?", since: 5 } : null,
     activity: () => null,
+    consents: {
+      list: () => pending,
+      answer: async (id: string) => {
+        const at = pending.findIndex((p) => p.id === id);
+        if (at >= 0) pending.splice(at, 1);
+        return at >= 0;
+      },
+    },
     ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
       if (op === "tabs.list") {
         const list = tabs[args.workspaceId];
@@ -96,6 +104,56 @@ describe("serving the sessions", () => {
         since: 20,
       },
     ]);
+  });
+
+  test("with the consent prompts waiting on the user, as the device asking may answer them", async () => {
+    const pending: PendingConsent[] = [
+      {
+        id: "c1",
+        at: 1000,
+        expiresAt: Date.now() + 60_000,
+        request: {
+          fromWorkspaceId: "w1",
+          fromTabId: "t2",
+          toWorkspaceId: "w2",
+          change: { kind: "terminalNew" },
+          timeoutMs: 60_000,
+          id: "c1",
+        },
+      },
+    ];
+    const serve = (controls: { chat: boolean; terminal: boolean }) =>
+      serveWith(() => services(pending), {
+        controls: () => controls,
+        deviceName: (id) => (id === "phone" ? "iPhone" : undefined),
+      });
+    const listed = (await serve({ chat: true, terminal: false })({
+      from: "phone",
+      method: "sessions.list",
+      params: {},
+    })) as { consents: { id: string; answerable: boolean; from: object }[] };
+    expect(listed.consents).toHaveLength(1);
+    expect(listed.consents[0]).toMatchObject({
+      id: "c1",
+      answerable: false,
+      from: { workspaceName: "app", name: "zsh" },
+    });
+    // A terminal's change needs the terminals' controls too.
+    await expect(
+      serve({ chat: true, terminal: false })({
+        from: "phone",
+        method: "consent.answer",
+        params: { id: "c1", answer: "once" },
+      }),
+    ).rejects.toMatchObject({ code: 1002 });
+    expect(
+      await serve({ chat: true, terminal: true })({
+        from: "phone",
+        method: "consent.answer",
+        params: { id: "c1", answer: "once" },
+      }),
+    ).toEqual({});
+    expect(pending).toEqual([]);
   });
 
   test("is unavailable until the app made its services, and serves nothing else yet", async () => {
