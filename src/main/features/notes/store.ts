@@ -14,7 +14,7 @@
  * are found again from its folder whatever the workspace's id.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
@@ -69,6 +69,9 @@ export function newSketchId(now = Date.now()): string {
 }
 
 export class NotesStore {
+  /** By note folder: the photo going into that note's document now, which the next waits for. */
+  private readonly photoTurns = new Map<string, Promise<void>>();
+
   constructor(
     /** The notes folder: <app data>/notes. */
     readonly root: string,
@@ -156,8 +159,9 @@ export class NotesStore {
     if (!stat?.isFile()) throw new NoteError("bad-request", `not a file: ${source}`);
     const sub = path.join(this.noteDir(location, id), NOTE_DIRS.files);
     await fs.mkdir(sub, { recursive: true });
-    const name = await freeName(sub, safeName(path.basename(source)));
-    await fs.copyFile(source, path.join(sub, name));
+    const name = await claimFree(sub, safeName(path.basename(source)), (file) =>
+      fs.copyFile(source, file, fsConstants.COPYFILE_EXCL),
+    );
     return { src: `${NOTE_DIRS.files}/${name}`, name, size: stat.size };
   }
 
@@ -174,8 +178,9 @@ export class NotesStore {
     const sub = path.join(this.noteDir(location, id), NOTE_DIRS.images);
     await fs.mkdir(sub, { recursive: true });
     const base = name ? safeName(name).replace(/\.[^.]*$/, "") : `image-${stamp()}`;
-    const file = await freeName(sub, `${base}.${ext}`);
-    await fs.writeFile(path.join(sub, file), bytes);
+    const file = await claimFree(sub, `${base}.${ext}`, (target) =>
+      fs.writeFile(target, bytes, { flag: "wx" }),
+    );
     return { src: `${NOTE_DIRS.images}/${file}`, name: file, size: bytes.byteLength };
   }
 
@@ -192,10 +197,23 @@ export class NotesStore {
     ext: string,
     name?: string,
   ): Promise<NoteAsset> {
-    const note = await this.read(location, id);
+    // A note that is not there gets no file either.
+    await this.read(location, id);
     const asset = await this.addImage(location, id, bytes, ext, name ?? `photo-${stamp()}`);
-    const content = [...(note.doc.content ?? []), imageBlock(asset)];
-    await this.save(location, id, { doc: { ...note.doc, content } });
+    // Photos that come at once go into the note one after another: each
+    // reads the note as the one before left it.
+    const dir = this.noteDir(location, id);
+    const turn = (this.photoTurns.get(dir) ?? Promise.resolve()).then(async () => {
+      const note = await this.read(location, id);
+      const content = [...(note.doc.content ?? []), imageBlock(asset)];
+      await this.save(location, id, { doc: { ...note.doc, content } });
+    });
+    const settled = turn.catch(() => {});
+    this.photoTurns.set(dir, settled);
+    void settled.then(() => {
+      if (this.photoTurns.get(dir) === settled) this.photoTurns.delete(dir);
+    });
+    await turn;
     return asset;
   }
 
@@ -534,13 +552,27 @@ export function safeName(name: string): string {
     : cleaned;
 }
 
-/** `name`, or `name (2)`, `name (3)`… whichever is free in `dir`. */
-async function freeName(dir: string, name: string): Promise<string> {
+/**
+ * Makes a file in `dir` under `name`, or `name (2)`, `name (3)`… whichever
+ * is free, with `create`, which fails with EEXIST where one is there (it
+ * creates exclusively): two at once never take the same name, nor does one
+ * write over a file of the same name.
+ */
+async function claimFree(
+  dir: string,
+  name: string,
+  create: (file: string) => Promise<void>,
+): Promise<string> {
   const ext = path.extname(name);
   const stem = name.slice(0, name.length - ext.length);
   for (let i = 1; ; i++) {
     const candidate = i === 1 ? name : `${stem} (${i})${ext}`;
-    if (!(await exists(path.join(dir, candidate)))) return candidate;
+    try {
+      await create(path.join(dir, candidate));
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
   }
 }
 

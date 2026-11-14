@@ -109,6 +109,28 @@ describe("notes on disk", () => {
     expect((await store.readAsset(here, note.id, again.scene)).toString()).toBe("{1}");
   });
 
+  test("photos that come at once each get a name of their own, and all go into the note", async () => {
+    const note = await store.create(here);
+    const bytes = (n: number) => new Uint8Array([n, n, n]);
+    const assets = await Promise.all(
+      [1, 2, 3, 4, 5].map((n) => store.addPhoto(here, note.id, bytes(n), "jpg", "IMG_0001")),
+    );
+    const names = assets.map((a) => a.name).sort();
+    expect(names).toEqual([
+      "IMG_0001 (2).jpg",
+      "IMG_0001 (3).jpg",
+      "IMG_0001 (4).jpg",
+      "IMG_0001 (5).jpg",
+      "IMG_0001.jpg",
+    ]);
+    // None wrote over another.
+    const kept = await Promise.all(assets.map((a) => store.readAsset(here, note.id, a.src)));
+    expect(kept.map((b) => b[0]).sort()).toEqual([1, 2, 3, 4, 5]);
+    const read = await store.read(here, note.id);
+    const srcs = (read.doc.content ?? []).map((n) => (n.attrs as { src?: string })?.src);
+    expect(srcs.filter(Boolean).sort()).toEqual(assets.map((a) => a.src).sort());
+  });
+
   test("prune clears the files the document no longer uses, but not ones just written", async () => {
     const note = await store.create(here);
     const sketch = await store.saveSketch(here, note.id, { scene: "{}", svg: "<svg/>" });

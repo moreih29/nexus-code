@@ -5,7 +5,12 @@ import type { CliServices, PendingConsent } from "../../../../../src/main/featur
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import type { RemoteRepository } from "../../../../../src/main/features/remote/git";
-import { looksLike, type RemoteNotes } from "../../../../../src/main/features/remote/notes";
+import {
+  looksLike,
+  MAX_PHOTOS_PER_MINUTE,
+  PhotoQuota,
+  type RemoteNotes,
+} from "../../../../../src/main/features/remote/notes";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
@@ -331,6 +336,24 @@ describe("serving a workspace's notes", () => {
       code: RpcErrorCode.NotFound,
     });
     expect(attached).toHaveLength(1);
+  });
+
+  test("thirty photos a minute from one device; more wait for the minute to pass", async () => {
+    const { remote, attached } = notes();
+    let now = 0;
+    const serve = serveWith(() => services(), {
+      notes: remote,
+      photoQuota: new PhotoQuota(MAX_PHOTOS_PER_MINUTE, () => now),
+    });
+    const photo = { workspaceId: "w1", noteId: "n1", mediaType: "image/jpeg", data: JPEG };
+    const attach = (from: string) => serve({ from, method: "notes.attach", params: photo });
+    for (let i = 0; i < MAX_PHOTOS_PER_MINUTE; i++) await attach("phone");
+    await expect(attach("phone")).rejects.toMatchObject({ code: RpcErrorCode.Unavailable });
+    // Another device has its own share.
+    await attach("tablet");
+    now += 60_000;
+    await attach("phone");
+    expect(attached).toHaveLength(MAX_PHOTOS_PER_MINUTE + 2);
   });
 
   test("the sessions' list tells the note being recorded into, while one is", async () => {

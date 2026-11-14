@@ -30,7 +30,7 @@ import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
-import { attachToNote, listNotes, type RemoteNotes } from "./notes";
+import { attachToNote, listNotes, PhotoQuota, type RemoteNotes } from "./notes";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import { findFiles, searchFiles } from "./search";
 import type { SessionWatches } from "./session-watches";
@@ -776,6 +776,8 @@ export function serveWith(
     repositories?: RemoteGit;
     /** The workspaces' notes, for notes.list and notes.attach, and the note it records into. */
     notes?: RemoteNotes;
+    /** How many photos each device put into notes lately; a fresh one when not given. */
+    photoQuota?: PhotoQuota;
     /** Whether an agent on another device may do what it asks (a request with `from`). */
     agents?: AgentGate;
     /** A device of the room by its id, as it names itself. */
@@ -789,6 +791,7 @@ export function serveWith(
 ) {
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
+  const photoQuota = watches.photoQuota ?? new PhotoQuota();
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
@@ -845,9 +848,11 @@ export function serveWith(
         if (!workspaceOf(s, workspaceId)) {
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         }
-        return request.method === "notes.list"
-          ? listNotes(notes, request.params as RpcParams<"notes.list">)
-          : attachToNote(notes, request.params as RpcParams<"notes.attach">);
+        if (request.method === "notes.list") {
+          return listNotes(notes, request.params as RpcParams<"notes.list">);
+        }
+        photoQuota.take(from);
+        return attachToNote(notes, request.params as RpcParams<"notes.attach">);
       }
       case "consent.answer":
         return answerConsent(

@@ -78,6 +78,42 @@ export async function listNotes(
   };
 }
 
+/** Most photos one device may put into notes here a minute; more are Unavailable. */
+export const MAX_PHOTOS_PER_MINUTE = 30;
+
+/**
+ * How many photos each device put into notes within the last minute: a
+ * photo is small, but a device sending them without end would fill the
+ * disk a note at a time.
+ */
+export class PhotoQuota {
+  private readonly recent = new Map<string, number[]>();
+
+  constructor(
+    private readonly max = MAX_PHOTOS_PER_MINUTE,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** Counts a photo of `deviceId`'s; Unavailable past the minute's share. */
+  take(deviceId: string): void {
+    const now = this.now();
+    for (const [id, times] of this.recent) {
+      const kept = times.filter((at) => now - at < 60_000);
+      if (kept.length === 0) this.recent.delete(id);
+      else this.recent.set(id, kept);
+    }
+    const times = this.recent.get(deviceId) ?? [];
+    if (times.length >= this.max) {
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        `more than ${this.max} photos a minute: send the rest in a minute`,
+      );
+    }
+    times.push(now);
+    this.recent.set(deviceId, times);
+  }
+}
+
 export async function attachToNote(
   notes: RemoteNotes,
   { workspaceId, noteId, mediaType, data, name }: RpcParams<"notes.attach">,
