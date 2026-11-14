@@ -275,6 +275,12 @@ function disposePromptsWithPage(
 const ABOUT_BLANK = "about:blank";
 
 /**
+ * How long a click or Enter in a page lets it open one popup: Chrome's
+ * transient activation, so a sign-in that asks its server first still opens.
+ */
+export const POPUP_ACTIVATION_MS = 5_000;
+
+/**
  * Installs will-navigate, will-frame-navigate, and setWindowOpenHandler
  * guards on a WebContents instance.
  *
@@ -285,12 +291,6 @@ const ABOUT_BLANK = "about:blank";
  * @param onPopup      Called with every popup window opened from this
  *                     WebContents or, recursively, from its popups.
  */
-/**
- * How long a click or Enter in a page lets it open one popup: Chrome's
- * transient activation, so a sign-in that asks its server first still opens.
- */
-export const POPUP_ACTIVATION_MS = 5_000;
-
 export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,

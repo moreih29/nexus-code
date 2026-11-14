@@ -759,10 +759,10 @@ export async function closeChat(
   return {};
 }
 
-/** Answers another device's request with this device's services. */
 /** Most files.find and files.search one device may have running here at once. */
 export const MAX_SEARCHES_PER_DEVICE = 2;
 
+/** Answers another device's request with this device's services. */
 export function serveWith(
   services: () => CliServices | null,
   watches: {
