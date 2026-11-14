@@ -587,6 +587,8 @@
       "sameAccount": "Same account as {{name}}",
       "sameOrg": "Same organization as {{name}}",
       "unavailable": "{{program}} not found",
+      "noAnswer": "No answer from {{command}}",
+      "unchecked": "Could not check the sign-in",
       "apiKey": "API key",
       "signedIn": "Signed in"
     },
