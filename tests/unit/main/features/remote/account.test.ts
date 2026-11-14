@@ -9,6 +9,7 @@ import {
   SignedOutError,
   thisDevice,
 } from "../../../../../src/main/features/remote/account";
+import { ServerError } from "../../../../../src/main/features/remote/errors";
 import { listenForCallback } from "../../../../../src/main/features/remote/loopback";
 import { challengeOf } from "../../../../../src/main/features/remote/pkce";
 import { keptInMemory } from "../../../../../src/main/features/remote/sealed-file";
@@ -22,7 +23,12 @@ const device = { id: "d1", name: "Mac", platform: "darwin" };
 
 /** A server that signs in whoever comes, and the requests it got. */
 function fakeServer(
-  options: { tokenStatus?: number; tokenError?: string; devicesStatus?: number } = {},
+  options: {
+    tokenStatus?: number;
+    tokenError?: string;
+    devicesStatus?: number;
+    devicesError?: string;
+  } = {},
 ) {
   const requests: { method: string; path: string; body?: unknown; auth?: string }[] = [];
   const fetchFn = (async (input: URL | string, init?: RequestInit) => {
@@ -43,9 +49,12 @@ function fakeServer(
       return new Response(JSON.stringify(body), { status });
     }
     if (url.pathname === "/devices") {
-      return new Response(JSON.stringify({ devices: [{ ...device, current: true }] }), {
-        status: options.devicesStatus ?? 200,
-      });
+      const status = options.devicesStatus ?? 200;
+      const body =
+        status === 200
+          ? { devices: [{ ...device, current: true }] }
+          : { error: options.devicesError ?? "unauthorized" };
+      return new Response(JSON.stringify(body), { status });
     }
     return new Response(null, { status: 204 });
   }) as typeof fetch;
@@ -133,6 +142,7 @@ describe("the account", () => {
       [{ code: "c1", state: "forged" }, {}, "mismatch"],
       [{ error: "access_denied" }, {}, "access_denied"],
       [{ error: "unverified_email" }, {}, "unverified_email"],
+      [{ error: "not_invited" }, {}, "not_invited"],
       [{ error: "something_new" }, {}, "failed"],
       [{ code: "c1" }, { tokenStatus: 400 }, "invalid_grant"],
       [{ code: "c1" }, { tokenStatus: 409, tokenError: "too_many_devices" }, "too_many_devices"],
@@ -214,6 +224,39 @@ describe("the account", () => {
     await expect(gone.devices()).rejects.toBeInstanceOf(SignedOutError);
     expect(gone.state().status).toBe("signed-out");
     expect(store.value).toBeNull();
+  });
+
+  test("a 403 not_invited signs it out and says why; another 403 does not", async () => {
+    const saved = { server: SERVER, token: "tok", user, device };
+    const store = memoryStore(saved);
+    const dropped = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      fetch: fakeServer({ devicesStatus: 403, devicesError: "not_invited" }).fetchFn,
+    });
+    accounts.push(dropped);
+    await dropped.restore();
+    await expect(dropped.devices()).rejects.toBeInstanceOf(SignedOutError);
+    expect(dropped.state()).toEqual({
+      status: "signed-out",
+      server: SERVER,
+      failure: "not_invited",
+    });
+    expect(store.value).toBeNull();
+
+    const kept = memoryStore(saved);
+    const forbidden = new RemoteAccount({
+      server: SERVER,
+      store: kept,
+      openExternal: async () => {},
+      fetch: fakeServer({ devicesStatus: 403, devicesError: "forbidden" }).fetchFn,
+    });
+    accounts.push(forbidden);
+    await forbidden.restore();
+    await expect(forbidden.devices()).rejects.toBeInstanceOf(ServerError);
+    expect(forbidden.state().status).toBe("signed-in");
+    expect(kept.value).not.toBeNull();
   });
 
   test("removing this device, signing out, or deleting the account forgets the sign-in", async () => {

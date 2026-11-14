@@ -53,6 +53,7 @@ const DevicesResponseSchema = z.object({ devices: z.array(RemoteDeviceInfoSchema
 const CALLBACK_ERRORS: readonly SignInFailure[] = [
   "access_denied",
   "unverified_email",
+  "not_invited",
   "server_error",
 ];
 
@@ -290,6 +291,13 @@ export class RemoteAccount {
     const answer = parseJson(text);
     if (!res.ok) {
       const code = isRecord(answer) && typeof answer.error === "string" ? answer.error : undefined;
+      // An account taken off an invite-only server's list: signed out as by a
+      // 401, saying why.
+      if (res.status === 403 && code === "not_invited" && options.signedIn !== false) {
+        this.failure = "not_invited";
+        this.forget();
+        throw new SignedOutError();
+      }
       const retryAfter = Number(res.headers.get("retry-after"));
       throw new ServerError(
         res.status,

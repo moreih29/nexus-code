@@ -81,7 +81,7 @@ interface Open {
 
 /** Why the server refused the upgrade, from its status and its body's `error`. */
 export function refusalOf(status: number | undefined, code: string | undefined): VoiceFailure {
-  if (status === 401 || code === "unauthorized") return "signed-out";
+  if (status === 401 || code === "unauthorized" || code === "not_invited") return "signed-out";
   if (status === 403 || code === "quota_exceeded") return "quota";
   if (status === 429 || code === "too_many_sessions") return "busy";
   if (status === 503 || code === "voice_unavailable") return "unavailable";

@@ -133,6 +133,7 @@ describe("voice input's socket", () => {
       [429, "too_many_sessions", "busy"],
       [503, "voice_unavailable", "unavailable"],
       [401, "unauthorized", "signed-out"],
+      [403, "not_invited", "signed-out"],
     ] as const) {
       const { voice, socket } = setup({});
       const started = voice.start("ko");

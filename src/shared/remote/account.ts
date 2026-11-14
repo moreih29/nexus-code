@@ -34,9 +34,11 @@ export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
 /**
  * Why a sign-in did not finish:
  * - cancelled, timed-out: the app stopped waiting for the browser;
- * - access_denied, unverified_email, server_error: what the server sent the
- *   browser back with (the user said no at Google; Google has not verified
- *   the email; the server failed);
+ * - access_denied, unverified_email, not_invited, server_error: what the
+ *   server sent the browser back with (the user said no at Google; Google has
+ *   not verified the email; the server takes only invited accounts, and this
+ *   is not one; the server failed). not_invited also signs out an account
+ *   taken off the list, whose requests the server refuses with a 403;
  * - invalid_grant: the server would not trade the code (expired, or used);
  * - too_many_devices: the account has as many devices signed in as it may,
  *   so one is to be removed from another device before signing in again;
@@ -49,6 +51,7 @@ export const SIGN_IN_FAILURES = [
   "timed-out",
   "access_denied",
   "unverified_email",
+  "not_invited",
   "server_error",
   "invalid_grant",
   "too_many_devices",
