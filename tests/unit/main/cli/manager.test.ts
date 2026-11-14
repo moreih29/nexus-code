@@ -49,7 +49,7 @@ describe("the agent manager", () => {
 
   // What it reads of the sessions may say anything: what it types, runs or
   // sends is the user's to allow, as the setting says.
-  test("asks the user each time before it types, runs or sends", async () => {
+  test("asks the user before it types, runs or sends", async () => {
     const app = fakeApp();
     const send = ["terminal", "send", "codex", "go on", "--workspace", "api"];
     expect((await nexus(app, send)).stderr).toBe("nexus: the user did not allow it\n");
@@ -65,6 +65,18 @@ describe("the agent manager", () => {
       toWorkspaceId: API,
       change: { kind: "terminalInput", detail: "codex", body: "go on\n" },
     });
+  });
+
+  test("types, runs and sends there unasked after until restart", async () => {
+    const app = fakeApp();
+    app.answers.push("session");
+    const send = ["terminal", "send", "codex", "go on", "--workspace", "api"];
+    expect((await nexus(app, send)).exitCode).toBe(0);
+    expect((await nexus(app, send)).exitCode).toBe(0);
+    expect(
+      (await nexus(app, ["terminal", "new", "--command", "make", "--workspace", "api"])).exitCode,
+    ).toBe(0);
+    expect(app.asked).toHaveLength(1);
   });
 
   test("types, runs and sends unasked when the setting allows changes", async () => {

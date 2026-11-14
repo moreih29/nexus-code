@@ -7,10 +7,10 @@
  * than MAX_PENDING_PROMPTS_PER_DEVICE prompts of one device's waiting on
  * the user at once, and as the user set it
  * (Settings › Remote): allowed, turned down, or asked about as the nexus
- * command's changes to another workspace are: for this once, or for that
- * kind of change from that computer's workspace to this one until the app
- * restarts. What is typed, sent or run is asked about each time
- * (askedEachTime).
+ * command's changes to another workspace are: for this once, or for every
+ * change from that computer's workspace to this one until the app restarts.
+ * An answer to a permission request, a looser mode and another profile are
+ * asked about each time (askedEachTime).
  */
 import {
   AGENT_CONSENT_MS,
@@ -60,7 +60,7 @@ export class AgentGate {
   private readonly recent = new Map<string, number[]>();
   /** The prompts waiting on the user, by the device whose agent asked. */
   private readonly prompting = new Map<string, number>();
-  /** "device|its workspace>this workspace>kind" the user allowed until restart. */
+  /** "device|its workspace>this workspace" pairs the user allowed until restart. */
   private readonly allowed = new Set<string>();
 
   constructor(private readonly deps: AgentGateDeps) {}
@@ -92,11 +92,10 @@ export class AgentGate {
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
     const change = await changeOf(services, request);
-    // What it types, sends or runs, an answer, a looser mode, a profile:
-    // asked about each time, never for a while.
+    // An answer, a looser mode, a profile: asked about each time, never for a while.
     const eachTime = askedEachTime(change);
-    const key = `${device.id}|${from.workspaceId}>${params.workspaceId}>${change.kind}`;
-    if (!eachTime && this.allowed.has(key)) return;
+    const pair = `${device.id}|${from.workspaceId}>${params.workspaceId}`;
+    if (!eachTime && this.allowed.has(pair)) return;
     const waiting = this.prompting.get(device.id) ?? 0;
     if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
       throw new RpcFailure(
@@ -131,7 +130,7 @@ export class AgentGate {
         if (left > 0) this.prompting.set(device.id, left);
         else this.prompting.delete(device.id);
       });
-    if (answer === "session" && !eachTime) this.allowed.add(key);
+    if (answer === "session" && !eachTime) this.allowed.add(pair);
     if (answer === "once" || answer === "session") return;
     throw forbidden(
       answer === "timeout"
