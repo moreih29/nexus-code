@@ -29,8 +29,9 @@ import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
-import { gitDiff, gitLog, gitStatus, type RemoteGit } from "./git";
+import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
+import { findFiles, searchFiles } from "./search";
 import type { SessionWatches } from "./session-watches";
 import {
   answerTerminal,
@@ -769,7 +770,7 @@ export function serveWith(
     attachments?: Attachments;
     /** The workspaces' file systems, and how an image is drawn smaller. */
     files?: Omit<RemoteFiles, "folders">;
-    /** The workspaces' repositories, for git.status, git.diff and git.log. */
+    /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
     repositories?: RemoteGit;
     /** Whether an agent on another device may do what it asks (a request with `from`). */
     agents?: AgentGate;
@@ -863,9 +864,24 @@ export function serveWith(
           ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
           : readFile(files, workspace.rootPath, request.params as RpcParams<"files.read">);
       }
+      case "files.find":
+      case "files.search": {
+        if (!watches.files) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
+        }
+        const { workspaceId } = request.params as { workspaceId: string };
+        if (!workspaceOf(s, workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        const fs = await watches.files.fs(workspaceId).catch(unavailable);
+        return request.method === "files.find"
+          ? findFiles(fs, request.params as RpcParams<"files.find">)
+          : searchFiles(fs, request.params as RpcParams<"files.search">);
+      }
       case "git.status":
       case "git.diff":
-      case "git.log": {
+      case "git.log":
+      case "git.show": {
         const repositories = watches.repositories;
         if (!repositories) {
           throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
@@ -876,6 +892,9 @@ export function serveWith(
         }
         if (request.method === "git.status") {
           return gitStatus(repositories, request.params as RpcParams<"git.status">);
+        }
+        if (request.method === "git.show") {
+          return gitShow(repositories, request.params as RpcParams<"git.show">);
         }
         return request.method === "git.diff"
           ? gitDiff(repositories, request.params as RpcParams<"git.diff">)

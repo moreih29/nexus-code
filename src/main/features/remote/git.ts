@@ -1,9 +1,10 @@
 /**
  * A workspace's repository as another device reads it (git.status,
- * git.diff, git.log): how its branch stands, the files it changed, a
- * changed file's diff and its commits. Read only. Paths are the
- * repository's, relative to its top level, as git gives them; a diff is
- * given only of a file git says changed.
+ * git.diff, git.log, git.show): how its branch stands, the files it
+ * changed, a changed file's diff, its commits and what one changed. Read
+ * only. Paths are the repository's, relative to its top level, as git
+ * gives them; a diff is given only of a file git says changed (in the
+ * work tree, or in the commit asked about).
  */
 import path from "node:path";
 import {
@@ -13,12 +14,15 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import type { DiffSpec, GitStatus, LogEntry } from "../../../shared/git/types";
+import type { CommitDetail, DiffSpec, GitStatus, LogEntry } from "../../../shared/git/types";
 import type { GitRepository } from "../git/domain/repository";
 import { fitsInFrame, RpcFailure } from "./room";
 
 /** What of a repository these read. */
-export type RemoteRepository = Pick<GitRepository, "topLevel" | "status" | "diff" | "log">;
+export type RemoteRepository = Pick<
+  GitRepository,
+  "topLevel" | "status" | "diff" | "log" | "commitDetail"
+>;
 
 export interface RemoteGit {
   /** The workspace's repository; null where it is none. */
@@ -32,6 +36,10 @@ export const DEFAULT_LOG_COMMITS = 50;
 
 /** Most bytes of a diff read before it is cut: a frame takes less anyway. */
 const MAX_DIFF_BYTES = 2 * 1024 * 1024;
+
+/** The empty tree's hash, what a root commit is compared with: SHA-1's, and SHA-256's. */
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const EMPTY_TREE_SHA256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
 
 type GitFile = RpcResult<"git.status">["files"][number];
 
@@ -175,11 +183,76 @@ async function diffText(
   return { text, cut };
 }
 
+/** What git says of a commit; NotFound for one the repository does not have. */
+async function commitIn(repository: RemoteRepository, hash: string): Promise<CommitDetail> {
+  return repository.commitDetail(hash).catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      /bad object|bad revision|unknown revision|ambiguous argument|not a valid|invalid object/i.test(
+        message,
+      )
+    ) {
+      throw new RpcFailure(RpcErrorCode.NotFound, `no commit ${hash} in the repository`);
+    }
+    failed(error);
+  });
+}
+
+/** A diff's hunks as a frame takes them: those after left out when they do not fit. */
+function diffResult(
+  head: { path: string; oldPath?: string },
+  { hunks, binary, truncated }: { hunks: DiffHunk[]; binary: boolean; truncated: boolean },
+): RpcResult<"git.diff"> {
+  const result = { ...head, ...(binary ? { binary: true } : {}), hunks };
+  if (!truncated && fits(result)) return result;
+  let kept = hunks;
+  while (kept.length > 0 && !fits({ ...result, hunks: kept })) kept = kept.slice(0, -1);
+  return { ...result, hunks: kept, truncated: true };
+}
+
+/** A file's change in `spec`, its last hunk left out when the read cut it. */
+async function specDiff(repository: RemoteRepository, spec: DiffSpec) {
+  const { text, cut } = await diffText(repository, spec).catch(failed);
+  const { hunks, binary } = hunksOf(text);
+  // A hunk cut off in the middle by the read is left out whole.
+  return cut
+    ? { hunks: hunks.slice(0, -1), binary, truncated: true }
+    : { hunks, binary, truncated: false };
+}
+
+/** A file's change in a commit, against the commit's first parent. */
+async function commitDiff(
+  repository: RemoteRepository,
+  { path: asked, commit }: { path: string; commit: string },
+): Promise<RpcResult<"git.diff">> {
+  const detail = await commitIn(repository, commit);
+  const file = detail.files.find((f) => f.path === asked);
+  if (!file) {
+    throw new RpcFailure(
+      RpcErrorCode.NotFound,
+      `${asked} did not change in ${commit} (git.show lists what did)`,
+    );
+  }
+  const head = { path: file.path, ...(file.oldPath ? { oldPath: file.oldPath } : {}) };
+  const spec: DiffSpec = {
+    kind: "ref-vs-ref",
+    leftRef: detail.parents[0] ?? (detail.sha.length === 64 ? EMPTY_TREE_SHA256 : EMPTY_TREE),
+    rightRef: detail.sha,
+    relPath: file.path,
+    ...(file.oldPath ? { oldRelPath: file.oldPath } : {}),
+  };
+  return diffResult(head, await specDiff(repository, spec));
+}
+
 export async function gitDiff(
   git: RemoteGit,
-  { workspaceId, path: asked, staged = false }: RpcParams<"git.diff">,
+  { workspaceId, path: asked, staged = false, commit }: RpcParams<"git.diff">,
 ): Promise<RpcResult<"git.diff">> {
+  if (commit !== undefined && staged) {
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "staged is not taken with commit");
+  }
   const repository = await repositoryOf(git, workspaceId);
+  if (commit !== undefined) return commitDiff(repository, { path: asked, commit });
   const status = await repository.status().catch(failed);
   const file = filesOf(status).find((f) => f.path === asked);
   if (!file || !(staged ? file.staged : file.unstaged)) {
@@ -189,32 +262,18 @@ export async function gitDiff(
     );
   }
   const head = { path: file.path, ...(file.oldPath ? { oldPath: file.oldPath } : {}) };
-  let hunks: DiffHunk[];
-  let binary = false;
-  let truncated = false;
   if (file.unstaged === "?" && !staged) {
     const text = await git
       .readUntracked(workspaceId, path.posix.join(repository.topLevel, file.path), MAX_READ_BYTES)
       .catch(failed);
-    if (text.includes("\0")) binary = true;
-    hunks = binary ? [] : addedHunk(text);
-  } else {
-    const pathShape = { relPath: file.path, ...(file.oldPath ? { oldRelPath: file.oldPath } : {}) };
-    const spec: DiffSpec = staged
-      ? { kind: "index-vs-head", ...pathShape }
-      : { kind: "wt-vs-index", ...pathShape };
-    const { text, cut } = await diffText(repository, spec).catch(failed);
-    ({ hunks, binary } = hunksOf(text));
-    // A hunk cut off in the middle by the read is left out whole.
-    if (cut) {
-      hunks = hunks.slice(0, -1);
-      truncated = true;
-    }
+    const binary = text.includes("\0");
+    return diffResult(head, { hunks: binary ? [] : addedHunk(text), binary, truncated: false });
   }
-  const result = { ...head, ...(binary ? { binary: true } : {}), hunks };
-  if (!truncated && fits(result)) return result;
-  while (hunks.length > 0 && !fits({ ...result, hunks })) hunks = hunks.slice(0, -1);
-  return { ...result, hunks, truncated: true };
+  const pathShape = { relPath: file.path, ...(file.oldPath ? { oldRelPath: file.oldPath } : {}) };
+  const spec: DiffSpec = staged
+    ? { kind: "index-vs-head", ...pathShape }
+    : { kind: "wt-vs-index", ...pathShape };
+  return diffResult(head, await specDiff(repository, spec));
 }
 
 function commitOf(entry: LogEntry): RpcResult<"git.log">["commits"][number] {
@@ -250,4 +309,47 @@ export async function gitLog(
   while (shown.length > 0 && !fits({ commits: shown }))
     shown = shown.slice(0, Math.floor(shown.length / 2));
   return { commits: shown };
+}
+
+/** When `hash` was written, as git.log tells it (a rebased commit keeps it); null when not found. */
+async function authoredAt(repository: RemoteRepository, hash: string): Promise<number | null> {
+  const stream = repository.log({ ref: hash, limit: 1 });
+  try {
+    const next = await stream.next();
+    const entry = next.done ? undefined : next.value.entries[0];
+    return entry ? Date.parse(entry.authoredAt) || null : null;
+  } catch {
+    return null;
+  } finally {
+    await stream.return?.({ count: 0 }).catch(() => {});
+  }
+}
+
+export async function gitShow(
+  git: RemoteGit,
+  { workspaceId, hash }: RpcParams<"git.show">,
+): Promise<RpcResult<"git.show">> {
+  const repository = await repositoryOf(git, workspaceId);
+  const detail = await commitIn(repository, hash);
+  const at = (await authoredAt(repository, detail.sha)) ?? (Date.parse(detail.committerTs) || 0);
+  const body = detail.body.trim();
+  const result: RpcResult<"git.show"> = {
+    hash: detail.sha,
+    parents: detail.parents,
+    subject: detail.subject,
+    ...(body ? { body } : {}),
+    author: detail.author,
+    at,
+    files: detail.files.map((f) => ({
+      path: f.path,
+      ...(f.oldPath ? { oldPath: f.oldPath } : {}),
+      status: f.status.charAt(0),
+    })),
+  };
+  if (fits(result)) return result;
+  // A commit of thousands of files: as many as go in a frame, the halves kept by halving.
+  let { files } = result;
+  while (files.length > 0 && !fits({ ...result, files }))
+    files = files.slice(0, Math.floor(files.length / 2));
+  return { ...result, files, truncated: true };
 }

@@ -21,9 +21,9 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
     if (!found) throw new Error(`NOT_FOUND: ${rel}`);
     return found;
   };
-  const range = (bytes: Buffer, length: number) => ({
+  const range = (bytes: Buffer, length: number, offset = 0) => ({
     kind: "ok" as const,
-    base64: bytes.subarray(0, length).toString("base64"),
+    base64: bytes.subarray(offset, offset + length).toString("base64"),
     sizeBytes: bytes.length,
     mtime: "",
   });
@@ -49,8 +49,8 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
           ...(n.bytes ? { size: n.bytes.length } : {}),
         }));
     },
-    readRange: async (rel: string, _offset: number, length: number) =>
-      range(node(rel).bytes ?? Buffer.alloc(0), length),
+    readRange: async (rel: string, offset: number, length: number) =>
+      range(node(rel).bytes ?? Buffer.alloc(0), length, offset),
     readBinary: async (rel: string) => range(node(rel).bytes ?? Buffer.alloc(0), Infinity),
   } as unknown as FsProvider;
 }
@@ -178,6 +178,39 @@ describe("reading a file", () => {
       data: "c21hbGw=",
     });
     expect(await read("huge.png", undefined, null)).toMatchObject({ kind: "binary" });
+  });
+
+  test("as bytes, a piece of whatever it holds, from where asked", async () => {
+    const bytes = (path: string, more: { offset?: number; length?: number } = {}) =>
+      readFile(files(tree), root, { workspaceId: ws, path, as: "bytes", ...more });
+    expect(await bytes("bin.dat")).toEqual({
+      kind: "bytes",
+      path: "/src/app/bin.dat",
+      data: Buffer.from([1, 0, 2]).toString("base64"),
+      offset: 0,
+      size: 3,
+    });
+    // An image, or text, as it is: not drawn, not decoded.
+    expect(await bytes("pic.png", { offset: 4, length: 4 })).toMatchObject({
+      data: Buffer.alloc(4).toString("base64"),
+      offset: 4,
+      size: 12,
+    });
+    // At most MAX_BYTES_CHUNK when not said; fewer at the end, none past it.
+    const head = await bytes("big");
+    expect(head.kind === "bytes" && Buffer.from(head.data, "base64").length).toBe(512 * 1024);
+    expect(await bytes("big", { offset: 1_999_999, length: 10 })).toMatchObject({
+      data: Buffer.from("x").toString("base64"),
+      size: 2_000_000,
+    });
+    expect(await bytes("big", { offset: 3_000_000 })).toMatchObject({ data: "", size: 2_000_000 });
+    await expect(bytes("src")).rejects.toMatchObject({ code: -32602 });
+    await expect(bytes("link")).rejects.toMatchObject({ code: 1002 });
+    await expect(bytes("../out")).rejects.toMatchObject({ code: 1002 });
+    // Where to start is taken only with bytes.
+    await expect(
+      readFile(files(tree), root, { workspaceId: ws, path: "a.ts", offset: 2 }),
+    ).rejects.toMatchObject({ code: -32602 });
   });
 
   test("refuses a folder, a link, and the workspace's folder itself", async () => {

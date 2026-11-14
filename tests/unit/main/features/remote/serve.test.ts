@@ -1,7 +1,9 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
+import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
+import type { RemoteRepository } from "../../../../../src/main/features/remote/git";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
@@ -270,6 +272,68 @@ describe("what this device serves", () => {
   test("agents' requests unless the user turned them down", () => {
     expect(servesWith(false, false, true)).toContain("agents");
     expect(servesWith(true, true, false)).not.toContain("agents");
+  });
+});
+
+describe("serving a workspace's files found, and a commit", () => {
+  const agentFs = {
+    kind: "ssh",
+    onAgentLifecycle: () => () => {},
+    onAgentEvent: () => () => {},
+    callAgentMethod: async (method: string) =>
+      method === "search.files"
+        ? { files: ["src/a.ts"], truncated: false }
+        : { filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 },
+  } as unknown as FsProvider;
+  const serve = serveWith(services, {
+    files: { fs: async () => agentFs, shrink: () => null },
+    repositories: {
+      repository: async () =>
+        ({
+          topLevel: "/src/app",
+          commitDetail: async () => ({
+            sha: "abcd1234",
+            parents: [],
+            subject: "First",
+            author: "Me",
+            authorEmail: "me@example.com",
+            committerTs: "2026-01-01T00:00:00Z",
+            message: "First",
+            body: "",
+            files: [],
+          }),
+          log: async function* () {
+            yield { entries: [] };
+            return { count: 0 };
+          },
+        }) as unknown as RemoteRepository,
+      readUntracked: async () => "",
+    },
+  });
+
+  test("by name, for text, and a commit, each in its workspace", async () => {
+    expect(
+      await serve({ from: "d", method: "files.find", params: { workspaceId: "w1", query: "a" } }),
+    ).toEqual({ files: ["src/a.ts"] });
+    expect(
+      await serve({ from: "d", method: "files.search", params: { workspaceId: "w1", query: "a" } }),
+    ).toEqual({ files: [] });
+    expect(
+      await serve({ from: "d", method: "git.show", params: { workspaceId: "w1", hash: "abcd" } }),
+    ).toMatchObject({ hash: "abcd1234", at: Date.parse("2026-01-01T00:00:00Z"), files: [] });
+    await expect(
+      serve({ from: "d", method: "files.find", params: { workspaceId: "nope", query: "a" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+
+  test("not served without the files", async () => {
+    await expect(
+      serveWith(services)({
+        from: "d",
+        method: "files.search",
+        params: { workspaceId: "w1", query: "a" },
+      }),
+    ).rejects.toMatchObject({ code: -32601 });
   });
 });
 

@@ -1,6 +1,6 @@
 /**
  * A workspace's files as another device reads them (files.list,
- * files.read): its folder's, and those of the folders its chats were
+ * files.read, as text, an image or bytes): its folder's, and those of the folders its chats were
  * given (/add-dir). Nothing else: a path that climbs out of those, or one
  * that goes through a link inside the workspace (which could point
  * anywhere), is refused. Reading is always allowed, as it is here.
@@ -8,6 +8,7 @@
 import { promises as nodeFs } from "node:fs";
 import path from "node:path";
 import {
+  MAX_BYTES_CHUNK,
   MAX_LIST_ENTRIES,
   RpcErrorCode,
   type RpcParams,
@@ -255,8 +256,21 @@ export function looksBinary(bytes: Uint8Array): boolean {
 export async function readFile(
   files: RemoteFiles,
   root: string,
-  { workspaceId, path: asked, maxBytes = DEFAULT_READ_BYTES }: RpcParams<"files.read">,
+  {
+    workspaceId,
+    path: asked,
+    maxBytes = DEFAULT_READ_BYTES,
+    as,
+    offset,
+    length,
+  }: RpcParams<"files.read">,
 ): Promise<RpcResult<"files.read">> {
+  if (as !== "bytes" && (offset !== undefined || length !== undefined)) {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      'offset and length are taken with as: "bytes"',
+    );
+  }
   const folders = await files.folders(workspaceId);
   const place = placeOf(root, folders, asked);
   const fs = await files.fs(workspaceId);
@@ -278,11 +292,19 @@ export async function readFile(
     await realWithin(fs, folders, place.absolute);
     absolute = place.absolute;
   }
-  const range = (length: number) =>
+  const range = (length: number, from = 0) =>
     (place.kind === "workspace"
-      ? fs.readRange(place.rel, 0, length)
-      : fs.readAbsoluteRange(place.absolute, 0, length)
+      ? fs.readRange(place.rel, from, length)
+      : fs.readAbsoluteRange(place.absolute, from, length)
     ).catch((error: unknown) => notFound(error, asked));
+
+  if (as === "bytes") {
+    const from = offset ?? 0;
+    const read = await range(length ?? MAX_BYTES_CHUNK, from);
+    if (read.kind === "missing")
+      throw new RpcFailure(RpcErrorCode.NotFound, `${asked} does not exist`);
+    return { kind: "bytes", path: absolute, data: read.base64, offset: from, size: read.sizeBytes };
+  }
 
   const mediaType = IMAGE_TYPES[path.posix.extname(absolute).toLowerCase()];
   if (mediaType) {
