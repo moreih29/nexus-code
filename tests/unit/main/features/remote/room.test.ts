@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import type {
   ClientFrame,
+  Delivered,
   RoomDevice,
   ServerFrame,
 } from "../../../../../packages/remote-protocol/src";
@@ -24,6 +25,8 @@ class MockRelay {
   private readonly online = new Map<string, Handlers>();
   /** Changes a frame on its way, as a relay that cheats would. */
   tamper: ((frame: ServerFrame) => ServerFrame) | null = null;
+  /** Every message it passed on, as it delivered it: a relay that cheats may send one again. */
+  readonly kept: { to: string; frame: Delivered }[] = [];
 
   connection(device: Omit<RoomDevice, "online">, handlers: Handlers) {
     if (!this.devices.some((d) => d.id === device.id))
@@ -42,6 +45,13 @@ class MockRelay {
         this.presence();
       },
       healthy: () => {},
+      /** The socket dropped and opened again, as a new connection. */
+      reopen: () => {
+        handlers.onStatus("waiting");
+        handlers.onOpen();
+        handlers.onStatus("online");
+        this.presence();
+      },
       send: (frame: ClientFrame) => {
         queueMicrotask(() => this.route(device.id, frame));
         return true;
@@ -63,9 +73,20 @@ class MockRelay {
       return;
     }
     for (const id of targets) {
-      const delivered: ServerFrame = { ...frame, t: "message", from };
+      const delivered: Delivered = { ...frame, t: "message", from };
+      this.kept.push({ to: id, frame: delivered });
       this.online.get(id)?.onFrame(this.tamper ? this.tamper(delivered) : delivered);
     }
+  }
+
+  /** Sends a kept message again, to the device given. */
+  deliver(to: string, frame: Delivered) {
+    this.online.get(to)?.onFrame(frame);
+  }
+
+  /** The kept messages one device sent, as delivered to another. */
+  between(from: string, to: string) {
+    return this.kept.filter((k) => k.frame.from === from && k.to === to).map((k) => k.frame);
   }
 
   private presence() {
@@ -88,12 +109,16 @@ async function roomKey(): Promise<RoomKey> {
 function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<RemoteRoomDeps> = {}) {
   const self = { id, name: `${id}-pc`, platform: "darwin" };
   const served: { from: string; method: string }[] = [];
+  let connection: ReturnType<MockRelay["connection"]> | undefined;
   const room = new RemoteRoom({
     self,
     room: key,
     app: { name: "NexusCode", version: "0.0.0-test" },
     serves: ["sessions"],
-    connect: (handlers) => relay.connection(self, handlers),
+    connect: (handlers) => {
+      connection = relay.connection(self, handlers);
+      return connection;
+    },
     serve: async ({ from, method }) => {
       served.push({ from, method });
       return { workspaces: [{ id: "w1", name: "ws", path: "/ws" }], sessions: [] };
@@ -103,7 +128,7 @@ function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<Remot
     requestTimeoutMs: 300,
     ...extra,
   });
-  return { room, served };
+  return { room, served, reopen: () => connection?.reopen() };
 }
 
 describe("the room", () => {
@@ -276,16 +301,142 @@ describe("the room", () => {
     expect(a.served).toEqual([]);
   });
 
-  test("a message sealed with another key version is told, and not opened", async () => {
+  test("a message sealed with a newer key version is told, once a minute, and not opened", async () => {
     const relay = new MockRelay();
     const foreign: number[] = [];
+    const older: number[] = [];
     const a = device(relay, "a", await roomKey(), { onForeignKey: (kid) => foreign.push(kid) });
-    const b = device(relay, "b", { kid: 2, key: roomKeyOf(await newAccountKey()) });
+    const b = device(
+      relay,
+      "b",
+      { kid: 2, key: roomKeyOf(await newAccountKey()) },
+      { onForeignKey: (kid) => older.push(kid) },
+    );
     a.room.start();
     b.room.start();
     await tick();
-    expect(foreign).toContain(2);
+    for (const frame of relay.between("b", "a")) relay.deliver("a", frame);
+    await tick();
+    expect(foreign).toEqual([2]);
     expect(a.room.state().peers[0]?.serves).toBeUndefined();
+    // An older version is no reset: the key is not fetched for it.
+    for (const frame of relay.between("a", "b")) relay.deliver("b", frame);
+    await tick();
+    expect(older).toEqual([]);
+  });
+});
+
+describe("what the relay keeps and sends again", () => {
+  async function pair() {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    return { relay, key, a, b };
+  }
+
+  test("a message sent again is not taken twice", async () => {
+    const { relay, a, b } = await pair();
+    await b.room.request("a", "sessions.list", {});
+    for (const frame of relay.between("b", "a")) relay.deliver("a", frame);
+    await tick();
+    expect(a.served).toHaveLength(1);
+  });
+
+  test("a message of an earlier connection is not taken in a new one", async () => {
+    const { relay, a, b } = await pair();
+    await b.room.request("a", "sessions.list", {});
+    const kept = relay.between("b", "a");
+    // Days later, both connected again.
+    a.reopen();
+    b.reopen();
+    await tick();
+    for (const frame of kept) relay.deliver("a", frame);
+    await tick();
+    expect(a.served).toHaveLength(1);
+    // The two said hello again: a new request goes.
+    await b.room.request("a", "sessions.list", {});
+    expect(a.served).toHaveLength(2);
+  });
+
+  test("once a device's new connection is heard, its old one's messages are not taken", async () => {
+    const { relay, a, b } = await pair();
+    await b.room.request("a", "sessions.list", {});
+    const kept = relay.between("b", "a");
+    b.reopen();
+    await tick();
+    // Sealed for a's epoch, which has not changed, but in b's old one.
+    for (const frame of kept) relay.deliver("a", frame);
+    await tick();
+    expect(a.served).toHaveLength(1);
+    await b.room.request("a", "sessions.list", {});
+    expect(a.served).toHaveLength(2);
+  });
+
+  test("a message for another device, passed on to this one, is not taken", async () => {
+    const { relay, key, a, b } = await pair();
+    const c = device(relay, "c", key);
+    c.room.start();
+    await tick();
+    await b.room.request("a", "sessions.list", {});
+    for (const frame of relay.between("b", "a")) {
+      relay.deliver("c", frame);
+      // Its `to` is sealed with it: changed, it does not open.
+      relay.deliver("c", { ...frame, to: "c" });
+    }
+    await tick();
+    expect(c.served).toEqual([]);
+    expect(a.served).toHaveLength(1);
+  });
+
+  test("an old hello sent again does not bring back what the device served", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    let serves = ["sessions", "chat.control"];
+    const a = device(relay, "a", key, { serves: () => serves });
+    const b = device(relay, "b", key);
+    b.room.start();
+    a.room.start();
+    await tick();
+    expect(b.room.state().peers[0]?.serves).toEqual(["sessions", "chat.control"]);
+    const kept = [...relay.between("a", "b")];
+    serves = ["sessions"];
+    a.room.announce();
+    await tick();
+    for (const frame of kept) relay.deliver("b", frame);
+    await tick();
+    expect(b.room.state().peers[0]?.serves).toEqual(["sessions"]);
+  });
+
+  test("what it asked before its connection dropped fails at once", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key, { serve: () => new Promise(() => {}) });
+    const b = device(relay, "b", key, { requestTimeoutMs: 10_000 });
+    a.room.start();
+    b.room.start();
+    await tick();
+    const asked = b.room.request("a", "sessions.list", {});
+    await tick();
+    b.reopen();
+    await expect(asked).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: "the connection to the room was lost",
+    });
+  });
+
+  test("nothing goes to a device it has not heard a hello from", async () => {
+    const relay = new MockRelay();
+    const a = device(relay, "a", await roomKey());
+    a.room.start();
+    await expect(a.room.request("x", "sessions.list", {})).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+    });
+    expect(await a.room.notify("x", "sessions.update", { watchId: "w" } as never)).toBe(false);
+    expect(relay.kept).toEqual([]);
   });
 });
 
