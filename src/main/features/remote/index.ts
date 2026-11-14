@@ -255,7 +255,7 @@ export async function registerRemoteChannel(options: {
   };
   let keys: AccountKeys | null = null;
   const account = new RemoteAccount({
-    server: remoteServer(process.env, app.isPackaged),
+    server: remoteServer(process.env, app.isPackaged, (m) => console.warn(`[remote] ${m}`)),
     store,
     openExternal: (url) => shell.openExternal(url),
     ...signInOptions(),
