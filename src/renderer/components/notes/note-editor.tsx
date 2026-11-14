@@ -11,7 +11,7 @@ import { Bot, FolderOpen, MoreHorizontal, ScrollText, Terminal, Trash2 } from "l
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocNode } from "../../../shared/notes/markdown";
-import type { NoteContent } from "../../../shared/notes/types";
+import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
 import {
@@ -178,11 +178,11 @@ function LoadedNote({
             image,
             image.name || undefined,
           );
-          nodes.push({ type: "noteImage", attrs: { src: asset.src, alt: asset.name } });
+          nodes.push(imageBlock(asset));
         }
         if (files.imagePaths?.length) {
           for (const asset of await notesApi.addFiles(workspaceId, note.id, files.imagePaths)) {
-            nodes.push({ type: "noteImage", attrs: { src: asset.src, alt: asset.name } });
+            nodes.push(imageBlock(asset));
           }
         }
         if (files.paths.length) {
@@ -322,6 +322,23 @@ function LoadedNote({
     [note.id],
   );
   editorRef.current = editor;
+
+  // A photo from the user's phone: written at the end of the note already;
+  // put in this copy too (once), which saves it with what is typed here.
+  useEffect(() => {
+    return notesApi.onPhotoAdded((event) => {
+      const e = editorRef.current;
+      if (event.noteId !== note.id || !e || e.isDestroyed) return;
+      if (!hasImage(e.getJSON() as DocNode, event.src)) {
+        e.chain()
+          .insertContentAt(e.state.doc.content.size, imageBlock(event), {
+            updateSelection: false,
+          })
+          .run();
+      }
+      showToast({ kind: "info", message: t("editor.photoAdded") });
+    });
+  }, [note.id, t]);
 
   const remove = async () => {
     const ok = await showConfirmDialog({

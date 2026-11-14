@@ -1,9 +1,11 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
+import { MAX_LISTED_NOTES, RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
 import type { RemoteRepository } from "../../../../../src/main/features/remote/git";
+import { looksLike, type RemoteNotes } from "../../../../../src/main/features/remote/notes";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
 import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
@@ -272,6 +274,94 @@ describe("what this device serves", () => {
   test("agents' requests unless the user turned them down", () => {
     expect(servesWith(false, false, true)).toContain("agents");
     expect(servesWith(true, true, false)).not.toContain("agents");
+  });
+});
+
+describe("serving a workspace's notes", () => {
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10]).toString("base64");
+  function notes(over: Partial<RemoteNotes> = {}) {
+    const attached: { workspaceId: string; noteId: string; ext: string; name?: string }[] = [];
+    const remote: RemoteNotes = {
+      list: async (workspaceId) =>
+        workspaceId === "w1"
+          ? Array.from({ length: 60 }, (_, i) => ({
+              id: `n${i}`,
+              title: `note ${i}`,
+              updatedAt: 1000 - i,
+              excerpt: "not sent",
+            }))
+          : [],
+      attach: async (workspaceId, noteId, _bytes, ext, name) => {
+        if (noteId === "gone")
+          throw Object.assign(new Error("no note gone"), { code: "not-found" });
+        attached.push({ workspaceId, noteId, ext, ...(name ? { name } : {}) });
+        return { src: `screens/${name ?? "photo"}.${ext}` };
+      },
+      recording: () => undefined,
+      ...over,
+    };
+    return { remote, attached };
+  }
+  const ask = (remote: RemoteNotes, method: "notes.list" | "notes.attach", params: object) =>
+    serveWith(() => services(), { notes: remote })({ from: "phone", method, params });
+
+  test("lists a workspace's notes, the last changed first, at most a page, with only what a phone needs", async () => {
+    const { remote } = notes();
+    const listed = (await ask(remote, "notes.list", { workspaceId: "w1" })) as {
+      notes: object[];
+    };
+    expect(listed.notes).toHaveLength(MAX_LISTED_NOTES);
+    expect(listed.notes[0]).toEqual({ id: "n0", title: "note 0", updatedAt: 1000 });
+    await expect(ask(remote, "notes.list", { workspaceId: "nope" })).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+  });
+
+  test("puts a photo into a note as the type it says, and refuses bytes that are not that image", async () => {
+    const { remote, attached } = notes();
+    const photo = { workspaceId: "w1", noteId: "n1", mediaType: "image/jpeg", data: JPEG };
+    expect(await ask(remote, "notes.attach", { ...photo, name: " IMG_0001 " })).toEqual({
+      src: "screens/IMG_0001.jpg",
+    });
+    expect(attached).toEqual([{ workspaceId: "w1", noteId: "n1", ext: "jpg", name: "IMG_0001" }]);
+    await expect(
+      ask(remote, "notes.attach", { ...photo, mediaType: "image/png" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    await expect(ask(remote, "notes.attach", { ...photo, noteId: "gone" })).rejects.toMatchObject({
+      code: RpcErrorCode.NotFound,
+    });
+    expect(attached).toHaveLength(1);
+  });
+
+  test("the sessions' list tells the note being recorded into, while one is", async () => {
+    const recording = {
+      workspaceId: "w1",
+      noteId: "n1",
+      title: "주간 회의",
+      recordedMs: 5000,
+      at: 1000,
+      paused: true,
+    };
+    const list = (rec?: typeof recording) =>
+      serveWith(() => services(), { notes: notes({ recording: () => rec }).remote })({
+        from: "phone",
+        method: "sessions.list",
+        params: {},
+      }) as Promise<{ recording?: object }>;
+    expect((await list(recording)).recording).toEqual(recording);
+    expect(await list()).not.toHaveProperty("recording");
+  });
+
+  test("whatever the user lets other devices control", () => {
+    expect(servesWith(false, false, false)).toContain("notes");
+  });
+
+  test("an image is known by its first bytes", () => {
+    expect(looksLike(Buffer.from(JPEG, "base64"), "image/jpeg")).toBe(true);
+    expect(looksLike(Buffer.from("\x89PNG\r\n", "latin1"), "image/png")).toBe(true);
+    expect(looksLike(Buffer.from("GIF89a", "latin1"), "image/gif")).toBe(true);
+    expect(looksLike(Buffer.from("RIFF\0\0\0\0WEBPVP8 ", "latin1"), "image/webp")).toBe(true);
+    expect(looksLike(Buffer.from("<svg>", "latin1"), "image/png")).toBe(false);
   });
 });
 

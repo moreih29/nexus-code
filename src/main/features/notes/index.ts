@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
-import type { NoteLocation } from "../../../shared/notes/types";
+import type { NoteAsset, NoteLocation } from "../../../shared/notes/types";
 import type { NoteChanged } from "../../../shared/types/notes";
 import {
   rootPathFromLocation,
@@ -50,12 +50,36 @@ export function noteLocationOf(meta: WorkspaceMeta, all: readonly WorkspaceMeta[
   };
 }
 
+/** A note a window records into, as it last told (notes.recording). */
+export interface NoteRecording {
+  workspaceId: string;
+  noteId: string;
+  title: string;
+  /** How long it had recorded at `at`. */
+  recordedMs: number;
+  at: number;
+  paused: boolean;
+}
+
 export interface NotesFeature {
   readonly store: NotesStore;
   /** The workspace's notes' location; throws for a workspace the app does not have. */
   locationOf(workspaceId: string): NoteLocation;
   /** Tells the windows a note changed (the CLI's changes too). */
   changed(event: NoteChanged): void;
+  /**
+   * Puts a photo another device sent at the end of a note, and tells the
+   * windows, so an editor open on the note puts it in its copy too.
+   */
+  attachPhoto(
+    workspaceId: string,
+    noteId: string,
+    bytes: Uint8Array,
+    ext: string,
+    name?: string,
+  ): Promise<NoteAsset>;
+  /** The note a window records into, the one told last; none while nothing records. */
+  recording(): NoteRecording | undefined;
 }
 
 export function registerNotesChannel(opts: {
@@ -70,6 +94,37 @@ export function registerNotesChannel(opts: {
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
+
+  // The windows' recorders, by window: what each told last.
+  const recordings = new Map<number, NoteRecording>();
+  const watched = new Set<number>();
+  const recording = (): NoteRecording | undefined => {
+    let last: NoteRecording | undefined;
+    for (const r of recordings.values()) if (!last || r.at > last.at) last = r;
+    return last;
+  };
+  const retitle = (noteId: string, title: string) => {
+    for (const r of recordings.values()) if (r.noteId === noteId) r.title = title;
+  };
+
+  const attachPhoto: NotesFeature["attachPhoto"] = async (
+    workspaceId,
+    noteId,
+    bytes,
+    ext,
+    name,
+  ) => {
+    const location = locationOf(workspaceId);
+    const asset = await store.addPhoto(location, noteId, bytes, ext, name);
+    broadcast("notes", "photoAdded", {
+      locationKey: location.key,
+      noteId,
+      src: asset.src,
+      name: asset.name,
+    });
+    changed({ locationKey: location.key, noteId, change: "saved" });
+    return asset;
+  };
 
   register("notes", {
     call: {
@@ -96,6 +151,7 @@ export function registerNotesChannel(opts: {
           ...(doc !== undefined ? { doc: doc as never } : {}),
         });
         changed({ locationKey: location.key, noteId, change: "saved" });
+        retitle(noteId, summary.title);
         return ipcOk(summary);
       },
       prune: async (args: unknown) => {
@@ -197,6 +253,40 @@ export function registerNotesChannel(opts: {
         changed({ locationKey: key, change: "removed" });
         return ipcOk(undefined);
       },
+      recording: async (args: unknown, ctx) => {
+        const { now } = validateArgs(c.recording.args, args);
+        const sender = ctx?.sender;
+        if (!sender) return ipcOk(undefined);
+        if (!now) {
+          recordings.delete(sender.id);
+          return ipcOk(undefined);
+        }
+        const before = recordings.get(sender.id);
+        let title = before?.noteId === now.noteId ? before.title : "";
+        if (before?.noteId !== now.noteId) {
+          title = await store
+            .read(locationOf(now.workspaceId), now.noteId)
+            .then((n) => n.title)
+            .catch(() => "");
+        }
+        // A window that goes stops recording.
+        if (!watched.has(sender.id)) {
+          watched.add(sender.id);
+          sender.once("destroyed", () => {
+            recordings.delete(sender.id);
+            watched.delete(sender.id);
+          });
+        }
+        recordings.set(sender.id, {
+          workspaceId: now.workspaceId,
+          noteId: now.noteId,
+          title,
+          recordedMs: now.recordedMs,
+          at: Date.now(),
+          paused: now.paused,
+        });
+        return ipcOk(undefined);
+      },
       readTranscript: async (args: unknown) => {
         const { workspaceId, noteId } = validateArgs(c.readTranscript.args, args);
         return ipcOk(await store.readTranscript(locationOf(workspaceId), noteId));
@@ -238,5 +328,5 @@ export function registerNotesChannel(opts: {
     },
   });
 
-  return { store, locationOf, changed };
+  return { store, locationOf, changed, attachPhoto, recording };
 }

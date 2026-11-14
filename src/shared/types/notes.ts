@@ -118,6 +118,20 @@ export const NotesArgs = {
     recordingId: z.string().regex(RECORDING_ID_RE),
     text: z.boolean().optional(),
   }),
+  /**
+   * What the window's recorder does, as it changes: the note it records
+   * into and how long it has recorded, or `null` when it stopped. Other
+   * devices see it in the sessions' list (a phone puts photos into it).
+   */
+  recording: z.object({
+    now: z
+      .object({
+        ...note,
+        recordedMs: z.number().nonnegative(),
+        paused: z.boolean(),
+      })
+      .nullable(),
+  }),
   removeLocation: z.object({ key: z.string().min(1).max(8192) }),
   revealLocation: z.object({ key: z.string().min(1).max(8192) }),
 };
@@ -131,3 +145,13 @@ export const NoteChangedSchema = z.object({
   change: z.enum(["created", "saved", "removed"]),
 });
 export type NoteChanged = z.infer<typeof NoteChangedSchema>;
+
+/** A photo another device put into a note (notes.attach), for the windows that have it open. */
+export const NotePhotoAddedSchema = z.object({
+  locationKey: z.string(),
+  noteId: z.string(),
+  /** Where the note keeps it: "screens/…". */
+  src: z.string(),
+  name: z.string(),
+});
+export type NotePhotoAdded = z.infer<typeof NotePhotoAddedSchema>;

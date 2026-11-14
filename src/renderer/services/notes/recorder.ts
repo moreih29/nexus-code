@@ -453,3 +453,25 @@ export function dropRecording(workspaceId: string, noteId: string): void {
   clearTimeout(a.endTimer);
   set(IDLE);
 }
+
+// The app's other devices see the note it records into, in their sessions'
+// list (a phone puts photos into it): told as the recorder starts, pauses,
+// goes on and stops; not between, when only the level and the words change.
+let toldRecording = "";
+useRecorderStore.subscribe((s) => {
+  const on = s.phase === "recording" || s.phase === "paused";
+  if (!on && s.phase !== "idle") return;
+  const key = on ? `${s.phase}|${s.workspaceId}|${s.noteId}|${s.baseMs}` : "";
+  if (key === toldRecording) return;
+  toldRecording = key;
+  const now =
+    on && s.workspaceId && s.noteId
+      ? {
+          workspaceId: s.workspaceId,
+          noteId: s.noteId,
+          recordedMs: Math.max(0, Math.round(recorderElapsedMs(s))),
+          paused: s.phase === "paused",
+        }
+      : null;
+  void ipcCallResult("notes", "recording", { now });
+});

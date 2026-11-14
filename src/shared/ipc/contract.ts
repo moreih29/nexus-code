@@ -144,6 +144,7 @@ import {
   NoteAssetSchema,
   NoteChangedSchema,
   NoteContentSchema,
+  NotePhotoAddedSchema,
   NoteStorageEntrySchema,
   NoteSummarySchema,
   NotesArgs,
@@ -2341,6 +2342,8 @@ export const ipcContract = {
       /** Moves every note of a location to the Trash. */
       removeLocation: call(NotesArgs.removeLocation, z.void()),
       revealLocation: call(NotesArgs.revealLocation, z.void()),
+      /** What this window's recorder does; other devices see it (remote sessions' list). */
+      recording: call(NotesArgs.recording, z.void()),
       /** The note's recordings and their words (transcript.json); none yet is an empty one. */
       readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
       /** Writes transcript.json, and transcript.md beside it. */
@@ -2350,6 +2353,8 @@ export const ipcContract = {
     },
     listen: {
       changed: listen(NoteChangedSchema),
+      /** Another device put a photo at the end of a note: an editor open on it does too. */
+      photoAdded: listen(NotePhotoAddedSchema),
     },
   },
   agentProfiles: {

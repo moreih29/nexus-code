@@ -184,6 +184,42 @@ describe("notes on disk", () => {
   });
 });
 
+describe("a photo from the user's phone", () => {
+  test("is written into screens/ and put at the end of the note, whose text stays", async () => {
+    const note = await store.create(here, "회의");
+    await store.save(here, note.id, { doc: doc("화이트보드 정리") });
+    const photo = await store.addPhoto(
+      here,
+      note.id,
+      new Uint8Array([0xff, 0xd8, 0xff]),
+      "jpg",
+      "IMG_0001.HEIC",
+    );
+    expect(photo.src).toBe("screens/IMG_0001.jpg");
+    const after = await store.read(here, note.id);
+    expect(after.doc.content?.at(0)).toEqual(doc("화이트보드 정리").content[0]);
+    expect(after.doc.content?.at(-1)).toEqual({
+      type: "noteImage",
+      attrs: { src: "screens/IMG_0001.jpg", alt: "IMG_0001.jpg" },
+    });
+    expect(after.counts.images).toBe(1);
+    // The note's Markdown, which agents read, shows it too.
+    const md = await fs.readFile(path.join(after.dir, "note.md"), "utf8");
+    expect(md).toContain("screens/IMG_0001.jpg");
+    // Unnamed, it is named by when it came; it is kept by prune, being in the document.
+    const unnamed = await store.addPhoto(here, note.id, new Uint8Array([1]), "png");
+    expect(unnamed.src).toMatch(/^screens\/photo-\d{8}-\d{6}\.png$/);
+    expect(await store.prune(here, note.id)).toEqual([]);
+  });
+
+  test("goes nowhere for a note that is not there", async () => {
+    await expect(
+      store.addPhoto(here, "n0000000000", new Uint8Array([1]), "png"),
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(await fs.readdir(path.join(root, "notes")).catch(() => [])).toEqual([]);
+  });
+});
+
 describe("what a note has in it", () => {
   test("counts sketches, files, images and to-dos", () => {
     expect(

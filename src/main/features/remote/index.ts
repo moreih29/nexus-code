@@ -25,6 +25,7 @@ import { ChatWatches } from "./chat-watches";
 import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import type { RemoteRepository } from "./git";
+import type { RemoteNotes } from "./notes";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
@@ -173,6 +174,8 @@ export async function registerRemoteChannel(options: {
   theme?: () => string | undefined;
   /** A file of a note's folder (a recording's take), for its second pass; throws if it is not there. */
   noteFile?: (workspaceId: string, noteId: string, src: string) => Promise<Uint8Array>;
+  /** The notes other devices list and put photos into, and the note it records into. */
+  notes?: RemoteNotes;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -218,7 +221,9 @@ export async function registerRemoteChannel(options: {
     list: async () => {
       const services = options.services();
       if (!services) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
-      return listSessions(services, git);
+      const list = await listSessions(services, git);
+      const recording = options.notes?.recording();
+      return recording ? { ...list, recording } : list;
     },
     consents: async (to) => {
       const services = options.services();
@@ -327,6 +332,7 @@ export async function registerRemoteChannel(options: {
               },
             }
           : {}),
+        ...(options.notes ? { notes: options.notes } : {}),
         agents: agentGate,
         deviceName: (id) => room?.state().peers.find((p) => p.id === id)?.name,
         controls,

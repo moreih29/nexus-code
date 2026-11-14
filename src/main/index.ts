@@ -620,6 +620,17 @@ app.whenReady().then(async () => {
       if (!notesFeature) throw new Error("notes are not ready");
       return notesFeature.store.readAsset(notesFeature.locationOf(workspaceId), noteId, src);
     },
+    notes: {
+      list: async (workspaceId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.list(notesFeature.locationOf(workspaceId));
+      },
+      attach: async (workspaceId, noteId, bytes, ext, name) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.attachPhoto(workspaceId, noteId, bytes, ext, name);
+      },
+      recording: () => notesFeature?.recording(),
+    },
   }).catch((error: unknown) => {
     logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
     return null;

@@ -28,6 +28,7 @@ import {
   transcriptMarkdown,
 } from "../../../shared/notes/transcript";
 import {
+  imageBlock,
   NOTE_DIRS,
   NOTE_ID_RE,
   type NoteAsset,
@@ -176,6 +177,26 @@ export class NotesStore {
     const file = await freeName(sub, `${base}.${ext}`);
     await fs.writeFile(path.join(sub, file), bytes);
     return { src: `${NOTE_DIRS.images}/${file}`, name: file, size: bytes.byteLength };
+  }
+
+  /**
+   * Writes a photo sent from another device into the note's screens/, and
+   * puts it at the end of the note's document, so the note has it whether
+   * or not it is open anywhere (an open editor puts the same block in its
+   * copy, NotesFeature's photoAdded).
+   */
+  async addPhoto(
+    location: NoteLocation,
+    id: string,
+    bytes: Uint8Array,
+    ext: string,
+    name?: string,
+  ): Promise<NoteAsset> {
+    const note = await this.read(location, id);
+    const asset = await this.addImage(location, id, bytes, ext, name ?? `photo-${stamp()}`);
+    const content = [...(note.doc.content ?? []), imageBlock(asset)];
+    await this.save(location, id, { doc: { ...note.doc, content } });
+    return asset;
   }
 
   /** Writes a sketch's scene and its picture; a new sketch gets an id. */

@@ -40,6 +40,7 @@
       "confirm": "지우기"
     },
     "addFailed": "노트에 넣지 못했습니다: {{message}}",
+    "photoAdded": "휴대폰에서 사진이 들어왔습니다",
     "linkHint": "⌘ 또는 Ctrl을 누른 채 클릭해 열기"
   },
   "slash": {

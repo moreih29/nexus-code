@@ -99,3 +99,14 @@ export const NOTE_ID_RE = /^n[0-9a-z]{6,24}$/;
 
 /** A sketch's id within its note. */
 export const SKETCH_ID_RE = /^s[0-9a-z]{4,24}$/;
+
+/** The block an image put into a note takes, as the editor makes it. */
+export function imageBlock(asset: { src: string; name: string }): DocNode {
+  return { type: "noteImage", attrs: { src: asset.src, alt: asset.name } };
+}
+
+/** Whether the document shows the image at `src` somewhere. */
+export function hasImage(doc: DocNode, src: string): boolean {
+  if (doc.type === "noteImage" && doc.attrs?.src === src) return true;
+  return (doc.content ?? []).some((c) => hasImage(c, src));
+}

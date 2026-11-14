@@ -30,6 +30,7 @@ import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
 import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
+import { attachToNote, listNotes, type RemoteNotes } from "./notes";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
 import { findFiles, searchFiles } from "./search";
 import type { SessionWatches } from "./session-watches";
@@ -53,6 +54,7 @@ export const SERVES: readonly Capability[] = [
   "terminal.control",
   "files",
   "git",
+  "notes",
   "agents",
 ];
 
@@ -772,6 +774,8 @@ export function serveWith(
     files?: Omit<RemoteFiles, "folders">;
     /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
     repositories?: RemoteGit;
+    /** The workspaces' notes, for notes.list and notes.attach, and the note it records into. */
+    notes?: RemoteNotes;
     /** Whether an agent on another device may do what it asks (a request with `from`). */
     agents?: AgentGate;
     /** A device of the room by its id, as it names itself. */
@@ -824,7 +828,26 @@ export function serveWith(
     switch (request.method) {
       case "sessions.list": {
         const list = await listSessions(s, git);
-        return { ...list, consents: await remoteConsents(s, from, controls) };
+        const recording = watches.notes?.recording();
+        return {
+          ...list,
+          consents: await remoteConsents(s, from, controls),
+          ...(recording ? { recording } : {}),
+        };
+      }
+      case "notes.list":
+      case "notes.attach": {
+        const notes = watches.notes;
+        if (!notes) {
+          throw new RpcFailure(RpcErrorCode.MethodNotFound, `${request.method} is not served yet`);
+        }
+        const { workspaceId } = request.params as { workspaceId: string };
+        if (!workspaceOf(s, workspaceId)) {
+          throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+        }
+        return request.method === "notes.list"
+          ? listNotes(notes, request.params as RpcParams<"notes.list">)
+          : attachToNote(notes, request.params as RpcParams<"notes.attach">);
       }
       case "consent.answer":
         return answerConsent(
