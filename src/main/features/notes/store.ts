@@ -7,6 +7,8 @@
  *   notes/<location dir>/<note id>/sketches/  <sketch id>.excalidraw and .svg
  *   notes/<location dir>/<note id>/materials/ files put into the note
  *   notes/<location dir>/<note id>/screens/   pasted images
+ *   notes/<location dir>/<note id>/recordings/ the audio of its recordings
+ *   notes/<location dir>/<note id>/transcript.json, .md  what was said in them
  *
  * The location dir is a hash of the location's key, so a workspace's notes
  * are found again from its folder whatever the workspace's id.
@@ -16,6 +18,16 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
+  EMPTY_TRANSCRIPT,
+  peopleIn,
+  RECORDING_ID_RE,
+  recordingMs,
+  TAKE_FILE_RE,
+  type TranscriptFile,
+  TranscriptFileSchema,
+  transcriptMarkdown,
+} from "../../../shared/notes/transcript";
+import {
   NOTE_DIRS,
   NOTE_ID_RE,
   type NoteAsset,
@@ -23,6 +35,7 @@ import {
   type NoteCounts,
   type NoteFile,
   type NoteLocation,
+  type NoteRecordingSummary,
   type NoteStorageEntry,
   type NoteSummary,
   SKETCH_ID_RE,
@@ -77,8 +90,9 @@ export class NotesStore {
     const out: NoteSummary[] = [];
     for (const name of names) {
       if (!NOTE_ID_RE.test(name)) continue;
-      const note = await readNote(path.join(dir, name)).catch(() => null);
-      if (note) out.push(summaryOf(note));
+      const noteDir = path.join(dir, name);
+      const note = await readNote(noteDir).catch(() => null);
+      if (note) out.push(summaryOf(note, await recordingSummary(noteDir)));
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }
@@ -106,7 +120,7 @@ export class NotesStore {
     const note = await readNote(dir).catch(() => {
       throw new NoteError("not-found", `no note ${id}`);
     });
-    return { ...summaryOf(note), doc: note.doc, dir };
+    return { ...summaryOf(note, await recordingSummary(dir)), doc: note.doc, dir };
   }
 
   async save(
@@ -126,7 +140,7 @@ export class NotesStore {
     note.updatedAt = Math.max(Date.now(), note.updatedAt + 1);
     await writeNote(dir, note);
     await this.touchLocation(location);
-    return summaryOf(note);
+    return summaryOf(note, await recordingSummary(dir));
   }
 
   async remove(location: NoteLocation, id: string): Promise<void> {
@@ -184,6 +198,64 @@ export class NotesStore {
     };
   }
 
+  /** The note's recordings and their words; an empty transcript when it has none. */
+  async readTranscript(location: NoteLocation, id: string): Promise<TranscriptFile> {
+    return readTranscript(this.noteDir(location, id));
+  }
+
+  /** Writes transcript.json, and transcript.md (with the note's title) beside it. */
+  async saveTranscript(location: NoteLocation, id: string, file: TranscriptFile): Promise<void> {
+    const dir = this.noteDir(location, id);
+    const note = await readNote(dir).catch(() => {
+      throw new NoteError("not-found", `no note ${id}`);
+    });
+    await writeAtomic(path.join(dir, TRANSCRIPT_JSON), `${JSON.stringify(file)}\n`);
+    await writeAtomic(path.join(dir, TRANSCRIPT_MD), transcriptMarkdown(file, note.title));
+  }
+
+  /** Adds a piece of a take's audio to the end of its file, which the first piece makes. */
+  async appendAudio(
+    location: NoteLocation,
+    id: string,
+    file: string,
+    audio: Uint8Array,
+  ): Promise<void> {
+    if (!TAKE_FILE_RE.test(file)) throw new NoteError("bad-request", `not a take's file: ${file}`);
+    const dir = this.noteDir(location, id);
+    if (!(await exists(path.join(dir, "note.json"))))
+      throw new NoteError("not-found", `no note ${id}`);
+    await fs.mkdir(path.join(dir, NOTE_DIRS.recordings), { recursive: true });
+    await fs.appendFile(path.join(dir, file), audio);
+  }
+
+  /**
+   * Moves a recording's audio to the Trash; its words stay, unless `text`
+   * says they go too. The transcript as it is after.
+   */
+  async removeRecording(
+    location: NoteLocation,
+    id: string,
+    recordingId: string,
+    text = false,
+  ): Promise<TranscriptFile> {
+    if (!RECORDING_ID_RE.test(recordingId))
+      throw new NoteError("bad-request", `not a recording id: ${recordingId}`);
+    const dir = this.noteDir(location, id);
+    const file = await readTranscript(dir);
+    for (const name of await readdirSafe(path.join(dir, NOTE_DIRS.recordings))) {
+      if (name.startsWith(`${recordingId}-`))
+        await this.discard(path.join(dir, NOTE_DIRS.recordings, name));
+    }
+    const next: TranscriptFile = {
+      ...file,
+      recordings: text
+        ? file.recordings.filter((r) => r.id !== recordingId)
+        : file.recordings.map((r) => (r.id === recordingId ? { ...r, audioRemoved: true } : r)),
+    };
+    await this.saveTranscript(location, id, next);
+    return next;
+  }
+
   /**
    * Clears away, to the Trash, the files in a note's folder its document no
    * longer uses: a sketch, image or file whose block was deleted. Run as a
@@ -238,7 +310,7 @@ export class NotesStore {
       const entry: NoteStorageEntry = {
         location,
         notes: 0,
-        bytes: { text: 0, sketches: 0, files: 0, images: 0 },
+        bytes: { text: 0, sketches: 0, files: 0, images: 0, recordings: 0 },
         updatedAt: 0,
       };
       for (const id of await readdirSafe(dir)) {
@@ -250,6 +322,9 @@ export class NotesStore {
         entry.updatedAt = Math.max(entry.updatedAt, note.updatedAt);
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.json"));
         entry.bytes.text += await sizeOf(path.join(noteDir, "note.md"));
+        entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_JSON));
+        entry.bytes.text += await sizeOf(path.join(noteDir, TRANSCRIPT_MD));
+        entry.bytes.recordings += await sizeOf(path.join(noteDir, NOTE_DIRS.recordings));
         entry.bytes.sketches += await sizeOf(path.join(noteDir, NOTE_DIRS.sketches));
         entry.bytes.files += await sizeOf(path.join(noteDir, NOTE_DIRS.files));
         entry.bytes.images += await sizeOf(path.join(noteDir, NOTE_DIRS.images));
@@ -340,7 +415,7 @@ export function excerptOf(doc: DocNode, max = 120): string {
   return parts.join("").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-function summaryOf(note: NoteFile): NoteSummary {
+function summaryOf(note: NoteFile, recording?: NoteRecordingSummary): NoteSummary {
   return {
     id: note.id,
     title: note.title,
@@ -348,6 +423,28 @@ function summaryOf(note: NoteFile): NoteSummary {
     updatedAt: note.updatedAt,
     counts: countsOf(note.doc),
     excerpt: excerptOf(note.doc),
+    ...(recording ? { recording } : {}),
+  };
+}
+
+const TRANSCRIPT_JSON = "transcript.json";
+const TRANSCRIPT_MD = "transcript.md";
+
+async function readTranscript(dir: string): Promise<TranscriptFile> {
+  const raw = await readJson<unknown>(path.join(dir, TRANSCRIPT_JSON)).catch(() => null);
+  if (raw === null) return EMPTY_TRANSCRIPT;
+  const parsed = TranscriptFileSchema.safeParse(raw);
+  return parsed.success ? parsed.data : EMPTY_TRANSCRIPT;
+}
+
+/** What a note's recordings add up to; nothing for a note with none. */
+async function recordingSummary(dir: string): Promise<NoteRecordingSummary | undefined> {
+  const file = await readTranscript(dir);
+  if (!file.recordings.length) return undefined;
+  return {
+    recordings: file.recordings.length,
+    ms: file.recordings.reduce((ms, r) => ms + recordingMs(r), 0),
+    people: file.recordings.reduce((most, r) => Math.max(most, peopleIn(r)), 0),
   };
 }
 

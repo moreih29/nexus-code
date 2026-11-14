@@ -15,6 +15,7 @@ import type {
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
 import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
+import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
@@ -191,6 +192,8 @@ export interface CliNotes {
   list(workspaceId: string): Promise<NoteSummary[]>;
   /** Fails when there is no such note. */
   read(workspaceId: string, noteId: string): Promise<NoteContent>;
+  /** Its recordings' words; an empty transcript for a note with none. */
+  transcript(workspaceId: string, noteId: string): Promise<TranscriptFile>;
 }
 
 export interface CliContext {

@@ -48,6 +48,7 @@ import type {
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
 import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
+import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
@@ -202,6 +203,8 @@ export interface FakeApp {
   browser: FakeBrowser;
   /** Each workspace's notes (by workspace id), as the notes service gives them. */
   notes: Record<string, NoteContent[]>;
+  /** Notes' transcripts, by "<workspace id>/<note id>". */
+  transcripts: Record<string, TranscriptFile>;
   /** Each workspace's editor area; a test may replace one. */
   layouts: Record<string, { root: CliLayoutNode; activeGroupId: string }>;
   /** What problems.list gives. */
@@ -400,6 +403,7 @@ export function fakeApp(now = Date.now()): FakeApp {
   const asked: ChangeRequest[] = [];
   const time: FakeApp["time"] = { now };
   const notes: FakeApp["notes"] = {};
+  const transcripts: FakeApp["transcripts"] = {};
   const browser: FakeBrowser = {
     calls: [],
     console: [],
@@ -731,6 +735,8 @@ export function fakeApp(now = Date.now()): FakeApp {
         if (!note) throw new Error(`no note ${noteId}`);
         return note;
       },
+      transcript: async (workspaceId, noteId) =>
+        transcripts[`${workspaceId}/${noteId}`] ?? { version: 1, recordings: [] },
     },
     forwards: {
       list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
@@ -772,6 +778,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     ports,
     forwarding,
     notes,
+    transcripts,
     chats,
     chatSent,
     events,

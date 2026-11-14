@@ -26,6 +26,8 @@ const MIME: Record<string, string> = {
   ".excalidraw": "application/json",
   ".json": "application/json",
   ".md": "text/markdown",
+  ".webm": "audio/webm",
+  ".ogg": "audio/ogg",
 };
 
 /** Where a workspace's folder is, as its notes are kept by; a task's notes are its parent's. */
@@ -194,6 +196,35 @@ export function registerNotesChannel(opts: {
         await store.removeLocation(key);
         changed({ locationKey: key, change: "removed" });
         return ipcOk(undefined);
+      },
+      readTranscript: async (args: unknown) => {
+        const { workspaceId, noteId } = validateArgs(c.readTranscript.args, args);
+        return ipcOk(await store.readTranscript(locationOf(workspaceId), noteId));
+      },
+      saveTranscript: async (args: unknown) => {
+        const { workspaceId, noteId, transcript, announce } = validateArgs(
+          c.saveTranscript.args,
+          args,
+        );
+        const location = locationOf(workspaceId);
+        await store.saveTranscript(location, noteId, transcript);
+        if (announce) changed({ locationKey: location.key, noteId, change: "saved" });
+        return ipcOk(undefined);
+      },
+      appendAudio: async (args: unknown) => {
+        const { workspaceId, noteId, file, audio } = validateArgs(c.appendAudio.args, args);
+        await store.appendAudio(locationOf(workspaceId), noteId, file, audio);
+        return ipcOk(undefined);
+      },
+      removeRecording: async (args: unknown) => {
+        const { workspaceId, noteId, recordingId, text } = validateArgs(
+          c.removeRecording.args,
+          args,
+        );
+        const location = locationOf(workspaceId);
+        const next = await store.removeRecording(location, noteId, recordingId, text ?? false);
+        changed({ locationKey: location.key, noteId, change: "saved" });
+        return ipcOk(next);
       },
       revealLocation: async (args: unknown) => {
         const { key } = validateArgs(c.revealLocation.args, args);

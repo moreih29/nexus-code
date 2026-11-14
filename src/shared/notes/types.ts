@@ -40,6 +40,15 @@ export interface NoteCounts {
   todosDone: number;
 }
 
+/** What a note's recordings add up to (transcript.json), when it has any. */
+export interface NoteRecordingSummary {
+  recordings: number;
+  /** Their length together. */
+  ms: number;
+  /** The most people heard in one of them (voices given one name count once). */
+  people: number;
+}
+
 /** A note's row in the notes list. */
 export interface NoteSummary {
   id: string;
@@ -49,6 +58,7 @@ export interface NoteSummary {
   counts: NoteCounts;
   /** The first words of its text. */
   excerpt: string;
+  recording?: NoteRecordingSummary;
 }
 
 /** A note as the editor opens it. */
@@ -71,13 +81,18 @@ export interface NoteStorageEntry {
   location: NoteLocation;
   notes: number;
   /** Bytes by what they are. */
-  bytes: { text: number; sketches: number; files: number; images: number };
+  bytes: { text: number; sketches: number; files: number; images: number; recordings: number };
   /** Its newest note's updatedAt (0 for none). */
   updatedAt: number;
 }
 
 /** A note's folder's parts. */
-export const NOTE_DIRS = { sketches: "sketches", files: "materials", images: "screens" } as const;
+export const NOTE_DIRS = {
+  sketches: "sketches",
+  files: "materials",
+  images: "screens",
+  recordings: "recordings",
+} as const;
 
 /** A note's id: "n" and base-36 time and randomness. */
 export const NOTE_ID_RE = /^n[0-9a-z]{6,24}$/;

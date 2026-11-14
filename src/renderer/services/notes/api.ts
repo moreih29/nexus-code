@@ -3,6 +3,7 @@
  * URLs the editor shows a note's pictures by.
  */
 import type { DocNode } from "../../../shared/notes/markdown";
+import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { NoteChanged } from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
@@ -85,6 +86,24 @@ export const notesApi = {
     call(ipcCallResult("notes", "revealNote", { workspaceId, noteId })),
   pickFiles: (images = false): Promise<string[]> =>
     call(ipcCallResult("notes", "pickFiles", { images })),
+  readTranscript: (workspaceId: string, noteId: string): Promise<TranscriptFile> =>
+    call(ipcCallResult("notes", "readTranscript", { workspaceId, noteId })),
+  saveTranscript: (
+    workspaceId: string,
+    noteId: string,
+    transcript: TranscriptFile,
+    announce = false,
+  ): Promise<void> =>
+    call(ipcCallResult("notes", "saveTranscript", { workspaceId, noteId, transcript, announce })),
+  appendAudio: (workspaceId: string, noteId: string, file: string, audio: Uint8Array) =>
+    call(ipcCallResult("notes", "appendAudio", { workspaceId, noteId, file, audio })),
+  removeRecording: (
+    workspaceId: string,
+    noteId: string,
+    recordingId: string,
+    text = false,
+  ): Promise<TranscriptFile> =>
+    call(ipcCallResult("notes", "removeRecording", { workspaceId, noteId, recordingId, text })),
   onChanged: (cb: (event: NoteChanged) => void): (() => void) => ipcListen("notes", "changed", cb),
 };
 

@@ -1,5 +1,6 @@
 /** The notes channel's arguments and results (see shared/notes/types.ts). */
 import { z } from "zod";
+import { RECORDING_ID_RE, TAKE_FILE_RE, TranscriptFileSchema } from "../notes/transcript";
 import { NOTE_ID_RE, SKETCH_ID_RE } from "../notes/types";
 import { WorkspaceIdSchema } from "./workspace-id";
 
@@ -10,6 +11,9 @@ export const NoteDocSchema = z.object({ type: z.literal("doc") }).passthrough();
 
 /** Most bytes of a pasted image, before base64. */
 export const MAX_NOTE_IMAGE_BYTES = 30 * 1024 * 1024;
+
+/** Most bytes of one piece of a recording's audio, as it is written while recording. */
+export const MAX_RECORDING_CHUNK_BYTES = 8 * 1024 * 1024;
 
 /** Most characters of a sketch's scene JSON (it holds its images). */
 export const MAX_SKETCH_SCENE_CHARS = 60 * 1024 * 1024;
@@ -29,6 +33,7 @@ export const NoteSummarySchema = z.object({
   updatedAt: z.number(),
   counts: NoteCountsSchema,
   excerpt: z.string(),
+  recording: z.object({ recordings: z.number(), ms: z.number(), people: z.number() }).optional(),
 });
 
 export const NoteContentSchema = NoteSummarySchema.extend({
@@ -54,6 +59,7 @@ export const NoteStorageEntrySchema = z.object({
     sketches: z.number(),
     files: z.number(),
     images: z.number(),
+    recordings: z.number(),
   }),
   updatedAt: z.number(),
   /** The workspaces open in the app whose folder this is. */
@@ -90,6 +96,28 @@ export const NotesArgs = {
   revealNote: z.object(note),
   pickFiles: z.object({ images: z.boolean().optional() }),
   storage: z.void(),
+  readTranscript: z.object(note),
+  saveTranscript: z.object({
+    ...note,
+    transcript: TranscriptFileSchema,
+    /** Tells the windows the note changed (a recording ended): its row recounts. */
+    announce: z.boolean().optional(),
+  }),
+  /** Adds to the end of a take's audio file (made by the first piece). */
+  appendAudio: z.object({
+    ...note,
+    file: z.string().regex(TAKE_FILE_RE),
+    audio: z.custom<Uint8Array>(
+      (v) => v instanceof Uint8Array && v.byteLength <= MAX_RECORDING_CHUNK_BYTES,
+      "audio bytes",
+    ),
+  }),
+  /** Moves a recording's audio to the Trash; with `text`, its words go from the transcript too. */
+  removeRecording: z.object({
+    ...note,
+    recordingId: z.string().regex(RECORDING_ID_RE),
+    text: z.boolean().optional(),
+  }),
   removeLocation: z.object({ key: z.string().min(1).max(8192) }),
   revealLocation: z.object({ key: z.string().min(1).max(8192) }),
 };

@@ -15,7 +15,9 @@
     "sketches": "{{count}} sketches",
     "files": "{{count}} files",
     "images": "{{count}} images",
-    "todos": "To-dos {{done}}/{{total}}"
+    "todos": "To-dos {{done}}/{{total}}",
+    "recording": "Recording {{minutes}} min",
+    "meeting": "Meeting {{minutes}} min"
   },
   "editor": {
     "titlePlaceholder": "Title",
@@ -99,6 +101,60 @@
       "title": "Delete every note of “{{label}}”?",
       "description": "{{count}} notes ({{size}}) move to the Trash.",
       "confirm": "Delete all"
+    },
+    "recordings": "Recordings"
+  },
+  "recorder": {
+    "record": "Record",
+    "recordHint": "Record into this note. What is said goes into the transcript beside it.",
+    "pause": "Pause",
+    "resume": "Resume recording",
+    "stop": "Stop recording",
+    "starting": "Starting",
+    "stopping": "Finishing",
+    "paused": "Paused",
+    "recording": "Recording",
+    "elsewhere": "Another note is being recorded",
+    "unavailable": "This server has no voice features",
+    "limit": {
+      "quota": "This month's note recording time is used up, so the recording stopped."
+    },
+    "failure": {
+      "recognition": "Something went wrong with the transcription.",
+      "dropped": "The connection to the server dropped, so the recording paused. You can resume it.",
+      "write": "The recording's file could not be written. The transcript goes on."
+    }
+  },
+  "transcript": {
+    "title": "Transcript",
+    "show": "Transcript",
+    "hide": "Hide the transcript",
+    "empty": "Start recording and what is said shows here.",
+    "listening": "Listening…",
+    "nothing": "Nothing was heard.",
+    "speaker": "Speaker {{label}}",
+    "rename": "Click to name",
+    "namePlaceholder": "Name",
+    "insert": "Quote in the note",
+    "live": "Recording",
+    "refining": "Transcribing again",
+    "refined": "Transcribed again",
+    "refine": "Transcribe again",
+    "removeAudio": "Delete the recording's file",
+    "removeAll": "Delete the recording",
+    "removeConfirm": {
+      "title": "Delete this recording?",
+      "description": "Its file moves to the Trash and its transcript is deleted.",
+      "confirm": "Delete"
+    },
+    "saveFailed": "The transcript could not be saved: {{message}}",
+    "passFailed": {
+      "signed-out": "Sign in to NexusCode to transcribe again.",
+      "expired": "It can no longer be transcribed again (that is open for a day after recording).",
+      "too-big": "The recording's file is too big to transcribe again.",
+      "missing": "The recording's file is missing, so it could not be transcribed again.",
+      "network": "The server could not be reached. Try again in a moment.",
+      "failed": "It could not be transcribed again."
     }
   }
 }

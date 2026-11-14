@@ -683,6 +683,10 @@ app.whenReady().then(async () => {
         if (!notesFeature) throw new Error("notes are not ready");
         return notesFeature.store.read(notesFeature.locationOf(workspaceId), noteId);
       },
+      transcript: (workspaceId, noteId) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.store.readTranscript(notesFeature.locationOf(workspaceId), noteId);
+      },
     },
   });
 

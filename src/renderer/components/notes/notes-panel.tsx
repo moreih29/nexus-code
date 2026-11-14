@@ -12,6 +12,7 @@ import { dateTimeFormat } from "@/utils/intl-format";
 import type { NoteSummary } from "../../../shared/notes/types";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { notesApi } from "../../services/notes/api";
+import { useRecorderStore } from "../../services/notes/recorder";
 import { openOrRevealNoteTab } from "../../state/operations";
 import { useLayoutStore } from "../../state/stores/layout";
 import { findLeaf } from "../../state/stores/layout/helpers";
@@ -126,6 +127,7 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
             {shown.map((note) => (
               <NoteRow
                 key={note.id}
+                workspaceId={workspace.id}
                 note={note}
                 active={note.id === activeNoteId}
                 onOpen={() => openOrRevealNoteTab(workspace.id, note.id, note.title)}
@@ -139,15 +141,20 @@ export function NotesPanel({ workspace }: { workspace: WorkspaceMeta }) {
 }
 
 function NoteRow({
+  workspaceId,
   note,
   active,
   onOpen,
 }: {
+  workspaceId: string;
   note: NoteSummary;
   active: boolean;
   onOpen: () => void;
 }) {
   const { t } = useTranslation("notes");
+  const recording = useRecorderStore(
+    (s) => s.phase !== "idle" && s.workspaceId === workspaceId && s.noteId === note.id,
+  );
   return (
     <button
       type="button"
@@ -158,7 +165,16 @@ function NoteRow({
       )}
       data-testid="note-row"
     >
-      <NotebookPen className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="relative mt-0.5 shrink-0">
+        <NotebookPen className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        {recording && (
+          <span
+            className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-[var(--state-error-fg)]"
+            title={t("recorder.recording")}
+            data-testid="note-row-recording"
+          />
+        )}
+      </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span
           className={cn(
@@ -187,10 +203,16 @@ function NoteRow({
 }
 
 /** What a note's row says it has: its sketches, files, images and to-dos, or "Text". */
-export function noteChips(note: Pick<NoteSummary, "counts">): string[] {
+export function noteChips(note: Pick<NoteSummary, "counts" | "recording">): string[] {
   const { sketches, files, images, todos, todosDone } = note.counts;
   const t = i18next.t.bind(i18next);
   const chips: string[] = [];
+  if (note.recording) {
+    const minutes = Math.max(1, Math.round(note.recording.ms / 60_000));
+    chips.push(
+      t(note.recording.people >= 2 ? "notes:chip.meeting" : "notes:chip.recording", { minutes }),
+    );
+  }
   if (todos) chips.push(t("notes:chip.todos", { done: todosDone, total: todos }));
   if (sketches) chips.push(t("notes:chip.sketches", { count: sketches }));
   if (files) chips.push(t("notes:chip.files", { count: files }));

@@ -64,6 +64,39 @@ describe("nexus note", () => {
     expect((await nexus(app, ["note", "list", "--workspace", "api"])).stdout).toContain("API 메모");
   });
 
+  test("a recorded note: its length in the list, and its transcript after it", async () => {
+    const app = withNotes();
+    app.notes[APP] = [
+      note("nmhz00dd0004", "주간 회의", "안건", {
+        recording: { recordings: 1, ms: 125_000, people: 2 },
+      }),
+    ];
+    app.transcripts[`${APP}/nmhz00dd0004`] = {
+      version: 1,
+      recordings: [
+        {
+          id: "rmhz00cc0abcd",
+          startedAt: new Date(2026, 10, 14, 20, 30).getTime(),
+          language: "ko",
+          takes: [
+            { file: "recordings/rmhz00cc0abcd-1.webm", offsetMs: 0, seconds: 125, pass: "done" },
+          ],
+          speakers: { "1": "지현" },
+          lines: [
+            { speaker: "1", startMs: 1000, endMs: 2000, text: "시작할게요" },
+            { speaker: "2", startMs: 3000, endMs: 4000, text: "네" },
+          ],
+        },
+      ],
+    };
+    expect((await nexus(app, ["note", "list"])).stdout).toContain("recording 2:05");
+    const out = await nexus(app, ["note", "read", "nmhz00dd"]);
+    expect(out.stdout).toBe(
+      "# 주간 회의\n\n안건\n\n---\n\n# Transcript: 주간 회의\n\n" +
+        "## Recording 2026-11-14 20:30 (2:05)\n\n[0:01] 지현: 시작할게요\n[0:03] Speaker 2: 네\n",
+    );
+  });
+
   test("read: by id, prefix or title, as Markdown", async () => {
     const app = withNotes();
     for (const selector of ["nmhz00aa0001", "nmhz00aa", "원격 파일 검색"]) {

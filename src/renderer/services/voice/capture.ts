@@ -80,12 +80,20 @@ export async function openMicrophone(): Promise<MediaStream> {
   }
 }
 
-/** Captures `stream` at `sampleRate`, handing each frame to `onFrame`. */
+/**
+ * Captures `stream` at `sampleRate`, handing each frame to `onFrame`.
+ * Stopping it (or failing) stops the stream's tracks too, unless
+ * `keepStream`: a note's recording goes on with the stream in a new session.
+ */
 export async function startCapture(
   stream: MediaStream,
   sampleRate: number,
   onFrame: (pcm: Uint8Array) => void,
+  options: { keepStream?: boolean } = {},
 ): Promise<Capture> {
+  const release = () => {
+    if (!options.keepStream) for (const track of stream.getTracks()) track.stop();
+  };
   let context: AudioContext | null = null;
   const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
   try {
@@ -115,12 +123,12 @@ export async function startCapture(
         node.port.onmessage = null;
         source.disconnect();
         node.disconnect();
-        for (const track of stream.getTracks()) track.stop();
+        release();
         void opened.close().catch(() => {});
       },
     };
   } catch (error) {
-    for (const track of stream.getTracks()) track.stop();
+    release();
     void context?.close().catch(() => {});
     throw new CaptureError("failed", error instanceof Error ? error.message : String(error));
   } finally {

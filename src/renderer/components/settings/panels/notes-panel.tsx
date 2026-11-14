@@ -23,7 +23,8 @@ const iconButtonClass = cn(
   "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
 );
 
-const total = (e: Entry) => e.bytes.text + e.bytes.sketches + e.bytes.files + e.bytes.images;
+const total = (e: Entry) =>
+  e.bytes.text + e.bytes.sketches + e.bytes.files + e.bytes.images + e.bytes.recordings;
 
 export function NotesPanel() {
   const { t } = useTranslation("notes");
@@ -142,6 +143,7 @@ export function NotesPanel() {
 }
 
 const PARTS = [
+  { key: "recordings", color: "var(--state-error-fg)" },
   { key: "files", color: "var(--state-info-fg)" },
   { key: "images", color: "var(--state-success-fg)" },
   { key: "sketches", color: "var(--state-warning-fg)" },

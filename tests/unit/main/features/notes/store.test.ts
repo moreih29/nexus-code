@@ -222,3 +222,85 @@ describe("what a note has in it", () => {
     expect(safeName("...")).toBe("file");
   });
 });
+
+describe("a note's recordings", () => {
+  const take = (n: number) => `recordings/rmhz00cc0abcd-${n}.webm`;
+  const transcript = (over: Record<string, unknown> = {}) => ({
+    version: 1 as const,
+    recordings: [
+      {
+        id: "rmhz00cc0abcd",
+        startedAt: 1,
+        language: "ko",
+        takes: [{ file: take(1), offsetMs: 0, seconds: 90, pass: "none" as const }],
+        speakers: { "1": "지현" },
+        lines: [
+          { speaker: "1", startMs: 0, endMs: 2000, text: "시작할게요" },
+          { speaker: "2", startMs: 2000, endMs: 3000, text: "네" },
+        ],
+        ...over,
+      },
+    ],
+  });
+
+  test("a note without one has an empty transcript and no recording in its row", async () => {
+    const note = await store.create(here, "회의");
+    expect(await store.readTranscript(here, note.id)).toEqual({ version: 1, recordings: [] });
+    expect((await store.list(here))[0]?.recording).toBeUndefined();
+  });
+
+  test("writes transcript.json and .md, and the row says how long and how many people", async () => {
+    const note = await store.create(here, "회의");
+    await store.saveTranscript(here, note.id, transcript());
+    expect(await store.readTranscript(here, note.id)).toEqual(transcript());
+    const md = await fs.readFile(path.join(note.dir, "transcript.md"), "utf8");
+    expect(md).toContain("# Transcript: 회의");
+    expect(md).toContain("[0:00] 지현: 시작할게요");
+    expect((await store.list(here))[0]?.recording).toEqual({
+      recordings: 1,
+      ms: 90_000,
+      people: 2,
+    });
+    expect((await store.read(here, note.id)).recording?.people).toBe(2);
+  });
+
+  test("a take's audio is written piece by piece, only under recordings/", async () => {
+    const note = await store.create(here, "");
+    await store.appendAudio(here, note.id, take(1), new Uint8Array([1, 2]));
+    await store.appendAudio(here, note.id, take(1), new Uint8Array([3]));
+    expect([...(await fs.readFile(path.join(note.dir, take(1))))]).toEqual([1, 2, 3]);
+    await expect(
+      store.appendAudio(here, note.id, "note.json", new Uint8Array([0])),
+    ).rejects.toThrow(NoteError);
+    await expect(
+      store.appendAudio(here, "nmissing00000", take(1), new Uint8Array([0])),
+    ).rejects.toThrow(NoteError);
+    const [entry] = await store.storage();
+    expect(entry?.bytes.recordings).toBe(3);
+  });
+
+  test("removing a recording's audio keeps its words; with the text, it goes whole", async () => {
+    const trashed: string[] = [];
+    const withTrash = new NotesStore(path.join(root, "notes"), async (p) => {
+      trashed.push(path.basename(p));
+      await fs.rm(p, { recursive: true, force: true });
+    });
+    const note = await withTrash.create(here, "");
+    await withTrash.saveTranscript(here, note.id, transcript());
+    await withTrash.appendAudio(here, note.id, take(1), new Uint8Array([1]));
+    await withTrash.appendAudio(here, note.id, take(2), new Uint8Array([2]));
+    const kept = await withTrash.removeRecording(here, note.id, "rmhz00cc0abcd");
+    expect(trashed.sort()).toEqual(["rmhz00cc0abcd-1.webm", "rmhz00cc0abcd-2.webm"]);
+    expect(kept.recordings[0]?.audioRemoved).toBe(true);
+    expect(kept.recordings[0]?.lines).toHaveLength(2);
+    const gone = await withTrash.removeRecording(here, note.id, "rmhz00cc0abcd", true);
+    expect(gone.recordings).toEqual([]);
+    expect(await withTrash.readTranscript(here, note.id)).toEqual({ version: 1, recordings: [] });
+  });
+
+  test("prune leaves recordings alone", async () => {
+    const note = await store.create(here, "");
+    await store.appendAudio(here, note.id, take(1), new Uint8Array([1]));
+    expect(await store.prune(here, note.id, Date.now() + PRUNE_AFTER_MS * 10)).toEqual([]);
+  });
+});

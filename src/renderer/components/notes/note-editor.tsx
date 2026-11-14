@@ -2,16 +2,24 @@
  * A note's tab: its title, where it is kept, and its body, a block editor
  * (TipTap) with text, lists, to-dos, sketches drawn in place, pasted images
  * and files dropped in. It saves as it is typed in; "To an agent" opens a
- * chat that reads it with `nexus note read`.
+ * chat that reads it with `nexus note read`. "Record" records into it, what
+ * is said going into the transcript beside the text.
  */
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
-import { Bot, FolderOpen, MoreHorizontal, Terminal, Trash2 } from "lucide-react";
+import { Bot, FolderOpen, MoreHorizontal, ScrollText, Terminal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
+import { dropRecording, useRecorderStore } from "../../services/notes/recorder";
+import {
+  dropTranscript,
+  loadTranscript,
+  transcriptKey,
+  useTranscriptsStore,
+} from "../../services/notes/transcripts";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -28,7 +36,9 @@ import { DND_FILE_SURFACE_ATTR } from "../workspace/dnd/markers";
 import { type FileDragPayload, MIME_FILE } from "../workspace/dnd/types";
 import { noteExtensions } from "./editor/extensions";
 import type { NoteHost } from "./editor/host";
+import { RecordControls } from "./record-controls";
 import { SendToAgent } from "./send-to-agent";
+import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
 
 const SAVE_DELAY_MS = 500;
 
@@ -94,6 +104,19 @@ function LoadedNote({
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
+
+  // The transcript shows beside the text once the note has recordings, or records.
+  const recordings = useTranscriptsStore(
+    (s) => s.byNote[transcriptKey(workspaceId, note.id)]?.recordings.length ?? 0,
+  );
+  const recordingHere = useRecorderStore(
+    (s) => s.phase !== "idle" && s.workspaceId === workspaceId && s.noteId === note.id,
+  );
+  const [transcriptOpen, setTranscriptOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    void loadTranscript(workspaceId, note.id);
+  }, [workspaceId, note.id]);
+  const showTranscript = transcriptOpen ?? (recordings > 0 || recordingHere);
 
   // A new note starts at its title (and the "New note" button loses focus,
   // so Enter does not make another one).
@@ -310,17 +333,43 @@ function LoadedNote({
     if (!ok) return;
     if (timer.current) clearTimeout(timer.current);
     pending.current = {};
+    dropRecording(workspaceId, note.id);
     await notesApi.remove(workspaceId, note.id);
+    dropTranscript(workspaceId, note.id);
     closeNoteTabs(workspaceId, note.id);
+  };
+
+  /** A transcript line into the note, as a quote: who, when, what. */
+  const quote = (q: TranscriptQuote) => {
+    if (!editor) return;
+    editor
+      .chain()
+      .focus()
+      .insertContent([
+        {
+          type: "blockquote",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", marks: [{ type: "bold" }], text: q.speaker },
+                { type: "text", text: ` (${q.time}) ${q.text}` },
+              ],
+            },
+          ],
+        },
+        { type: "paragraph" },
+      ])
+      .run();
   };
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-[var(--surface-island-bg,transparent)]"
+      className="@container/note flex h-full min-h-0 flex-col bg-[var(--surface-island-bg,transparent)]"
       data-testid="note-editor"
     >
-      <div className="flex shrink-0 items-start gap-2 border-b border-border px-6 pt-3 pb-2.5">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex shrink-0 flex-wrap items-start gap-2 border-b border-border px-6 pt-3 pb-2.5">
+        <div className="flex min-w-48 flex-1 flex-col gap-0.5">
           <input
             ref={titleRef}
             value={title}
@@ -351,69 +400,98 @@ function LoadedNote({
             </span>
           </span>
         </div>
-        <SendToAgent
-          open={agentOpen}
-          onOpenChange={setAgentOpen}
-          workspaceId={workspaceId}
-          cwd={workspace?.rootPath ?? ""}
-          noteId={note.id}
-          title={title.trim() || t("panel.untitled")}
-          beforeSend={flush}
-          trigger={
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {!showTranscript && (recordings > 0 || recordingHere) && (
             <button
               type="button"
               className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
-              data-testid="note-to-agent"
+              onClick={() => setTranscriptOpen(true)}
+              data-testid="note-show-transcript"
             >
-              <Bot className="size-3.5" aria-hidden="true" />
-              {t("editor.toAgent")}
+              <ScrollText className="size-3.5" aria-hidden="true" />
+              {t("transcript.show")}
             </button>
-          }
-        />
-        <DropdownMenuRoot>
-          <DropdownMenuTrigger>
-            <button
-              type="button"
-              aria-label={t("editor.more")}
-              title={t("editor.more")}
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-            >
-              <MoreHorizontal className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
-              <FolderOpen className="size-3.5" aria-hidden="true" />
-              {t("editor.reveal")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={() => void navigator.clipboard.writeText(`nexus note read ${note.id}`)}
-            >
-              <Terminal className="size-3.5" aria-hidden="true" />
-              {t("editor.copyCommand")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void remove()}>
-              <Trash2 className="size-3.5" aria-hidden="true" />
-              {t("editor.delete")}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenuRoot>
+          )}
+          <RecordControls
+            workspaceId={workspaceId}
+            noteId={note.id}
+            onStart={() => setTranscriptOpen(true)}
+          />
+          <SendToAgent
+            open={agentOpen}
+            onOpenChange={setAgentOpen}
+            workspaceId={workspaceId}
+            cwd={workspace?.rootPath ?? ""}
+            noteId={note.id}
+            title={title.trim() || t("panel.untitled")}
+            beforeSend={flush}
+            trigger={
+              <button
+                type="button"
+                className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-(--radius-control) border border-border px-2.5 text-app-ui-sm text-foreground hover:bg-[var(--state-hover-bg)]"
+                data-testid="note-to-agent"
+              >
+                <Bot className="size-3.5" aria-hidden="true" />
+                {t("editor.toAgent")}
+              </button>
+            }
+          />
+          <DropdownMenuRoot>
+            <DropdownMenuTrigger>
+              <button
+                type="button"
+                aria-label={t("editor.more")}
+                title={t("editor.more")}
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-(--radius-control) text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+              >
+                <MoreHorizontal className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
+                <FolderOpen className="size-3.5" aria-hidden="true" />
+                {t("editor.reveal")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={() => void navigator.clipboard.writeText(`nexus note read ${note.id}`)}
+              >
+                <Terminal className="size-3.5" aria-hidden="true" />
+                {t("editor.copyCommand")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void remove()}>
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                {t("editor.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuRoot>
+        </div>
       </div>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
-      <div
-        className="note-doc min-h-0 flex-1 overflow-y-auto px-7 pt-4"
-        {...{ [DND_FILE_SURFACE_ATTR]: "" }}
-        onDragOver={(e) => {
-          const types = e.dataTransfer.types;
-          if (types.includes(MIME_FILE) || types.includes("Files")) e.preventDefault();
-        }}
-        onDrop={(e) => {
-          // Below or beside the text, where the editor itself does not take it.
-          if (e.defaultPrevented) return;
-          if (dropFiles.current(null, e.dataTransfer)) e.preventDefault();
-        }}
-      >
-        <EditorContent editor={editor} className="h-full" />
+      {/* The transcript beside the text where the tab is wide, under it where it is narrow. */}
+      <div className="flex min-h-0 flex-1 flex-col @min-[720px]/note:flex-row">
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: a drop target only; the editor in it takes the keyboard */}
+        <div
+          className="note-doc min-h-0 min-w-0 flex-1 overflow-y-auto px-7 pt-4"
+          {...{ [DND_FILE_SURFACE_ATTR]: "" }}
+          onDragOver={(e) => {
+            const types = e.dataTransfer.types;
+            if (types.includes(MIME_FILE) || types.includes("Files")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            // Below or beside the text, where the editor itself does not take it.
+            if (e.defaultPrevented) return;
+            if (dropFiles.current(null, e.dataTransfer)) e.preventDefault();
+          }}
+        >
+          <EditorContent editor={editor} className="h-full" />
+        </div>
+        {showTranscript && (
+          <TranscriptPanel
+            workspaceId={workspaceId}
+            noteId={note.id}
+            onQuote={quote}
+            onClose={() => setTranscriptOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

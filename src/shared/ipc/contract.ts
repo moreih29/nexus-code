@@ -98,6 +98,7 @@ import {
 import { LspPresetLanguageIdSchema } from "../lsp/config";
 import { LspLanguageSettingsSchema, LspSettingsSchema } from "../lsp/settings";
 import { LspLogEntrySchema, LspServerMemorySchema, LspServerStatusSchema } from "../lsp/status";
+import { TranscriptFileSchema } from "../notes/transcript";
 import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from "../pty/ports";
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
@@ -2340,6 +2341,12 @@ export const ipcContract = {
       /** Moves every note of a location to the Trash. */
       removeLocation: call(NotesArgs.removeLocation, z.void()),
       revealLocation: call(NotesArgs.revealLocation, z.void()),
+      /** The note's recordings and their words (transcript.json); none yet is an empty one. */
+      readTranscript: call(NotesArgs.readTranscript, TranscriptFileSchema),
+      /** Writes transcript.json, and transcript.md beside it. */
+      saveTranscript: call(NotesArgs.saveTranscript, z.void()),
+      appendAudio: call(NotesArgs.appendAudio, z.void()),
+      removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
     },
     listen: {
       changed: listen(NoteChangedSchema),

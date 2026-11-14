@@ -1,5 +1,6 @@
 /** nexus note list|read|path: the workspace's notes, kept by the app. */
 import { isManager } from "../../../../shared/manager/manager";
+import { clockOf, transcriptMarkdown } from "../../../../shared/notes/transcript";
 import type { NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
 import { exactArgs } from "../args";
@@ -29,9 +30,10 @@ const NOTE_ARG_HELP =
   "A note is named by its id, an id prefix, or its title (as nexus note list shows them).";
 
 /** What a note has in it, in a few words. */
-export function contentsOf(note: Pick<NoteSummary, "counts">): string {
+export function contentsOf(note: Pick<NoteSummary, "counts" | "recording">): string {
   const { sketches, files, images, todos, todosDone } = note.counts;
   const parts: string[] = [];
+  if (note.recording) parts.push(`recording ${clockOf(note.recording.ms)}`);
   if (todos) parts.push(`to-dos ${todosDone}/${todos}`);
   if (sketches) parts.push(`${sketches} sketch${sketches === 1 ? "" : "es"}`);
   if (files) parts.push(`${files} file${files === 1 ? "" : "s"}`);
@@ -91,7 +93,8 @@ const read: CliCommand = {
     `${NOTE_ARG_HELP}\n` +
     "Its sketches, images and files are linked by their place in the note's folder\n" +
     "(sketches/, screens/, materials/); in a terminal on the app's machine the folder's\n" +
-    "path is printed after it, and nexus note path prints it alone.",
+    "path is printed after it, and nexus note path prints it alone. A note with\n" +
+    "recordings has what was said in them after it, a voice and a time to a line.",
   flags: { workspace: WORKSPACE_FLAG },
   async run(ctx, { positionals, flags }) {
     const [selector] = exactArgs(positionals, "note");
@@ -100,13 +103,18 @@ const read: CliCommand = {
     const markdown = noteMarkdown(note);
     const local = onAppMachine(ctx);
     const { sketches, files, images } = note.counts;
+    const transcript = note.recording
+      ? transcriptMarkdown(await ctx.services.notes.transcript(workspace.id, note.id), note.title)
+      : "";
     const footer =
       local && sketches + files + images > 0 ? `\n<!-- The note's files: ${note.dir} -->\n` : "";
-    return output(`${markdown || "(empty note)\n"}${footer}`.replace(/\n$/, ""), {
+    const text = `${markdown || "(empty note)\n"}${transcript ? `\n---\n\n${transcript}` : ""}${footer}`;
+    return output(text.replace(/\n$/, ""), {
       id: note.id,
       title: note.title,
       updatedAt: note.updatedAt,
       markdown,
+      ...(transcript ? { transcript } : {}),
       ...(local ? { dir: note.dir } : {}),
     });
   },
