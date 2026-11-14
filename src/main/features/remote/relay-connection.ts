@@ -18,6 +18,12 @@ export const CLOSE_REPLACED = 4000;
 export const CLOSE_SIGNED_OUT = 4001;
 
 /**
+ * Most characters a frame from the relay may take: the most a device may
+ * send, and the sender's id the relay adds. A longer one is not read.
+ */
+export const MAX_DELIVERED_CHARS = MAX_FRAME_BYTES + 1024;
+
+/**
  * - connecting: asking for a ticket, or opening the socket;
  * - online: in the room;
  * - waiting: lost, trying again after a while;
@@ -108,6 +114,7 @@ export class RelayConnection {
     });
     socket.addEventListener("message", (event: { data: unknown }) => {
       if (this.socket !== socket || typeof event.data !== "string") return;
+      if (event.data.length > MAX_DELIVERED_CHARS) return;
       let parsed: ReturnType<typeof ServerFrameSchema.safeParse>;
       try {
         parsed = ServerFrameSchema.safeParse(JSON.parse(event.data));
