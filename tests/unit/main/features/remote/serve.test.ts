@@ -439,6 +439,41 @@ describe("serving a workspace's files found, and a commit", () => {
     ).rejects.toMatchObject({ code: 1001 });
   });
 
+  test("two searches of one device's at once; another waits for one to end", async () => {
+    const pending: Array<() => void> = [];
+    const slowFs = {
+      ...agentFs,
+      callAgentMethod: (method: string) =>
+        new Promise((resolve) =>
+          pending.push(() =>
+            resolve(
+              method === "search.files"
+                ? { files: [], truncated: false }
+                : { filesScanned: 0, matchesFound: 0, limitHit: false, elapsedMs: 0 },
+            ),
+          ),
+        ),
+    } as unknown as FsProvider;
+    const slow = serveWith(services, { files: { fs: async () => slowFs, shrink: () => null } });
+    const find = (from: string) =>
+      slow({ from, method: "files.find", params: { workspaceId: "w1", query: "a" } });
+    const first = [find("d"), find("d")];
+    await Bun.sleep(0);
+    await expect(find("d")).rejects.toMatchObject({
+      code: 1003,
+      message: expect.stringContaining("2 searches running"),
+    });
+    // Another device's goes.
+    const other = find("e");
+    await Bun.sleep(0);
+    for (const done of pending.splice(0)) done();
+    await Promise.all([...first, other]);
+    const again = find("d");
+    await Bun.sleep(0);
+    for (const done of pending.splice(0)) done();
+    expect(await again).toEqual({ files: [] });
+  });
+
   test("not served without the files", async () => {
     await expect(
       serveWith(services)({

@@ -760,6 +760,9 @@ export async function closeChat(
 }
 
 /** Answers another device's request with this device's services. */
+/** Most files.find and files.search one device may have running here at once. */
+export const MAX_SEARCHES_PER_DEVICE = 2;
+
 export function serveWith(
   services: () => CliServices | null,
   watches: {
@@ -792,6 +795,8 @@ export function serveWith(
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
+  /** files.find and files.search running now, by the device that asked. */
+  const searching = new Map<string, number>();
   return async (request: { from: string; method: RpcMethod; params: unknown }) => {
     const s = services();
     if (!s) throw new RpcFailure(RpcErrorCode.Unavailable, "the app is still starting");
@@ -901,10 +906,25 @@ export function serveWith(
         if (!workspaceOf(s, workspaceId)) {
           throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
         }
-        const fs = await watches.files.fs(workspaceId).catch(unavailable);
-        return request.method === "files.find"
-          ? findFiles(fs, request.params as RpcParams<"files.find">)
-          : searchFiles(fs, request.params as RpcParams<"files.search">);
+        // Each runs through a workspace's files on its host: a device runs a few at once, no more.
+        const running = searching.get(from) ?? 0;
+        if (running >= MAX_SEARCHES_PER_DEVICE) {
+          throw new RpcFailure(
+            RpcErrorCode.Unavailable,
+            `that device has ${running} searches running here already: ask again once one ends`,
+          );
+        }
+        searching.set(from, running + 1);
+        try {
+          const fs = await watches.files.fs(workspaceId).catch(unavailable);
+          return await (request.method === "files.find"
+            ? findFiles(fs, request.params as RpcParams<"files.find">)
+            : searchFiles(fs, request.params as RpcParams<"files.search">));
+        } finally {
+          const left = (searching.get(from) ?? 1) - 1;
+          if (left > 0) searching.set(from, left);
+          else searching.delete(from);
+        }
       }
       case "git.status":
       case "git.diff":
