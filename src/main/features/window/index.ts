@@ -10,7 +10,7 @@ import {
 import { getMainT } from "../../i18n";
 import { isMac, isWindows, supportsWindowsBackdrop } from "../../infra/platform";
 import type { AppState } from "../../infra/storage/state-service";
-import { activates, USER_ACTIVATION_MS } from "./activation";
+import { UserActivation, watchActivation } from "./activation";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -227,19 +227,17 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // page calling window.open from a timer would otherwise open browser tabs
   // without limit. Preview and markdown link clicks call window.open from the
   // click handler itself, so they always follow the input. One input lets
-  // one popup through; typing does not (./activation).
-  let lastActivationAt = 0;
-  win.webContents.on("input-event", (_event, input) => {
-    if (activates(input as { type: string; key?: string })) lastActivationAt = Date.now();
-  });
+  // one popup through; typing does not. Input in the HTML preview's page,
+  // which runs out of process, counts too (./activation).
+  const activation = new UserActivation();
+  watchActivation(win.webContents, activation);
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (!isExternalSchemeAllowed(url)) {
       logger.warn(`Blocked window.open with disallowed scheme: ${url}`);
-    } else if (Date.now() - lastActivationAt > USER_ACTIVATION_MS) {
+    } else if (!activation.take()) {
       logger.warn(`Blocked window.open without user input: ${url}`);
     } else {
-      lastActivationAt = 0;
       shell.openExternal(url);
     }
     return { action: "deny" };
