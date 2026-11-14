@@ -20,7 +20,6 @@ export interface NoteHost {
   revealAsset(src: string): void;
   /** Opens a workspace file a link points at ("workspace:src/a.ts"). */
   openWorkspaceFile(path: string): void;
-  isDark(): boolean;
   /** The app's language, as i18next has it ("ko", "en"). */
   language(): string;
 }

@@ -9,13 +9,11 @@ import i18next from "i18next";
 import { Bot, FolderOpen, MoreHorizontal, Terminal, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { THEME_SOURCE_BY_ID } from "../../../shared/design-tokens/theme-sources";
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
 import { closeNoteTabs, closeTab, openEditorTab } from "../../state/operations";
 import { useTabsStore } from "../../state/stores/tabs";
-import { useThemeStore } from "../../state/stores/theme";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { Button } from "../ui/button";
 import { showConfirmDialog } from "../ui/confirm-dialog";
@@ -92,10 +90,6 @@ function LoadedNote({
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
-  const theme = useThemeStore((s) => s.resolved);
-  const dark = THEME_SOURCE_BY_ID[theme]?.base === "dark";
-  const darkRef = useRef(dark);
-  darkRef.current = dark;
 
   // A new note starts at its title (and the "New note" button loses focus,
   // so Enter does not make another one).
@@ -198,7 +192,6 @@ function LoadedNote({
         const filePath = path.startsWith("/") ? path : `${root.replace(/\/$/, "")}/${path}`;
         openEditorTab(workspaceId, { workspaceId, filePath });
       },
-      isDark: () => darkRef.current,
       language: () => i18next.language || "en",
     }),
     [urls, workspaceId, note.id, workspace?.rootPath],

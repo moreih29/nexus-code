@@ -17,6 +17,7 @@ import { showToast } from "../../ui/toast";
 import type { AssetNodeOptions } from "./asset-nodes";
 import type { NoteHost } from "./host";
 import type { SketchApi, SketchScene } from "./sketch-canvas";
+import { useDarkTheme } from "./use-dark-theme";
 
 const SketchCanvas = lazy(() => import("./sketch-canvas"));
 
@@ -148,7 +149,7 @@ function SketchPicture({
       alive = false;
     };
   }, [host, src, version]);
-  const dark = host?.isDark() ?? false;
+  const dark = useDarkTheme();
   return (
     <button
       type="button"
@@ -199,6 +200,7 @@ function SketchEditor({
   onDone: () => void;
 }) {
   const { t } = useTranslation("notes");
+  const dark = useDarkTheme();
   const box = useRef<HTMLDivElement>(null);
   const api = useRef<SketchApi | null>(null);
   const [initial, setInitial] = useState<string | null | undefined>(id ? undefined : null);
@@ -322,7 +324,7 @@ function SketchEditor({
           <Suspense fallback={null}>
             <SketchCanvas
               initial={initial}
-              dark={host.isDark()}
+              dark={dark}
               language={host.language()}
               onApi={(a) => {
                 api.current = a;
