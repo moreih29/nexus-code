@@ -188,11 +188,31 @@ export const RemoteConsentSchema = z.object({
 });
 export type RemoteConsent = z.infer<typeof RemoteConsentSchema>;
 
+/**
+ * A note the serving device records into: a phone shows it, and may put
+ * photos into the note (notes.attach) while the meeting goes on.
+ */
+export const RemoteRecordingSchema = z.object({
+  workspaceId: z.string(),
+  noteId: z.string(),
+  /** The note's title; empty for a note not named yet. */
+  title: z.string(),
+  /** How long it had recorded at `at`, in milliseconds. */
+  recordedMs: z.number().nonnegative(),
+  /** When it was counted, by the serving device's clock (Unix milliseconds). */
+  at: z.number(),
+  /** Paused: `recordedMs` stays as it is until it records again. */
+  paused: z.boolean(),
+});
+export type RemoteRecording = z.infer<typeof RemoteRecordingSchema>;
+
 const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
   sessions: z.array(RemoteSessionSchema),
   /** The consent prompts waiting on the user, in the order they are asked; absent before 0.3.0. */
   consents: z.array(RemoteConsentSchema).optional(),
+  /** The note it records into, while it records; absent before 0.6.0. */
+  recording: RemoteRecordingSchema.optional(),
 });
 
 /** A session of the serving device, by its ids there. */
@@ -315,6 +335,9 @@ export const MAX_ATTACHMENT_BYTES = 560 * 1024;
 
 /** The image types a chat takes. */
 export const ImageMediaTypeSchema = z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Most notes notes.list gives. */
+export const MAX_LISTED_NOTES = 50;
 
 /** What a chat runs with, and what it may be set to. */
 export const ChatSettingsSchema = z.object({
@@ -1144,6 +1167,46 @@ export const RPC_METHODS = {
       /** More files than a frame takes: the rest left out. */
       truncated: z.boolean().optional(),
     }),
+  },
+  /**
+   * A workspace's notes, the last changed first, at most MAX_LISTED_NOTES:
+   * where notes.attach may put a photo.
+   */
+  "notes.list": {
+    capability: "notes",
+    params: z.object({ workspaceId: z.string() }),
+    result: z.object({
+      notes: z.array(
+        z.object({
+          id: z.string(),
+          /** Empty for a note not named yet. */
+          title: z.string(),
+          /** When it last changed, Unix milliseconds. */
+          updatedAt: z.number(),
+        }),
+      ),
+    }),
+  },
+  /**
+   * Puts a photo at the end of a note, as one picked on the serving device
+   * would be: one image a request, small enough for a frame. `src` is where
+   * the note keeps it.
+   */
+  "notes.attach": {
+    capability: "notes",
+    params: z.object({
+      workspaceId: z.string(),
+      noteId: z.string(),
+      mediaType: ImageMediaTypeSchema,
+      /** Base64, of at most MAX_ATTACHMENT_BYTES bytes. */
+      data: z
+        .string()
+        .min(1)
+        .max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4),
+      /** The photo's file name on the phone, which the note's file is named after. */
+      name: z.string().max(200).optional(),
+    }),
+    result: z.object({ src: z.string() }),
   },
 } as const;
 

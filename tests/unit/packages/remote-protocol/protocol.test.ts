@@ -12,6 +12,7 @@ import {
   isRpcMethod,
   KeyBundlePutSchema,
   KeyBundleSchema,
+  MAX_ATTACHMENT_BYTES,
   RPC_METHODS,
   SCHEMA_VERSION,
   SealedMessageSchema,
@@ -247,6 +248,47 @@ describe("the methods", () => {
     expect(
       search.result.safeParse({
         files: [{ path: "a.ts", matches: [{ line: 0, column: 0, length: 1, text: "x" }] }],
+      }).success,
+    ).toBe(false);
+  });
+
+  test("a workspace's notes are listed and given photos under notes, a frame's worth at a time", () => {
+    const list = RPC_METHODS["notes.list"];
+    expect(list.capability).toBe("notes");
+    expect(list.result.safeParse({ notes: [{ id: "n1", title: "", updatedAt: 1 }] }).success).toBe(
+      true,
+    );
+    const attach = RPC_METHODS["notes.attach"];
+    expect(attach.capability).toBe("notes");
+    const photo = { workspaceId: "w", noteId: "n1", mediaType: "image/jpeg", data: "/9j/" };
+    expect(attach.params.safeParse({ ...photo, name: "IMG_0001.jpg" }).success).toBe(true);
+    expect(attach.params.safeParse({ ...photo, mediaType: "image/heic" }).success).toBe(false);
+    expect(
+      attach.params.safeParse({
+        ...photo,
+        data: "A".repeat(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4 + 4),
+      }).success,
+    ).toBe(false);
+    expect(CAPABILITIES).toContain("notes");
+  });
+
+  test("the sessions' list tells the note being recorded into, and goes without it before 0.6.0", () => {
+    const result = RPC_METHODS["sessions.list"].result;
+    const recording = {
+      workspaceId: "w",
+      noteId: "n1",
+      title: "주간 회의",
+      recordedMs: 65_000,
+      at: 1000,
+      paused: false,
+    };
+    expect(result.parse({ workspaces: [], sessions: [], recording }).recording).toEqual(recording);
+    expect(result.parse({ workspaces: [], sessions: [] }).recording).toBeUndefined();
+    expect(
+      result.safeParse({
+        workspaces: [],
+        sessions: [],
+        recording: { ...recording, recordedMs: -1 },
       }).success,
     ).toBe(false);
   });
