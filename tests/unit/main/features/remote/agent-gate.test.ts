@@ -108,6 +108,52 @@ describe("an agent's request from another computer", () => {
     await g.check(services, send());
   });
 
+  test("sixty a minute from all of one computer's agents, whatever they call themselves", async () => {
+    const { g, services, later } = gate("allow");
+    for (let i = 0; i < 60; i++) await g.check(services, send({ tabId: `t${i}` }));
+    await expect(g.check(services, send({ tabId: "fresh" }))).rejects.toMatchObject({
+      code: 1003,
+      message: "too many messages from that device",
+    });
+    // Another computer has its own share.
+    await g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
+    later(60_000);
+    await g.check(services, send({ tabId: "fresh" }));
+  });
+
+  test("three prompts of one computer's waiting at once; more are turned away", async () => {
+    const answers: Array<(answer: string) => void> = [];
+    const services = {
+      ui: async (op: string) => {
+        if (op === "tabs.list") return { tabs: [] };
+        if (op === "consent.ask") {
+          return new Promise((resolve) => answers.push((answer) => resolve({ answer })));
+        }
+        throw new Error(op);
+      },
+    } as unknown as CliServices;
+    const g = new AgentGate({ policy: () => "ask" });
+    const waiting = [0, 1, 2].map((i) => g.check(services, send({ tabId: `t${i}` })));
+    await Bun.sleep(0);
+    expect(answers).toHaveLength(3);
+    await expect(g.check(services, send({ tabId: "t3" }))).rejects.toMatchObject({
+      code: 1003,
+      message: expect.stringContaining("prompts waiting already"),
+    });
+    // Another computer's agent is asked about.
+    const other = g.check(services, { ...send(), device: { id: "dev-2", name: "Mini" } });
+    await Bun.sleep(0);
+    expect(answers).toHaveLength(4);
+    // One answered, one more may wait.
+    answers[0]?.("deny");
+    await expect(waiting[0]).rejects.toMatchObject({ code: 1002 });
+    const next = g.check(services, send({ tabId: "t4" }));
+    await Bun.sleep(0);
+    expect(answers).toHaveLength(5);
+    for (const answer of answers.slice(1)) answer("once");
+    await Promise.all([waiting[1], waiting[2], other, next]);
+  });
+
   test("asked about: the computer and tab it comes from, and what it would do", async () => {
     const { g, services, asked } = gate("ask", ["once", "deny", "timeout"]);
     await g.check(services, send());

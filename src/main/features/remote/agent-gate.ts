@@ -2,7 +2,10 @@
  * Whether an agent on another computer of the user's may do what it asks
  * here (a request with `from`, from that computer's nexus command): not
  * past MAX_AGENT_HOPS messages between agents, not more than
- * MAX_AGENT_REQUESTS_PER_MINUTE from one agent, and as the user set it
+ * MAX_AGENT_REQUESTS_PER_MINUTE from one agent nor
+ * MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE from all of one device's, not more
+ * than MAX_PENDING_PROMPTS_PER_DEVICE prompts of one device's waiting on
+ * the user at once, and as the user set it
  * (Settings › Remote): allowed, turned down, or asked about as the nexus
  * command's changes to another workspace are: for this once, or for that
  * kind of change from that computer's workspace to this one until the app
@@ -14,6 +17,7 @@ import {
   type AgentSender,
   MAX_AGENT_HOPS,
   MAX_AGENT_REQUESTS_PER_MINUTE,
+  MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE,
   RpcErrorCode,
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
@@ -24,6 +28,12 @@ import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
 
 const MINUTE_MS = 60_000;
+
+/**
+ * Most prompts one device's agents may have waiting on the user here at
+ * once: more are turned away, not stacked up behind the ones shown.
+ */
+export const MAX_PENDING_PROMPTS_PER_DEVICE = 3;
 
 /** A request an agent made, as it came: from which device, for what. */
 export interface AgentRequest {
@@ -43,8 +53,13 @@ export interface AgentGateDeps {
 const forbidden = (message: string) => new RpcFailure(RpcErrorCode.Forbidden, message);
 
 export class AgentGate {
-  /** When each agent ("device|workspace|tab") asked lately, within the last minute. */
+  /**
+   * When each agent ("device|workspace|tab") and each device ("device")
+   * asked lately, within the last minute.
+   */
   private readonly recent = new Map<string, number[]>();
+  /** The prompts waiting on the user, by the device whose agent asked. */
+  private readonly prompting = new Map<string, number>();
   /** "device|its workspace>this workspace>kind" the user allowed until restart. */
   private readonly allowed = new Set<string>();
 
@@ -61,7 +76,17 @@ export class AgentGate {
     if (from.hops > MAX_AGENT_HOPS) {
       throw forbidden(`the agents' chain is too long (${MAX_AGENT_HOPS} messages): a loop?`);
     }
-    this.count(`${device.id}|${from.workspaceId}|${from.tabId}`);
+    // The device's share first: its agents' names are its to make up.
+    this.count(
+      device.id,
+      MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE,
+      "too many messages from that device",
+    );
+    this.count(
+      `${device.id}|${from.workspaceId}|${from.tabId}`,
+      MAX_AGENT_REQUESTS_PER_MINUTE,
+      "too many messages from that agent",
+    );
     refuseBeyondAsked(request);
     const policy = this.deps.policy();
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
@@ -72,6 +97,14 @@ export class AgentGate {
     const eachTime = askedEachTime(change);
     const key = `${device.id}|${from.workspaceId}>${params.workspaceId}>${change.kind}`;
     if (!eachTime && this.allowed.has(key)) return;
+    const waiting = this.prompting.get(device.id) ?? 0;
+    if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        "the user there has that device's agents' prompts waiting already: try again once they answer",
+      );
+    }
+    this.prompting.set(device.id, waiting + 1);
     const { answer } = await services
       .ui(
         "consent.ask",
@@ -92,6 +125,11 @@ export class AgentGate {
           RpcErrorCode.Unavailable,
           error instanceof Error ? error.message : String(error),
         );
+      })
+      .finally(() => {
+        const left = (this.prompting.get(device.id) ?? 1) - 1;
+        if (left > 0) this.prompting.set(device.id, left);
+        else this.prompting.delete(device.id);
       });
     if (answer === "session" && !eachTime) this.allowed.add(key);
     if (answer === "once" || answer === "session") return;
@@ -102,13 +140,13 @@ export class AgentGate {
     );
   }
 
-  /** Counts a request of the agent `key`; Unavailable past the minute's share. */
-  private count(key: string): void {
+  /** Counts a request of `key`; Unavailable, saying `why`, past the minute's `max`. */
+  private count(key: string, max: number, why: string): void {
     const now = this.now();
     const times = (this.recent.get(key) ?? []).filter((at) => now - at < MINUTE_MS);
-    if (times.length >= MAX_AGENT_REQUESTS_PER_MINUTE) {
+    if (times.length >= max) {
       this.recent.set(key, times);
-      throw new RpcFailure(RpcErrorCode.Unavailable, "too many messages from that agent");
+      throw new RpcFailure(RpcErrorCode.Unavailable, why);
     }
     times.push(now);
     this.recent.set(key, times);
