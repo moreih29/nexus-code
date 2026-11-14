@@ -577,6 +577,8 @@
     "remove": "{{name}} 삭제",
     "refresh": "다시 확인",
     "login": "로그인",
+    "loginAgain": "{{name}} 다시 로그인",
+    "loginAgainTitle": "다시 로그인 (다른 계정이나 조직으로)",
     "codexNote": "폴더는 앱이 만들고, codex 프로그램은 함께 씁니다",
     "status": {
       "checking": "확인 중…",
