@@ -19,6 +19,8 @@ import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
 import { SettingsGroup, SettingsRow } from "../section";
+import { PairingRow } from "./remote-pairing";
+import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 
 const inputClass = cn(
   "w-full rounded-(--radius-control) border border-border bg-background px-2 py-1",
@@ -84,33 +86,50 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
           <PasswordForm kind="create" />
         </>
       )}
+      {(state.status === "locked" || state.status === "unlocked") && state.pendingReset && (
+        <PendingResetNotice reset={state.pendingReset} />
+      )}
       {state.status === "locked" && mode === "idle" && (
         <>
           <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.locked")}</p>
           <PasswordForm kind="unlock" onForgot={() => setMode("reset")} />
+          <PairingRow giving={false} />
         </>
       )}
       {state.status === "unlocked" && mode === "idle" && (
-        <SettingsRow
-          label={t("remote.key.unlocked")}
-          description={t("remote.key.version", { kid: state.kid })}
-        >
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setMode("change")}>
-              {t("remote.key.change")}
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setMode("reset")}>
-              {t("remote.key.reset")}
-            </Button>
-          </div>
-        </SettingsRow>
+        <>
+          <SettingsRow
+            label={t("remote.key.unlocked")}
+            description={t("remote.key.version", { kid: state.kid })}
+          >
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setMode("change")}>
+                {t("remote.key.change")}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setMode("reset")}>
+                {t("remote.key.reset")}
+              </Button>
+            </div>
+          </SettingsRow>
+          {state.needsProof && (
+            <>
+              <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.needsProof")}</p>
+              <PasswordForm kind="confirm" />
+            </>
+          )}
+          <PairingRow giving />
+        </>
       )}
       {state.status === "unlocked" && mode === "change" && (
         <PasswordForm kind="change" onCancel={idle} onDone={idle} />
       )}
       {(state.status === "unlocked" || state.status === "locked") && mode === "reset" && (
         <>
-          <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.resetExplained")}</p>
+          <p className="text-app-ui-sm text-muted-foreground">
+            {state.v2 && !state.needsProof
+              ? t("remote.key.resetDelayed")
+              : t("remote.key.resetExplained")}
+          </p>
           <PasswordForm kind="reset" onCancel={idle} onDone={idle} />
         </>
       )}
@@ -118,7 +137,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
   );
 }
 
-type FormKind = "create" | "unlock" | "change" | "reset";
+type FormKind = "create" | "unlock" | "change" | "reset" | "confirm";
 type Field = "password" | "current" | "next" | "confirm";
 
 const FIELDS: Record<FormKind, readonly Field[]> = {
@@ -126,6 +145,7 @@ const FIELDS: Record<FormKind, readonly Field[]> = {
   unlock: ["password"],
   change: ["current", "next", "confirm"],
   reset: ["next", "confirm"],
+  confirm: ["password"],
 };
 
 const EMPTY: Record<Field, string> = { password: "", current: "", next: "", confirm: "" };
@@ -144,7 +164,99 @@ function send(kind: FormKind, values: Record<Field, string>) {
       });
     case "reset":
       return ipcCallResult("remote", "resetKey", { password: values.next });
+    case "confirm":
+      return ipcCallResult("remote", "confirmPassword", { password: values.password });
   }
+}
+
+/** What a key flow's failure says, as the forms and dialogs tell it. */
+export function keyFailureText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  kind: string,
+): string {
+  return t(`remote.key.failure.${failureOf(kind)}`, { count: MIN_PASSWORD_LENGTH });
+}
+
+/**
+ * A reset asked for without the password, which waits: when it comes into
+ * place, and, from another device, a way to call it off with the password
+ * or to remove the device that asked.
+ */
+function PendingResetNotice({
+  reset,
+}: {
+  reset: { appliesAt: number; deviceId: string; self?: boolean };
+}) {
+  const { t, i18n } = useTranslation("settings");
+  const [request, setRequest] = useState<PasswordRequest | null>(null);
+  const [name, setName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void ipcCallResult("remote", "devices", undefined).then((result) => {
+      if (live && result.ok)
+        setName(result.value.find((d) => d.id === reset.deviceId)?.name ?? null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [reset.deviceId]);
+  const when = new Date(reset.appliesAt).toLocaleString(i18n.language, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  const device = name ?? reset.deviceId;
+  const cancel = () =>
+    setRequest({
+      title: t("remote.key.pendingReset.cancelTitle"),
+      description: t("remote.key.pendingReset.cancelDescription"),
+      confirmLabel: t("remote.key.pendingReset.cancel"),
+      run: async (password) => {
+        const result = await ipcCallResult("remote", "cancelReset", { password });
+        return result.ok ? null : keyFailureText(t, result.kind);
+      },
+    });
+  const removeAsker = async () => {
+    const ok = await showConfirmDialog({
+      title: t("remote.key.pendingReset.removeTitle", { name: device }),
+      description: t("remote.key.pendingReset.removeDescription"),
+      confirmLabel: t("remote.devices.removeConfirm.confirm"),
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setError(null);
+    const result = await ipcCallResult("remote", "removeDevice", { id: reset.deviceId });
+    if (!result.ok) setError(keyFailureText(t, result.kind));
+  };
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-(--radius-control) border border-destructive/40 bg-destructive/5 p-3"
+      role="status"
+      data-testid="pending-reset"
+    >
+      <p className="text-app-ui-sm text-foreground">
+        {reset.self
+          ? t("remote.key.pendingReset.self", { when })
+          : t("remote.key.pendingReset.other", { name: device, when })}
+      </p>
+      {error && (
+        <p className="text-app-ui-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" onClick={cancel}>
+          {t("remote.key.pendingReset.cancel")}
+        </Button>
+        {!reset.self && (
+          <Button variant="destructive" size="sm" onClick={() => void removeAsker()}>
+            {t("remote.key.pendingReset.remove")}
+          </Button>
+        )}
+      </div>
+      <PasswordDialog request={request} onClose={() => setRequest(null)} />
+    </div>
+  );
 }
 
 function failureOf(kind: string): KeyFailure | "failed" {
