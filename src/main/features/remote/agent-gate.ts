@@ -9,8 +9,6 @@
  * (Settings › Remote): allowed, turned down, or asked about as the nexus
  * command's changes to another workspace are: for this once, or for every
  * change from that computer's workspace to this one until the app restarts.
- * An answer to a permission request, a looser mode and another profile are
- * asked about each time (askedEachTime).
  */
 import {
   AGENT_CONSENT_MS,
@@ -22,7 +20,7 @@ import {
   type RpcMethod,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
-import { askedEachTime, type CliChange } from "../../../shared/cli/ui";
+import type { CliChange } from "../../../shared/cli/ui";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import type { CliServices } from "../cli/context";
 import { RpcFailure } from "./room";
@@ -92,10 +90,8 @@ export class AgentGate {
     if (policy === "deny") throw forbidden("control by agents is off there (Settings › Remote)");
     if (policy === "allow") return;
     const change = await changeOf(services, request);
-    // An answer, a looser mode, a profile: asked about each time, never for a while.
-    const eachTime = askedEachTime(change);
     const pair = `${device.id}|${from.workspaceId}>${params.workspaceId}`;
-    if (!eachTime && this.allowed.has(pair)) return;
+    if (this.allowed.has(pair)) return;
     const waiting = this.prompting.get(device.id) ?? 0;
     if (waiting >= MAX_PENDING_PROMPTS_PER_DEVICE) {
       throw new RpcFailure(
@@ -130,7 +126,7 @@ export class AgentGate {
         if (left > 0) this.prompting.set(device.id, left);
         else this.prompting.delete(device.id);
       });
-    if (answer === "session" && !eachTime) this.allowed.add(pair);
+    if (answer === "session") this.allowed.add(pair);
     if (answer === "once" || answer === "session") return;
     throw forbidden(
       answer === "timeout"

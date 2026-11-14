@@ -202,8 +202,8 @@ describe("an agent's request from another computer", () => {
     expect(asked.map((a) => a.toWorkspaceId)).toEqual(["w1", "w2"]);
   });
 
-  test("an answer is asked about each time, after until restart too", async () => {
-    const { g, services, asked } = gate("ask", ["session", "session"]);
+  test("until restart holds for an answer to a permission request too", async () => {
+    const { g, services, asked } = gate("ask", ["session"]);
     await g.check(services, send());
     const answer = {
       device,
@@ -211,12 +211,7 @@ describe("an agent's request from another computer", () => {
       params: { workspaceId: "w1", tabId: "t1", requestId: "r", decision: "allow", from },
     };
     await g.check(services, answer);
-    await expect(g.check(services, answer)).rejects.toMatchObject({ code: 1002 });
-    expect(asked.map((a) => (a.change as { kind: string }).kind)).toEqual([
-      "chatInput",
-      "permissionAllow",
-      "permissionAllow",
-    ]);
+    expect(asked).toHaveLength(1);
     // What it sends is shown whole when asked.
     expect(asked[0]).toMatchObject({ change: { kind: "chatInput", detail: "Review", body: "hi" } });
   });

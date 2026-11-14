@@ -7,7 +7,6 @@ import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
 import {
-  askedEachTime,
   type CliChange,
   type CliPlacement,
   type CliTabInfo,
@@ -284,9 +283,9 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
  *
  * The user turned the manager on to direct every workspace, and it runs
  * nexus unasked; but what it reads of the sessions (their titles, what they
- * said) may say anything. So what it would type, run or send (carriesInput),
- * and what is asked about each time (askedEachTime), is up to the setting or
- * the user, as an agent's in another workspace is: the rest it does.
+ * said) may say anything. So what it would type, run or send (carriesInput)
+ * is up to the setting or the user, as an agent's in another workspace is:
+ * the rest it does.
  */
 export async function mayChange(
   ctx: CliContext,
@@ -294,7 +293,7 @@ export async function mayChange(
   change: CliChange,
 ): Promise<void> {
   if (isManager(ctx.caller)) {
-    if (!carriesInput(change) && !askedEachTime(change)) return;
+    if (!carriesInput(change)) return;
   } else if (workspace.id === ctx.caller.workspaceId) {
     return;
   }

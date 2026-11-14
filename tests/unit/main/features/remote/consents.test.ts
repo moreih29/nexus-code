@@ -97,7 +97,7 @@ describe("the consent prompts another device is told", () => {
         tabId: "bt",
         name: "Fix build",
       },
-      eachTime: true,
+      eachTime: false,
       answerable: true,
     });
     expect(listed[2]?.from).not.toHaveProperty("workspaceName");
@@ -202,18 +202,12 @@ describe("answering one from another device", () => {
     expect(answered).toEqual([]);
   });
 
-  test("what is asked each time takes no answer for a while", async () => {
+  test("takes until restart for any prompt, a looser mode's too", async () => {
     const { services, answered } = setup([
       pendingOf("c1", { change: { kind: "chatMode", detail: '"Review" (bypassPermissions)' } }),
     ]);
-    await expect(
-      answerConsent(services, phone, both, { id: "c1", answer: "session" }),
-    ).rejects.toMatchObject({
-      code: RpcErrorCode.Forbidden,
-      message: expect.stringContaining("each time"),
-    });
-    await answerConsent(services, phone, both, { id: "c1", answer: "deny" });
-    expect(answered).toEqual([{ id: "c1", answer: "deny", by: "iPhone" }]);
+    await answerConsent(services, phone, both, { id: "c1", answer: "session" });
+    expect(answered).toEqual([{ id: "c1", answer: "session", by: "iPhone" }]);
   });
 
   test("taken down meanwhile: not found", async () => {

@@ -155,16 +155,22 @@ describe("chat answer", () => {
     ]);
   });
 
-  test("asks the user each time for any other caller, whatever the setting", async () => {
+  test("asks the user for any other caller, whatever the setting, but once until restart", async () => {
     const app = withChat(ASKS);
     app.settings.managerPermissions = "answer";
-    app.answers.push("session", "deny");
+    app.settings.crossWorkspace = "allow";
     const shell = { workspaceId: APP, tabId: SHELL_TAB };
+    app.answers.push("once");
     await nexus(app, ["chat", "answer", "release", "allow"], shell);
-    const again = await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    // "Once" holds for that answer alone.
+    const denied = await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    expect(denied.exitCode).toBe(1);
     expect(app.asked).toHaveLength(2);
-    expect(again.exitCode).toBe(1);
-    expect(app.chatAnswered).toHaveLength(1);
+    app.answers.push("session");
+    await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    await nexus(app, ["chat", "answer", "release", "allow"], shell);
+    expect(app.asked).toHaveLength(3);
+    expect(app.chatAnswered).toHaveLength(3);
   });
 
   test.each([
