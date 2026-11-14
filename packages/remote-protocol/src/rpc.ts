@@ -988,10 +988,12 @@ export const RPC_METHODS = {
   },
   /**
    * Files by name, as quick open finds them: `query`'s characters in order
-   * in the path, the best matches first (in the file name, at word starts,
-   * together). The files are those the search panel looks through (hidden
-   * folders and the usual build and dependency folders left out). Paths
-   * are relative to the workspace's folder.
+   * in the path (case and spaces not minded), the best matches first (in
+   * the file name, at word starts, together). Every file under the
+   * workspace's folder but those in the folders the search panel leaves out
+   * (.git, node_modules, dist, out, build and the like). Paths are relative
+   * to the workspace's folder with "/" between their parts, on Windows too,
+   * as files.read takes them.
    */
   "files.find": {
     capability: "files",
@@ -1010,8 +1012,10 @@ export const RPC_METHODS = {
   /**
    * Text in the workspace's files, as the search panel finds it, with the
    * same engine (so in an SSH or WSL workspace too) and the same files.
-   * `include` and `exclude` are globs on file names ("*.ts"). Paths are
-   * relative to the workspace's folder.
+   * `include` and `exclude` take an extension ("*.ts"), a folder's name
+   * ("fixtures/") or a file's whole name. Paths are relative to the
+   * workspace's folder with "/" between their parts, on Windows too, as
+   * files.read takes them.
    */
   "files.search": {
     capability: "files",
@@ -1103,7 +1107,7 @@ export const RPC_METHODS = {
           hash: z.string(),
           subject: z.string(),
           author: z.string(),
-          /** Unix milliseconds. */
+          /** When it was written (git's author date, which a rebase keeps), Unix milliseconds. */
           at: z.number(),
           refs: z.array(z.string()).optional(),
         }),
@@ -1126,7 +1130,7 @@ export const RPC_METHODS = {
       /** The message after its subject line; absent when there is none. */
       body: z.string().optional(),
       author: z.string(),
-      /** When it was committed, Unix milliseconds. */
+      /** When it was written, as git.log tells it (git's author date), Unix milliseconds. */
       at: z.number(),
       files: z.array(
         z.object({
