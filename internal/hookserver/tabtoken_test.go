@@ -1,7 +1,6 @@
 package hookserver
 
 import (
-	"net"
 	"testing"
 	"time"
 )
@@ -62,11 +61,8 @@ func TestCLIRequestSaysWhetherItsTabIsKnown(t *testing.T) {
 
 	conn := dialAndSendRequest(t, srv.SocketPath(), cliRequest(TabToken(srv.Token(), "ws-1", "tab-2")))
 	defer conn.Close()
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := conn.Read(make([]byte, 1)); err == nil {
-		t.Fatal("another tab's token was taken")
-	} else if ne, ok := err.(net.Error); ok && ne.Timeout() {
-		t.Fatal("another tab's token was not refused")
+	if resp := readCLIResponse(t, conn); resp.OK || resp.Error != refusedCLI {
+		t.Fatalf("another tab's token: response = %+v", resp)
 	}
 	select {
 	case got := <-events:
