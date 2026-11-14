@@ -37,6 +37,9 @@ interface DictationState {
   partial: string;
   /** How loud the microphone is, 0 to 1, while listening. */
   level: number;
+  /** When it began to listen, and how long the server lets it run (Unix ms, ms); null meanwhile. */
+  listeningSince: number | null;
+  limitMs: number | null;
   ended: EndedDictation | null;
 }
 
@@ -46,6 +49,8 @@ export const useDictationStore = create<DictationState>(() => ({
   finals: "",
   partial: "",
   level: 0,
+  listeningSince: null,
+  limitMs: null,
   ended: null,
 }));
 
@@ -210,7 +215,7 @@ async function startDictation(owner: string, language: string): Promise<void> {
     stopStream();
     return giveUp(started.value.reason);
   }
-  const { id, sampleRate } = started.value;
+  const { id, sampleRate, maxSeconds } = started.value;
   mine.id = id;
   if (mine.abandoned) {
     stopStream();
@@ -234,7 +239,11 @@ async function startDictation(owner: string, language: string): Promise<void> {
     if (session === mine && mine.capture)
       useDictationStore.setState({ level: mine.capture.level() });
   }, 100);
-  useDictationStore.setState({ phase: "listening" });
+  useDictationStore.setState({
+    phase: "listening",
+    listeningSince: Date.now(),
+    limitMs: maxSeconds * 1000,
+  });
 }
 
 /**

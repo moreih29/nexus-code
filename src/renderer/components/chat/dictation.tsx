@@ -5,9 +5,12 @@
 // the partial at the caret where dictation began; the textarea's own text
 // goes clear and an overlay draws the same text with the partial lighter.
 // When the dictation ends its text stays in the box to edit; nothing is
-// sent for the user.
+// sent unless the user sends it, which ends the dictation first.
+//
+// While it runs the mic becomes a pill: the microphone's level, how long
+// it has listened, and the square that finishes it.
 
-import { LoaderCircle, Mic } from "lucide-react";
+import { LoaderCircle, Mic, Square } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { COMMANDS } from "../../../shared/keybindings/commands";
@@ -15,8 +18,10 @@ import { shortcutFor } from "../../keybindings/shortcut-labels";
 import { useVoiceAvailability, voiceLanguage } from "../../services/voice/availability";
 import {
   cancelDictation,
+  type DictationPhase,
   focusedDictationTarget,
   registerDictationTarget,
+  stopDictation,
   toggleDictation,
   useDictationStore,
 } from "../../services/voice/dictation";
@@ -24,16 +29,27 @@ import { type DictationPlace, dictatedText, placeOf } from "../../services/voice
 import { useSettingsUIStore } from "../../state/stores/settings-ui";
 import { cn } from "../../utils/cn";
 import { IconButton } from "../ui/icon-button";
+import { Keycap } from "../ui/keycap";
+import { tooltipProps } from "../ui/tooltip";
+
+/** How long before the server's limit the pill's clock turns to a warning. */
+export const VOICE_LIMIT_WARNING_MS = 30_000;
 
 export interface ComposerDictation {
   /** This composer's id in the dictation store. */
   owner: string;
   /** Dictating (or finishing): the textarea is read-only and its text drawn by the overlay. */
   active: boolean;
+  phase: DictationPhase;
   /** The heard text's place in the composer's text, while active. */
   partial: { start: number; end: number } | null;
   /** Starts dictating here, or stops. */
   toggle(): void;
+  /**
+   * Ends the dictation and hands `then` the box's whole text once it is
+   * in: what the server still had to say included. At once when none runs.
+   */
+  finish(then: (text: string) => void): void;
   /** For the textarea's onFocus: the shortcut dictates into the composer focused last. */
   onFocus(): void;
 }
@@ -65,15 +81,32 @@ export function useComposerDictation({
   const seen = useRef(0);
   const [partial, setPartial] = useState<{ start: number; end: number } | null>(null);
   const active = phase !== "idle";
+  // What finish was asked to do once the text is in.
+  const then = useRef<((text: string) => void) | null>(null);
 
   const toggle = () => {
     if (disabled && !active) return;
     if (!active) {
+      then.current = null;
       const area = areaRef.current;
       const caret = area ? area.selectionEnd : latest.current.text.length;
       place.current = placeOf(latest.current.text, caret);
     }
     void toggleDictation(owner, voiceLanguage());
+  };
+  const finish = (next: (text: string) => void) => {
+    if (phase === "idle") {
+      next(latest.current.text);
+      return;
+    }
+    // Still starting: nothing was heard yet, so the box's text is all of it.
+    if (phase === "starting") {
+      cancelDictation(owner);
+      next(latest.current.text);
+      return;
+    }
+    then.current = next;
+    if (phase === "listening") stopDictation();
   };
   const toggleRef = useRef(toggle);
   toggleRef.current = toggle;
@@ -107,13 +140,18 @@ export function useComposerDictation({
         area.setSelectionRange(done.partialEnd, done.partialEnd);
       });
     }
+    const after = then.current;
+    then.current = null;
+    after?.(done.text);
   }, [ended, areaRef]);
 
   return {
     owner,
     active,
+    phase,
     partial: active ? partial : null,
     toggle,
+    finish,
     onFocus: () => focusedDictationTarget(owner),
   };
 }
@@ -179,16 +217,149 @@ export function DictationOverlay({
   );
 }
 
+/** How many of the microphone's last levels the pill shows, oldest first. */
+const BARS = 6;
+
 /**
- * The mic: click to dictate, again to stop; the shortcut does the same
- * in the composer focused last. Signed out, it says so and opens the
- * Remote settings; on a server without voice input it is off.
+ * The microphone's last levels as bars, the newest at the right: they
+ * move as the voice does, ten times a second.
  */
-export function MicButton({ dictation }: { dictation: ComposerDictation }) {
+function LevelBars({ level }: { level: number }) {
+  const [heard, setHeard] = useState<number[]>(() => Array(BARS).fill(0));
+  useEffect(() => {
+    setHeard((last) => [...last.slice(1), Math.min(1, Math.max(0, level))]);
+  }, [level]);
+  return (
+    <span aria-hidden className="flex h-3.5 items-center gap-[2px]">
+      {heard.map((loud, i) => (
+        <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: a bar is its place in the row
+          key={i}
+          className="w-[2px] rounded-full bg-current transition-[height] duration-100"
+          style={{ height: `${Math.round(3 + loud * 11)}px` }}
+        />
+      ))}
+    </span>
+  );
+}
+
+/** m:ss */
+export function clockOf(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** How long since `since`, again each second; 0 without one. */
+function useElapsed(since: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (since === null) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [since]);
+  return since === null ? 0 : Math.max(0, now - since);
+}
+
+/**
+ * The mic while a dictation runs, in its place: connecting, then the
+ * level, the time it has listened and the square that finishes it (on
+ * hover, what a click does), then finishing. Narrow, it leaves out the time.
+ */
+export function VoicePill({
+  phase,
+  level,
+  elapsedMs,
+  limitMs,
+  compact = false,
+  shortcut,
+  onClick,
+}: {
+  phase: Exclude<DictationPhase, "idle">;
+  level: number;
+  elapsedMs: number;
+  /** How long the server lets it run; the clock warns near it. */
+  limitMs: number | null;
+  compact?: boolean;
+  shortcut?: string;
+  onClick: () => void;
+}) {
+  const { t } = useTranslation();
+  const warn = limitMs !== null && limitMs - elapsedMs <= VOICE_LIMIT_WARNING_MS;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={phase === "stopping"}
+      aria-label={t("voice.stop")}
+      {...tooltipProps(t("voice.stop"), shortcut)}
+      className={cn(
+        "group inline-flex h-7 shrink-0 items-center rounded-(--radius-control) bg-primary/15 text-app-ui-sm text-primary transition-colors hover:bg-primary/25 disabled:pointer-events-none",
+        phase === "listening" ? "pr-1 pl-2.5" : "gap-1.5 px-2.5",
+        phase === "stopping" && "bg-primary/10",
+      )}
+      data-testid="mic-button"
+      data-phase={phase}
+    >
+      {phase === "listening" ? (
+        // Both faces in one cell: the pill keeps its width as the hover changes it.
+        <span className="grid">
+          <span className="col-start-1 row-start-1 flex items-center gap-2 group-hover:invisible group-focus-visible:invisible">
+            <LevelBars level={level} />
+            {!compact && (
+              <span
+                className={cn(
+                  "text-foreground tabular-nums",
+                  warn && "text-[var(--state-warning-fg)]",
+                )}
+              >
+                {clockOf(elapsedMs)}
+              </span>
+            )}
+            <span aria-hidden className="h-3.5 w-px bg-primary/35" />
+            <span className="flex size-5 items-center justify-center">
+              <Square aria-hidden className="size-2.5 fill-current" />
+            </span>
+          </span>
+          <span className="invisible col-start-1 row-start-1 flex items-center justify-center gap-1.5 font-medium group-hover:visible group-focus-visible:visible">
+            <Square aria-hidden className="size-2.5 fill-current" />
+            {!compact && <span>{t("voice.finish")}</span>}
+            {!compact && <Keycap>Enter</Keycap>}
+          </span>
+        </span>
+      ) : (
+        <>
+          <LoaderCircle aria-hidden className="size-3.5 animate-spin" />
+          <span className="text-muted-foreground">
+            {t(phase === "stopping" ? "voice.finishing" : "voice.connecting")}
+          </span>
+        </>
+      )}
+    </button>
+  );
+}
+
+/**
+ * The mic: click to dictate, the pill it becomes to finish; the shortcut
+ * does the same in the composer focused last. Signed out, it says so and
+ * opens the Remote settings; on a server without voice input it is off.
+ */
+export function MicButton({
+  dictation,
+  compact,
+}: {
+  dictation: ComposerDictation;
+  /** The composer is narrow: the pill leaves out its clock. */
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
   const availability = useVoiceAvailability();
-  const phase = useDictationStore((s) => (s.owner === dictation.owner ? s.phase : "idle"));
-  const level = useDictationStore((s) => (s.owner === dictation.owner ? s.level : 0));
+  const mine = (s: { owner: string | null }) => s.owner === dictation.owner;
+  const phase = useDictationStore((s) => (mine(s) ? s.phase : "idle"));
+  const level = useDictationStore((s) => (mine(s) ? s.level : 0));
+  const since = useDictationStore((s) => (mine(s) ? s.listeningSince : null));
+  const limitMs = useDictationStore((s) => (mine(s) ? s.limitMs : null));
+  const elapsedMs = useElapsed(phase === "listening" ? since : null);
   const shortcut = shortcutFor(COMMANDS.chatVoiceToggle) || undefined;
 
   if (availability === "signed-out") {
@@ -210,33 +381,34 @@ export function MicButton({ dictation }: { dictation: ComposerDictation }) {
       </IconButton>
     );
   }
-  const busy = phase === "starting" || phase === "stopping";
-  const listening = phase === "listening";
   return (
-    <IconButton
-      label={listening || busy ? t("voice.stop") : t("voice.start")}
-      shortcut={shortcut}
-      size="md"
-      onClick={dictation.toggle}
-      disabled={phase === "stopping"}
-      aria-pressed={listening}
-      className={cn("relative", listening && "text-destructive hover:text-destructive")}
-      data-testid="mic-button"
-      data-phase={phase}
-    >
-      {listening && (
-        // Swells with the voice, so the user sees the microphone hears them.
-        <span
-          aria-hidden
-          className="absolute inset-0.5 rounded-full bg-destructive/15 transition-transform duration-100"
-          style={{ transform: `scale(${0.7 + level * 0.5})` }}
+    <>
+      {phase === "idle" ? (
+        <IconButton
+          label={t("voice.start")}
+          shortcut={shortcut}
+          size="md"
+          onClick={dictation.toggle}
+          data-testid="mic-button"
+          data-phase="idle"
+        >
+          <Mic aria-hidden className="size-4" />
+        </IconButton>
+      ) : (
+        <VoicePill
+          phase={phase}
+          level={level}
+          elapsedMs={elapsedMs}
+          limitMs={limitMs}
+          compact={compact}
+          shortcut={shortcut}
+          onClick={dictation.toggle}
         />
       )}
-      {busy ? (
-        <LoaderCircle aria-hidden className="size-4 animate-spin" />
-      ) : (
-        <Mic aria-hidden className="relative size-4" />
-      )}
-    </IconButton>
+      {/* Said to a screen reader as it starts listening. */}
+      <span className="sr-only" aria-live="polite">
+        {phase === "listening" ? t("voice.listening") : ""}
+      </span>
+    </>
   );
 }

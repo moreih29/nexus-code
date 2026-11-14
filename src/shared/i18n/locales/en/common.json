@@ -1833,7 +1833,12 @@
   },
   "voice": {
     "start": "Voice input",
-    "stop": "Stop voice input",
+    "stop": "Finish voice input",
+    "finish": "Finish",
+    "connecting": "Connecting",
+    "finishing": "Finishing",
+    "listening": "Listening",
+    "listeningPlaceholder": "Speak… Enter to finish",
     "needsSignIn": "Sign in to use voice input",
     "unavailable": "No voice input on this server",
     "signIn": "Sign in",

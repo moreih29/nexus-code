@@ -314,15 +314,28 @@ export function RemoteComposer({
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const dictation = useComposerDictation({ text, setText, areaRef });
-  const send = async () => {
-    const message = text.trim();
-    // Never sent while dictating: the text is the user's to read and edit first.
-    if (!message || sending || dictation.active) return;
+  // Sent while listening, the dictation ends first and its whole text goes;
+  // not while it connects or finishes.
+  const canSend =
+    text.trim() !== "" &&
+    !sending &&
+    (dictation.phase === "idle" || dictation.phase === "listening");
+  const send = async (body = text) => {
+    if (dictation.active) {
+      if (canSend) dictation.finish((heard) => void sendRef.current(heard));
+      return;
+    }
+    const message = body.trim();
+    if (!message || sending) return;
     setSending(true);
     const sent = await onSend(message);
     setSending(false);
     if (sent) setText("");
   };
+  // The send of the latest render, for one that waits on the dictation's end.
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  const listening = dictation.phase === "starting" || dictation.phase === "listening";
   const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
     // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
@@ -353,7 +366,11 @@ export function RemoteComposer({
             onKeyDown={onKeyDown}
             onFocus={dictation.onFocus}
             readOnly={sending || dictation.active}
-            placeholder={t("agentView.remote.placeholder", { device })}
+            placeholder={
+              listening
+                ? t("voice.listeningPlaceholder")
+                : t("agentView.remote.placeholder", { device })
+            }
             aria-label={t("agentView.remote.placeholder", { device })}
             className={cn(
               "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body text-foreground outline-none placeholder:text-muted-foreground",
@@ -382,7 +399,7 @@ export function RemoteComposer({
             <button
               type="button"
               onClick={() => void send()}
-              disabled={sending || !hasText || dictation.active}
+              disabled={!canSend}
               aria-label={t("agentView.remote.send")}
               title={t("agentView.remote.send")}
               className={cn(SEND_BUTTON_CLASS, "pr-1.5 pl-2")}
