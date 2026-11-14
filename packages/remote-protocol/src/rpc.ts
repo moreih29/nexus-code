@@ -231,8 +231,8 @@ export const AgentSenderSchema = z.object({
   /** tab: a Claude or Codex tab; terminal: an agent in a terminal; manager: the agent manager. */
   kind: z.enum(["tab", "terminal", "manager"]),
   agent: z.string().min(1).max(40).optional(),
-  workspaceId: z.string(),
-  tabId: z.string(),
+  workspaceId: z.string().min(1).max(100),
+  tabId: z.string().min(1).max(100),
   /** Its tab's title, as the receiver shows the sender. */
   name: z.string().max(200).optional(),
   /**
@@ -302,6 +302,13 @@ export const AGENT_CONSENT_MS = 90_000;
 
 /** Most requests with `from` one agent (a device's tab) may make a minute; more are Unavailable. */
 export const MAX_AGENT_REQUESTS_PER_MINUTE = 20;
+
+/**
+ * Most requests with `from` all of one device's agents may make a minute:
+ * a device names its agents itself, so a new name each time does not get
+ * past this.
+ */
+export const MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE = 60;
 
 /** Longest a chat.wait or terminal.wait holds before it answers that the session is not done yet. */
 export const MAX_WAIT_MS = 10_000;

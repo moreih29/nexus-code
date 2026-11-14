@@ -49,7 +49,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.7.0";
+export const SCHEMA_VERSION = "0.7.1";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -121,7 +121,7 @@ export const HelloSchema = z.object({
   }),
   serves: z.array(CapabilitySchema),
   /**
-   * The protocol package's version it speaks (SCHEMA_VERSION, "0.7.0");
+   * The protocol package's version it speaks (SCHEMA_VERSION, "0.7.1");
    * absent before 0.2.0. A method it does not have is answered MethodNotFound.
    */
   schema: z.string().max(40).optional(),

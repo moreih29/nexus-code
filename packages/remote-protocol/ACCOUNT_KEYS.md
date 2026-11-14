@@ -10,7 +10,7 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 |---|---|---|
 | **Account key (AK)** | 32 random bytes, made by the first device. `kid` is its version, from 1. | Each signed-in device, in Electron `safeStorage`. Never on the server unlocked. |
 | **Room key** | `HKDF-SHA256(ikm = AK, salt = empty, info = "nexus-remote/room-key/v1", 32 bytes)` | Made on each device from AK. Seals every frame's content. |
-| **Password key (KEK)** | `Argon2id(password, salt, ops, mem) → 32 bytes`. libsodium's `crypto_pwhash`, `ALG_ARGON2ID13`. New bundles use ops 3 and 64 MiB. The password is NFKC-normalized first. | Made only while unlocking, then dropped. |
+| **Password key (KEK)** | `Argon2id(password, salt, ops, mem) → 32 bytes`. libsodium's `crypto_pwhash`, `ALG_ARGON2ID13`. New bundles use ops 3 and 64 MiB. A device does not open a bundle above ops 4 or 256 MiB (`MAX_OPEN_KDF`), so a server cannot make unlocking stall it. The password is NFKC-normalized first. | Made only while unlocking, then dropped. |
 
 ## The locked bundle (on the server)
 

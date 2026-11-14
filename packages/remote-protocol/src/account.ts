@@ -32,6 +32,14 @@ export type Kdf = z.infer<typeof KdfSchema>;
 export const DEFAULT_KDF = { alg: "argon2id13", ops: 3, mem: 64 * 1024 * 1024 } as const;
 
 /**
+ * The heaviest settings a device opens a bundle with, DEFAULT_KDF's room to
+ * grow. KdfSchema takes more, for bundles locked so already; but a bundle
+ * past these, as a server could hand out, would hold up the device for long
+ * while it unlocks, so a device says it cannot open it instead.
+ */
+export const MAX_OPEN_KDF = { ops: 4, mem: 256 * 1024 * 1024 } as const;
+
+/**
  * The account key (32 bytes) sealed with XChaCha20-Poly1305 under the key
  * the password makes with `kdf`, with bundleAadOf(userId, kid) as the
  * associated data. `kid` is the account key's version, which sealed frames
