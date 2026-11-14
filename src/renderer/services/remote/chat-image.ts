@@ -2,10 +2,12 @@
  * An image of a chat as another device asks for it (chat.image): a user
  * message's or a tool result's, sent as it is when it fits in a frame and
  * is of a type the other device takes, else drawn smaller as a JPEG till
- * it fits.
+ * it fits. Not one whose header says it is huge, or tells no size: drawing
+ * it would decode all of it, here or there (a decompression bomb).
  */
 
 import type { CliChatImage } from "../../../shared/cli/ui";
+import { decodable } from "../../../shared/remote/image-size";
 import type { ImageBlock } from "../chat/model";
 import { UiRequestError } from "../cli/handler";
 import { type ChatSource, conversationOf } from "./chat-page";
@@ -43,6 +45,9 @@ export async function fitImage(
   maxChars: number,
   shrink: Shrink = shrinkOnCanvas,
 ): Promise<CliChatImage> {
+  if (!decodable(bytesOf(image.data))) {
+    throw new UiRequestError("the image is too big to draw, by its header, or not one read here");
+  }
   if (SENT_AS_IS.has(image.mediaType) && image.data.length <= maxChars) {
     return { mediaType: image.mediaType as CliChatImage["mediaType"], data: image.data };
   }
@@ -67,8 +72,12 @@ function base64Of(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
 const shrinkOnCanvas: Shrink = async (image, scale) => {
-  const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
+  const bytes = bytesOf(image.data);
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(new Blob([bytes], { type: image.mediaType }));

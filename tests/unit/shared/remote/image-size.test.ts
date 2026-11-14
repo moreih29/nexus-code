@@ -5,7 +5,7 @@ import {
   decodable,
   MAX_DECODED_PIXELS,
   pixelSizeOf,
-} from "../../../../../src/main/features/remote/image-size";
+} from "../../../../src/shared/remote/image-size";
 
 /** A PNG header saying `width` by `height`, its pixels left out. */
 function png(width: number, height: number): Buffer {
@@ -69,12 +69,30 @@ function webpX(width: number, height: number): Buffer {
   return b;
 }
 
+/** A BMP header saying `width` by `height`, top down when `height` is below zero. */
+function bmp(width: number, height: number): Buffer {
+  const b = Buffer.alloc(54);
+  b.write("BM", 0, "ascii");
+  b.writeUInt32LE(40, 14);
+  b.writeInt32LE(width, 18);
+  b.writeInt32LE(height, 22);
+  return b;
+}
+
 describe("an image's size, from its header", () => {
-  test("PNG, JPEG, GIF and WebP", () => {
+  test("PNG, JPEG, GIF, WebP and BMP", () => {
     expect(pixelSizeOf(png(640, 480))).toEqual({ width: 640, height: 480 });
     expect(pixelSizeOf(jpeg(4032, 3024))).toEqual({ width: 4032, height: 3024 });
     expect(pixelSizeOf(gif(32, 16))).toEqual({ width: 32, height: 16 });
     expect(pixelSizeOf(webpX(1920, 1080))).toEqual({ width: 1920, height: 1080 });
+    expect(pixelSizeOf(bmp(300, 200))).toEqual({ width: 300, height: 200 });
+    expect(pixelSizeOf(bmp(300, -200))).toEqual({ width: 300, height: 200 });
+  });
+
+  test("from bytes that are a piece of a larger buffer", () => {
+    const whole = Buffer.concat([Buffer.alloc(7, 9), png(640, 480)]);
+    const piece = new Uint8Array(whole.buffer, whole.byteOffset + 7, whole.length - 7);
+    expect(pixelSizeOf(piece)).toEqual({ width: 640, height: 480 });
   });
 
   test("none for what does not say", () => {
@@ -92,5 +110,6 @@ describe("an image's size, from its header", () => {
     expect(decodable(bomb)).toBe(false);
     expect(decodable(png(0, 10))).toBe(false);
     expect(decodable(Buffer.from("BM...."))).toBe(false);
+    expect(decodable(bmp(50_000, -50_000))).toBe(false);
   });
 });

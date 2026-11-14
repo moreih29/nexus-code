@@ -12,6 +12,26 @@ import type { ChatSource } from "../../../../../src/renderer/services/remote/cha
 
 const pic = (data: string, mediaType = "image/png") => ({ mediaType, data });
 
+/** A PNG's base64 whose header says `width` by `height`, padded to about `chars`. */
+function pngData(width: number, height: number, chars = 40): string {
+  const b = Buffer.alloc(Math.max(24, Math.ceil((chars * 3) / 4)), 1);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 0);
+  b.write("IHDR", 12, "ascii");
+  b.writeUInt32BE(width, 16);
+  b.writeUInt32BE(height, 20);
+  return b.toString("base64");
+}
+
+/** A BMP's base64 whose header says `width` by `height`. */
+function bmpData(width: number, height: number): string {
+  const b = Buffer.alloc(54);
+  b.write("BM", 0, "ascii");
+  b.writeUInt32LE(40, 14);
+  b.writeInt32LE(width, 18);
+  b.writeInt32LE(-height, 22);
+  return b.toString("base64");
+}
+
 function source(): ChatSource {
   const user: ChatItem = {
     kind: "user",
@@ -51,10 +71,8 @@ describe("an image of a chat", () => {
     const never: Shrink = async () => {
       throw new Error("drawn");
     };
-    expect(await fitImage(pic("AAAA"), 10, never)).toEqual({
-      mediaType: "image/png",
-      data: "AAAA",
-    });
+    const data = pngData(2, 2);
+    expect(await fitImage(pic(data), 100, never)).toEqual({ mediaType: "image/png", data });
   });
 
   test("is drawn smaller till it fits, or given up on", async () => {
@@ -65,7 +83,8 @@ describe("an image of a chat", () => {
       const chars = Math.round(image.data.length * scale * scale * (scales.length === 1 ? 2 : 1));
       return { mediaType: "image/jpeg", data: "x".repeat(chars), width: 10, height: 10 };
     };
-    const fitted = await fitImage(pic("x".repeat(1000)), 400, shrink);
+    const big = pngData(800, 600, 1000);
+    const fitted = await fitImage(pic(big), 400, shrink);
     expect(fitted.data.length).toBeLessThanOrEqual(400);
     expect(scales).toHaveLength(2);
     expect(scales[1]).toBeLessThan(scales[0]);
@@ -75,7 +94,7 @@ describe("an image of a chat", () => {
       width: 1,
       height: 1,
     });
-    await expect(fitImage(pic("x".repeat(1000)), 400, stubborn)).rejects.toThrow("small enough");
+    await expect(fitImage(pic(big), 400, stubborn)).rejects.toThrow("small enough");
   });
 
   test("of a type the other device does not take is drawn again, though small", async () => {
@@ -84,7 +103,20 @@ describe("an image of a chat", () => {
       drawn = true;
       return { mediaType: "image/jpeg", data: "jpg", width: 1, height: 1 };
     };
-    expect((await fitImage(pic("AA", "image/bmp"), 100, shrink)).mediaType).toBe("image/jpeg");
+    expect((await fitImage(pic(bmpData(4, 4), "image/bmp"), 100, shrink)).mediaType).toBe(
+      "image/jpeg",
+    );
     expect(drawn).toBe(true);
+  });
+
+  test("not one whose header says it is huge, or tells no size, however small", async () => {
+    const never: Shrink = async () => {
+      throw new Error("drawn");
+    };
+    await expect(fitImage(pic(pngData(30_000, 30_000)), 100, never)).rejects.toThrow("too big");
+    await expect(fitImage(pic(bmpData(30_000, 30_000), "image/bmp"), 100, never)).rejects.toThrow(
+      "too big",
+    );
+    await expect(fitImage(pic(btoa("not an image")), 100, never)).rejects.toThrow("too big");
   });
 });

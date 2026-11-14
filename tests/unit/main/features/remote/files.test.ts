@@ -219,7 +219,7 @@ function pngSaying(width: number, height: number, bytes: number): Buffer {
 }
 
 describe("reading a file", () => {
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(8)]);
+  const png = pngSaying(2, 2, 40);
   const tree: Record<string, Node> = {
     "a.ts": text("한글 text"),
     "bin.dat": { type: "file", bytes: Buffer.from([1, 0, 2]) },
@@ -228,6 +228,9 @@ describe("reading a file", () => {
     "huge.png": { type: "file", bytes: pngSaying(4000, 3000, 900_000) },
     // A small file whose header says 50000 by 50000: decoding it would take 10 GB.
     "bomb.png": { type: "file", bytes: pngSaying(50_000, 50_000, 900_000) },
+    // As small as it says it is huge: it would go as it is, to be decoded there.
+    "tiny-bomb.png": { type: "file", bytes: pngSaying(30_000, 30_000, 68) },
+    "not-a.png": { type: "file", bytes: Buffer.from("plain text, named a png") },
     src: { type: "dir" },
     link: { type: "symlink" },
   };
@@ -258,7 +261,7 @@ describe("reading a file", () => {
       path: "/src/app/pic.png",
       mediaType: "image/png",
       data: png.toString("base64"),
-      size: 12,
+      size: 40,
     });
     expect(await read("huge.png", undefined, "c21hbGw=")).toMatchObject({
       kind: "image",
@@ -267,6 +270,12 @@ describe("reading a file", () => {
     });
     expect(await read("huge.png", undefined, null)).toMatchObject({ kind: "binary" });
     expect(await read("bomb.png", undefined, "c21hbGw=")).toMatchObject({ kind: "binary" });
+    expect(await read("tiny-bomb.png")).toEqual({
+      kind: "binary",
+      path: "/src/app/tiny-bomb.png",
+      size: 68,
+    });
+    expect(await read("not-a.png")).toMatchObject({ kind: "binary" });
   });
 
   test("as bytes, a piece of whatever it holds, from where asked", async () => {
@@ -281,9 +290,9 @@ describe("reading a file", () => {
     });
     // An image, or text, as it is: not drawn, not decoded.
     expect(await bytes("pic.png", { offset: 4, length: 4 })).toMatchObject({
-      data: Buffer.alloc(4).toString("base64"),
+      data: png.subarray(4, 8).toString("base64"),
       offset: 4,
-      size: 12,
+      size: 40,
     });
     // At most MAX_BYTES_CHUNK when not said; fewer at the end, none past it.
     const head = await bytes("big");
