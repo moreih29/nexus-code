@@ -31,6 +31,7 @@ import {
 import {
   isBuiltinPdfViewerUrl,
   isNavigationSchemeAllowed,
+  isPopupNavigationAllowed,
   isSubframeNavigationAllowed,
 } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
@@ -217,10 +218,20 @@ export function installPermissionHandler(
  */
 export function installLocalFileReadGuard(session: import("electron").Session): void {
   session.webRequest.onBeforeRequest({ urls: ["file://*/*"] }, (details, callback) => {
-    const cancel = isScriptReadableRequest(details.resourceType, details.url);
+    const cancel = cancelsLocalFileRequest(details.resourceType, details.url);
     if (cancel) logger.warn(`[file-read] blocked ${details.resourceType}: ${details.url}`);
     callback({ cancel });
   });
+}
+
+/**
+ * Whether a browser tab's file:// request is cancelled: one page script
+ * could read (fetch, XHR, a JSON module), and a frame or object of a local
+ * file, which the file:// page that holds it could read as well.
+ */
+export function cancelsLocalFileRequest(resourceType: string, url: string): boolean {
+  if (resourceType === "subFrame" || resourceType === "object") return true;
+  return isScriptReadableRequest(resourceType, url);
 }
 
 /** WebContents whose page lifetime already ends their pending prompts. */
@@ -277,7 +288,10 @@ export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,
   onPopup?: (popup: import("electron").BrowserWindow) => void,
+  /** A popup's: it never goes to a local file (isPopupNavigationAllowed). */
+  popup = false,
 ): void {
+  const allowed = popup ? isPopupNavigationAllowed : isNavigationSchemeAllowed;
   // Every tab and popup passes through here, so this is also where their
   // renderers are taken off the app-wide event broadcast.
   excludeFromBroadcast(webContents);
@@ -286,7 +300,7 @@ export function installNavigationGuards(
   // Covers: location.href assignments, <a target="_self"> clicks, and
   // programmatic webContents.loadURL calls that originate from the page.
   webContents.on("will-navigate", (event, url) => {
-    if (!isNavigationSchemeAllowed(url)) {
+    if (!allowed(url)) {
       event.preventDefault();
       logger.warn(`[will-navigate] blocked: ${url}`);
       return;
@@ -336,8 +350,8 @@ export function installNavigationGuards(
   });
 
   // Layer 3 — window.open / target="_blank" handling.
-  // Policy: http/https/file open as a REAL popup window; every other scheme is
-  // denied. Opening a real popup (rather than redirecting the same tab) is
+  // Policy: http/https open as a REAL popup window; every other scheme is
+  // denied, file: too (its opener, a file:// page, could read it). Opening a real popup (rather than redirecting the same tab) is
   // required for OAuth/SSO login flows: window.open must return a usable window
   // handle so the opener can postMessage with it and poll `w.closed`.
   //
@@ -352,7 +366,7 @@ export function installNavigationGuards(
   //   - It is recursively guarded in `did-create-window` below, so it obeys the
   //     same navigation allowlist and window-open policy as its opener.
   webContents.setWindowOpenHandler(({ url }) => {
-    if (isNavigationSchemeAllowed(url)) {
+    if (isPopupNavigationAllowed(url)) {
       return {
         action: "allow",
         overrideBrowserWindowOptions: {
@@ -375,7 +389,7 @@ export function installNavigationGuards(
   // window, not a tab whose URL the registry tracks.
   webContents.on("did-create-window", (childWindow) => {
     onPopup?.(childWindow);
-    installNavigationGuards(childWindow.webContents, undefined, onPopup);
+    installNavigationGuards(childWindow.webContents, undefined, onPopup, true);
   });
 }
 

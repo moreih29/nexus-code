@@ -21,8 +21,12 @@ mock.module("electron", () => ({
 }));
 
 // Lazy import after mock registration
-const { buildBrowserTabWebPreferences, installPermissionHandler, installNavigationGuards } =
-  await import("../../../../../src/main/features/browser/security");
+const {
+  buildBrowserTabWebPreferences,
+  cancelsLocalFileRequest,
+  installPermissionHandler,
+  installNavigationGuards,
+} = await import("../../../../../src/main/features/browser/security");
 
 // ---------------------------------------------------------------------------
 // Helpers — fake WebContents and Session factories
@@ -376,9 +380,9 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     expect(result.action).toBe("allow");
   });
 
-  test("allows file: popups", () => {
-    const result = wc._windowOpenHandler!({ url: "file:///tmp/local.html" });
-    expect(result.action).toBe("allow");
+  test("denies file: popups: the file:// page that opens one could read it", () => {
+    const result = wc._windowOpenHandler!({ url: "file:///Users/x/.ssh/id_rsa" });
+    expect(result.action).toBe("deny");
   });
 
   test("denies non-navigable schemes (javascript:)", () => {
@@ -426,6 +430,17 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     expect((child._handlers.get("will-frame-navigate") ?? []).length).toBeGreaterThan(0);
   });
 
+  test("a popup does not go to a local file, which its opener could read", () => {
+    const child = makeFakeWebContents();
+    wc.emit("did-create-window", { webContents: child });
+    const toFile = makeFakeEvent();
+    child.emit("will-navigate", toFile, "file:///Users/x/.ssh/id_rsa");
+    expect(toFile.prevented).toBe(true);
+    const toWeb = makeFakeEvent();
+    child.emit("will-navigate", toWeb, "https://accounts.example.com/");
+    expect(toWeb.prevented).toBe(false);
+  });
+
   test("the popup recursively denies non-navigable window.open schemes", () => {
     const child = makeFakeWebContents();
     wc.emit("did-create-window", { webContents: child });
@@ -448,5 +463,19 @@ describe("installNavigationGuards — did-create-window (popup hardening)", () =
     child.webContents.emit("did-create-window", grandchild);
 
     expect(popups).toEqual([child, grandchild]);
+  });
+});
+
+describe("a browser tab's file:// requests", () => {
+  test("a page renders local images, styles and module scripts; it reads no file", () => {
+    const file = "file:///Users/x/site/";
+    expect(cancelsLocalFileRequest("mainFrame", `${file}index.html`)).toBe(false);
+    expect(cancelsLocalFileRequest("image", `${file}logo.png`)).toBe(false);
+    expect(cancelsLocalFileRequest("stylesheet", `${file}site.css`)).toBe(false);
+    expect(cancelsLocalFileRequest("script", `${file}app.js`)).toBe(false);
+    expect(cancelsLocalFileRequest("xhr", "file:///Users/x/.ssh/id_rsa")).toBe(true);
+    // A frame or object of a local file is the page's to read.
+    expect(cancelsLocalFileRequest("subFrame", "file:///Users/x/.ssh/id_rsa")).toBe(true);
+    expect(cancelsLocalFileRequest("object", "file:///Users/x/.ssh/id_rsa")).toBe(true);
   });
 });
