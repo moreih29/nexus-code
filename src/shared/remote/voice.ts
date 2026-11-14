@@ -87,13 +87,19 @@ export const TranscribeFailureSchema = z.enum([
   "signed-out",
   /** The token was used, or is older than a day (403). */
   "expired",
-  /** The file is over MAX_TRANSCRIBE_BYTES (413). */
+  /** The file is over MAX_TRANSCRIBE_BYTES (413), or longer than its session allows. */
   "too-big",
+  /** It would go over this month's voice minutes (403 quota_exceeded); the token stays good. */
+  "quota",
+  /** The account has as many second passes under way as it may (429 too_many_transcriptions); the token stays good. */
+  "busy",
   /** The take's file is not in the note. */
   "missing",
   "network",
   "failed",
 ]);
+
+export type TranscribeFailure = z.infer<typeof TranscribeFailureSchema>;
 
 export const TranscribeResultSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("submitted"), id: z.string() }),

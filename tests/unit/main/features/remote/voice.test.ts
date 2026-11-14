@@ -234,13 +234,16 @@ describe("a note's recording", () => {
       bytes,
       options: { type: "audio/webm", headers: { "x-transcribe-token": "tok" } },
     });
-    for (const [status, reason] of [
-      [403, "expired"],
-      [413, "too-big"],
-      [500, "failed"],
+    for (const [status, code, reason] of [
+      [403, undefined, "expired"],
+      // Over the month's minutes, or too many under way: the token stays good for later.
+      [403, "quota_exceeded", "quota"],
+      [429, "too_many_transcriptions", "busy"],
+      [413, undefined, "too-big"],
+      [500, undefined, "failed"],
     ] as const) {
       answer = async () => {
-        throw new ServerError(status, undefined, "POST /voice/transcriptions");
+        throw new ServerError(status, code, "POST /voice/transcriptions");
       };
       expect(await voice.transcribe(bytes, "audio/webm", "tok", "ko")).toMatchObject({
         status: "failed",

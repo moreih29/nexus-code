@@ -25,6 +25,7 @@ import {
   VoiceUsageSchema,
 } from "../../../../packages/remote-protocol/src/voice";
 import type {
+  TranscribeFailure,
   TranscribeResult,
   VoiceEvent,
   VoiceFailure,
@@ -84,6 +85,19 @@ export function refusalOf(status: number | undefined, code: string | undefined):
   if (status === 403 || code === "quota_exceeded") return "quota";
   if (status === 429 || code === "too_many_sessions") return "busy";
   if (status === 503 || code === "voice_unavailable") return "unavailable";
+  return "failed";
+}
+
+/**
+ * Why the server refused a second pass, from its status and its body's
+ * `error`: over the month's minutes and too many under way leave the token
+ * good for later; a used or old one does not.
+ */
+export function transcribeRefusalOf(error: ServerError): TranscribeFailure {
+  if (error.code === "quota_exceeded") return "quota";
+  if (error.status === 429 || error.code === "too_many_transcriptions") return "busy";
+  if (error.status === 403) return "expired";
+  if (error.status === 413) return "too-big";
   return "failed";
 }
 
@@ -259,9 +273,7 @@ export class VoiceSessions {
       if (error instanceof UnreachableError)
         return { status: "failed", reason: "network", message: error.message };
       if (error instanceof ServerError) {
-        const reason =
-          error.status === 403 ? "expired" : error.status === 413 ? "too-big" : "failed";
-        return { status: "failed", reason, message: error.message };
+        return { status: "failed", reason: transcribeRefusalOf(error), message: error.message };
       }
       throw error;
     }

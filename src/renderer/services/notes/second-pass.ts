@@ -107,7 +107,8 @@ export async function runSecondPass(
           ["token"],
         );
       } else {
-        // A used or old token is no good again; anything else may be tried again.
+        // A used or old token is no good again; anything else (over the month's
+        // minutes, too many passes under way, no network) may be tried again.
         const spent = result.reason === "expired" || result.reason === "too-big";
         setTake(
           workspaceId,
