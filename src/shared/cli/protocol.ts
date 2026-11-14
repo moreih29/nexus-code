@@ -28,6 +28,13 @@ export const CliRequestSchema = z.object({
   workspaceId: z.string().min(1),
   tabId: z.string().min(1),
   request: CliInvocationSchema,
+  /**
+   * Whether it came with its tab's own token, so it is that tab's (true),
+   * or with the server's, which processes of tabs an older app started
+   * hold, so whose it is cannot be told (false). An agent older than tab
+   * tokens leaves it out.
+   */
+  verified: z.boolean().optional(),
 });
 export type CliRequest = z.infer<typeof CliRequestSchema>;
 

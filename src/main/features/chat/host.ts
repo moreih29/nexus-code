@@ -10,6 +10,8 @@ import { createLogger } from "../../../shared/log/main";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
+import type { HookInfo } from "../workspace/manager";
+import { tabHookToken } from "../workspace/tab-token";
 import {
   type ClaudeCommand,
   claudeCommandArgs,
@@ -32,7 +34,7 @@ export interface ChatWorkspaceManager {
   getAgentChannel(workspaceId: string): Promise<AgentChannel>;
   tryGetAgentChannel(workspaceId: string): Promise<AgentChannel | null>;
   onProviderReady(listener: (workspaceId: string) => void): () => void;
-  getHookInfo(workspaceId: string): { socketPath: string; token: string } | null;
+  getHookInfo(workspaceId: string): HookInfo | null;
   getWrapperBinDir(workspaceId: string): string | null;
   getWrapperAgentBin(workspaceId: string): string | null;
   getWrapperShimDir(workspaceId: string): string | null;
@@ -148,7 +150,7 @@ export class ChatHost {
       wrapperBinDir,
       agentBin,
       agentSocket: hookInfo?.socketPath,
-      hookToken: hookInfo?.token,
+      hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
       withoutWrapper: windows,
       ...(gitBash ? { gitBash } : {}),
     });
@@ -218,7 +220,7 @@ export class ChatHost {
       wrapperBinDir: workspaceManager.getWrapperBinDir(workspaceId),
       agentBin: workspaceManager.getWrapperAgentBin(workspaceId),
       agentSocket: hookInfo?.socketPath,
-      hookToken: hookInfo?.token,
+      hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
       shimDir: windows ? null : workspaceManager.getWrapperShimDir(workspaceId),
     });
     try {

@@ -37,7 +37,7 @@ import {
   CrossWorkspaceConsent,
   type CrossWorkspacePolicy,
 } from "./consent";
-import { CliError, type CliForwards, type CliServices, shortId } from "./context";
+import { type CliCaller, CliError, type CliForwards, type CliServices, shortId } from "./context";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -264,11 +264,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     browser,
   };
 
-  const run = (
-    caller: { workspaceId: string; tabId: string },
-    request: CliInvocation,
-    signal: AbortSignal,
-  ) => {
+  const run = (caller: CliCaller, request: CliInvocation, signal: AbortSignal) => {
     if (!options.settings().enabled) {
       // The SessionStart hook asks for the agent note in every session; it gets none.
       if (request.argv[0] === "agent-context") return Promise.resolve(DISABLED_QUIETLY);
@@ -295,10 +291,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       log.warn("Dropped a malformed cli.request");
       return;
     }
-    const { requestId, workspaceId, tabId, request } = parsed.data;
+    const { requestId, workspaceId, tabId, request, verified } = parsed.data;
     const controller = new AbortController();
     running.set(requestId, controller);
-    run({ workspaceId, tabId }, request, controller.signal)
+    run(
+      { workspaceId, tabId, ...(verified !== undefined ? { verified } : {}) },
+      request,
+      controller.signal,
+    )
       .then((result) => {
         if (!controller.signal.aborted) return respond(workspaceId, requestId, result);
       })

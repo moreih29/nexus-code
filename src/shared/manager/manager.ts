@@ -22,12 +22,21 @@ export function isManagerWorkspace(workspaceId: string): boolean {
   return workspaceId === MANAGER_WORKSPACE_ID;
 }
 
-/** Whether the nexus caller is the manager. */
+/**
+ * Whether the nexus caller is the manager: its ids, with the manager tab's
+ * token (`verified`, see src/main/features/workspace/tab-token.ts), not
+ * only ids any process may say.
+ */
 export function isManager(caller: {
   readonly workspaceId: string;
   readonly tabId: string;
+  readonly verified?: boolean;
 }): boolean {
-  return caller.workspaceId === MANAGER_WORKSPACE_ID && caller.tabId === MANAGER_TAB_ID;
+  return (
+    caller.verified !== false &&
+    caller.workspaceId === MANAGER_WORKSPACE_ID &&
+    caller.tabId === MANAGER_TAB_ID
+  );
 }
 
 /**

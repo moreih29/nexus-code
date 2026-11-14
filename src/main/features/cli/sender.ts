@@ -11,23 +11,27 @@ import type { CliContext } from "./context";
 /**
  * The agent a command is run by: the manager, a Claude or Codex tab's
  * agent, or an agent in a terminal (Claude Code, Codex). Undefined for the
- * user, at a shell of theirs: what they send is theirs.
+ * user, at a shell of theirs: what they send is theirs. Only a terminal
+ * the request is known to come from, running no agent, is the user's: a
+ * request that could be any process's (it came without its tab's token),
+ * or that names no terminal or chat tab there is, is an agent's.
  */
 export async function senderOf(ctx: CliContext): Promise<RelaySender | undefined> {
   if (isManager(ctx.caller)) return { kind: "manager" };
-  const { workspaceId, tabId } = ctx.caller;
-  if (!workspaceId || !tabId) return undefined;
+  const { workspaceId, tabId, verified } = ctx.caller;
   const tabs = await ctx.services
     .ui("tabs.list", { workspaceId })
     .then((listed) => listed.tabs)
     .catch(() => []);
   const tab = tabs.find((t) => t.id === tabId);
-  if (!tab) return undefined;
+  // Whose it is cannot be told: an agent's, of no tab it can be named by.
+  const unknown: RelaySender = { kind: "terminal", workspaceId, tabId };
+  if (!tab || verified === false) return unknown;
   const name = tab.title.slice(0, 200);
   if (tab.type === "claude" || tab.type === "codex") {
     return { kind: "tab", agent: tab.type, name, workspaceId, tabId };
   }
-  if (tab.type !== "terminal") return undefined;
+  if (tab.type !== "terminal") return unknown;
   const agent = await terminalAgentOf(ctx, workspaceId, tabId, tab.title);
   if (agent === undefined) return undefined;
   return { kind: "terminal", agent, name, workspaceId, tabId };

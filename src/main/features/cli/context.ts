@@ -107,9 +107,21 @@ export interface CliServices {
   readonly browser: BrowserDriver;
 }
 
+/**
+ * The tab a command runs in, as its request named it. `verified` false:
+ * the request did not come with that tab's token (see
+ * ../workspace/tab-token.ts), so it may be any process of the workspace's
+ * that says so, and it is taken for no tab's, nor for the user's.
+ */
+export interface CliCaller {
+  readonly workspaceId: string;
+  readonly tabId: string;
+  readonly verified?: boolean;
+}
+
 export interface CliContext {
   /** The terminal the command runs in. */
-  readonly caller: { readonly workspaceId: string; readonly tabId: string };
+  readonly caller: CliCaller;
   readonly invocation: CliInvocation;
   readonly services: CliServices;
   /** Aborted when the command's client has gone, as one stopped with Ctrl-C. */

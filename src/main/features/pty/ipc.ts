@@ -23,6 +23,7 @@ import {
   systemDefaultShell,
 } from "./shells";
 import type { PtyHostHandle } from "./types";
+import { tabHookToken } from "../workspace/tab-token";
 import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 
 const c = ipcContract.pty.call;
@@ -209,7 +210,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
                 tabId,
                 agentBin: wrapperAgentBin ?? undefined,
                 agentSocket: hookInfo?.socketPath,
-                hookToken: hookInfo?.token,
+                hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
               })
             : injectHarnessTerminalEnv(env);
 
