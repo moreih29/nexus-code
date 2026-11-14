@@ -127,6 +127,21 @@ describe("chat history cuts", () => {
     expect([...modelUuids(historyModel(ENTRIES))]).toEqual(["u1", "a1", "u2", "a2"]);
   });
 
+  test("a joined history keys anew what after has that before has already", () => {
+    const before = historyModel(ENTRIES);
+    const after = historyModel(ENTRIES);
+    const all = joinHistory(before, after);
+    const keys = all.items.map((item) => item.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.slice(before.items.length)).toEqual(before.items.map((item) => `${item.key}~2`));
+    // What before has, and what after has alone, keep their keys and items.
+    expect(all.items.slice(0, before.items.length)).toEqual(before.items);
+    const third = joinHistory(all, after);
+    expect(third.items.slice(all.items.length).map((item) => item.key)).toEqual(
+      before.items.map((item) => `${item.key}~3`),
+    );
+  });
+
   test("a rewind keeps what came before the message, and forks at the one before it", () => {
     const all = joinHistory(historyModel(ENTRIES, { upTo: "a1" }), historyModel(ENTRIES.slice(5)));
     expect(texts(modelBefore(all, "u2"))).toEqual(["user:one", "assistant:first"]);

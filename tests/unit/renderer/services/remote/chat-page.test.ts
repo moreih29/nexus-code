@@ -8,7 +8,7 @@ import type {
 } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { chatPageOf } from "../../../../../src/renderer/services/remote/chat-page";
+import { chatPageOf, conversationOf } from "../../../../../src/renderer/services/remote/chat-page";
 
 const user = (key: string, text = key): ChatItem => ({
   kind: "user",
@@ -61,10 +61,10 @@ describe("a chat's page for another device", () => {
     expect(ChatPageSchema.safeParse(page).success).toBe(true);
     expect(page.total).toBe(4);
     expect(page.start).toBe(0);
-    expect(page.items.map((i) => i.key)).toEqual(["a", "a2", "b", "c"]);
+    expect(page.items.map((i) => i.key)).toEqual(["h-a", "h-a2", "b", "c"]);
     expect(page.items[0]).toEqual({
       kind: "user",
-      key: "a",
+      key: "h-a",
       text: "a",
       images: [],
       state: "taken",
@@ -72,6 +72,18 @@ describe("a chat's page for another device", () => {
     expect(Object.keys(page.tools).sort()).toEqual(["t1", "t2"]);
     expect(page.tools.t2).not.toHaveProperty("partialInput");
     expect(page.status).toMatchObject({ agent: "claude", title: "Fix the build", running: false });
+  });
+
+  test("keys the history apart from a resumed program's log, which numbers its lines again", () => {
+    const chat = source(
+      { items: [user("u1"), said("a3", "t2")], tools: { t2: tool("t2") } },
+      { items: [user("u1"), said("a3", "t1")], tools: { t1: tool("t1") } },
+    );
+    const keys = chatPageOf(chat).items.map((i) => i.key);
+    expect(keys).toEqual(["h-u1", "h-a3", "u1", "a3"]);
+    expect(new Set(keys).size).toBe(keys.length);
+    // The same item for each read, so a watch sends only what changed.
+    expect(conversationOf(chat).items[0]).toBe(conversationOf(chat).items[0]);
   });
 
   test("pages back by `before`, naming only its items' calls", () => {

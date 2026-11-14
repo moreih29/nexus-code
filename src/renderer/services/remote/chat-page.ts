@@ -52,10 +52,30 @@ export function conversationOf({ chat, relayed }: ChatSource): {
 } {
   const { history, model } = chat;
   return {
-    items: withRelayed(history ? [...history.items, ...model.items] : model.items, relayed),
+    items: withRelayed(
+      history ? [...history.items.map(asHistory), ...model.items] : model.items,
+      relayed,
+    ),
     tools: history ? { ...history.tools, ...model.tools } : model.tools,
     agentItems: history ? { ...history.agentItems, ...model.agentItems } : model.agentItems,
   };
+}
+
+/** History items as another device reads them, made once for each item. */
+const historyItems = new WeakMap<ChatItem, ChatItem>();
+
+/**
+ * An item of the history keyed apart from the program's log: a resumed
+ * program's log numbers its lines from 1 again, so its keys (a33) are the
+ * history's too. The tab's own list keys them apart the same way.
+ */
+function asHistory(item: ChatItem): ChatItem {
+  let keyed = historyItems.get(item);
+  if (!keyed) {
+    keyed = { ...item, key: `h-${item.key}` };
+    historyItems.set(item, keyed);
+  }
+  return keyed;
 }
 
 /** How many bytes a base64 image holds. */
