@@ -36,6 +36,9 @@ import { openMessage, type RoomKey, sealMessage } from "./seal";
 /** How long an answer may take. */
 export const REQUEST_TIMEOUT_MS = 15_000;
 
+/** The platforms of phones, as the relay names a device's: no agent runs on one. */
+const PHONE_PLATFORMS = new Set(["ios", "android", "web"]);
+
 /** How often a message sealed with a newer key version may have the key fetched again. */
 export const FOREIGN_KEY_INTERVAL_MS = 60_000;
 
@@ -486,14 +489,25 @@ export class RemoteRoom {
         error: { code: RpcErrorCode.Forbidden, message: `${method} is not taken from agents` },
       };
     }
-    const needs = byAgent ? "agents" : (spec.capability as Capability);
-    if (!this.serves().includes(needs)) {
+    // A phone runs no agents: a request of one from it is not one.
+    if (byAgent && PHONE_PLATFORMS.has(this.peers.get(from)?.platform ?? "")) {
       return {
         error: {
           code: RpcErrorCode.Forbidden,
-          message: byAgent
-            ? "control by agents is off there (Settings › Remote)"
-            : `${method} is not served here`,
+          message: "agents' requests are not taken from a phone",
+        },
+      };
+    }
+    // An agent may do only what people may do from other devices here, and only when agents may.
+    const serves = this.serves();
+    if (!serves.includes(spec.capability as Capability)) {
+      return { error: { code: RpcErrorCode.Forbidden, message: `${method} is not served here` } };
+    }
+    if (byAgent && !serves.includes("agents")) {
+      return {
+        error: {
+          code: RpcErrorCode.Forbidden,
+          message: "control by agents is off there (Settings › Remote)",
         },
       };
     }

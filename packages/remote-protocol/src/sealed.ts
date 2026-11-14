@@ -90,8 +90,10 @@ export const CAPABILITIES = [
   /**
    * Takes agents' requests (`from`: nexus on another device) to act in its
    * chats and terminals, as the user set it (Settings › Remote: ask or
-   * allow). Without it, a request with `from` is refused, whatever
-   * chat.control and terminal.control say: those are for people.
+   * allow). A request with `from` needs it and the method's own capability
+   * (chat.control, terminal.control) both: an agent may do no more than
+   * people may from other devices. One with `from` from a phone (ios,
+   * android, web) is refused: no agent runs there.
    */
   "agents",
 ] as const;

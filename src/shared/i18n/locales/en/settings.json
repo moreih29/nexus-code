@@ -727,7 +727,7 @@
       "ask": "Ask each time",
       "allow": "Allow",
       "deny": "Don't allow",
-      "description": "What their agents may do here through nexus (chat send --device …): send and answer chats, type into terminals. Reading is always allowed. Apart from the switches above, which are for you."
+      "description": "What their agents may do here through nexus (chat send --device …): send and answer chats, type into terminals. Reading is always allowed. The chat and terminal control switches above must be on as well."
     },
     "key": {
       "title": "Account password",

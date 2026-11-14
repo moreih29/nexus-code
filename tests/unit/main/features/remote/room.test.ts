@@ -107,7 +107,7 @@ async function roomKey(): Promise<RoomKey> {
 }
 
 function device(relay: MockRelay, id: string, key: RoomKey, extra: Partial<RemoteRoomDeps> = {}) {
-  const self = { id, name: `${id}-pc`, platform: "darwin" };
+  const self = extra.self ?? { id, name: `${id}-pc`, platform: "darwin" };
   const served: { from: string; method: string }[] = [];
   let connection: ReturnType<MockRelay["connection"]> | undefined;
   const room = new RemoteRoom({
@@ -196,15 +196,42 @@ describe("the room", () => {
       message: expect.stringContaining("control by agents is off"),
     });
     expect(a.served).toEqual([]);
-    // Agents may; people may not.
+    // Agents may, but people may not: neither may, for an agent does no more than people may.
     serves = ["sessions", "agents"];
+    a.room.announce();
+    await tick();
+    for (const params of [{ ...tab, from }, tab]) {
+      await expect(b.room.request("a", "chat.interrupt", params)).rejects.toMatchObject({
+        code: RpcErrorCode.Forbidden,
+        message: "chat.interrupt is not served here",
+      });
+    }
+    expect(a.served).toEqual([]);
+    // Both may.
+    serves = ["sessions", "chat.control", "agents"];
     a.room.announce();
     await tick();
     await b.room.request("a", "chat.interrupt", { ...tab, from });
     expect(a.served).toEqual([{ from: "b", method: "chat.interrupt" }]);
-    await expect(b.room.request("a", "chat.interrupt", tab)).rejects.toMatchObject({
-      code: RpcErrorCode.Forbidden,
+  });
+
+  test("an agent's request from a phone is refused: no agent runs there", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key, { serves: () => ["sessions", "chat.control", "agents"] });
+    const phone = device(relay, "p", key, {
+      self: { id: "p", name: "phone", platform: "ios" },
     });
+    a.room.start();
+    phone.room.start();
+    await tick();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt", hops: 1 };
+    await expect(phone.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject(
+      { code: RpcErrorCode.Forbidden, message: "agents' requests are not taken from a phone" },
+    );
+    await phone.room.request("a", "chat.interrupt", tab);
+    expect(a.served).toEqual([{ from: "p", method: "chat.interrupt" }]);
   });
 
   test("an agent's request to a method that takes none from agents is refused, not taken as the user's", async () => {
