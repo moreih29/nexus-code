@@ -80,7 +80,8 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { createMainWindow, updateTitleBarOverlays } from "./features/window";
+import { appPage, createMainWindow, updateTitleBarOverlays } from "./features/window";
+import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
@@ -440,6 +441,13 @@ updatesHandle = installUpdatesDomain({
 
 app.whenReady().then(async () => {
   installAppSessionPermissions(session.defaultSession);
+  // The app window's Content-Security-Policy. NEXUS_CSP_REPORT_ONLY=1 makes
+  // an unpackaged run only report what it would block, in the console.
+  installAppCsp(
+    session.defaultSession,
+    appPage(),
+    !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
+  );
   // On Linux, find out whether the notification service answers before the
   // first notification has to wait on it (infra/platform/desktop-notifications).
   startDesktopNotifications();
