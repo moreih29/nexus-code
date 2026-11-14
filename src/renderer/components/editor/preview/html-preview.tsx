@@ -1,5 +1,15 @@
 // HtmlPreview — renders user-supplied HTML inside a sandboxed iframe.
 //
+// DOCUMENT ADDRESS
+//   The page, with the preamble below, is put in main and the iframe loads
+//   it from nexus-preview://<token>/ (main's custom-protocols/
+//   nexus-preview.ts). A srcdoc document would take on the app window's
+//   Content-Security-Policy, which keeps the app's own frame from running
+//   inline or remote script; a document of a scheme of its own runs under the
+//   looser policy its response carries, as the page would in a browser. The
+//   pane keeps one token while it is open and lets main go of it when it
+//   closes.
+//
 // SECURITY MODEL (plan 60 issue 3, revised v1.2)
 //   Workspace HTML often includes inline scripts and CDN-loaded libraries
 //   (mermaid, chart.js, d3) that the user expects to "just work" — the same
@@ -33,7 +43,7 @@
 //   the user did not target.
 //
 // INJECTED PREAMBLE
-//   We prepend a tiny CSS + JS preamble into the srcDoc so the previewed
+//   We prepend a tiny CSS + JS preamble into the document so the previewed
 //   document inherits three host behaviours:
 //
 //   1. `::-webkit-scrollbar` — themed to match the app's thin scrollbar.
@@ -58,7 +68,7 @@
 //      source) when the host's find bar asks, and reports the count back;
 //      ⌘F, ⌘G and Escape in it reach the host's find bar.
 //
-//   4. Scroll persistence — every srcdoc assignment is a brand-new document
+//   4. Scroll persistence — every reload is a brand-new document
 //      that starts at (0, 0). The preamble reports window scroll back to the
 //      host (postMessage), the host remembers it per file, and the next
 //      document is seeded with that position via a
@@ -77,12 +87,19 @@ import { useCallback, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { isWithinWorkspace, relPath } from "@/utils/path";
 import { PREVIEW_LINK_WINDOW } from "../../../../shared/window/preview-link";
+import { ipcCallResult } from "../../../ipc/client";
 import {
   createDomFinder,
   FIND_COLORS,
   MAX_FIND_MATCHES,
 } from "../../../services/editor/preview/find/dom-finder";
 import { findMatches } from "../../../services/editor/preview/find/find-matches";
+import { buildPreviewDocument } from "../../../services/editor/preview/html-document";
+import {
+  PreviewDocumentLoader,
+  type PreviewDocumentStore,
+  type PreviewFrame,
+} from "../../../services/editor/preview/preview-document-loader";
 import {
   buildOutsideDirUrl,
   buildWorkspaceDirUrl,
@@ -145,10 +162,10 @@ const HTML_PREVIEW_PREAMBLE = `<style>
     var href = a.getAttribute('href');
     if (!href) return;
     // In-page anchor — scroll inside the iframe document directly. We do
-    // NOT fall through to native hash navigation: in some Chromium builds
-    // a hash change on about:srcdoc forces the parser to re-evaluate the
-    // srcDoc, which (because allow-same-origin is off) ends up as a blank
-    // document. Calling scrollIntoView keeps the document stable.
+    // NOT fall through to native hash navigation: the <base> we inject
+    // resolves "#id" against the file's folder on nexus-workspace://, so
+    // the frame would leave the document for that address. Calling
+    // scrollIntoView keeps the document stable.
     if (href.charAt(0) === '#') {
       e.preventDefault();
       var id = href.slice(1);
@@ -334,24 +351,37 @@ function buildBaseTag(
 }
 
 /**
- * Insert the base tag + preamble into the source HTML.  We try to keep DOCTYPE
- * order intact (browsers go quirks-mode if anything precedes <!DOCTYPE>) by
- * inserting right after the opening <head> tag.  When no <head> exists we
- * fall back to a prepend; modern Chromium is lenient enough to re-parse
- * style/script tags into the synthesised <head>.
+ * The document served for the source HTML: the base tag + preamble first in
+ * its head, after its DOCTYPE (buildPreviewDocument), so nothing precedes the
+ * DOCTYPE and the page keeps its mode.
  *
  * The `<base>` must come FIRST so the user's own <link>/<script src> tags
  * (which follow inside their <head>) resolve against it. The scroll meta must
  * precede the preamble script, which reads it synchronously.
  */
 function injectPreamble(source: string, baseTag: string, scrollMeta: string): string {
-  const head = baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE;
-  const headOpen = /<head\b[^>]*>/i.exec(source);
-  if (headOpen) {
-    const insertAt = headOpen.index + headOpen[0].length;
-    return source.slice(0, insertAt) + head + source.slice(insertAt);
-  }
-  return head + source;
+  return buildPreviewDocument(source, baseTag + scrollMeta + HTML_PREVIEW_PREAMBLE);
+}
+
+/** Main's store of preview documents, over the preview channel. */
+const previewDocumentStore: PreviewDocumentStore = {
+  async put(html, token) {
+    const result = await ipcCallResult("preview", "putHtml", { token, html });
+    return result.ok ? result.value : null;
+  },
+  release(token) {
+    void ipcCallResult("preview", "releaseHtml", { token });
+  },
+};
+
+/** The pane's iframe, as the loader points it at a document. */
+function iframeFrame(el: HTMLIFrameElement): PreviewFrame {
+  return {
+    setSrc: (url) => {
+      el.src = url;
+    },
+    replace: (url) => el.contentWindow?.location.replace(url),
+  };
 }
 
 export function HtmlPreview({
@@ -458,18 +488,30 @@ export function HtmlPreview({
     return () => window.removeEventListener("message", onMessage);
   }, [scrollKey, findBar, postFind]);
 
-  // Imperatively set `srcdoc` so the iframe element stays mounted across
-  // live edits (no remount cascade). The known Chromium srcDoc-prop-not-
-  // reloading bug is side-stepped because we touch the DOM attribute
-  // directly — the browser reliably re-parses on assignment. PreviewPane
-  // already unmounts/remounts HtmlPreview around the raw↔preview toggle,
-  // so the "empty → first content" path also goes through this effect on
-  // fresh mount.
+  // The pane's document in main (DOCUMENT ADDRESS), let go of when the
+  // pane closes: its tab, the raw↔preview toggle, its window.
+  const loaderRef = useRef<PreviewDocumentLoader | null>(null);
+  useEffect(() => {
+    const loader = new PreviewDocumentLoader(previewDocumentStore, () => {
+      const el = iframeRef.current;
+      return el ? iframeFrame(el) : null;
+    });
+    loaderRef.current = loader;
+    return () => {
+      loader.close();
+      loaderRef.current = null;
+    };
+  }, []);
+
+  // The iframe element stays mounted across live edits (no remount cascade);
+  // its document is reloaded instead. PreviewPane already unmounts/remounts
+  // HtmlPreview around the raw↔preview toggle, so the "empty → first
+  // content" path also goes through this effect on fresh mount.
   //
   // The document string is built only when it is actually assigned, and the
   // "did anything change" check compares the inputs (usually the identical
-  // string instance from the model) instead of reading back the potentially
-  // multi-megabyte `srcdoc` attribute on every render.
+  // string instance from the model) instead of the potentially multi-megabyte
+  // document.
   const assignedRef = useRef<{ source: string; baseTag: string } | null>(null);
   useEffect(() => {
     const el = iframeRef.current;
@@ -478,7 +520,9 @@ export function HtmlPreview({
     if (assigned && assigned.source === source && assigned.baseTag === baseTag) return;
     const assign = () => {
       assignedRef.current = { source, baseTag };
-      el.srcdoc = injectPreamble(source, baseTag, buildScrollMeta(scrollByFile.get(scrollKey)));
+      void loaderRef.current?.load(
+        injectPreamble(source, baseTag, buildScrollMeta(scrollByFile.get(scrollKey))),
+      );
     };
     if (assigned === null) {
       assign();

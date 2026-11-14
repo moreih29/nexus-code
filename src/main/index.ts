@@ -30,9 +30,15 @@ import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
-  installNexusWorkspaceProtocol,
-  registerNexusWorkspaceSchemes,
-} from "./features/custom-protocols/nexus-workspace";
+  installAppSchemeRequestGuard,
+  registerAppSchemes,
+} from "./features/custom-protocols/app-schemes";
+import {
+  installNexusPreviewProtocol,
+  PreviewDocuments,
+  registerPreviewChannel,
+} from "./features/custom-protocols/nexus-preview";
+import { installNexusWorkspaceProtocol } from "./features/custom-protocols/nexus-workspace";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -132,9 +138,12 @@ logChildProcessDeaths(app);
 
 setupRouter();
 
-// Register the nexus-workspace:// custom scheme as a privileged standard
-// scheme.  Must be called before app.whenReady().
-registerNexusWorkspaceSchemes();
+// Register the nexus-workspace:// and nexus-preview:// custom schemes as
+// privileged standard schemes.  Must be called before app.whenReady().
+registerAppSchemes();
+
+// The HTML preview's documents, served at nexus-preview://<token>/.
+const previewDocuments = new PreviewDocuments();
 
 // Dev runs must execute the agent from Go sources so an out-of-date
 // `dist/agent` cannot silently route requests to an outdated dispatcher.
@@ -413,6 +422,7 @@ registerSystemChannel({
 });
 registerWindowChannel();
 registerClipboardChannel();
+registerPreviewChannel(previewDocuments);
 
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
@@ -489,6 +499,8 @@ app.whenReady().then(async () => {
   // Install the nexus-workspace:// protocol handler after the workspace
   // manager is initialised so workspace lookups resolve correctly.
   installNexusWorkspaceProtocol(workspaceManager);
+  installNexusPreviewProtocol(previewDocuments);
+  installAppSchemeRequestGuard(session.defaultSession);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });

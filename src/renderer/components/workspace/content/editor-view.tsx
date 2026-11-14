@@ -124,7 +124,7 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
  * EAGER RESYNC ON MODEL IDENTITY CHANGE
  *   `useEffect` runs after commit, so the first render after a raw→preview
  *   toggle would otherwise show the stale `""` source until the effect
- *   fires. For `<iframe srcDoc>` consumers (HtmlPreview) that initial empty
+ *   fires. For `<iframe>` consumers (HtmlPreview) that initial empty
  *   document can latch and the pane stays blank. We use the "adjust state
  *   during render" pattern (React docs §Derived State) to pull the new
  *   model's value synchronously whenever its identity changes.

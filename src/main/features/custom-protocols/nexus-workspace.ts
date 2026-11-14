@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
+import type { CustomScheme } from "electron";
 // Namespace import (not `import { net, protocol }`): under Bun's test runtime
 // the real electron entry is a CJS shim with no named exports, so a static
 // named import fails to link with "Export named 'protocol' not found" — an
@@ -14,7 +15,6 @@ import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
 import type { FileReadBinaryResult } from "../../../shared/fs/types";
 import { createLogger } from "../../../shared/log/main";
-import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
 import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
 import type { WorkspaceManager } from "../workspace/manager";
 
@@ -444,32 +444,28 @@ async function serveViaAgent(
 // ---------------------------------------------------------------------------
 
 /**
- * Registers the `nexus-workspace` scheme as a privileged standard scheme.
- * Must be called **before** `app.whenReady()`.
+ * The `nexus-workspace` scheme's privileges: a standard scheme, registered
+ * with the app's other schemes before `app.whenReady()` (app-schemes.ts).
  */
-export function registerNexusWorkspaceSchemes(): void {
-  electron.protocol.registerSchemesAsPrivileged([
-    {
-      scheme: "nexus-workspace",
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: false,
-        // corsEnabled lets the preview iframe (opaque/"null" origin) load
-        // resources that are fetched in CORS mode — @font-face fonts, which
-        // the spec always requests as CORS even without `crossorigin`, and
-        // module scripts. Without it Chromium blocks those cross-origin
-        // loads regardless of response headers. It also makes every file
-        // readable by XHR, which the read guard installed with the handler
-        // cancels. supportFetchAPI stays false: no JS fetch() surface.
-        corsEnabled: true,
-        bypassCSP: false,
-        // Lets <audio> and <video> play files as they load, and seek them.
-        stream: true,
-      },
-    },
-  ]);
-}
+export const NEXUS_WORKSPACE_SCHEME: CustomScheme = {
+  scheme: "nexus-workspace",
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: false,
+    // corsEnabled lets the preview iframe (opaque/"null" origin) load
+    // resources that are fetched in CORS mode — @font-face fonts, which
+    // the spec always requests as CORS even without `crossorigin`, and
+    // module scripts. Without it Chromium blocks those cross-origin
+    // loads regardless of response headers. It also makes every file
+    // readable by XHR, which the read guard (app-schemes.ts)
+    // cancels. supportFetchAPI stays false: no JS fetch() surface.
+    corsEnabled: true,
+    bypassCSP: false,
+    // Lets <audio> and <video> play files as they load, and seek them.
+    stream: true,
+  },
+};
 
 /**
  * Installs the `nexus-workspace://` protocol handler.
@@ -477,15 +473,4 @@ export function registerNexusWorkspaceSchemes(): void {
  */
 export function installNexusWorkspaceProtocol(workspaceManager: WorkspaceManager): void {
   electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
-  // The HTML preview runs workspace pages (and whatever they navigate or
-  // embed) in frames of the app's own session, where this scheme is
-  // reachable; see isScriptReadableRequest.
-  electron.session.defaultSession.webRequest.onBeforeRequest(
-    { urls: ["nexus-workspace://*/*"] },
-    (details, callback) => {
-      const cancel = isScriptReadableRequest(details.resourceType, details.url);
-      if (cancel) logger.warn(`Blocked script-readable ${details.resourceType}: ${details.url}`);
-      callback({ cancel });
-    },
-  );
 }
