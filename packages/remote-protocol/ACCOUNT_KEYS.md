@@ -58,6 +58,7 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 1. The device makes a new AK (`kid + 1`) and seals it with a new password.
 2. `PUT` with `expected = <version>`.
 3. Other devices find frames with the new `kid`, fetch the bundle, and ask for the new password.
+4. A key is only ever replaced by a newer one. A device that holds a key does not take a bundle of an older `kid`: it keeps its key, and does not ask for a password to open the older bundle.
 4. Nothing is lost: the server keeps no history, only the sealed bundle.
 
 **Removing a device**

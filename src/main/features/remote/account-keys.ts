@@ -127,7 +127,7 @@ export class AccountKeys {
     return this.run(async () => {
       const userId = this.userId();
       const found = await this.fetch();
-      if (!found) throw await this.conflict();
+      if (!found || this.older(found)) throw await this.conflict();
       const key = await this.open(found.bundle, password, userId);
       return this.hold(userId, found.bundle.kid, key);
     });
@@ -139,7 +139,7 @@ export class AccountKeys {
       const userId = this.userId();
       mustBeLongEnough(nextPassword);
       const found = await this.fetch();
-      if (!found) throw await this.conflict();
+      if (!found || this.older(found)) throw await this.conflict();
       const key = await this.open(found.bundle, currentPassword, userId);
       const bundle = await this.lock(key, found.bundle.kid, nextPassword, userId);
       await this.put(bundle, found.version);
@@ -178,7 +178,13 @@ export class AccountKeys {
       if (!found) this.set({ status: "missing" });
       else if (this.held?.kid === found.bundle.kid)
         this.set({ status: "unlocked", kid: found.bundle.kid });
-      else this.set({ status: "locked", kid: found.bundle.kid });
+      else if (this.held && this.older(found)) {
+        // A key older than the one held: the server went back, or is made to. The newer key stays.
+        console.warn(
+          `[remote] the server's account key (version ${found.bundle.kid}) is older than this device's (${this.held.kid}); kept this one`,
+        );
+        this.set({ status: "unlocked", kid: this.held.kid });
+      } else this.set({ status: "locked", kid: found.bundle.kid });
     } catch (error) {
       const failure = keyErrorOf(error, this.now());
       if (failure.failure === "signed-out") this.set({ status: "signed-out" });
@@ -190,6 +196,15 @@ export class AccountKeys {
         });
     }
     return this.current;
+  }
+
+  /**
+   * Whether the server's bundle is of a version older than the key this
+   * device holds: a key is only ever replaced by a newer one (a reset), so
+   * an older one is the server going back, which the device does not follow.
+   */
+  private older(found: KeyBundleResponse): boolean {
+    return this.held !== null && found.bundle.kid < this.held.kid;
   }
 
   /** The bundle on the server, or null before there is one. */

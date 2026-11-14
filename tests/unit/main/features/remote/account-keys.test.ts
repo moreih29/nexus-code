@@ -148,6 +148,26 @@ describe("the account key's flows", () => {
     expect(b.keys.key()).toEqual(a.keys.key());
   });
 
+  test("a server that goes back to an older key is not followed: the newer key stays", async () => {
+    const { server, request } = bundleServer();
+    const a = device(request);
+    await a.keys.restore();
+    await a.keys.create(PASSWORD);
+    const first = structuredClone(server.stored);
+    expect(await a.keys.reset(OTHER)).toEqual({ status: "unlocked", kid: 2 });
+    const newer = a.keys.key();
+    // The server (or one that holds its data) hands out the first bundle again.
+    server.stored = first;
+    expect(await a.keys.refresh()).toEqual({ status: "unlocked", kid: 2 });
+    expect(a.keys.key()).toEqual(newer);
+    // Nor does the old password take the old key back, nor a change of it.
+    await expect(a.keys.unlock(PASSWORD)).rejects.toMatchObject({ failure: "conflict" });
+    await expect(a.keys.changePassword(PASSWORD, "a new long password")).rejects.toMatchObject({
+      failure: "conflict",
+    });
+    expect(a.keys.key()).toEqual(newer);
+  });
+
   test("signing out forgets the key; another user's kept key is not taken", async () => {
     const { request } = bundleServer();
     const a = device(request);
