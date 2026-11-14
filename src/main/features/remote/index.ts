@@ -24,6 +24,7 @@ import { AgentGate } from "./agent-gate";
 import { ChatWatches } from "./chat-watches";
 import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
 import type { RemoteNotes } from "./notes";
 import { RelayConnection } from "./relay-connection";
@@ -144,15 +145,6 @@ function shrinkImage(
     scale *= Math.sqrt(maxChars / data.length) * 0.9;
   }
   return null;
-}
-
-/** Reads the start of a file git does not track yet, as text, for its diff. */
-function untrackedReader(fs: (workspaceId: string) => Promise<FsProvider>) {
-  return async (workspaceId: string, absolute: string, maxBytes: number): Promise<string> => {
-    const read = await (await fs(workspaceId)).readAbsoluteRange(absolute, 0, maxBytes);
-    if (read.kind === "missing") return "";
-    return new TextDecoder("utf-8").decode(Buffer.from(read.base64, "base64"), { stream: true });
-  };
 }
 
 export async function registerRemoteChannel(options: {
@@ -328,7 +320,14 @@ export async function registerRemoteChannel(options: {
           ? {
               repositories: {
                 repository: options.repository,
-                readUntracked: untrackedReader(options.fs),
+                readUntracked: untrackedReader(
+                  options.fs,
+                  (id) =>
+                    options
+                      .services()
+                      ?.listWorkspaces()
+                      .find((w) => w.id === id)?.rootPath,
+                ),
               },
             }
           : {}),

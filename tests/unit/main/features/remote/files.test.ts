@@ -10,6 +10,7 @@ import {
   placeOf,
   type RemoteFiles,
   readFile,
+  untrackedReader,
 } from "../../../../../src/main/features/remote/files";
 
 interface Node {
@@ -376,4 +377,36 @@ describe("a folder a chat was given, on this computer", () => {
       expect(got.entries).toEqual([]);
     },
   );
+});
+
+describe("a file git does not track yet, read for its diff", () => {
+  const tree: Record<string, Node> = {
+    "notes.txt": text("a\nb\n"),
+    key: { type: "symlink" },
+    linked: { type: "symlink" },
+    "linked/inner.txt": text("through a link"),
+  };
+  const read = untrackedReader(
+    async () => fakeFs(tree),
+    (id) => (id === ws ? root : undefined),
+  );
+
+  test("is read from the workspace's folder", async () => {
+    expect(await read(ws, "/src/app/notes.txt", 100)).toBe("a\nb\n");
+    expect(await read(ws, "/src/app/notes.txt", 2)).toBe("a\n");
+  });
+
+  test("not through a link, nor outside the folder, nor of no workspace", async () => {
+    await expect(read(ws, "/src/app/key", 100)).rejects.toMatchObject({
+      code: 1002,
+      message: "key is a link: what it points to is not read",
+    });
+    await expect(read(ws, "/src/app/linked/inner.txt", 100)).rejects.toMatchObject({
+      code: 1002,
+    });
+    await expect(read(ws, "/home/me/.ssh/id_ed25519", 100)).rejects.toMatchObject({
+      code: 1002,
+    });
+    await expect(read("w2", "/src/app/notes.txt", 100)).rejects.toMatchObject({ code: 1001 });
+  });
 });

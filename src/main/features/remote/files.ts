@@ -182,6 +182,30 @@ async function throughNoLink(fs: FsProvider, rel: string, asked: string) {
 }
 
 /**
+ * Reads the start of a file git does not track yet, as text, for its diff
+ * (git.diff): only one in the workspace's folder (`rootOf` names it), and
+ * not through a link, which git would show as the path it holds but a read
+ * would follow, to a file anywhere (an untracked `key -> ~/.ssh/id_ed25519`).
+ */
+export function untrackedReader(
+  fs: (workspaceId: string) => Promise<FsProvider>,
+  rootOf: (workspaceId: string) => string | undefined,
+) {
+  return async (workspaceId: string, absolute: string, maxBytes: number): Promise<string> => {
+    const root = rootOf(workspaceId);
+    if (root === undefined) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+    const place = placeOf(root, [], absolute);
+    if (place.kind !== "workspace")
+      throw forbidden(`${absolute} is outside the workspace's folder`);
+    const provider = await fs(workspaceId);
+    await throughNoLink(provider, place.rel, absolute);
+    const read = await provider.readRange(place.rel, 0, maxBytes);
+    if (read.kind === "missing") return "";
+    return new TextDecoder("utf-8").decode(Buffer.from(read.base64, "base64"), { stream: true });
+  };
+}
+
+/**
  * A folder inside the workspace's own, absolute, for a new chat to run in:
  * Forbidden outside it or through a link, InvalidParams for a file.
  */
