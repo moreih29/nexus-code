@@ -327,4 +327,49 @@ describe("the voice socket", () => {
       expect(VoiceLanguageSchema.parse(lang)).toBe(lang);
     expect(VoiceLanguageSchema.safeParse("korean").success).toBe(false);
   });
+
+  test("a note's session tells speakers apart and where their words fall", async () => {
+    const { VoiceServerMessageSchema, VoicePurposeSchema } = await import(
+      "../../../../packages/remote-protocol/src"
+    );
+    for (const message of [
+      { t: "partial", text: "네, 512", speaker: "2" },
+      { t: "final", text: "네, 512 KiB면 괜찮아요.", speaker: "2", startMs: 4210, endMs: 6930 },
+      { t: "done", seconds: 1820.4, transcribeToken: "tt_1" },
+    ]) {
+      expect(VoiceServerMessageSchema.parse(message)).toEqual(message as never);
+    }
+    expect(VoiceServerMessageSchema.safeParse({ t: "final", text: "x", speaker: "" }).success).toBe(
+      false,
+    );
+    expect(VoiceServerMessageSchema.safeParse({ t: "final", text: "x", startMs: -1 }).success).toBe(
+      false,
+    );
+    expect(VoicePurposeSchema.options).toEqual(["dictation", "note"]);
+  });
+
+  test("usage counts notes apart, and an older server's still reads", async () => {
+    const { VoiceUsageSchema } = await import("../../../../packages/remote-protocol/src");
+    const older = { period: "2026-11", usedSeconds: 60, limitSeconds: 36000 };
+    expect(VoiceUsageSchema.parse(older)).toEqual(older);
+    const both = { ...older, note: { usedSeconds: 7500, limitSeconds: 72000 } };
+    expect(VoiceUsageSchema.parse(both)).toEqual(both);
+  });
+
+  test("a second pass: pending, done with its segments, or failed", async () => {
+    const { TranscriptionSchema } = await import("../../../../packages/remote-protocol/src");
+    for (const t of [
+      { id: "tr_1", status: "pending" },
+      {
+        id: "tr_1",
+        status: "done",
+        seconds: 1820,
+        segments: [{ speaker: "1", startMs: 0, endMs: 2400, text: "시작할게요." }],
+      },
+      { id: "tr_1", status: "error", message: "unsupported audio" },
+    ]) {
+      expect(TranscriptionSchema.parse(t)).toEqual(t as never);
+    }
+    expect(TranscriptionSchema.safeParse({ id: "tr_1", status: "done" }).success).toBe(false);
+  });
 });
