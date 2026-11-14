@@ -257,6 +257,14 @@ describe("what a note has in it", () => {
     expect(safeName("../a/b.txt")).toBe("_a_b.txt");
     expect(safeName("...")).toBe("file");
   });
+
+  test("a file name Windows can keep: no device names, no trailing dots or spaces", () => {
+    expect(safeName("con")).toBe("_con");
+    expect(safeName("NUL.png")).toBe("_NUL.png");
+    expect(safeName("com1.tar.gz")).toBe("_com1.tar.gz");
+    expect(safeName("console.png")).toBe("console.png");
+    expect(safeName("보고서. ")).toBe("보고서");
+  });
 });
 
 describe("a note's recordings", () => {

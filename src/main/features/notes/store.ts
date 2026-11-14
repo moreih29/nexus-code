@@ -524,8 +524,14 @@ export function safeName(name: string): string {
     .replace(/[/\\:*?"<>|\u0000-\u001f]/g, "_")
     .replace(/^\.+/, "")
     .trim()
-    .slice(0, 180);
-  return cleaned || "file";
+    .slice(0, 180)
+    // Windows ignores a name's trailing dots and spaces.
+    .replace(/[. ]+$/, "");
+  if (!cleaned) return "file";
+  // Names Windows keeps for devices, with any extension: "con.png" cannot be a file there.
+  return /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i.test(cleaned)
+    ? `_${cleaned}`
+    : cleaned;
 }
 
 /** `name`, or `name (2)`, `name (3)`… whichever is free in `dir`. */
