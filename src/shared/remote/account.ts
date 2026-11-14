@@ -111,7 +111,9 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  * - conflict: another device changed the bundle meanwhile (the state says
  *   what it is now);
  * - unavailable: the server could not be asked, or asked to wait;
- * - signed-out: the sign-in ended.
+ * - signed-out: the sign-in ended;
+ * - too-heavy: the bundle is locked with heavier settings than this app
+ *   opens one with (MAX_OPEN_KDF): a newer app's, or a server's doing.
  */
 export const KEY_FAILURES = [
   "too-short",
@@ -119,5 +121,6 @@ export const KEY_FAILURES = [
   "conflict",
   "unavailable",
   "signed-out",
+  "too-heavy",
 ] as const;
 export type KeyFailure = (typeof KEY_FAILURES)[number];

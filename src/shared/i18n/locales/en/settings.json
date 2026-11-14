@@ -770,6 +770,7 @@
         "conflict": "Another device just changed the password. Try again.",
         "unavailable": "Can't reach the server. Try again shortly.",
         "signed-out": "You were signed out. Sign in again.",
+        "too-heavy": "This app can't open the key as the server locked it. Update NexusCode.",
         "failed": "That didn't work. Try again."
       }
     },

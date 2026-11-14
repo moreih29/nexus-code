@@ -1,8 +1,13 @@
 /** The account key, locked with the account password and opened again. */
 import { describe, expect, test } from "bun:test";
 import { hkdfSync } from "node:crypto";
-import { KeyBundleSchema, ROOM_KEY_INFO } from "../../../../../packages/remote-protocol/src";
 import {
+  KeyBundleSchema,
+  MAX_OPEN_KDF,
+  ROOM_KEY_INFO,
+} from "../../../../../packages/remote-protocol/src";
+import {
+  KdfTooHeavyError,
   lockAccountKey,
   newAccountKey,
   passwordLongEnough,
@@ -47,6 +52,27 @@ describe("the account key", () => {
     await expect(
       unlockAccountKey({ ...bundle, kid: 1 }, "correct horse battery", "u1"),
     ).rejects.toBeInstanceOf(WrongPasswordError);
+  });
+
+  test("is not opened past MAX_OPEN_KDF, which would hold up the app, and Argon2id is not run", async () => {
+    const bundle = await lockAccountKey({
+      key: await newAccountKey(),
+      kid: 1,
+      password: "correct horse battery",
+      userId: "u1",
+      kdf,
+    });
+    for (const heavier of [
+      { ...bundle.kdf, ops: MAX_OPEN_KDF.ops + 1 },
+      { ...bundle.kdf, mem: MAX_OPEN_KDF.mem + 1024 * 1024 },
+      { ...bundle.kdf, ops: 10, mem: 1024 * 1024 * 1024 },
+    ]) {
+      const started = performance.now();
+      await expect(
+        unlockAccountKey({ ...bundle, kdf: heavier }, "correct horse battery", "u1"),
+      ).rejects.toBeInstanceOf(KdfTooHeavyError);
+      expect(performance.now() - started).toBeLessThan(50);
+    }
   });
 
   test("takes a password typed in another normalization form", async () => {

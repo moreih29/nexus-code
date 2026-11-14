@@ -109,6 +109,19 @@ describe("the account key's flows", () => {
     expect(b.keys.state()).toEqual({ status: "locked", kid: 1 });
   });
 
+  test("a bundle locked heavier than the app opens says so, and the key stays locked", async () => {
+    const { server, request } = bundleServer();
+    const first = device(request);
+    await first.keys.restore();
+    await first.keys.create(PASSWORD);
+    const stored = server.stored as { bundle: KeyBundle; version: number };
+    stored.bundle = { ...stored.bundle, kdf: { ...stored.bundle.kdf, ops: 10, mem: 1024 ** 3 } };
+    const second = device(request);
+    await second.keys.restore();
+    await expect(second.keys.unlock(PASSWORD)).rejects.toMatchObject({ failure: "too-heavy" });
+    expect(second.keys.state()).toEqual({ status: "locked", kid: 1 });
+  });
+
   test("a new password keeps the key; the old password no longer opens it", async () => {
     const { request } = bundleServer();
     const first = device(request);

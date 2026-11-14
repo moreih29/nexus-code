@@ -18,6 +18,7 @@ import type {
 } from "../../../shared/remote/account";
 import {
   fromBase64Url,
+  KdfTooHeavyError,
   lockAccountKey,
   newAccountKey,
   passwordLongEnough,
@@ -246,6 +247,10 @@ export class AccountKeys {
       return await unlockAccountKey(bundle, password, userId);
     } catch (error) {
       if (error instanceof WrongPasswordError) throw new KeyError("wrong-password");
+      if (error instanceof KdfTooHeavyError) {
+        console.warn(`[remote] ${error.message}`);
+        throw new KeyError("too-heavy");
+      }
       throw error;
     }
   }

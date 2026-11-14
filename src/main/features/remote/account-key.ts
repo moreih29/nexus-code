@@ -10,6 +10,7 @@ import {
   DEFAULT_KDF,
   type Kdf,
   type KeyBundle,
+  MAX_OPEN_KDF,
   ROOM_KEY_INFO,
 } from "../../../../packages/remote-protocol/src";
 import { MIN_PASSWORD_LENGTH } from "../../../shared/remote/account";
@@ -21,6 +22,15 @@ export const ACCOUNT_KEY_BYTES = 32;
 export class WrongPasswordError extends Error {
   constructor() {
     super("the account password is not right");
+  }
+}
+
+/** The bundle asks more of Argon2id than this app opens one with (MAX_OPEN_KDF). */
+export class KdfTooHeavyError extends Error {
+  constructor(kdf: Kdf) {
+    super(
+      `the account key is locked with heavier settings (Argon2id ops ${kdf.ops}, ${Math.round(kdf.mem / 1024 / 1024)} MiB) than this app opens`,
+    );
   }
 }
 
@@ -82,12 +92,19 @@ export async function lockAccountKey(options: {
   }
 }
 
-/** Opens the bundle with the password; a wrong one throws WrongPasswordError. */
+/**
+ * Opens the bundle with the password; a wrong one throws WrongPasswordError,
+ * a bundle past MAX_OPEN_KDF KdfTooHeavyError.
+ */
 export async function unlockAccountKey(
   bundle: KeyBundle,
   password: string,
   userId: string,
 ): Promise<Uint8Array> {
+  // Argon2id runs on the main process: a bundle that asks too much would hold up the app.
+  if (bundle.kdf.ops > MAX_OPEN_KDF.ops || bundle.kdf.mem > MAX_OPEN_KDF.mem) {
+    throw new KdfTooHeavyError(bundle.kdf);
+  }
   const lib = await sodium();
   const kek = await passwordKey(password, bundle.kdf);
   try {
