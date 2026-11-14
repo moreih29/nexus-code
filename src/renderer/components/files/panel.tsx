@@ -134,8 +134,10 @@ export const FilesPanel = memo(function FilesPanel() {
                     // The panel shown, drawn like an active tab: a tint and an
                     // underline indicator (design.md §8, "selected"). aria-pressed
                     // carries it to assistive tech.
+                    // At the panel's narrowest the five buttons share what is
+                    // there (each still wider than its icon), none cut off.
                     className={cn(
-                      "relative",
+                      "relative min-w-0 shrink",
                       isActive && [
                         "bg-[var(--sidebar-item-selected-bg)] text-foreground",
                         "after:absolute after:right-1.5 after:bottom-0 after:left-1.5 after:h-0.5",
