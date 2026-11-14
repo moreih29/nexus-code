@@ -61,6 +61,8 @@ describe("notes on disk", () => {
   test("saving writes the document and its Markdown, newest first in the list", async () => {
     const a = await store.create(here, "a");
     const b = await store.create(here, "b");
+    // Saved in the millisecond b was made, a would tie with it.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await store.save(here, a.id, { title: "첫 노트", doc: doc("본문입니다") });
     const list = await store.list(here);
     expect(list.map((n) => n.id)).toEqual([a.id, b.id]);
