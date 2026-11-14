@@ -17,6 +17,12 @@ import (
 // src/main/features/workspace/tab-token.ts); hook.getInfo says the server
 // takes them ("tabTokens").
 
+// refusedCLI is what the nexus command is told when its token is not its
+// tab's: NEXUS_TAB_ID or NEXUS_HOOK_TOKEN changed, or the tab's process
+// went on in another tab's environment.
+const refusedCLI = "this process's NEXUS_TAB_ID and NEXUS_HOOK_TOKEN are not one tab's: " +
+	"run nexus as its terminal or tab started it"
+
 // TabToken is the token the tab's processes are started with.
 func TabToken(serverToken, workspaceID, tabID string) string {
 	mac := hmac.New(sha256.New, []byte(serverToken))

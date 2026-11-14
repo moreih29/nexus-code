@@ -103,8 +103,9 @@ func TestCLIRequestTimesOut(t *testing.T) {
 	}
 }
 
-// A CLI request with the wrong token is dropped like a hook's.
-func TestCLIRequestWithWrongTokenIsDropped(t *testing.T) {
+// A CLI request with the wrong token goes no further, and its client is
+// told why.
+func TestCLIRequestWithWrongTokenIsRefused(t *testing.T) {
 	var called atomic.Bool
 	srv := newTestServer(t, func(string, any) error {
 		called.Store(true)
@@ -112,9 +113,8 @@ func TestCLIRequestWithWrongTokenIsDropped(t *testing.T) {
 	})
 	conn := dialAndSendRequest(t, srv.SocketPath(), cliRequest("wrong"))
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
-	if _, err := bufio.NewReader(conn).ReadByte(); err == nil {
-		t.Fatal("the server answered a request with the wrong token")
+	if resp := readCLIResponse(t, conn); resp.OK || resp.Error != refusedCLI {
+		t.Fatalf("response = %+v", resp)
 	}
 	if called.Load() {
 		t.Fatal("the request reached main")
