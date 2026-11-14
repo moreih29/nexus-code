@@ -2,6 +2,7 @@
 
 import { join } from "node:path";
 import { app, nativeImage, shell, systemPreferences } from "electron";
+import { renderSVG } from "uqr";
 import {
   RELAY_VERSION,
   RpcErrorCode,
@@ -27,6 +28,7 @@ import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
 import type { RemoteNotes } from "./notes";
+import { Pairing } from "./pairing";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
 import { electronSecretBox, SealedFile } from "./sealed-file";
@@ -112,7 +114,7 @@ async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
 }
 
 /** Runs an account password flow for the renderer: its KeyFailure as the kind when it fails. */
-async function keyFlow(flow: () => Promise<AccountKeyState>): Promise<IpcResult<AccountKeyState>> {
+async function keyFlow<T = AccountKeyState>(flow: () => Promise<T>): Promise<IpcResult<T>> {
   try {
     return ipcOk(await flow());
   } catch (error) {
@@ -357,11 +359,37 @@ export async function registerRemoteChannel(options: {
       },
       // Another key version: the account password may have been reset on another device.
       onForeignKey: () => void keys?.refresh().catch(() => {}),
+      // A rotation or a reset, as the server tells it: ask where the key stands now.
+      onAccountEvent: () => void keys?.refresh().catch(() => {}),
+      onPairFrame: (frame) => pairing.onRoomFrame(frame),
       // The relay says the sign-in ended: the server's 401 then signs the app out.
       onSignedOut: () => void account.request("GET", "/me").catch(() => {}),
     });
     room.start();
   }
+
+  const pairing = new Pairing({
+    self: () => {
+      const state = account.state();
+      return state.status === "signed-in"
+        ? { userId: state.user.id, deviceId: state.device.id }
+        : null;
+    },
+    holdsKey: () => accountKeys.key() !== null,
+    key: () => accountKeys.key(),
+    adopt: (kid, key) => accountKeys.adopt(kid, key),
+    room: () =>
+      room && roomState.status === "online"
+        ? {
+            sendPair: (to, seal) => room?.sendPair(to, seal) ?? Promise.resolve(false),
+            deviceName: (id) => roomState.peers.find((p) => p.id === id)?.name,
+          }
+        : null,
+    connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
+    qr: async (text) =>
+      `data:image/svg+xml;base64,${Buffer.from(renderSVG(text, { border: 2 })).toString("base64")}`,
+    onChange: (state) => broadcast("remote", "pairChanged", state),
+  });
 
   // Asks the server where the key stands; the app does not wait for it.
   void accountKeys.restore();
@@ -382,15 +410,32 @@ export async function registerRemoteChannel(options: {
         await account.signOut();
         return ipcOk(undefined);
       },
-      deleteAccount: () => ask(() => account.deleteAccount()),
+      deleteAccount: (args: unknown) => {
+        const password = validateArgs(c.deleteAccount.args, args)?.password;
+        return keyFlow(() =>
+          ask(async () => {
+            const headers =
+              password !== undefined ? await accountKeys.proofHeaders(password) : null;
+            await account.deleteAccount(headers ?? undefined);
+          }),
+        ).then((result) => (result.ok ? result.value : result));
+      },
       devices: () => ask(() => account.devices()),
       renameDevice: (args: unknown) => {
         const { id, name } = validateArgs(c.renameDevice.args, args);
         return ask(() => account.renameDevice(id, name));
       },
       removeDevice: (args: unknown) => {
-        const { id } = validateArgs(c.removeDevice.args, args);
-        return ask(() => account.removeDevice(id));
+        const { id, password } = validateArgs(c.removeDevice.args, args);
+        const self = account.state();
+        if (self.status === "signed-in" && self.device.id === id) {
+          return ask(() => account.removeDevice(id));
+        }
+        return keyFlow(() =>
+          ask(async () => {
+            await accountKeys.removeDevices([id], password);
+          }),
+        ).then((result) => (result.ok ? result.value : result));
       },
       room: async () => ipcOk(roomState),
       allowControl: async () => ipcOk(options.allowControl.get()),
@@ -500,6 +545,21 @@ export async function registerRemoteChannel(options: {
         const { password } = validateArgs(c.resetKey.args, args);
         return keyFlow(() => accountKeys.reset(password));
       },
+      confirmPassword: (args: unknown) => {
+        const { password } = validateArgs(c.confirmPassword.args, args);
+        return keyFlow(() => accountKeys.confirmPassword(password));
+      },
+      cancelReset: (args: unknown) => {
+        const { password } = validateArgs(c.cancelReset.args, args);
+        return keyFlow(() => accountKeys.cancelReset(password));
+      },
+      pairing: async () => ipcOk(pairing.current()),
+      pairStart: async () => ipcOk(await pairing.start()),
+      pairStop: async () => ipcOk(pairing.stop()),
+      pairAnswer: async (args: unknown) => {
+        const { allow } = validateArgs(c.pairAnswer.args, args);
+        return ipcOk(await pairing.answer(allow));
+      },
       voiceStart: async (args: unknown) => {
         const { language, purpose } = validateArgs(c.voiceStart.args, args);
         return ipcOk(await (purpose === "note" ? noteVoice : voice).start(language));
@@ -564,6 +624,7 @@ export async function registerRemoteChannel(options: {
     listen: {
       accountChanged: {},
       keyChanged: {},
+      pairChanged: {},
       roomChanged: {},
     },
   });

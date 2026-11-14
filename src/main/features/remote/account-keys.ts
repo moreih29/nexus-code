@@ -508,7 +508,12 @@ export class AccountKeys {
   }
 
   private async register(key: DeviceKey): Promise<void> {
-    await this.deps.account.request("PUT", "/devices/current/key", key);
+    try {
+      await this.deps.account.request("PUT", "/devices/current/key", key);
+    } catch (error) {
+      // 409 stale: a rotation vouched for this key under a newer version already.
+      if (!(error instanceof ServerError && error.status === 409)) throw error;
+    }
     if (this.held) {
       this.held = { ...this.held, registered: key.kid };
       await this.deps.store.save(this.held);

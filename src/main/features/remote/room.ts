@@ -16,6 +16,7 @@ import {
   type Hello,
   isRpcMethod,
   MAX_FRAME_BYTES,
+  PAIR_KID,
   PROTOCOL_VERSION,
   RPC_METHODS,
   RPC_NOTIFICATIONS,
@@ -108,6 +109,8 @@ export interface RemoteRoomDeps {
   onForeignKey?(kid: number): void;
   /** Something the server tells of the account (account keys v2): a rotation, a reset. */
   onAccountEvent?(event: AccountEvent): void;
+  /** A pairing frame (kid PAIR_KID) sent to this device, which the room key does not open. */
+  onPairFrame?(frame: Delivered): void;
   onSignedOut(): void;
   readonly requestTimeoutMs?: number;
 }
@@ -262,6 +265,27 @@ export class RemoteRoom {
   }
 
   /**
+   * Sends one device a pairing frame (kid PAIR_KID), which `seal` seals for
+   * its routing; whether it went.
+   */
+  sendPair(
+    to: string,
+    seal: (routing: { from: string; to: string; seq: number }) => Promise<{
+      nonce: string;
+      box: string;
+    }>,
+  ): Promise<boolean> {
+    const sent = this.outbox.then(async () => {
+      this.seq += 1;
+      const seq = this.seq;
+      const sealed = await seal({ from: this.deps.self.id, to, seq });
+      return this.connection.send({ t: "send", to, seq, kid: PAIR_KID, ...sealed });
+    });
+    this.outbox = sent.catch(() => null);
+    return sent;
+  }
+
+  /**
    * Seals and sends, for the receiver's epoch (`peer`; null only in a hello
    * to all); its seq, or null when it could not go.
    */
@@ -362,6 +386,11 @@ export class RemoteRoom {
   private async take(frame: Delivered): Promise<void> {
     // Sent to another device of the account, and passed on here: not for this one.
     if (frame.to !== this.deps.self.id && frame.to !== ALL_DEVICES) return;
+    // Sealed with a pairing code's key: the pairing opens it, if one is under way.
+    if (frame.kid === PAIR_KID) {
+      if (frame.to === this.deps.self.id) this.deps.onPairFrame?.(frame);
+      return;
+    }
     const envelope = await openMessage(this.deps.room, frame);
     if (!envelope) {
       if (frame.kid > this.deps.room.kid) this.foreignKey(frame.kid);
