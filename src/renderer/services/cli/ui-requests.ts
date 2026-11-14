@@ -116,16 +116,27 @@ export function markCliUiReady(): void {
   markReady();
 }
 
+/** Removes the cli:uiRequest listener installed last, if it is still there. */
+let stopListening: (() => void) | null = null;
+
+// Hot reload may load this module anew; its listener goes with the old one.
+import.meta.hot?.dispose(() => stopListening?.());
+
 /**
- * Installs the cli:uiRequest listener. Requests wait until markCliUiReady,
- * since before it the stores are empty. Returns the unlisten function.
+ * Installs the cli:uiRequest listener, in place of one installed before.
+ * Requests wait until markCliUiReady, since before it the stores are empty.
+ * Returns the unlisten function.
  *
  * A request leaves the keyboard where it was: one that splits the group of
  * the terminal it came from would otherwise leave that terminal without
  * focus (see ../keep-focus).
  */
 export function startCliUiListener(): () => void {
-  return ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
+  // One listener, however often the app boots: a second would carry out
+  // each request again, typing or sending twice. The dev build's hot reload
+  // boots the app again with each edit.
+  stopListening?.();
+  const stop = ipcListen("cli", "uiRequest", ({ requestId, op, args }) => {
     void (async () => {
       await ready;
       const handler = handlers[op as CliUiOp] as CliUiHandler<CliUiOp> | undefined;
@@ -143,4 +154,10 @@ export function startCliUiListener(): () => void {
       }
     })();
   });
+  const stopThis = (): void => {
+    stop();
+    if (stopListening === stopThis) stopListening = null;
+  };
+  stopListening = stopThis;
+  return stopThis;
 }
