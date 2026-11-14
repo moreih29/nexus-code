@@ -156,6 +156,53 @@ function monacoAssetsPlugin(): Plugin {
 }
 
 // ---------------------------------------------------------------------------
+// Vite plugin: keep UMD dependencies off Monaco's AMD loader.
+//
+// The editor's loader (@monaco-editor/react, AMD build) leaves a global
+// `define` with `define.amd` set. A UMD module bundled into the renderer (as
+// Excalidraw's es6-promise-pool is) that runs after it registers itself with
+// that loader instead of filling `module.exports`, and what imports it gets an
+// empty object ("import_es6_promise_pool.default is not a constructor"). The
+// dependencies' AMD check is turned off, in the dev server's pre-bundling and
+// in a build alike; an assignment to `define.amd` (a loader's own) is kept.
+// ---------------------------------------------------------------------------
+const AMD_CHECK = /\bdefine\.amd\b(?!\s*=(?!=))/g;
+
+function withoutAmdCheck(code: string): string | null {
+  if (!code.includes("define.amd")) return null;
+  const out = code.replace(AMD_CHECK, "false");
+  return out === code ? null : out;
+}
+
+function noAmdPlugin(): Plugin {
+  return {
+    name: "vite-plugin-no-amd",
+    config: () => ({
+      optimizeDeps: {
+        esbuildOptions: {
+          plugins: [
+            {
+              name: "no-amd",
+              setup(build) {
+                build.onLoad({ filter: /[\\/]node_modules[\\/].*\.c?js$/ }, (args) => {
+                  const contents = withoutAmdCheck(readFileSync(args.path, "utf8"));
+                  return contents === null ? undefined : { contents, loader: "js" };
+                });
+              },
+            },
+          ],
+        },
+      },
+    }),
+    transform(code, id) {
+      if (!id.includes("/node_modules/")) return null;
+      const out = withoutAmdCheck(code);
+      return out === null ? null : { code: out, map: null };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Vite plugin: ship the git editor helper with the main process.
 //
 // Git starts the helper as a script of its own (the app run as node), so
@@ -227,6 +274,13 @@ export default defineConfig({
         "@": resolve(__dirname, "src/renderer"),
       },
     },
-    plugins: [themeTokensPlugin(), monacoAssetsPlugin(), tailwindcss(), react(), svgr()],
+    plugins: [
+      themeTokensPlugin(),
+      monacoAssetsPlugin(),
+      noAmdPlugin(),
+      tailwindcss(),
+      react(),
+      svgr(),
+    ],
   },
 });
