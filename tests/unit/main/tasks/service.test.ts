@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout, spyOn } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -13,6 +13,10 @@ import {
 import type { WorkspaceCreateOptions } from "../../../../src/main/features/workspace/manager";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 import { newLocalGitRepository } from "../git/helpers/local-semantic-executor";
+
+// Each test makes real repositories and worktrees, which a slow CI runner
+// (Windows) takes past bun's 5 s default for.
+setDefaultTimeout(30_000);
 
 // An empty global config keeps the developer's out. Not os.devNull: git for
 // Windows cannot open \\.\nul.
