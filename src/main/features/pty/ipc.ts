@@ -8,6 +8,7 @@ import type { CustomShell, ShellChoice } from "../../../shared/pty/shell";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import { getActiveAppWindow, getFocusedAppWindow } from "../window/app-windows";
 import type { HookInfo } from "../workspace/manager";
+import { tabHookToken } from "../workspace/tab-token";
 import { ForwardError, type PortForwards } from "./forwards";
 import { injectHarnessTerminalEnv } from "./harness-env";
 import type { WorkspaceNameLookup } from "./osc-notification";
@@ -23,7 +24,6 @@ import {
   systemDefaultShell,
 } from "./shells";
 import type { PtyHostHandle } from "./types";
-import { tabHookToken } from "../workspace/tab-token";
 import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 
 const c = ipcContract.pty.call;
