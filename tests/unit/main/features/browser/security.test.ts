@@ -10,7 +10,7 @@
  * All Electron APIs are mocked; no real WebContents or BrowserWindow is created.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Electron mock — must be set up before importing the module under test.
@@ -21,8 +21,12 @@ mock.module("electron", () => ({
 }));
 
 // Lazy import after mock registration
-const { buildBrowserTabWebPreferences, installPermissionHandler, installNavigationGuards } =
-  await import("../../../../../src/main/features/browser/security");
+const {
+  buildBrowserTabWebPreferences,
+  installPermissionHandler,
+  installNavigationGuards,
+  POPUP_ACTIVATION_MS,
+} = await import("../../../../../src/main/features/browser/security");
 
 // ---------------------------------------------------------------------------
 // Helpers — fake WebContents and Session factories
@@ -371,12 +375,47 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
     installNavigationGuards(wc as unknown as import("electron").WebContents);
   });
 
+  /** A click in the page, as before-mouse-event tells it. */
+  const click = () => wc.emit("before-mouse-event", {}, { type: "mouseUp" });
+
   test("allows http/https popups (action:'allow') so OAuth window handles work", () => {
+    click();
     const result = wc._windowOpenHandler!({ url: "https://accounts.example.com/oauth" });
     expect(result.action).toBe("allow");
   });
 
+  test("opens a popup only after input in the page, one for each input", () => {
+    expect(wc._windowOpenHandler!({ url: "https://example.com/timer" }).action).toBe("deny");
+    click();
+    expect(wc._windowOpenHandler!({ url: "https://example.com/a" }).action).toBe("allow");
+    expect(wc._windowOpenHandler!({ url: "https://example.com/b" }).action).toBe("deny");
+    wc.emit("before-input-event", {}, { type: "keyDown", key: "Enter" });
+    expect(wc._windowOpenHandler!({ url: "https://example.com/c" }).action).toBe("allow");
+    // A letter typed, or a scheme turned down, lets nothing through nor uses the input up.
+    wc.emit("before-input-event", {}, { type: "keyDown", key: "a" });
+    expect(wc._windowOpenHandler!({ url: "https://example.com/d" }).action).toBe("deny");
+    click();
+    expect(wc._windowOpenHandler!({ url: "javascript:alert(1)" }).action).toBe("deny");
+    expect(wc._windowOpenHandler!({ url: "https://example.com/e" }).action).toBe("allow");
+  });
+
+  test("not once the input is POPUP_ACTIVATION_MS old", () => {
+    const start = Date.now();
+    try {
+      setSystemTime(new Date(start));
+      click();
+      setSystemTime(new Date(start + POPUP_ACTIVATION_MS + 1));
+      expect(wc._windowOpenHandler!({ url: "https://example.com/late" }).action).toBe("deny");
+      click();
+      setSystemTime(new Date(start + 2 * POPUP_ACTIVATION_MS));
+      expect(wc._windowOpenHandler!({ url: "https://example.com/in-time" }).action).toBe("allow");
+    } finally {
+      setSystemTime();
+    }
+  });
+
   test("allows file: popups", () => {
+    click();
     const result = wc._windowOpenHandler!({ url: "file:///tmp/local.html" });
     expect(result.action).toBe("allow");
   });
@@ -393,6 +432,7 @@ describe("installNavigationGuards — setWindowOpenHandler", () => {
   });
 
   test("hardens the allowed popup's webPreferences (sandbox, isolation, no node)", () => {
+    click();
     const result = wc._windowOpenHandler!({ url: "https://example.com" });
     const prefs = result.overrideBrowserWindowOptions?.webPreferences ?? {};
     expect(prefs.sandbox).toBe(true);

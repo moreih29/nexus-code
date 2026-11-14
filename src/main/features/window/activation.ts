@@ -67,7 +67,11 @@ function repeats(input: ActivationInput): boolean {
 export class UserActivation {
   private lastAt = Number.NEGATIVE_INFINITY;
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    /** How long an input lets one window.open through. */
+    private readonly windowMs: number = USER_ACTIVATION_MS,
+  ) {}
 
   /** Takes in one input. */
   note(input: ActivationInput): void {
@@ -76,7 +80,7 @@ export class UserActivation {
 
   /** Whether a window.open may go through now; it uses up the input that let it. */
   take(): boolean {
-    if (this.now() - this.lastAt > USER_ACTIVATION_MS) return false;
+    if (this.now() - this.lastAt > this.windowMs) return false;
     this.lastAt = Number.NEGATIVE_INFINITY;
     return true;
   }

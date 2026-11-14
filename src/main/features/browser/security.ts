@@ -35,6 +35,7 @@ import {
 } from "../../../shared/security/navigation-allowlist";
 import { excludeFromBroadcast } from "../../infra/ipc-router";
 import { isScriptReadableRequest } from "../../infra/security/script-readable-request";
+import { UserActivation, watchActivation } from "../window/activation";
 import { resolvePermission } from "./permission-policy";
 import type { BrowserPermissionPromptManager } from "./permission-prompt-manager";
 
@@ -273,6 +274,12 @@ const ABOUT_BLANK = "about:blank";
  * @param onPopup      Called with every popup window opened from this
  *                     WebContents or, recursively, from its popups.
  */
+/**
+ * How long a click or Enter in a page lets it open one popup: Chrome's
+ * transient activation, so a sign-in that asks its server first still opens.
+ */
+export const POPUP_ACTIVATION_MS = 5_000;
+
 export function installNavigationGuards(
   webContents: WebContents,
   onNavigate?: (url: string) => void,
@@ -336,6 +343,10 @@ export function installNavigationGuards(
   });
 
   // Layer 3 — window.open / target="_blank" handling.
+  // A popup needs fresh input in this page, as Chrome's popup blocker has it:
+  // a click or tap, or Enter or Space, in the POPUP_ACTIVATION_MS before,
+  // and one input lets one popup through. Without it a page's timer opened
+  // windows without end.
   // Policy: http/https/file open as a REAL popup window; every other scheme is
   // denied. Opening a real popup (rather than redirecting the same tab) is
   // required for OAuth/SSO login flows: window.open must return a usable window
@@ -351,7 +362,13 @@ export function installNavigationGuards(
   //     in depth, rather than trusting implicit inheritance).
   //   - It is recursively guarded in `did-create-window` below, so it obeys the
   //     same navigation allowlist and window-open policy as its opener.
+  const activation = new UserActivation(Date.now, POPUP_ACTIVATION_MS);
+  watchActivation(webContents, activation);
   webContents.setWindowOpenHandler(({ url }) => {
+    if (isNavigationSchemeAllowed(url) && !activation.take()) {
+      logger.warn(`[window-open] blocked without user input: ${url}`);
+      return { action: "deny" };
+    }
     if (isNavigationSchemeAllowed(url)) {
       return {
         action: "allow",
