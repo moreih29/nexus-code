@@ -536,6 +536,25 @@ export async function runChatCommand(
     .catch(unavailable);
 }
 
+/**
+ * Has a chat run with another profile, as the CLI's chat profile does, the
+ * user asking from another device: no one here is asked again.
+ */
+export async function changeChatProfile(
+  services: CliServices,
+  { workspaceId, tabId, profile, fresh }: RpcParams<"chat.profile">,
+): Promise<RpcResult<"chat.profile">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return services
+    .ui("chat.profile", { workspaceId, tabId, profile, fresh: fresh ?? false }, SETTINGS_TIMEOUT_MS)
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/ has no profile /.test(message))
+        throw new RpcFailure(RpcErrorCode.InvalidParams, message);
+      return unavailable(error);
+    });
+}
+
 export async function interruptChat(
   services: CliServices,
   { workspaceId, tabId }: RpcParams<"chat.interrupt">,
@@ -968,6 +987,9 @@ export function serveWith(
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
         return configureChat(s, request.params as RpcParams<"chat.configure">, relay !== undefined);
+      case "chat.profile":
+        // The user's own: the room refuses an agent's, as its params have no `from`.
+        return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
       case "chat.command":

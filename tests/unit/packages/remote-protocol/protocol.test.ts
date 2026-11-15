@@ -363,6 +363,20 @@ describe("the methods", () => {
     );
   });
 
+  test("a chat moves to another profile only by the user, going on with its conversation or not", () => {
+    const spec = RPC_METHODS["chat.profile"];
+    expect(spec.capability).toBe("chat.control");
+    const tab = { workspaceId: "w", tabId: "t" };
+    expect(spec.params.safeParse({ ...tab, profile: "Work" }).success).toBe(true);
+    expect(spec.params.safeParse({ ...tab, profile: "Work", fresh: true }).success).toBe(true);
+    expect(spec.params.safeParse({ ...tab, profile: "" }).success).toBe(false);
+    expect(spec.params.safeParse(tab).success).toBe(false);
+    // No `from`: the room refuses an agent's.
+    const fromAgent = spec.params.safeParse({ ...tab, profile: "Work", from: { title: "x" } });
+    expect(fromAgent.success && "from" in fromAgent.data).toBe(false);
+    expect(spec.result.safeParse({ from: "Personal", to: "Work" }).success).toBe(true);
+  });
+
   test("every method's capability is one the protocol names", () => {
     for (const spec of Object.values(RPC_METHODS)) {
       expect(CAPABILITIES as readonly string[]).toContain(spec.capability);

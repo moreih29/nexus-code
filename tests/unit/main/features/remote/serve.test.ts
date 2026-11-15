@@ -574,6 +574,73 @@ describe("renaming a chat", () => {
   });
 });
 
+describe("moving a chat to another profile", () => {
+  function profileServices(fail?: string) {
+    const asked: unknown[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string; tabId?: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        if (fail) throw new Error(fail);
+        return { from: "Personal", to: "Work" };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("as its profile chip does, going on with the conversation unless asked for a new one", async () => {
+    const { serve, asked } = profileServices();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    expect(
+      await serve({ from: "d", method: "chat.profile", params: { ...tab, profile: "Work" } }),
+    ).toEqual({ from: "Personal", to: "Work" });
+    await serve({
+      from: "d",
+      method: "chat.profile",
+      params: { workspaceId: "w2", tabId: "t4", profile: "Work", fresh: true },
+    });
+    expect(asked).toEqual([
+      ["chat.profile", { ...tab, profile: "Work", fresh: false }],
+      ["chat.profile", { workspaceId: "w2", tabId: "t4", profile: "Work", fresh: true }],
+    ]);
+  });
+
+  test("a profile its agent lacks is a wrong param; a chat busy or asking cannot now", async () => {
+    const params = { workspaceId: "w1", tabId: "t1", profile: "Nope" };
+    await expect(
+      profileServices('claude has no profile "Nope"; it has Personal, Work').serve({
+        from: "d",
+        method: "chat.profile",
+        params,
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    await expect(
+      profileServices("it is working; its turn would stop (wait for it: chat wait)").serve({
+        from: "d",
+        method: "chat.profile",
+        params,
+      }),
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.Unavailable,
+      message: expect.stringContaining("working"),
+    });
+  });
+
+  test("only a chat's", async () => {
+    const { serve, asked } = profileServices();
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.profile",
+        params: { workspaceId: "w1", tabId: "t2", profile: "Work" },
+      }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.NotFound });
+    expect(asked).toEqual([]);
+  });
+});
+
 describe("serving one tool call", () => {
   const tab = { workspaceId: "w1", tabId: "t1" };
   function toolServices() {

@@ -815,6 +815,25 @@ export const RPC_METHODS = {
     }),
     result: ChatSettingsSchema,
   },
+  /**
+   * Has a Claude or Codex chat run with another of its agent's profiles
+   * (profiles.list, by id or name), as its profile chip does: its
+   * conversation goes on there, or, `fresh`, a new one starts there. The
+   * profiles' names, the one it ran with and the one it runs with now.
+   * Refused (Unavailable) while it works or waits on the user, or when it
+   * runs with that profile already; a profile its agent does not have is
+   * InvalidParams. Only the user's: an agent does not send it. The
+   * session's `profile` (sessions.list, sessions.watch) follows. From 0.10.0.
+   */
+  "chat.profile": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      profile: z.string().min(1).max(100),
+      fresh: z.boolean().optional(),
+    }),
+    result: z.object({ from: z.string(), to: z.string() }),
+  },
   /** Runs one of the app's slash commands (chat.commands' `command` ones), `args` after its name. */
   "chat.command": {
     capability: "chat.control",
