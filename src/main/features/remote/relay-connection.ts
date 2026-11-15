@@ -19,6 +19,14 @@ export const CLOSE_REPLACED = 4000;
 export const CLOSE_SIGNED_OUT = 4001;
 
 /**
+ * How often a connection that was in the room tries again at once when it
+ * is lost: the relay restarting the room (a deploy) drops every socket at
+ * once, and coming back within a second keeps it out of sight. Lost again
+ * sooner, it waits as any other loss does.
+ */
+export const QUICK_RETRY_EVERY_MS = 30_000;
+
+/**
  * Most characters a frame from the relay may take: the most a device may
  * send, and the sender's id the relay adds. A longer one is not read.
  */
@@ -54,6 +62,7 @@ export interface RelayConnectionDeps {
   socket?: (url: string) => Socket;
   /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
+  now?: () => number;
 }
 
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
@@ -68,6 +77,8 @@ export class RelayConnection {
   private attempt = 0;
   private running = false;
   private status: RelayStatus = "stopped";
+  /** When a lost connection last tried again at once. */
+  private quickAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly deps: RelayConnectionDeps) {}
 
@@ -149,6 +160,8 @@ export class RelayConnection {
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
+      } else if (opened && this.quickRetry()) {
+        void this.connect();
       } else {
         if (!opened) this.deps.unreachable?.(url);
         this.retry();
@@ -156,6 +169,15 @@ export class RelayConnection {
     });
     // An error is followed by a close, which decides what comes next.
     socket.addEventListener("error", () => {});
+  }
+
+  /** Whether a connection lost from the room may try again at once (QUICK_RETRY_EVERY_MS). */
+  private quickRetry(): boolean {
+    if (!this.running) return false;
+    const now = (this.deps.now ?? Date.now)();
+    if (now - this.quickAt < QUICK_RETRY_EVERY_MS) return false;
+    this.quickAt = now;
+    return true;
   }
 
   private retry(): void {

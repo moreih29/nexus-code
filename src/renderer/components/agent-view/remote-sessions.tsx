@@ -33,6 +33,7 @@ import {
   servingPeers,
   usePeerSessions,
   useRemoteRoom,
+  useShownRoom,
 } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
@@ -103,11 +104,13 @@ function matches(session: RemoteSession, query: string): boolean {
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
   const { t } = useTranslation();
   const room = useRemoteRoom();
-  const peers = servingPeers(room);
+  // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
+  const seen = useShownRoom(room);
+  const peers = servingPeers(seen);
   // Searching, an offline computer has no sessions to find.
-  const away = query.trim() ? [] : offlinePeers(room);
+  const away = query.trim() ? [] : offlinePeers(seen);
   const lists = usePeerSessions(
-    peers.map((p) => p.id),
+    servingPeers(room).map((p) => p.id),
     shown,
   );
   if (room?.status === "outdated") {

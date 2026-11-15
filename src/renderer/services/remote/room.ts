@@ -33,7 +33,8 @@ export function useRemoteRoom(): RoomState | null {
 export type PeerReach = "online" | "offline" | "disconnected";
 
 export function usePeerReach(deviceId: string): PeerReach {
-  const room = useRemoteRoom();
+  // Said on the screen: a drop shorter than DROP_SHOWN_AFTER_MS is not.
+  const room = useShownRoom(useRemoteRoom());
   if (!room) return "online";
   if (room.status !== "online") return "disconnected";
   return room.peers.some((p) => p.id === deviceId && p.online) ? "online" : "offline";
@@ -57,6 +58,87 @@ export function servingPeers(room: RoomState | null): RoomPeer[] {
 }
 
 /** The systems the desktop app runs on: a phone of the account is not listed when away. */
+/**
+ * How long a loss stays off the screen: the relay restarting the room drops
+ * every device for a second or two, and one back within this was never
+ * seen to go. What asks and watches follows the room as it is.
+ */
+export const DROP_SHOWN_AFTER_MS = 3000;
+
+/** This device, among the losses noted. */
+const SELF = "";
+
+/**
+ * Notes when this device or another dropped out of the room, from one
+ * room to the next: when it went, kept while it stays out; forgotten once
+ * it is back.
+ */
+export function noteDrops(
+  prev: RoomState | null,
+  next: RoomState | null,
+  drops: Map<string, number>,
+  now: number,
+): void {
+  const wasIn = prev?.status === "online";
+  const isIn = next?.status === "online";
+  if (isIn) drops.delete(SELF);
+  else if (wasIn && !drops.has(SELF)) drops.set(SELF, now);
+  for (const peer of next?.peers ?? []) {
+    if (isIn && peer.online) {
+      drops.delete(peer.id);
+      continue;
+    }
+    const was = wasIn && prev?.peers.some((p) => p.id === peer.id && p.online);
+    if (was && !drops.has(peer.id)) drops.set(peer.id, now);
+  }
+}
+
+/**
+ * The room as the screen shows it: one that dropped less than
+ * DROP_SHOWN_AFTER_MS ago shows in it still, this device while it only
+ * connects again. `until` is when the soonest of those shows, to look
+ * again then.
+ */
+export function shownRoom(
+  room: RoomState | null,
+  drops: ReadonlyMap<string, number>,
+  now: number,
+): { room: RoomState | null; until?: number } {
+  if (!room) return { room };
+  let until: number | undefined;
+  const fresh = (id: string) => {
+    const at = drops.get(id);
+    if (at === undefined || now - at >= DROP_SHOWN_AFTER_MS) return false;
+    until = Math.min(until ?? Number.POSITIVE_INFINITY, at + DROP_SHOWN_AFTER_MS);
+    return true;
+  };
+  const back = room.status === "connecting" || room.status === "waiting";
+  const status = room.status === "online" || (back && fresh(SELF)) ? "online" : room.status;
+  if (status !== "online") return { room };
+  const peers = room.peers.map((p) => (p.online || !fresh(p.id) ? p : { ...p, online: true }));
+  return { room: { status, peers }, ...(until !== undefined ? { until } : {}) };
+}
+
+/** The room as useRemoteRoom tells it, shown as shownRoom does: for what the screen says. */
+export function useShownRoom(room: RoomState | null): RoomState | null {
+  const prev = useRef<RoomState | null>(null);
+  const drops = useRef(new Map<string, number>());
+  const [, setTick] = useState(0);
+  const now = Date.now();
+  if (room !== prev.current) {
+    noteDrops(prev.current, room, drops.current, now);
+    prev.current = room;
+  }
+  const shown = shownRoom(room, drops.current, now);
+  const until = shown.until;
+  useEffect(() => {
+    if (until === undefined) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), Math.max(0, until - Date.now()) + 20);
+    return () => clearTimeout(timer);
+  }, [until]);
+  return shown.room;
+}
+
 const DESKTOPS = new Set(["darwin", "win32", "linux"]);
 
 /**

@@ -24,7 +24,7 @@ import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
 import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
-import { useRemoteRoom } from "../../../services/remote/room";
+import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
@@ -115,7 +115,8 @@ function useSignIns(ask: boolean): {
 export function RemotePanel() {
   const state = useRemoteAccount();
   const key = useAccountKey();
-  const room = useRemoteRoom();
+  // Who is in the room, with a drop shorter than DROP_SHOWN_AFTER_MS left out.
+  const room = useShownRoom(useRemoteRoom());
   const signIns = useSignIns(state?.status === "signed-out");
   if (!state) return null;
   return (

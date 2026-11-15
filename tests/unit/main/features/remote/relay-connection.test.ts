@@ -141,3 +141,66 @@ test("any other failure to get a ticket waits and tries again", async () => {
   expect(asked).toBeGreaterThanOrEqual(3);
   expect(statuses.slice(0, 3)).toEqual(["connecting", "waiting", "connecting"]);
 });
+
+test("lost from the room, it comes back at once; lost again within 30 s, it waits", async () => {
+  const sockets: FakeSocket[] = [];
+  const statuses: RelayStatus[] = [];
+  let now = 1_000_000;
+  const relay = new RelayConnection({
+    url: async () => "wss://nexus.example/relay?ticket=t",
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: (status) => statuses.push(status),
+    onSignedOut: () => {},
+    socket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket as never;
+    },
+    // Any wait would outlast the test: only a try at once opens another socket.
+    backoff: () => 60_000,
+    now: () => now,
+  });
+  const next = async (count: number) => {
+    for (let i = 0; i < 50 && sockets.length < count; i++) await Bun.sleep(1);
+    return sockets[count - 1];
+  };
+  relay.start();
+  const first = await next(1);
+  first?.emit("open");
+  first?.emit("close", { code: 1012 });
+  const second = await next(2);
+  expect(second).toBeDefined();
+  expect(statuses).not.toContain("waiting");
+  // Lost again 10 s later: it waits its backoff.
+  now += 10_000;
+  second?.emit("open");
+  second?.emit("close", { code: 1006 });
+  await Bun.sleep(5);
+  expect(sockets).toHaveLength(2);
+  expect(statuses.at(-1)).toBe("waiting");
+  relay.stop();
+});
+
+test("a socket that never opened does not try again at once", async () => {
+  const sockets: FakeSocket[] = [];
+  const relay = new RelayConnection({
+    url: async () => "wss://nexus.example/relay?ticket=t",
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: () => {},
+    onSignedOut: () => {},
+    socket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket as never;
+    },
+    backoff: () => 60_000,
+  });
+  relay.start();
+  for (let i = 0; i < 50 && sockets.length < 1; i++) await Bun.sleep(1);
+  sockets[0]?.emit("close", { code: 1006 });
+  await Bun.sleep(5);
+  expect(sockets).toHaveLength(1);
+  relay.stop();
+});
