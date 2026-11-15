@@ -106,16 +106,23 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
   );
   if (peers.length === 0 && away.length === 0) return null;
   return (
-    <section className="mt-3 flex flex-col gap-0.5" data-testid="remote-sessions">
+    // A line apart from this computer's, and between the computers: a space
+    // only between workspaces, a line between the larger groups.
+    <section
+      className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
+      data-testid="remote-sessions"
+    >
       <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
         {t("agentView.remote.title")}
       </h3>
-      {peers.map((peer) => (
-        <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
-      ))}
-      {away.map((peer) => (
-        <OfflinePeer key={peer.id} peer={peer} />
-      ))}
+      <div className="flex flex-col divide-y divide-border [&>*]:py-1.5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+        {peers.map((peer) => (
+          <PeerGroup key={peer.id} peer={peer} sessions={lists[peer.id]} query={query} />
+        ))}
+        {away.map((peer) => (
+          <OfflinePeer key={peer.id} peer={peer} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -233,7 +240,7 @@ export function PeerGroup({
             </p>
           ) : (
             groups.map(([workspaceId, rows]) => (
-              <div key={workspaceId} className="flex flex-col">
+              <div key={workspaceId} className="flex flex-col not-first:mt-1.5">
                 <WorkspaceHeading
                   name={names.get(workspaceId) ?? workspaceId}
                   workspace={workspaces.get(workspaceId)}
