@@ -3,8 +3,10 @@
  * id kept in the app's data folder and sent with each sign-in
  * (device.installId), so that signing in again, after signing out or losing
  * the token, comes back as the same device with its alias rather than a new
- * one. Signing out keeps it. A dev build has its own data folder, so its own
- * id: the two are in the room at once as two devices.
+ * one. Signing out keeps it. It goes with the data folder, as the sign-in
+ * does: a build run with a folder of its own (--user-data-dir) is another
+ * device in the room; one run from source with the same product name uses
+ * the installed app's folder, so its id and sign-in too.
  */
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
