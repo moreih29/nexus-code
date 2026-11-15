@@ -39,7 +39,8 @@ import { remoteProxy, remoteServer } from "./server";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
-import { TicketSchema, VoiceSessions } from "./voice";
+import { askTicket } from "./ticket";
+import { VoiceSessions } from "./voice";
 import { listedComputers, VoiceNames } from "./voice-names";
 
 const c = ipcContract.remote.call;
@@ -304,7 +305,7 @@ export async function registerRemoteChannel(options: {
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
   const relayUrl = async () => {
-    const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
+    const ticket = await askTicket(account);
     const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
     relayVia = url.origin;

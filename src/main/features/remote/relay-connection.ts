@@ -2,7 +2,8 @@
  * This device's socket to its account's room on the relay: connected with
  * a one-time ticket, kept up with backoff, and given up when the relay says
  * so: replaced by another connection of this device (4000), whose
- * reconnecting would push this one off in turn, or signed out (4001).
+ * reconnecting would push this one off in turn, or signed out (4001); or
+ * when the ticket says the app is too old for the server (OutdatedError).
  */
 import {
   type ClientFrame,
@@ -10,7 +11,7 @@ import {
   type ServerFrame,
   ServerFrameSchema,
 } from "../../../../packages/remote-protocol/src";
-import { SignedOutError } from "./errors";
+import { OutdatedError, SignedOutError } from "./errors";
 
 /** Another connection of this device took its place in the room. */
 export const CLOSE_REPLACED = 4000;
@@ -28,16 +29,20 @@ export const MAX_DELIVERED_CHARS = MAX_FRAME_BYTES + 1024;
  * - online: in the room;
  * - waiting: lost, trying again after a while;
  * - replaced: another connection of this device took its place: not tried again;
+ * - outdated: the server no longer takes this app's version: not tried again;
  * - stopped: closed here.
  */
-export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "stopped";
+export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "outdated" | "stopped";
 
 type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
   addEventListener(type: string, listener: (event: never) => void): void;
 };
 
 export interface RelayConnectionDeps {
-  /** The socket's address, with a fresh ticket: ws(s)://server/relay?v=1&ticket=... */
+  /**
+   * The socket's address, with a fresh ticket: ws(s)://server/relay?v=2&ticket=...
+   * SignedOutError and OutdatedError give up; any other failure tries again.
+   */
   url(): Promise<string>;
   onOpen(): void;
   onFrame(frame: ServerFrame): void;
@@ -112,7 +117,8 @@ export class RelayConnection {
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
-      } else this.retry();
+      } else if (error instanceof OutdatedError) this.giveUp("outdated");
+      else this.retry();
       return;
     }
     if (!this.running) return;

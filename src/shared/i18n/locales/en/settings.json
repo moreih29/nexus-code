@@ -635,6 +635,10 @@
     "resultsCount": "{{count}} workspaces"
   },
   "remote": {
+    "outdated": {
+      "title": "Update needed",
+      "description": "This version can no longer connect to your other devices. Update NexusCode."
+    },
     "account": {
       "title": "NexusCode account",
       "description": "Sign in to see this computer's sessions from your other computers and phone",

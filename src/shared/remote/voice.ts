@@ -27,6 +27,8 @@ export const VOICE_FAILURES = [
   "network",
   /** Another voice session of this app is still open. */
   "in-use",
+  /** The server no longer takes this version of the app (400 unsupported_version). */
+  "outdated",
   /** Anything else the server answered. */
   "failed",
 ] as const;

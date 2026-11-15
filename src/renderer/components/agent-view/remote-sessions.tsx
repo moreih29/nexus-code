@@ -41,6 +41,7 @@ import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { OutdatedLine } from "../settings/panels/remote-outdated";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
@@ -109,6 +110,19 @@ export function RemoteSessions({ query, shown = true }: { query: string; shown?:
     peers.map((p) => p.id),
     shown,
   );
+  if (room?.status === "outdated") {
+    return (
+      <section
+        className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
+        data-testid="remote-sessions"
+      >
+        <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
+          {t("agentView.remote.title")}
+        </h3>
+        <OutdatedLine />
+      </section>
+    );
+  }
   if (peers.length === 0 && away.length === 0) return null;
   return (
     // A line apart from this computer's, and between the computers: a space

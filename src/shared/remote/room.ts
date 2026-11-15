@@ -14,6 +14,8 @@ export const RoomStatusSchema = z.enum([
   "waiting",
   /** This device connected again elsewhere (another instance): this one stays out. */
   "replaced",
+  /** The server no longer takes this app's version: out until it is updated. */
+  "outdated",
   "stopped",
 ]);
 export type RoomStatus = z.infer<typeof RoomStatusSchema>;

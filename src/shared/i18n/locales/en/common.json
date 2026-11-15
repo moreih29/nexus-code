@@ -1770,6 +1770,7 @@
       "filesRefused": "Only images can be sent to another computer's chat",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
+      "outdated": "This version can't connect",
       "offlineLast": "{{device}} is offline. Showing what it last sent.",
       "disconnectedLast": "Not connected to the server. Showing what came last.",
       "offlineTag": "Offline",
@@ -1813,6 +1814,7 @@
     "needsSignIn": "Sign in to use voice input",
     "unavailable": "No voice input on this server",
     "signIn": "Sign in",
+    "update": "Update",
     "openSettings": "Open System Settings",
     "failure": {
       "signed-out": "Sign in to use voice input.",
@@ -1822,6 +1824,7 @@
       "quota": "This month's voice minutes are used up.",
       "busy": "Voice input is already on in two places. Stop one first.",
       "network": "Can't reach the server.",
+      "outdated": "Update NexusCode to use voice input.",
       "failed": "Voice input didn't start.",
       "recognition": "Voice recognition failed.",
       "dropped": "Voice input lost the connection."

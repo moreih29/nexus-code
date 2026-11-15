@@ -38,6 +38,7 @@ import {
 } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
+import { OutdatedGroup } from "./remote-outdated";
 import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
@@ -119,6 +120,7 @@ export function RemotePanel() {
   if (!state) return null;
   return (
     <SettingsPage>
+      {room?.status === "outdated" && <OutdatedGroup />}
       <AccountGroup
         state={state}
         signIns={signIns.providers}

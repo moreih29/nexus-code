@@ -8,6 +8,16 @@ export class SignedOutError extends Error {
   }
 }
 
+/**
+ * The server no longer takes the relay's version this app speaks: only an
+ * update brings it back into the room.
+ */
+export class OutdatedError extends Error {
+  constructor() {
+    super("the NexusCode server no longer takes this version of the app");
+  }
+}
+
 /** The server could not be reached, or did not answer in time. */
 export class UnreachableError extends Error {
   constructor(cause: unknown) {

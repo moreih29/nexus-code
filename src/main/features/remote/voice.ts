@@ -39,11 +39,9 @@ import {
   VoiceTermsSchema,
 } from "../../../shared/remote/voice";
 import type { RemoteAccount } from "./account";
-import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { OutdatedError, ServerError, SignedOutError, UnreachableError } from "./errors";
+import { askTicket } from "./ticket";
 import { voiceNamesOf } from "./voice-names";
-
-/** POST /relay/ticket's answer: a short-lived ticket a socket signs in with (/relay, /voice). */
-export const TicketSchema = z.object({ ticket: z.string().min(1) });
 
 /** How long the server has to say `ready` once the socket is open. */
 export const READY_TIMEOUT_MS = 10_000;
@@ -162,9 +160,10 @@ export class VoiceSessions {
       const info = await account.info();
       if (!info.voice) return failed("unavailable", "the server has no voice input");
       const body = ticketBody(await names);
-      ({ ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket", body)));
+      ticket = await askTicket(account, body);
     } catch (error) {
       if (error instanceof SignedOutError) return failed("signed-out", error.message);
+      if (error instanceof OutdatedError) return failed("outdated", error.message);
       if (error instanceof UnreachableError) return failed("network", error.message);
       if (error instanceof ServerError) return failed("failed", error.message);
       throw error;
