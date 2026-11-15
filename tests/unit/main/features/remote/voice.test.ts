@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { ServerError, UnreachableError } from "../../../../../src/main/features/remote/errors";
+import { ServerRoute } from "../../../../../src/main/features/remote/route";
 import {
   refusalOf,
   VoiceSessions,
@@ -56,6 +57,7 @@ function setup(options: {
   request?: (method: string, path: string) => Promise<unknown>;
   upload?: (path: string, bytes: Uint8Array, options: unknown) => Promise<unknown>;
   purpose?: "dictation" | "note";
+  route?: ServerRoute;
 }) {
   const sockets: FakeSocket[] = [];
   const events: VoiceEvent[] = [];
@@ -66,6 +68,7 @@ function setup(options: {
         (async () => ({ signIn: ["google"], voice: { version: 1 } }))) as never,
       request: (options.request ?? (async () => ({ ticket: "t-1" }))) as never,
       upload: (options.upload ?? (async () => ({ id: "tr-1" }))) as never,
+      route: options.route ?? new ServerRoute("https://nexus.example"),
     },
     ...(options.purpose ? { purpose: options.purpose } : {}),
     emit: (event) => events.push(event),
@@ -170,6 +173,18 @@ describe("voice input's socket", () => {
     s.emit("error", new Error("ECONNRESET"));
     s.terminate();
     expect(await started).toMatchObject({ status: "failed", reason: "network" });
+  });
+
+  test("goes through the proxy, and straight once a socket to it fails before ready", async () => {
+    const route = new ServerRoute("https://nexus.example", "https://proxy.example", () => 0);
+    const { voice, socket } = setup({ route });
+    const first = voice.start("ko");
+    const s = await socket();
+    expect(s.url).toBe("wss://proxy.example/voice?v=1&lang=ko&ticket=t-1");
+    s.emit("error", new Error("ECONNREFUSED"));
+    expect(await first).toMatchObject({ status: "failed", reason: "network" });
+    voice.start("ko");
+    expect((await socket()).url).toBe("wss://nexus.example/voice?v=1&lang=ko&ticket=t-1");
   });
 
   test("one session at a time", async () => {

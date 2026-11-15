@@ -6,6 +6,13 @@ export const SERVER = "https://nexus-cloud.moreih29.workers.dev";
 /** The server in development (wrangler dev). */
 export const DEV_SERVER = "http://localhost:8787";
 
+/**
+ * The proxy the released app's requests to SERVER go through: workers.dev
+ * is slow or blocked on some networks. It carries them to SERVER, which
+ * stays the server signed in to.
+ */
+export const PROXY = "https://13-124-109-101.sslip.io";
+
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
@@ -35,4 +42,19 @@ function takenWhenPackaged(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * The proxy requests to `server` go through: PROXY for SERVER in the
+ * released app, none for a server NEXUS_REMOTE_SERVER names. Development
+ * goes through NEXUS_REMOTE_PROXY when set, to try one; the released app
+ * does not take it, as it does not take any server for the sign-in.
+ */
+export function remoteProxy(
+  env: NodeJS.ProcessEnv,
+  packaged: boolean,
+  server: string,
+): string | null {
+  if (!packaged) return env.NEXUS_REMOTE_PROXY?.trim() || null;
+  return server === SERVER ? PROXY : null;
 }
