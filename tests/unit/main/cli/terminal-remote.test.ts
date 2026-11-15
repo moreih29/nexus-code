@@ -66,6 +66,46 @@ function asked(app: FakeApp, method: string) {
   return app.peers.requests.filter((r) => r.method === method).map((r) => r.params);
 }
 
+describe("reads of another computer's, as an agent's", () => {
+  /** The peer as one of 0.12.0, taking agents' requests or not. */
+  function newerPeer(serves: string[], handlers: Record<string, Handler>): FakeApp {
+    const app = withPeer(handlers);
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, schema: "0.12.0", serves } : d,
+    );
+    return app;
+  }
+
+  test("say who reads to a computer of 0.12.0, which takes them from agents", async () => {
+    const app = newerPeer(["sessions", "terminal.read", "agents"], {
+      "terminal.read": () => ({ text: "ready" }),
+    });
+    const result = await nexus(app, ["terminal", "read", "server", "--device", "Mac mini"], AGENT);
+    expect(result.stdout).toBe("ready\n");
+    expect(asked(app, "sessions.list")[0]).toMatchObject({
+      from: { kind: "terminal", agent: "claude", ...AGENT },
+    });
+    expect(asked(app, "terminal.read")[0]).toMatchObject({
+      workspaceId: SITE,
+      tabId: TERM,
+      from: { kind: "terminal", agent: "claude", ...AGENT },
+    });
+  });
+
+  test("are turned down where its user turned agents down, and go as before to an older one", async () => {
+    const off = newerPeer(["sessions", "terminal.read"], {
+      "terminal.read": () => ({ text: "ready" }),
+    });
+    const refused = await nexus(off, ["terminal", "read", "server", "--device", "Mac mini"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain("does not take requests from agents");
+    expect(off.peers.requests).toEqual([]);
+    const older = withPeer({ "terminal.read": () => ({ text: "ready" }) });
+    await nexus(older, ["terminal", "read", "server", "--device", "Mac mini"]);
+    expect(asked(older, "terminal.read")[0]).not.toHaveProperty("from");
+  });
+});
+
 describe("terminal --device", () => {
   test("read prints the terminal there; the tab is needed", async () => {
     const app = withPeer({ "terminal.read": () => ({ text: "$ npm run dev\nready" }) });

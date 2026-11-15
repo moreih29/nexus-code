@@ -293,6 +293,15 @@ export const AgentSenderSchema = z.object({
 });
 export type AgentSender = z.infer<typeof AgentSenderSchema>;
 
+/**
+ * The agent that reads, when one does (nexus chat read on another device):
+ * a read with it is taken only where agents' requests are (the `agents`
+ * capability), with no prompt, so a device whose user turned agents down
+ * is read by people alone. Since 0.12.0; an older device turns down a read
+ * with it, so it goes only to one of 0.12.0 or later.
+ */
+const ReadBy = { from: AgentSenderSchema.optional() };
+
 /** The keys terminal.input presses by name, as `nexus terminal key` names them. */
 export const TERMINAL_KEYS = [
   "enter",
@@ -625,7 +634,11 @@ const Ok = z.object({});
  * the serving device lists for it.
  */
 export const RPC_METHODS = {
-  "sessions.list": { capability: "sessions", params: Ok, result: SessionsSchema },
+  "sessions.list": {
+    capability: "sessions",
+    params: z.object({ ...ReadBy }),
+    result: SessionsSchema,
+  },
   /** The list now; then a sessions.update each time it changes, until sessions.unwatch. */
   "sessions.watch": {
     capability: "sessions",
@@ -647,6 +660,7 @@ export const RPC_METHODS = {
     params: z.object({
       since: z.number().int().nonnegative().optional(),
       limit: z.number().int().positive().max(500).optional(),
+      ...ReadBy,
     }),
     result: z.object({
       events: z.array(SessionEventSchema),
@@ -731,6 +745,7 @@ export const RPC_METHODS = {
       ...TabRef,
       before: z.number().int().nonnegative().optional(),
       limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
+      ...ReadBy,
     }),
     result: ChatPageSchema,
   },
@@ -790,6 +805,7 @@ export const RPC_METHODS = {
       ...TabRef,
       timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
       after: z.number().optional(),
+      ...ReadBy,
     }),
     result: z.object({
       done: z.boolean(),
@@ -1171,6 +1187,7 @@ export const RPC_METHODS = {
       ...TabRef,
       lines: z.number().int().positive().max(5000).optional(),
       ansi: z.boolean().optional(),
+      ...ReadBy,
     }),
     result: z.object({ text: z.string() }),
   },
@@ -1226,6 +1243,7 @@ export const RPC_METHODS = {
       match: z.string().min(1).max(1000).optional(),
       /** Quiet for this long counts as idle, for a program that is no agent or shell. */
       quietMs: z.number().int().positive().max(600_000).optional(),
+      ...ReadBy,
     }),
     result: z.object({
       done: z.boolean(),

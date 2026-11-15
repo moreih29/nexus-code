@@ -67,6 +67,13 @@ export class AgentGate {
     return this.deps.now?.() ?? Date.now();
   }
 
+  /** A read of an agent's (since 0.12.0) goes ahead, unasked, unless agents are turned down. */
+  checkRead(): void {
+    if (this.deps.policy() === "deny") {
+      throw forbidden("requests from agents are off there (Settings › Remote)");
+    }
+  }
+
   /** Resolves when the request may go ahead; a RpcFailure saying why when not. */
   async check(services: CliServices, request: AgentRequest): Promise<void> {
     const { device, params } = request;

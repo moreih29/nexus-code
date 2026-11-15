@@ -14,6 +14,7 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
+import { speaks } from "../../../shared/remote/room";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { refuseLoop } from "./hops";
@@ -110,11 +111,27 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
  */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
+  if (sender) refuseLoop(sender);
+  return agentSenderFrom(ctx, sender);
+}
+
+/**
+ * Who reads, as the other computer is told it (since 0.12.0): as
+ * agentSenderOf, but a read is no message in the agents' chain, so a long
+ * one does not stop it.
+ */
+async function agentReaderOf(ctx: CliContext): Promise<AgentSender> {
+  return agentSenderFrom(ctx, await senderOf(ctx));
+}
+
+function agentSenderFrom(
+  ctx: CliContext,
+  sender: Awaited<ReturnType<typeof senderOf>>,
+): AgentSender {
   if (!sender) {
     const { workspaceId, tabId } = ctx.caller;
     return { kind: "terminal", workspaceId, tabId, hops: 1 };
   }
-  refuseLoop(sender);
   return {
     kind: sender.kind,
     ...(sender.agent ? { agent: sender.agent } : {}),
@@ -180,6 +197,16 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
   }
 }
 
+/** What an agent reads of another device, said as an agent's to one of 0.12.0 on. */
+const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
+  "sessions.list",
+  "chat.read",
+  "chat.wait",
+  "terminal.read",
+  "terminal.wait",
+  "events.read",
+]);
+
 /**
  * Asks `device` for `method`: a request with `from` waits on its user's
  * consent, a wait on its own time. Offline, older and refusing devices
@@ -189,10 +216,17 @@ export async function askDevice<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
   method: M,
-  params: RpcParams<M>,
+  given: RpcParams<M>,
 ): Promise<RpcResult<M>> {
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
+  // A read says who reads to a device that takes it so (0.12.0 on): one whose user
+  // turned agents down is read by people alone.
+  const reads = AGENT_READS.has(method) && speaks(device.schema, "0.12.0");
+  const params =
+    reads && (given as { from?: AgentSender }).from === undefined
+      ? ({ ...given, from: await agentReaderOf(ctx) } as RpcParams<M>)
+      : given;
   const from = (params as { from?: AgentSender }).from;
   if (from && !device.serves.includes("agents")) {
     throw device.schema === undefined
@@ -210,7 +244,7 @@ export async function askDevice<M extends RpcMethod>(
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
-      : from
+      : from && !reads
         ? AGENT_REQUEST_MS
         : undefined;
   try {

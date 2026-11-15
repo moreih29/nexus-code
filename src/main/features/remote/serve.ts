@@ -86,6 +86,16 @@ export function servesWith(
   );
 }
 
+/** What an agent reads (`from`, since 0.12.0): taken where agents are, with no prompt. */
+const AGENT_READS: ReadonlySet<string> = new Set([
+  "sessions.list",
+  "chat.read",
+  "chat.wait",
+  "terminal.read",
+  "terminal.wait",
+  "events.read",
+]);
+
 /** How many lines of a terminal a read gives when it does not say. */
 export const DEFAULT_TERMINAL_LINES = 1000;
 
@@ -1093,12 +1103,14 @@ export function serveWith(
       return terminals.unwatch(from, params as RpcParams<"terminal.unwatch">);
     }
     // An agent's request: let through as the user set it, and shown as that agent's.
+    // A read is only taken where agents are (the room saw to that): nothing to ask.
     const by = (params as { from?: AgentSender } | undefined)?.from;
     let relay: RelaySender | undefined;
-    if (by) {
-      if (!watches.agents) {
-        throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
-      }
+    if (by && !watches.agents) {
+      throw new RpcFailure(RpcErrorCode.Forbidden, "agents' requests are not taken here");
+    }
+    if (by && AGENT_READS.has(method)) watches.agents?.checkRead();
+    if (by && watches.agents && !AGENT_READS.has(method)) {
       const device = { id: from, name: watches.deviceName?.(from) ?? from.slice(0, 8) };
       await watches.agents.check(s, {
         device,

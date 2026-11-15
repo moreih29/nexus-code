@@ -302,6 +302,41 @@ describe("serving the sessions", () => {
       serveWith(services)({ from: "d", method: "chat.watch", params: {} }),
     ).rejects.toMatchObject({ code: -32601 });
   });
+
+  test("an agent's read where its user lets agents in, unasked, and none where not", async () => {
+    const asked: string[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: (op: string, args: unknown) => {
+        asked.push(op);
+        return base.ui(op as "tabs.list", args as { workspaceId: string });
+      },
+    } as unknown as CliServices;
+    const from = {
+      kind: "tab",
+      agent: "claude",
+      name: "Fix",
+      workspaceId: "bw",
+      tabId: "bt",
+      hops: 1,
+    };
+    const read = (policy?: "allow" | "ask" | "deny") =>
+      serveWith(
+        () => s,
+        policy ? { agents: new AgentGate({ policy: () => policy }) } : {},
+      )({
+        from: "d",
+        method: "sessions.list",
+        params: { from },
+      });
+    await expect(read()).rejects.toMatchObject({ code: 1002 });
+    await expect(read("deny")).rejects.toMatchObject({ code: 1002 });
+    // Only what an agent would change is asked about: a read goes ahead.
+    expect(await read("ask")).toHaveProperty("workspaces");
+    expect(await read("allow")).toHaveProperty("workspaces");
+    expect(asked).not.toContain("consent.ask");
+  });
 });
 
 describe("serving a chat and a terminal to read", () => {
