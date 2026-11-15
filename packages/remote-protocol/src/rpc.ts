@@ -182,7 +182,11 @@ export const RemoteSessionSchema = z.object({
    * lists keep out of sight until asked for. Never on a chat.
    */
   agent: z.string().max(40).optional(),
-  /** What it waits on the user for, when it does. */
+  /**
+   * What it waits on the user for, when it does. Since 0.12.1, one this
+   * version cannot read (a kind it does not know) is left out, and the
+   * session stays: one that waits on the user is the last to hide.
+   */
   waiting: z
     .object({
       kind: z.enum(["permission", "question", "plan"]),
@@ -190,7 +194,8 @@ export const RemoteSessionSchema = z.object({
       /** A terminal's Claude Code asking: the request terminal.answer answers. */
       requestId: z.string().optional(),
     })
-    .optional(),
+    .optional()
+    .catch(undefined),
   /**
    * The agents it runs beside its turn that still run, as the serving app
    * lists them under its row; at most MAX_SESSION_AGENTS, absent with none.
@@ -679,7 +684,8 @@ export const RPC_METHODS = {
       ...ReadBy,
     }),
     result: z.object({
-      events: z.array(SessionEventSchema),
+      /** Since 0.12.1, an event this version cannot read (a kind it does not know) is left out. */
+      events: readableList(SessionEventSchema),
       cursor: z.number().int().nonnegative(),
       more: z.boolean(),
     }),

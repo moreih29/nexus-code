@@ -400,16 +400,36 @@ describe("the methods", () => {
         session("a", { agents: [agent("1"), agent("2", "paused"), agent("3")] }),
         session("b", { state: "sleeping" }),
         session("c", { kind: "browser" }),
+        session("e", { state: "needs-you", waiting: { kind: "survey", text: "Pick one" } }),
         session("d", {
           agents: Array.from({ length: MAX_SESSION_AGENTS + 3 }, (_, i) => agent(`x${i}`)),
         }),
       ],
       consents: [consent("k1"), consent("k2", { eachTime: "maybe" })],
     });
-    expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "d"]);
+    expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "e", "d"]);
     expect(list.sessions[0]?.agents?.map((a) => a.id)).toEqual(["1", "3"]);
-    expect(list.sessions[1]?.agents).toHaveLength(MAX_SESSION_AGENTS);
+    // Waiting on something this version does not know: still there, as waiting on the user.
+    expect(list.sessions[1]).toMatchObject({ state: "needs-you" });
+    expect(list.sessions[1]?.waiting).toBeUndefined();
+    expect(list.sessions[2]?.agents).toHaveLength(MAX_SESSION_AGENTS);
     expect(list.consents?.map((c) => c.id)).toEqual(["k1"]);
+    const event = (seq: number, kind: string) => ({
+      seq,
+      at: 1,
+      workspaceId: "w",
+      tabId: "t",
+      title: "x",
+      kind,
+      from: null,
+      to: "running",
+    });
+    const events = RPC_METHODS["events.read"].result.parse({
+      events: [event(1, "claude"), event(2, "browser"), event(3, "terminal")],
+      cursor: 3,
+      more: false,
+    });
+    expect(events.events.map((e) => e.seq)).toEqual([1, 3]);
     // Still a list: one that is not fails as before.
     expect(
       RPC_METHODS["sessions.list"].result.safeParse({ workspaces: [], sessions: "none" }).success,
