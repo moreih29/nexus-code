@@ -222,7 +222,7 @@
       "label": "Default agent",
       "hint": "What the agents tab's [+] and a new task open"
     },
-    "sessionsView": {
+    "agentListView": {
       "label": "Default agents tab view",
       "hint": "The view it opens in"
     },

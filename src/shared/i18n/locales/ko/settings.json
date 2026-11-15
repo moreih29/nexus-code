@@ -222,7 +222,7 @@
       "label": "기본 에이전트",
       "hint": "에이전트 탭 [+]와 새 작업이 여는 탭"
     },
-    "sessionsView": {
+    "agentListView": {
       "label": "에이전트 탭 기본 보기",
       "hint": "처음 열 때의 보기"
     },
