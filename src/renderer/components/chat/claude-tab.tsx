@@ -208,10 +208,12 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
     );
   }, [isVisible, controller, workspaceId, hooks]);
 
-  // A name the user gives the tab names its session too, as /rename does.
+  // A name the user gives the tab names its session too, as /rename does,
+  // and every session the tab has after it.
   const customTitle = useTabsStore((s) => s.byWorkspace[workspaceId]?.[tabId]?.customTitle);
   const named = useRef(customTitle);
   useEffect(() => {
+    controller.keepName(customTitle);
     if (customTitle === named.current) return;
     named.current = customTitle;
     if (customTitle) void controller.renameSession(customTitle).catch(() => {});

@@ -1,8 +1,10 @@
 /**
  * A name given to a Claude tab before its conversation began names the
  * session it starts: there was no session to name then, and Claude's title
- * from the first message took the name's place. The real ipc client is
- * spread under a spy, so later files keep its other exports.
+ * from the first message took the name's place. The tab's own name names
+ * every session it has, and Remote Control is told it again as it starts.
+ * The real ipc client is spread under a spy, so later files keep its other
+ * exports.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
@@ -88,6 +90,42 @@ describe("a Claude tab's session name", () => {
     const rename = requests().find((m) => m.request?.subtype === "rename_session");
     expect(rename?.request).toMatchObject({ title: "NexusCloud-P", session_id: "s-named" });
     expect(subtypes()).not.toContain("generate_session_title");
+  });
+
+  test("the tab's own name names a session the tab starts after it", async () => {
+    const c = tab();
+    c.keepName("NexusCode-Win-P");
+    await firstMessage(c, "s-kept");
+    const rename = requests().find((m) => m.request?.subtype === "rename_session");
+    expect(rename?.request).toMatchObject({ title: "NexusCode-Win-P", session_id: "s-kept" });
+    expect(subtypes()).not.toContain("generate_session_title");
+  });
+
+  test("is told again as Remote Control starts, which can name the session on its own", async () => {
+    const c = tab();
+    c.keepName("NexusCode-Win-P");
+    await firstMessage(c, "s-remote");
+    sent.length = 0;
+    const turningOn = c.setRemoteControl(true);
+    let n = await answerAll(c, 0);
+    await turningOn;
+    n = await answerAll(c, n);
+    expect(subtypes()).toEqual(["remote_control", "rename_session"]);
+    expect(requests()[1]?.request).toMatchObject({
+      title: "NexusCode-Win-P",
+      session_id: "s-remote",
+    });
+  });
+
+  test("a tab without its own name tells Remote Control nothing", async () => {
+    const c = tab();
+    await firstMessage(c, "s-plain");
+    sent.length = 0;
+    const turningOn = c.setRemoteControl(true);
+    const n = await answerAll(c, 0);
+    await turningOn;
+    await answerAll(c, n);
+    expect(subtypes()).toEqual(["remote_control"]);
   });
 
   test("not given, is the title Claude makes from the first message", async () => {
