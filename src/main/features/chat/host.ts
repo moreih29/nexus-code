@@ -162,7 +162,7 @@ export class ChatHost {
         tabId,
         cwd,
         program,
-        args: claudeTabArgs(resume, hooksSettings, isManagerWorkspace(workspaceId)),
+        args: claudeTabArgs(resume, hooksSettings, isManagerWorkspace(workspaceId), version),
         env,
         ...(resume.resetLog ? { resetLog: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),

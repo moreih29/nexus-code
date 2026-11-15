@@ -2,6 +2,7 @@
 // with the tab's marks and the hooks a terminal's claude gets. A Codex tab's
 // `codex app-server` gets the same marks.
 
+import { gte, valid } from "semver";
 import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import { injectHarnessTerminalEnv } from "../pty/harness-env";
 
@@ -33,6 +34,21 @@ export const CLAUDE_TAB_ARGS: readonly string[] = [
 export const CLAUDE_TAB_PROMPT =
   "You are running in a chat tab of NexusCode, which shows a file your reply links as a card the user opens. Whenever you point the user at a file on the machine you run on (one you made, changed, read or found), write it as a markdown link to its path, as [greet.ts](src/greet.ts) or [report.md](/abs/path/report.md), not in backticks. A file elsewhere, as on a server you reach over ssh, stays in backticks: the user cannot open it.";
 
+/**
+ * The first Claude Code version that takes `--thinking-display`. Unasked,
+ * the API leaves the text out of a thinking block, and the tab would show
+ * that the model thought and nothing of what; asked, it sends a summary.
+ * An older claude refuses the flag and does not start, so it goes without.
+ * Measured on the released builds: 2.1.92 has no such flag, 2.1.93 was not
+ * released, and 2.1.94 takes "summarized" or "omitted".
+ */
+export const THINKING_DISPLAY_FROM = "2.1.94";
+
+/** Whether a claude of `version` takes `--thinking-display`; an unknown one is not risked. */
+export function takesThinkingDisplay(version: string | null): boolean {
+  return version !== null && valid(version) !== null && gte(version, THINKING_DISPLAY_FROM);
+}
+
 export interface ResumeOptions {
   readonly resume?: string;
   readonly fork?: boolean;
@@ -51,12 +67,14 @@ export const MANAGER_ARGS: readonly string[] = ["--allowedTools", "Bash(nexus:*)
  * The program's arguments for a tab, going on with a session when asked;
  * the agent manager's (`manager`) with its own on top, and told what it is
  * after what every tab is told, in the one --append-system-prompt claude
- * takes.
+ * takes. A claude whose `version` takes it is asked for its thinking's
+ * summaries.
  */
 export function claudeTabArgs(
   options: ResumeOptions,
   hooksSettings?: string,
   manager = false,
+  version: string | null = null,
 ): string[] {
   const prompt = manager ? `${CLAUDE_TAB_PROMPT}\n\n${MANAGER_PROMPT}` : CLAUDE_TAB_PROMPT;
   const args = [
@@ -66,6 +84,7 @@ export function claudeTabArgs(
     ...(manager ? MANAGER_ARGS : []),
   ];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
+  if (takesThinkingDisplay(version)) args.push("--thinking-display", "summarized");
   if (options.resume !== undefined) {
     args.push("--resume", options.resume);
     if (options.fork) {

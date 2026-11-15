@@ -1145,9 +1145,23 @@ function CallRow({
   );
 }
 
-function Thinking({ text, live = false }: { text: string; live?: boolean }) {
+/**
+ * A stretch of the model's thinking, folded. The API leaves its text out
+ * unless Claude Code asks for a summary, and older versions cannot ask:
+ * such a block says only that the model thought, with nothing to unfold.
+ */
+export function Thinking({ text, live = false }: { text: string; live?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const label = live ? t("chat.thinking_live") : t("chat.thinking");
+  if (text.trim() === "") {
+    return (
+      <div className="my-1 flex items-center gap-1.5 px-1.5 py-1 text-app-ui-sm text-muted-foreground">
+        <Brain className={cn("size-3.5", live && "animate-pulse")} />
+        <span>{label}</span>
+      </div>
+    );
+  }
   return (
     <div className="my-1 text-app-ui-sm text-muted-foreground">
       <button
@@ -1157,7 +1171,7 @@ function Thinking({ text, live = false }: { text: string; live?: boolean }) {
         className="flex items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 hover:bg-[var(--state-hover-bg)]"
       >
         <Brain className={cn("size-3.5", live && "animate-pulse")} />
-        <span>{live ? t("chat.thinking_live") : t("chat.thinking")}</span>
+        <span>{label}</span>
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
       </button>
       {open && (

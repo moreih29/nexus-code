@@ -9,6 +9,8 @@ import {
   codexTabEnv,
   gitBashPath,
   parseClaudeVersion,
+  THINKING_DISPLAY_FROM,
+  takesThinkingDisplay,
 } from "../../../../src/main/features/chat/launch";
 import type {
   AgentChannel,
@@ -107,6 +109,19 @@ describe("chat launch", () => {
     // resumeAt means nothing without fork.
     expect(claudeTabArgs({ resume: "s1", resumeAt: "u9" })).not.toContain("--resume-session-at");
     expect(claudeTabArgs({}, "C:\\h.json").slice(0, 2)).toEqual(["--settings", "C:\\h.json"]);
+  });
+
+  test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
+    const flag = ["--thinking-display", "summarized"];
+    const args = claudeTabArgs({ resume: "s1" }, undefined, false, "2.1.323");
+    expect(args.slice(-4)).toEqual([...flag, "--resume", "s1"]);
+    expect(claudeTabArgs({}, undefined, false, THINKING_DISPLAY_FROM).slice(-2)).toEqual(flag);
+    // An older claude refuses the flag and does not start; an unknown one is not risked.
+    for (const version of ["2.1.0", null, "garbage"]) {
+      expect(claudeTabArgs({}, undefined, false, version)).not.toContain("--thinking-display");
+    }
+    expect(takesThinkingDisplay(THINKING_DISPLAY_FROM)).toBe(true);
+    expect(takesThinkingDisplay("3.0.0")).toBe(true);
   });
 
   test("the env marks the tab for the wrapper and turns on file checkpoints", () => {
