@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-const { OfflinePeer, PeerGroup, RemoteSessionRow } = await import(
+const { OfflinePeer, PeerGroup, RemoteSessionRow, RemoteTabLabel } = await import(
   "../../../../../src/renderer/components/agent-view/remote-sessions"
 );
 const { offlinePeers, servingPeers } = await import(
@@ -134,5 +134,26 @@ describe("the agent view's other computers", () => {
       <RemoteSessionRow session={session({})} selected onOpen={() => {}} />,
     );
     expect(html).toContain('<button type="button" aria-current="true"');
+  });
+
+  test("a session's tab names its computer and title, and its state unless idle", () => {
+    const target = {
+      deviceId: "d2",
+      deviceName: "Work PC",
+      workspaceId: "w1",
+      workspaceName: "api",
+      path: "/src/api",
+      tabId: "t1",
+      kind: "claude" as const,
+      title: "Fix the build",
+    };
+    const idle = renderToStaticMarkup(<RemoteTabLabel target={{ ...target, state: "idle" }} />);
+    expect(idle).toContain("Work PC");
+    expect(idle).toContain("Fix the build");
+    expect(idle).not.toContain('role="img"');
+    const waiting = renderToStaticMarkup(
+      <RemoteTabLabel target={{ ...target, state: "needs-you" }} />,
+    );
+    expect(waiting).toContain('aria-label="Needs you"');
   });
 });
