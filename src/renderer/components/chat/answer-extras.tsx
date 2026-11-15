@@ -97,7 +97,10 @@ export function FileCard({
           <FileKindIcon path={path} className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 truncate text-app-ui-sm">{baseName(path)}</span>
           {folder && (
-            <span className="min-w-0 truncate text-app-micro text-muted-foreground">{folder}</span>
+            // The folder gives way before the name does.
+            <span className="min-w-0 shrink-[4] truncate text-app-micro text-muted-foreground">
+              {folder}
+            </span>
           )}
         </span>
       </button>
@@ -105,10 +108,14 @@ export function FileCard({
   );
 }
 
-/** The folder a file is in, from the session's folder when it is under it. */
-function folderOf(path: string, cwd: string): string {
-  const dir = path.slice(0, path.lastIndexOf("/"));
-  const base = cwd.replace(/\/+$/, "");
+/**
+ * The folder a file is in, from the session's folder when it is under it.
+ * Either separator: a Windows path may be written with / or \.
+ */
+export function folderOf(path: string, cwd: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const dir = slashed.slice(0, Math.max(0, slashed.lastIndexOf("/")));
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
   if (dir === base) return "";
   return dir.startsWith(`${base}/`) ? dir.slice(base.length + 1) : dir;
 }

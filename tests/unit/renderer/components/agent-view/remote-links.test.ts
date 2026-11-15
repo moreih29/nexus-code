@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { lookItemOfChange, peerChatFiles, peerImageLoader } = await import(
+const { lookItemOfChange, peerChatFiles, peerImageLoader, shownPath } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
 );
 const { rateLimitOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-usage"
 );
 const { senderOf } = await import("../../../../../src/renderer/services/remote/chat-model");
+const { folderOf } = await import("../../../../../src/renderer/components/chat/answer-extras");
 
 interface Call {
   method: string;
@@ -137,6 +138,22 @@ describe("another computer's chat, read from there", () => {
       text: "c",
       truncated: false,
     });
+  });
+});
+
+describe("a Windows computer's paths, written with either separator", () => {
+  test("are named from the conversation's folder", () => {
+    expect(shownPath("C:/Users/me/app/README.md", "C:\\Users\\me\\app")).toBe("README.md");
+    expect(shownPath("C:\\Users\\me\\app\\src\\a.ts", "C:\\Users\\me\\app\\")).toBe("src/a.ts");
+    expect(shownPath("/Users/me/app/src/a.ts", "/Users/me/app")).toBe("src/a.ts");
+    // Outside it, as written.
+    expect(shownPath("D:\\other\\b.ts", "C:\\Users\\me\\app")).toBe("D:\\other\\b.ts");
+  });
+
+  test("a file card's folder is from there too", () => {
+    expect(folderOf("C:/Users/me/app/README.md", "C:\\Users\\me\\app")).toBe("");
+    expect(folderOf("C:\\Users\\me\\app\\docs\\a.md", "C:\\Users\\me\\app")).toBe("docs");
+    expect(folderOf("/Users/me/app/docs/a.md", "/Users/me/app/")).toBe("docs");
   });
 });
 

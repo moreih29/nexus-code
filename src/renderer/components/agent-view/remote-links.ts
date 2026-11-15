@@ -55,6 +55,18 @@ export function peerImageLoader(target: {
   };
 }
 
+/**
+ * A path as the conversation's folder sees it, by either separator: that
+ * computer may be Windows, whose paths are written with / or \.
+ */
+export function shownPath(path: string, cwd: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const rel = relPath(slashed, base);
+  // Outside it (or the folder itself), as written.
+  return rel && rel !== slashed ? rel : path;
+}
+
 /** How long a folder's entries are trusted, as the agent there makes files. */
 const LIST_FRESH_MS = 5_000;
 
@@ -189,7 +201,7 @@ export function useRemoteLinks(
       const link = resolveFileLink(written, cwd);
       if (!link) return;
       // Named as the conversation's folder sees it.
-      const title = relPath(link.path, cwd) || link.path;
+      const title = shownPath(link.path, cwd);
       show(
         [{ kind: "loading", title }],
         0,
@@ -219,10 +231,12 @@ export function useRemoteLinks(
         );
       },
       openChange(path) {
+        // Named as the panel's row names it.
+        const title = shownPath(path, cwd);
         show(
-          [{ kind: "loading", title: path }],
+          [{ kind: "loading", title }],
           0,
-          lookItemOfChange(where, path).then((item) => [item]),
+          lookItemOfChange(where, path).then((item) => [{ ...item, title }]),
         );
       },
       openUrl(url) {
