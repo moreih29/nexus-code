@@ -998,8 +998,19 @@ export class ChatController {
    * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
    * none when no turn runs and it went at once.
    */
-  enqueue(text: string, images: ImageBlock[] = [], from?: RelaySender): string | undefined {
-    const item: QueuedMessage = { id: nextRequestId(), text, images, ...(from ? { from } : {}) };
+  enqueue(
+    text: string,
+    images: ImageBlock[] = [],
+    from?: RelaySender,
+    device?: string,
+  ): string | undefined {
+    const item: QueuedMessage = {
+      id: nextRequestId(),
+      text,
+      images,
+      ...(from ? { from } : {}),
+      ...(device ? { device } : {}),
+    };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
     if (this.state.model.running) return item.id;
     this.sendNextQueued();
@@ -1012,12 +1023,21 @@ export class ChatController {
     return item;
   }
 
-  /** Changes a held message's text, its images kept: false once it went. */
-  editQueued(id: string, text: string): boolean {
+  /**
+   * Changes a held message's text, its images kept: false once it went.
+   * Changed from another computer (`device`), it is that computer user's
+   * now, no longer the agent's that sent it.
+   */
+  editQueued(id: string, text: string, device?: string): boolean {
     if (!this.state.queue.some((q) => q.id === id)) return false;
     this.update((prev) => ({
       ...prev,
-      queue: prev.queue.map((q) => (q.id === id ? { ...q, text } : q)),
+      queue: prev.queue.map((q) => {
+        if (q.id !== id) return q;
+        if (!device) return { ...q, text };
+        const { from: _agent, ...rest } = q;
+        return { ...rest, text, device };
+      }),
     }));
     return true;
   }

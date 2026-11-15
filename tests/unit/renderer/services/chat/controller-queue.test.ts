@@ -59,6 +59,26 @@ describe("a Claude tab's held messages", () => {
     expect(c.removeQueued(second as string)?.text).toBe("second");
     expect(c.editQueued(second as string, "gone")).toBe(false);
   });
+
+  test("one held from another computer says which; changed from there, it is that user's, not the agent's", () => {
+    const c = new ChatController(
+      { workspaceId: "ws-queue", tabId: `t${++seq}`, cwd: "/p", sessionId: "s" },
+      {},
+    );
+    live.push(c);
+    running(c.key);
+    const mine = c.enqueue("from the phone", [], undefined, "phone");
+    const agents = c.enqueue("from an agent", [], { ...FROM, device: { id: "mac", name: "Mac" } });
+    expect(c.state.queue[0]).toMatchObject({ text: "from the phone", device: "phone" });
+    expect(c.editQueued(agents as string, "rewritten", "phone")).toBe(true);
+    expect(c.state.queue[1]).toEqual({
+      id: agents as string,
+      text: "rewritten",
+      images: [],
+      device: "phone",
+    });
+    expect(mine).toBeString();
+  });
 });
 
 describe("a Codex tab's held messages", () => {

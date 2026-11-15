@@ -976,6 +976,11 @@ export interface CliUiOps {
        * (⌘↩, Claude's alone), after the turn (⌘⇧↩, held by the tab).
        */
       when?: "next" | "now" | "after";
+      /**
+       * The user's other computer it comes from: held for after the turn, it
+       * is dropped if control from other computers is turned off first.
+       */
+      device?: string;
     };
     /** `heldId`: the message's id while the tab holds it for after the turn. */
     result: { heldId?: string };
@@ -987,8 +992,17 @@ export interface CliUiOps {
   };
   /** Changes the text of a message the tab holds for after the turn, its images kept. */
   "chat.editHeld": {
-    args: { workspaceId: string; tabId: string; id: string; text: string };
+    /** `device`: the user's other computer that changes it, whose it is then. */
+    args: { workspaceId: string; tabId: string; id: string; text: string; device?: string };
     result: Record<string, never>;
+  };
+  /**
+   * Drops the messages the tabs hold that came from other computers, as
+   * control from them is turned off: all of them, or only their agents'.
+   */
+  "chat.dropHeld": {
+    args: { agentsOnly?: boolean };
+    result: { dropped: number };
   };
   /** Takes back a message of the user's a Claude tab has not read: false once it was read. */
   "chat.withdraw": {

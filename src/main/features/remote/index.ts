@@ -482,6 +482,12 @@ export async function registerRemoteChannel(options: {
         options.allowControl.set(allowed);
         // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
+        // What they held for after a turn goes no more.
+        if (!allowed)
+          void options
+            .services()
+            ?.ui("chat.dropHeld", {})
+            .catch(() => {});
         return ipcOk(allowed);
       },
       allowTerminal: async () => ipcOk(options.allowTerminal.get()),
@@ -497,6 +503,13 @@ export async function registerRemoteChannel(options: {
         options.agents.set(policy);
         // Turned off, the others learn it from the hello and send their agents' requests no more.
         room?.announce();
+        // Nor does what their agents' messages left held for after a turn.
+        if (policy === "deny") {
+          void options
+            .services()
+            ?.ui("chat.dropHeld", { agentsOnly: true })
+            .catch(() => {});
+        }
         return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {

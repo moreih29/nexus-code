@@ -147,6 +147,7 @@ export async function sendToAgentTab(
   from?: RelaySender,
   images: ImageBlock[] = [],
   when: SendTiming = "next",
+  device?: string,
 ): Promise<{ heldId?: string }> {
   const { controller } = target;
   const key = chatKey(workspaceId, tabId);
@@ -158,7 +159,7 @@ export async function sendToAgentTab(
     await controller.prepareSend();
     unseenSends.set(key, userMessages(key));
     if (when === "after") {
-      const heldId = controller.enqueue(text, images, from);
+      const heldId = controller.enqueue(text, images, from, device);
       // Held, it is not sent yet: the chat is not waiting on it.
       if (heldId) unseenSends.delete(key);
       return heldId ? { heldId } : {};

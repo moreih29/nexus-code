@@ -372,6 +372,14 @@ export async function sendChat(
   if (ids.length > 0 && !attached) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "no attachments are kept here");
   }
+  // An agent's message goes, or is turned down, while its request is weighed:
+  // held for later, it would go after the user may have turned agents off.
+  if (relay && when === "after") {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      "an agent's message is not held for after the turn; send it as next or now",
+    );
+  }
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const held =
     attached && ids.length > 0
@@ -393,6 +401,8 @@ export async function sendChat(
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
       ...(when ? { when } : {}),
+      // Held, it is dropped if control from other computers is turned off first.
+      ...(when === "after" && attached ? { device: attached.device } : {}),
     })
     .catch(unavailable);
   attached?.attachments.drop(ids);
@@ -412,9 +422,13 @@ export async function unqueueChat(
 export async function editHeldChat(
   services: CliServices,
   { workspaceId, tabId, id, text }: RpcParams<"chat.editHeld">,
+  device?: string,
 ): Promise<RpcResult<"chat.editHeld">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  await services.ui("chat.editHeld", { workspaceId, tabId, id, text }).catch(chatFailure);
+  // Changed by the user there, it is theirs now: an agent's no longer.
+  await services
+    .ui("chat.editHeld", { workspaceId, tabId, id, text, ...(device ? { device } : {}) })
+    .catch(chatFailure);
   return {};
 }
 
@@ -1271,7 +1285,7 @@ export function serveWith(
       case "chat.unqueue":
         return unqueueChat(s, request.params as RpcParams<"chat.unqueue">);
       case "chat.editHeld":
-        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">);
+        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">, from);
       case "chat.withdraw":
         return withdrawChat(s, request.params as RpcParams<"chat.withdraw">);
       case "chat.hurry":

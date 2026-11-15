@@ -1032,7 +1032,8 @@ describe("when a message goes, and the ones held for after the turn", () => {
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "now", when: "now" } });
     await serve({ from: "d", method: "chat.send", params: { ...tab, text: "next" } });
     expect(asked).toEqual([
-      ["chat.send", { ...tab, text: "hi", user: true, when: "after" }],
+      // Held, it says which device held it: dropped if control from there is turned off.
+      ["chat.send", { ...tab, text: "hi", user: true, when: "after", device: "d" }],
       ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
       ["chat.send", { ...tab, text: "next", user: true }],
     ]);
@@ -1058,7 +1059,8 @@ describe("when a message goes, and the ones held for after the turn", () => {
     expect(await serve({ from: "d", method: "chat.hurry", params: tab })).toEqual({});
     expect(asked).toEqual([
       ["chat.unqueue", { ...tab, id: "q1" }],
-      ["chat.editHeld", { ...tab, id: "q2", text: "b" }],
+      // Changed there, it is that device's user's now.
+      ["chat.editHeld", { ...tab, id: "q2", text: "b", device: "d" }],
       ["chat.withdraw", { ...tab, itemKey: "u3" }],
       ["chat.hurry", tab],
     ]);
@@ -1291,6 +1293,10 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
+    // An agent's message goes now or next, never held for after the turn.
+    await expect(
+      serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
+    ).rejects.toMatchObject({ code: -32602 });
     await serve({ from: "d", method: "chat.send", params });
     expect(asked[0]).toEqual([
       "chat.send",
