@@ -410,7 +410,8 @@ function FamilyGroup({
   return (
     <section
       aria-label={root.name}
-      className="mt-1 flex flex-col"
+      // A space between workspaces, so each one's agents read as its own.
+      className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
     >
       <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
