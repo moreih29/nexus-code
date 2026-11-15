@@ -765,7 +765,7 @@
     },
     "delete": {
       "label": "NexusCode 계정 삭제",
-      "description": "계정과 기기를 모두 지웁니다 (되돌릴 수 없음)",
+      "description": "계정과 모든 기기를 지웁니다. 되돌릴 수 없습니다.",
       "button": "삭제",
       "failed": "계정을 삭제하지 못했습니다. 다시 시도하세요.",
       "confirm": {
@@ -777,8 +777,6 @@
     },
     "voice": {
       "title": "음성 입력",
-      "description": "입력창의 마이크를 누르고 말하세요",
-      "descriptionWithShortcut": "입력창의 마이크나 {{shortcut}} 키를 누르고 말하세요",
       "usage": "이번 달",
       "usageOf": "{{limit}}분 중 {{used}}분 사용",
       "usageLoading": "불러오는 중…",
