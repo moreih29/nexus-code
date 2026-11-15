@@ -238,6 +238,8 @@ function shimShell(input: WindowsShellShimInput): WindowsShellShimOutput {
     // hook client (internal/hookclient). claude carries the tab's mark
     // while it runs, as PowerShell's does: the escaped `&` joins the
     // commands of the macro, and its %NEXUS_TAB_ID% is expanded as it runs.
+    // cmd expands a macro only as a line's first word: `cd x & claude` or a
+    // .bat's claude runs without the settings, its hooks and all (docs/CLI.md).
     const macros = [
       ...(settingsPath !== undefined
         ? [
