@@ -40,6 +40,20 @@ describe("worktree new", () => {
     // The workspace is not the worktree's own, so the user is asked.
     expect(app.asked[0]?.change).toEqual({ kind: "worktreeNew", detail: "pay" });
   });
+
+  test("with an empty --command, makes it with no tab, and tells how to open a terminal there", async () => {
+    const app = fakeApp();
+    const result = await nexus(app, ["worktree", "new", "pay", "--command", ""]);
+    expect(uiArgs(app, "task.create")).toMatchObject({ start: { command: "" }, show: false });
+    expect(result.stdout).toContain(
+      "It has no tab yet: a plain shell opens when the user opens it. To open one now:\n" +
+        "  nexus terminal new --workspace ",
+    );
+    const json = await nexus(fakeApp(), ["worktree", "new", "pay", "--command", "", "--json"]);
+    const made = JSON.parse(json.stdout) as Record<string, unknown>;
+    expect(made.command).toBe("");
+    expect("tabId" in made).toBe(false);
+  });
 });
 
 describe("worktree claude-create", () => {
@@ -51,7 +65,7 @@ describe("worktree claude-create", () => {
     );
   }
 
-  test("makes a task with a plain shell behind the user's view and prints only its folder", async () => {
+  test("makes a task behind the user's view, with no tab, and prints only its folder", async () => {
     const app = fakeApp();
     const result = await hook(
       app,

@@ -85,7 +85,7 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
-const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
+const FROM_SHELL = { kind: "terminal", ...USER };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER, stdin?: string) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
@@ -126,7 +126,6 @@ describe("chat send --device", () => {
           workspaceId: APP,
           tabId: CLAUDE_TAB,
           name: expect.any(String),
-          hops: 1,
         },
       },
     ]);
@@ -135,6 +134,7 @@ describe("chat send --device", () => {
       tabId: REVIEW,
       timeoutMs: 10_000,
       after: NOW + 5,
+      from: expect.objectContaining({ agent: "claude", tabId: CLAUDE_TAB }),
     });
   });
 
@@ -231,7 +231,12 @@ describe("chat read --device", () => {
     expect(result.stdout).toBe(
       "── user #28\nReview it\n── claude #29\nLooks fine.\n\nClaude in Review is idle.\n",
     );
-    expect(asked(app, "chat.read")[0]).toEqual({ workspaceId: SITE, tabId: REVIEW, limit: 20 });
+    expect(asked(app, "chat.read")[0]).toEqual({
+      workspaceId: SITE,
+      tabId: REVIEW,
+      limit: 20,
+      from: expect.any(Object),
+    });
     const json = JSON.parse(
       (await nexus(app, ["chat", "read", "Review", "--device", "Mac mini", "--json"])).stdout,
     );
@@ -271,8 +276,8 @@ describe("chat read --device", () => {
     expect(lines.slice(0, -1).map((e) => e.i)).toEqual([24, 25, 26, 27, 28, 29]);
     expect(lines.at(-1)).toMatchObject({ state: "working" });
     expect(asked(app, "chat.read")).toEqual([
-      { workspaceId: SITE, tabId: REVIEW, limit: 500 },
-      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 500 },
+      { workspaceId: SITE, tabId: REVIEW, limit: 500, from: expect.any(Object) },
+      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 500, from: expect.any(Object) },
     ]);
   });
 });
@@ -309,7 +314,7 @@ describe("chat new --device", () => {
       prompt: "Fix it",
       model: "haiku",
       permissionMode: "plan",
-      from: { kind: "terminal", hops: 1 },
+      from: { kind: "terminal" },
     });
   });
 
@@ -425,7 +430,7 @@ describe("chat interrupt, set and tab close --device", () => {
     );
     expect(asked(app, "chat.configure")[0]).toMatchObject({
       permissionMode: "plan",
-      from: { hops: 1 },
+      from: expect.objectContaining({ kind: "terminal" }),
     });
     expect(
       (await nexus(app, ["chat", "set", "Review", "--device", "Mac mini", "--profile", "Work"]))

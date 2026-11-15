@@ -1,6 +1,7 @@
 /** The account password's flows, against a server that keeps one locked bundle. */
 import { describe, expect, test } from "bun:test";
 import type { KeyBundle } from "../../../../../packages/remote-protocol/src";
+import { lockAccountKey, newAccountKey } from "../../../../../src/main/features/remote/account-key";
 import { AccountKeys, type SavedKey } from "../../../../../src/main/features/remote/account-keys";
 import {
   ServerError,
@@ -143,31 +144,23 @@ describe("the account key's flows", () => {
     expect(second.keys.key()?.key).toEqual(key as Uint8Array);
   });
 
-  test("a reset makes the next key; other devices find it locked until they type the new password", async () => {
-    const { request } = bundleServer();
-    const a = device(request);
-    const b = device(request);
-    await a.keys.restore();
-    await a.keys.create(PASSWORD);
-    await b.keys.restore();
-    await b.keys.unlock(PASSWORD);
-    const old = b.keys.key()?.key;
-
-    expect(await a.keys.reset(OTHER)).toEqual({ status: "unlocked", kid: 2 });
-    expect(a.keys.key()?.key).not.toEqual(old as Uint8Array);
-    expect(await b.keys.refresh()).toEqual({ status: "locked", kid: 2 });
-    expect(b.keys.key()).toBeNull();
-    await b.keys.unlock(OTHER);
-    expect(b.keys.key()).toEqual(a.keys.key());
-  });
-
   test("a server that goes back to an older key is not followed: the newer key stays", async () => {
     const { server, request } = bundleServer();
     const a = device(request);
     await a.keys.restore();
     await a.keys.create(PASSWORD);
     const first = structuredClone(server.stored);
-    expect(await a.keys.reset(OTHER)).toEqual({ status: "unlocked", kid: 2 });
+    // A reset put in place elsewhere: the next key, under another password.
+    const next = await lockAccountKey({
+      key: await newAccountKey(),
+      kid: 2,
+      password: OTHER,
+      userId: "u1",
+      kdf,
+    });
+    server.stored = { bundle: next.bundle, version: 2 };
+    await a.keys.unlock(OTHER);
+    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 2 });
     const newer = a.keys.key();
     // The server (or one that holds its data) hands out the first bundle again.
     server.stored = first;

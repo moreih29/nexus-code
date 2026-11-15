@@ -19,6 +19,7 @@ import {
   chatRowFacts,
   groupOf,
   hookRowFacts,
+  listed,
   matchesQuery,
   ROW_GROUPS,
   type RowGroup,
@@ -27,14 +28,13 @@ import {
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
-import { leafHolding, leafShowing, parseSessionKey } from "@/services/agent-view/layout";
+import { parseSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
 import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
-import { useManagerStore } from "@/state/stores/manager";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
@@ -44,7 +44,6 @@ import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
-import { ManagerChip } from "../manager/manager-chip";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
@@ -52,6 +51,7 @@ import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
+import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { RemoteSessions } from "./remote-sessions";
 
 type DropEdge = "before" | "after";
@@ -333,7 +333,7 @@ function WorkspaceGroups({ agents, activity, chats, query }: GroupsProps) {
         .map((worktree) => ({
           worktree,
           sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
-            (session) => matchesQuery(session, query),
+            (session) => listed(session) && matchesQuery(session, query),
           ),
         }))
         // A task shows with agents to list; the workspace itself does, for its + to start
@@ -409,7 +409,8 @@ function FamilyGroup({
   return (
     <section
       aria-label={root.name}
-      className="mt-1 flex flex-col"
+      // A space between workspaces, so each one's agents read as its own.
+      className="mt-1 flex flex-col not-first:mt-3"
       data-testid="agent-sidebar-group"
     >
       <div className="flex h-7 min-w-0 items-center gap-1.5 rounded-(--radius-control) pr-1 pl-1 hover:bg-[var(--state-hover-bg)]">
@@ -563,13 +564,9 @@ function AgentItem({
   /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
   where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
 }) {
-  const { t } = useTranslation();
   const key = session.key;
-  const where = useAgentViewStore((s) =>
-    leafShowing(s.root, key) !== null ? "shown" : leafHolding(s.root, key) ? "held" : null,
-  );
+  const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
-  const managers = useManagerStore((s) => s.tasks[key] !== undefined);
   const run = activity.get(key);
   const facts =
     session.kind === "terminal"
@@ -585,9 +582,13 @@ function AgentItem({
     <div
       className={cn(
         "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
-        session.phase === "attention"
-          ? "border-(--state-warning-fg)/40 bg-(--state-warning-fg)/5 hover:bg-[var(--state-hover-bg)]"
-          : "border-transparent hover:bg-[var(--state-hover-bg)]",
+        session.phase === "attention" ? "border-(--state-warning-fg)/40" : "border-transparent",
+        where === "shown"
+          ? PANEL_SHOWN_BG
+          : cn(
+              session.phase === "attention" && "bg-(--state-warning-fg)/5",
+              "hover:bg-[var(--state-hover-bg)]",
+            ),
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
@@ -622,20 +623,7 @@ function AgentItem({
           data-testid="agent-sidebar-drop"
         />
       )}
-      {/* In a panel: a bar at its left edge, bright where the panel shows it,
-          dim where another tab is in front, so the state and time line up. */}
-      {where && (
-        <span
-          role="img"
-          aria-label={t(where === "shown" ? "agentView.list.shown" : "agentView.list.held")}
-          className={cn(
-            "pointer-events-none absolute top-1.5 bottom-1.5 left-px w-0.5 rounded-full",
-            where === "shown" ? "bg-[var(--state-selected-indicator)]" : "bg-muted-foreground/60",
-          )}
-          data-testid="agent-sidebar-panel"
-          data-where={where}
-        />
-      )}
+      {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"
@@ -687,7 +675,6 @@ function AgentItem({
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
           {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
-          {managers && <ManagerChip />}
           <RowLine session={session} facts={facts} />
         </div>
         {session.kind !== "terminal" && (

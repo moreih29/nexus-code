@@ -30,13 +30,20 @@ function fakeServer(
     devicesError?: string;
   } = {},
 ) {
-  const requests: { method: string; path: string; body?: unknown; auth?: string }[] = [];
+  const requests: {
+    method: string;
+    path: string;
+    host: string;
+    body?: unknown;
+    auth?: string;
+  }[] = [];
   const fetchFn = (async (input: URL | string, init?: RequestInit) => {
     const url = new URL(String(input));
     const headers = (init?.headers ?? {}) as Record<string, string>;
     requests.push({
       method: init?.method ?? "GET",
       path: url.pathname,
+      host: url.host,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
       auth: headers.authorization,
     });
@@ -100,6 +107,84 @@ describe("the loopback", () => {
   test("gives up when the time is up", async () => {
     const listener = await listenForCallback(20);
     await expect(listener.result).rejects.toMatchObject({ failure: "timed-out" });
+  });
+});
+
+describe("the way to the server", () => {
+  const PROXY = "https://proxy.example";
+  const saved = { server: SERVER, token: "tok", user, device };
+  /** The server, behind a proxy that fails as told. */
+  function behind(proxy: (url: URL) => Error | null) {
+    const server = fakeServer();
+    const fetchFn = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const failure = url.origin === PROXY ? proxy(url) : null;
+      if (failure) throw failure;
+      return server.fetchFn(input, init);
+    }) as typeof fetch;
+    return { server, fetchFn };
+  }
+
+  test("signs in at the server's own page, asks through the proxy, and stays the server's", async () => {
+    const { server, fetchFn } = behind(() => null);
+    const { opened, openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const store = memoryStore();
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store,
+      openExternal,
+      fetch: fetchFn,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toMatchObject({ status: "signed-in", server: SERVER });
+    expect(opened[0]?.origin).toBe(SERVER);
+    expect(server.requests.map((r) => [r.path, r.host])).toEqual([
+      ["/auth/token", "proxy.example"],
+    ]);
+    expect(store.value?.server).toBe(SERVER);
+  });
+
+  test("a proxy not reached: the request goes again straight, and the next ones too", async () => {
+    let now = 0;
+    const { server, fetchFn } = behind(() => new TypeError("fetch failed"));
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: fetchFn,
+      now: () => now,
+    });
+    await account.restore();
+    expect(await account.devices()).toEqual([{ ...device, current: true }]);
+    expect(await account.devices()).toHaveLength(1);
+    expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787", "localhost:8787"]);
+    expect(account.route.base()).toBe(SERVER);
+    // After a while, the proxy is tried again.
+    now = 5 * 60_000;
+    expect(account.route.base()).toBe(PROXY);
+  });
+
+  test("one through the proxy that timed out is not sent again; the next goes straight", async () => {
+    const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+    const { server, fetchFn } = behind(() => timeout);
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: fetchFn,
+      now: () => 0,
+    });
+    await account.restore();
+    await expect(account.devices()).rejects.toThrow("did not answer");
+    expect(server.requests).toEqual([]);
+    expect(await account.devices()).toHaveLength(1);
+    expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787"]);
   });
 });
 
@@ -280,6 +365,57 @@ describe("the account", () => {
       expect(store.value).toBeNull();
       expect(server.requests[0]?.auth).toBe("Bearer tok");
     }
+  });
+
+  test("signs in with this install's id, so the server gives the same device back", async () => {
+    const trades: unknown[] = [];
+    for (const installId of [async () => "abcdefghijklmnop1234", undefined]) {
+      const server = fakeServer();
+      const { openExternal } = browser((start) => ({
+        code: "c1",
+        state: start.searchParams.get("state") ?? "",
+      }));
+      const account = new RemoteAccount({
+        server: SERVER,
+        store: memoryStore(),
+        openExternal,
+        fetch: server.fetchFn,
+        device: { name: "Mac", platform: "darwin" },
+        ...(installId ? { installId } : {}),
+      });
+      accounts.push(account);
+      expect((await account.signIn()).status).toBe("signed-in");
+      trades.push(
+        (server.requests.find((r) => r.path === "/auth/token")?.body as { device: unknown }).device,
+      );
+    }
+    expect(trades).toEqual([
+      { name: "Mac", platform: "darwin", installId: "abcdefghijklmnop1234" },
+      { name: "Mac", platform: "darwin" },
+    ]);
+  });
+
+  test("gives a device an alias or takes it away, and keeps this one's", async () => {
+    const store = memoryStore({ server: SERVER, token: "tok", user, device });
+    const server = fakeServer();
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      fetch: server.fetchFn,
+    });
+    await account.restore();
+    await account.setDeviceAlias("d1", "  Studio ");
+    await account.setDeviceAlias("d2", "");
+    expect(server.requests.map((r) => [r.method, r.path, r.body])).toEqual([
+      ["PATCH", "/devices/d1", { alias: "Studio" }],
+      ["PATCH", "/devices/d2", { alias: null }],
+    ]);
+    expect(store.value?.device).toEqual({ ...device, alias: "Studio" });
+    const state = account.state();
+    expect(state.status === "signed-in" && state.device.alias).toBe("Studio");
+    await account.setDeviceAlias("d1", null);
+    expect(store.value?.device.alias).toBeNull();
   });
 
   test("names the device as the server takes it", () => {

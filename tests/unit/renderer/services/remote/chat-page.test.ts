@@ -7,6 +7,7 @@ import type {
   ToolCall,
 } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
+import { scopesOf } from "../../../../../src/renderer/services/chat/permission-scopes";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import { chatPageOf, conversationOf } from "../../../../../src/renderer/services/remote/chat-page";
 
@@ -245,7 +246,34 @@ describe("a page drawn as this app's chat", () => {
     expect(model.running).toBe(true);
   });
 
-  test("leaves out an item of a kind it does not know, and an image's missing bytes", () => {
+  test("words a request's always-allow choices as the serving computer did, to keep by index", () => {
+    const page = chatPageOf(source({}));
+    const model = modelOfPage({
+      ...page,
+      status: {
+        ...page.status,
+        permissions: [
+          {
+            requestId: "r",
+            toolName: "Bash",
+            input: {},
+            suggestions: [{ label: "Bash(npm test:*)" }, { label: "Accept edits" }],
+          },
+        ],
+      },
+    });
+    const suggestions = model.permissions[0]?.suggestions ?? [];
+    expect(suggestions).toEqual([
+      { type: "remote", label: "Bash(npm test:*)", index: 0 },
+      { type: "remote", label: "Accept edits", index: 1 },
+    ]);
+    expect(scopesOf(suggestions, (key) => key).map((scope) => scope.label)).toEqual([
+      "Bash(npm test:*)",
+      "Accept edits",
+    ]);
+  });
+
+  test("leaves out an item of a kind it does not know, and keeps an image's place to fetch it by", () => {
     const model = modelOfPage({
       ...chatPageOf(source({})),
       items: [
@@ -261,7 +289,44 @@ describe("a page drawn as this app's chat", () => {
       total: 2,
     });
     expect(model.items).toEqual([
-      { kind: "user", key: "a", text: "see", images: [], state: "taken" },
+      {
+        kind: "user",
+        key: "a",
+        text: "see",
+        images: [
+          { mediaType: "image/png", data: "", remote: { kind: "user", itemKey: "a", index: 0 } },
+        ],
+        state: "taken",
+        // Its key is its id here: a rewind or fork from it names it by it.
+        uuid: "a",
+      },
+    ]);
+  });
+
+  test("a message's key is its id, once the program took one of the user's", () => {
+    const model = modelOfPage({
+      ...chatPageOf(source({})),
+      items: [
+        { kind: "user", key: "u1", text: "hi", images: [], state: "sent" },
+        { kind: "assistant", key: "a1", blocks: [{ type: "text", text: "yo" }] },
+      ],
+      total: 2,
+    });
+    expect(model.items.map((item) => ("uuid" in item ? item.uuid : null))).toEqual([null, "a1"]);
+  });
+
+  test("an unread message of the user's is taken back by its key", () => {
+    const model = modelOfPage({
+      ...chatPageOf(source({})),
+      items: [
+        { kind: "user", key: "u1", text: "wait", images: [], state: "sent", queued: true },
+        { kind: "user", key: "u2", text: "sent", images: [], state: "sent" },
+      ],
+      total: 2,
+    });
+    expect(model.items.map((item) => ("sentUuid" in item ? item.sentUuid : null))).toEqual([
+      "u1",
+      null,
     ]);
   });
 

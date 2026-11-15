@@ -294,7 +294,7 @@ function stop(controller: ChatController, taskId: string, failed: string): void 
 }
 
 /** A path from the session's folder, when it is under it. */
-function shortPath(path: string, cwd: string): string {
+export function shortPath(path: string, cwd: string): string {
   const base = slashWindowsPath(cwd).replace(/\/$/, "");
   const file = slashWindowsPath(path);
   return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
@@ -335,7 +335,7 @@ function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
 }
 
-function Section({
+export function Section({
   title,
   count,
   folded = false,
@@ -411,7 +411,7 @@ function Section({
   );
 }
 
-function Row({
+export function Row({
   title,
   children,
   className,
@@ -427,7 +427,7 @@ function Row({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-6 items-center gap-2 text-app-ui-sm">
       <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
@@ -436,7 +436,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function CopyIcon({ text, label }: { text: string; label: string }) {
+export function CopyIcon({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <IconButton
@@ -652,7 +652,7 @@ function ContextSection({
   );
 }
 
-function Meter({ percent }: { percent: number }) {
+export function Meter({ percent }: { percent: number }) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
       <div
@@ -967,7 +967,7 @@ function JobButton({
   );
 }
 
-function AgentEntry({
+export function AgentEntry({
   agent,
   now,
   onOpen,
@@ -1125,13 +1125,25 @@ function Thumbnail({
   );
 }
 
-function ChangedRow({ file, cwd, onOpen }: { file: ChangedFile; cwd: string; onOpen: () => void }) {
+export function ChangedRow({
+  file,
+  cwd,
+  onOpen,
+}: {
+  file: ChangedFile;
+  cwd: string;
+  /** Opens its change; left out where it cannot be opened here (another computer's file). */
+  onOpen?: () => void;
+}) {
+  const Tag = onOpen ? "button" : "div";
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <Tag
+      {...(onOpen ? { type: "button" as const, onClick: onOpen } : {})}
       title={file.path}
-      className="flex min-h-6 min-w-0 items-center gap-2 rounded-(--radius-control) px-1 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
+      className={cn(
+        "flex min-h-6 min-w-0 items-center gap-2 rounded-(--radius-control) px-1 text-left text-app-ui-sm",
+        onOpen && "hover:bg-[var(--state-hover-bg)]",
+      )}
     >
       {file.created ? (
         <FilePlus className="size-3.5 shrink-0 text-muted-foreground" />
@@ -1147,7 +1159,7 @@ function ChangedRow({ file, cwd, onOpen }: { file: ChangedFile; cwd: string; onO
       <span className="shrink-0 text-app-micro tabular-nums text-[var(--git-status-deleted-fg)]">
         −{file.removed}
       </span>
-    </button>
+    </Tag>
   );
 }
 
@@ -1213,7 +1225,7 @@ function UsageSection({ controller, state }: { controller: ChatController; state
 }
 
 /** Dollars, with the cents' fractions a small session's cost is in. */
-function formatCost(usd: number, locale: string): string {
+export function formatCost(usd: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
@@ -1305,7 +1317,7 @@ function TextButton({ onClick, children }: { onClick: () => void; children: Reac
   );
 }
 
-function Elapsed({ from, to, now }: { from?: number; to?: number; now: number }) {
+export function Elapsed({ from, to, now }: { from?: number; to?: number; now: number }) {
   if (from === undefined) return null;
   const seconds = Math.max(0, Math.floor(((to ?? now) - from) / 1000));
   return (

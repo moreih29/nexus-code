@@ -12,7 +12,7 @@ import { MAX_TRANSCRIBE_BYTES } from "../../../../packages/remote-protocol/src/v
 import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
-import type { AccountKeyState } from "../../../shared/remote/account";
+import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -27,17 +27,21 @@ import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
+import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
+import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { listSessions, servesWith, serveWith } from "./serve";
-import { remoteServer } from "./server";
+import { remoteProxy, remoteServer } from "./server";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
-import { TicketSchema, VoiceSessions } from "./voice";
+import { askTicket } from "./ticket";
+import { VoiceSessions } from "./voice";
+import { listedComputers, VoiceNames } from "./voice-names";
 
 const c = ipcContract.remote.call;
 
@@ -170,6 +174,8 @@ export async function registerRemoteChannel(options: {
   noteFile?: (workspaceId: string, noteId: string, src: string) => Promise<Uint8Array>;
   /** The notes other devices list and put photos into, and the note it records into. */
   notes?: RemoteNotes;
+  /** Whether voice input sends the account's computer and workspace names along (off unless the user turned it on). */
+  voiceNames?: () => boolean;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -248,10 +254,13 @@ export async function registerRemoteChannel(options: {
     broadcast("remote", "roomChanged", state);
   };
   let keys: AccountKeys | null = null;
+  const server = remoteServer(process.env, app.isPackaged, (m) => console.warn(`[remote] ${m}`));
   const account = new RemoteAccount({
-    server: remoteServer(process.env, app.isPackaged, (m) => console.warn(`[remote] ${m}`)),
+    server,
+    proxy: remoteProxy(process.env, app.isPackaged, server),
     store,
     openExternal: (url) => shell.openExternal(url),
+    installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
     onChange: (state) => {
       broadcast("remote", "accountChanged", state);
@@ -269,25 +278,47 @@ export async function registerRemoteChannel(options: {
     },
   });
   keys = accountKeys;
+  // The names of the moment a voice session sends along, when the user turned them on.
+  const voiceNames = new VoiceNames({
+    enabled: () => options.voiceNames?.() ?? false,
+    workspaces: () =>
+      options
+        .services()
+        ?.listWorkspaces()
+        .map((w) => w.name) ?? [],
+    computers: () => listedComputers(roomState),
+    list: (deviceId, timeoutMs) => inRoom().request(deviceId, "sessions.list", {}, timeoutMs),
+  });
+  const names = () => voiceNames.collect();
   const voice = new VoiceSessions({
     account,
+    names,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   // A note's recording: its own session, so a dictation can go on beside it.
   const noteVoice = new VoiceSessions({
     account,
     purpose: "note",
+    names,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
   const relayUrl = async () => {
-    const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
-    const url = new URL("/relay", account.state().server);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const ticket = await askTicket(account);
+    const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
+    relayVia = url.origin;
     return url.toString();
   };
+  /** Where the relay's socket went, and the socket: one that went straight goes back through the proxy. */
+  let relayVia: string | null = null;
+  let relay: RelayConnection | null = null;
+  returnToProxy({
+    route: account.route,
+    via: () => (roomState.status === "online" ? relayVia : null),
+    reconnect: () => relay?.reconnect(),
+  });
   function syncRoom(): void {
     const signedIn = account.state();
     const key = keys?.key() ?? null;
@@ -311,7 +342,14 @@ export async function registerRemoteChannel(options: {
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
         ),
-      connect: (handlers) => new RelayConnection({ ...handlers, url: relayUrl }),
+      connect: (handlers) => {
+        relay = new RelayConnection({
+          ...handlers,
+          url: relayUrl,
+          unreachable: (url) => void account.route.unreachable(url),
+        });
+        return relay;
+      },
       serve: serveWith(options.services, {
         chats: watches,
         sessions: sessionWatches,
@@ -351,6 +389,7 @@ export async function registerRemoteChannel(options: {
             update: params as RpcNotificationParams<"terminal.update">,
           });
         } else if (method === "sessions.update") {
+          voiceNames.took(from, params as RpcNotificationParams<"sessions.update">);
           broadcast("remote", "peerSessionsUpdate", {
             deviceId: from,
             update: params as RpcNotificationParams<"sessions.update">,
@@ -421,19 +460,19 @@ export async function registerRemoteChannel(options: {
         ).then((result) => (result.ok ? result.value : result));
       },
       devices: () => ask(() => account.devices()),
-      renameDevice: (args: unknown) => {
-        const { id, name } = validateArgs(c.renameDevice.args, args);
-        return ask(() => account.renameDevice(id, name));
+      setDeviceAlias: (args: unknown) => {
+        const { id, alias } = validateArgs(c.setDeviceAlias.args, args);
+        return ask(() => account.setDeviceAlias(id, alias));
       },
       removeDevice: (args: unknown) => {
-        const { id, password } = validateArgs(c.removeDevice.args, args);
+        const { id, password, keepKey } = validateArgs(c.removeDevice.args, args);
         const self = account.state();
         if (self.status === "signed-in" && self.device.id === id) {
           return ask(() => account.removeDevice(id));
         }
         return keyFlow(() =>
           ask(async () => {
-            await accountKeys.removeDevices([id], password);
+            await accountKeys.removeDevices([id], password, { keepKey });
           }),
         ).then((result) => (result.ok ? result.value : result));
       },
@@ -444,6 +483,12 @@ export async function registerRemoteChannel(options: {
         options.allowControl.set(allowed);
         // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
+        // What they held for after a turn goes no more.
+        if (!allowed)
+          void options
+            .services()
+            ?.ui("chat.dropHeld", {})
+            .catch(() => {});
         return ipcOk(allowed);
       },
       allowTerminal: async () => ipcOk(options.allowTerminal.get()),
@@ -459,15 +504,30 @@ export async function registerRemoteChannel(options: {
         options.agents.set(policy);
         // Turned off, the others learn it from the hello and send their agents' requests no more.
         room?.announce();
+        // Nor does what their agents' messages left held for after a turn.
+        if (policy === "deny") {
+          void options
+            .services()
+            ?.ui("chat.dropHeld", { agentsOnly: true })
+            .catch(() => {});
+        }
         return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
-        return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));
+        return askPeer(async () => {
+          const list = await inRoom().request(deviceId, "sessions.list", {});
+          voiceNames.took(deviceId, list);
+          return list;
+        });
       },
       peerSessionsWatch: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessionsWatch.args, args);
-        return askPeer(() => inRoom().request(deviceId, "sessions.watch", {}));
+        return askPeer(async () => {
+          const list = await inRoom().request(deviceId, "sessions.watch", {});
+          voiceNames.took(deviceId, list);
+          return list;
+        });
       },
       peerSessionsUnwatch: (args: unknown) => {
         const { deviceId, watchId } = validateArgs(c.peerSessionsUnwatch.args, args);
@@ -515,6 +575,94 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatInterrupt.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.interrupt", params));
       },
+      peerChatSettings: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatSettings.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.settings", params));
+      },
+      peerChatConfigure: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatConfigure.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.configure", params));
+      },
+      peerChatCommands: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatCommands.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.commands", params));
+      },
+      peerChatCommand: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatCommand.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.command", params));
+      },
+      peerChatStopTask: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatStopTask.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.stopTask", params));
+      },
+      peerChatImage: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatImage.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.image", params));
+      },
+      peerFilesList: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerFilesList.args, args);
+        return askPeer(() => inRoom().request(deviceId, "files.list", params));
+      },
+      peerFilesRead: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerFilesRead.args, args);
+        return askPeer(() => inRoom().request(deviceId, "files.read", params));
+      },
+      peerGitDiff: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
+        return askPeer(() => inRoom().request(deviceId, "git.diff", params));
+      },
+      peerHistory: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerHistory.args, args);
+        return askPeer(() => inRoom().request(deviceId, "history.list", params));
+      },
+      peerChatResume: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatResume.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.resume", params));
+      },
+      peerChatRewindPreview: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRewindPreview.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.rewindPreview", params));
+      },
+      peerChatRewind: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRewind.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.rewind", params));
+      },
+      peerChatFork: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatFork.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.fork", params));
+      },
+      peerChatUnqueue: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUnqueue.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.unqueue", params));
+      },
+      peerChatWithdraw: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatWithdraw.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.withdraw", params));
+      },
+      peerChatHurry: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatHurry.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.hurry", params));
+      },
+      peerChatBackground: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatBackground.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.background", params));
+      },
+      peerChatRemoteControl: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRemoteControl.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.remoteControl", params));
+      },
+      peerProfiles: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
+        return askPeer(() => inRoom().request(deviceId, "profiles.list", params));
+      },
+      peerChatProfile: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatProfile.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.profile", params));
+      },
+      peerChatAttach: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatAttach.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.attach", params));
+      },
       peerTerminal: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminal.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.read", params));
@@ -544,10 +692,6 @@ export async function registerRemoteChannel(options: {
       resetKey: (args: unknown) => {
         const { password } = validateArgs(c.resetKey.args, args);
         return keyFlow(() => accountKeys.reset(password));
-      },
-      confirmPassword: (args: unknown) => {
-        const { password } = validateArgs(c.confirmPassword.args, args);
-        return keyFlow(() => accountKeys.confirmPassword(password));
       },
       cancelReset: (args: unknown) => {
         const { password } = validateArgs(c.cancelReset.args, args);
@@ -580,6 +724,11 @@ export async function registerRemoteChannel(options: {
         return ipcOk(undefined);
       },
       voiceUsage: () => ask(() => voice.usage()),
+      voiceTerms: () => ask(() => voice.terms()),
+      setVoiceTerms: (args: unknown) => {
+        const { terms } = validateArgs(c.setVoiceTerms.args, args);
+        return ask(() => voice.setTerms(terms));
+      },
       voiceTranscribe: async (args: unknown) => {
         const { workspaceId, noteId, file, token, language } = validateArgs(
           c.voiceTranscribe.args,
@@ -640,17 +789,29 @@ export async function registerRemoteChannel(options: {
         const self = account.state();
         const selfId = self.status === "signed-in" ? self.device.id : "";
         const listed = await account.devices().catch(() => null);
-        const known: { id: string; name: string; platform: string; lastSeenAt?: number }[] =
-          listed ?? [
-            ...(self.status === "signed-in" ? [self.device] : []),
-            ...peers.map((p) => ({ id: p.id, name: p.name, platform: p.platform })),
-          ];
+        const known: {
+          id: string;
+          name: string;
+          alias?: string | null;
+          platform: string;
+          lastSeenAt?: number;
+        }[] = listed ?? [
+          ...(self.status === "signed-in" ? [self.device] : []),
+          ...peers.map((p) => ({
+            id: p.id,
+            name: p.hostName ?? p.name,
+            alias: p.hostName ? p.name : null,
+            platform: p.platform,
+          })),
+        ];
         return known.map((d) => {
           const peer = peers.find((p) => p.id === d.id);
           const isSelf = d.id === selfId;
+          const hostName = peer ? peer.hostName : d.alias ? d.name : undefined;
           return {
             id: d.id,
-            name: peer?.name ?? d.name,
+            name: peer?.name ?? deviceLabel(d),
+            ...(hostName ? { hostName } : {}),
             platform: d.platform,
             self: isSelf,
             online: isSelf ? roomState.status === "online" : (peer?.online ?? false),

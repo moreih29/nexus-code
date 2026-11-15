@@ -7,7 +7,6 @@ import {
   SHAREABLE,
 } from "../../../shared/agent-profiles/profiles";
 import { createLogger } from "../../../shared/log/main";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { AgentChannel, ChannelLifecycleEvent } from "../../infra/agent/channel";
 import type { WindowsAgentFiles } from "../pty/windows-shell-shim";
 import type { HookInfo } from "../workspace/manager";
@@ -162,7 +161,7 @@ export class ChatHost {
         tabId,
         cwd,
         program,
-        args: claudeTabArgs(resume, hooksSettings, isManagerWorkspace(workspaceId)),
+        args: claudeTabArgs(resume, hooksSettings, version),
         env,
         ...(resume.resetLog ? { resetLog: true } : {}),
         ...(resume.resume !== undefined ? { resumed: true } : {}),

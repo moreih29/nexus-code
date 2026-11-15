@@ -3,8 +3,8 @@
 // The NexusCode account the remote runs on: signing in with one of the
 // server's sign-ins, Google or GitHub (sign-in-buttons; in the system
 // browser, main waits for it to come back), who the app is signed in as,
-// the account password (remote-key-group), and the account's devices,
-// each of which can be renamed or removed.
+// the account password (remote-key-group), what other devices may do here,
+// and the account's devices, each of which can be renamed or removed.
 
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -13,15 +13,18 @@ import { cn } from "@/utils/cn";
 import type { ServerInfo } from "../../../../../packages/remote-protocol/src/info";
 import type { AccountKeyState } from "../../../../shared/remote/account";
 import {
+  deviceLabel,
+  MAX_DEVICE_ALIAS,
   type RemoteAccountState,
   type RemoteDeviceInfo,
   SIGN_IN_PROVIDERS,
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
+import { SERVER } from "../../../../shared/remote/server";
 import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
-import { useRemoteRoom } from "../../../services/remote/room";
+import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
@@ -35,6 +38,7 @@ import {
 } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
+import { OutdatedGroup } from "./remote-outdated";
 import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
@@ -49,7 +53,14 @@ const iconButtonClass = cn(
 const tagClass =
   "shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground";
 
-const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
+const PLATFORMS: Record<string, string> = {
+  darwin: "macOS",
+  win32: "Windows",
+  linux: "Linux",
+  ios: "iOS",
+  android: "Android",
+  web: "Web",
+};
 
 /** The account's state from main, kept up as it changes. */
 function useRemoteAccount(): RemoteAccountState | null {
@@ -104,11 +115,13 @@ function useSignIns(ask: boolean): {
 export function RemotePanel() {
   const state = useRemoteAccount();
   const key = useAccountKey();
-  const room = useRemoteRoom();
+  // Who is in the room, with a drop shorter than DROP_SHOWN_AFTER_MS left out.
+  const room = useShownRoom(useRemoteRoom());
   const signIns = useSignIns(state?.status === "signed-out");
   if (!state) return null;
   return (
     <SettingsPage>
+      {room?.status === "outdated" && <OutdatedGroup />}
       <AccountGroup
         state={state}
         signIns={signIns.providers}
@@ -116,6 +129,7 @@ export function RemotePanel() {
         onRetry={signIns.retry}
       />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
+      {state.status === "signed-in" && <RemoteControlGroup />}
       {state.status === "signed-in" && (
         <DevicesGroup thisDevice={state.device.id} room={room} keyState={key} />
       )}
@@ -151,7 +165,10 @@ export function AccountGroup({
         : undefined;
 
   return (
-    <SettingsGroup title={t("remote.account.title")} description={t("remote.account.description")}>
+    <SettingsGroup
+      title={t("remote.account.title")}
+      description={state.status === "signed-in" ? undefined : t("remote.account.description")}
+    >
       {state.status === "signed-in" ? (
         <SettingsRow label={state.user.name || state.user.email} description={state.user.email}>
           <Button variant="outline" size="sm" onClick={signOut}>
@@ -191,9 +208,12 @@ export function AccountGroup({
           </div>
         </SettingsSection>
       )}
-      <p className="text-app-micro text-muted-foreground">
-        {t("remote.account.server", { server: state.server })}
-      </p>
+      {/* The released app's own server goes without saying. */}
+      {state.server !== SERVER && (
+        <p className="text-app-micro text-muted-foreground">
+          {t("remote.account.server", { server: state.server })}
+        </p>
+      )}
     </SettingsGroup>
   );
 }
@@ -296,9 +316,21 @@ export function RemoteAgentsPolicyRow() {
   );
 }
 
-/** Whether the server asks for the account password before removing a device or deleting the account (account keys v2). */
+/** What the account's other devices may do here: chats, terminals, and their agents. */
+export function RemoteControlGroup() {
+  const { t } = useTranslation("settings");
+  return (
+    <SettingsGroup title={t("remote.controlTitle")}>
+      <RemoteControlSwitch />
+      <RemoteTerminalSwitch />
+      <RemoteAgentsPolicyRow />
+    </SettingsGroup>
+  );
+}
+
+/** Whether the server asks for the account password before removing a device or deleting the account: once the account has a key. */
 function asksPassword(key: AccountKeyState | null): boolean {
-  return (key?.status === "unlocked" || key?.status === "locked") && key.v2 === true;
+  return key?.status === "unlocked" || key?.status === "locked";
 }
 
 function DevicesGroup({
@@ -314,8 +346,8 @@ function DevicesGroup({
   const [passwordRequest, setPasswordRequest] = useState<PasswordRequest | null>(null);
   const [view, setView] = useState<DevicesView>({ status: "loading" });
   const [busy, setBusy] = useState(false);
-  const [renaming, setRenaming] = useState<RemoteDeviceInfo | null>(null);
-  const [renameBusy, setRenameBusy] = useState(false);
+  const [naming, setNaming] = useState<RemoteDeviceInfo | null>(null);
+  const [aliasBusy, setAliasBusy] = useState(false);
   /** Who is in the room now; this device while it is. */
   const online = (id: string) =>
     id === thisDevice
@@ -344,10 +376,10 @@ function DevicesGroup({
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;
-    // Another device, on a server of account keys v2: the account key is rotated, with the password.
+    // Another device: the account key is rotated, with the password.
     if (!self && asksPassword(keyState)) {
       setPasswordRequest({
-        title: t("remote.devices.removeConfirm.title", { name: device.name }),
+        title: t("remote.devices.removeConfirm.title", { name: deviceLabel(device) }),
         description: t("remote.devices.removeConfirm.descriptionRotate"),
         confirmLabel: t("remote.devices.removeConfirm.confirm"),
         destructive: true,
@@ -366,7 +398,7 @@ function DevicesGroup({
       return;
     }
     const ok = await showConfirmDialog({
-      title: t("remote.devices.removeConfirm.title", { name: device.name }),
+      title: t("remote.devices.removeConfirm.title", { name: deviceLabel(device) }),
       description: self
         ? t("remote.devices.removeConfirm.descriptionSelf")
         : t("remote.devices.removeConfirm.description"),
@@ -379,12 +411,15 @@ function DevicesGroup({
     else if (!result.ok && result.kind !== "session-expired") setView({ status: "unavailable" });
   };
 
-  const rename = async (name: string) => {
-    if (!renaming) return;
-    setRenameBusy(true);
-    const result = await ipcCallResult("remote", "renameDevice", { id: renaming.id, name });
-    setRenameBusy(false);
-    setRenaming(null);
+  const giveAlias = async (alias: string) => {
+    if (!naming) return;
+    setAliasBusy(true);
+    const result = await ipcCallResult("remote", "setDeviceAlias", {
+      id: naming.id,
+      alias: alias || null,
+    });
+    setAliasBusy(false);
+    setNaming(null);
     if (result.ok || result.kind === "not-found") void load();
     else if (result.kind !== "session-expired") setView({ status: "unavailable" });
   };
@@ -405,9 +440,6 @@ function DevicesGroup({
         </button>
       }
     >
-      <RemoteControlSwitch />
-      <RemoteTerminalSwitch />
-      <RemoteAgentsPolicyRow />
       {view.status === "unavailable" && (
         <p className="text-app-ui-sm text-destructive" role="alert">
           {t("remote.devices.unavailable")}
@@ -424,7 +456,7 @@ function DevicesGroup({
               device={device}
               current={device.current ?? device.id === thisDevice}
               online={online(device.id)}
-              onRename={() => setRenaming(device)}
+              onAlias={() => setNaming(device)}
               onRemove={() => void remove(device)}
             />
           ))}
@@ -432,16 +464,19 @@ function DevicesGroup({
       )}
       <PromptDialog
         request={
-          renaming && {
-            title: t("remote.devices.renameTitle", { name: renaming.name }),
-            label: t("remote.devices.renameLabel"),
-            defaultValue: renaming.name,
-            confirmLabel: t("remote.devices.renameConfirm"),
+          naming && {
+            title: t("remote.devices.aliasTitle", { name: deviceLabel(naming) }),
+            description: t("remote.devices.aliasDescription", { name: naming.name }),
+            label: t("remote.devices.aliasLabel"),
+            placeholder: naming.name,
+            defaultValue: naming.alias ?? "",
+            confirmLabel: t("remote.devices.aliasConfirm"),
+            allowEmpty: true,
           }
         }
-        busy={renameBusy}
-        onCancel={() => setRenaming(null)}
-        onConfirm={(name) => void rename(name.trim().slice(0, 100))}
+        busy={aliasBusy}
+        onCancel={() => setNaming(null)}
+        onConfirm={(alias) => void giveAlias(alias.trim().slice(0, MAX_DEVICE_ALIAS))}
       />
       <PasswordDialog request={passwordRequest} onClose={() => setPasswordRequest(null)} />
     </SettingsGroup>
@@ -452,18 +487,20 @@ export function DeviceRow({
   device,
   current,
   online = false,
-  onRename,
+  onAlias,
   onRemove,
 }: {
   device: RemoteDeviceInfo;
   current: boolean;
   /** In the account's room now. */
   online?: boolean;
-  onRename?: () => void;
+  /** Gives it an alias, or takes it away. */
+  onAlias?: () => void;
   onRemove: () => void;
 }) {
   const { t, i18n } = useTranslation("settings");
   const platform = PLATFORMS[device.platform] ?? device.platform;
+  const label = deviceLabel(device);
   const seen =
     device.lastSeenAt !== undefined
       ? t("remote.devices.lastSeen", {
@@ -489,19 +526,19 @@ export function DeviceRow({
             aria-label={online ? t("remote.devices.online") : t("remote.devices.offline")}
             title={online ? t("remote.devices.online") : t("remote.devices.offline")}
           />
-          <span className="truncate text-app-body text-foreground">{device.name}</span>
+          <span className="truncate text-app-body text-foreground">{label}</span>
           {current && <span className={tagClass}>{t("remote.devices.current")}</span>}
         </span>
         <span className="truncate text-app-micro text-muted-foreground">
-          {seen ? `${platform} · ${seen}` : platform}
+          {[device.alias ? device.name : null, platform, seen].filter(Boolean).join(" · ")}
         </span>
       </div>
-      {onRename && (
+      {onAlias && (
         <button
           type="button"
-          aria-label={t("remote.devices.rename", { name: device.name })}
-          title={t("remote.devices.rename", { name: device.name })}
-          onClick={onRename}
+          aria-label={t("remote.devices.alias", { name: label })}
+          title={t("remote.devices.alias", { name: label })}
+          onClick={onAlias}
           className={iconButtonClass}
         >
           <Pencil className="size-3.5" aria-hidden="true" />
@@ -509,8 +546,8 @@ export function DeviceRow({
       )}
       <button
         type="button"
-        aria-label={t("remote.devices.remove", { name: device.name })}
-        title={t("remote.devices.remove", { name: device.name })}
+        aria-label={t("remote.devices.remove", { name: label })}
+        title={t("remote.devices.remove", { name: label })}
         onClick={onRemove}
         className={iconButtonClass}
       >
@@ -558,7 +595,7 @@ export function DeleteAccountGroup({ keyState }: { keyState: AccountKeyState | n
     if (!result.ok && result.kind !== "session-expired") setError(true);
   };
   return (
-    <SettingsGroup title={t("remote.delete.title")}>
+    <SettingsGroup>
       <SettingsRow
         label={t("remote.delete.label")}
         description={

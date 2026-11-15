@@ -627,8 +627,7 @@
       "attention": "응답 필요",
       "running": "작업 중",
       "done": "새 결과",
-      "idle": "대기",
-      "ended": "종료"
+      "idle": "대기"
     },
     "list": {
       "search": "대화 찾기",
@@ -1035,7 +1034,7 @@
     "queue": {
       "aria": "읽히길 기다리는 메시지",
       "label": "읽기 전",
-      "after_turn": "턴 끝나고",
+      "after_turn": "턴 종료 후",
       "images_one": "이미지 {{count}}개",
       "images_other": "이미지 {{count}}개",
       "edit": "편집",
@@ -1047,8 +1046,8 @@
       "aria": "Claude에게 보낼 메시지",
       "hint": "{{send}} 보내기 · {{newLine}} 줄바꿈 · / 명령 · @ 파일",
       "hint_codex": "{{send}} 보내기 · {{newLine}} 줄바꿈 · @ 파일",
-      "hint_running": "{{send}} 대기열 · {{nowKey}} 즉시 보내기 · {{queueKey}} 턴 끝나고 보내기",
-      "hint_running_codex": "{{send}} 이번 턴에 보내기 · {{queueKey}} 턴 끝나고 보내기",
+      "hint_running": "{{send}} 도구 실행 후 전달 · {{nowKey}} 즉시 전달 · {{queueKey}} 턴 종료 후 전달",
+      "hint_running_codex": "{{send}} 즉시 전달 · {{queueKey}} 턴 종료 후 전달",
       "send": "보내기",
       "steer": "이번 턴에 보내기",
       "queue": "대기열에 넣기",
@@ -1152,11 +1151,13 @@
         "copy_url": "Remote Control 링크 복사",
         "open_url": "Remote Control 링크 열기",
         "folder": "폴더",
+        "computer": "컴퓨터",
         "branch": "브랜치",
         "session": "세션",
         "copy_session": "세션 ID 복사",
         "fork_session": "세션 전체를 포크",
         "model": "모델",
+        "profile": "프로필",
         "version": "버전",
         "account": "계정"
       },
@@ -1723,7 +1724,7 @@
     },
     "list": {
       "title": "에이전트",
-      "group_by": "묶기",
+      "group_by": "분류",
       "grouping": {
         "status": "상태",
         "workspace": "워크스페이스"
@@ -1759,19 +1760,24 @@
         "idle": "대기",
         "ended": "종료"
       },
-      "viewOnly": "보기 전용",
+      "terminalsShow_one": "터미널 {{count}}개 보기",
+      "terminalsShow_other": "터미널 {{count}}개 보기",
+      "terminalsHide": "터미널 숨기기",
       "viewOnlyNote": "{{device}}에서 다른 기기의 조작을 허용하지 않아 보기만 됩니다.",
-      "close": "닫기",
       "gone": "닫힌 세션입니다",
       "placeholder": "{{device}}에 메시지 보내기",
-      "send": "보내기",
-      "stop": "중단",
       "failed": "전달하지 못했습니다: {{message}}",
+      "filesRefused": "다른 컴퓨터의 채팅에는 이미지만 보낼 수 있습니다",
       "offline": "{{device}}이(가) 오프라인입니다",
       "disconnected": "서버에 연결되지 않음",
+      "outdated": "이 버전으로는 연결할 수 없습니다",
       "offlineLast": "{{device}}이(가) 오프라인입니다. 마지막으로 받은 내용을 보여 줍니다.",
       "disconnectedLast": "서버에 연결되지 않았습니다. 마지막으로 받은 내용을 보여 줍니다.",
-      "offlineTag": "오프라인"
+      "offlineTag": "오프라인",
+      "profileBusy": "응답이 끝나거나 요청에 답한 뒤 바꿀 수 있습니다",
+      "fileTruncated": "파일 앞부분만 보여 줍니다",
+      "fileBinary": "여기서 보여 줄 수 없는 파일입니다",
+      "localAddress": "{{url}}은(는) {{device}}의 주소입니다. 그 컴퓨터에서 여세요"
     }
   },
   "releaseNotes": {
@@ -1792,41 +1798,6 @@
     "news": "{{version}} 새 소식",
     "dismissNews": "새 소식 닫기"
   },
-  "manager": {
-    "title": "에이전트 매니저",
-    "button": "매니저",
-    "button_unread_one": "에이전트 매니저, 새 보고 {{count}}개",
-    "button_unread_other": "에이전트 매니저, 새 보고 {{count}}개",
-    "chip": "매니저",
-    "task_title": "에이전트 매니저가 맡긴 작업",
-    "sent": "매니저가 보냄",
-    "sent_title": "에이전트 매니저가 보낸 메시지입니다",
-    "report_empty": "세션 변화",
-    "report_more_one": "{{title}} 외 {{count}}건",
-    "report_more_other": "{{title}} 외 {{count}}건",
-    "state": {
-      "completed": "완료",
-      "permissionPending": "권한 요청",
-      "needsInput": "응답 필요",
-      "error": "오류",
-      "closed": "닫힘"
-    },
-    "new_conversation": "새 대화",
-    "settings": "매니저 설정",
-    "close": "닫기",
-    "resize": "매니저 크기 조정",
-    "asks": "{{tool}} 사용 허락을 기다립니다",
-    "starting": "매니저 시작 중",
-    "off": {
-      "title": "에이전트 매니저가 꺼져 있습니다",
-      "description": "켜면 앱과 함께 시작해 모든 세션을 보고, 맡긴 일을 세션에 나눠 지시합니다.",
-      "enable": "켜기"
-    },
-    "tasks_one": "맡긴 작업 {{count}}",
-    "tasks_other": "맡긴 작업 {{count}}",
-    "tasks_waiting_one": "대기 {{count}}",
-    "tasks_waiting_other": "대기 {{count}}"
-  },
   "systemStats": {
     "this_computer": "이 컴퓨터",
     "cpu_title": "CPU: {{percent}}% 사용 중",
@@ -1843,6 +1814,7 @@
     "needsSignIn": "로그인하면 음성 입력을 쓸 수 있습니다",
     "unavailable": "이 서버는 음성 입력을 지원하지 않습니다",
     "signIn": "로그인",
+    "update": "업데이트",
     "openSettings": "시스템 설정 열기",
     "failure": {
       "signed-out": "음성 입력을 쓰려면 로그인하세요.",
@@ -1852,6 +1824,7 @@
       "quota": "이번 달 음성 입력 시간을 다 썼습니다.",
       "busy": "이미 두 곳에서 음성 입력 중입니다. 하나를 먼저 끄세요.",
       "network": "서버에 연결할 수 없습니다.",
+      "outdated": "NexusCode를 업데이트해야 음성 입력을 쓸 수 있습니다.",
       "failed": "음성 입력을 시작하지 못했습니다.",
       "recognition": "음성 인식에 실패했습니다.",
       "dropped": "음성 입력 연결이 끊겼습니다."
@@ -1860,5 +1833,8 @@
       "session": "음성 입력은 한 번에 10분까지입니다.",
       "quota": "이번 달 음성 입력 시간을 다 썼습니다."
     }
+  },
+  "remoteNotice": {
+    "workspaceAdded": "{{device}}에서 워크스페이스 추가"
   }
 }

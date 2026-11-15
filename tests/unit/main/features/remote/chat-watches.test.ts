@@ -13,7 +13,6 @@ function setup(pageItems = 0) {
   const sent: [string, ChatUpdate][] = [];
   const services = {
     listWorkspaces: () => [{ id: "w1", name: "app", rootPath: "/src/app" }],
-    managerWorkspace: () => null,
     ui: async (op: string, args: Record<string, unknown>) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "claude", title: "Chat" }] };
       asked.push([op, args]);
@@ -80,6 +79,16 @@ describe("the chats watched here", () => {
     ]);
     expect(asked.filter(([op]) => op === "chat.unwatch")).toHaveLength(3);
     expect(page.items).toHaveLength(2);
+  });
+
+  test("a watch that takes appends asks the renderer for them", async () => {
+    const { watches, asked } = setup();
+    await watches.watch("d1", { ...chat, appends: true });
+    await watches.watch("d1", chat);
+    expect(asked.filter(([op]) => op === "chat.watch").map(([, a]) => a.appends)).toEqual([
+      true,
+      undefined,
+    ]);
   });
 
   test("only its device ends a watch; a device leaving ends all of its own", async () => {

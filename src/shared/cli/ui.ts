@@ -24,6 +24,12 @@ export interface CliPastSession {
   cwd: string;
   /** The profile that keeps it. */
   profile: string;
+  /** Its first prompt, when its title is not. */
+  firstPrompt?: string;
+  /** The git branch it ran on. */
+  gitBranch?: string;
+  /** The tab it is open in now. */
+  tabId?: string;
 }
 
 /** An image of a chat, small enough to send. */
@@ -61,6 +67,11 @@ export interface CliTabInfo {
   readonly url?: string;
   /** A terminal whose process has ended. */
   readonly dead?: boolean;
+  /**
+   * A terminal not started yet: its workspace has not been opened since the
+   * app started, so it has nothing to read or watch.
+   */
+  readonly unstarted?: boolean;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
   /** Pinned to the front of its group. */
@@ -241,17 +252,6 @@ export function isTerminalChange(change: CliChange): boolean {
   );
 }
 
-/**
- * Whether a change types, runs or sends something: what is typed into a
- * terminal or sent a tab, or a change that carries what it would run or say
- * (a new terminal's command, a new tab's or task's prompt).
- */
-export function carriesInput(change: CliChange): boolean {
-  return (
-    change.kind === "terminalInput" || change.kind === "chatInput" || change.body !== undefined
-  );
-}
-
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
 export interface CliChatSettings {
   readonly model?: string;
@@ -300,6 +300,8 @@ export interface CliChatInfo {
   readonly profile?: string;
   /** The goal it works toward (/goal), while it shows one. */
   readonly goal?: CliChatGoal;
+  /** The folder it runs in, when it is not its workspace's. */
+  readonly cwd?: string;
 }
 
 /** What a tab asks the user for. */
@@ -646,8 +648,9 @@ export interface CliUiOps {
   /**
    * Makes a task of `parentId`, as New Task does: its worktree, branch and
    * one tab, `start` (the task agent when absent): an agent's tab sent
-   * `prompt`, or a terminal running the command with `prompt`. Shown if
-   * `show`, else started behind the user's view.
+   * `prompt`, or a terminal running the command with `prompt`. A plain
+   * shell (an empty command) has no tab until the task is shown, when its
+   * panel opens one. Shown if `show`, else started behind the user's view.
    */
   "task.create": {
     args: {
@@ -661,8 +664,11 @@ export interface CliUiOps {
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
     };
-    /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
-    result: { workspaceId: string; tabId: string; start: CliTaskStart };
+    /**
+     * `start` is what its tab runs: an agent, or a command ("" for a plain
+     * shell, which has no tab yet).
+     */
+    result: { workspaceId: string; tabId?: string; start: CliTaskStart };
   };
   /**
    * Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is
@@ -729,10 +735,11 @@ export interface CliUiOps {
   };
   /**
    * Goes on with a conversation of the past in a new tab, behind what the
-   * window shows; the tab that has it open already, if one does.
+   * window shows; the tab that has it open already, if one does. With
+   * `tabId`, a tab of the agent's with no conversation yet, in that tab.
    */
   "chat.resume": {
-    args: { workspaceId: string; agent: ChatAgent; sessionId: string };
+    args: { workspaceId: string; agent: ChatAgent; sessionId: string; tabId?: string };
     result: { tabId: string };
   };
   /**
@@ -807,10 +814,17 @@ export interface CliUiOps {
   /**
    * Starts telling main what changes in a Claude or Codex tab's
    * conversation, for another device watching it (the remote's chat.watch):
-   * its page now, then remote.chatChanged with `watchId` as it changes.
+   * its page now, then remote.chatChanged with `watchId` as it changes;
+   * with `appends`, text added to an assistant's block as appends.
    */
   "chat.watch": {
-    args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      watchId: string;
+      limit?: number;
+      appends?: boolean;
+    };
     result: ChatPage & { panel?: ChatPanel };
   };
   /**
@@ -820,14 +834,6 @@ export interface CliUiOps {
   "chat.rename": {
     args: { workspaceId: string; tabId: string; title: string };
     result: { title: string };
-  };
-  /**
-   * How many messages between agents led to the one that started the tab's
-   * latest turn: 0 for the user's. A message its agent sends counts one more.
-   */
-  "chat.turnHops": {
-    args: { workspaceId: string; tabId: string };
-    result: { hops: number };
   };
   /**
    * A page of a chat on another device (its chat.read) as chat read tells
@@ -847,6 +853,48 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; taskId: string };
     result: Record<string, never>;
   };
+  /**
+   * What rewinding a Claude tab to before one of the user's messages (by
+   * its item's key) would undo in the files, as its rewind dialog shows.
+   */
+  "chat.rewindPreview": {
+    args: { workspaceId: string; tabId: string; itemKey: string };
+    result: {
+      canRewind: boolean;
+      error?: string;
+      filesChanged: string[];
+      insertions: number;
+      deletions: number;
+    };
+  };
+  /**
+   * Rewinds a Claude tab to before one of the user's messages, by its
+   * item's key: the conversation, and with `files` the files too.
+   */
+  "chat.rewind": {
+    args: { workspaceId: string; tabId: string; itemKey: string; files: boolean };
+    result: Record<string, never>;
+  };
+  /**
+   * Forks a Claude tab into a new one behind what the window shows: from a
+   * user's message (by its item's key), the conversation before it, the
+   * message as `draft` for the asking device; from an answer, up to it;
+   * with no item, all of it.
+   */
+  "chat.fork": {
+    args: { workspaceId: string; tabId: string; itemKey?: string };
+    result: { tabId: string; draft?: string };
+  };
+  /** Sends a Claude tab's running command or subagent to the background, by its call's id. */
+  "chat.background": {
+    args: { workspaceId: string; tabId: string; toolUseId: string };
+    result: Record<string, never>;
+  };
+  /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
+  "chat.remoteControl": {
+    args: { workspaceId: string; tabId: string; enabled: boolean };
+    result: Record<string, never>;
+  };
   /** Stops a watch chat.watch started; nothing when there is none. */
   "chat.unwatch": {
     args: { watchId: string };
@@ -855,7 +903,8 @@ export interface CliUiOps {
   /**
    * An image of a Claude or Codex tab: a user message's, by its item's key,
    * or a tool result's, by its call's id; at its index there. Made smaller
-   * when its base64 would take over `maxChars`.
+   * when its base64 would take over `maxChars`, or its longer side over
+   * `maxEdge` pixels.
    */
   "chat.image": {
     args: {
@@ -865,6 +914,7 @@ export interface CliUiOps {
         | { kind: "user"; itemKey: string; index: number }
         | { kind: "tool"; toolUseId: string; index: number };
       maxChars: number;
+      maxEdge?: number;
     };
     result: CliChatImage;
   };
@@ -908,7 +958,52 @@ export interface CliUiOps {
       user?: boolean;
       /** Images with it, as the composer's pasted ones go (base64). */
       images?: { mediaType: string; data: string }[];
+      /**
+       * Files with it, as the composer's dropped ones go: each written where
+       * the agent reads it, its path's mention after the text (base64).
+       */
+      files?: { name: string; data: string }[];
+      /**
+       * During a turn, as the composer's keys: next (↩, the default), now
+       * (⌘↩, Claude's alone), after the turn (⌘⇧↩, held by the tab).
+       */
+      when?: "next" | "now" | "after";
+      /**
+       * The user's other computer it comes from: held for after the turn, it
+       * is dropped if control from other computers is turned off first.
+       */
+      device?: string;
     };
+    /** `heldId`: the message's id while the tab holds it for after the turn. */
+    result: { heldId?: string };
+  };
+  /** Takes back a message the tab holds for after the turn, with its whole text. */
+  "chat.unqueue": {
+    args: { workspaceId: string; tabId: string; id: string };
+    result: { text: string };
+  };
+  /** Changes the text of a message the tab holds for after the turn, its images kept. */
+  "chat.editHeld": {
+    /** `device`: the user's other computer that changes it, whose it is then. */
+    args: { workspaceId: string; tabId: string; id: string; text: string; device?: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Drops the messages the tabs hold that came from other computers, as
+   * control from them is turned off: all of them, or only their agents'.
+   */
+  "chat.dropHeld": {
+    args: { agentsOnly?: boolean };
+    result: { dropped: number };
+  };
+  /** Takes back a message of the user's a Claude tab has not read: false once it was read. */
+  "chat.withdraw": {
+    args: { workspaceId: string; tabId: string; itemKey: string };
+    result: { withdrawn: boolean };
+  };
+  /** Has a Claude tab read its unread messages now (⌘↩ on an empty composer). */
+  "chat.hurry": {
+    args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
   /**
@@ -970,27 +1065,6 @@ export interface CliUiOps {
        */
       always?: number[];
     };
-    result: Record<string, never>;
-  };
-  /**
-   * The agent manager handed work to a session, sending it `text` when it
-   * did: the session is its task from now (services/manager).
-   */
-  "manager.dispatched": {
-    args: { workspaceId: string; tabId: string; text?: string };
-    result: Record<string, never>;
-  };
-  /** Opens or shuts the agent manager's dock; tells whether the manager is on. */
-  "manager.dock": {
-    args: { open: boolean };
-    result: { enabled: boolean };
-  };
-  /**
-   * Starts the agent manager over, as its dock's New conversation does: the
-   * old conversation is left to resume. Refused while the manager is off.
-   */
-  "manager.new": {
-    args: Record<string, never>;
     result: Record<string, never>;
   };
   /**

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
+import { SERVER } from "../../../../../src/shared/remote/server";
 
 const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
   "../../../../../src/renderer/components/settings/panels/remote-panel"
@@ -76,6 +77,14 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Me");
     expect(html).toContain("me@example.com");
     expect(html).toContain("Sign out");
+    // Signed in, the page does not explain signing in.
+    expect(html).not.toContain("Sign in to see");
+  });
+
+  test("names the server only when it is not the released app's own", () => {
+    const html = render({ status: "signed-out", server: SERVER });
+    expect(html).not.toContain("Server:");
+    expect(render({ status: "signed-out", server })).toContain(`Server: ${server}`);
   });
 
   test("names each device's system, and tags this one", () => {
@@ -84,15 +93,29 @@ describe("the remote panel's account", () => {
         device={{ id: "d1", name: "Work PC", platform: "win32" }}
         current
         online
-        onRename={() => {}}
+        onAlias={() => {}}
         onRemove={() => {}}
       />,
     );
     expect(html).toContain('aria-label="Online"');
-    expect(html).toContain('aria-label="Rename Work PC"');
+    expect(html).toContain('aria-label="Set an alias for Work PC"');
     expect(html).toContain("Work PC");
     expect(html).toContain("Windows");
     expect(html).toContain("This device");
+    expect(html).toContain('aria-label="Remove Work PC"');
+  });
+
+  test("names a device by its alias, with the name it signed in with beside it", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{ id: "d1", name: "DESKTOP-7Q2", alias: "Work PC", platform: "win32" }}
+        current={false}
+        onAlias={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    expect(html).toContain(">Work PC</span>");
+    expect(html).toContain("DESKTOP-7Q2 · Windows");
     expect(html).toContain('aria-label="Remove Work PC"');
   });
 });
@@ -123,7 +146,8 @@ describe("the remote panel's account password", () => {
   test("a device holding the key offers the change and the reset", () => {
     const html = renderKey({ status: "unlocked", kid: 2 });
     expect(html).toContain(">Unlocked<");
-    expect(html).toContain("Key version 2");
+    expect(html).toContain("This device holds the account key");
+    expect(html).not.toContain("Key version");
     expect(html).toContain("Change password");
     expect(html).toContain("Reset");
     expect(html).not.toContain('type="password"');
@@ -143,5 +167,39 @@ describe("the remote panel's account deletion", () => {
     expect(html).toContain("Delete your NexusCode account");
     expect(html).toContain("be undone.");
     expect(html).toContain('data-variant="destructive"');
+  });
+});
+
+const { VoiceGroup, VoiceTermChips } = await import(
+  "../../../../../src/renderer/components/settings/panels/remote-voice-group"
+);
+
+describe("the remote panel's voice input", () => {
+  test("offers the account's recognition terms and the names switch, off by default", () => {
+    const html = renderToStaticMarkup(<VoiceGroup />);
+    expect(html).toContain("Recognition terms");
+    expect(html).toContain('placeholder="Add a term"');
+    expect(html).toContain('aria-label="Add"');
+    expect(html).toContain("Used for dictation on all your devices.");
+    expect(html).toContain("Send computer and workspace names");
+    expect(html).toContain("Sent to the speech recognition service along with your dictation.");
+    expect(html).toContain('aria-checked="false"');
+    // The terms are still being asked for: the field waits.
+    expect(html).toContain("Loading…");
+  });
+
+  test("shows each term as a chip with its remove button, or says there are none", () => {
+    const html = renderToStaticMarkup(
+      <VoiceTermChips terms={["Soniox", "Tauri"]} onRemove={() => {}} />,
+    );
+    expect(html).toContain("Soniox");
+    expect(html).toContain('aria-label="Remove Soniox"');
+    expect(html).toContain('aria-label="Remove Tauri"');
+    expect(renderToStaticMarkup(<VoiceTermChips terms={[]} onRemove={() => {}} />)).toContain(
+      "No terms",
+    );
+    expect(
+      renderToStaticMarkup(<VoiceTermChips terms="unavailable" onRemove={() => {}} />),
+    ).toContain("load the terms.");
   });
 });

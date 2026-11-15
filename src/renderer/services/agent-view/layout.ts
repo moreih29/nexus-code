@@ -27,8 +27,32 @@ function emptyLeaf(id: string): SplitLeaf {
   return { kind: "leaf", id, tabIds: [], activeTabId: null };
 }
 
-/** The workspace and tab a session key names; null for one that names neither. */
+/** How the key of another computer's session starts, apart from this computer's agents' keys. */
+const REMOTE_KEY_PREFIX = "remote:";
+
+/**
+ * The key a panel holds another computer's session by, as a tab. It names
+ * no tab of this computer, so parseSessionKey gives null for it.
+ */
+export function remoteSessionKey(session: {
+  deviceId: string;
+  workspaceId: string;
+  tabId: string;
+}): string {
+  return `${REMOTE_KEY_PREFIX}${session.deviceId}/${session.workspaceId}/${session.tabId}`;
+}
+
+/** Whether `key` names another computer's session. */
+export function isRemoteKey(key: string): boolean {
+  return key.startsWith(REMOTE_KEY_PREFIX);
+}
+
+/**
+ * The workspace and tab of this computer a session key names; null for one
+ * that names neither, and for another computer's session.
+ */
 export function parseSessionKey(key: string): { workspaceId: string; tabId: string } | null {
+  if (isRemoteKey(key)) return null;
   const colon = key.indexOf(":");
   if (colon <= 0 || colon === key.length - 1) return null;
   return { workspaceId: key.slice(0, colon), tabId: key.slice(colon + 1) };

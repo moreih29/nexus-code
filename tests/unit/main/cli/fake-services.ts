@@ -25,7 +25,6 @@ import {
   type CliRemote,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
-import { AgentInputs } from "../../../../src/main/features/cli/hops";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -46,7 +45,6 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
-import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
 import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
@@ -175,8 +173,6 @@ export interface FakeApp {
   waits: WaitRegistry;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
-  /** The hops of the message that started each chat tab's latest turn, by tab id; 0 when absent. */
-  turnHops: Map<string, number>;
   /** The user's other computers: the room, its devices, what was asked of them and how they answer. */
   peers: {
     inRoom: boolean;
@@ -190,9 +186,6 @@ export interface FakeApp {
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
-    managerPermissions: ManagerPermissions;
-    /** Whether the agent manager is on, as manager.dock tells. */
-    managerEnabled: boolean;
   };
   /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
@@ -232,8 +225,6 @@ export interface FakeApp {
   events: CliSessionEvent[];
   /** The permission requests chat.answer answered. */
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
-  /** What manager.dispatched was told: the sessions the manager handed work to. */
-  dispatched: Array<CliUiOps["manager.dispatched"]["args"]>;
   /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
   chatChoices: Map<string, CliChatChoices>;
   /** What chat.open answers it could not set; it sets everything when absent. */
@@ -397,8 +388,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const settings: FakeApp["settings"] = {
     crossWorkspace: "ask",
     agentContext: true,
-    managerPermissions: "user",
-    managerEnabled: true,
   };
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
@@ -460,7 +449,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const chatSent: FakeApp["chatSent"] = [];
   const events: FakeApp["events"] = [];
   const chatAnswered: FakeApp["chatAnswered"] = [];
-  const dispatched: FakeApp["dispatched"] = [];
   const chatChoices: FakeApp["chatChoices"] = new Map();
   const chatOpenError: FakeApp["chatOpenError"] = {};
   const closeRefused: FakeApp["closeRefused"] = new Map();
@@ -471,7 +459,6 @@ export function fakeApp(now = Date.now()): FakeApp {
       return answers.shift() ?? "deny";
     },
   });
-  const turnHops: FakeApp["turnHops"] = new Map();
   const peers: FakeApp["peers"] = {
     inRoom: true,
     devices: [],
@@ -495,10 +482,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
-    if (op === "chat.turnHops") {
-      const { tabId } = args as CliUiOps["chat.turnHops"]["args"];
-      return { hops: turnHops.get(tabId) ?? 0 } as CliUiOps[K]["result"];
-    }
     // Another device's chat page, its user messages and the agent's text told as chat read tells them.
     if (op === "chat.pageEntries") {
       const { page } = args as CliUiOps["chat.pageEntries"]["args"];
@@ -552,21 +535,19 @@ export function fakeApp(now = Date.now()): FakeApp {
         subject: "Fix the login redirect",
       } as CliUiOps[K]["result"];
     }
-    // Any worktree made is "fix-login"; the task agent is Claude.
+    // Any worktree made is "fix-login"; the task agent is Claude. A plain shell has no tab yet.
     if (op === "task.create") {
       const { start } = args as CliUiOps["task.create"]["args"];
+      const plain = start !== undefined && "command" in start && start.command === "";
       return {
         workspaceId: FIX,
-        tabId: NEW_TAB,
+        ...(plain ? {} : { tabId: NEW_TAB }),
         start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
     }
     if (op === "chat.open") {
       const error = chatOpenError.message;
       return { tabId: NEW_TAB, ...(error ? { error } : {}) } as CliUiOps[K]["result"];
-    }
-    if (op === "manager.dock") {
-      return { enabled: settings.managerEnabled } as CliUiOps[K]["result"];
     }
     // Any profile but "nope" is the agent's; the tab ran with the default one.
     if (op === "chat.profile") {
@@ -591,10 +572,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "chat.answer") {
       chatAnswered.push(args as CliUiOps["chat.answer"]["args"]);
-      return {} as CliUiOps[K]["result"];
-    }
-    if (op === "manager.dispatched") {
-      dispatched.push(args as CliUiOps["manager.dispatched"]["args"]);
       return {} as CliUiOps[K]["result"];
     }
     if (op === "chat.tool") {
@@ -690,10 +667,8 @@ export function fakeApp(now = Date.now()): FakeApp {
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
     claudeAsks: () => [],
     answerClaudeAsk: async () => false,
-    agentInputs: new AgentInputs(),
     consents: { list: () => [], answer: async () => false },
     remote,
-    managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
       stop: async (_ws, _t, agentId) => {
@@ -707,7 +682,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
-    managerPermissions: () => settings.managerPermissions,
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
     listeningPorts: async (workspaceId) => {
@@ -763,7 +737,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     stops,
     waits,
     foreground,
-    turnHops,
     peers,
     screens,
     settings,
@@ -781,7 +754,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     chatSent,
     events,
     chatAnswered,
-    dispatched,
     chatChoices,
     chatOpenError,
     closeRefused,

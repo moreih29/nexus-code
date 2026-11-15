@@ -5,7 +5,7 @@
 // the chat is still there.
 
 import { useEffect, useRef, useState } from "react";
-import type { ChatPage } from "../../../../packages/remote-protocol/src";
+import type { ChatPage, ChatPanel } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { applyUpdate } from "./chat-model";
 import type { PeerRead } from "./room";
@@ -16,17 +16,20 @@ export const REWATCH_MS = 3000;
 /** How often the chat is checked to still be there: a watch says nothing when it is closed. */
 export const ALIVE_MS = 15_000;
 
+/** A watched chat: its page, and its side panel as the watch last sent it. */
+export type WatchedChat = ChatPage & { panel?: ChatPanel };
+
 export interface ChatRef {
   deviceId: string;
   workspaceId: string;
   tabId: string;
 }
 
-export function usePeerChat(ref: ChatRef, shown: boolean): PeerRead<ChatPage> {
+export function usePeerChat(ref: ChatRef, shown: boolean): PeerRead<WatchedChat> {
   const { deviceId, workspaceId, tabId } = ref;
   const room = useRemoteRoom();
   const online = room?.status === "online" && room.peers.some((p) => p.id === deviceId && p.online);
-  const [read, setRead] = useState<PeerRead<ChatPage>>({ status: "loading" });
+  const [read, setRead] = useState<PeerRead<WatchedChat>>({ status: "loading" });
   // Bumped to start the watch again.
   const [round, setRound] = useState(0);
   const watch = useRef<{ id: string; rev: number } | null>(null);
@@ -47,37 +50,48 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerRead<ChatPage> {
         return;
       }
       w.rev = update.rev;
-      setRead((now) =>
-        now.status === "ready" ? { status: "ready", value: applyUpdate(now.value, update) } : now,
-      );
+      setRead((now) => {
+        if (now.status !== "ready") return now;
+        const value = applyUpdate(now.value, update);
+        // An append with nothing to go on: something was missed.
+        if (!value) {
+          queueMicrotask(again);
+          return now;
+        }
+        const panel = update.panel ?? now.value.panel;
+        return { status: "ready", value: panel ? { ...value, panel } : value };
+      });
     });
-    void ipcCallResult("remote", "peerChatWatch", { deviceId, workspaceId, tabId }).then(
-      (result) => {
-        if (!live) {
-          if (result.ok) {
-            void ipcCallResult("remote", "peerChatUnwatch", {
-              deviceId,
-              watchId: result.value.watchId,
-            });
-          }
-          return;
-        }
+    void ipcCallResult("remote", "peerChatWatch", {
+      deviceId,
+      workspaceId,
+      tabId,
+      appends: true,
+    }).then((result) => {
+      if (!live) {
         if (result.ok) {
-          const { watchId, ...page } = result.value;
-          watch.current = { id: watchId, rev: 0 };
-          setRead({ status: "ready", value: page });
-          return;
+          void ipcCallResult("remote", "peerChatUnwatch", {
+            deviceId,
+            watchId: result.value.watchId,
+          });
         }
-        if (result.kind === "not-found") {
-          setRead({ status: "gone" });
-          return;
-        }
-        setRead((now) =>
-          now.status === "ready" ? now : { status: "unavailable", message: result.message },
-        );
-        retry = setTimeout(again, REWATCH_MS);
-      },
-    );
+        return;
+      }
+      if (result.ok) {
+        const { watchId, ...page } = result.value;
+        watch.current = { id: watchId, rev: 0 };
+        setRead({ status: "ready", value: page });
+        return;
+      }
+      if (result.kind === "not-found") {
+        setRead({ status: "gone" });
+        return;
+      }
+      setRead((now) =>
+        now.status === "ready" ? now : { status: "unavailable", message: result.message },
+      );
+      retry = setTimeout(again, REWATCH_MS);
+    });
     const alive = setInterval(() => {
       void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit: 1 }).then(
         (result) => {

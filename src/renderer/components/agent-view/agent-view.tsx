@@ -14,7 +14,6 @@ import type { Agents } from "../../services/agent-view/agents";
 import type { EndedAgent } from "../../services/agent-view/ended";
 import { ResizeHandleRatio } from "../ui/resize-handle-ratio";
 import { AgentPane } from "./agent-pane";
-import { RemotePane } from "./remote-pane";
 
 /** The panels, hidden while the workspaces are `shown` instead. */
 export function AgentView({ shown }: { shown: boolean }) {
@@ -37,7 +36,6 @@ export function AgentView({ shown }: { shown: boolean }) {
       data-testid="agent-view"
     >
       <AgentNode node={root} agents={agents} ended={ended} />
-      <RemotePane visible={shown} />
     </div>
   );
 }

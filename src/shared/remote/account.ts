@@ -20,7 +20,10 @@ export type RemoteUser = z.infer<typeof RemoteUserSchema>;
 export const RemoteDeviceInfoSchema = z
   .object({
     id: z.string(),
+    /** The name it signed in with (its host's). */
     name: z.string(),
+    /** The name the user gave it, shown in its place; null or absent for none. */
+    alias: z.string().nullable().optional(),
     platform: z.string(),
     /** When the device signed in, and when the server last heard from it, in Unix ms. */
     createdAt: z.number().optional(),
@@ -30,6 +33,14 @@ export const RemoteDeviceInfoSchema = z
   })
   .passthrough();
 export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
+
+/** The longest alias a device is given (the server's limit). */
+export const MAX_DEVICE_ALIAS = 64;
+
+/** A device as the user knows it: its alias, or the name it signed in with. */
+export function deviceLabel(device: { name: string; alias?: string | null }): string {
+  return device.alias || device.name;
+}
 
 /**
  * Why a sign-in did not finish:
@@ -102,17 +113,8 @@ export const PendingResetInfoSchema = z.object({
 });
 export type PendingResetInfo = z.infer<typeof PendingResetInfoSchema>;
 
-/**
- * What a server with account keys v2 adds to where the key stands:
- * - v2: the server has them (a removal rotates the key, and needs the
- *   password);
- * - needsProof: the server keeps no verifier of the password yet: the user
- *   is asked to type it once;
- * - pendingReset: a reset that waits.
- */
+/** What the server says beside where the key stands: a reset that waits. */
 const KeyExtrasSchema = z.object({
-  v2: z.boolean().optional(),
-  needsProof: z.boolean().optional(),
   pendingReset: PendingResetInfoSchema.optional(),
 });
 
@@ -155,7 +157,9 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  *   take its proof (its verifier is another's: a reset sets it anew);
  * - device-key: a device's key does not check under the account key, so
  *   the key was not rotated (someone changed it on the server);
- * - reset-pending: a reset already waits.
+ * - reset-pending: a reset already waits;
+ * - needs-password: the device that asked for a reset may hold the key, so
+ *   it is removed with the password, which changes the key, or keeping it.
  */
 export const KEY_FAILURES = [
   "too-short",
@@ -167,5 +171,6 @@ export const KEY_FAILURES = [
   "account-auth",
   "device-key",
   "reset-pending",
+  "needs-password",
 ] as const;
 export type KeyFailure = (typeof KEY_FAILURES)[number];

@@ -12,7 +12,6 @@
     "keybindings": "단축키",
     "about": "정보",
     "agent": "에이전트",
-    "manager": "매니저",
     "claude": "Claude",
     "codex": "Codex",
     "profileRules": "워크스페이스별 프로필",
@@ -222,7 +221,7 @@
       "label": "기본 에이전트",
       "hint": "에이전트 탭 [+]와 새 작업이 여는 탭"
     },
-    "sessionsView": {
+    "agentListView": {
       "label": "에이전트 탭 기본 보기",
       "hint": "처음 열 때의 보기"
     },
@@ -252,10 +251,6 @@
       "label": "데스크톱 알림",
       "description": "보고 있지 않은 탭의 에이전트가 끝나거나 기다릴 때"
     },
-    "managerReports": {
-      "label": "에이전트 매니저 보고",
-      "description": "매니저의 완료·대기 보고도 알림으로 받습니다"
-    },
     "rateLimitWarnings": {
       "label": "사용량 한도 경고",
       "description": "Claude 탭에서 사용량 한도에 가까워지면 입력창 위에 경고를 띄웁니다. 한도에 도달한 경우는 항상 표시합니다."
@@ -280,6 +275,7 @@
     "consent": {
       "title": "에이전트가 다른 워크스페이스를 변경하도록 허용할까요?",
       "description": "{{from}}의 터미널 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
+      "agent_description": "{{from}}의 {{agent}} 탭 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
       "deny": "허용 안 함",
       "session": "재시작 전까지 허용",
       "once": "이번만 허용",
@@ -316,7 +312,6 @@
         "chatProfileNew": "탭 {{detail}}의 프로필 변경(새 대화로)을"
       },
       "permission_title": "다른 세션의 권한 요청에 답할까요?",
-      "manager_description": "에이전트 매니저가 {{to}}에서 {{action}} 하려고 합니다.",
       "mode_title": "에이전트가 세션의 권한 모드를 느슨하게 바꾸도록 허용할까요?",
       "profile_title": "에이전트가 탭의 프로필을 바꾸도록 허용할까요?",
       "remote_title": "다른 컴퓨터의 에이전트가 이 컴퓨터를 변경하도록 허용할까요?",
@@ -531,36 +526,6 @@
     "previewReply": "답변은 이 크기와 글꼴로 보입니다. `코드`는 고정폭 글꼴 그대로입니다.",
     "previewTool": "Read src/greet.ts"
   },
-  "manager": {
-    "enabled": {
-      "label": "에이전트 매니저",
-      "description": "앱과 함께 켜져 모든 세션을 보고 지시합니다"
-    },
-    "agent": {
-      "label": "매니저 에이전트",
-      "description": "그 에이전트의 계정과 모델을 그대로 씁니다"
-    },
-    "profile": {
-      "label": "매니저 프로필",
-      "description": "바꾸면 매니저가 새 대화로 다시 시작합니다",
-      "inherit": "기본 프로필 따름 ({{name}})"
-    },
-    "reports": "보고와 권한",
-    "notify": {
-      "label": "매니저에게 알릴 일",
-      "tasks": "맡긴 작업",
-      "attention": "+ 대기·오류",
-      "all": "전부",
-      "description": "많을수록 사용량이 늘어납니다"
-    },
-    "permissions": {
-      "label": "권한 요청 응답",
-      "user": "넘기기",
-      "ask": "매번 묻기",
-      "answer": "대신 답하기",
-      "description": "다른 세션이 도구 권한을 물을 때"
-    }
-  },
   "profiles": {
     "heading": "프로필",
     "description": {
@@ -670,9 +635,13 @@
     "resultsCount": "워크스페이스 {{count}}개"
   },
   "remote": {
+    "outdated": {
+      "title": "업데이트 필요",
+      "description": "이 버전으로는 더 이상 다른 기기와 연결할 수 없습니다. NexusCode를 업데이트하세요."
+    },
     "account": {
       "title": "NexusCode 계정",
-      "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 볼 수 있습니다.",
+      "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 봅니다",
       "signedOut": "로그인하지 않음",
       "signInWith": {
         "google": "Google로 로그인",
@@ -691,7 +660,7 @@
         "not_invited": "이 서버는 아직 초대된 계정만 쓸 수 있습니다.",
         "server_error": "서버에서 로그인하지 못했습니다. 잠시 후 다시 시도하세요.",
         "invalid_grant": "로그인이 만료됐습니다. 다시 시도하세요.",
-        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 기기에서 쓰지 않는 기기를 지운 뒤 다시 로그인하세요.",
+        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 원격에서 쓰지 않는 기기를 해제한 뒤 다시 로그인하세요.",
         "mismatch": "다른 로그인의 응답이 왔습니다. 다시 시도하세요.",
         "unreachable": "서버에 연결할 수 없습니다.",
         "failed": "로그인하지 못했습니다. 다시 시도하세요."
@@ -716,29 +685,30 @@
       },
       "online": "온라인",
       "offline": "오프라인",
-      "rename": "{{name}} 이름 바꾸기",
-      "renameTitle": "{{name}} 이름 바꾸기",
-      "renameLabel": "이름",
-      "renameConfirm": "바꾸기"
+      "alias": "{{name}} 별칭 정하기",
+      "aliasTitle": "{{name}} 별칭",
+      "aliasDescription": "내 기기 모두에 이 별칭으로 보입니다. 비워 두면 기기 이름({{name}})으로 보입니다.",
+      "aliasLabel": "별칭",
+      "aliasConfirm": "저장"
     },
+    "controlTitle": "다른 기기의 조작",
     "control": {
-      "label": "다른 기기에서 채팅 조작 허용",
-      "description": "끄면 다른 기기에서는 채팅을 보기만 할 수 있습니다."
+      "label": "채팅 조작 허용",
+      "description": "메시지 보내기, 요청에 답하기, 멈추기"
     },
     "terminal": {
-      "label": "다른 기기에서 터미널 조작 허용",
-      "description": "끄면 다른 기기에서는 터미널을 보기만 할 수 있습니다. 켜면 입력하고 열고 닫을 수 있어, 이 컴퓨터에서 무엇이든 실행할 수 있습니다."
+      "label": "터미널 조작 허용",
+      "description": "입력하고 열고 닫기 (무엇이든 실행할 수 있음)"
     },
     "agents": {
       "label": "다른 컴퓨터의 에이전트",
       "ask": "매번 묻기",
       "allow": "허용",
       "deny": "허용 안 함",
-      "description": "다른 컴퓨터의 에이전트가 nexus(chat send --device …)로 여기서 하는 일: 채팅에 보내고 답하기, 터미널에 입력하기. 읽기는 항상 허용됩니다. 위의 채팅·터미널 조작 스위치도 켜져 있어야 합니다."
+      "description": "위에서 켠 조작만. 읽기는 항상 허용"
     },
     "key": {
       "title": "계정 암호",
-      "description": "기기끼리 주고받는 내용은 암호화되어 서버도 볼 수 없습니다.",
       "checking": "확인하는 중…",
       "unavailable": "서버에서 확인하지 못했습니다.",
       "retryLater": "잠시 후 다시 시도하세요.",
@@ -746,11 +716,10 @@
       "missing": "다른 기기를 연결할 때 쓸 암호를 정하세요({{count}}자 이상).",
       "locked": "계정 암호를 입력하세요.",
       "unlocked": "잠금 해제됨",
-      "version": "키 버전 {{kid}}",
+      "unlockedDescription": "이 기기에 계정 키가 있습니다",
       "change": "암호 변경",
       "reset": "재설정",
       "forgot": "암호를 잊었나요?",
-      "resetExplained": "새 암호를 정합니다. 다른 기기에서도 새 암호를 입력해야 합니다.",
       "mismatch": "두 암호가 다릅니다.",
       "field": {
         "password": "계정 암호",
@@ -782,10 +751,10 @@
         "failed": "처리하지 못했습니다. 다시 시도하세요.",
         "account-auth": "서버가 이 암호를 받지 않았습니다. 다른 기기에서 암호가 바뀌었을 수 있습니다. 계속되면 암호를 재설정하세요.",
         "device-key": "한 기기의 키를 확인할 수 없어 계정 키를 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
-        "reset-pending": "이미 대기 중인 재설정이 있습니다."
+        "reset-pending": "이미 대기 중인 재설정이 있습니다.",
+        "needs-password": "그 기기는 계정 키를 가지고 있을 수 있습니다. 암호를 입력해 해제하고 키를 바꾸세요."
       },
-      "needsProof": "서버가 이제 기기를 해제하거나 계정을 삭제하기 전에 계정 암호를 확인합니다. 암호를 한 번 입력해 주세요.",
-      "resetDelayed": "새 암호를 정합니다. 암호 없이 하는 재설정이라 72시간 뒤에 적용되고, 그동안 암호를 아는 기기에서 취소할 수 있습니다. 적용되면 다른 기기에서도 새 암호를 입력해야 합니다.",
+      "resetDelayed": "새 암호는 72시간 뒤에 적용되고, 그동안 암호를 아는 기기에서 취소할 수 있습니다. 적용되면 다른 기기에서도 새 암호를 입력해야 합니다.",
       "pendingReset": {
         "self": "이 기기에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 적용되면 새 암호로 다시 연결하세요.",
         "other": "{{name}}에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 본인이 한 것이 아니면 취소하거나 그 기기를 해제하세요.",
@@ -794,14 +763,16 @@
         "cancelDescription": "지금 계정 암호를 입력하면 대기 중인 재설정이 취소됩니다.",
         "remove": "요청한 기기 해제",
         "removeTitle": "{{name}}을(를) 해제할까요?",
-        "removeDescription": "재설정을 요청한 기기는 암호 없이 해제할 수 있습니다. 해제하면 재설정도 취소되지만 계정 키는 그대로입니다. 그 기기가 키를 가졌을 수 있다면 기기 목록에서 암호로 해제하세요. 그러면 키가 바뀝니다."
+        "removeDescription": "재설정을 요청한 기기를 해제하면 재설정도 취소됩니다. 그 기기가 계정 키를 받은 적이 있으면 다음 단계에서 암호를 입력해 키를 바꾸거나, 키를 그대로 두고 해제할 수 있습니다.",
+        "removeHolderTitle": "{{name}}을(를) 해제하고 키를 바꿀까요?",
+        "removeHolderDescription": "이 기기는 계정 키를 받은 적이 있어, 지금도 가지고 있을 수 있습니다. 암호로 해제하면 키가 바뀌어, 그 기기가 가진 키로는 더 이상 연결할 수 없습니다. 암호 없이도 해제해 재설정을 취소할 수 있지만, 그 기기는 가진 키를 그대로 가집니다.",
+        "removeKeepKey": "키는 그대로 두고 해제"
       }
     },
     "delete": {
-      "title": "계정 삭제",
       "label": "NexusCode 계정 삭제",
-      "description": "계정과 기기를 모두 지웁니다. 되돌릴 수 없습니다.",
-      "button": "계정 삭제",
+      "description": "계정과 모든 기기를 지웁니다. 되돌릴 수 없습니다.",
+      "button": "삭제",
       "failed": "계정을 삭제하지 못했습니다. 다시 시도하세요.",
       "confirm": {
         "title": "NexusCode 계정을 삭제할까요?",
@@ -812,20 +783,33 @@
     },
     "voice": {
       "title": "음성 입력",
-      "description": "입력창의 마이크를 누르고 말하세요.",
-      "descriptionWithShortcut": "입력창의 마이크나 {{shortcut}} 키를 누르고 말하세요.",
       "usage": "이번 달",
       "usageOf": "{{limit}}분 중 {{used}}분 사용",
       "usageLoading": "불러오는 중…",
       "usageUnavailable": "사용량을 불러오지 못했습니다.",
       "language": "언어",
-      "languageMulti": "자동 감지"
+      "languageMulti": "자동 감지",
+      "terms": {
+        "label": "음성 인식 단어",
+        "placeholder": "단어 입력",
+        "add": "추가",
+        "remove": "{{term}} 삭제",
+        "empty": "단어 없음",
+        "loading": "불러오는 중…",
+        "unavailable": "단어를 불러오지 못했습니다.",
+        "hint": "모든 기기의 받아쓰기에 적용됩니다.",
+        "saveFailed": "단어를 저장하지 못했습니다. 다시 시도하세요.",
+        "tooLong": "단어는 {{max}}자까지 쓸 수 있습니다.",
+        "tooMany": "단어는 {{max}}개까지 둘 수 있습니다."
+      },
+      "sendNames": "컴퓨터·워크스페이스 이름 보내기",
+      "sendNamesDescription": "받아쓸 때 음성 인식 서비스로 함께 보냅니다."
     },
     "pair": {
       "giveLabel": "새 기기 연결",
-      "giveDescription": "새 기기에서 이 QR 코드를 찍으면 계정 암호 없이 연결됩니다.",
+      "giveDescription": "새 기기에서 QR 코드를 찍으면 암호 없이 연결됩니다",
       "takeLabel": "다른 기기로 연결",
-      "takeDescription": "계정 키를 가진 폰으로 QR 코드를 찍으면 암호 없이 연결됩니다.",
+      "takeDescription": "계정 키가 있는 폰으로 QR 코드를 찍으면 암호 없이 연결됩니다",
       "show": "QR 코드 보기",
       "qrAlt": "연결용 QR 코드",
       "showingGive": "새 기기의 NexusCode에서 이 코드를 찍으세요. 연결을 요청하면 여기서 허용할지 묻습니다.",

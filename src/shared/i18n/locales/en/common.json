@@ -627,8 +627,7 @@
       "attention": "Needs you",
       "running": "Working",
       "done": "New result",
-      "idle": "Idle",
-      "ended": "Ended"
+      "idle": "Idle"
     },
     "list": {
       "search": "Find a conversation",
@@ -1047,8 +1046,8 @@
       "aria": "Message to Claude",
       "hint": "{{send}} send · {{newLine}} new line · / commands · @ files",
       "hint_codex": "{{send}} send · {{newLine}} new line · @ files",
-      "hint_running": "{{send}} queue · {{nowKey}} send now · {{queueKey}} send after the turn",
-      "hint_running_codex": "{{send}} send into this turn · {{queueKey}} send after the turn",
+      "hint_running": "{{send}} deliver after the current tool · {{nowKey}} deliver now · {{queueKey}} deliver after the turn",
+      "hint_running_codex": "{{send}} deliver now · {{queueKey}} deliver after the turn",
       "send": "Send",
       "steer": "Send into this turn",
       "queue": "Queue",
@@ -1152,11 +1151,13 @@
         "copy_url": "Copy the Remote Control link",
         "open_url": "Open the Remote Control link",
         "folder": "Folder",
+        "computer": "Computer",
         "branch": "Branch",
         "session": "Session",
         "copy_session": "Copy the session ID",
         "fork_session": "Fork the whole session",
         "model": "Model",
+        "profile": "Profile",
         "version": "Version",
         "account": "Account"
       },
@@ -1759,19 +1760,24 @@
         "idle": "Idle",
         "ended": "Ended"
       },
-      "viewOnly": "View only",
+      "terminalsShow_one": "Show 1 terminal",
+      "terminalsShow_other": "Show {{count}} terminals",
+      "terminalsHide": "Hide terminals",
       "viewOnlyNote": "Control from other devices is off on {{device}}: you can only look.",
-      "close": "Close",
       "gone": "This session was closed",
       "placeholder": "Message {{device}}",
-      "send": "Send",
-      "stop": "Stop",
       "failed": "Didn't go through: {{message}}",
+      "filesRefused": "Only images can be sent to another computer's chat",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
+      "outdated": "This version can't connect",
       "offlineLast": "{{device}} is offline. Showing what it last sent.",
       "disconnectedLast": "Not connected to the server. Showing what came last.",
-      "offlineTag": "Offline"
+      "offlineTag": "Offline",
+      "profileBusy": "It can change once the reply ends or the request is answered",
+      "fileTruncated": "Only the start of the file is shown",
+      "fileBinary": "This file can't be shown here",
+      "localAddress": "{{url}} is an address on {{device}}: open it there"
     }
   },
   "releaseNotes": {
@@ -1792,41 +1798,6 @@
     "news": "What's new in {{version}}",
     "dismissNews": "Dismiss what's new"
   },
-  "manager": {
-    "title": "Agent manager",
-    "button": "Manager",
-    "button_unread_one": "Agent manager, {{count}} new report",
-    "button_unread_other": "Agent manager, {{count}} new reports",
-    "chip": "Manager",
-    "task_title": "Work the agent manager handed out",
-    "sent": "Sent by the manager",
-    "sent_title": "The agent manager sent this message",
-    "report_empty": "Sessions changed",
-    "report_more_one": "{{title}} and {{count}} more",
-    "report_more_other": "{{title}} and {{count}} more",
-    "state": {
-      "completed": "Done",
-      "permissionPending": "Permission request",
-      "needsInput": "Needs you",
-      "error": "Error",
-      "closed": "Closed"
-    },
-    "new_conversation": "New conversation",
-    "settings": "Manager settings",
-    "close": "Close",
-    "resize": "Resize the manager",
-    "asks": "Waiting for your permission to use {{tool}}",
-    "starting": "Starting the manager",
-    "off": {
-      "title": "The agent manager is off",
-      "description": "Turned on, it starts with the app, follows every session and hands out the work you give it.",
-      "enable": "Turn on"
-    },
-    "tasks_one": "{{count}} task",
-    "tasks_other": "{{count}} tasks",
-    "tasks_waiting_one": "{{count}} waiting",
-    "tasks_waiting_other": "{{count}} waiting"
-  },
   "systemStats": {
     "this_computer": "This computer",
     "cpu_title": "CPU: {{percent}}% in use",
@@ -1843,6 +1814,7 @@
     "needsSignIn": "Sign in to use voice input",
     "unavailable": "No voice input on this server",
     "signIn": "Sign in",
+    "update": "Update",
     "openSettings": "Open System Settings",
     "failure": {
       "signed-out": "Sign in to use voice input.",
@@ -1852,6 +1824,7 @@
       "quota": "This month's voice minutes are used up.",
       "busy": "Voice input is already on in two places. Stop one first.",
       "network": "Can't reach the server.",
+      "outdated": "Update NexusCode to use voice input.",
       "failed": "Voice input didn't start.",
       "recognition": "Voice recognition failed.",
       "dropped": "Voice input lost the connection."
@@ -1860,5 +1833,8 @@
       "session": "Voice input stops after 10 minutes.",
       "quota": "This month's voice minutes ran out."
     }
+  },
+  "remoteNotice": {
+    "workspaceAdded": "Workspace added from {{device}}"
   }
 }

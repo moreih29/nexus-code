@@ -6,16 +6,14 @@ import type { RpcMethod, RpcParams, RpcResult } from "../../../../packages/remot
 import type { AgentRun, PermissionAnswer, PermissionAsk } from "../../../shared/claude/activity";
 import type { ClaudeStatus } from "../../../shared/claude/status";
 import type { CliInvocation } from "../../../shared/cli/protocol";
-import {
-  type CliChange,
-  type CliPlacement,
-  type CliTabInfo,
-  type CliUiOp,
-  type CliUiOps,
-  carriesInput,
+import type {
+  CliChange,
+  CliPlacement,
+  CliTabInfo,
+  CliUiOp,
+  CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
-import { isManager, type ManagerPermissions } from "../../../shared/manager/manager";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
@@ -23,7 +21,6 @@ import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/wor
 import type { TabActivity } from "./activity";
 import type { BrowserDriver } from "./browser/driver";
 import type { ChangeRequest } from "./consent";
-import type { AgentInputs } from "./hops";
 import type { StartedAgents } from "./started-agents";
 import type { WaitRegistry } from "./waits";
 
@@ -41,7 +38,10 @@ export class CliError extends Error {
 /** A device of the user's account, as `nexus device list` shows it. */
 export interface CliDevice {
   readonly id: string;
+  /** As the user knows it: the alias they gave it, or the name it signed in with. */
   readonly name: string;
+  /** The name it signed in with (its host's), when an alias is `name`. */
+  readonly hostName?: string;
   readonly platform: string;
   /** Whether it is this computer. */
   readonly self: boolean;
@@ -130,14 +130,10 @@ export interface CliServices {
     askId: string,
     answer: PermissionAnswer,
   ): Promise<boolean>;
-  /** The agent manager's own workspace, once the manager opened it; listWorkspaces leaves it out. */
-  managerWorkspace(): WorkspaceMeta | null;
   /** The subagents and `claude -p` runs of the Claude sessions in the terminals. */
   readonly claudeAgents: CliClaudeAgents;
   /** Lists a wait on a terminal until the returned function is called. */
   readonly waits: Pick<WaitRegistry, "begin">;
-  /** The agents' input into terminals, for how far down a chain of agents' messages they are. */
-  readonly agentInputs: AgentInputs;
   /**
    * Asks the renderer, which owns the tabs and the terminals' screens; a
    * longer `timeoutMs` for an answer that waits on git.
@@ -161,8 +157,6 @@ export interface CliServices {
    * a CliError saying why when not.
    */
   askUser(request: ChangeRequest): Promise<void>;
-  /** What the agent manager may do with another session's permission request. */
-  managerPermissions(): ManagerPermissions;
   /** Whether Claude Code sessions are to be told about nexus when they start. */
   agentContextEnabled(): boolean;
   /** The program holding a terminal's foreground; null when the agent cannot tell. */
@@ -255,18 +249,11 @@ export function pick<T>(
 
 /**
  * The workspace a --workspace flag names; the caller's own when it is left
- * out or is "." . The agent manager is in none of the user's: for it, the
- * one the user is looking at.
+ * out or is "." .
  */
 export function resolveWorkspace(ctx: CliContext, selector: string | undefined): WorkspaceMeta {
   const workspaces = ctx.services.listWorkspaces();
   const own = selector === undefined || selector === ".";
-  if (own && isManager(ctx.caller)) {
-    const shown = ctx.services.shownTab()?.workspaceId;
-    const workspace = workspaces.find((w) => w.id === shown);
-    if (workspace) return workspace;
-    throw new CliError("you are the agent manager, in no workspace: give --workspace");
-  }
   const target = own ? ctx.caller.workspaceId : selector;
   return pick(
     workspaces,
@@ -280,23 +267,13 @@ export function resolveWorkspace(ctx: CliContext, selector: string | undefined):
 /**
  * Lets a command make `change` in `workspace`: always in the caller's own,
  * in another as the setting or the user allows. Throws a CliError if not.
- *
- * The user turned the manager on to direct every workspace, and it runs
- * nexus unasked; but what it reads of the sessions (their titles, what they
- * said) may say anything. So what it would type, run or send (carriesInput)
- * is up to the setting or the user, as an agent's in another workspace is:
- * the rest it does.
  */
 export async function mayChange(
   ctx: CliContext,
   workspace: WorkspaceMeta,
   change: CliChange,
 ): Promise<void> {
-  if (isManager(ctx.caller)) {
-    if (!carriesInput(change)) return;
-  } else if (workspace.id === ctx.caller.workspaceId) {
-    return;
-  }
+  if (workspace.id === ctx.caller.workspaceId) return;
   await ctx.services.allowChange({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,
@@ -361,26 +338,4 @@ export function describeLocation(workspace: WorkspaceMeta): string {
   if (location.kind === "wsl") return `WSL ${location.distro}:${location.remotePath}`;
   const user = location.user ? `${location.user}@` : "";
   return `${user}${location.host}:${location.remotePath}`;
-}
-
-/**
- * Tells the app that the agent manager handed work to a session, sending it
- * `text` when it did, so that the session counts as its task. Nothing for
- * another caller; the work went out whether or not the app hears of it.
- */
-export async function noteDispatch(
-  ctx: CliContext,
-  target: { readonly workspaceId: string; readonly tabId: string },
-  text?: string,
-): Promise<void> {
-  if (!isManager(ctx.caller)) return;
-  try {
-    await ctx.services.ui("manager.dispatched", {
-      workspaceId: target.workspaceId,
-      tabId: target.tabId,
-      ...(text ? { text } : {}),
-    });
-  } catch {
-    // Its tracking only: the session has the work.
-  }
 }

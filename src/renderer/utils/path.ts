@@ -46,6 +46,18 @@ export function relPath(absPath: string, rootPath: string): string {
 }
 
 /**
+ * A path as a folder sees it, by either separator: the computer it is on may
+ * be Windows, whose paths are written with / or \. Outside the folder (or
+ * the folder itself) it stays as written.
+ */
+export function shownPath(path: string, cwd: string): string {
+  const slashed = path.replace(/\\/g, "/");
+  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
+  const rel = relPath(slashed, base);
+  return rel && rel !== slashed ? rel : path;
+}
+
+/**
  * Returns true when `absPath` is inside (or exactly equal to) `workspaceRootPath`.
  *
  * Both paths are POSIX-normalized (`.` / `..` resolved) and trailing slashes

@@ -8,11 +8,15 @@ import {
   bundleAadOf,
   CAPABILITIES,
   ChatPageSchema,
+  ChatPanelSchema,
   ClientFrameSchema,
   isRpcMethod,
   KeyBundlePutSchema,
   KeyBundleSchema,
   MAX_ATTACHMENT_BYTES,
+  MAX_BYTES_CHUNK,
+  MAX_IMAGE_EDGE,
+  MAX_UPLOAD_BYTES,
   RPC_METHODS,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
@@ -324,6 +328,82 @@ describe("the methods", () => {
     ).toBe(true);
   });
 
+  test("chat.image may be asked for a thumbnail, its longer side in pixels", () => {
+    const image = RPC_METHODS["chat.image"];
+    const ask = (more: object) =>
+      image.params.safeParse({
+        workspaceId: "w",
+        tabId: "t",
+        ref: { kind: "tool", toolUseId: "tu1", index: 0 },
+        ...more,
+      }).success;
+    expect(ask({})).toBe(true);
+    expect(ask({ maxEdge: 320 })).toBe(true);
+    expect(ask({ maxEdge: MAX_IMAGE_EDGE + 1 })).toBe(false);
+    expect(ask({ maxEdge: 0 })).toBe(false);
+    expect(ask({ maxEdge: 1.5 })).toBe(false);
+  });
+
+  test("a chat's panel may carry the plan's usage limits, of kinds this version may not know", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    expect(ChatPanelSchema.safeParse(panel).success).toBe(true);
+    const limits = [
+      { kind: "session", percent: 65, resetsAt: 1_763_200_000_000 },
+      { kind: "window", windowMins: 300, percent: 30 },
+      { kind: "monthly", percent: 1 },
+    ];
+    expect(ChatPanelSchema.parse({ ...panel, planLimits: limits }).planLimits).toEqual(limits);
+    expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
+      false,
+    );
+  });
+
+  test("a chat moves to another profile only by the user, going on with its conversation or not", () => {
+    const spec = RPC_METHODS["chat.profile"];
+    expect(spec.capability).toBe("chat.control");
+    const tab = { workspaceId: "w", tabId: "t" };
+    expect(spec.params.safeParse({ ...tab, profile: "Work" }).success).toBe(true);
+    expect(spec.params.safeParse({ ...tab, profile: "Work", fresh: true }).success).toBe(true);
+    expect(spec.params.safeParse({ ...tab, profile: "" }).success).toBe(false);
+    expect(spec.params.safeParse(tab).success).toBe(false);
+    // No `from`: the room refuses an agent's.
+    const fromAgent = spec.params.safeParse({ ...tab, profile: "Work", from: { title: "x" } });
+    expect(fromAgent.success && "from" in fromAgent.data).toBe(false);
+    expect(spec.result.safeParse({ from: "Personal", to: "Work" }).success).toBe(true);
+  });
+
+  test("a file goes up in pieces of at most a chunk, of at most MAX_UPLOAD_BYTES", () => {
+    const begin = RPC_METHODS["chat.upload.begin"].params;
+    const file = { workspaceId: "w", tabId: "t", name: "report.pdf", size: 1024 };
+    expect(begin.safeParse(file).success).toBe(true);
+    expect(begin.safeParse({ ...file, mediaType: "application/pdf" }).success).toBe(true);
+    expect(begin.safeParse({ ...file, size: MAX_UPLOAD_BYTES + 1 }).success).toBe(false);
+    expect(begin.safeParse({ ...file, size: 0 }).success).toBe(false);
+    expect(begin.safeParse({ ...file, name: "" }).success).toBe(false);
+    const chunk = RPC_METHODS["chat.upload.chunk"].params;
+    const piece = (bytes: number) => Buffer.alloc(bytes).toString("base64");
+    expect(
+      chunk.safeParse({ uploadId: "u", offset: 0, data: piece(MAX_BYTES_CHUNK) }).success,
+    ).toBe(true);
+    expect(
+      chunk.safeParse({ uploadId: "u", offset: 0, data: piece(MAX_BYTES_CHUNK + 3) }).success,
+    ).toBe(false);
+    expect(chunk.safeParse({ uploadId: "u", offset: -1, data: piece(1) }).success).toBe(false);
+    expect(RPC_METHODS["chat.upload.end"].result.safeParse({ attachmentId: "a" }).success).toBe(
+      true,
+    );
+    for (const name of ["chat.upload.begin", "chat.upload.chunk", "chat.upload.end"] as const) {
+      expect(RPC_METHODS[name].capability).toBe("chat.control");
+    }
+  });
+
   test("every method's capability is one the protocol names", () => {
     for (const spec of Object.values(RPC_METHODS)) {
       expect(CAPABILITIES as readonly string[]).toContain(spec.capability);
@@ -346,7 +426,10 @@ describe("the account key's bundle", () => {
     expect(
       KeyBundleSchema.safeParse({ ...bundle, kdf: { ...bundle.kdf, mem: 1024 } }).success,
     ).toBe(false);
-    expect(KeyBundlePutSchema.parse({ bundle, expected: null }).expected).toBeNull();
+    const verifier = "A".repeat(43);
+    expect(KeyBundlePutSchema.parse({ bundle, expected: null, verifier }).expected).toBeNull();
+    // Every write carries the password's verifier, the first too.
+    expect(KeyBundlePutSchema.safeParse({ bundle, expected: null }).success).toBe(false);
   });
 
   test("is sealed for its user and version", () => {

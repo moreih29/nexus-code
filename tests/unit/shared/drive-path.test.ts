@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   fromUriPath,
   isDrivePath,
+  sameFolder,
   toNativeDrivePath,
   toSlashPath,
   toUriPath,
@@ -37,5 +38,18 @@ describe("drive path helpers", () => {
     expect(fromUriPath("/C:")).toBe("C:");
     expect(toUriPath("/home/me")).toBe("/home/me");
     expect(fromUriPath("/home/me")).toBe("/home/me");
+  });
+});
+
+describe("sameFolder", () => {
+  test("a Windows folder is the same by either separator, drive case or trailing separator", () => {
+    expect(sameFolder("C:\\work\\demo", "C:/work/demo")).toBe(true);
+    expect(sameFolder("c:\\work\\demo\\", "C:/work/demo")).toBe(true);
+    expect(sameFolder("C:\\work\\demo\\sub", "C:/work/demo")).toBe(false);
+  });
+
+  test("a POSIX folder is the same with or without a trailing slash", () => {
+    expect(sameFolder("/Users/me/app/", "/Users/me/app")).toBe(true);
+    expect(sameFolder("/Users/me/app/sub", "/Users/me/app")).toBe(false);
   });
 });

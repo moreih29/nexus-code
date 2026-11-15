@@ -23,7 +23,6 @@ import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
@@ -121,9 +120,6 @@ export const actionHandlers: {
     | "events.read"
     | "settings.list"
     | "settings.set"
-    | "manager.dispatched"
-    | "manager.dock"
-    | "manager.new"
     | "settings.open"
     | LayoutOp
     | `chat.${string}`
@@ -205,6 +201,8 @@ export const actionHandlers: {
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);
+    // A terminal starts once its workspace is mounted: one not opened yet runs it behind the view.
+    useMountedWorkspacesStore.getState().mount(workspaceId);
     return { tabId };
   },
 
@@ -362,6 +360,11 @@ export const actionHandlers: {
     const how = start ?? taskStartOf(resolvedTaskAgent());
     const started = await startTask(parentId, name, prompt, how, createdBy, from);
     if (!("task" in started)) throw new UiRequestError(started.message);
+    if (started.tabId === null) {
+      // A plain shell: none until the task is shown, when its panel opens one.
+      if (show) activateWorkspace(started.task.id);
+      return { workspaceId: started.task.id, start: started.start };
+    }
     // A terminal starts once its panel is mounted, shown or not. Shown while
     // the agent view is up, its agent shows there, beside the one asking.
     const tab = useTabsStore.getState().byWorkspace[started.task.id]?.[started.tabId];
@@ -416,7 +419,9 @@ export const actionHandlers: {
       ...(id ? { id } : {}),
       fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
       fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
-      fromManager: !fromDevice && isManagerWorkspace(fromWorkspaceId),
+      ...(fromTab?.type === "claude" || fromTab?.type === "codex"
+        ? { fromAgent: fromTab.type }
+        : {}),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
       change,

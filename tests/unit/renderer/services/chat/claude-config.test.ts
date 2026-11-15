@@ -7,6 +7,8 @@ import {
   defaultEffortOf,
   effortModelOf,
   parseConfigUsage,
+  savedListedKeys,
+  withListedKeys,
 } from "../../../../../src/renderer/services/chat/claude-config";
 import { remoteAtStartup } from "../../../../../src/renderer/services/chat/settings-defaults";
 
@@ -106,6 +108,44 @@ describe("the keys /config lists", () => {
     expect(configMessages({ remoteControl: "true", model: "opus" }, keys)).toEqual([
       "/config model=opus remoteControl=true",
     ]);
+  });
+});
+
+describe("the keys kept between runs", () => {
+  const keys = parseConfigUsage(USAGE);
+
+  test("given back for the same workspace profile and version only", () => {
+    const raw = withListedKeys(null, "ws\n", "2.1.321", keys);
+    expect(savedListedKeys(raw, "ws\n", "2.1.321")).toEqual(keys);
+    expect(savedListedKeys(raw, "ws\n", "2.1.322")).toBeNull();
+    expect(savedListedKeys(raw, "ws\nwork", "2.1.321")).toBeNull();
+    expect(savedListedKeys(raw, "ws\n", "")).toBeNull();
+  });
+
+  test("a new list takes its place's last, and leaves the others", () => {
+    const first = withListedKeys(null, "a\n", "2.1.321", keys);
+    const both = withListedKeys(first, "b\n", "2.1.321", keys.slice(0, 1));
+    const next = withListedKeys(both, "a\n", "2.1.322", keys.slice(1));
+    expect(savedListedKeys(next, "a\n", "2.1.322")).toEqual(keys.slice(1));
+    expect(savedListedKeys(next, "a\n", "2.1.321")).toBeNull();
+    expect(savedListedKeys(next, "b\n", "2.1.321")).toEqual(keys.slice(0, 1));
+  });
+
+  test("nothing from what is not such a list", () => {
+    expect(savedListedKeys(null, "a", "1")).toBeNull();
+    expect(savedListedKeys("not json", "a", "1")).toBeNull();
+    expect(savedListedKeys("[]", "a", "1")).toBeNull();
+    expect(savedListedKeys(JSON.stringify({ a: { version: "1", keys: [] } }), "a", "1")).toBeNull();
+    expect(
+      savedListedKeys(
+        JSON.stringify({ a: { version: "1", keys: [{ key: "x", kind: "dial" }] } }),
+        "a",
+        "1",
+      ),
+    ).toBeNull();
+    expect(withListedKeys("not json", "a", "1", keys)).toBe(
+      JSON.stringify({ a: { version: "1", keys } }),
+    );
   });
 });
 

@@ -2,7 +2,8 @@
  * This device's socket to its account's room on the relay: connected with
  * a one-time ticket, kept up with backoff, and given up when the relay says
  * so: replaced by another connection of this device (4000), whose
- * reconnecting would push this one off in turn, or signed out (4001).
+ * reconnecting would push this one off in turn, or signed out (4001); or
+ * when the ticket says the app is too old for the server (OutdatedError).
  */
 import {
   type ClientFrame,
@@ -10,12 +11,20 @@ import {
   type ServerFrame,
   ServerFrameSchema,
 } from "../../../../packages/remote-protocol/src";
-import { SignedOutError } from "./errors";
+import { OutdatedError, SignedOutError } from "./errors";
 
 /** Another connection of this device took its place in the room. */
 export const CLOSE_REPLACED = 4000;
 /** The device's sign-in ended: signed out, removed, or expired. */
 export const CLOSE_SIGNED_OUT = 4001;
+
+/**
+ * How often a connection that was in the room tries again at once when it
+ * is lost: the relay restarting the room (a deploy) drops every socket at
+ * once, and coming back within a second keeps it out of sight. Lost again
+ * sooner, it waits as any other loss does.
+ */
+export const QUICK_RETRY_EVERY_MS = 30_000;
 
 /**
  * Most characters a frame from the relay may take: the most a device may
@@ -28,25 +37,32 @@ export const MAX_DELIVERED_CHARS = MAX_FRAME_BYTES + 1024;
  * - online: in the room;
  * - waiting: lost, trying again after a while;
  * - replaced: another connection of this device took its place: not tried again;
+ * - outdated: the server no longer takes this app's version: not tried again;
  * - stopped: closed here.
  */
-export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "stopped";
+export type RelayStatus = "connecting" | "online" | "waiting" | "replaced" | "outdated" | "stopped";
 
 type Socket = Pick<WebSocket, "send" | "close" | "readyState"> & {
   addEventListener(type: string, listener: (event: never) => void): void;
 };
 
 export interface RelayConnectionDeps {
-  /** The socket's address, with a fresh ticket: ws(s)://server/relay?v=1&ticket=... */
+  /**
+   * The socket's address, with a fresh ticket: ws(s)://server/relay?v=2&ticket=...
+   * SignedOutError and OutdatedError give up; any other failure tries again.
+   */
   url(): Promise<string>;
   onOpen(): void;
   onFrame(frame: ServerFrame): void;
   onStatus(status: RelayStatus): void;
   /** The relay or the server says the sign-in ended. */
   onSignedOut(): void;
+  /** The socket to `url` closed before it opened: what it went to was not reached. */
+  unreachable?(url: string): void;
   socket?: (url: string) => Socket;
   /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
+  now?: () => number;
 }
 
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
@@ -61,6 +77,8 @@ export class RelayConnection {
   private attempt = 0;
   private running = false;
   private status: RelayStatus = "stopped";
+  /** When a lost connection last tried again at once. */
+  private quickAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly deps: RelayConnectionDeps) {}
 
@@ -76,6 +94,15 @@ export class RelayConnection {
     this.clearTimer();
     this.drop();
     this.set("stopped");
+  }
+
+  /** Opens a new socket now in place of this one, as to go another way; nothing when stopped. */
+  reconnect(): void {
+    if (!this.running) return;
+    this.clearTimer();
+    this.drop();
+    this.attempt = 0;
+    void this.connect();
   }
 
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
@@ -101,14 +128,17 @@ export class RelayConnection {
       if (error instanceof SignedOutError) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
-      } else this.retry();
+      } else if (error instanceof OutdatedError) this.giveUp("outdated");
+      else this.retry();
       return;
     }
     if (!this.running) return;
     const socket = (this.deps.socket ?? ((u) => new WebSocket(u) as Socket))(url);
     this.socket = socket;
+    let opened = false;
     socket.addEventListener("open", () => {
       if (this.socket !== socket) return;
+      opened = true;
       this.set("online");
       this.deps.onOpen();
     });
@@ -130,10 +160,24 @@ export class RelayConnection {
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
-      } else this.retry();
+      } else if (opened && this.quickRetry()) {
+        void this.connect();
+      } else {
+        if (!opened) this.deps.unreachable?.(url);
+        this.retry();
+      }
     });
     // An error is followed by a close, which decides what comes next.
     socket.addEventListener("error", () => {});
+  }
+
+  /** Whether a connection lost from the room may try again at once (QUICK_RETRY_EVERY_MS). */
+  private quickRetry(): boolean {
+    if (!this.running) return false;
+    const now = (this.deps.now ?? Date.now)();
+    if (now - this.quickAt < QUICK_RETRY_EVERY_MS) return false;
+    this.quickAt = now;
+    return true;
   }
 
   private retry(): void {

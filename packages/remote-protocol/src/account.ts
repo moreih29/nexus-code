@@ -75,12 +75,7 @@ export const KeyBundleResponseSchema = z.object({
   bundle: KeyBundleSchema,
   /** Counts the bundle's writes, for the next PUT to say which one it replaces. */
   version: z.number().int().positive(),
-  /**
-   * Whether the server keeps the password's verifier, and so asks for its
-   * proof (account keys v2). Absent from a server before v2.
-   */
-  hasVerifier: z.boolean().optional(),
-  /** A reset that waits, if one does (v2). */
+  /** A reset that waits, if one does. */
   pendingReset: PendingResetSchema.nullable().optional(),
 });
 export type KeyBundleResponse = z.infer<typeof KeyBundleResponseSchema>;
@@ -96,10 +91,10 @@ export const KeyBundlePutSchema = z.object({
   bundle: KeyBundleSchema,
   expected: z.number().int().positive().nullable(),
   /**
-   * The verifier of the password the bundle is locked with (v2). A v2
-   * device always sends it; once the server keeps one, the write needs the
-   * password's proof of the bundle it replaces (ACCOUNT_AUTH_HEADER).
+   * The verifier of the password the bundle is locked with. A write after
+   * the first needs the password's proof of the bundle it replaces
+   * (ACCOUNT_AUTH_HEADER).
    */
-  verifier: VerifierSchema.optional(),
+  verifier: VerifierSchema,
 });
 export type KeyBundlePut = z.infer<typeof KeyBundlePutSchema>;

@@ -12,7 +12,14 @@ import { createLogger } from "../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
-import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
+import {
+  configUsageOf,
+  LISTED_KEYS_STORAGE,
+  type ListedKey,
+  parseConfigUsage,
+  savedListedKeys,
+  withListedKeys,
+} from "./claude-config";
 import {
   type HistoryCut,
   historyModel,
@@ -71,8 +78,9 @@ const GOAL_STOP_MS = 10_000;
 
 /**
  * What a bare /config lists, for each workspace's profile and Claude Code
- * version: asked of the CLI once (a run of a couple of seconds), and again
- * after a failure.
+ * version: asked of the CLI once a run of the app (a run of a second or
+ * two), and again after a failure. The answer is kept in localStorage too,
+ * which the dialog shows at once while this is asked.
  */
 const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
@@ -81,6 +89,14 @@ const USAGE_TIMEOUT_MS = 60_000;
 
 /** How long after a failed ask for the context it is asked once more. */
 const CONTEXT_RETRY_MS = 3_000;
+/**
+ * MCP servers said to be none may still be coming up: for a few seconds
+ * after the program's initialize, its servers' list is empty. Asked again
+ * this long after, at most MCP_EMPTY_ASKS times a run of the program, as a
+ * session can have none.
+ */
+const MCP_EMPTY_RETRY_MS = 2_000;
+const MCP_EMPTY_ASKS = 4;
 
 interface ReplayResult {
   found: boolean;
@@ -212,6 +228,8 @@ export class ChatController {
   private chosenModel: string | undefined;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
+  /** How many times this run of the program said it had no MCP servers, and was asked again. */
+  private mcpEmptyAsks = 0;
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /** New lines held while the log is sent again. */
@@ -236,6 +254,14 @@ export class ChatController {
   private pendingName: string | undefined;
   /** Whether the session was given a name, which Claude's title from the first message would replace. */
   private named = false;
+  /**
+   * The name the user gave the tab: every session the tab has takes it, a
+   * new one after /clear or another profile too, and Remote Control is told
+   * it again as it starts, which can name the session on its own (the
+   * computer's name and two words). Another session's message from this one
+   * goes under the name Remote Control has.
+   */
+  private ownName: string | undefined;
 
   /** The profile the tab's program runs with, for a tab made from it to keep. */
   get profileId(): string {
@@ -497,7 +523,7 @@ export class ChatController {
           // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
           if (remote) {
             return this.request("remote_control", { enabled: true }).then(
-              () => {},
+              () => this.retellName(),
               (err: Error) => log.warn(`remote control not started: ${err.message}`),
             );
           }
@@ -583,9 +609,13 @@ export class ChatController {
   /**
    * Goes back to before one of the user's messages, in this tab: the files
    * first when asked, then the conversation, by a program that copies the
-   * session up to the message before it. The message goes back in the composer.
+   * session up to the message before it. The message goes back in the
+   * composer, unless another device asked (`draft` false): it goes back in that one's.
    */
-  async rewind(item: UserItem, { files }: { files: boolean }): Promise<void> {
+  async rewind(
+    item: UserItem,
+    { files, draft = true }: { files: boolean; draft?: boolean },
+  ): Promise<void> {
     const uuid = item.uuid;
     if (!uuid) throw new Error("the message has no uuid yet");
     if (this.state.model.running) throw new Error("a turn is running");
@@ -610,7 +640,7 @@ export class ChatController {
       history: kept.items.length > 0 ? kept : null,
       // The old program's last lines stay out of sight until the log starts over.
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-      draft: { text: item.text, images: item.images, nonce: Date.now() },
+      ...(draft ? { draft: { text: item.text, images: item.images, nonce: Date.now() } } : {}),
     }));
     if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }
@@ -777,6 +807,25 @@ export class ChatController {
     return true;
   }
 
+  /** Takes the name the user gave the tab, or none, for the sessions it has from now. */
+  keepName(title: string | undefined): void {
+    this.ownName = title?.trim() || undefined;
+  }
+
+  /**
+   * Tells the session the tab's name again, though it has it: Remote Control,
+   * just started, can have named the session on its own.
+   */
+  private retellName(): void {
+    const sessionId = this.state.model.sessionId ?? this.sessionId;
+    if (!this.ownName || !sessionId || !this.supports("rename_session")) return;
+    void this.request("rename_session", {
+      title: this.ownName,
+      source: "host",
+      session_id: sessionId,
+    }).catch(() => {});
+  }
+
   /** Builds the model again from the agent's log, which a rewind started over. */
   private async rebuild(): Promise<void> {
     this.flushNow();
@@ -877,8 +926,8 @@ export class ChatController {
    * runs that can go on in the background goes there, and the turn stops
    * for the message when nothing can.
    */
-  sendNow(text: string, images: ImageBlock[] = []): Promise<void> {
-    return this.sendMessage(text, images, true);
+  sendNow(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
+    return this.sendMessage(text, images, true, from);
   }
 
   /**
@@ -923,8 +972,8 @@ export class ChatController {
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
-    // A session the user named keeps that name; Claude makes it none.
-    if (first && !this.named) void this.nameSession(first);
+    // A session the user named, or the tab, keeps that name; Claude makes it none.
+    if (first && !this.named && !this.ownName) void this.nameSession(first);
   }
 
   /**
@@ -945,11 +994,27 @@ export class ChatController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘⇧↩). */
-  enqueue(text: string, images: ImageBlock[] = []): void {
-    const item: QueuedMessage = { id: nextRequestId(), text, images };
+  /**
+   * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
+   * none when no turn runs and it went at once.
+   */
+  enqueue(
+    text: string,
+    images: ImageBlock[] = [],
+    from?: RelaySender,
+    device?: string,
+  ): string | undefined {
+    const item: QueuedMessage = {
+      id: nextRequestId(),
+      text,
+      images,
+      ...(from ? { from } : {}),
+      ...(device ? { device } : {}),
+    };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.state.model.running) this.sendNextQueued();
+    if (this.state.model.running) return item.id;
+    this.sendNextQueued();
+    return undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
@@ -958,11 +1023,30 @@ export class ChatController {
     return item;
   }
 
+  /**
+   * Changes a held message's text, its images kept: false once it went.
+   * Changed from another computer (`device`), it is that computer user's
+   * now, no longer the agent's that sent it.
+   */
+  editQueued(id: string, text: string, device?: string): boolean {
+    if (!this.state.queue.some((q) => q.id === id)) return false;
+    this.update((prev) => ({
+      ...prev,
+      queue: prev.queue.map((q) => {
+        if (q.id !== id) return q;
+        if (!device) return { ...q, text };
+        const { from: _agent, ...rest } = q;
+        return { ...rest, text, device };
+      }),
+    }));
+    return true;
+  }
+
   private sendNextQueued(): void {
     const [next] = this.state.queue;
     if (!next) return;
     this.update((prev) => ({ ...prev, queue: prev.queue.slice(1) }));
-    void this.send(next.text, next.images);
+    void this.send(next.text, next.images, next.from);
   }
 
   interrupt(): Promise<unknown> {
@@ -1026,7 +1110,8 @@ export class ChatController {
   /**
    * Asks for what the side panel shows that only a request tells: the
    * context, the plan's usage, the MCP servers. Only while the program
-   * runs; the answers land in the model.
+   * runs, and the servers once its initialize ended; the answers land in
+   * the model.
    */
   refreshPanel(parts: readonly PanelPart[]): void {
     if (!this.lineCanAsk()) return;
@@ -1041,8 +1126,24 @@ export class ChatController {
         continue;
       }
       const subtype = PANEL_REQUESTS[part];
-      if (this.supports(subtype)) this.request(subtype, this.panelParams(part)).catch(() => {});
+      if (!this.supports(subtype)) continue;
+      // After the program's initialize: asked before it ends, the MCP servers
+      // are not up yet and come back as none, which the panel would keep.
+      void this.initializing.catch(() => {}).then(() => this.askPanel(part, subtype));
     }
+  }
+
+  /** Asks for a part of the panel; MCP servers said to be none, again a little later. */
+  private askPanel(part: PanelPart, subtype: string): void {
+    if (!this.lineCanAsk()) return;
+    this.request(subtype, this.panelParams(part))
+      .then((body) => {
+        const none = part === "mcp" && Array.isArray(body.mcpServers) && !body.mcpServers.length;
+        if (!none || this.mcpEmptyAsks >= MCP_EMPTY_ASKS) return;
+        this.mcpEmptyAsks += 1;
+        setTimeout(() => this.askPanel(part, subtype), MCP_EMPTY_RETRY_MS);
+      })
+      .catch(() => {});
   }
 
   /**
@@ -1249,16 +1350,15 @@ export class ChatController {
    * What the settings dialog (/config) shows: the settings Claude Code has
    * now (get_settings), and those of its global config file on the host,
    * which settings.json may lack; none of the file's when it is not read.
+   * The keys come apart: savedConfigKeys at once, listConfigKeys later.
    */
   async readConfig(): Promise<{
     effective: Record<string, unknown>;
     global: Record<string, unknown>;
     /** The model the program runs ("claude-opus-5-5"), whose default effort is shown. */
     model?: string;
-    /** The keys a bare /config lists; null when the CLI's list was not read. */
-    listed: ListedKey[] | null;
   }> {
-    const [settings, global, listed] = await Promise.all([
+    const [settings, global] = await Promise.all([
       this.ask("get_settings"),
       ipcCallResult("chat", "claudeConfig", {
         workspaceId: this.target.workspaceId,
@@ -1269,7 +1369,6 @@ export class ChatController {
           log.warn(`Claude Code's global config not read: ${err.message}`);
           return {};
         }),
-      this.listedConfigKeys(),
     ]);
     const effective = settings.effective;
     const applied = settings.applied as { model?: unknown } | undefined;
@@ -1280,15 +1379,41 @@ export class ChatController {
           : {},
       global,
       model: typeof applied?.model === "string" ? applied.model : undefined,
-      listed,
     };
   }
 
-  /** The keys a bare /config lists, asked of a `claude -p` run beside the tab's. */
-  private listedConfigKeys(): Promise<ListedKey[] | null> {
+  /** Where /config's list is kept for the tab: its workspace's profile, and the version it runs. */
+  private configKeysPlace(): { place: string; version: string } {
+    const { workspaceId, profileId } = this.target;
+    return {
+      place: [workspaceId, profileId ?? ""].join("\n"),
+      version: this.state.version ?? this.state.model.version ?? "",
+    };
+  }
+
+  /**
+   * The keys a bare /config listed when last asked for the tab's workspace,
+   * profile and Claude Code version, in this run of the app or an earlier
+   * one; null when they were not.
+   */
+  savedConfigKeys(): ListedKey[] | null {
+    const { place, version } = this.configKeysPlace();
+    try {
+      return savedListedKeys(localStorage.getItem(LISTED_KEYS_STORAGE), place, version);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The keys a bare /config lists, asked of a `claude -p` run beside the
+   * tab's (once a run of the app) and kept for savedConfigKeys; null when
+   * they were not read.
+   */
+  listConfigKeys(): Promise<ListedKey[] | null> {
     const { workspaceId, cwd, profileId } = this.target;
-    const version = this.state.version ?? this.state.model.version ?? "";
-    const key = [workspaceId, profileId ?? "", version].join("\n");
+    const { place, version } = this.configKeysPlace();
+    const key = [place, version].join("\n");
     let listed = listedConfigKeys.get(key);
     if (!listed) {
       listed = ipcCallResult("chat", "cli", {
@@ -1300,6 +1425,17 @@ export class ChatController {
         .then((result) => {
           const keys = parseConfigUsage(configUsageOf(unwrapIpcResult(result).stdout));
           if (keys.length === 0) throw new Error("no keys in its answer");
+          if (version) {
+            try {
+              const saved = localStorage.getItem(LISTED_KEYS_STORAGE);
+              localStorage.setItem(
+                LISTED_KEYS_STORAGE,
+                withListedKeys(saved, place, version, keys),
+              );
+            } catch (err) {
+              log.warn(`/config's keys not kept: ${(err as Error).message}`);
+            }
+          }
           return keys;
         })
         .catch((err: Error) => {
@@ -1462,7 +1598,10 @@ export class ChatController {
 
   /** Turns Remote Control on or off; on, its answer has the session's URL. */
   setRemoteControl(enabled: boolean): Promise<unknown> {
-    return this.request("remote_control", { enabled });
+    return this.request("remote_control", { enabled }).then((answer) => {
+      if (enabled) this.retellName();
+      return answer;
+    });
   }
 
   supports(subtype: string): boolean {
@@ -1638,8 +1777,9 @@ export class ChatController {
     if (model.sessionId && model.sessionId !== this.sessionId) {
       // The copy a fork made has its own id now: the tab goes on with it,
       // and a branch takes its name.
-      // A name the user gave the tab before goes first.
-      const name = this.pendingName ?? this.target.fork?.title;
+      // A name the user gave the tab before goes first; the tab's own
+      // name names a new session after /clear or another profile.
+      const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
@@ -1654,6 +1794,7 @@ export class ChatController {
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
       this.rejectPending("the program exited");
+      this.mcpEmptyAsks = 0;
     }
   }
 

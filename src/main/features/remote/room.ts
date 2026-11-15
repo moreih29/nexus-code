@@ -341,7 +341,8 @@ export class RemoteRoom {
         const known = this.peers.get(d.id);
         next.set(d.id, {
           id: d.id,
-          name: d.name,
+          name: d.alias || d.name,
+          ...(d.alias ? { hostName: d.name } : {}),
           platform: d.platform,
           online: d.online,
           ...(known?.app ? { app: known.app } : {}),

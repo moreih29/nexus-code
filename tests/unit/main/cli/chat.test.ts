@@ -7,7 +7,6 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { senderOf } from "../../../../src/main/features/cli/sender";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
-import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
 import {
   API,
   APP,
@@ -268,7 +267,6 @@ describe("chat new with settings", () => {
     expect(result.stdout).toBe(
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
-    expect(app.dispatched).toEqual([]);
   });
 });
 
@@ -289,7 +287,6 @@ describe("who sends a message", () => {
       name: "Plan the refactor",
       workspaceId: APP,
       tabId: DOCS_TAB,
-      hops: 1,
     });
     expect(await senderOf(at(CLAUDE_TAB))).toEqual({
       kind: "terminal",
@@ -297,14 +294,11 @@ describe("who sends a message", () => {
       name: "✳ Claude Code",
       workspaceId: APP,
       tabId: CLAUDE_TAB,
-      hops: 1,
     });
     expect(await senderOf(at(SHELL_TAB))).toBeUndefined();
-    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
-    expect(await senderOf(contextFor(app, [], manager))).toEqual({ kind: "manager", hops: 1 });
   });
 
-  test("one more than the agent's message that started the sender's turn; too far is a loop", async () => {
+  test("an agent's message goes however many agents' messages led to it", async () => {
     const app = withChat();
     app.tabs[APP]?.push({
       id: DOCS_TAB,
@@ -314,43 +308,15 @@ describe("who sends a message", () => {
       shown: false,
     });
     const docs = { workspaceId: APP, tabId: DOCS_TAB };
-    app.turnHops.set(DOCS_TAB, 3);
-    expect(await senderOf(contextFor(app, [], docs))).toMatchObject({ hops: 4 });
-    app.turnHops.set(DOCS_TAB, 8);
-    const sent = await nexus(app, ["chat", "send", "eeee", "again"], docs);
-    expect(sent.exitCode).toBe(1);
-    expect(sent.stderr).toContain("the agents' chain is too long (8 messages): a loop?");
-    expect(uiArgs(app, "chat.send")).toBeUndefined();
-  });
-
-  test("an agent's input into a terminal counts for the turn it starts there", async () => {
-    const app = withChat();
-    app.tabs[APP]?.push({
-      id: DOCS_TAB,
-      type: "codex",
-      title: "Plan",
-      groupId: "g1",
-      shown: false,
-    });
-    app.turnHops.set(DOCS_TAB, 2);
-    await nexus(app, ["terminal", "send", "✳ Claude Code", "go on"], {
-      workspaceId: APP,
-      tabId: DOCS_TAB,
-    });
-    // Claude Code there starts its turn as the input comes: what it sends is one further.
-    app.claude.set(`${APP}:${CLAUDE_TAB}`, {
-      status: "running",
-      since: app.time.now,
-      turnStartedAt: app.time.now,
-    });
-    expect(
-      await senderOf(contextFor(app, [], { workspaceId: APP, tabId: CLAUDE_TAB })),
-    ).toMatchObject({ hops: 4 });
+    for (let i = 0; i < 12; i++) {
+      const sent = await nexus(app, ["chat", "send", "eeee", `again ${i}`], docs);
+      expect(sent.exitCode).toBe(0);
+    }
   });
 
   test("one that could be any process's, or names no terminal or chat tab, is an agent's, not the user's", async () => {
     const app = withChat();
-    const unknown = (tabId: string) => ({ kind: "terminal", workspaceId: APP, tabId, hops: 1 });
+    const unknown = (tabId: string) => ({ kind: "terminal", workspaceId: APP, tabId });
     // The user's shell, but the request came without that tab's token: any process may say it.
     expect(
       await senderOf(contextFor(app, [], { workspaceId: APP, tabId: SHELL_TAB, verified: false })),
@@ -363,14 +329,6 @@ describe("who sends a message", () => {
     expect(await senderOf(contextFor(app, [], { workspaceId: APP, tabId: gone }))).toEqual(
       unknown(gone),
     );
-    // Nor is the manager's tab without its token the manager.
-    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID, verified: false };
-    expect(await senderOf(contextFor(app, [], manager))).toEqual({
-      kind: "terminal",
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
-      hops: 1,
-    });
   });
 
   test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {
@@ -385,7 +343,6 @@ describe("who sends a message", () => {
       name: expect.any(String),
       workspaceId: APP,
       tabId: SHELL_TAB,
-      hops: 1,
     });
     app.foreground.set(SHELL_TAB, "zsh");
     expect(await senderOf(at)).toBeUndefined();
@@ -401,9 +358,24 @@ describe("who sends a message", () => {
     });
     await nexus(app, ["chat", "new", "--prompt", "look at the docs"], claude);
     expect(uiArgs(app, "chat.open")).toMatchObject({ from: { kind: "terminal" } });
+    // Whether it waits to read the answer is told only where it is known.
+    expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
     expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
+  });
+
+  test("chat send tells the tab whether its sender waits to read the answer", async () => {
+    const app = withChat();
+    const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
+    await nexus(app, ["chat", "send", "eeee", "run the tests"], claude);
+    await nexus(
+      app,
+      ["chat", "send", "eeee", "run the tests", "--wait", "--timeout", "1s"],
+      claude,
+    );
+    const sent = app.uiCalls.filter((c) => c.op === "chat.send").map((c) => c.args);
+    expect(sent).toMatchObject([{ from: { waits: false } }, { from: { waits: true } }]);
   });
 });
 

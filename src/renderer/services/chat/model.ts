@@ -26,7 +26,17 @@ export interface ChatLine {
 export interface ImageBlock {
   mediaType: string;
   data: string;
+  /**
+   * Another computer's image, whose bytes stay there until it is shown
+   * (chat.image): `data` is empty until then.
+   */
+  remote?: RemoteImageRef;
 }
+
+/** Where another computer's chat has an image: a message's, or a tool's result's. */
+export type RemoteImageRef =
+  | { kind: "user"; itemKey: string; index: number }
+  | { kind: "tool"; toolUseId: string; index: number };
 
 export interface UserItem {
   kind: "user";
@@ -111,8 +121,6 @@ export interface MessageSource {
   tabId?: string;
   /** The user's other computer it was sent from, as it names itself; none for this one. */
   device?: { id: string; name: string };
-  /** How many messages between agents led to it, the first being 1. */
-  hops?: number;
 }
 
 /**
@@ -394,6 +402,10 @@ export interface ChatModel {
    */
   bypassBlocked?: string;
   rateLimit?: RateLimitInfo;
+  /**
+   * get_context_usage's last answer, its total moved on by each of the
+   * main thread's API calls since (withContextTokens).
+   */
   contextUsage?: unknown;
   /** get_usage's answer: the plan's limits, as the server sends them. */
   usage?: unknown;
@@ -826,6 +838,7 @@ function applyStreamEvent(draft: Draft, message: Rec): void {
     case "message_start": {
       const id = str(rec(event.message)?.id) ?? "";
       m.streaming = { messageId: id, blocks: {} };
+      takeContextTokens(m, rec(event.message)?.usage);
       if (m.turn) m.turn = { ...m.turn, status: undefined, retry: undefined };
       return;
     }
@@ -941,6 +954,7 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     return;
   }
 
+  takeContextTokens(m, body?.usage);
   // The block streamed so far has arrived whole.
   if (m.streaming && m.streaming.messageId === messageId)
     m.streaming = { ...m.streaming, blocks: {} };
@@ -968,6 +982,60 @@ function applyAssistant(draft: Draft, message: Rec, seq: number, at: number | un
     blocks,
     at: when,
   });
+}
+
+/**
+ * The context's size an API call's `usage` tells: the input it sent, cached
+ * or not, which is the total get_context_usage counts after it. None for a
+ * message with no usage, or one the CLI made up (all zero).
+ */
+function contextTokensOf(usage: unknown): number | undefined {
+  const u = rec(usage);
+  if (!u) return undefined;
+  const tokens =
+    (num(u.input_tokens) ?? 0) +
+    (num(u.cache_creation_input_tokens) ?? 0) +
+    (num(u.cache_read_input_tokens) ?? 0);
+  return tokens > 0 ? tokens : undefined;
+}
+
+/**
+ * get_context_usage's answer with the context's size at `tokens`: its
+ * percentage too, and the free space less by as much as the total grew.
+ * The other categories stay as counted.
+ */
+export function withContextTokens(usage: unknown, tokens: number): unknown {
+  const body = rec(usage);
+  if (!body || typeof body.totalTokens !== "number" || body.totalTokens === tokens) return usage;
+  const grew = tokens - body.totalTokens;
+  const max = num(body.maxTokens) ?? 0;
+  return {
+    ...body,
+    totalTokens: tokens,
+    ...(max > 0 ? { percentage: Math.round((tokens / max) * 100) } : {}),
+    ...(Array.isArray(body.categories)
+      ? {
+          categories: body.categories.map((raw) => {
+            const category = rec(raw);
+            const free = category?.kind === "free" ? num(category.tokens) : undefined;
+            return free === undefined ? raw : { ...category, tokens: Math.max(0, free - grew) };
+          }),
+        }
+      : {}),
+  };
+}
+
+/**
+ * Moves the context's size on as the main thread's API call says it, so it
+ * follows a turn of many calls, which get_context_usage is asked only at
+ * the end of; asked more often, it would count each category with the
+ * token-count API.
+ */
+function takeContextTokens(m: ChatModel, usage: unknown): void {
+  const tokens = contextTokensOf(usage);
+  if (tokens !== undefined && m.contextUsage !== undefined) {
+    m.contextUsage = withContextTokens(m.contextUsage, tokens);
+  }
 }
 
 function pushAgentBlocks(

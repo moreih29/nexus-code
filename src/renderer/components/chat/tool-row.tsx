@@ -232,7 +232,7 @@ export function ToolDetail({ tool, className }: { tool: ToolCall; className?: st
   );
 }
 
-interface Hunk {
+export interface Hunk {
   oldStart?: number;
   newStart?: number;
   lines: string[];
@@ -245,10 +245,20 @@ function prefix(text: string, mark: string): string[] {
 /** Lines past this many in a patch are shown without syntax colors. */
 const MAX_HIGHLIGHTED_LINES = 2_000;
 
-function PatchView({ hunks, language }: { hunks: Hunk[]; language?: string }) {
+/** A patch's hunks, each line marked and tinted as added or removed, its code highlighted. */
+export function PatchView({
+  hunks,
+  language,
+  className = "app-scrollbar max-h-80 overflow-auto text-app-micro",
+}: {
+  hunks: readonly Hunk[];
+  language?: string;
+  /** Its size and scrolling: a tool row's box by default. */
+  className?: string;
+}) {
   let budget = MAX_HIGHLIGHTED_LINES;
   return (
-    <div className="code-hl app-scrollbar max-h-80 overflow-auto font-mono text-app-micro leading-5">
+    <div className={cn("code-hl font-mono leading-5", className)}>
       {hunks.map((hunk, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: hunks have no identity of their own
         <div key={i} className={i > 0 ? "border-t border-border" : ""}>

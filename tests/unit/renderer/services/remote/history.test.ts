@@ -41,9 +41,36 @@ describe("the past conversations", () => {
         cwd: "/src/app",
         profile: "Personal",
       },
-      { sessionId: "b", title: "docs", at: 2, cwd: "/src/app", profile: "Personal" },
+      {
+        sessionId: "b",
+        title: "docs",
+        at: 2,
+        cwd: "/src/app",
+        profile: "Personal",
+        firstPrompt: "write the build notes",
+      },
     ]);
     expect(pastSessionsOf(listed, "/src/app", name, undefined, 1)).toHaveLength(1);
+  });
+
+  test("with its branch, and the tab it is open in", () => {
+    const listed = [
+      session("a", 3, { title: "fix", firstPrompt: "fix", gitBranch: "main" }),
+      session("b", 2),
+    ];
+    const openIn = (id: string) => (id === "a" ? "tab-1" : undefined);
+    expect(pastSessionsOf(listed, "/w", () => "default", undefined, 50, openIn)).toEqual([
+      {
+        sessionId: "a",
+        title: "fix",
+        at: 3,
+        cwd: "/w",
+        profile: "default",
+        gitBranch: "main",
+        tabId: "tab-1",
+      },
+      { sessionId: "b", title: "title b", at: 2, cwd: "/w", profile: "default" },
+    ]);
   });
 });
 

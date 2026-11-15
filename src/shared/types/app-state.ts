@@ -232,6 +232,11 @@ export const AppStateSchema = z.object({
   // "multi", which lets the server tell the language as the user speaks.
   voiceLanguage: z.enum(["app", "multi"]).default("app"),
 
+  // Whether a voice session sends the account's computer and workspace
+  // names along (in its ticket), so the speech recognition service hears
+  // them right. Off unless the user turned it on, on this computer only.
+  voiceSendNames: z.boolean().default(false),
+
   // Whether the account's other devices may control this one's chats
   // (send, answer, stop, open, close) or only look (main/features/remote).
   remoteControl: z.boolean().default(false),
@@ -257,34 +262,6 @@ export const AppStateSchema = z.object({
   // Whether Claude Code sessions started in the app are told about nexus at
   // their start (a SessionStart hook prints a short note).
   cliAgentContext: z.boolean().default(true),
-
-  // The agent manager (shared/manager): a Claude Code or Codex session the
-  // app starts with itself, which follows and directs every workspace's
-  // agent sessions through nexus.
-  managerEnabled: z.boolean().default(false),
-  managerAgent: z.enum(["claude", "codex"]).default("claude"),
-  // The profile each agent runs it with; absent = the agent's default profile.
-  managerProfiles: z
-    .object({
-      claude: z.string().min(1).max(64).optional(),
-      codex: z.string().min(1).max(64).optional(),
-    })
-    .optional(),
-  // Which session changes the app tells it (shared/manager MANAGER_NOTIFY).
-  managerNotify: z.enum(["tasks", "attention", "all"]).default("attention"),
-  // What it may do with another session's permission request.
-  managerPermissions: z.enum(["user", "ask", "answer"]).default("user"),
-  // Its reports as desktop notifications too, while the user is not looking.
-  managerReports: z.boolean().default(true),
-  // The session (Claude) or thread (Codex) it goes on with when the app
-  // starts, and the profile whose folder has it.
-  managerSession: z
-    .object({
-      agent: z.enum(["claude", "codex"]),
-      id: z.string().max(128),
-      profileId: z.string().min(1).max(64).optional(),
-    })
-    .optional(),
 
   // Global browser permission toggles keyed by BrowserPermissionKind string.
   // Absent key (or absent field) means the permission is OFF (denied).

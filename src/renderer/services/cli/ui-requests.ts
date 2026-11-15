@@ -9,7 +9,6 @@ import { ipcCallResult, ipcListen } from "@/ipc/client";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { allLeaves } from "@/state/stores/layout/helpers";
 import { useLayoutStore } from "@/state/stores/layout/store";
-import { useManagerStore } from "@/state/stores/manager";
 import type { Tab } from "@/state/stores/tabs";
 import { useTabsStore } from "@/state/stores/tabs";
 import type { CliTabInfo, CliUiOp } from "../../../shared/cli/ui";
@@ -36,7 +35,12 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
   };
   switch (tab.type) {
     case "terminal":
-      return { ...base, cwd: tab.props.cwd, ...(tab.props.dead ? { dead: true } : {}) };
+      return {
+        ...base,
+        cwd: tab.props.cwd,
+        ...(tab.props.dead ? { dead: true } : {}),
+        ...(getTerminalController(tab.id) ? {} : { unstarted: true }),
+      };
     case "editor":
       return { ...base, filePath: tab.props.filePath };
     case "browser": {
@@ -94,10 +98,6 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
     return {};
   },
   "events.read": async ({ since, limit }) => readSessionEvents(since, limit),
-  "manager.dispatched": async ({ workspaceId, tabId, text }) => {
-    useManagerStore.getState().dispatched(workspaceId, tabId, text, Date.now());
-    return {};
-  },
   ...actionHandlers,
   ...appHandlers,
   ...chatHandlers,

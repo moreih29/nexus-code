@@ -3,9 +3,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-const { OfflinePeer, PeerGroup, RemoteSessionRow } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-sessions"
-);
+const {
+  OfflinePeer,
+  PeerGroup,
+  RemoteSessionRow,
+  RemoteTabLabel,
+  agentRunsOf,
+  listedByDefault,
+  listedSessions,
+} = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, servingPeers } = await import(
   "../../../../../src/renderer/services/remote/room"
 );
@@ -72,7 +78,14 @@ describe("the agent view's other computers", () => {
           status: "ready",
           list: list([
             session({ tabId: "t1", title: "Fix the build", last: "Done." }),
-            session({ tabId: "t2", workspaceId: "w2", kind: "terminal", title: "dev server" }),
+            session({
+              tabId: "t2",
+              workspaceId: "w2",
+              kind: "terminal",
+              title: "claude in a terminal",
+              agent: "claude",
+            }),
+            session({ tabId: "t3", workspaceId: "w2", kind: "terminal", title: "dev server" }),
           ]),
         }}
       />,
@@ -83,7 +96,193 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("web");
     expect(html).toContain("Fix the build");
     expect(html).toContain("Done.");
-    expect(html).toContain("dev server");
+    expect(html).toContain("claude in a terminal");
+    // A terminal with only its shell waits behind the toggle.
+    expect(html).not.toContain("dev server");
+    expect(html).toContain("Show 1 terminal");
+  });
+
+  test("lists a session's running agents under its row, as this computer's, with nothing to open", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({
+              tabId: "t1",
+              title: "Fix the build",
+              state: "running",
+              agents: [
+                {
+                  id: "s1",
+                  kind: "subagent",
+                  type: "Explore",
+                  description: "Find the config loader",
+                  state: "running",
+                  start: Date.now() - 5_000,
+                },
+                {
+                  id: "p1",
+                  kind: "print",
+                  program: "codex",
+                  state: "permissionPending",
+                  start: Date.now() - 1_000,
+                },
+              ],
+            }),
+            session({ tabId: "t2", title: "No agents" }),
+          ]),
+        }}
+      />,
+    );
+    expect(html).toContain("Find the config loader");
+    expect(html.match(/data-testid="agent-list-agent-rows"/g)?.length).toBe(1);
+    // Shown, not picked: no button among the agents' rows.
+    const rows = html.slice(html.indexOf('data-testid="agent-list-agent-rows"'));
+    expect(rows.slice(0, rows.indexOf("</ul>"))).not.toContain("<button");
+  });
+
+  test("an agent another computer tells is read as this computer's own", () => {
+    expect(
+      agentRunsOf([{ id: "s1", kind: "subagent", type: "Explore", state: "running", start: 5 }]),
+    ).toEqual([
+      {
+        id: "s1",
+        kind: "subagent",
+        type: "Explore",
+        state: "running",
+        start: 5,
+        tools: [],
+        toolCount: 0,
+        failedCount: 0,
+      },
+    ]);
+    expect(agentRunsOf(undefined)).toEqual([]);
+  });
+
+  test("shows a terminal unasked only when it runs an agent, also as an older computer lists it", () => {
+    const terminal = (over: Partial<RemoteSession>) => session({ kind: "terminal", ...over });
+    expect(listedByDefault(session({}))).toBe(true);
+    expect(listedByDefault(terminal({}))).toBe(false);
+    expect(listedByDefault(terminal({ agent: "codex" }))).toBe(true);
+    // Without `agent`: one that waits, works or said something runs one.
+    expect(listedByDefault(terminal({ state: "running" }))).toBe(true);
+    expect(listedByDefault(terminal({ last: "Done" }))).toBe(true);
+    expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
+      true,
+    );
+    // One that ended is a terminal again, as an agent here whose terminal ended.
+    expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
+  });
+
+  test("lists a workspace's terminals when asked there, when one is in a panel, or when a search finds one", () => {
+    const plain = session({ tabId: "t9", kind: "terminal", title: "dev server" });
+    const other = session({ tabId: "t8", workspaceId: "w2", kind: "terminal", title: "logs" });
+    const chat = session({ tabId: "t1" });
+    const none = () => false;
+    const all = [chat, plain, other];
+    expect(listedSessions(all, "", none, none)).toEqual({
+      listed: [chat],
+      hidden: new Map([
+        ["w1", 1],
+        ["w2", 1],
+      ]),
+    });
+    // Asked for in one workspace: the other's stay out of sight.
+    expect(listedSessions(all, "", (w) => w === "w1", none)).toEqual({
+      listed: [chat, plain],
+      hidden: new Map([["w2", 1]]),
+    });
+    expect(listedSessions(all, "", none, (s) => s.tabId === "t9").listed).toEqual([chat, plain]);
+    expect(listedSessions(all, "server", none, none)).toEqual({
+      listed: [plain],
+      hidden: new Map(),
+    });
+  });
+
+  test("each workspace has its own toggle for its terminals, one with only terminals too", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+            session({ tabId: "t3", workspaceId: "w2", kind: "terminal", title: "logs" }),
+            session({ tabId: "t4", workspaceId: "w2", kind: "terminal", title: "tail" }),
+          ]),
+        }}
+      />,
+    );
+    expect(html.match(/data-testid="remote-terminals-toggle"/g)?.length).toBe(2);
+    expect(html).toContain('data-workspace="w1"');
+    expect(html).toContain('data-workspace="w2"');
+    expect(html).toContain("Show 1 terminal");
+    expect(html).toContain("Show 2 terminals");
+    // The workspace with only terminals is named, for its toggle.
+    expect(html).toContain(">web<");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain(">logs<");
+    // Its toggle comes under its own sessions, not the computer's last.
+    expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf(">web<"));
+  });
+
+  test("heads a workspace as its group's title: a folder, or a task's branch and how it stands", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: {
+            workspaces: [
+              { id: "w1", name: "api", path: "/src/api" },
+              {
+                id: "w2",
+                name: "api-fix",
+                path: "/wt/api-fix",
+                parentId: "w1",
+                git: { branch: "fix/login", ahead: 2, behind: 0, uncommitted: 3 },
+              },
+            ],
+            sessions: [
+              session({ tabId: "t1", title: "Fix the build" }),
+              session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+            ],
+          },
+        }}
+      />,
+    );
+    const headings = html.split('data-testid="remote-workspace"').slice(1);
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toContain("lucide-folder");
+    expect(headings[0]).toContain("font-semibold");
+    expect(headings[1]).toContain("lucide-git-branch");
+    expect(headings[1]).toContain("fix/login ↑2 ●");
+  });
+
+  test("a workspace's terminals toggle reads as a link, lined up with the rows' titles", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+          ]),
+        }}
+      />,
+    );
+    const toggle = html.slice(html.indexOf('data-testid="remote-terminals-toggle"') - 400);
+    expect(toggle).toContain("text-(--state-selected-indicator)");
+    expect(toggle).toContain("pl-6.5");
+    expect(toggle).toContain("lucide-square-terminal");
   });
 
   test("finds sessions by their title or last line", () => {
@@ -129,10 +328,43 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("Run bun test?");
   });
 
-  test("a row is a button that opens the session, marked while it is shown", () => {
-    const html = renderToStaticMarkup(
-      <RemoteSessionRow session={session({})} selected onOpen={() => {}} />,
+  test("a row is a button that opens the session, marked as this computer's are while a panel has it", () => {
+    const shown = renderToStaticMarkup(
+      <RemoteSessionRow session={session({})} where="shown" onOpen={() => {}} />,
     );
-    expect(html).toContain('<button type="button" aria-current="true"');
+    expect(shown).toContain('<button type="button" aria-current="true"');
+    expect(shown).toContain("bg-[var(--sidebar-item-selected-bg)]");
+    expect(shown).toContain('data-testid="remote-session-panel" data-where="shown"');
+    expect(shown).toContain('aria-label="Shown in a panel"');
+
+    const held = renderToStaticMarkup(<RemoteSessionRow session={session({})} where="held" />);
+    expect(held).not.toContain("aria-current");
+    expect(held).not.toContain("bg-[var(--sidebar-item-selected-bg)]");
+    expect(held).toContain('data-testid="remote-session-panel" data-where="held"');
+
+    const none = renderToStaticMarkup(<RemoteSessionRow session={session({})} />);
+    expect(none).not.toContain("remote-session-panel");
+    expect(none).not.toContain("aria-current");
+  });
+
+  test("a session's tab names its computer and title, and its state unless idle", () => {
+    const target = {
+      deviceId: "d2",
+      deviceName: "Work PC",
+      workspaceId: "w1",
+      workspaceName: "api",
+      path: "/src/api",
+      tabId: "t1",
+      kind: "claude" as const,
+      title: "Fix the build",
+    };
+    const idle = renderToStaticMarkup(<RemoteTabLabel target={{ ...target, state: "idle" }} />);
+    expect(idle).toContain("Work PC");
+    expect(idle).toContain("Fix the build");
+    expect(idle).not.toContain('role="img"');
+    const waiting = renderToStaticMarkup(
+      <RemoteTabLabel target={{ ...target, state: "needs-you" }} />,
+    );
+    expect(waiting).toContain('aria-label="Needs you"');
   });
 });

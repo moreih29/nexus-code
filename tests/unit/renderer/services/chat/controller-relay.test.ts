@@ -37,7 +37,8 @@ const { useTabsStore } = await import("../../../../../src/renderer/state/stores/
 
 const FROM = { kind: "tab", agent: "codex", name: "Plan", workspaceId: "ws", tabId: "t0" } as const;
 const HEADER =
-  '[nexus] The "Plan" tab (Codex) sent this, not the user. Your answer here is what it reads.';
+  '[nexus] The "Plan" tab (Codex) sent this, not the user. ' +
+  "Your answer here is what it reads if it waits; to write to it later: nexus chat send t0 --workspace ws -";
 
 let seq = 0;
 const live: { dispose: () => void }[] = [];

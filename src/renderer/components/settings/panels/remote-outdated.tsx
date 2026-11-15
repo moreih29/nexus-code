@@ -1,0 +1,67 @@
+// src/renderer/components/settings/panels/remote-outdated.tsx
+//
+// While the server no longer takes this version of the app (the room's
+// "outdated"), this computer stays out of the room until it is updated. The
+// Remote page says so first, with where the update stands and its buttons,
+// as Settings › About has them; the Other computers list says it in a line
+// whose button opens that page.
+
+import { TriangleAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { ipcCallResult } from "../../../ipc/client";
+import { useSettingsUIStore } from "../../../state/stores/settings-ui";
+import { useUpdatesStore } from "../../../state/stores/updates";
+import { Button } from "../../ui/button";
+import { SettingsGroup } from "../section";
+import { UpdateSection } from "./about-panel";
+
+export function OutdatedGroup() {
+  const { t } = useTranslation("settings");
+  const status = useUpdatesStore((s) => s.status);
+  const progress = useUpdatesStore((s) => s.progress);
+  // The Microsoft Store updates its own install.
+  const storeManaged = window.host?.windowsStore === true;
+  return (
+    <SettingsGroup
+      title={t("remote.outdated.title")}
+      description={t("remote.outdated.description")}
+    >
+      <div data-testid="remote-outdated-group">
+        {storeManaged ? (
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-app-ui-sm text-muted-foreground">{t("about.storeManaged")}</p>
+            <Button
+              size="sm"
+              onClick={() => void ipcCallResult("updates", "openStorePage", undefined)}
+            >
+              {t("about.openStore")}
+            </Button>
+          </div>
+        ) : (
+          <UpdateSection status={status} progress={progress} releaseNotes={false} />
+        )}
+      </div>
+    </SettingsGroup>
+  );
+}
+
+/** The Other computers list's line: out of the room until updated, and the way there. */
+export function OutdatedLine() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1" data-testid="remote-outdated">
+      <TriangleAlert aria-hidden className="size-3.5 shrink-0 text-(--state-warning-fg)" />
+      <span className="min-w-0 flex-1 text-app-ui-sm text-muted-foreground">
+        {t("agentView.remote.outdated")}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-6 shrink-0 px-2 text-app-micro"
+        onClick={() => useSettingsUIStore.getState().openSettingsAt("remote")}
+      >
+        {t("updates.install")}
+      </Button>
+    </div>
+  );
+}

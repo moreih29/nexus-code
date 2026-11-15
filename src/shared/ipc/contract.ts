@@ -103,6 +103,7 @@ import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   AccountKeyStateSchema,
+  MAX_DEVICE_ALIAS,
   RemoteAccountStateSchema,
   RemoteDeviceInfoSchema,
   SignInProviderSchema,
@@ -110,6 +111,7 @@ import {
 import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
 import {
+  SetVoiceTermsArgsSchema,
   TranscribeResultSchema,
   TranscriptionSchema,
   VoiceAudioArgsSchema,
@@ -2296,34 +2298,6 @@ export const ipcContract = {
     },
   },
 
-  // The agent manager (shared/manager): the session the app runs beside the
-  // user's to follow and direct them, in a workspace of its own.
-  manager: {
-    call: {
-      /**
-       * Opens the manager's workspace, its folder made if need be, so its
-       * program can start there. Answers where.
-       */
-      prepare: call(
-        z.void(),
-        z.object({ workspaceId: z.string().uuid(), tabId: z.string().uuid(), cwd: z.string() }),
-      ),
-      /**
-       * Tells the user what the manager reported, as a desktop notification
-       * when the user is not looking and notifications are on; a click shows
-       * the manager. Answers whether it was shown.
-       */
-      notify: call(
-        z.object({ title: z.string().max(200), body: z.string().max(4000) }),
-        z.object({ shown: z.boolean() }),
-      ),
-    },
-    listen: {
-      /** The user clicked a manager's notification: show the manager. */
-      reveal: listen(z.object({})),
-    },
-  },
-
   // Settings › Claude and Codex: the profiles' folders and sign-ins on this
   // machine. A chat tab's profile is set up on its workspace's host instead,
   // as it starts (chat.start's profileId).
@@ -2449,14 +2423,23 @@ export const ipcContract = {
       /**
        * Removes a device; another one, on a server of account keys v2, with
        * the account password, which rotates the account key (its KeyFailure
-       * as the kind when that fails).
+       * as the kind when that fails). The device that asked for a reset goes
+       * without it, but one that holds the key only with `keepKey`.
        */
       removeDevice: call(
-        z.object({ id: z.string().min(1).max(64), password: z.string().max(1024).optional() }),
+        z.object({
+          id: z.string().min(1).max(64),
+          password: z.string().max(1024).optional(),
+          keepKey: z.boolean().optional(),
+        }),
         z.void(),
       ),
-      renameDevice: call(
-        z.object({ id: z.string().min(1).max(64), name: z.string().trim().min(1).max(100) }),
+      /** Gives a device an alias, shown in place of its name, or takes it away (null or empty). */
+      setDeviceAlias: call(
+        z.object({
+          id: z.string().min(1).max(64),
+          alias: z.string().trim().max(MAX_DEVICE_ALIAS).nullable(),
+        }),
         z.void(),
       ),
       /**
@@ -2516,6 +2499,134 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.interrupt"].params),
         RPC_METHODS["chat.interrupt"].result,
       ),
+      /** What another device's chat runs with, and may be set to. */
+      peerChatSettings: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.settings"].params),
+        RPC_METHODS["chat.settings"].result,
+      ),
+      /** Sets another device's chat's model, effort or permission mode, as the user. */
+      peerChatConfigure: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.configure"].params),
+        RPC_METHODS["chat.configure"].result,
+      ),
+      /** Another device's chat's slash commands. */
+      peerChatCommands: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.commands"].params),
+        RPC_METHODS["chat.commands"].result,
+      ),
+      /** Runs one of the app's commands in another device's chat, as the user. */
+      peerChatCommand: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
+        RPC_METHODS["chat.command"].result,
+      ),
+      /** Stops a background run or subagent of another device's chat, as its side panel's button does. */
+      peerChatStopTask: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.stopTask"].params),
+        RPC_METHODS["chat.stopTask"].result,
+      ),
+      /** The agent profiles another device's chats can run with. */
+      peerProfiles: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["profiles.list"].params),
+        RPC_METHODS["profiles.list"].result,
+      ),
+      /** Has another device's chat run with another profile, as the user. */
+      peerChatProfile: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
+        RPC_METHODS["chat.profile"].result,
+      ),
+      /** An image of another device's chat: a message's or a tool's, by its place there. */
+      peerChatImage: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.image"].params),
+        RPC_METHODS["chat.image"].result,
+      ),
+      /** A folder of another device's workspace: whether the files its chats name are there. */
+      peerFilesList: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.list"].params),
+        RPC_METHODS["files.list"].result,
+      ),
+      /** A file of another device's workspace, as its chats name it. */
+      peerFilesRead: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
+        RPC_METHODS["files.read"].result,
+      ),
+      /** How a file of another device's workspace changed against its last commit. */
+      peerGitDiff: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.diff"].params),
+        RPC_METHODS["git.diff"].result,
+      ),
+      /** The past conversations another device's workspace can resume. */
+      peerHistory: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["history.list"].params),
+        RPC_METHODS["history.list"].result,
+      ),
+      /** Resumes a past conversation on another device: in a tab of its own there, or the one named. */
+      peerChatResume: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.resume"].params),
+        RPC_METHODS["chat.resume"].result,
+      ),
+      /** What rewinding another device's Claude chat to before a message would undo in its files. */
+      peerChatRewindPreview: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.rewindPreview"].params),
+        RPC_METHODS["chat.rewindPreview"].result,
+      ),
+      /** Rewinds another device's Claude chat to before one of the user's messages. */
+      peerChatRewind: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rewind"].params),
+        RPC_METHODS["chat.rewind"].result,
+      ),
+      /** Forks another device's Claude chat into a new tab there. */
+      peerChatFork: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
+        RPC_METHODS["chat.fork"].result,
+      ),
+      /** Takes back a message another device's chat holds for after its turn, whole. */
+      peerChatUnqueue: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unqueue"].params),
+        RPC_METHODS["chat.unqueue"].result,
+      ),
+      /** Takes back a message another device's Claude chat has not read. */
+      peerChatWithdraw: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.withdraw"].params),
+        RPC_METHODS["chat.withdraw"].result,
+      ),
+      /** Has another device's Claude chat read its unread messages now. */
+      peerChatHurry: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.hurry"].params),
+        RPC_METHODS["chat.hurry"].result,
+      ),
+      /** Sends another device's Claude chat's running command or subagent to the background. */
+      peerChatBackground: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.background"].params),
+        RPC_METHODS["chat.background"].result,
+      ),
+      /** Turns another device's Claude chat's Remote Control on or off. */
+      peerChatRemoteControl: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.remoteControl"].params),
+        RPC_METHODS["chat.remoteControl"].result,
+      ),
+      /** Gives another device's chat an image for the next message sent it. */
+      peerChatAttach: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),
+        RPC_METHODS["chat.attach"].result,
+      ),
       /** What changed in a chat another device watches here (the renderer tells main). */
       chatChanged: call(
         z.object({
@@ -2574,8 +2685,6 @@ export const ipcContract = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
-      /** Types the password once, for a server that keeps no verifier of it yet. */
-      confirmPassword: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Calls off a reset that waits, with the password. */
       cancelReset: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Where a pairing through a QR code stands. */
@@ -2595,6 +2704,10 @@ export const ipcContract = {
       voiceCancel: call(z.object({ id: z.string() }), z.void()),
       /** This month's voice minutes (GET /voice/usage). */
       voiceUsage: call(z.void(), VoiceUsageSchema),
+      /** The account's recognition terms (GET /voice/terms), shared by all its devices. */
+      voiceTerms: call(z.void(), z.array(z.string())),
+      /** Replaces them (PUT /voice/terms): the list as the server kept it. */
+      setVoiceTerms: call(SetVoiceTermsArgsSchema, z.array(z.string())),
       /** Sends a note recording's take for a second pass: its id, or why not. */
       voiceTranscribe: call(VoiceTranscribeArgsSchema, TranscribeResultSchema),
       /** A second pass: pending, done (its segments) or failed; not-found once it is gone. */

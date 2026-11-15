@@ -8,14 +8,12 @@ import {
   type CliDevice,
   CliError,
   mayChange,
-  noteDispatch,
   placementFor,
   resolveTab,
   resolveWorkspace,
   shortId,
 } from "../context";
 import { ago, oneLine, table } from "../format";
-import { refuseLoop } from "../hops";
 import { KEY_NAMES_HELP, keySequence } from "../keys";
 import { absolutePath, rendererRoot } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
@@ -585,7 +583,6 @@ const terminalNew: CliCommand = {
       ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
-    if (command) await noteDispatch(ctx, { workspaceId: workspace.id, tabId });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
       tabId,
       workspaceId: workspace.id,
@@ -654,8 +651,6 @@ const terminalSend: CliCommand = {
       detail: tab.title,
       body: enter ? `${text}\n` : text,
     });
-    const from = await senderOf(ctx);
-    refuseLoop(from);
     // Last, right before the keys go: nothing awaited between.
     refuseWhileAsking(ctx, workspace, tab);
     const startedAt = ctx.services.clock.now();
@@ -666,13 +661,6 @@ const terminalSend: CliCommand = {
       mode: "paste",
       enter,
     });
-    // An agent's input: the turn it starts there is down the chain from it.
-    if (from?.hops !== undefined) {
-      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, startedAt);
-    }
-    if (enter && text.trim() !== "") {
-      await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
-    }
     const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
     const json = { tabId: tab.id, workspaceId: workspace.id, text, enter };
     if (!times) return output(sent, json);
@@ -707,11 +695,8 @@ const terminalKey: CliCommand = {
       detail: tab.title,
       body: keys.join(" "),
     });
-    const from = await senderOf(ctx);
-    refuseLoop(from);
     // Last, right before the keys go: nothing awaited between.
     refuseWhileAsking(ctx, workspace, tab);
-    const at = ctx.services.clock.now();
     await ctx.services.ui("terminal.input", {
       workspaceId: workspace.id,
       tabId: tab.id,
@@ -719,8 +704,6 @@ const terminalKey: CliCommand = {
       mode: "keys",
       enter: false,
     });
-    if (from?.hops !== undefined)
-      ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, at);
     return output(`Pressed ${keys.join(" ")} in ${tab.title} (${shortId(tab.id)}).`, {
       tabId: tab.id,
       workspaceId: workspace.id,

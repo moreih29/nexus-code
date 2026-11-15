@@ -50,29 +50,38 @@ function Bar({ percent }: { percent: number }) {
   );
 }
 
+/**
+ * A meter's name: the week's is "every model" where the line also has a
+ * model's own week (`scoped`).
+ */
+export function usageMeterLabel(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  meter: UsageMeter,
+  scoped = false,
+): string {
+  switch (meter.kind) {
+    case "session":
+      return t("chat.usage.kind.session");
+    case "weekly":
+      return scoped ? t("chat.usage.kind.weekly_all") : t("chat.usage.kind.weekly");
+    case "weekly_scoped":
+      return t("chat.usage.kind.weekly_scoped", { scope: meter.scope ?? "" });
+    case "window": {
+      const mins = meter.windowMins ?? 0;
+      return mins > 0 && mins % (24 * 60) === 0
+        ? t("chat.usage.kind.days", { count: mins / (24 * 60) })
+        : t("chat.usage.kind.hours", { count: Math.round(mins / 60) });
+    }
+  }
+}
+
 /** The words for a line's meters: their names, short and long, when they start over, and what hovering tells. */
 function useUsageWords(line: UsageLine) {
   const { t, i18n } = useTranslation();
   const now = Date.now();
 
-  const label = (meter: UsageMeter, long = false): string => {
-    switch (meter.kind) {
-      case "session":
-        return t("chat.usage.kind.session");
-      case "weekly":
-        return long && line.more.length > 0
-          ? t("chat.usage.kind.weekly_all")
-          : t("chat.usage.kind.weekly");
-      case "weekly_scoped":
-        return t("chat.usage.kind.weekly_scoped", { scope: meter.scope ?? "" });
-      case "window": {
-        const mins = meter.windowMins ?? 0;
-        return mins > 0 && mins % (24 * 60) === 0
-          ? t("chat.usage.kind.days", { count: mins / (24 * 60) })
-          : t("chat.usage.kind.hours", { count: Math.round(mins / 60) });
-      }
-    }
-  };
+  const label = (meter: UsageMeter, long = false): string =>
+    usageMeterLabel(t, meter, long && line.more.length > 0);
   /** The word for a meter in a narrow line. */
   const short = (meter: UsageMeter): string =>
     meter.kind === "session"

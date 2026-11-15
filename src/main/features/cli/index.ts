@@ -17,7 +17,6 @@ import { FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
-import { isManagerWorkspace, type ManagerPermissions } from "../../../shared/manager/manager";
 import type { ListeningPort } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { AgentChannel } from "../../infra/agent/channel";
@@ -42,7 +41,6 @@ import {
   type CliServices,
   shortId,
 } from "./context";
-import { AgentInputs } from "./hops";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -74,8 +72,6 @@ export interface SetupCliFeatureOptions {
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
-    /** The agent manager's workspace, once opened; list leaves it out. */
-    managerMeta(): WorkspaceMeta | null;
   };
   claudeBroker: ClaudeStatusBroker;
   /** The agents of Claude sessions, for nexus agent. */
@@ -104,8 +100,6 @@ export interface SetupCliFeatureOptions {
     enabled: boolean;
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
-    /** What the agent manager may do with another session's permission request. */
-    managerPermissions: ManagerPermissions;
   };
   /** The app window the renderer side of the CLI runs in. */
   getWindow: () => UiWindow | null;
@@ -150,7 +144,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     foregroundGroup(workspaceId, tabId, true),
   );
   const waits = new WaitRegistry(agentHost);
-  const agentInputs = new AgentInputs();
   const startedAgents = new StartedAgents(agentHost);
   // Every consent prompt, kept by id while it waits, for another device to answer too.
   const consents = new ConsentPrompts({
@@ -216,11 +209,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
 
   const reveal = (workspaceId: string, tabId: string) => {
     options.focusWindow();
-    // The manager is shown in its dock, not in a workspace.
-    if (isManagerWorkspace(workspaceId)) {
-      options.broadcast("manager", "reveal", {});
-      return;
-    }
     workspaceManager.activate(workspaceId).catch((error: unknown) => {
       log.warn(`activating ${workspaceId} failed: ${(error as Error).message}`);
     });
@@ -248,7 +236,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     claudeAsks: (workspaceId, tabId) => options.claudeAsks?.list(workspaceId, tabId) ?? [],
     answerClaudeAsk: async (workspaceId, tabId, askId, answer) =>
       (await options.claudeAsks?.answer(workspaceId, tabId, askId, answer)) ?? false,
-    managerWorkspace: () => workspaceManager.managerMeta(),
     claudeAgents: {
       list: (workspaceId, tabId) => options.claudeActivity?.get(workspaceId, tabId)?.agents ?? [],
       stop: async (workspaceId, tabId, agentId) =>
@@ -257,7 +244,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
-    agentInputs,
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],
@@ -301,7 +287,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
-    managerPermissions: () => options.settings().managerPermissions,
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,
     listeningPorts: (workspaceId) => options.ports.refresh(workspaceId),

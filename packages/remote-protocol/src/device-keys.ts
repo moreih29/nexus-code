@@ -36,14 +36,6 @@ export const ACCOUNT_AUTH_HEADER = "X-Account-Auth";
  */
 export const ACCOUNT_AUTH_ERROR = "account-auth";
 
-/**
- * PUT /account/key-verifier: the verifier of an account that has none yet,
- * which a device puts once the user typed the password and it opened the
- * bundle. 409 when the account has one already.
- */
-export const KeyVerifierPutSchema = z.object({ verifier: VerifierSchema });
-export type KeyVerifierPut = z.infer<typeof KeyVerifierPutSchema>;
-
 // ---------------------------------------------------------------------------
 // A forgotten password: a reset that waits
 // ---------------------------------------------------------------------------

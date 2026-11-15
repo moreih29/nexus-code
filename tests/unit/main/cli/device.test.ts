@@ -8,7 +8,6 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { agentSenderOf, askDevice, resolveDevice } from "../../../../src/main/features/cli/remote";
-import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
 const NOW = 1_700_000_000_000;
@@ -95,6 +94,17 @@ describe("nexus device list", () => {
     );
   });
 
+  test("a computer with an alias is named by it, the name it signed in with beside it", async () => {
+    const app = withDevices();
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, name: "Studio", hostName: "Mac mini" } : d,
+    );
+    const result = await nexus(app, ["device", "list"]);
+    expect(result.stdout).toContain("9b1e44d2  Studio (Mac mini)");
+    const listed = JSON.parse((await nexus(app, ["device", "list", "--json"])).stdout);
+    expect(listed[1]).toMatchObject({ name: "Studio", hostName: "Mac mini" });
+  });
+
   test("--json has each one's serves and when an offline one was last seen", async () => {
     const result = await nexus(withDevices(), ["device", "list", "--json"]);
     const listed = JSON.parse(result.stdout);
@@ -131,6 +141,15 @@ describe("--device", () => {
     expect((await resolveDevice(ctx(app), "9b1e"))?.name).toBe("Mac mini");
     expect((await resolveDevice(ctx(app), "office pc"))?.name).toBe("Office PC");
     await expect(resolveDevice(ctx(app), "Laptop")).rejects.toThrow('no device "Laptop"');
+  });
+
+  test("a computer with an alias goes by it, and by the name it signed in with", async () => {
+    const app = withDevices();
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, name: "Studio", hostName: "Mac mini" } : d,
+    );
+    expect((await resolveDevice(ctx(app), "studio"))?.id).toBe(MINI);
+    expect((await resolveDevice(ctx(app), "mac mini"))?.id).toBe(MINI);
   });
 
   test("naming this computer is a usage error", async () => {
@@ -199,7 +218,7 @@ describe("--device", () => {
     const app = withDevices();
     const mini = app.peers.devices[1] as CliDevice;
     app.peers.answer = async () => ({ done: true, state: "idle" });
-    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB, hops: 1 };
+    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB };
     await askDevice(ctx(app), mini, "chat.interrupt", {
       workspaceId: PEER_WS,
       tabId: PEER_TAB,
@@ -212,17 +231,16 @@ describe("--device", () => {
 
   test("an agent's request goes only to a computer that takes them", async () => {
     const app = withDevices();
-    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB, hops: 1 };
+    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB };
     const params = { workspaceId: PEER_WS, tabId: PEER_TAB, from };
     const deny = device({ id: MINI, name: "Mac mini", serves: ["sessions"], schema: "0.2.0" });
     await expect(askDevice(ctx(app), deny, "chat.interrupt", params)).rejects.toMatchObject({
       message: '"Mac mini" does not take requests from agents (Settings › Remote)',
       exitCode: 1,
     });
-    const old = device({ id: MINI, name: "Mac mini", serves: ["sessions", "chat.control"] });
-    await expect(askDevice(ctx(app), old, "chat.interrupt", params)).rejects.toMatchObject({
-      message: '"Mac mini" runs an older NexusCode (no requests from agents)',
-      exitCode: 3,
+    // A read, too, says who reads: refused there the same.
+    await expect(askDevice(ctx(app), deny, "sessions.list", {})).rejects.toMatchObject({
+      exitCode: 1,
     });
     expect(app.peers.requests).toEqual([]);
   });
@@ -234,24 +252,12 @@ describe("--device", () => {
       kind: "terminal",
       workspaceId: APP,
       tabId: SHELL_TAB,
-      hops: 1,
     });
     expect(await agentSenderOf(ctx(app, CLAUDE_TAB))).toMatchObject({
       kind: "terminal",
       agent: "claude",
       workspaceId: APP,
       tabId: CLAUDE_TAB,
-      hops: 1,
-    });
-    const manager = contextFor(app, [], {
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
-    });
-    expect(await agentSenderOf(manager)).toEqual({
-      kind: "manager",
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
-      hops: 1,
     });
   });
 });

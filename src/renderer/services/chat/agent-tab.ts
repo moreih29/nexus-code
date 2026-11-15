@@ -142,11 +142,14 @@ export function sendUnseen(workspaceId: string, tabId: string): boolean {
 export async function sendToAgentTab(
   workspaceId: string,
   tabId: string,
-  { controller }: AgentTabController,
+  target: AgentTabController,
   text: string,
   from?: RelaySender,
   images: ImageBlock[] = [],
-): Promise<void> {
+  when: SendTiming = "next",
+  device?: string,
+): Promise<{ heldId?: string }> {
+  const { controller } = target;
   const key = chatKey(workspaceId, tabId);
   // Working from now, though the program may be starting and a conversation
   // resumed after a restart still coming in: its messages are counted only
@@ -155,12 +158,29 @@ export async function sendToAgentTab(
   try {
     await controller.prepareSend();
     unseenSends.set(key, userMessages(key));
-    await controller.send(text, images, from);
+    if (when === "after") {
+      const heldId = controller.enqueue(text, images, from, device);
+      // Held, it is not sent yet: the chat is not waiting on it.
+      if (heldId) unseenSends.delete(key);
+      return heldId ? { heldId } : {};
+    }
+    if (when === "now" && target.agent === "claude") {
+      await target.controller.sendNow(text, images, from);
+    } else {
+      await controller.send(text, images, from);
+    }
+    return {};
   } catch (err) {
     unseenSends.delete(key);
     throw err;
   }
 }
+
+/**
+ * When a message sent during a turn goes, as the composer's keys have it:
+ * next (↩), now (⌘↩, Claude's alone), after the turn (⌘⇧↩).
+ */
+export type SendTiming = "next" | "now" | "after";
 
 /**
  * Starts the program of a new Claude or Codex tab and sends it `message`

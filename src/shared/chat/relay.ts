@@ -9,7 +9,10 @@ import { z } from "zod";
 
 /** Who sent a message through the nexus command, when an agent did. */
 export const RelaySenderSchema = z.object({
-  /** A Claude or Codex tab's agent, an agent in a terminal, or the manager. */
+  /**
+   * A Claude or Codex tab's agent, or an agent in a terminal. "manager" is
+   * the agent manager of older versions, kept so what one sent still reads.
+   */
   kind: z.enum(["tab", "terminal", "manager"]),
   agent: z.enum(["claude", "codex"]).optional(),
   /** The tab's title when it sent the message. */
@@ -22,11 +25,11 @@ export const RelaySenderSchema = z.object({
    */
   device: z.object({ id: z.string().max(64), name: z.string().max(200) }).optional(),
   /**
-   * How many messages between agents led to it, the first being 1: a
-   * message sent in a turn that such a message started counts one more,
-   * and one past MAX_AGENT_HOPS is not sent.
+   * Whether the sender waits for the answer (chat send --wait), and so reads
+   * what the agent answers in its tab; false when it sent and went on, and
+   * left out when that is not known (chat new, another computer).
    */
-  hops: z.number().int().positive().optional(),
+  waits: z.boolean().optional(),
 });
 export type RelaySender = z.infer<typeof RelaySenderSchema>;
 
@@ -59,9 +62,10 @@ const short = (id: string) => id.slice(0, 8);
 
 /**
  * The line the agent reads before a message another agent sent it: who sent
- * it, that the user did not, and that its answer goes back to the sender.
- * From another computer, which one, and the command that writes to the
- * sender later.
+ * it, that the user did not, and where its answer goes. A sender that waits
+ * reads the answer in the tab; one that does not is answered with the
+ * command that writes to it, which the line gives, as it does for a sender
+ * on another computer, and for one that may not be waiting.
  */
 export function relayHeader(from: RelaySender): string {
   const name = JSON.stringify(from.name ?? "");
@@ -74,14 +78,23 @@ export function relayHeader(from: RelaySender): string {
           : // One whose tab could not be told (no tab token), or names none there is.
             "An agent in a terminal"
         : `The ${name} tab (${AGENT_NAMES[from.agent ?? "claude"]})`;
-  const answer = "Your answer here is what it reads";
-  const { device, workspaceId, tabId } = from;
-  if (!device) return `${RELAY_MARK}${who} sent this, not the user. ${answer}.`;
-  const where = `${who} on the computer ${JSON.stringify(device.name)}`;
-  if (!workspaceId || !tabId) return `${RELAY_MARK}${where} sent this, not the user. ${answer}.`;
-  const command = from.kind === "terminal" ? "nexus terminal send" : "nexus chat send";
-  const reply = `${command} ${short(tabId)} --workspace ${short(workspaceId)} --device ${short(device.id)} -`;
-  return `${RELAY_MARK}${where} sent this, not the user. ${answer}; to write to it later: ${reply}`;
+  const { device, waits } = from;
+  const where = device ? `${who} on the computer ${JSON.stringify(device.name)}` : who;
+  const said = `${RELAY_MARK}${where} sent this, not the user.`;
+  const reply = replyOf(from);
+  if (!reply || (waits === true && !device)) return `${said} Your answer here is what it reads.`;
+  if (waits === false)
+    return `${said} It is not waiting for an answer here; to answer it: ${reply}`;
+  const when = waits === true ? "" : " if it waits";
+  return `${said} Your answer here is what it reads${when}; to write to it later: ${reply}`;
+}
+
+/** The command that writes to the sender: none to the manager, nor to one of no tab. */
+function replyOf({ kind, device, workspaceId, tabId }: RelaySender): string | null {
+  if (kind === "manager" || !workspaceId || !tabId) return null;
+  const command = kind === "terminal" ? "nexus terminal send" : "nexus chat send";
+  const on = device ? ` --device ${short(device.id)}` : "";
+  return `${command} ${short(tabId)} --workspace ${short(workspaceId)}${on} -`;
 }
 
 /** The text the agent is sent: the line that says who sent it, then the message. */

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,68 @@ func TestAttachRefusesNamesWithAFolder(t *testing.T) {
 	}
 	if _, err := attach(t, service, "../tab", "x", []byte("x")); err == nil {
 		t.Error("a tab id with a folder was taken")
+	}
+}
+
+func TestWindowsNameKeepsWhatWindowsCanKeep(t *testing.T) {
+	for name, want := range map[string]string{
+		"report.pdf":    "report.pdf",
+		".env":          ".env",
+		`a?b*c|d<e>f"g`: "a_b_c_d_e_f_g",
+		"a:b.txt":       "a_b.txt",
+		"tab\there":     "tab_here",
+		"notes. . ":     "notes",
+		"...":           "file",
+		"NUL":           "_NUL",
+		"nul.txt":       "_nul.txt",
+		"Con":           "_Con",
+		"COM1.log":      "_COM1.log",
+		"lpt9":          "_lpt9",
+		"aux .pdf":      "_aux .pdf",
+		"conout$":       "_conout$",
+		"console.log":   "console.log",
+		"nullable.ts":   "nullable.ts",
+		"com10.txt":     "com10.txt",
+		"보고서 (최종).hwp":  "보고서 (최종).hwp",
+	} {
+		if got := windowsName(name); got != want {
+			t.Errorf("windowsName(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestAttachWritesUnderTheWindowsNameThere(t *testing.T) {
+	root := useAttachRoot(t)
+	prev := windowsNames
+	windowsNames = true
+	t.Cleanup(func() { windowsNames = prev })
+	service := New()
+	got, err := attach(t, service, "tab", "a:b?.txt", []byte("x"))
+	if err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	if want := filepath.Join(root, "ws", "tab", "1", "a_b_.txt"); got.Path != want {
+		t.Fatalf("path = %q, want %q", got.Path, want)
+	}
+	if data, err := os.ReadFile(got.Path); err != nil || string(data) != "x" {
+		t.Fatalf("read %q: %q, %v", got.Path, data, err)
+	}
+}
+
+func TestAttachLeavesNoFolderWhenTheWriteFails(t *testing.T) {
+	root := useAttachRoot(t)
+	service := New()
+	// Longer than any file system here takes for one name.
+	name := strings.Repeat("a", 300) + ".txt"
+	if _, err := attach(t, service, "tab", name, []byte("x")); err == nil {
+		t.Fatal("a name too long was written")
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "ws", "tab"))
+	if err != nil {
+		t.Fatalf("read tab folder: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("left behind: %v", entries)
 	}
 }
 

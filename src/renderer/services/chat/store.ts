@@ -19,6 +19,11 @@ export interface QueuedMessage {
   images: ImageBlock[];
   /** The agent that sent it through the nexus command, when one did. */
   from?: RelaySender;
+  /**
+   * The user's other computer it was held from, when it was: it is dropped
+   * if control from other computers is turned off before it goes.
+   */
+  device?: string;
 }
 
 /** Text the app puts in the composer: a rewound or forked message, a command the agent list passed on. */
@@ -146,6 +151,8 @@ export function revealPart(key: string, part: RevealPart, id?: string): void {
 
 /** The part asked for is shown: the ask is done, unless another came since. */
 export function takeReveal(key: string, seq: number): void {
+  // A chat not kept here (another computer's) holds its own: its controller's `revealed`.
+  if (!(key in useChatStore.getState().tabs)) return;
   useChatStore.getState().update(key, (prev) => {
     if (prev.reveal?.seq !== seq) return prev;
     const { reveal: _done, ...rest } = prev;

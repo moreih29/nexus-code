@@ -1,9 +1,10 @@
 // One panel of the agent view: a tab bar of the agents it holds, from any
 // workspace, and below it the one in front — the very tab its workspace
 // shows, moved here. Taking an agent out of the panel leaves it running.
+// It holds another computer's sessions as tabs too, drawn here.
 
 import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
 import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
@@ -16,6 +17,7 @@ import type { EndedAgent } from "@/services/agent-view/ended";
 import {
   type AgentLayout,
   closeLeaf,
+  isRemoteKey,
   parseSessionKey,
   placeKey,
   removeKey,
@@ -25,6 +27,7 @@ import {
 } from "@/services/agent-view/layout";
 import { requestTabFocus } from "@/services/tab-focus";
 import { useAgentViewStore } from "@/state/stores/agent-view";
+import { useRemoteTarget, useRemoteViewStore } from "@/state/stores/remote-view";
 import { useTabsStore } from "@/state/stores/tabs";
 import { useUIStore } from "@/state/stores/ui";
 import {
@@ -57,6 +60,8 @@ import {
   ZONE_DIRECTION,
 } from "./drag";
 import { EndedBar } from "./ended-bar";
+import { RemoteSessionPane } from "./remote-pane";
+import { DeviceChip, RemoteTabLabel } from "./remote-sessions";
 
 const log = createLogger("agent-view");
 
@@ -88,6 +93,7 @@ export function AgentPane({
   const frontKind = useTabsStore((s) =>
     front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
   );
+  const viewShown = useAgentViewStore((s) => s.mode === "agents");
 
   const slotElRef = useRef<HTMLElement | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -224,6 +230,14 @@ export function AgentPane({
   const workspaceIds = new Set(leaf.tabIds.map((key) => parseSessionKey(key)?.workspaceId));
   const [onlyWorkspace] = workspaceIds;
   const sharedWorkspace = workspaceIds.size === 1 ? onlyWorkspace : undefined;
+  // So with another computer's sessions, when they are all this panel holds.
+  const sharedDevice = useRemoteViewStore((s) => {
+    const targets = leaf.tabIds.map((key) => s.targets.get(key));
+    const first = targets[0];
+    return first && targets.every((t) => t?.deviceId === first.deviceId)
+      ? first.deviceName
+      : undefined;
+  });
 
   return (
     <div
@@ -234,22 +248,34 @@ export function AgentPane({
     >
       <div ref={barRef} className="flex h-9 shrink-0 items-center gap-1 px-1.5">
         {sharedWorkspace && <WorkspaceChip workspaceId={sharedWorkspace} className="ml-1" />}
+        {sharedDevice !== undefined && <DeviceChip name={sharedDevice} className="ml-1" />}
         <div
           ref={stripRef}
           className="relative flex h-full min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ maskImage: fadeMask(overflow) }}
         >
-          {leaf.tabIds.map((key) => (
-            <AgentTab
-              key={key}
-              sessionKey={key}
-              agents={agents}
-              active={key === leaf.activeTabId}
-              showWorkspace={sharedWorkspace === undefined}
-              onSelect={() => select(key)}
-              onRemove={() => remove(key)}
-            />
-          ))}
+          {leaf.tabIds.map((key) =>
+            isRemoteKey(key) ? (
+              <RemoteTab
+                key={key}
+                sessionKey={key}
+                active={key === leaf.activeTabId}
+                showDevice={sharedDevice === undefined}
+                onSelect={() => select(key)}
+                onRemove={() => remove(key)}
+              />
+            ) : (
+              <AgentTab
+                key={key}
+                sessionKey={key}
+                agents={agents}
+                active={key === leaf.activeTabId}
+                showWorkspace={sharedWorkspace === undefined}
+                onSelect={() => select(key)}
+                onRemove={() => remove(key)}
+              />
+            ),
+          )}
           {insertion && (
             <div
               aria-hidden
@@ -260,13 +286,17 @@ export function AgentPane({
         </div>
         <OverflowTabsMenu
           hidden={overflow.hidden}
-          renderTab={(key) => (
-            <AgentTabLabel
-              sessionKey={key}
-              agents={agents}
-              showWorkspace={sharedWorkspace === undefined}
-            />
-          )}
+          renderTab={(key) =>
+            isRemoteKey(key) ? (
+              <RemoteTabFace sessionKey={key} showDevice={sharedDevice === undefined} />
+            ) : (
+              <AgentTabLabel
+                sessionKey={key}
+                agents={agents}
+                showWorkspace={sharedWorkspace === undefined}
+              />
+            )
+          }
           onSelect={select}
         />
         <div className="flex shrink-0 items-center gap-0.5">
@@ -305,6 +335,16 @@ export function AgentPane({
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
+        {/* Each kept while its tab is in the panel, as a chat here is: its draft,
+            drawer and goal stay its own. Only the front one is read. */}
+        {leaf.tabIds.filter(isRemoteKey).map((key) => (
+          <RemotePaneHost
+            key={key}
+            sessionKey={key}
+            front={key === leaf.activeTabId}
+            viewShown={viewShown}
+          />
+        ))}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
       {frontEnded && leaf.activeTabId !== null && (
@@ -422,10 +462,94 @@ function AgentTab({
   onSelect: () => void;
   onRemove: () => void;
 }) {
-  const { t } = useTranslation();
   const info = useAgentTabInfo(key, agents);
   if (!info) return null;
   const { title, workspaceName } = info;
+  return (
+    <PanelTab
+      sessionKey={key}
+      active={active}
+      title={workspaceName ? `${title} · ${workspaceName}` : title}
+      onSelect={onSelect}
+      onRemove={onRemove}
+    >
+      <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
+    </PanelTab>
+  );
+}
+
+/** A panel's tab of another computer's session, hidden while another tab is in front. */
+function RemotePaneHost({
+  sessionKey,
+  front,
+  viewShown,
+}: {
+  sessionKey: string;
+  front: boolean;
+  viewShown: boolean;
+}) {
+  const target = useRemoteTarget(sessionKey);
+  if (!target) return null;
+  return (
+    <div className={cn("absolute inset-0", !front && "hidden")} data-front={front || undefined}>
+      <RemoteSessionPane target={target} visible={viewShown && front} />
+    </div>
+  );
+}
+
+/** Another computer's session's face, or null once this run of the app no longer knows it. */
+function RemoteTabFace({ sessionKey, showDevice }: { sessionKey: string; showDevice: boolean }) {
+  const target = useRemoteTarget(sessionKey);
+  return target ? <RemoteTabLabel target={target} showDevice={showDevice} /> : null;
+}
+
+/** A tab of another computer's session, named with its computer and workspace. */
+function RemoteTab({
+  sessionKey: key,
+  active,
+  showDevice,
+  onSelect,
+  onRemove,
+}: {
+  sessionKey: string;
+  active: boolean;
+  /** Off when the panel shows the one computer of all its sessions. */
+  showDevice: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+}) {
+  const target = useRemoteTarget(key);
+  if (!target) return null;
+  return (
+    <PanelTab
+      sessionKey={key}
+      active={active}
+      title={`${target.title} · ${target.deviceName} · ${target.workspaceName}`}
+      onSelect={onSelect}
+      onRemove={onRemove}
+    >
+      <RemoteTabLabel target={target} showDevice={showDevice} />
+    </PanelTab>
+  );
+}
+
+/** A panel's tab: its face, dragged to another panel, closed with its button or a middle click. */
+function PanelTab({
+  sessionKey: key,
+  active,
+  title,
+  onSelect,
+  onRemove,
+  children,
+}: {
+  sessionKey: string;
+  active: boolean;
+  title: string;
+  onSelect: () => void;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
   return (
     <div
       data-agent-tab={key}
@@ -440,7 +564,7 @@ function AgentTab({
         type="button"
         draggable
         aria-current={active || undefined}
-        title={workspaceName ? `${title} · ${workspaceName}` : title}
+        title={title}
         onClick={onSelect}
         onAuxClick={(e) => {
           if (e.button === 1) onRemove();
@@ -448,7 +572,7 @@ function AgentTab({
         onDragStart={(e) => setAgentDrag(e.dataTransfer, key)}
         className="flex h-full min-w-0 items-center gap-1.5 rounded-(--radius-raised) pr-7 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
+        {children}
       </button>
       <IconButton
         label={t("agentView.pane.remove")}

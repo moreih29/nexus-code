@@ -4,7 +4,6 @@ import {
   isSupportedCodex,
   picksOf,
   suggestedPaths,
-  threadSettings,
   threadStartParams,
   threadsOf,
 } from "../../../../../src/renderer/services/chat/codex-controller";
@@ -97,32 +96,13 @@ describe("codex @-mention suggestions", () => {
 });
 
 describe("codex thread settings", () => {
-  const target = { workspaceId: "w", tabId: "t", cwd: "/home/u/.nexus-code/manager" };
-
-  test("a tab's thread is told nothing more", () => {
-    expect(threadSettings(target)).toEqual({});
-  });
-
-  test("the manager's thread gets its instructions, and its folder trusted for it alone", () => {
-    expect(threadSettings({ ...target, developerInstructions: "Manage.", trusted: true })).toEqual({
-      developerInstructions: "Manage.",
-      config: { projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } } },
-    });
-  });
+  const target = { workspaceId: "w", tabId: "t", cwd: "/home/u/project" };
 
   test("a new thread starts with the tab's picks, its effort as a config override", () => {
     expect(threadStartParams(target, {})).toEqual({ cwd: target.cwd });
-    expect(
-      threadStartParams(
-        { ...target, trusted: true },
-        { model: "gpt-x", effort: "low", mode: "readOnly" },
-      ),
-    ).toEqual({
+    expect(threadStartParams(target, { model: "gpt-x", effort: "low", mode: "readOnly" })).toEqual({
       cwd: target.cwd,
-      config: {
-        projects: { "/home/u/.nexus-code/manager": { trust_level: "trusted" } },
-        model_reasoning_effort: "low",
-      },
+      config: { model_reasoning_effort: "low" },
       model: "gpt-x",
       approvalPolicy: "on-request",
       sandbox: "read-only",

@@ -13,18 +13,7 @@
 // host, a file with no path here) the agent writes it first.
 
 import type { TFunction } from "i18next";
-import {
-  AtSign,
-  FileText,
-  ListPlus,
-  Paperclip,
-  Pencil,
-  Plus,
-  Send,
-  Slash,
-  Square,
-  X,
-} from "lucide-react";
+import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
 import {
   useCallback,
   useContext,
@@ -101,6 +90,12 @@ export interface ComposerController {
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
   /**
+   * Takes back a held message to edit, where what the queue shows is not
+   * all of it (another computer's): its whole text, none once it went.
+   * Where left out, removeQueued gives it.
+   */
+  takeBackQueued?(id: string): Promise<QueuedMessage | undefined>;
+  /**
    * Takes back a message sent during the turn that the program has not read:
    * true when it was dropped, false when it was read first. Left out where
    * a sent message cannot wait.
@@ -115,6 +110,11 @@ export interface ComposerController {
   setPermissionMode(mode: string): Promise<unknown>;
   setModel(model: string): Promise<unknown>;
   setEffort(level: string): Promise<unknown>;
+  /**
+   * The chip a reveal asked for has opened: for a chat whose state is not in
+   * the chat store (another computer's), which drops it itself.
+   */
+  revealed?(seq: number): void;
 }
 
 interface ComposerProps {
@@ -215,6 +215,9 @@ export function Composer({
     (dictation.phase === "idle" || dictation.phase === "listening");
   // Listening with nothing heard yet: the box says so.
   const listening = dictation.phase === "starting" || dictation.phase === "listening";
+  // An empty box tells its keys, during a turn what each does with the message,
+  // unless the tab says something of its own there.
+  const hint = placeholder ?? composerHint(t, running, program);
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
@@ -358,7 +361,7 @@ export function Composer({
   useLayoutEffect(() => {
     const area = areaRef.current;
     if (area && !parked(area)) fitHeight(area, rootRef.current?.parentElement);
-  }, [text, placeholder, font]);
+  }, [text, hint, font]);
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
   // shows, so a new width fits it again. The cap follows the column's
@@ -599,12 +602,23 @@ export function Composer({
     }
   };
 
+  /** A held message, back in the box to edit: before what is typed, or after it. */
+  const takeBackQueued = async (id: string, before: boolean) => {
+    try {
+      const item = controller.takeBackQueued
+        ? await controller.takeBackQueued(id)
+        : controller.removeQueued(id);
+      if (item) putBack(item, before);
+    } catch (err) {
+      showError(err as Error);
+    }
+  };
+
   /** The last message waiting, the app's queue's first: ↑ again takes the one before. */
   const takeBackLast = () => {
     const last = state.queue[state.queue.length - 1];
     if (last) {
-      const item = controller.removeQueued(last.id);
-      if (item) putBack(item, true);
+      void takeBackQueued(last.id, true);
       return;
     }
     const sent = waiting.filter((item) => !withdrawing.current.has(item.sentUuid ?? ""));
@@ -612,10 +626,7 @@ export function Composer({
     if (lastSent && canWithdraw) void takeBackWaiting(lastSent, "before");
   };
 
-  const pullBack = (id: string) => {
-    const item = controller.removeQueued(id);
-    if (item) putBack(item, false);
-  };
+  const pullBack = (id: string) => void takeBackQueued(id, false);
 
   return (
     <div
@@ -739,7 +750,7 @@ export function Composer({
               onPaste={onPaste}
               readOnly={sending || dictation.active}
               rows={2}
-              placeholder={listening ? t("voice.listeningPlaceholder") : placeholder}
+              placeholder={listening ? t("voice.listeningPlaceholder") : hint}
               aria-label={t("chat.composer.aria", agent)}
               className={cn(
                 "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground",
@@ -864,7 +875,8 @@ function useRevealedMenu(
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
   useEffect(() => {
     if (reveal === undefined) return;
-    takeReveal(controller.key, reveal);
+    if (controller.revealed) controller.revealed(reveal);
+    else takeReveal(controller.key, reveal);
     if (unavailable) showToast({ kind: "info", message: unavailable });
     else setOpen(true);
   }, [reveal]);
@@ -1019,8 +1031,10 @@ export const SEND_BUTTON_CLASS =
 
 /**
  * The box's main button, with the key that presses it. During a turn a
- * Claude tab's message waits for the call that runs, so it shows as queued;
- * a Codex tab's goes into the turn at once. Its tooltip tells the other keys.
+ * Claude tab's message waits for the call that runs, so its label says it
+ * queues; a Codex tab's goes into the turn at once. It is drawn the same
+ * either way: the chat shows a queued message as queued. Its tooltip tells
+ * the other keys.
  */
 function SendButton({
   running,
@@ -1056,7 +1070,7 @@ function SendButton({
       className={cn(SEND_BUTTON_CLASS, keycap ? "pr-1.5 pl-2" : "px-2")}
       data-testid="chat-send"
     >
-      {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
+      <Send className="size-4" />
       {keycap && <Keycap>↵</Keycap>}
     </button>
   );
@@ -1194,8 +1208,8 @@ export function composerKeys(): {
 }
 
 /**
- * The composer's keys as its send button's tooltip tells them, between
- * turns or during one, for a Claude tab or a Codex tab.
+ * The composer's keys as its empty box and its send button's tooltip tell
+ * them, between turns or during one, for a Claude tab or a Codex tab.
  */
 export function composerHint(t: TFunction, running: boolean, program: ChatAgent): string {
   return t(running ? "chat.composer.hint_running" : "chat.composer.hint", {

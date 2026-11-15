@@ -49,7 +49,7 @@ export const PROTOCOL_VERSION = 2;
  * the methods a device serves are those of its version, so another can
  * leave out what an older one does not have. Kept equal to package.json's.
  */
-export const SCHEMA_VERSION = "0.8.0";
+export const SCHEMA_VERSION = "0.12.0";
 
 /** The HKDF info that makes the room key from the account key. */
 export const ROOM_KEY_INFO = "nexus-remote/room-key/v1";
@@ -87,6 +87,12 @@ export const CAPABILITIES = [
   "git",
   /** notes.list and notes.attach: a workspace's notes, and photos put into one. */
   "notes",
+  /**
+   * folders.list and workspace.create: going through the device's folders
+   * and adding one as a workspace. Only the user's: an agent's request is
+   * refused. Served while chat.control is. Since 0.12.0.
+   */
+  "workspace.create",
   /**
    * Takes agents' requests (`from`: nexus on another device) to act in its
    * chats and terminals, as the user set it (Settings › Remote: ask or

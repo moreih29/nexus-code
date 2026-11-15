@@ -17,7 +17,6 @@ import {
   GitFork,
   LoaderCircle,
   MessageSquareShare,
-  Radio,
   RotateCcw,
   SquareTerminal,
 } from "lucide-react";
@@ -35,7 +34,6 @@ import {
 import { useTranslation } from "react-i18next";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import type { RelayedMessage } from "../../../shared/chat/relay";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { ProfileMove } from "../../../shared/types/layout";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
@@ -75,11 +73,9 @@ import { followsMessage } from "../../services/chat/profile-moves";
 import { RELAY_KINDS, withRelayed } from "../../services/chat/relayed";
 import { isOwnScroll, nearBottom, scrolledDown } from "../../services/chat/stick-to-bottom";
 import { foldToolRuns, tallyRun } from "../../services/chat/tool-runs";
-import { isReport, reportedSessions } from "../../services/manager/report";
 import { showPeerSession } from "../../services/remote/show-peer";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { isAgentViewShown } from "../../state/stores/agent-view";
-import { sentIn, useManagerStore } from "../../state/stores/manager";
 import { useTabsStore } from "../../state/stores/tabs";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
@@ -90,7 +86,6 @@ import {
   relativeTimeFormat,
 } from "../../utils/intl-format";
 import { ProfileDot, profileName } from "../agent-profiles/profile-badge";
-import { ManagerIcon } from "../manager/manager-chip";
 import { IconButton } from "../ui/icon-button";
 import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
@@ -103,7 +98,7 @@ import { ToolRow } from "./tool-row";
 
 interface MessageListProps {
   workspaceId: string;
-  /** The tab the conversation is, if it is one: messages the agent manager sent it are marked. */
+  /** The tab the conversation is, if it is one. */
   tabId?: string;
   cwd: string;
   rootPath: string;
@@ -117,10 +112,16 @@ interface MessageListProps {
   /** A call to bring into view and light up, as the side panel asks. */
   reveal?: CallReveal | null;
   /** Where the conversation went on in another profile: a line after the message. */
-  moves?: readonly ProfileMove[];
+  moves?: readonly ShownMove[];
   /** The messages other agents sent through the nexus command: shown as received. */
   relayed?: readonly RelayedMessage[];
 }
+
+/**
+ * A move as the line shows it: by its profile here, or by `label`, a
+ * profile of another computer's (whose chat this one shows).
+ */
+export type ShownMove = ProfileMove & { label?: string };
 
 /** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
 export interface CallReveal {
@@ -174,7 +175,8 @@ export interface MessageActions {
   canFork: boolean;
   /** Absent where the conversation forks into no tab. */
   onFork?: (item: UserItem | AssistantItem) => void;
-  onRewind: (item: UserItem) => void;
+  /** Absent where the conversation cannot be rewound from here. */
+  onRewind?: (item: UserItem) => void;
   /** Sends a running command or subagent to the background. */
   onBackground?: (toolUseId: string) => void;
   /** Tool calls that wait for the user to allow them, which have not started. */
@@ -330,7 +332,7 @@ export function MessageList({
   // Each move after the last item of the message it follows; one whose
   // message is not shown (an agent's transcript, a conversation cleared) is not.
   const movesAfter = useMemo(() => {
-    const after = new Map<ChatItem, ProfileMove[]>();
+    const after = new Map<ChatItem, ShownMove[]>();
     if (items || !moves) return after;
     for (const move of moves) {
       const item = shownItems.findLast((i) => followsMessage(i, move.after));
@@ -514,10 +516,6 @@ interface ItemProps {
 const Item = memo(function Item({ item, ctx, view }: ItemProps) {
   switch (item.kind) {
     case "user":
-      // The app's reports in the agent manager's conversation are no messages of the user's.
-      if (isManagerWorkspace(ctx.workspaceId) && isReport(item.text)) {
-        return <ManagerReport item={item} />;
-      }
       return <UserBubble item={item} ctx={ctx} />;
     case "assistant":
       return (
@@ -811,23 +809,11 @@ function ShellCard({ item }: { item: ShellItem }) {
 function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const { t } = useTranslation();
   const agent = useAgentContext();
-  const { actions, workspaceId, tabId } = ctx;
-  const byManager = useManagerStore((s) =>
-    tabId ? sentIn(s.tasks, workspaceId, tabId, item.text) : false,
-  );
+  const { actions } = ctx;
   const taken = item.uuid !== undefined;
   const { text, files } = splitAttachments(item.text);
   return (
     <div className="group/user flex flex-col items-end gap-1">
-      {byManager && (
-        <span
-          className="flex items-center gap-1 text-app-micro text-muted-foreground"
-          title={t("manager.sent_title")}
-        >
-          <ManagerIcon className="size-3.5 text-[var(--state-selected-indicator)]" aria-hidden />
-          {t("manager.sent")}
-        </span>
-      )}
       {item.images.length > 0 && (
         <div className="flex flex-wrap justify-end gap-1.5">
           {item.images.map((_, i) => (
@@ -864,11 +850,11 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
         <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
           <MessageTime at={item.at} />
           <CopyButton text={item.text} />
-          {actions && taken && (
+          {actions?.onRewind && taken && (
             <IconButton
               label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
               blocked={actions.running}
-              onClick={() => actions.onRewind(item)}
+              onClick={() => actions.onRewind?.(item)}
             >
               <RotateCcw className="size-3.5" />
             </IconButton>
@@ -1145,9 +1131,23 @@ function CallRow({
   );
 }
 
-function Thinking({ text, live = false }: { text: string; live?: boolean }) {
+/**
+ * A stretch of the model's thinking, folded. The API leaves its text out
+ * unless Claude Code asks for a summary, and older versions cannot ask:
+ * such a block says only that the model thought, with nothing to unfold.
+ */
+export function Thinking({ text, live = false }: { text: string; live?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const label = live ? t("chat.thinking_live") : t("chat.thinking");
+  if (text.trim() === "") {
+    return (
+      <div className="my-1 flex items-center gap-1.5 px-1.5 py-1 text-app-ui-sm text-muted-foreground">
+        <Brain className={cn("size-3.5", live && "animate-pulse")} />
+        <span>{label}</span>
+      </div>
+    );
+  }
   return (
     <div className="my-1 text-app-ui-sm text-muted-foreground">
       <button
@@ -1157,7 +1157,7 @@ function Thinking({ text, live = false }: { text: string; live?: boolean }) {
         className="flex items-center gap-1.5 rounded-(--radius-control) px-1.5 py-1 hover:bg-[var(--state-hover-bg)]"
       >
         <Brain className={cn("size-3.5", live && "animate-pulse")} />
-        <span>{live ? t("chat.thinking_live") : t("chat.thinking")}</span>
+        <span>{label}</span>
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
       </button>
       {open && (
@@ -1217,54 +1217,16 @@ const NOTICE_TINT: Partial<Record<NoticeItem["code"], string>> = {
 /** Notices whose detail, the program's own words, is shown only on hover. */
 const DETAIL_IN_TOOLTIP: ReadonlySet<NoticeItem["code"]> = new Set(["exited", "not_resumed"]);
 
-/**
- * A report the app sent the agent manager of the sessions' changes: a line
- * naming the first session and how it stands, and how many more, which
- * opens to the report.
- */
-function ManagerReport({ item }: { item: UserItem }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const lines = item.text.split("\n").slice(1);
-  const [first, ...more] = reportedSessions(item.text);
-  const state = first?.state ? t(`manager.state.${first.state}`) : "";
-  const label = !first
-    ? t("manager.report_empty")
-    : more.length > 0
-      ? t("manager.report_more", { title: first.title, count: more.length })
-      : state
-        ? `${first.title} · ${state}`
-        : first.title;
-  return (
-    <div className="flex flex-col gap-1 text-app-micro text-muted-foreground" role="note">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 hover:text-foreground"
-      >
-        <div className="h-px flex-1 bg-border" />
-        <Radio className="size-3.5 shrink-0" />
-        <span className="max-w-[70%] truncate">{label}</span>
-        <ChevronRight className={cn("size-3.5 shrink-0", open && "rotate-90")} />
-        <div className="h-px flex-1 bg-border" />
-      </button>
-      {open && (
-        <div className="rounded-(--radius-control) border border-border px-2 py-1.5 font-mono whitespace-pre-wrap break-words select-text">
-          {lines.join("\n")}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Where the conversation went on in another profile: its dot, its name, and when. */
-function MoveLine({ move }: { move: ProfileMove }) {
+function MoveLine({ move }: { move: ShownMove }) {
   const { t } = useTranslation();
   const agent = useContext(ChatAgentContext);
   // The default profile is made anew each time: the config is what holds still.
   const config = useAgentProfilesStore((s) => s.config);
-  const profile = profileOf(config, agent, move.profileId);
+  const own = profileOf(config, agent, move.profileId);
+  // Another computer's profile has no colour here.
+  const profile = move.label === undefined ? own : { ...own, color: "gray" as const };
+  const name = move.label ?? profileName(own, t);
   return (
     <div
       className="flex items-center gap-2 text-app-micro text-muted-foreground"
@@ -1273,9 +1235,7 @@ function MoveLine({ move }: { move: ProfileMove }) {
     >
       <div className="h-px flex-1 bg-border" />
       <ProfileDot color={profile.color} className="size-1.5" />
-      <span className="max-w-[70%] truncate">
-        {t("chat.profile.moved", { name: profileName(profile, t) })}
-      </span>
+      <span className="max-w-[70%] truncate">{t("chat.profile.moved", { name })}</span>
       <MessageTime at={move.at} />
       <div className="h-px flex-1 bg-border" />
     </div>

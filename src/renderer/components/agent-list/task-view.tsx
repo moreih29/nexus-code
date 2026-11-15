@@ -43,6 +43,7 @@ import {
   chatRowFacts,
   groupOf,
   hookRowFacts,
+  listed,
   matchesQuery,
   type RowFacts,
   sessionsByGroup,
@@ -385,7 +386,7 @@ export function TaskRow({
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
   const group = groupOf(session);
-  const ended = group === "ended" || group === "idle";
+  const quiet = group === "idle";
   return (
     <button
       type="button"
@@ -431,7 +432,7 @@ export function TaskRow({
               group === "attention" || group === "done"
                 ? stateColor(session.state)
                 : "text-muted-foreground",
-              ended && "text-muted-foreground",
+              quiet && "text-muted-foreground",
             )}
           >
             {duration}
@@ -467,7 +468,7 @@ function RowSign({ session, facts }: { session: AgentSession; facts: RowFacts })
 function worktreeMatches(worktree: WorktreeEntry, query: string): boolean {
   return (
     query.trim() === "" ||
-    worktree.sessions.some((session) => matchesQuery(session, query)) ||
+    worktree.sessions.some((session) => listed(session) && matchesQuery(session, query)) ||
     worktreeName(worktree, undefined).toLowerCase().includes(query.trim().toLowerCase())
   );
 }
