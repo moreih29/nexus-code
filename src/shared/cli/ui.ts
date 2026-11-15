@@ -61,6 +61,11 @@ export interface CliTabInfo {
   readonly url?: string;
   /** A terminal whose process has ended. */
   readonly dead?: boolean;
+  /**
+   * A terminal not started yet: its workspace has not been opened since the
+   * app started, so it has nothing to read or watch.
+   */
+  readonly unstarted?: boolean;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
   /** Pinned to the front of its group. */

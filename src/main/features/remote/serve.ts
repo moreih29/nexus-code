@@ -157,7 +157,8 @@ export async function listSessions(
             ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
             : {}),
         });
-      } else if (tab.type === "terminal") {
+      } else if (tab.type === "terminal" && !tab.unstarted) {
+        // One not started has nothing to show another device until its workspace is opened here.
         const claude = services.claudeStatus(workspace.id, tab.id);
         const state = describeTerminal(
           claude,
