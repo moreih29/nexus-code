@@ -16,6 +16,7 @@ import {
   profilesOf,
 } from "../../../shared/agent-profiles/profiles";
 import type { CliChatInfo, CliChatSettings, CliUiOp } from "../../../shared/cli/ui";
+import { sameFolder } from "../../../shared/fs/drive-path";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { ipcCallResult } from "../../ipc/client";
 import { chatPropsWithProfile } from "../../state/operations/tabs";
@@ -115,7 +116,7 @@ function withProfile(workspaceId: string, tabId: string, info: CliChatInfo): Cli
   const profile = profileShown(workspaceId, tabId, info.agent);
   const cwd = chatPropsOf(workspaceId, tabId)?.cwd;
   const root = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId)?.rootPath;
-  const own = cwd && root && cwd.replace(/[\\/]+$/, "") !== root.replace(/[\\/]+$/, "");
+  const own = cwd && root && !sameFolder(cwd, root);
   return {
     ...info,
     ...(profile ? { profile } : {}),
