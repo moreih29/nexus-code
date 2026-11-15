@@ -174,7 +174,8 @@ export interface MessageActions {
   canFork: boolean;
   /** Absent where the conversation forks into no tab. */
   onFork?: (item: UserItem | AssistantItem) => void;
-  onRewind: (item: UserItem) => void;
+  /** Absent where the conversation cannot be rewound from here. */
+  onRewind?: (item: UserItem) => void;
   /** Sends a running command or subagent to the background. */
   onBackground?: (toolUseId: string) => void;
   /** Tool calls that wait for the user to allow them, which have not started. */
@@ -864,11 +865,11 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
         <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
           <MessageTime at={item.at} />
           <CopyButton text={item.text} />
-          {actions && taken && (
+          {actions?.onRewind && taken && (
             <IconButton
               label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
               blocked={actions.running}
-              onClick={() => actions.onRewind(item)}
+              onClick={() => actions.onRewind?.(item)}
             >
               <RotateCcw className="size-3.5" />
             </IconButton>

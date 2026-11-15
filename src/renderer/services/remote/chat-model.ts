@@ -4,32 +4,81 @@
  * page leaves out stays empty: an image's bytes stay on that device. Pure.
  */
 
+import type { z } from "zod";
 import type {
   ChatPage,
   ChatUpdate,
+  ImageRef,
   ViewAssistantItem,
   ViewItem,
 } from "../../../../packages/remote-protocol/src";
+import type { ReceivedItemSchema } from "../../../../packages/remote-protocol/src/view";
 import {
   type AssistantItem,
   type ChatItem,
   type ChatModel,
   emptyModel,
+  type MessageSource,
   type NoticeCode,
   type StreamingBlock,
   type TaskInfo,
   type ToolCall,
 } from "../chat/model";
 
+/**
+ * The computer the page is from, and this one: who sent a message is told
+ * from here, so a tab of that computer is named with it and one of this
+ * computer's is not.
+ */
+export interface PageSource {
+  deviceId: string;
+  deviceName: string;
+  /** This computer's id in the account, when known. */
+  selfId?: string;
+}
+
+type ViewSender = z.infer<typeof ReceivedItemSchema>["from"];
+
+/** Who sent a message, as this computer's message list names its own senders. */
+export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
+  const { replyTo, device, ...rest } = from;
+  const sender: MessageSource = { ...rest };
+  if (replyTo) {
+    sender.workspaceId = replyTo.workspaceId;
+    sender.tabId = replyTo.tabId;
+  }
+  if (!source) {
+    if (device) sender.device = device;
+    return sender;
+  }
+  // A tab with no device named is on the computer the page is from.
+  const id = replyTo?.deviceId ?? device?.id ?? source.deviceId;
+  if (id === source.selfId) return sender;
+  sender.device =
+    device && device.id === id
+      ? device
+      : { id, name: id === source.deviceId ? source.deviceName : (device?.name ?? id) };
+  return sender;
+}
+
 /** An item this version draws; one of a kind it does not know is left out. */
-function itemOf(item: ViewItem): ChatItem | null {
+function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
   switch (item.kind) {
     case "user":
       if (!("images" in item)) return null;
-      // The bytes are not sent: an image shows as missing rather than broken.
-      return { ...item, kind: "user", images: [] } as ChatItem;
-    case "assistant":
+      // The bytes stay on that device until the image is shown (chat.image).
+      return {
+        ...item,
+        kind: "user",
+        images: (item.images as readonly ImageRef[]).map(({ mediaType }, index) => ({
+          mediaType,
+          data: "",
+          remote: { kind: "user", itemKey: item.key, index },
+        })),
+      } as ChatItem;
     case "received":
+      return { ...item, from: senderOf(item.from as ViewSender, source) } as ChatItem;
+    case "assistant":
     case "task_end":
     case "shell":
       return item as ChatItem;
@@ -42,6 +91,11 @@ function itemOf(item: ViewItem): ChatItem | null {
 
 function toolOf(tool: ChatPage["tools"][string]): ToolCall {
   const { result, status, input, ...rest } = tool;
+  const images = (result?.images ?? []).map(({ mediaType }, index) => ({
+    mediaType,
+    data: "",
+    remote: { kind: "tool" as const, toolUseId: tool.id, index },
+  }));
   return {
     ...rest,
     input,
@@ -52,14 +106,14 @@ function toolOf(tool: ChatPage["tools"][string]): ToolCall {
             text: result.truncated ? `${result.text}…` : result.text,
             isError: result.isError,
             ...(result.structured !== undefined ? { structured: result.structured } : {}),
-            images: [],
+            images,
           },
         }
       : {}),
   };
 }
 
-export function modelOfPage(page: ChatPage): ChatModel {
+export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
   const { status } = page;
   const streaming: Record<number, StreamingBlock> = {};
   for (const [index, block] of (status.streaming?.blocks ?? []).entries()) {
@@ -67,7 +121,7 @@ export function modelOfPage(page: ChatPage): ChatModel {
   }
   return {
     ...emptyModel(),
-    items: page.items.flatMap((item) => itemOf(item) ?? []),
+    items: page.items.flatMap((item) => itemOf(item, source) ?? []),
     tools: Object.fromEntries(Object.entries(page.tools).map(([id, t]) => [id, toolOf(t)])),
     permissions: status.permissions.map(({ preview, suggestions, ...p }) => ({
       ...p,

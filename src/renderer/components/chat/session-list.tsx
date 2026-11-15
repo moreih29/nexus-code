@@ -13,7 +13,7 @@
 import { ChevronDown, ChevronUp, History, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { profilesOf } from "../../../shared/agent-profiles/profiles";
+import { type AgentProfile, profilesOf } from "../../../shared/agent-profiles/profiles";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { CodexController } from "../../services/chat/codex-controller";
 import { revealTabById } from "../../services/chat/open-beside";
@@ -111,7 +111,11 @@ export function CodexSessionList(props: ListProps & { controller: CodexControlle
   );
 }
 
-function SessionPicker({
+/**
+ * The list itself, of sessions read elsewhere: another computer's chat
+ * gives its own (history.list), with no tabs here and none to delete.
+ */
+export function SessionPicker({
   agent,
   listed,
   openIn,
@@ -122,6 +126,7 @@ function SessionPicker({
   onClose,
   exceptSessionId,
   onDelete,
+  profiles: theirProfiles,
 }: ListProps & {
   agent: ChatAgent;
   /** Null until read. */
@@ -130,10 +135,13 @@ function SessionPicker({
   openIn: ReadonlyMap<string, string>;
   /** Deletes one; none for a list whose sessions cannot be. */
   onDelete?: DeleteSession;
+  /** The profiles the sessions are kept by, where they are not this app's (another computer's). */
+  profiles?: readonly AgentProfile[];
 }) {
   const { t, i18n } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
-  const profiles = useMemo(() => profilesOf(config, agent), [config, agent]);
+  const own = useMemo(() => profilesOf(config, agent), [config, agent]);
+  const profiles = theirProfiles ?? own;
   const picking = onClose !== undefined;
   const [open, setOpen] = useState(picking);
   const [all, setAll] = useState(false);

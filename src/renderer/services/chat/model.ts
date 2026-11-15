@@ -26,7 +26,17 @@ export interface ChatLine {
 export interface ImageBlock {
   mediaType: string;
   data: string;
+  /**
+   * Another computer's image, whose bytes stay there until it is shown
+   * (chat.image): `data` is empty until then.
+   */
+  remote?: RemoteImageRef;
 }
+
+/** Where another computer's chat has an image: a message's, or a tool's result's. */
+export type RemoteImageRef =
+  | { kind: "user"; itemKey: string; index: number }
+  | { kind: "tool"; toolUseId: string; index: number };
 
 export interface UserItem {
   kind: "user";
