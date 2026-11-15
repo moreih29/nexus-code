@@ -244,6 +244,14 @@ export class ChatController {
   private pendingName: string | undefined;
   /** Whether the session was given a name, which Claude's title from the first message would replace. */
   private named = false;
+  /**
+   * The name the user gave the tab: every session the tab has takes it, a
+   * new one after /clear or another profile too, and Remote Control is told
+   * it again as it starts, which can name the session on its own (the
+   * computer's name and two words). Another session's message from this one
+   * goes under the name Remote Control has.
+   */
+  private ownName: string | undefined;
 
   /** The profile the tab's program runs with, for a tab made from it to keep. */
   get profileId(): string {
@@ -505,7 +513,7 @@ export class ChatController {
           // Remote Control "at startup" (/config) is the host's to turn on in a headless run.
           if (remote) {
             return this.request("remote_control", { enabled: true }).then(
-              () => {},
+              () => this.retellName(),
               (err: Error) => log.warn(`remote control not started: ${err.message}`),
             );
           }
@@ -785,6 +793,25 @@ export class ChatController {
     return true;
   }
 
+  /** Takes the name the user gave the tab, or none, for the sessions it has from now. */
+  keepName(title: string | undefined): void {
+    this.ownName = title?.trim() || undefined;
+  }
+
+  /**
+   * Tells the session the tab's name again, though it has it: Remote Control,
+   * just started, can have named the session on its own.
+   */
+  private retellName(): void {
+    const sessionId = this.state.model.sessionId ?? this.sessionId;
+    if (!this.ownName || !sessionId || !this.supports("rename_session")) return;
+    void this.request("rename_session", {
+      title: this.ownName,
+      source: "host",
+      session_id: sessionId,
+    }).catch(() => {});
+  }
+
   /** Builds the model again from the agent's log, which a rewind started over. */
   private async rebuild(): Promise<void> {
     this.flushNow();
@@ -931,8 +958,8 @@ export class ChatController {
     // Kept before Claude echoes it, so it never shows as the user's.
     if (from) this.hooks.onRelayed?.({ id: String(message.uuid), from, at: Date.now() });
     await this.write(message);
-    // A session the user named keeps that name; Claude makes it none.
-    if (first && !this.named) void this.nameSession(first);
+    // A session the user named, or the tab, keeps that name; Claude makes it none.
+    if (first && !this.named && !this.ownName) void this.nameSession(first);
   }
 
   /**
@@ -1505,7 +1532,10 @@ export class ChatController {
 
   /** Turns Remote Control on or off; on, its answer has the session's URL. */
   setRemoteControl(enabled: boolean): Promise<unknown> {
-    return this.request("remote_control", { enabled });
+    return this.request("remote_control", { enabled }).then((answer) => {
+      if (enabled) this.retellName();
+      return answer;
+    });
   }
 
   supports(subtype: string): boolean {
@@ -1681,8 +1711,9 @@ export class ChatController {
     if (model.sessionId && model.sessionId !== this.sessionId) {
       // The copy a fork made has its own id now: the tab goes on with it,
       // and a branch takes its name.
-      // A name the user gave the tab before goes first.
-      const name = this.pendingName ?? this.target.fork?.title;
+      // A name the user gave the tab before goes first; the tab's own
+      // name names a new session after /clear or another profile.
+      const name = this.pendingName ?? this.target.fork?.title ?? this.ownName;
       this.sessionId = model.sessionId;
       this.target = { ...this.target, fork: undefined };
       this.hooks.onSession?.(model.sessionId);
