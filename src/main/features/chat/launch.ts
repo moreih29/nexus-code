@@ -224,10 +224,13 @@ export function claudeCommandArgs(command: ClaudeCommand, cwd: string): string[]
       return ["plugin", "list", "--json"];
     case "configUsage":
       // Run by Claude Code alone, without the model: kept as no session,
-      // and starting none of the user's hooks.
+      // and starting none of the user's hooks or MCP servers. The list
+      // does not depend on them, and connecting the servers took 0.8 s of
+      // its 2 s.
       return [
         "-p",
         "--no-session-persistence",
+        "--strict-mcp-config",
         "--settings",
         '{"disableAllHooks":true}',
         "--output-format",

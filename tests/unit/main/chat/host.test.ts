@@ -237,6 +237,14 @@ describe("chat launch", () => {
     expect(claudeCommandArgs({ kind: "stop", id: "8c55b250" }, "/r")).toEqual(["stop", "8c55b250"]);
   });
 
+  test("/config's list: no session, hooks or MCP servers, then the bare command", () => {
+    const args = claudeCommandArgs({ kind: "configUsage" }, "/r");
+    expect(args).toContain("--no-session-persistence");
+    expect(args).toContain("--strict-mcp-config");
+    expect(args).not.toContain("--mcp-config");
+    expect(args.slice(-1)).toEqual(["/config"]);
+  });
+
   test("plugins: the list, and each change as JSON in its scope", () => {
     expect(claudeCommandArgs({ kind: "plugins" }, "/r")).toEqual(["plugin", "list", "--json"]);
     expect(

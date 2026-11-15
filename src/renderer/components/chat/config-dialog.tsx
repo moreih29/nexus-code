@@ -79,14 +79,29 @@ export function ConfigDialog({
     setDraft({});
     setBusy(false);
     setOtherOpen(CONFIG_KEYS.find((k) => k.key === focus)?.group === "other");
+    // The keys are shown as last listed (or as the app knows them) without
+    // waiting for the CLI's list, which takes a second or two and comes
+    // later only when it differs, as after an update of Claude Code.
+    let listed = controller.savedConfigKeys();
+    let read: Awaited<ReturnType<ChatController["readConfig"]>> | null = null;
+    const show = () => {
+      if (!live || !read) return;
+      const { effective, global, model } = read;
+      const keys = configKeysOf(listed);
+      setLoaded({ keys, values: configValues(effective, global, keys), effective, model });
+    };
     controller.readConfig().then(
-      ({ effective, global, model, listed }) => {
-        if (!live) return;
-        const keys = configKeysOf(listed);
-        setLoaded({ keys, values: configValues(effective, global, keys), effective, model });
+      (config) => {
+        read = config;
+        show();
       },
       (err: Error) => live && setLoaded({ failed: err.message }),
     );
+    void controller.listConfigKeys().then((keys) => {
+      if (!keys || JSON.stringify(keys) === JSON.stringify(listed)) return;
+      listed = keys;
+      show();
+    });
     return () => {
       live = false;
     };
@@ -95,16 +110,21 @@ export function ConfigDialog({
   const values = typeof loaded === "object" && "values" in loaded ? loaded.values : null;
   const models = state.model.init?.models ?? [];
 
-  // The key the command named, in view and with the keyboard.
+  // The key the command named, in view and with the keyboard: once, when
+  // the rows first show, and not again when the CLI's list comes.
+  const shown = values !== null;
   useEffect(() => {
-    if (!focus || !values) return;
+    if (!focus || !shown) return;
     const row = bodyRef.current?.querySelector(`[data-config-key="${focus}"]`);
     row?.scrollIntoView({ block: "center" });
     row?.querySelector<HTMLElement>("button[role], input")?.focus();
-  }, [focus, values]);
+  }, [focus, shown]);
 
   const { [EFFORT]: draftEffort, ...draftKeys } = draft;
-  const changes = values ? changesOf(draftKeys, values) : {};
+  // Only the keys shown: one the CLI's list left out after it was set is not sent.
+  const changes = values
+    ? changesOf(Object.fromEntries(Object.entries(draftKeys).filter(([k]) => k in values)), values)
+    : {};
   const ready = typeof loaded === "object" && "keys" in loaded ? loaded : null;
   const effortModel = ready
     ? effortModelOf(
