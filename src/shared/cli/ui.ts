@@ -646,8 +646,9 @@ export interface CliUiOps {
   /**
    * Makes a task of `parentId`, as New Task does: its worktree, branch and
    * one tab, `start` (the task agent when absent): an agent's tab sent
-   * `prompt`, or a terminal running the command with `prompt`. Shown if
-   * `show`, else started behind the user's view.
+   * `prompt`, or a terminal running the command with `prompt`. A plain
+   * shell (an empty command) has no tab until the task is shown, when its
+   * panel opens one. Shown if `show`, else started behind the user's view.
    */
   "task.create": {
     args: {
@@ -661,8 +662,11 @@ export interface CliUiOps {
       /** The agent that sends the prompt, as the task's tab shows it; none for the user. */
       from?: RelaySender;
     };
-    /** `start` is what its tab runs: an agent, or a command ("" for a plain shell). */
-    result: { workspaceId: string; tabId: string; start: CliTaskStart };
+    /**
+     * `start` is what its tab runs: an agent, or a command ("" for a plain
+     * shell, which has no tab yet).
+     */
+    result: { workspaceId: string; tabId?: string; start: CliTaskStart };
   };
   /**
    * Opens a Claude or Codex tab in `cwd` and sends it `prompt` when there is

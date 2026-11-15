@@ -552,12 +552,13 @@ export function fakeApp(now = Date.now()): FakeApp {
         subject: "Fix the login redirect",
       } as CliUiOps[K]["result"];
     }
-    // Any worktree made is "fix-login"; the task agent is Claude.
+    // Any worktree made is "fix-login"; the task agent is Claude. A plain shell has no tab yet.
     if (op === "task.create") {
       const { start } = args as CliUiOps["task.create"]["args"];
+      const plain = start !== undefined && "command" in start && start.command === "";
       return {
         workspaceId: FIX,
-        tabId: NEW_TAB,
+        ...(plain ? {} : { tabId: NEW_TAB }),
         start: start ?? { agent: "claude" },
       } as CliUiOps[K]["result"];
     }

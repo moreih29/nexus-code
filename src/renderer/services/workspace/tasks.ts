@@ -63,11 +63,13 @@ export function taskStartOf(agent: TaskAgent): TaskStart {
 
 /**
  * A task just made: its first tab, and what runs there: the agent of a
- * Claude or Codex tab, or the command of a terminal ("" for none).
+ * Claude or Codex tab, or the command of a terminal. A plain shell ("")
+ * has no tab yet: the task's panel opens one when it is first shown, as
+ * for any workspace without tabs.
  */
 export interface StartedTask {
   readonly task: WorkspaceMeta;
-  readonly tabId: string;
+  readonly tabId: string | null;
   readonly start: TaskStart;
 }
 
@@ -75,7 +77,9 @@ export interface StartedTask {
  * Creates a task of `parentId` without switching to it, with one tab: an
  * agent's tab whose program starts now and is sent `prompt`, or a terminal
  * that runs the command with `prompt` once it starts, which is when the
- * task's panel is mounted. `createdBy` is the terminal whose agent asked
+ * task's panel is mounted. A plain shell gets no tab here: the panel opens
+ * one when the task is first shown, so a task made behind the user's view
+ * runs nothing until then. `createdBy` is the terminal whose agent asked
  * for it, if one did; `from`, who sent the prompt then, as the agent's tab
  * shows it.
  */
@@ -104,21 +108,20 @@ export async function startTask(
     const tabId = openAgentTab(task.id, start.agent, task.rootPath, prompt, undefined, from);
     return { task, tabId, start };
   }
-  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
   const command = start.command.trim();
-  if (command !== "") {
-    queueStartupInput(
-      task.id,
-      tabId,
-      (shellPath) => agentCommandLine(command, prompt, shellPath) ?? "",
-    );
-  }
+  if (command === "") return { task, tabId: null, start: { command } };
+  const { tabId } = openTerminal({ workspaceId: task.id, cwd: task.rootPath });
+  queueStartupInput(
+    task.id,
+    tabId,
+    (shellPath) => agentCommandLine(command, prompt, shellPath) ?? "",
+  );
   return { task, tabId, start: { command } };
 }
 
 /**
  * Creates a task of `parentId` and switches to it, with `agent`'s tab sent
- * `prompt`, or a plain terminal.
+ * `prompt`, or a plain terminal, which its panel opens as it is shown.
  */
 export async function createTask(
   parentId: string,
