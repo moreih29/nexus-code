@@ -40,3 +40,18 @@ export const RoomStateSchema = z.object({
   peers: z.array(RoomPeerSchema),
 });
 export type RoomState = z.infer<typeof RoomStateSchema>;
+
+/**
+ * Whether a device that speaks protocol `schema` (its hello's) has what
+ * `version` brought; one that told none speaks an older one.
+ */
+export function speaks(schema: string | undefined, version: string): boolean {
+  if (!schema) return false;
+  const have = schema.split(".").map(Number);
+  const want = version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (have[i] ?? 0) - (want[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return true;
+}

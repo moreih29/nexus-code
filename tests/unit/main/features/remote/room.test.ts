@@ -554,3 +554,15 @@ describe("what goes in a frame", () => {
     expect(told).toEqual([["a", "chat.update", update]]);
   });
 });
+
+describe("the protocol a device speaks", () => {
+  test("a version at or past the one asked; none told is older", async () => {
+    const { speaks } = await import("../../../../../src/shared/remote/room");
+    expect(speaks("0.12.0", "0.12.0")).toBe(true);
+    expect(speaks("0.12.3", "0.12.0")).toBe(true);
+    expect(speaks("1.0.0", "0.12.0")).toBe(true);
+    expect(speaks("0.11.9", "0.12.0")).toBe(false);
+    expect(speaks("0.9.0", "0.12.0")).toBe(false);
+    expect(speaks(undefined, "0.12.0")).toBe(false);
+  });
+});

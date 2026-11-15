@@ -25,6 +25,7 @@ import {
   type PeerRead,
   usePeerControls,
   usePeerReach,
+  usePeerSpeaks,
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
 import { useChatFontStyle } from "../../state/stores/chat-font";
@@ -755,10 +756,13 @@ function RemoteControls({
       showToast({ kind: "error", message: t("agentView.remote.failed", { message }) }),
     [t],
   );
+  const holds = usePeerSpeaks(deviceId, "0.12.0");
   const composer = usePeerComposer({
     ref: { deviceId, workspaceId, tabId },
     agent: target.kind === "codex" ? "codex" : "claude",
     model,
+    panel: page.panel,
+    holds,
     active: visible,
     filesRefused: t("agentView.remote.filesRefused"),
     onError,

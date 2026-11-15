@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
-import type { RoomPeer, RoomState } from "../../../shared/remote/room";
+import { type RoomPeer, type RoomState, speaks } from "../../../shared/remote/room";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 
 /** The room, kept up as it changes; null until main answered. */
@@ -48,6 +48,12 @@ export function usePeerControls(deviceId: string): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves ? serves.includes("chat.control") : true;
+}
+
+/** Whether another device speaks protocol `version` or later, as its hello said. */
+export function usePeerSpeaks(deviceId: string, version: string): boolean {
+  const room = useRemoteRoom();
+  return speaks(room?.peers.find((p) => p.id === deviceId)?.schema, version);
 }
 
 /** The devices in the room now that serve their sessions. */

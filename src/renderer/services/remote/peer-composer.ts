@@ -2,12 +2,15 @@
 // messages, stop, chips and slash commands go through the room as the
 // protocol has them (chat.send, chat.interrupt, chat.configure,
 // chat.commands, chat.command), and an image goes ahead with chat.attach.
-// What only a chat here has (a queue kept here, a message taken back, a
-// file's path) it does without.
+// From 0.12.0 a message goes when its keys say (chat.send `when`), the
+// messages held for after the turn are that device's (panel.held,
+// chat.unqueue), and an unread one is taken back (chat.withdraw) or
+// hurried (chat.hurry). A file's path it does without.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ChatCommand,
+  type ChatPanel,
   type ChatSettings,
   MAX_ATTACHMENT_BYTES,
 } from "../../../../packages/remote-protocol/src";
@@ -17,7 +20,13 @@ import type { ComposerController } from "../../components/chat/composer";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
 import type { ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
-import { type ChatTabState, type CommandCard, emptyTabState, type RevealPart } from "../chat/store";
+import {
+  type ChatTabState,
+  type CommandCard,
+  emptyTabState,
+  type QueuedMessage,
+  type RevealPart,
+} from "../chat/store";
 import { fitImage } from "./chat-image";
 import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
@@ -62,17 +71,22 @@ export interface PeerComposerDeps {
   onError?: (message: string) => void;
   /** The chip a bare `/model` or `/effort` asked for has opened. */
   onRevealed?: (seq: number) => void;
+  /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
+  can?: () => ChatPanel["can"];
+  /** Whether the chat's device speaks 0.12.0: it holds messages for after the turn. */
+  holds?: () => boolean;
   call?: typeof ipcCallResult;
 }
 
 /**
- * The composer's controller for another computer's chat. A message sent
- * during a turn waits there for the turn to read it, so nothing is queued
- * here and nothing can be taken back.
+ * The composer's controller for another computer's chat. A message held
+ * for after the turn is held there, nothing here; one a device before
+ * 0.12.0 takes waits there for the turn to read it.
  */
 export function peerComposerController(deps: PeerComposerDeps): ComposerController {
   const { ref, agent, filesRefused } = deps;
   const call = deps.call ?? ipcCallResult;
+  const can = () => deps.can?.();
   const configure = async (change: {
     model?: string;
     effort?: string;
@@ -80,7 +94,11 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   }) => {
     deps.onSettings(await answerOf(call("remote", "peerChatConfigure", { ...ref, ...change })));
   };
-  const send = async (text: string, images: ImageBlock[] = []) => {
+  const send = async (
+    text: string,
+    images: ImageBlock[] = [],
+    when?: "now" | "after",
+  ): Promise<void> => {
     const attachments: string[] = [];
     for (const image of images) {
       const fitted = await fitImage(image, { maxChars: ATTACH_CHARS });
@@ -98,18 +116,41 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
         ...ref,
         text,
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(when ? { when } : {}),
       }),
     );
   };
+  const tell = (error: Error) => deps.onError?.(error.message);
   return {
     key: `remote:${ref.deviceId}:${ref.workspaceId}:${ref.tabId}`,
     modes: CHAT_MODES[agent],
-    send,
-    // The device keeps it till the turn reads it.
+    send: (text, images) => send(text, images),
+    // A Claude chat's ↩ waits for the tool it runs, ⌘↩ does not (as its
+    // device lets it); a Codex chat's ↩ goes into the turn already.
+    ...(agent === "claude"
+      ? {
+          sendNow: (text: string, images?: ImageBlock[]) =>
+            send(text, images, can()?.now ? "now" : undefined),
+          readHeldNow: async () => {
+            if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
+          },
+          // Offered as supports("cancel_async_message") says, from can.withdraw.
+          withdraw: async (itemKey: string) =>
+            (await answerOf(call("remote", "peerChatWithdraw", { ...ref, itemKey }))).withdrawn,
+        }
+      : {}),
+    // Held there, from 0.12.0; before, the device keeps it till the turn reads it.
     enqueue: (text, images) => {
-      void send(text, images).catch((error: Error) => deps.onError?.(error.message));
+      void send(text, images, deps.holds?.() ? "after" : undefined).catch(tell);
     },
-    removeQueued: () => undefined,
+    removeQueued: (id) => {
+      void answerOf(call("remote", "peerChatUnqueue", { ...ref, id })).catch(tell);
+      return undefined;
+    },
+    takeBackQueued: async (id): Promise<QueuedMessage> => {
+      const { text } = await answerOf(call("remote", "peerChatUnqueue", { ...ref, id }));
+      return { id, text, images: [] };
+    },
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
     clearDraft: () => clearPeerDraft(ref),
     attach: async () => {
@@ -117,12 +158,27 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     },
     fileSuggestions: async () => [],
     supports: (subtype) =>
-      subtype === "apply_flag_settings" && (deps.settings()?.options.efforts.length ?? 0) > 0,
+      subtype === "apply_flag_settings"
+        ? (deps.settings()?.options.efforts.length ?? 0) > 0
+        : subtype === "cancel_async_message" && can()?.withdraw === true,
     setPermissionMode: (permissionMode) => configure({ permissionMode }),
     setModel: (model) => configure({ model }),
     setEffort: (effort) => configure({ effort }),
     revealed: (seq) => deps.onRevealed?.(seq),
   };
+}
+
+/**
+ * The messages the chat's device holds for after the turn, as the queue
+ * above the box shows them: a text cut short ends in an ellipsis, and its
+ * images stay there (taking one back gives its whole text, not them).
+ */
+export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
+  return (held ?? []).map((item) => ({
+    id: item.id,
+    text: item.truncated ? `${item.text}…` : item.text,
+    images: [],
+  }));
 }
 
 /** The models the chip offers: the chat's, its own one knowing its effort levels. */
@@ -197,6 +253,8 @@ export function usePeerComposer({
   ref,
   agent,
   model,
+  panel,
+  holds = false,
   active,
   filesRefused,
   onError,
@@ -204,6 +262,10 @@ export function usePeerComposer({
   ref: PeerChatRef;
   agent: "claude" | "codex";
   model: ChatModel;
+  /** The chat's side panel as its device last told it: what it lets do, and what it holds. */
+  panel?: ChatPanel | null;
+  /** Its device speaks 0.12.0: it holds messages for after the turn. */
+  holds?: boolean;
   /** The chat is in front and its device in reach: its settings are asked for. */
   active: boolean;
   filesRefused: string;
@@ -242,13 +304,17 @@ export function usePeerComposer({
     };
   }, [deviceId, workspaceId, tabId, active]);
 
-  // The latest settings and error handler, for a controller made once a chat.
-  const [held] = useState<{ settings: ChatSettings | null; onError: (message: string) => void }>({
-    settings: null,
-    onError,
-  });
+  // The latest settings, error handler and panel, for a controller made once a chat.
+  const [held] = useState<{
+    settings: ChatSettings | null;
+    onError: (message: string) => void;
+    can: ChatPanel["can"];
+    holds: boolean;
+  }>({ settings: null, onError, can: undefined, holds });
   held.settings = settings;
   held.onError = onError;
+  held.can = panel?.can;
+  held.holds = holds;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -259,6 +325,8 @@ export function usePeerComposer({
         filesRefused,
         onError: (message) => held.onError(message),
         onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
+        can: () => held.can,
+        holds: () => held.holds,
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );
@@ -332,15 +400,17 @@ export function usePeerComposer({
 
   // A message rewound or forked there, back in this composer.
   const draft = usePeerDraft(ref);
+  const queue = useMemo(() => heldQueueOf(panel?.held), [panel?.held]);
   const state = useMemo<ChatTabState>(
     () => ({
       ...emptyTabState(),
       phase: "ready",
       model: withSettings(model, settings),
+      queue,
       ...(reveal ? { reveal } : {}),
       ...(draft ? { draft } : {}),
     }),
-    [model, settings, reveal, draft],
+    [model, settings, reveal, draft, queue],
   );
   const infos = useMemo(() => commandInfosOf(commands), [commands]);
   return { controller, state, commands: infos, onCommand, card, closeCard };

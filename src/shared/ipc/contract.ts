@@ -2586,6 +2586,23 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
         RPC_METHODS["chat.fork"].result,
       ),
+      /** Takes back a message another device's chat holds for after its turn, whole. */
+      peerChatUnqueue: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unqueue"].params),
+        RPC_METHODS["chat.unqueue"].result,
+      ),
+      /** Takes back a message another device's Claude chat has not read. */
+      peerChatWithdraw: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.withdraw"].params),
+        RPC_METHODS["chat.withdraw"].result,
+      ),
+      /** Has another device's Claude chat read its unread messages now. */
+      peerChatHurry: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.hurry"].params),
+        RPC_METHODS["chat.hurry"].result,
+      ),
       /** Sends another device's Claude chat's running command or subagent to the background. */
       peerChatBackground: call(
         z
