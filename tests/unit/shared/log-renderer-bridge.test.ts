@@ -3,6 +3,10 @@ import { createLogger } from "../../../src/shared/log/renderer";
 
 type Bridge = Record<"error" | "warn" | "info" | "debug", (...a: unknown[]) => void>;
 const scope = globalThis as { window?: { __electronLog?: Bridge; addEventListener?: unknown } };
+// The window these tests may make has no IPC bridge. The one there was is put
+// back after each test, so the test files that run after this one never find
+// a window without the bridge their renderer code expects.
+const windowBefore = scope.window;
 
 function withBridge(): Bridge {
   const bridge = { error: mock(), warn: mock(), info: mock(), debug: mock() };
@@ -13,6 +17,7 @@ function withBridge(): Bridge {
 
 afterEach(() => {
   if (scope.window) delete scope.window.__electronLog;
+  scope.window = windowBefore;
 });
 
 describe("the renderer log facade", () => {

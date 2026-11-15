@@ -1,6 +1,6 @@
 import type { FsChangedEvent } from "../../../../shared/fs/types";
 import { createLogger } from "../../../../shared/log/renderer";
-import { ipcListen } from "../../../ipc/client";
+import { canUseIpcBridge, ipcListen } from "../../../ipc/client";
 
 const log = createLogger("files");
 
@@ -83,9 +83,13 @@ export function handleFsChanged(event: FsChangedEvent): void {
  * tracked — `fs.changed` must flow into the file tree for the full life of
  * the renderer. The guard avoids double-binding under HMR module re-exec
  * and repeated test imports.
+ *
+ * It waits for the IPC bridge, not just a window: this runs on import, and a
+ * module that throws on import stays broken for the whole process, so a
+ * window without the bridge (a test's stub) must not reach `ipcListen`.
  */
 let fsChangedSubscriptionInstalled = false;
-if (typeof window !== "undefined" && !fsChangedSubscriptionInstalled) {
+if (canUseIpcBridge() && !fsChangedSubscriptionInstalled) {
   fsChangedSubscriptionInstalled = true;
   ipcListen("fs", "changed", handleFsChanged);
 }
