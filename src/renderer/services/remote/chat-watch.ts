@@ -21,6 +21,7 @@ import type {
 } from "../../../../packages/remote-protocol/src";
 import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { useTabsStore } from "../../state/stores/tabs";
+import { planUsageKeyFor, usePlanUsageStore } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
 import {
   type ChatSource,
@@ -262,9 +263,12 @@ export function startChatWatch(
   };
   const offChat = useChatStore.subscribe(changed);
   const offTabs = useTabsStore.subscribe(changed);
+  // The plan's usage comes apart from the chat: its limits in the panel follow it.
+  const offPlan = usePlanUsageStore.subscribe(changed);
   const stop = () => {
     offChat();
     offTabs();
+    offPlan();
     if (timer) clearTimeout(timer);
     watches.delete(watchId);
   };
@@ -290,10 +294,20 @@ export function tabSource(
   const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
   const tab = useTabsStore.getState().byWorkspace[workspaceId]?.[tabId];
   if (!chat || !tab || (tab.type !== "claude" && tab.type !== "codex")) return null;
+  const plan =
+    usePlanUsageStore.getState().byKey[planUsageKeyFor(agent, workspaceId, tab.props.profileId)];
   return {
     agent,
     title: tab.title,
     chat,
     ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+    ...(plan?.claude || plan?.codex
+      ? {
+          plan: {
+            ...(plan.claude ? { claude: plan.claude } : {}),
+            ...(plan.codex ? { codex: plan.codex } : {}),
+          },
+        }
+      : {}),
   };
 }

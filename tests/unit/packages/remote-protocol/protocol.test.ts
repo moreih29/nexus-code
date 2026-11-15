@@ -8,6 +8,7 @@ import {
   bundleAadOf,
   CAPABILITIES,
   ChatPageSchema,
+  ChatPanelSchema,
   ClientFrameSchema,
   isRpcMethod,
   KeyBundlePutSchema,
@@ -341,6 +342,27 @@ describe("the methods", () => {
     expect(ask({ maxEdge: MAX_IMAGE_EDGE + 1 })).toBe(false);
     expect(ask({ maxEdge: 0 })).toBe(false);
     expect(ask({ maxEdge: 1.5 })).toBe(false);
+  });
+
+  test("a chat's panel may carry the plan's usage limits, of kinds this version may not know", () => {
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: null,
+      goal: null,
+    };
+    expect(ChatPanelSchema.safeParse(panel).success).toBe(true);
+    const limits = [
+      { kind: "session", percent: 65, resetsAt: 1_763_200_000_000 },
+      { kind: "window", windowMins: 300, percent: 30 },
+      { kind: "monthly", percent: 1 },
+    ];
+    expect(ChatPanelSchema.parse({ ...panel, planLimits: limits }).planLimits).toEqual(limits);
+    expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
+      false,
+    );
   });
 
   test("a file goes up in pieces of at most a chunk, of at most MAX_UPLOAD_BYTES", () => {
