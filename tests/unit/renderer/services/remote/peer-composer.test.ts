@@ -5,6 +5,7 @@ import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import {
   commandInfosOf,
   commandOf,
+  heldQueueOf,
   modelsOf,
   peerComposerController,
   withSettings,
@@ -73,15 +74,91 @@ describe("the composer of another computer's chat", () => {
     expect(calls[1]?.args).toEqual({ ...ref, text: "look", attachments: ["a1"] });
   });
 
-  test("during a turn sends at once: the device keeps it till the turn reads it", async () => {
+  test("before its device says what it lets do: ⌘⇧↩ is held there, ⌘↩ goes as ↩ does", async () => {
     const { calls, call } = recording();
     const { made } = controller(call);
     made.enqueue("next", []);
     await Promise.resolve();
-    expect(calls).toEqual([{ method: "peerChatSend", args: { ...ref, text: "next" } }]);
-    expect(made.removeQueued("q1")).toBeUndefined();
-    expect(made.withdraw).toBeUndefined();
+    await made.sendNow?.("now");
+    await made.readHeldNow?.();
+    expect(calls).toEqual([
+      { method: "peerChatSend", args: { ...ref, text: "next", when: "after" } },
+      { method: "peerChatSend", args: { ...ref, text: "now" } },
+    ]);
+    expect(made.supports("cancel_async_message")).toBe(false);
+  });
+
+  test("a message goes when its keys say, held there, taken back whole", async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push({ method, args });
+      if (method === "peerChatUnqueue") return { ok: true, value: { text: "the whole text" } };
+      if (method === "peerChatWithdraw") return { ok: true, value: { withdrawn: true } };
+      return { ok: true, value: {} };
+    }) as never;
+    const made = peerComposerController({
+      ref,
+      agent: "claude",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      can: () => ({
+        rewind: true,
+        fork: true,
+        background: true,
+        now: true,
+        withdraw: true,
+        hurry: true,
+      }),
+      call,
+    });
+    made.enqueue("later", []);
+    await Promise.resolve();
+    await made.sendNow?.("now");
+    await made.readHeldNow?.();
+    expect(await made.withdraw?.("u3")).toBe(true);
+    expect(await made.takeBackQueued?.("q1")).toEqual({
+      id: "q1",
+      text: "the whole text",
+      images: [],
+    });
+    expect(made.removeQueued("q2")).toBeUndefined();
+    expect(made.supports("cancel_async_message")).toBe(true);
+    expect(calls).toEqual([
+      { method: "peerChatSend", args: { ...ref, text: "later", when: "after" } },
+      { method: "peerChatSend", args: { ...ref, text: "now", when: "now" } },
+      { method: "peerChatHurry", args: ref },
+      { method: "peerChatWithdraw", args: { ...ref, itemKey: "u3" } },
+      { method: "peerChatUnqueue", args: { ...ref, id: "q1" } },
+      { method: "peerChatUnqueue", args: { ...ref, id: "q2" } },
+    ]);
+  });
+
+  test("a Codex chat's ↩ goes into the turn: no ⌘↩ of its own, nothing to withdraw", () => {
+    const made = peerComposerController({
+      ref,
+      agent: "codex",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      call: recording().call,
+    });
     expect(made.sendNow).toBeUndefined();
+    expect(made.withdraw).toBeUndefined();
+    expect(made.readHeldNow).toBeUndefined();
+  });
+
+  test("the held messages above the box: one cut short ends in an ellipsis", () => {
+    expect(
+      heldQueueOf([
+        { id: "q1", text: "short" },
+        { id: "q2", text: "long", truncated: true, images: 2 },
+      ]),
+    ).toEqual([
+      { id: "q1", text: "short", images: [] },
+      { id: "q2", text: "long…", images: [] },
+    ]);
+    expect(heldQueueOf(undefined)).toEqual([]);
   });
 
   test("a refusal there is an error the composer tells", async () => {

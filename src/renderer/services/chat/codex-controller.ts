@@ -846,17 +846,52 @@ export class CodexController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘⇧↩). */
-  enqueue(text: string, images: ImageBlock[] = [], from?: RelaySender): void {
-    const item: QueuedMessage = { id: nextId(), text, images, ...(from ? { from } : {}) };
+  /**
+   * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
+   * none when no turn runs and it went at once.
+   */
+  enqueue(
+    text: string,
+    images: ImageBlock[] = [],
+    from?: RelaySender,
+    device?: string,
+  ): string | undefined {
+    const item: QueuedMessage = {
+      id: nextId(),
+      text,
+      images,
+      ...(from ? { from } : {}),
+      ...(device ? { device } : {}),
+    };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.model.running) this.sendNextQueued();
+    if (this.model.running) return item.id;
+    this.sendNextQueued();
+    return undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
     const item = this.state.queue.find((q) => q.id === id);
     this.update((prev) => ({ ...prev, queue: prev.queue.filter((q) => q.id !== id) }));
     return item;
+  }
+
+  /**
+   * Changes a held message's text, its images kept: false once it went.
+   * Changed from another computer (`device`), it is that computer user's
+   * now, no longer the agent's that sent it.
+   */
+  editQueued(id: string, text: string, device?: string): boolean {
+    if (!this.state.queue.some((q) => q.id === id)) return false;
+    this.update((prev) => ({
+      ...prev,
+      queue: prev.queue.map((q) => {
+        if (q.id !== id) return q;
+        if (!device) return { ...q, text };
+        const { from: _agent, ...rest } = q;
+        return { ...rest, text, device };
+      }),
+    }));
+    return true;
   }
 
   private sendNextQueued(): void {

@@ -15,13 +15,15 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   RemoteSession,
+  RemoteSessionAgent,
   RemoteWorkspace,
   SessionState,
 } from "../../../../packages/remote-protocol/src/rpc";
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
@@ -31,13 +33,16 @@ import {
   servingPeers,
   usePeerSessions,
   useRemoteRoom,
+  useShownRoom,
 } from "../../services/remote/room";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
+import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { OutdatedLine } from "../settings/panels/remote-outdated";
 import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
@@ -99,13 +104,28 @@ function matches(session: RemoteSession, query: string): boolean {
 export function RemoteSessions({ query, shown = true }: { query: string; shown?: boolean }) {
   const { t } = useTranslation();
   const room = useRemoteRoom();
-  const peers = servingPeers(room);
+  // Shown with a drop shorter than DROP_SHOWN_AFTER_MS left out; watched as it is.
+  const seen = useShownRoom(room);
+  const peers = servingPeers(seen);
   // Searching, an offline computer has no sessions to find.
-  const away = query.trim() ? [] : offlinePeers(room);
+  const away = query.trim() ? [] : offlinePeers(seen);
   const lists = usePeerSessions(
-    peers.map((p) => p.id),
+    servingPeers(room).map((p) => p.id),
     shown,
   );
+  if (room?.status === "outdated") {
+    return (
+      <section
+        className="mt-3 flex flex-col gap-0.5 border-t border-border pt-3"
+        data-testid="remote-sessions"
+      >
+        <h3 className="px-2 pb-1 text-app-label uppercase text-muted-foreground">
+          {t("agentView.remote.title")}
+        </h3>
+        <OutdatedLine />
+      </section>
+    );
+  }
   if (peers.length === 0 && away.length === 0) return null;
   return (
     // A line apart from this computer's, and between the computers: a space
@@ -248,26 +268,35 @@ export function PeerGroup({
                   workspace={workspaces.get(workspaceId)}
                 />
                 {rows.map((session) => (
-                  <RemoteSessionRow
-                    key={session.tabId}
-                    session={session}
-                    where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
-                    onOpen={() =>
-                      open({
-                        deviceId: peer.id,
-                        deviceName: peer.name,
-                        workspaceId,
-                        workspaceName: names.get(workspaceId) ?? workspaceId,
-                        path: paths.get(workspaceId) ?? "",
-                        tabId: session.tabId,
-                        kind: session.kind,
-                        title: session.title,
-                        state: session.state,
-                        ...(session.profile ? { profile: session.profile } : {}),
-                        ...(session.cwd ? { cwd: session.cwd } : {}),
-                      })
-                    }
-                  />
+                  <Fragment key={session.tabId}>
+                    <RemoteSessionRow
+                      session={session}
+                      where={panelPlaceOf(
+                        root,
+                        remoteSessionKey({ deviceId: peer.id, ...session }),
+                      )}
+                      onOpen={() =>
+                        open({
+                          deviceId: peer.id,
+                          deviceName: peer.name,
+                          workspaceId,
+                          workspaceName: names.get(workspaceId) ?? workspaceId,
+                          path: paths.get(workspaceId) ?? "",
+                          tabId: session.tabId,
+                          kind: session.kind,
+                          title: session.title,
+                          state: session.state,
+                          ...(session.profile ? { profile: session.profile } : {}),
+                          ...(session.cwd ? { cwd: session.cwd } : {}),
+                        })
+                      }
+                    />
+                    <AgentRows
+                      agents={agentRunsOf(session.agents)}
+                      selectedId={undefined}
+                      className="pl-4"
+                    />
+                  </Fragment>
                 ))}
                 {toggles(workspaceId) && (
                   <button
@@ -334,6 +363,25 @@ function WorkspaceHeading({
       )}
     </span>
   );
+}
+
+/**
+ * Another computer's session's agents as this computer's rows read them:
+ * what it tells of each, with no tools (nothing opens from them).
+ */
+export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): AgentRun[] {
+  return (agents ?? []).map((agent) => ({
+    id: agent.id,
+    kind: agent.kind,
+    ...(agent.program ? { program: agent.program } : {}),
+    ...(agent.type ? { type: agent.type } : {}),
+    ...(agent.description ? { description: agent.description } : {}),
+    state: agent.state,
+    start: agent.start,
+    tools: [],
+    toolCount: 0,
+    failedCount: 0,
+  }));
 }
 
 export function RemoteSessionRow({

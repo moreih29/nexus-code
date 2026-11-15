@@ -75,6 +75,14 @@ function tab(resumed: number, fail?: Error) {
       start();
       sent.push(text);
     },
+    sendNow: async (text: string) => {
+      start();
+      sent.push(`now: ${text}`);
+    },
+    enqueue: (text: string) => {
+      sent.push(`held: ${text}`);
+      return "q1";
+    },
   };
   const target = { agent: "codex", controller } as unknown as Target;
   return { tabId, key, target, sent };
@@ -109,6 +117,19 @@ describe("sendToAgentTab", () => {
     release();
     await sending;
     expect(sendUnseen(WS, t.tabId)).toBe(true);
+  });
+
+  test("when it goes: now a Claude tab's alone, after the turn held with its id", async () => {
+    const t = tab(0);
+    const claude = { ...t.target, agent: "claude" } as Target;
+    expect(await sendToAgentTab(WS, t.tabId, claude, "a", undefined, [], "now")).toEqual({});
+    expect(await sendToAgentTab(WS, t.tabId, t.target, "b", undefined, [], "now")).toEqual({});
+    expect(await sendToAgentTab(WS, t.tabId, t.target, "c", undefined, [], "after")).toEqual({
+      heldId: "q1",
+    });
+    expect(t.sent).toEqual(["now: a", "b", "held: c"]);
+    // Held, it is not sent yet: the tab is not waiting on it.
+    expect(sendUnseen(WS, t.tabId)).toBe(false);
   });
 
   test("a tab whose program cannot run says so, and does not stay working", async () => {

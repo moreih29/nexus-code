@@ -111,12 +111,6 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
               </Button>
             </div>
           </SettingsRow>
-          {state.needsProof && (
-            <>
-              <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.needsProof")}</p>
-              <PasswordForm kind="confirm" />
-            </>
-          )}
           <PairingRow giving />
         </>
       )}
@@ -125,11 +119,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
       )}
       {(state.status === "unlocked" || state.status === "locked") && mode === "reset" && (
         <>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {state.v2 && !state.needsProof
-              ? t("remote.key.resetDelayed")
-              : t("remote.key.resetExplained")}
-          </p>
+          <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.resetDelayed")}</p>
           <PasswordForm kind="reset" onCancel={idle} onDone={idle} />
         </>
       )}
@@ -137,7 +127,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
   );
 }
 
-type FormKind = "create" | "unlock" | "change" | "reset" | "confirm";
+type FormKind = "create" | "unlock" | "change" | "reset";
 type Field = "password" | "current" | "next" | "confirm";
 
 const FIELDS: Record<FormKind, readonly Field[]> = {
@@ -145,7 +135,6 @@ const FIELDS: Record<FormKind, readonly Field[]> = {
   unlock: ["password"],
   change: ["current", "next", "confirm"],
   reset: ["next", "confirm"],
-  confirm: ["password"],
 };
 
 const EMPTY: Record<Field, string> = { password: "", current: "", next: "", confirm: "" };
@@ -164,8 +153,6 @@ function send(kind: FormKind, values: Record<Field, string>) {
       });
     case "reset":
       return ipcCallResult("remote", "resetKey", { password: values.next });
-    case "confirm":
-      return ipcCallResult("remote", "confirmPassword", { password: values.password });
   }
 }
 
@@ -226,7 +213,36 @@ function PendingResetNotice({
     if (!ok) return;
     setError(null);
     const result = await ipcCallResult("remote", "removeDevice", { id: reset.deviceId });
-    if (!result.ok) setError(keyFailureText(t, result.kind));
+    if (result.ok) return;
+    // It holds the key: removed with the password, which changes the key.
+    if (result.kind === "needs-password") {
+      setRequest({
+        title: t("remote.key.pendingReset.removeHolderTitle", { name: device }),
+        description: t("remote.key.pendingReset.removeHolderDescription"),
+        confirmLabel: t("remote.devices.removeConfirm.confirm"),
+        destructive: true,
+        run: async (password) => {
+          const again = await ipcCallResult("remote", "removeDevice", {
+            id: reset.deviceId,
+            password,
+          });
+          return again.ok || again.kind === "not-found" ? null : keyFailureText(t, again.kind);
+        },
+        // An owner who forgot the password can still stop the reset: the device keeps the key.
+        withoutPassword: {
+          label: t("remote.key.pendingReset.removeKeepKey"),
+          run: async () => {
+            const kept = await ipcCallResult("remote", "removeDevice", {
+              id: reset.deviceId,
+              keepKey: true,
+            });
+            return kept.ok || kept.kind === "not-found" ? null : keyFailureText(t, kept.kind);
+          },
+        },
+      });
+      return;
+    }
+    setError(keyFailureText(t, result.kind));
   };
   return (
     <div

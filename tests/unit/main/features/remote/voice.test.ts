@@ -170,6 +170,16 @@ describe("voice input's socket", () => {
       },
     });
     expect(await refused.voice.start("ko")).toMatchObject({ status: "failed", reason: "failed" });
+    // A server that no longer takes this version: only an update helps.
+    const outdated = setup({
+      request: async () => {
+        throw new ServerError(400, "unsupported_version", "POST /relay/ticket");
+      },
+    });
+    expect(await outdated.voice.start("ko")).toMatchObject({
+      status: "failed",
+      reason: "outdated",
+    });
     const dropped = setup({});
     const started = dropped.voice.start("ko");
     const s = await dropped.socket();
@@ -325,7 +335,7 @@ describe("the terms voice input listens for", () => {
     expect(asked).toEqual([
       {
         method: "POST",
-        path: "/relay/ticket",
+        path: "/relay/ticket?v=2",
         body: { voiceTerms: ["Mac Studio", "api-server"] },
       },
     ]);

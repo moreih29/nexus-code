@@ -90,6 +90,12 @@ export interface ComposerController {
   enqueue(text: string, images?: ImageBlock[]): void;
   removeQueued(id: string): QueuedMessage | undefined;
   /**
+   * Takes back a held message to edit, where what the queue shows is not
+   * all of it (another computer's): its whole text, none once it went.
+   * Where left out, removeQueued gives it.
+   */
+  takeBackQueued?(id: string): Promise<QueuedMessage | undefined>;
+  /**
    * Takes back a message sent during the turn that the program has not read:
    * true when it was dropped, false when it was read first. Left out where
    * a sent message cannot wait.
@@ -596,12 +602,23 @@ export function Composer({
     }
   };
 
+  /** A held message, back in the box to edit: before what is typed, or after it. */
+  const takeBackQueued = async (id: string, before: boolean) => {
+    try {
+      const item = controller.takeBackQueued
+        ? await controller.takeBackQueued(id)
+        : controller.removeQueued(id);
+      if (item) putBack(item, before);
+    } catch (err) {
+      showError(err as Error);
+    }
+  };
+
   /** The last message waiting, the app's queue's first: ↑ again takes the one before. */
   const takeBackLast = () => {
     const last = state.queue[state.queue.length - 1];
     if (last) {
-      const item = controller.removeQueued(last.id);
-      if (item) putBack(item, true);
+      void takeBackQueued(last.id, true);
       return;
     }
     const sent = waiting.filter((item) => !withdrawing.current.has(item.sentUuid ?? ""));
@@ -609,10 +626,7 @@ export function Composer({
     if (lastSent && canWithdraw) void takeBackWaiting(lastSent, "before");
   };
 
-  const pullBack = (id: string) => {
-    const item = controller.removeQueued(id);
-    if (item) putBack(item, false);
-  };
+  const pullBack = (id: string) => void takeBackQueued(id, false);
 
   return (
     <div

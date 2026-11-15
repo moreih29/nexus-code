@@ -12,7 +12,6 @@ import {
   shortId,
 } from "../context";
 import { table } from "../format";
-import { refuseLoop } from "../hops";
 import { absolutePath } from "../paths";
 import { type CliCommand, output } from "../registry";
 import { senderOf } from "../sender";
@@ -285,7 +284,6 @@ const worktreeNew: CliCommand = {
     });
     // An agent's prompt shows as its in the task's tab, and the agent there is told.
     const from = prompt.trim() !== "" ? await senderOf(ctx) : undefined;
-    refuseLoop(from);
     const created = await ctx.services.ui(
       "task.create",
       {

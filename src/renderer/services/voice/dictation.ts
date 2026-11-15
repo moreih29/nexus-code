@@ -98,6 +98,18 @@ export function tellFailure(reason: VoiceFailure | CaptureError["reason"]): void
         ],
       });
       return;
+    case "outdated":
+      showToast({
+        kind: "error",
+        message: t("failure.outdated"),
+        actions: [
+          {
+            label: t("update"),
+            onAction: () => useSettingsUIStore.getState().openSettingsAt("remote"),
+          },
+        ],
+      });
+      return;
     case "in-use":
       return;
     default:

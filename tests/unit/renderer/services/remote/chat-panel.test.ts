@@ -1,5 +1,6 @@
 /** A chat's side panel as another device reads it, and a watch sending it as it changes. */
 import { describe, expect, test } from "bun:test";
+import { MAX_HELD_TEXT } from "../../../../../packages/remote-protocol/src";
 import type { ChatModel, ToolCall } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
@@ -126,6 +127,26 @@ describe("a chat's side panel", () => {
     });
     expect(panel.moves).toEqual([{ after: "a1", profile: "work", at: 9 }]);
     expect(panel.can).toEqual({ rewind: true, fork: true, background: true });
+  });
+
+  test("the messages held for after the turn, each's text cut short, and its images counted", () => {
+    const long = "x".repeat(MAX_HELD_TEXT + 20);
+    const base = source({});
+    const panel = chatPanelOf({
+      ...base,
+      chat: {
+        ...base.chat,
+        queue: [
+          { id: "q1", text: "short", images: [] },
+          { id: "q2", text: long, images: [{ mediaType: "image/png", data: "AA" }] },
+        ],
+      },
+    } as Parameters<typeof chatPanelOf>[0]);
+    expect(panel.held).toEqual([
+      { id: "q1", text: "short" },
+      { id: "q2", text: long.slice(0, MAX_HELD_TEXT), truncated: true, images: 1 },
+    ]);
+    expect(chatPanelOf(source({})).held).toBeUndefined();
   });
 
   test("a Codex chat's context is its tokens; none before it told them", () => {

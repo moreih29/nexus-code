@@ -759,6 +759,7 @@ function RemoteControls({
     ref: { deviceId, workspaceId, tabId },
     agent: target.kind === "codex" ? "codex" : "claude",
     model,
+    panel: page.panel,
     active: visible,
     filesRefused: t("agentView.remote.filesRefused"),
     onError,

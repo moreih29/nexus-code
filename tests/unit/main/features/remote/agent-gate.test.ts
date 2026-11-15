@@ -11,7 +11,6 @@ const from = {
   name: "Fix build",
   workspaceId: "bw",
   tabId: "bt",
-  hops: 1,
 };
 const send = (over: Partial<typeof from> = {}, workspaceId = "w1") => ({
   device,
@@ -84,15 +83,6 @@ describe("an agent's request from another computer", () => {
       answer("terminal.answer", { requestId: "a1", decision: "allowAlways" }),
     ).rejects.toMatchObject(refused);
     expect(asked).toEqual([]);
-  });
-
-  test("past the chain's length, it is refused whatever the setting", async () => {
-    const { g, services } = gate("allow");
-    await g.check(services, send({ hops: 8 }));
-    await expect(g.check(services, send({ hops: 9 }))).rejects.toMatchObject({
-      code: 1002,
-      message: "the agents' chain is too long (8 messages): a loop?",
-    });
   });
 
   test("twenty a minute from one agent; more wait for the minute to pass", async () => {
@@ -267,13 +257,12 @@ describe("an agent's request from another computer", () => {
   });
 });
 
-test("the sender a chat keeps: who, on which computer, how far down the chain", () => {
+test("the sender a chat keeps: who, and on which computer", () => {
   expect(relaySenderOf({ ...from, agent: "gemini" }, device)).toEqual({
     kind: "tab",
     name: "Fix build",
     workspaceId: "bw",
     tabId: "bt",
     device,
-    hops: 1,
   });
 });

@@ -39,7 +39,8 @@ import { remoteProxy, remoteServer } from "./server";
 import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
-import { TicketSchema, VoiceSessions } from "./voice";
+import { askTicket } from "./ticket";
+import { VoiceSessions } from "./voice";
 import { listedComputers, VoiceNames } from "./voice-names";
 
 const c = ipcContract.remote.call;
@@ -304,7 +305,7 @@ export async function registerRemoteChannel(options: {
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
 
   const relayUrl = async () => {
-    const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
+    const ticket = await askTicket(account);
     const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
     relayVia = url.origin;
@@ -464,14 +465,14 @@ export async function registerRemoteChannel(options: {
         return ask(() => account.setDeviceAlias(id, alias));
       },
       removeDevice: (args: unknown) => {
-        const { id, password } = validateArgs(c.removeDevice.args, args);
+        const { id, password, keepKey } = validateArgs(c.removeDevice.args, args);
         const self = account.state();
         if (self.status === "signed-in" && self.device.id === id) {
           return ask(() => account.removeDevice(id));
         }
         return keyFlow(() =>
           ask(async () => {
-            await accountKeys.removeDevices([id], password);
+            await accountKeys.removeDevices([id], password, { keepKey });
           }),
         ).then((result) => (result.ok ? result.value : result));
       },
@@ -482,6 +483,12 @@ export async function registerRemoteChannel(options: {
         options.allowControl.set(allowed);
         // The others learn it from the hello: they show the chats as view only, or not.
         room?.announce();
+        // What they held for after a turn goes no more.
+        if (!allowed)
+          void options
+            .services()
+            ?.ui("chat.dropHeld", {})
+            .catch(() => {});
         return ipcOk(allowed);
       },
       allowTerminal: async () => ipcOk(options.allowTerminal.get()),
@@ -497,6 +504,13 @@ export async function registerRemoteChannel(options: {
         options.agents.set(policy);
         // Turned off, the others learn it from the hello and send their agents' requests no more.
         room?.announce();
+        // Nor does what their agents' messages left held for after a turn.
+        if (policy === "deny") {
+          void options
+            .services()
+            ?.ui("chat.dropHeld", { agentsOnly: true })
+            .catch(() => {});
+        }
         return ipcOk(policy);
       },
       peerSessions: (args: unknown) => {
@@ -617,6 +631,18 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatFork.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.fork", params));
       },
+      peerChatUnqueue: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUnqueue.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.unqueue", params));
+      },
+      peerChatWithdraw: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatWithdraw.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.withdraw", params));
+      },
+      peerChatHurry: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatHurry.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.hurry", params));
+      },
       peerChatBackground: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatBackground.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.background", params));
@@ -666,10 +692,6 @@ export async function registerRemoteChannel(options: {
       resetKey: (args: unknown) => {
         const { password } = validateArgs(c.resetKey.args, args);
         return keyFlow(() => accountKeys.reset(password));
-      },
-      confirmPassword: (args: unknown) => {
-        const { password } = validateArgs(c.confirmPassword.args, args);
-        return keyFlow(() => accountKeys.confirmPassword(password));
       },
       cancelReset: (args: unknown) => {
         const { password } = validateArgs(c.cancelReset.args, args);

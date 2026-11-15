@@ -1,6 +1,14 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
-import { MAX_LISTED_NOTES, RpcErrorCode } from "../../../../../packages/remote-protocol/src";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  MAX_AGENT_DESCRIPTION,
+  MAX_LISTED_NOTES,
+  MAX_SESSION_AGENTS,
+  RpcErrorCode,
+} from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
@@ -11,7 +19,13 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
-import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import {
+  listSessions,
+  servesWith,
+  serveWith,
+  sessionAgents,
+} from "../../../../../src/main/features/remote/serve";
+import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
 function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
@@ -39,6 +53,7 @@ function services(pending: PendingConsent[] = []): CliServices {
     claudeStatus: (_w: string, tab: string) =>
       tab === "t2" ? { status: "permissionPending", message: "Allow rm?", since: 5 } : null,
     activity: () => null,
+    claudeAgents: { list: () => [], stop: async () => false },
     consents: {
       list: () => pending,
       answer: async (id: string) => {
@@ -68,6 +83,91 @@ function services(pending: PendingConsent[] = []): CliServices {
     },
   } as unknown as CliServices;
 }
+
+function agentRun(over: Partial<AgentRun>): AgentRun {
+  return {
+    id: "a1",
+    kind: "subagent",
+    start: 100,
+    state: "running",
+    tools: [],
+    toolCount: 0,
+    failedCount: 0,
+    ...over,
+  };
+}
+
+describe("a session's agents, as its row lists them", () => {
+  test("only those that still run, each on a line", () => {
+    const agents = sessionAgents([
+      agentRun({ id: "s1", type: "Explore", description: "Find the\n  config loader" }),
+      agentRun({ id: "s2", state: "permissionPending", type: "general-purpose" }),
+      agentRun({
+        id: "p1",
+        kind: "print",
+        program: "codex",
+        prompt: "Review the diff\nand say what breaks",
+        tools: [{ id: "t", name: "Bash", start: 1 }],
+        toolCount: 1,
+      }),
+      agentRun({ id: "done", end: 200, state: "completed", answer: "ok" }),
+    ]);
+    expect(agents).toEqual([
+      {
+        id: "s1",
+        kind: "subagent",
+        type: "Explore",
+        description: "Find the config loader",
+        state: "running",
+        start: 100,
+      },
+      {
+        id: "s2",
+        kind: "subagent",
+        type: "general-purpose",
+        state: "permissionPending",
+        start: 100,
+      },
+      {
+        id: "p1",
+        kind: "print",
+        program: "codex",
+        description: "Review the diff and say what breaks",
+        state: "running",
+        start: 100,
+      },
+    ]);
+  });
+
+  test("at most MAX_SESSION_AGENTS, a description cut to MAX_AGENT_DESCRIPTION, none when none run", () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      agentRun({ id: `s${i}`, description: "x".repeat(300) }),
+    );
+    const agents = sessionAgents(many) ?? [];
+    expect(agents.length).toBe(MAX_SESSION_AGENTS);
+    expect(agents[0]?.description?.length).toBe(MAX_AGENT_DESCRIPTION);
+    expect(agents[0]?.description?.endsWith("…")).toBe(true);
+    expect(sessionAgents([agentRun({ end: 5, state: "stopped" })])).toBeUndefined();
+    expect(sessionAgents([])).toBeUndefined();
+  });
+
+  test("a chat's and a terminal's entries carry them; one with none has no field", async () => {
+    const base = services();
+    const s = {
+      ...base,
+      claudeAgents: {
+        list: (_w: string, tab: string) =>
+          tab === "t1" || tab === "t2" ? [agentRun({ id: `${tab}-agent`, type: "Explore" })] : [],
+        stop: async () => false,
+      },
+    } as unknown as CliServices;
+    const list = await listSessions(s);
+    const of = (tabId: string) => list.sessions.find((x) => x.tabId === tabId);
+    expect(of("t1")?.agents?.map((a) => a.id)).toEqual(["t1-agent"]);
+    expect(of("t2")?.agents?.map((a) => a.id)).toEqual(["t2-agent"]);
+    expect(of("t4")).not.toHaveProperty("agents");
+  });
+});
 
 describe("serving the sessions", () => {
   test("lists the workspaces in the sidebar's order: pinned first, each group by its order, a task after its workspace", async () => {
@@ -202,6 +302,40 @@ describe("serving the sessions", () => {
       serveWith(services)({ from: "d", method: "chat.watch", params: {} }),
     ).rejects.toMatchObject({ code: -32601 });
   });
+
+  test("an agent's read where its user lets agents in, unasked, and none where not", async () => {
+    const asked: string[] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: (op: string, args: unknown) => {
+        asked.push(op);
+        return base.ui(op as "tabs.list", args as { workspaceId: string });
+      },
+    } as unknown as CliServices;
+    const from = {
+      kind: "tab",
+      agent: "claude",
+      name: "Fix",
+      workspaceId: "bw",
+      tabId: "bt",
+    };
+    const read = (policy?: "allow" | "ask" | "deny") =>
+      serveWith(
+        () => s,
+        policy ? { agents: new AgentGate({ policy: () => policy }) } : {},
+      )({
+        from: "d",
+        method: "sessions.list",
+        params: { from },
+      });
+    await expect(read()).rejects.toMatchObject({ code: 1002 });
+    await expect(read("deny")).rejects.toMatchObject({ code: 1002 });
+    // Only what an agent would change is asked about: a read goes ahead.
+    expect(await read("ask")).toHaveProperty("workspaces");
+    expect(await read("allow")).toHaveProperty("workspaces");
+    expect(asked).not.toContain("consent.ask");
+  });
 });
 
 describe("serving a chat and a terminal to read", () => {
@@ -308,6 +442,11 @@ describe("what this device serves", () => {
   test("agents' requests unless the user turned them down", () => {
     expect(servesWith(false, false, true)).toContain("agents");
     expect(servesWith(true, true, false)).not.toContain("agents");
+  });
+
+  test("adding a workspace only while chat control is allowed", () => {
+    expect(servesWith(true)).toContain("workspace.create");
+    expect(servesWith(false, true, true)).not.toContain("workspace.create");
   });
 });
 
@@ -897,13 +1036,9 @@ describe("rewinding, forking and more of a Claude chat", () => {
   });
 });
 
-describe("serving a chat's slash commands", () => {
-  const commands = [
-    { name: "review", description: "Review", runs: "send" },
-    { name: "model", description: "Model", runs: "settings", sets: "model" },
-    { name: "btw", description: "Aside", runs: "command", args: "<question>" },
-  ];
-  function commandServices() {
+describe("when a message goes, and the ones held for after the turn", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  function sendServices(answer: (op: string) => unknown = () => ({})) {
     const asked: [string, unknown][] = [];
     const base = services();
     const s = {
@@ -911,16 +1046,179 @@ describe("serving a chat's slash commands", () => {
       ui: async (op: string, args: { workspaceId: string }) => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
         asked.push([op, args]);
-        return op === "chat.commands" ? { commands } : { message: "an answer" };
+        const a = answer(op);
+        if (a instanceof Error) throw a;
+        return a;
       },
     } as unknown as CliServices;
     return { serve: serveWith(() => s), asked };
+  }
+
+  test("a message goes when asked, and one held tells its id", async () => {
+    const { serve, asked } = sendServices((op) => (op === "chat.send" ? { heldId: "q1" } : {}));
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.send",
+        params: { ...tab, text: "hi", when: "after" },
+      }),
+    ).toEqual({ at: 1000, heldId: "q1" });
+    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "now", when: "now" } });
+    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "next" } });
+    expect(asked).toEqual([
+      // Held, it says which device held it: dropped if control from there is turned off.
+      ["chat.send", { ...tab, text: "hi", user: true, when: "after", device: "d" }],
+      ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
+      ["chat.send", { ...tab, text: "next", user: true }],
+    ]);
+  });
+
+  test("a held message is taken back whole, or changed; an unread one withdrawn; the unread hurried", async () => {
+    const { serve, asked } = sendServices((op) =>
+      op === "chat.unqueue"
+        ? { text: "the whole text" }
+        : op === "chat.withdraw"
+          ? { withdrawn: true }
+          : {},
+    );
+    expect(
+      await serve({ from: "d", method: "chat.unqueue", params: { ...tab, id: "q1" } }),
+    ).toEqual({ text: "the whole text" });
+    expect(
+      await serve({ from: "d", method: "chat.editHeld", params: { ...tab, id: "q2", text: "b" } }),
+    ).toEqual({});
+    expect(
+      await serve({ from: "d", method: "chat.withdraw", params: { ...tab, itemKey: "u3" } }),
+    ).toEqual({ withdrawn: true });
+    expect(await serve({ from: "d", method: "chat.hurry", params: tab })).toEqual({});
+    expect(asked).toEqual([
+      ["chat.unqueue", { ...tab, id: "q1" }],
+      // Changed there, it is that device's user's now.
+      ["chat.editHeld", { ...tab, id: "q2", text: "b", device: "d" }],
+      ["chat.withdraw", { ...tab, itemKey: "u3" }],
+      ["chat.hurry", tab],
+    ]);
+  });
+
+  test("NotFound once a held message went; InvalidParams for an empty one; withdraw and hurry a Claude chat's", async () => {
+    const { serve } = sendServices((op) =>
+      op === "chat.editHeld"
+        ? new Error("a message needs text or an image")
+        : new Error("no held message q1: it went"),
+    );
+    await expect(
+      serve({ from: "d", method: "chat.unqueue", params: { ...tab, id: "q1" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "d", method: "chat.editHeld", params: { ...tab, id: "q1", text: " " } }),
+    ).rejects.toMatchObject({ code: -32602 });
+    await expect(
+      serve({ from: "d", method: "chat.hurry", params: { workspaceId: "w2", tabId: "t4" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
+describe("adding a workspace from another device", () => {
+  test("a folder is added and the user told which device added it; one listed is given back", async () => {
+    const folder = await realpath(await mkdtemp(join(tmpdir(), "ws-create-")));
+    const added: unknown[] = [];
+    const told: unknown[] = [];
+    const base = services();
+    const listed = { id: "w9", name: "site", rootPath: folder };
+    const s = {
+      ...base,
+      addWorkspace: async (location: unknown, name: string | undefined) => {
+        added.push([location, name]);
+        return { workspace: { ...listed, ...(name ? { name } : {}) }, added: added.length === 1 };
+      },
+      notify: (...args: unknown[]) => {
+        told.push(args);
+        return true;
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { deviceName: (id) => (id === "p" ? "iPhone" : undefined) });
+    expect(
+      await serve({
+        from: "p",
+        method: "workspace.create",
+        params: { path: folder, name: "Site" },
+      }),
+    ).toEqual({ workspace: { id: "w9", name: "Site", path: folder }, created: true });
+    expect(
+      await serve({ from: "p", method: "workspace.create", params: { path: folder } }),
+    ).toMatchObject({ created: false });
+    expect(added[0]).toEqual([{ kind: "local", rootPath: folder }, "Site"]);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject(["w9", "", expect.stringContaining("iPhone"), folder]);
+    await rm(folder, { recursive: true, force: true });
+  });
+
+  test("not a drive's root, the home folder or one above it, nor the system's", async () => {
+    const serve = serveWith(() => services());
+    const create = (path: string) =>
+      serve({ from: "p", method: "workspace.create", params: { path } });
+    await expect(create(homedir())).rejects.toMatchObject({ code: 1002 });
+    await expect(create(dirname(homedir()))).rejects.toMatchObject({ code: 1002 });
+    if (process.platform !== "win32") {
+      await expect(create("/")).rejects.toMatchObject({ code: 1002 });
+      await expect(create("/usr")).rejects.toMatchObject({ code: 1002 });
+    }
+  });
+
+  test("a network or device path on Windows is turned down before it is read", async () => {
+    const windows = { platform: "win32" as const, home: () => "C:\\Users\\me" };
+    const serve = serveWith(() => services(), { folders: windows });
+    for (const path of ["\\\\host\\share\\x", "//host/share", "\\\\?\\C:\\work"]) {
+      await expect(
+        serve({ from: "p", method: "workspace.create", params: { path } }),
+      ).rejects.toMatchObject({ code: -32602 });
+      await expect(
+        serve({ from: "p", method: "folders.list", params: { path } }),
+      ).rejects.toMatchObject({ code: -32602 });
+    }
+  });
+
+  test("a path that is no folder is NotFound, a relative one InvalidParams", async () => {
+    const serve = serveWith(() => services());
+    await expect(
+      serve({ from: "p", method: "workspace.create", params: { path: "/no/such/folder/here" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "p", method: "workspace.create", params: { path: "relative/dir" } }),
+    ).rejects.toMatchObject({ code: -32602 });
+  });
+});
+
+describe("serving a chat's slash commands", () => {
+  const commands = [
+    { name: "review", description: "Review", runs: "send" },
+    { name: "model", description: "Model", runs: "settings", sets: "model" },
+    { name: "btw", description: "Aside", runs: "command", args: "<question>" },
+  ];
+  const listedCommands = [...commands, { name: "add-dir", description: "Add", runs: "command" }];
+  function commandServicesWith(base: CliServices) {
+    const asked: [string, unknown][] = [];
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        if (op === "chat.state") return { agent: "claude", state: "idle" };
+        asked.push([op, args]);
+        return op === "chat.commands" ? { commands: listedCommands } : { message: "an answer" };
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+  function commandServices() {
+    return commandServicesWith(services());
   }
   const tab = { workspaceId: "w1", tabId: "t1" };
 
   test("lists them, and runs one of the app's with what follows it", async () => {
     const { serve, asked } = commandServices();
-    expect(await serve({ from: "d", method: "chat.commands", params: tab })).toEqual({ commands });
+    expect(await serve({ from: "d", method: "chat.commands", params: tab })).toEqual({
+      commands: listedCommands,
+    });
     const ran = await serve({
       from: "d",
       method: "chat.command",
@@ -928,6 +1226,35 @@ describe("serving a chat's slash commands", () => {
     });
     expect(ran).toEqual({ message: "an answer" });
     expect(asked.at(-1)).toEqual(["chat.command", { ...tab, name: "btw", args: "why?" }]);
+  });
+
+  test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
+    const { serve, asked } = commandServices();
+    const root = await realpath(await mkdtemp(join(tmpdir(), "add-dir-")));
+    await mkdir(join(root, "sub"));
+    const s = services();
+    const listed = s.listWorkspaces();
+    const withRoot = {
+      ...s,
+      listWorkspaces: () => listed.map((w) => (w.id === "w1" ? { ...w, rootPath: root } : w)),
+    } as unknown as CliServices;
+    const add = (args: string, through = serve) =>
+      through({ from: "d", method: "chat.command", params: { ...tab, name: "add-dir", args } });
+    await add(join(root, "sub"));
+    expect(asked.at(-1)).toEqual([
+      "chat.command",
+      { ...tab, name: "add-dir", args: join(root, "sub") },
+    ]);
+    await expect(add("/")).rejects.toMatchObject({ code: 1002 });
+    await expect(add("~")).rejects.toMatchObject({ code: 1002 });
+    // A relative one is from the chat's folder: here the workspace's, as chat.state tells none.
+    const relative = commandServicesWith(withRoot);
+    await add("sub", relative.serve);
+    expect(relative.asked.at(-1)).toEqual([
+      "chat.command",
+      { ...tab, name: "add-dir", args: join(root, "sub") },
+    ]);
+    await rm(root, { recursive: true, force: true });
   });
 
   test("sends the agent's own and the settings elsewhere, and refuses one it does not list", async () => {
@@ -989,7 +1316,6 @@ describe("serving a chat's controls", () => {
       name: "Fix",
       workspaceId: "bw",
       tabId: "bt",
-      hops: 2,
     };
     const params = { ...tab, text: "run the tests", from };
     // Not taken where no gate says agents may.
@@ -1000,6 +1326,10 @@ describe("serving a chat's controls", () => {
       agents: new AgentGate({ policy: () => "allow" }),
       deviceName: (id) => (id === "d" ? "MacBook" : undefined),
     });
+    // An agent's message goes now or next, never held for after the turn.
+    await expect(
+      serve({ from: "d", method: "chat.send", params: { ...params, when: "after" } }),
+    ).rejects.toMatchObject({ code: -32602 });
     await serve({ from: "d", method: "chat.send", params });
     expect(asked[0]).toEqual([
       "chat.send",

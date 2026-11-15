@@ -24,7 +24,7 @@ import type { RoomState } from "../../../../shared/remote/room";
 import { SERVER } from "../../../../shared/remote/server";
 import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
-import { useRemoteRoom } from "../../../services/remote/room";
+import { useRemoteRoom, useShownRoom } from "../../../services/remote/room";
 import { dateTimeFormat } from "../../../utils/intl-format";
 import { Button } from "../../ui/button";
 import { showConfirmDialog } from "../../ui/confirm-dialog";
@@ -38,6 +38,7 @@ import {
 } from "../section";
 import { SegmentedControl } from "../segmented-control";
 import { AccountKeyGroup, keyFailureText, useAccountKey } from "./remote-key-group";
+import { OutdatedGroup } from "./remote-outdated";
 import { PasswordDialog, type PasswordRequest } from "./remote-password-dialog";
 import { VoiceGroup } from "./remote-voice-group";
 import { SignInButton } from "./sign-in-buttons";
@@ -114,11 +115,13 @@ function useSignIns(ask: boolean): {
 export function RemotePanel() {
   const state = useRemoteAccount();
   const key = useAccountKey();
-  const room = useRemoteRoom();
+  // Who is in the room, with a drop shorter than DROP_SHOWN_AFTER_MS left out.
+  const room = useShownRoom(useRemoteRoom());
   const signIns = useSignIns(state?.status === "signed-out");
   if (!state) return null;
   return (
     <SettingsPage>
+      {room?.status === "outdated" && <OutdatedGroup />}
       <AccountGroup
         state={state}
         signIns={signIns.providers}
@@ -325,9 +328,9 @@ export function RemoteControlGroup() {
   );
 }
 
-/** Whether the server asks for the account password before removing a device or deleting the account (account keys v2). */
+/** Whether the server asks for the account password before removing a device or deleting the account: once the account has a key. */
 function asksPassword(key: AccountKeyState | null): boolean {
-  return (key?.status === "unlocked" || key?.status === "locked") && key.v2 === true;
+  return key?.status === "unlocked" || key?.status === "locked";
 }
 
 function DevicesGroup({
@@ -373,7 +376,7 @@ function DevicesGroup({
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;
-    // Another device, on a server of account keys v2: the account key is rotated, with the password.
+    // Another device: the account key is rotated, with the password.
     if (!self && asksPassword(keyState)) {
       setPasswordRequest({
         title: t("remote.devices.removeConfirm.title", { name: deviceLabel(device) }),

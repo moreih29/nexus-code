@@ -74,8 +74,10 @@ function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
       return {
         ...item,
         kind: "user",
-        // Only one the program took has an id to go back to.
+        // Only one the program took has an id to go back to; one it has not
+        // read yet is taken back by its key (chat.withdraw).
         ...(item.state === "taken" ? { uuid: item.key } : {}),
+        ...(item.state === "sent" && item.queued ? { sentUuid: item.key } : {}),
         images: (item.images as readonly ImageRef[]).map(({ mediaType }, index) => ({
           mediaType,
           data: "",

@@ -6,8 +6,23 @@
  */
 import { z } from "zod";
 
-/** The version of the frames below; the relay refuses a device that speaks another. */
-export const RELAY_VERSION = 1;
+/**
+ * The version of the frames below; the relay refuses a device that speaks
+ * another. A device asks for its ticket with it (POST /relay/ticket?v=2) and
+ * opens the socket with it (/relay?v=2&ticket=...). A version the server no
+ * longer takes is turned down at the ticket, where a status can be read:
+ * 400 with UnsupportedVersionSchema's body. That app must be updated; asking
+ * again will not help. Version 2 is NexusCode 0.12.0's: its account keys v2
+ * only, and the protocol package's 0.12.0 or later.
+ */
+export const RELAY_VERSION = 2;
+
+/** The ticket's answer to a version it no longer takes (400): the one it wants. */
+export const UNSUPPORTED_VERSION = "unsupported_version";
+export const UnsupportedVersionSchema = z.object({
+  error: z.literal(UNSUPPORTED_VERSION),
+  version: z.number().int(),
+});
 
 /** A device's id, as the server gave it when the device signed in. */
 export const DeviceIdSchema = z.string().min(1).max(64);

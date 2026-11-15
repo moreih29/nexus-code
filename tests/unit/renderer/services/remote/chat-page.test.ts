@@ -315,6 +315,21 @@ describe("a page drawn as this app's chat", () => {
     expect(model.items.map((item) => ("uuid" in item ? item.uuid : null))).toEqual([null, "a1"]);
   });
 
+  test("an unread message of the user's is taken back by its key", () => {
+    const model = modelOfPage({
+      ...chatPageOf(source({})),
+      items: [
+        { kind: "user", key: "u1", text: "wait", images: [], state: "sent", queued: true },
+        { kind: "user", key: "u2", text: "sent", images: [], state: "sent" },
+      ],
+      total: 2,
+    });
+    expect(model.items.map((item) => ("sentUuid" in item ? item.sentUuid : null))).toEqual([
+      "u1",
+      null,
+    ]);
+  });
+
   test("marks a result that was cut", () => {
     const page = chatPageOf(
       source({

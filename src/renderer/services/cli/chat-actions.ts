@@ -32,10 +32,9 @@ import {
 } from "../chat/agent-tab";
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
-import type { ChatItem, UserItem } from "../chat/model";
+import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
 import { scopesOf } from "../chat/permission-scopes";
 import { sameProfile } from "../chat/profile-moves";
-import { turnHopsOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
@@ -447,7 +446,17 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return tool;
   },
 
-  "chat.send": async ({ workspaceId, tabId, text, from, user, images, files = [] }) => {
+  "chat.send": async ({
+    workspaceId,
+    tabId,
+    text,
+    from,
+    user,
+    images,
+    files = [],
+    when,
+    device,
+  }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
       throw new UiRequestError(
@@ -461,7 +470,60 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     );
     const mentions = paths.map(fileMention).join(" ");
     const body = mentions === "" ? text : text.trim() ? `${text}\n\n${mentions}` : mentions;
-    await sendToAgentTab(workspaceId, tabId, target, body, from, images);
+    return sendToAgentTab(workspaceId, tabId, target, body, from, images, when, device);
+  },
+
+  "chat.unqueue": async ({ workspaceId, tabId, id }) => {
+    const { controller } = await openedTab(workspaceId, tabId);
+    const item = controller.removeQueued(id);
+    if (!item) throw new UiRequestError(`no held message ${id}: it went`);
+    return { text: item.text };
+  },
+
+  "chat.editHeld": async ({ workspaceId, tabId, id, text, device }) => {
+    const { controller } = await openedTab(workspaceId, tabId);
+    const item = controller.state.queue.find((q) => q.id === id);
+    if (!item) throw new UiRequestError(`no held message ${id}: it went`);
+    if (!text.trim() && item.images.length === 0) {
+      throw new UiRequestError("a message needs text or an image");
+    }
+    if (!controller.editQueued(id, text, device))
+      throw new UiRequestError(`no held message ${id}: it went`);
+    return {};
+  },
+
+  "chat.dropHeld": async ({ agentsOnly }) => {
+    let dropped = 0;
+    for (const [workspaceId, tabs] of Object.entries(useTabsStore.getState().byWorkspace)) {
+      for (const tab of Object.values(tabs ?? {})) {
+        if (tab.type !== "claude" && tab.type !== "codex") continue;
+        const queue = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)]?.queue ?? [];
+        const theirs = queue.filter((q) => q.from?.device || (!agentsOnly && q.device));
+        if (theirs.length === 0) continue;
+        const target = agentTabController(workspaceId, tab.id);
+        for (const q of theirs) if (target?.controller.removeQueued(q.id)) dropped++;
+      }
+    }
+    return { dropped };
+  },
+
+  "chat.withdraw": async ({ workspaceId, tabId, itemKey }) => {
+    const controller = await claudeTab(workspaceId, tabId, true);
+    const item = itemByKey(workspaceId, tabId, itemKey);
+    if (item.kind !== "user") throw new UiRequestError(`no message ${itemKey} of the user's there`);
+    if (!isWaiting(item) || !item.sentUuid) return { withdrawn: false };
+    if (!controller.supports("cancel_async_message")) {
+      throw new UiRequestError("its program cannot take a message back");
+    }
+    return { withdrawn: await controller.withdraw(item.sentUuid) };
+  },
+
+  "chat.hurry": async ({ workspaceId, tabId }) => {
+    const controller = await claudeTab(workspaceId, tabId, true);
+    const { model } = controller.state;
+    // As the composer's ⌘↩ with nothing typed: only while messages sent in the turn wait.
+    const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
+    if (model.running && waiting) await controller.readHeldNow();
     return {};
   },
 
@@ -502,11 +564,6 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const tool = conversationOf(sourceOf(workspaceId, tabId, agent)).tools[toolUseId];
     if (!tool) throw new UiRequestError(`no tool call ${toolUseId} in that tab`);
     return viewToolOf(tool, maxText);
-  },
-
-  "chat.turnHops": async ({ workspaceId, tabId }) => {
-    const { agent } = await readableTab(workspaceId, tabId);
-    return { hops: turnHopsOf(conversationOf(sourceOf(workspaceId, tabId, agent)).items) };
   },
 
   "chat.pageEntries": async ({ page, subagents }) => ({

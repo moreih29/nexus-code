@@ -926,8 +926,8 @@ export class ChatController {
    * runs that can go on in the background goes there, and the turn stops
    * for the message when nothing can.
    */
-  sendNow(text: string, images: ImageBlock[] = []): Promise<void> {
-    return this.sendMessage(text, images, true);
+  sendNow(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
+    return this.sendMessage(text, images, true, from);
   }
 
   /**
@@ -994,11 +994,27 @@ export class ChatController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘⇧↩). */
-  enqueue(text: string, images: ImageBlock[] = []): void {
-    const item: QueuedMessage = { id: nextRequestId(), text, images };
+  /**
+   * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
+   * none when no turn runs and it went at once.
+   */
+  enqueue(
+    text: string,
+    images: ImageBlock[] = [],
+    from?: RelaySender,
+    device?: string,
+  ): string | undefined {
+    const item: QueuedMessage = {
+      id: nextRequestId(),
+      text,
+      images,
+      ...(from ? { from } : {}),
+      ...(device ? { device } : {}),
+    };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.state.model.running) this.sendNextQueued();
+    if (this.state.model.running) return item.id;
+    this.sendNextQueued();
+    return undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
@@ -1007,11 +1023,30 @@ export class ChatController {
     return item;
   }
 
+  /**
+   * Changes a held message's text, its images kept: false once it went.
+   * Changed from another computer (`device`), it is that computer user's
+   * now, no longer the agent's that sent it.
+   */
+  editQueued(id: string, text: string, device?: string): boolean {
+    if (!this.state.queue.some((q) => q.id === id)) return false;
+    this.update((prev) => ({
+      ...prev,
+      queue: prev.queue.map((q) => {
+        if (q.id !== id) return q;
+        if (!device) return { ...q, text };
+        const { from: _agent, ...rest } = q;
+        return { ...rest, text, device };
+      }),
+    }));
+    return true;
+  }
+
   private sendNextQueued(): void {
     const [next] = this.state.queue;
     if (!next) return;
     this.update((prev) => ({ ...prev, queue: prev.queue.slice(1) }));
-    void this.send(next.text, next.images);
+    void this.send(next.text, next.images, next.from);
   }
 
   interrupt(): Promise<unknown> {

@@ -836,14 +836,6 @@ export interface CliUiOps {
     result: { title: string };
   };
   /**
-   * How many messages between agents led to the one that started the tab's
-   * latest turn: 0 for the user's. A message its agent sends counts one more.
-   */
-  "chat.turnHops": {
-    args: { workspaceId: string; tabId: string };
-    result: { hops: number };
-  };
-  /**
    * A page of a chat on another device (its chat.read) as chat read tells
    * it here: each item's entries, numbered by the item's index there.
    */
@@ -971,7 +963,47 @@ export interface CliUiOps {
        * the agent reads it, its path's mention after the text (base64).
        */
       files?: { name: string; data: string }[];
+      /**
+       * During a turn, as the composer's keys: next (↩, the default), now
+       * (⌘↩, Claude's alone), after the turn (⌘⇧↩, held by the tab).
+       */
+      when?: "next" | "now" | "after";
+      /**
+       * The user's other computer it comes from: held for after the turn, it
+       * is dropped if control from other computers is turned off first.
+       */
+      device?: string;
     };
+    /** `heldId`: the message's id while the tab holds it for after the turn. */
+    result: { heldId?: string };
+  };
+  /** Takes back a message the tab holds for after the turn, with its whole text. */
+  "chat.unqueue": {
+    args: { workspaceId: string; tabId: string; id: string };
+    result: { text: string };
+  };
+  /** Changes the text of a message the tab holds for after the turn, its images kept. */
+  "chat.editHeld": {
+    /** `device`: the user's other computer that changes it, whose it is then. */
+    args: { workspaceId: string; tabId: string; id: string; text: string; device?: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Drops the messages the tabs hold that came from other computers, as
+   * control from them is turned off: all of them, or only their agents'.
+   */
+  "chat.dropHeld": {
+    args: { agentsOnly?: boolean };
+    result: { dropped: number };
+  };
+  /** Takes back a message of the user's a Claude tab has not read: false once it was read. */
+  "chat.withdraw": {
+    args: { workspaceId: string; tabId: string; itemKey: string };
+    result: { withdrawn: boolean };
+  };
+  /** Has a Claude tab read its unread messages now (⌘↩ on an empty composer). */
+  "chat.hurry": {
+    args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
   /**

@@ -51,7 +51,14 @@ export interface ChatSource {
    */
   moves?: readonly { after: string; profile: string; at: number }[];
   /** What another device can do with it now, as the tab's own buttons do. */
-  can?: { rewind: boolean; fork: boolean; background: boolean };
+  can?: {
+    rewind: boolean;
+    fork: boolean;
+    background: boolean;
+    now?: boolean;
+    withdraw?: boolean;
+    hurry?: boolean;
+  };
 }
 
 /** The tab's whole conversation as it shows it: its history, then its program's log. */
@@ -110,7 +117,7 @@ export function viewItemOf(item: ChatItem): ViewItem {
     }
     case "received": {
       const { uuid: _u, from, ...rest } = item;
-      const { workspaceId, tabId, hops: _h, device, ...sender } = from;
+      const { workspaceId, tabId, device, ...sender } = from;
       // Where the sender takes an answer: its tab, on its computer when it is another.
       const replyTo =
         workspaceId && tabId

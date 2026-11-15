@@ -210,7 +210,7 @@ describe("the room", () => {
     b.room.start();
     await tick();
     const tab = { workspaceId: "w1", tabId: "t1" };
-    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
     // People may control the chats; agents may not.
     await expect(b.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
@@ -247,7 +247,7 @@ describe("the room", () => {
     phone.room.start();
     await tick();
     const tab = { workspaceId: "w1", tabId: "t1" };
-    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
     await expect(phone.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject(
       { code: RpcErrorCode.Forbidden, message: "agents' requests are not taken from a phone" },
     );
@@ -263,7 +263,7 @@ describe("the room", () => {
     a.room.start();
     b.room.start();
     await tick();
-    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
     // consent.answer's params have no `from`: parsing them drops it.
     const params = { id: "c1", answer: "once" as const, from } as { id: string; answer: "once" };
     await expect(b.room.request("a", "consent.answer", params)).rejects.toMatchObject({
@@ -552,5 +552,17 @@ describe("what goes in a frame", () => {
     ).toBe(false);
     await tick();
     expect(told).toEqual([["a", "chat.update", update]]);
+  });
+});
+
+describe("the protocol a device speaks", () => {
+  test("a version at or past the one asked; none told is older", async () => {
+    const { speaks } = await import("../../../../../src/shared/remote/room");
+    expect(speaks("0.12.0", "0.12.0")).toBe(true);
+    expect(speaks("0.12.3", "0.12.0")).toBe(true);
+    expect(speaks("1.0.0", "0.12.0")).toBe(true);
+    expect(speaks("0.11.9", "0.12.0")).toBe(false);
+    expect(speaks("0.9.0", "0.12.0")).toBe(false);
+    expect(speaks(undefined, "0.12.0")).toBe(false);
   });
 });

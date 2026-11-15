@@ -16,7 +16,6 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
-import { refuseLoop } from "./hops";
 import { senderOf } from "./sender";
 
 export const DEVICE_FLAG = {
@@ -112,16 +111,14 @@ export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
   if (!sender) {
     const { workspaceId, tabId } = ctx.caller;
-    return { kind: "terminal", workspaceId, tabId, hops: 1 };
+    return { kind: "terminal", workspaceId, tabId };
   }
-  refuseLoop(sender);
   return {
     kind: sender.kind,
     ...(sender.agent ? { agent: sender.agent } : {}),
     workspaceId: sender.workspaceId ?? ctx.caller.workspaceId,
     tabId: sender.tabId ?? ctx.caller.tabId,
     ...(sender.name ? { name: sender.name } : {}),
-    hops: sender.hops ?? 1,
   };
 }
 
@@ -180,6 +177,16 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
   }
 }
 
+/** What an agent reads of another device, said as an agent's. */
+const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
+  "sessions.list",
+  "chat.read",
+  "chat.wait",
+  "terminal.read",
+  "terminal.wait",
+  "events.read",
+]);
+
 /**
  * Asks `device` for `method`: a request with `from` waits on its user's
  * consent, a wait on its own time. Offline, older and refusing devices
@@ -189,28 +196,32 @@ export async function askDevice<M extends RpcMethod>(
   ctx: CliContext,
   device: CliDevice,
   method: M,
-  params: RpcParams<M>,
+  given: RpcParams<M>,
 ): Promise<RpcResult<M>> {
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
+  // A read says who reads: a device whose user turned agents down is read by people alone.
+  const reads = AGENT_READS.has(method);
+  const params =
+    reads && (given as { from?: AgentSender }).from === undefined
+      ? ({ ...given, from: await agentSenderOf(ctx) } as RpcParams<M>)
+      : given;
   const from = (params as { from?: AgentSender }).from;
   if (from && !device.serves.includes("agents")) {
-    throw device.schema === undefined
-      ? new CliError(`"${device.name}" runs an older NexusCode (no requests from agents)`, 3, {
-          error: "older",
-          device: deviceRef(device),
-          method,
-        })
-      : new CliError(`"${device.name}" does not take requests from agents (Settings › Remote)`, 1, {
-          error: "refused",
-          device: deviceRef(device),
-          message: "does not take requests from agents",
-        });
+    throw new CliError(
+      `"${device.name}" does not take requests from agents (Settings › Remote)`,
+      1,
+      {
+        error: "refused",
+        device: deviceRef(device),
+        message: "does not take requests from agents",
+      },
+    );
   }
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"
       ? WAIT_REQUEST_MS
-      : from
+      : from && !reads
         ? AGENT_REQUEST_MS
         : undefined;
   try {

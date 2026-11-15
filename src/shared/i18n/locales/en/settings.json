@@ -635,6 +635,10 @@
     "resultsCount": "{{count}} workspaces"
   },
   "remote": {
+    "outdated": {
+      "title": "Update needed",
+      "description": "This version can no longer connect to your other devices. Update NexusCode."
+    },
     "account": {
       "title": "NexusCode account",
       "description": "Sign in to see this computer's sessions from your other computers and phone",
@@ -716,7 +720,6 @@
       "change": "Change password",
       "reset": "Reset",
       "forgot": "Forgot the password?",
-      "resetExplained": "Set a new password. Your other devices will ask for it.",
       "mismatch": "The passwords don't match.",
       "field": {
         "password": "Account password",
@@ -748,9 +751,9 @@
         "failed": "That didn't work. Try again.",
         "account-auth": "The server did not take this password. It may have been changed on another device. If this goes on, reset the password.",
         "device-key": "A device's key could not be checked, so the account key was not changed. Try again in a while.",
-        "reset-pending": "A reset is already waiting."
+        "reset-pending": "A reset is already waiting.",
+        "needs-password": "That device may hold the account key. Type the password to remove it and change the key."
       },
-      "needsProof": "The server now checks the account password before a device is removed or the account deleted. Type it once.",
       "resetDelayed": "The new password takes effect in 72 hours, and a device that knows the current one can call it off meanwhile. Your other devices then ask for the new one.",
       "pendingReset": {
         "self": "This device asked to reset the account password. It takes effect {{when}}. Then connect again with the new password.",
@@ -760,7 +763,10 @@
         "cancelDescription": "Type the account password now to call off the waiting reset.",
         "remove": "Remove the device that asked",
         "removeTitle": "Remove {{name}}?",
-        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off, but keeps the account key: if that device may hold it, remove it from Devices with the password instead, which changes the key."
+        "removeDescription": "Removing the device that asked for a reset calls the reset off. If that device has had the account key, the next step asks for the password to change the key, or removes it and keeps the key.",
+        "removeHolderTitle": "Remove {{name}} and change the key?",
+        "removeHolderDescription": "This device has had the account key, and may still hold it. Removing it with the password changes the key, so a key it holds no longer connects. Without the password it can still be removed, which calls the reset off, but it keeps any key it holds.",
+        "removeKeepKey": "Remove, keep the key"
       }
     },
     "delete": {

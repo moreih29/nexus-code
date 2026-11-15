@@ -2423,10 +2423,15 @@ export const ipcContract = {
       /**
        * Removes a device; another one, on a server of account keys v2, with
        * the account password, which rotates the account key (its KeyFailure
-       * as the kind when that fails).
+       * as the kind when that fails). The device that asked for a reset goes
+       * without it, but one that holds the key only with `keepKey`.
        */
       removeDevice: call(
-        z.object({ id: z.string().min(1).max(64), password: z.string().max(1024).optional() }),
+        z.object({
+          id: z.string().min(1).max(64),
+          password: z.string().max(1024).optional(),
+          keepKey: z.boolean().optional(),
+        }),
         z.void(),
       ),
       /** Gives a device an alias, shown in place of its name, or takes it away (null or empty). */
@@ -2586,6 +2591,23 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
         RPC_METHODS["chat.fork"].result,
       ),
+      /** Takes back a message another device's chat holds for after its turn, whole. */
+      peerChatUnqueue: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.unqueue"].params),
+        RPC_METHODS["chat.unqueue"].result,
+      ),
+      /** Takes back a message another device's Claude chat has not read. */
+      peerChatWithdraw: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.withdraw"].params),
+        RPC_METHODS["chat.withdraw"].result,
+      ),
+      /** Has another device's Claude chat read its unread messages now. */
+      peerChatHurry: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.hurry"].params),
+        RPC_METHODS["chat.hurry"].result,
+      ),
       /** Sends another device's Claude chat's running command or subagent to the background. */
       peerChatBackground: call(
         z
@@ -2663,8 +2685,6 @@ export const ipcContract = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
-      /** Types the password once, for a server that keeps no verifier of it yet. */
-      confirmPassword: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Calls off a reset that waits, with the password. */
       cancelReset: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Where a pairing through a QR code stands. */

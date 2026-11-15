@@ -8,6 +8,7 @@ const {
   PeerGroup,
   RemoteSessionRow,
   RemoteTabLabel,
+  agentRunsOf,
   listedByDefault,
   listedSessions,
 } = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
@@ -99,6 +100,66 @@ describe("the agent view's other computers", () => {
     // A terminal with only its shell waits behind the toggle.
     expect(html).not.toContain("dev server");
     expect(html).toContain("Show 1 terminal");
+  });
+
+  test("lists a session's running agents under its row, as this computer's, with nothing to open", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({
+              tabId: "t1",
+              title: "Fix the build",
+              state: "running",
+              agents: [
+                {
+                  id: "s1",
+                  kind: "subagent",
+                  type: "Explore",
+                  description: "Find the config loader",
+                  state: "running",
+                  start: Date.now() - 5_000,
+                },
+                {
+                  id: "p1",
+                  kind: "print",
+                  program: "codex",
+                  state: "permissionPending",
+                  start: Date.now() - 1_000,
+                },
+              ],
+            }),
+            session({ tabId: "t2", title: "No agents" }),
+          ]),
+        }}
+      />,
+    );
+    expect(html).toContain("Find the config loader");
+    expect(html.match(/data-testid="agent-list-agent-rows"/g)?.length).toBe(1);
+    // Shown, not picked: no button among the agents' rows.
+    const rows = html.slice(html.indexOf('data-testid="agent-list-agent-rows"'));
+    expect(rows.slice(0, rows.indexOf("</ul>"))).not.toContain("<button");
+  });
+
+  test("an agent another computer tells is read as this computer's own", () => {
+    expect(
+      agentRunsOf([{ id: "s1", kind: "subagent", type: "Explore", state: "running", start: 5 }]),
+    ).toEqual([
+      {
+        id: "s1",
+        kind: "subagent",
+        type: "Explore",
+        state: "running",
+        start: 5,
+        tools: [],
+        toolCount: 0,
+        failedCount: 0,
+      },
+    ]);
+    expect(agentRunsOf(undefined)).toEqual([]);
   });
 
   test("shows a terminal unasked only when it runs an agent, also as an older computer lists it", () => {

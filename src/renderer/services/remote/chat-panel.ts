@@ -6,12 +6,18 @@
  * went on in another profile, and what another device can do with it.
  */
 
-import type { ChatPanel, ViewGoal, ViewUsageMeter } from "../../../../packages/remote-protocol/src";
+import {
+  type ChatPanel,
+  MAX_HELD_TEXT,
+  type ViewGoal,
+  type ViewUsageMeter,
+} from "../../../../packages/remote-protocol/src";
 import type { CodexModel } from "../chat/codex-model";
 import { type GoalView, shownGoalOf } from "../chat/goal";
 import type { ChatItem } from "../chat/model";
 import { agentsOf, changedFilesOf, contextOf, jobsOf, todosOf } from "../chat/panel";
 import { followsMessage } from "../chat/profile-moves";
+import type { QueuedMessage } from "../chat/store";
 import { claudeUsageLine, codexUsageLine } from "../chat/usage-line";
 import { type ChatSource, conversationOf, viewTaskOf } from "./chat-page";
 
@@ -170,5 +176,17 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
     ...(source.agent === "claude" ? claudeExtrasOf(source) : {}),
     ...(moves.length > 0 ? { moves } : {}),
     ...(source.can ? { can: source.can } : {}),
+    ...(source.chat.queue.length > 0 ? { held: source.chat.queue.map(heldOf) } : {}),
+  };
+}
+
+/** A message the tab holds for after its turn, as the panel tells it: its text cut short. */
+function heldOf(item: QueuedMessage): NonNullable<ChatPanel["held"]>[number] {
+  const truncated = item.text.length > MAX_HELD_TEXT;
+  return {
+    id: item.id,
+    text: truncated ? item.text.slice(0, MAX_HELD_TEXT) : item.text,
+    ...(truncated ? { truncated } : {}),
+    ...(item.images.length > 0 ? { images: item.images.length } : {}),
   };
 }

@@ -25,12 +25,6 @@ export const RelaySenderSchema = z.object({
    */
   device: z.object({ id: z.string().max(64), name: z.string().max(200) }).optional(),
   /**
-   * How many messages between agents led to it, the first being 1: a
-   * message sent in a turn that such a message started counts one more,
-   * and one past MAX_AGENT_HOPS is not sent.
-   */
-  hops: z.number().int().positive().optional(),
-  /**
    * Whether the sender waits for the answer (chat send --wait), and so reads
    * what the agent answers in its tab; false when it sent and went on, and
    * left out when that is not known (chat new, another computer).

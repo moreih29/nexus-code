@@ -112,6 +112,32 @@ export type RemoteWorkspace = z.infer<typeof RemoteWorkspaceSchema>;
 export const SessionStateSchema = z.enum(["needs-you", "running", "new-result", "idle", "ended"]);
 export type SessionState = z.infer<typeof SessionStateSchema>;
 
+/** Most agents a session's entry lists. */
+export const MAX_SESSION_AGENTS = 8;
+/** Longest an agent's description is, in characters. */
+export const MAX_AGENT_DESCRIPTION = 120;
+
+/**
+ * An agent a session runs beside its turn, as the serving app's agent list
+ * shows it under the session's row: a subagent of its Claude Code, or a
+ * `claude -p` or `codex exec` run started inside it ("print").
+ */
+export const RemoteSessionAgentSchema = z.object({
+  /** The subagent's agent_id, or the run's own id. */
+  id: z.string().max(200),
+  kind: z.enum(["subagent", "print"]),
+  /** For a run: the program it runs; "codex" for a `codex exec` run. */
+  program: z.enum(["claude", "codex"]).optional(),
+  /** The subagent's type, as "Explore". */
+  type: z.string().max(60).optional(),
+  /** What it was asked to do, on one line; for a run told nothing more, its prompt's start. */
+  description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
+  state: z.enum(["running", "permissionPending", "completed", "stopped", "failed"]),
+  /** When it started, in Unix milliseconds. */
+  start: z.number(),
+});
+export type RemoteSessionAgent = z.infer<typeof RemoteSessionAgentSchema>;
+
 /** An agent session or terminal of the serving device. */
 export const RemoteSessionSchema = z.object({
   workspaceId: z.string(),
@@ -146,6 +172,12 @@ export const RemoteSessionSchema = z.object({
       requestId: z.string().optional(),
     })
     .optional(),
+  /**
+   * The agents it runs beside its turn that still run, as the serving app
+   * lists them under its row; at most MAX_SESSION_AGENTS, absent with none.
+   * A chat's or a terminal's Claude Code (or Codex) session alike. Since 0.12.0.
+   */
+  agents: z.array(RemoteSessionAgentSchema).max(MAX_SESSION_AGENTS).optional(),
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 
@@ -252,14 +284,17 @@ export const AgentSenderSchema = z.object({
   tabId: z.string().min(1).max(100),
   /** Its tab's title, as the receiver shows the sender. */
   name: z.string().max(200).optional(),
-  /**
-   * How many messages between agents led to this one, the first being 1:
-   * a device refuses one past MAX_AGENT_HOPS, so agents on two devices
-   * cannot keep each other going without end.
-   */
-  hops: z.number().int().positive(),
 });
 export type AgentSender = z.infer<typeof AgentSenderSchema>;
+
+/**
+ * The agent that reads, when one does (nexus chat read on another device):
+ * a read with it is taken only where agents' requests are (the `agents`
+ * capability), with no prompt, so a device whose user turned agents down
+ * is read by people alone. Since 0.12.0; an older device turns down a read
+ * with it, so it goes only to one of 0.12.0 or later.
+ */
+const ReadBy = { from: AgentSenderSchema.optional() };
 
 /** The keys terminal.input presses by name, as `nexus terminal key` names them. */
 export const TERMINAL_KEYS = [
@@ -308,9 +343,6 @@ export const TERMINAL_KEYS = [
 export const TerminalKeySchema = z.enum(TERMINAL_KEYS);
 export type TerminalKey = z.infer<typeof TerminalKeySchema>;
 
-/** Most messages between agents one chain may take; past it, `from` requests are refused. */
-export const MAX_AGENT_HOPS = 8;
-
 /**
  * How long a serving device may ask its user about a request with `from`
  * before it turns it down: a requester waits this long, and a little more.
@@ -351,6 +383,9 @@ export const SessionEventSchema = z.object({
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
 
 /** Most images and files one message takes. */
+/** The most folders folders.list gives. */
+export const MAX_FOLDERS = 1000;
+
 export const MAX_ATTACHMENTS = 4;
 
 /**
@@ -590,7 +625,11 @@ const Ok = z.object({});
  * the serving device lists for it.
  */
 export const RPC_METHODS = {
-  "sessions.list": { capability: "sessions", params: Ok, result: SessionsSchema },
+  "sessions.list": {
+    capability: "sessions",
+    params: z.object({ ...ReadBy }),
+    result: SessionsSchema,
+  },
   /** The list now; then a sessions.update each time it changes, until sessions.unwatch. */
   "sessions.watch": {
     capability: "sessions",
@@ -612,6 +651,7 @@ export const RPC_METHODS = {
     params: z.object({
       since: z.number().int().nonnegative().optional(),
       limit: z.number().int().positive().max(500).optional(),
+      ...ReadBy,
     }),
     result: z.object({
       events: z.array(SessionEventSchema),
@@ -635,6 +675,47 @@ export const RPC_METHODS = {
       ),
     }),
   },
+  /**
+   * The folders in one of the device's folders, to pick one to add as a
+   * workspace: only folders (and links to them), no files; hidden ones
+   * (a leading dot, or Windows' hidden attribute) only with `hidden`. By
+   * name, case aside, at most MAX_FOLDERS (`truncated` past that). With no
+   * `path`, the home folder; a relative one is InvalidParams. NotFound for
+   * a path that is no folder; Forbidden ("permission denied") for one it
+   * may not read. Since 0.12.0.
+   */
+  "folders.list": {
+    capability: "workspace.create",
+    params: z.object({
+      path: z.string().min(1).max(4096).optional(),
+      hidden: z.boolean().optional(),
+    }),
+    result: z.object({
+      /** The folder listed, as the device writes it. */
+      path: z.string(),
+      /** The folder it is in; none at a root. */
+      parent: z.string().optional(),
+      home: z.string(),
+      /** Windows: its drives' roots ("C:\\"). */
+      roots: z.array(z.string()).optional(),
+      entries: z.array(z.object({ name: z.string() })),
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /**
+   * Adds one of the device's folders as a workspace, at the sidebar's end
+   * (not pinned), named `name` or as the folder is. A workspace of that
+   * folder already there is given back, `created` false. NotFound for a
+   * path that is no folder. Since 0.12.0.
+   */
+  "workspace.create": {
+    capability: "workspace.create",
+    params: z.object({
+      path: z.string().min(1).max(4096),
+      name: z.string().trim().min(1).max(200).optional(),
+    }),
+    result: z.object({ workspace: RemoteWorkspaceSchema, created: z.boolean() }),
+  },
   /** The past chats of a workspace's folder that can be resumed, latest first. */
   "history.list": {
     capability: "chat.read",
@@ -655,6 +736,7 @@ export const RPC_METHODS = {
       ...TabRef,
       before: z.number().int().nonnegative().optional(),
       limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
+      ...ReadBy,
     }),
     result: ChatPageSchema,
   },
@@ -714,6 +796,7 @@ export const RPC_METHODS = {
       ...TabRef,
       timeoutMs: z.number().int().positive().max(MAX_WAIT_MS).optional(),
       after: z.number().optional(),
+      ...ReadBy,
     }),
     result: z.object({
       done: z.boolean(),
@@ -758,9 +841,21 @@ export const RPC_METHODS = {
   },
 
   /**
-   * Sends a message, as its composer does: during a turn, the turn reads it
-   * next. `text` may be empty only with attachments. Sent by an agent
-   * (`from`), the chat shows it as that agent's, not the user's.
+   * Sends a message, as its composer does. `text` may be empty only with
+   * attachments. Sent by an agent (`from`), the chat shows it as that
+   * agent's, not the user's.
+   *
+   * During a turn, `when` (since 0.12.0) is as its composer's keys:
+   * - next (↩, the default): a Claude chat reads it after the tool it
+   *   runs, the message shown unread (UserItem.queued) until then, which
+   *   chat.withdraw takes back; a Codex chat takes it into the turn.
+   * - now (⌘↩): a Claude chat's running tools go to the background, or the
+   *   turn stops, and it reads the message at once (panel.can.now). A
+   *   Codex chat takes it as next.
+   * - after (⌘⇧↩): the serving device holds it (panel.held, `heldId`)
+   *   until the turn ends, then sends it, one a turn in the order they
+   *   came. chat.unqueue and chat.editHeld change it until then.
+   * With no turn running, each sends it at once.
    */
   "chat.send": {
     capability: "chat.control",
@@ -770,9 +865,53 @@ export const RPC_METHODS = {
       /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
+      when: z.enum(["next", "now", "after"]).optional(),
     }),
-    /** `at`: when the serving device took it, by its clock, for chat.wait's `after`. */
-    result: z.object({ at: z.number().optional() }),
+    /**
+     * `at`: when the serving device took it, by its clock, for chat.wait's
+     * `after`. `heldId`: the held message's id, when `after` held it.
+     */
+    result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+  },
+  /**
+   * Takes back a message held for after the turn (panel.held), with its
+   * whole text for the asking device's composer. NotFound once it went.
+   * Since 0.12.0.
+   */
+  "chat.unqueue": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, id: z.string() }),
+    result: z.object({ text: z.string() }),
+  },
+  /**
+   * Changes the text of a message held for after the turn, its attachments
+   * kept. NotFound once it went; InvalidParams for an empty text with no
+   * attachments. Since 0.12.0.
+   */
+  "chat.editHeld": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, id: z.string(), text: z.string() }),
+    result: Ok,
+  },
+  /**
+   * Takes back one of the user's messages a Claude chat has not read yet
+   * (UserItem.queued), by its item's key: `withdrawn` false once it was
+   * read. panel.can.withdraw says whether the chat's program can. Since 0.12.0.
+   */
+  "chat.withdraw": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, itemKey: z.string() }),
+    result: z.object({ withdrawn: z.boolean() }),
+  },
+  /**
+   * Has a Claude chat read its unread messages now, as ⌘↩ on an empty
+   * composer: its running tools go to the background, or the turn stops.
+   * Nothing unread: nothing done. Since 0.12.0.
+   */
+  "chat.hurry": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: Ok,
   },
   /**
    * Takes an image for the next chat.send to this tab: one image a request,
@@ -1039,6 +1178,7 @@ export const RPC_METHODS = {
       ...TabRef,
       lines: z.number().int().positive().max(5000).optional(),
       ansi: z.boolean().optional(),
+      ...ReadBy,
     }),
     result: z.object({ text: z.string() }),
   },
@@ -1094,6 +1234,7 @@ export const RPC_METHODS = {
       match: z.string().min(1).max(1000).optional(),
       /** Quiet for this long counts as idle, for a program that is no agent or shell. */
       quietMs: z.number().int().positive().max(600_000).optional(),
+      ...ReadBy,
     }),
     result: z.object({
       done: z.boolean(),

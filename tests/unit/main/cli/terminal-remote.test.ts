@@ -56,7 +56,7 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
-const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
+const FROM_SHELL = { kind: "terminal", ...USER };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
@@ -65,6 +65,43 @@ async function nexus(app: FakeApp, argv: string[], caller = USER) {
 function asked(app: FakeApp, method: string) {
   return app.peers.requests.filter((r) => r.method === method).map((r) => r.params);
 }
+
+describe("reads of another computer's, as an agent's", () => {
+  /** The peer as one of 0.12.0, taking agents' requests or not. */
+  function newerPeer(serves: string[], handlers: Record<string, Handler>): FakeApp {
+    const app = withPeer(handlers);
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, schema: "0.12.0", serves } : d,
+    );
+    return app;
+  }
+
+  test("say who reads to a computer of 0.12.0, which takes them from agents", async () => {
+    const app = newerPeer(["sessions", "terminal.read", "agents"], {
+      "terminal.read": () => ({ text: "ready" }),
+    });
+    const result = await nexus(app, ["terminal", "read", "server", "--device", "Mac mini"], AGENT);
+    expect(result.stdout).toBe("ready\n");
+    expect(asked(app, "sessions.list")[0]).toMatchObject({
+      from: { kind: "terminal", agent: "claude", ...AGENT },
+    });
+    expect(asked(app, "terminal.read")[0]).toMatchObject({
+      workspaceId: SITE,
+      tabId: TERM,
+      from: { kind: "terminal", agent: "claude", ...AGENT },
+    });
+  });
+
+  test("are turned down where its user turned agents down", async () => {
+    const off = newerPeer(["sessions", "terminal.read"], {
+      "terminal.read": () => ({ text: "ready" }),
+    });
+    const refused = await nexus(off, ["terminal", "read", "server", "--device", "Mac mini"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain("does not take requests from agents");
+    expect(off.peers.requests).toEqual([]);
+  });
+});
 
 describe("terminal --device", () => {
   test("read prints the terminal there; the tab is needed", async () => {
@@ -79,7 +116,13 @@ describe("terminal --device", () => {
       "20",
     ]);
     expect(result.stdout).toBe("$ npm run dev\nready\n");
-    expect(asked(app, "terminal.read")[0]).toEqual({ workspaceId: SITE, tabId: TERM, lines: 20 });
+    // A read says who reads, as every read does (see "reads of another computer's").
+    expect(asked(app, "terminal.read")[0]).toEqual({
+      workspaceId: SITE,
+      tabId: TERM,
+      lines: 20,
+      from: expect.any(Object),
+    });
     const missing = await nexus(app, ["terminal", "read", "--device", "Mac mini"]);
     expect(missing.exitCode).toBe(2);
   });
@@ -117,7 +160,7 @@ describe("terminal --device", () => {
       tabId: TERM,
       text: "npm test",
       enter: true,
-      from: { kind: "terminal", hops: 1 },
+      from: { kind: "terminal" },
     });
     expect(asked(app, "terminal.wait")[0]).toEqual({
       workspaceId: SITE,
@@ -125,6 +168,7 @@ describe("terminal --device", () => {
       timeoutMs: 10_000,
       after: NOW + 7,
       quietMs: 3_000,
+      from: { kind: "terminal", agent: "claude", ...AGENT, name: expect.any(String) },
     });
   });
 
@@ -171,6 +215,7 @@ describe("terminal --device", () => {
       tabId: TERM,
       timeoutMs: 10_000,
       match: "^ready",
+      from: expect.any(Object),
     });
     const exited = withPeer({
       "terminal.wait": () => ({ done: true, state: "exited", message: "server has exited." }),
@@ -263,7 +308,11 @@ describe("events --device", () => {
         device: { id: MINI, name: "Mac mini" },
       }),
     ]);
-    expect(asked(app, "events.read")[0]).toEqual({ since: 3, limit: 500 });
+    expect(asked(app, "events.read")[0]).toEqual({
+      since: 3,
+      limit: 500,
+      from: expect.any(Object),
+    });
   });
 
   test("--wait asks again until a change comes; --device all is refused", async () => {
