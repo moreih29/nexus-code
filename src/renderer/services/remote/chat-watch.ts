@@ -223,6 +223,19 @@ const watches = new Map<string, Watch>();
 type SourceOf = () => ChatSource | null;
 
 /**
+ * A check to run on each change: `act` once each time `can` comes true,
+ * not again until it has gone false and come back.
+ */
+export function eachTimeItCan(can: () => boolean, act: () => void): () => void {
+  let could = false;
+  return () => {
+    const now = can();
+    if (now && !could) act();
+    could = now;
+  };
+}
+
+/**
  * Starts watching a chat for another device: its page now, then `push`
  * with each change, until stopChatWatch or the tab is gone (`onGone`);
  * a reply's growing text as appends when the watcher takes them.
@@ -233,7 +246,11 @@ export function startChatWatch(
   limit: number | undefined,
   push: (change: ChatChange) => void,
   onGone: () => void,
-  options: { appends?: boolean } = {},
+  options: {
+    appends?: boolean;
+    /** Each time the tab changes, before what changed is sent. */
+    onChange?: () => void;
+  } = {},
 ): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
   const source = sourceOf();
@@ -260,6 +277,7 @@ export function startChatWatch(
     if (change) push(change);
   };
   const changed = () => {
+    options.onChange?.();
     if (timer) return;
     const wait = Math.max(0, last + 1000 / UPDATES_PER_SECOND - Date.now());
     timer = setTimeout(flush, wait);

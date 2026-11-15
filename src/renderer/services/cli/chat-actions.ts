@@ -42,7 +42,7 @@ import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
-import { startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
+import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
@@ -410,15 +410,24 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
     const target = await readableTab(workspaceId, tabId);
-    // The panel a watch carries shows them too, once they come.
-    askMcp(workspaceId, tabId, target);
+    // The panel a watch carries shows them too, once they come: asked now,
+    // and again whenever its program comes to take questions, as after the
+    // app restarts it starts only with the next message.
+    const askWhenItCan = eachTimeItCan(
+      () => {
+        const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+        return chat?.phase === "ready" && chat.model.process === "running";
+      },
+      () => askMcp(workspaceId, tabId, target),
+    );
+    askWhenItCan();
     return startChatWatch(
       watchId,
       () => tabSource(workspaceId, tabId, target.agent),
       limit,
       (change) => void ipcCallResult("remote", "chatChanged", { watchId, change }),
       () => void ipcCallResult("remote", "chatWatchEnded", { watchId }),
-      { appends: appends === true },
+      { appends: appends === true, onChange: askWhenItCan },
     );
   },
 
