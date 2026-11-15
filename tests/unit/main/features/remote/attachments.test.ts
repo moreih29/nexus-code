@@ -5,6 +5,7 @@ import {
   ATTACHMENT_TTL_MS,
   Attachments,
   looksLike,
+  MAX_KEPT_BYTES_PER_DEVICE,
   MAX_KEPT_PER_DEVICE,
 } from "../../../../../src/main/features/remote/attachments";
 
@@ -35,7 +36,7 @@ describe("an attached image", () => {
     const id = kept.take("d", "w", "t", image);
     expect(() => kept.find("other", "w", "t", [id])).toThrow("no image");
     expect(() => kept.find("d", "w", "t2", [id])).toThrow("another chat");
-    expect(kept.find("d", "w", "t", [id])).toEqual([image]);
+    expect(kept.find("d", "w", "t", [id])).toEqual([{ kind: "image", ...image }]);
     kept.drop([id]);
     expect(() => kept.find("d", "w", "t", [id])).toThrow("no image");
   });
@@ -51,5 +52,20 @@ describe("an attached image", () => {
     );
     expect(() => kept.find("d", "w", "t", [ids[0]])).toThrow("no image");
     expect(kept.find("d", "w", "t", ids.slice(1))).toHaveLength(MAX_KEPT_PER_DEVICE);
+  });
+
+  test("a device's files take only so many bytes: its oldest go to make room", () => {
+    const kept = new Attachments();
+    const half = MAX_KEPT_BYTES_PER_DEVICE / 2;
+    const file = (name: string) => ({ kind: "file" as const, name, data: "" });
+    const first = kept.hold("d", "w", "t", file("a.pdf"), half);
+    const second = kept.hold("d", "w", "t", file("b.pdf"), half);
+    const third = kept.hold("d", "w", "t", file("c.pdf"), 1);
+    expect(() => kept.find("d", "w", "t", [first])).toThrow("no image or file");
+    expect(kept.find("d", "w", "t", [second, third]).map((h) => h.kind)).toEqual(["file", "file"]);
+    expect(kept.find("d", "w", "t", [third])).toEqual([file("c.pdf")]);
+    // Another device's count apart.
+    expect(kept.hold("e", "w", "t", file("d.pdf"), half)).toBeString();
+    expect(kept.find("d", "w", "t", [second])).toHaveLength(1);
   });
 });

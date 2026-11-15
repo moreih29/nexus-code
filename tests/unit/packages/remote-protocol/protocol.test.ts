@@ -14,7 +14,9 @@ import {
   KeyBundlePutSchema,
   KeyBundleSchema,
   MAX_ATTACHMENT_BYTES,
+  MAX_BYTES_CHUNK,
   MAX_IMAGE_EDGE,
+  MAX_UPLOAD_BYTES,
   RPC_METHODS,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
@@ -361,6 +363,31 @@ describe("the methods", () => {
     expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
       false,
     );
+  });
+
+  test("a file goes up in pieces of at most a chunk, of at most MAX_UPLOAD_BYTES", () => {
+    const begin = RPC_METHODS["chat.upload.begin"].params;
+    const file = { workspaceId: "w", tabId: "t", name: "report.pdf", size: 1024 };
+    expect(begin.safeParse(file).success).toBe(true);
+    expect(begin.safeParse({ ...file, mediaType: "application/pdf" }).success).toBe(true);
+    expect(begin.safeParse({ ...file, size: MAX_UPLOAD_BYTES + 1 }).success).toBe(false);
+    expect(begin.safeParse({ ...file, size: 0 }).success).toBe(false);
+    expect(begin.safeParse({ ...file, name: "" }).success).toBe(false);
+    const chunk = RPC_METHODS["chat.upload.chunk"].params;
+    const piece = (bytes: number) => Buffer.alloc(bytes).toString("base64");
+    expect(
+      chunk.safeParse({ uploadId: "u", offset: 0, data: piece(MAX_BYTES_CHUNK) }).success,
+    ).toBe(true);
+    expect(
+      chunk.safeParse({ uploadId: "u", offset: 0, data: piece(MAX_BYTES_CHUNK + 3) }).success,
+    ).toBe(false);
+    expect(chunk.safeParse({ uploadId: "u", offset: -1, data: piece(1) }).success).toBe(false);
+    expect(RPC_METHODS["chat.upload.end"].result.safeParse({ attachmentId: "a" }).success).toBe(
+      true,
+    );
+    for (const name of ["chat.upload.begin", "chat.upload.chunk", "chat.upload.end"] as const) {
+      expect(RPC_METHODS[name].capability).toBe("chat.control");
+    }
   });
 
   test("every method's capability is one the protocol names", () => {
