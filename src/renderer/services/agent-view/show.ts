@@ -10,7 +10,6 @@ import { useActiveStore } from "../../state/stores/active";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useLayoutStore } from "../../state/stores/layout";
 import { useMountedWorkspacesStore } from "../../state/stores/mounted-workspaces";
-import { useRemoteViewStore } from "../../state/stores/remote-view";
 import { useTabsStore } from "../../state/stores/tabs";
 import { sessionKey } from "../agent-sessions/model";
 import { requestTabFocus } from "../tab-focus";
@@ -18,6 +17,7 @@ import {
   type AgentLayout,
   activeKey,
   heldKeys,
+  isRemoteKey,
   leafShowing,
   openKey,
   parseSessionKey,
@@ -111,8 +111,6 @@ export function showInAgentView(
   opts: { leafId?: string; focus?: boolean } = {},
 ): void {
   useMountedWorkspacesStore.getState().mount(workspaceId);
-  // Another computer's session shown over the panels gives way.
-  useRemoteViewStore.getState().close();
   useAgentViewStore
     .getState()
     .update((layout) => openKey(layout, sessionKey(workspaceId, tabId), opts.leafId));
@@ -174,6 +172,11 @@ export function tabExists(key: string): boolean {
 export function startAgentViewPruning(): () => void {
   return useTabsStore.subscribe((state, prev) => {
     if (state.byWorkspace === prev.byWorkspace) return;
-    useAgentViewStore.getState().update((layout) => pruneKeys(layout, tabExists));
+    useAgentViewStore.getState().update((layout) => pruneKeys(layout, staysInPanels));
   });
+}
+
+/** Whether a panel keeps `key` as tabs close: another computer's session, or a tab still open. */
+export function staysInPanels(key: string): boolean {
+  return isRemoteKey(key) || tabExists(key);
 }

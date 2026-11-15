@@ -7,7 +7,9 @@ import { describe, expect, it } from "bun:test";
 import { Grid, type SplitNode } from "../../../../../src/renderer/engine";
 import {
   type AgentLayout,
+  isRemoteKey,
   parseSessionKey,
+  remoteSessionKey,
   sanitizeLayout,
 } from "../../../../../src/renderer/services/agent-view/layout";
 
@@ -32,6 +34,13 @@ describe("parseSessionKey", () => {
     expect(parseSessionKey("ws")).toBeNull();
     expect(parseSessionKey(":tab")).toBeNull();
     expect(parseSessionKey("ws:")).toBeNull();
+  });
+
+  it("names no tab of this computer for another computer's session", () => {
+    const key = remoteSessionKey({ deviceId: "d2", workspaceId: "w1", tabId: "t1" });
+    expect(isRemoteKey(key)).toBe(true);
+    expect(isRemoteKey("ws:tab")).toBe(false);
+    expect(parseSessionKey(key)).toBeNull();
   });
 });
 
