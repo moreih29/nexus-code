@@ -20,6 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
+import type { CodexRateLimits } from "../chat/codex-model";
 import type {
   AssistantItem,
   ChatItem,
@@ -42,6 +43,8 @@ export interface ChatSource {
   chat: ChatTabState;
   /** The messages other agents sent it through the nexus command, told as theirs. */
   relayed?: readonly RelayedMessage[];
+  /** Its profile's plan usage as this app last heard it, as its composer's line shows it. */
+  plan?: { claude?: Record<string, unknown>; codex?: CodexRateLimits };
 }
 
 /** The tab's whole conversation as it shows it: its history, then its program's log. */
