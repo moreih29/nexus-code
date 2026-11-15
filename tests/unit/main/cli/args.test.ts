@@ -21,6 +21,8 @@ test.each([
   ["a boolean set false", ["--enter=false", "x"], ["x"], { enter: false }],
   ["-- ends the flags", ["send", "--", "--lines", "-h"], ["send", "--lines", "-h"], {}],
   ["a lone - is a positional", ["t1", "-"], ["t1", "-"], {}],
+  ["an empty value after =", ["--workspace=", "x"], ["x"], { workspace: "" }],
+  ["an empty value as its own argument", ["--workspace", ""], [], { workspace: "" }],
 ])("%s", (_label, argv, positionals, flags) => {
   expect(parseArgs(argv, SPECS)).toEqual({ positionals, flags });
 });
@@ -29,6 +31,11 @@ test.each([
   [["--nope"], "unknown flag --nope"],
   [["--enter=yes"], "--enter takes no value"],
   [["--lines", ""], '--lines takes a number, not ""'],
+  // PowerShell 5.1 drops `""`: the way to an empty value is told.
+  [
+    ["--workspace"],
+    "--workspace needs a value (an empty one: --workspace=, which every shell passes)",
+  ],
 ])("%j is refused", (argv, message) => {
   expect(() => parseArgs(argv, SPECS)).toThrow(new CliUsageError(message));
 });
