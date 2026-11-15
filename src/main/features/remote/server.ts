@@ -1,7 +1,8 @@
 /** Which NexusCode server the app signs in to. */
 
-/** The NexusCode server the released app signs in to. */
-export const SERVER = "https://nexus-cloud.moreih29.workers.dev";
+import { SERVER } from "../../../shared/remote/server";
+
+export { SERVER };
 
 /** The server in development (wrangler dev). */
 export const DEV_SERVER = "http://localhost:8787";
