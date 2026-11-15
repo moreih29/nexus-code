@@ -27,7 +27,7 @@ import {
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
-import { leafHolding, leafShowing, parseSessionKey } from "@/services/agent-view/layout";
+import { parseSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
@@ -52,6 +52,7 @@ import { connectionStatusClassName } from "../workbench/sidebar";
 import { SidebarResizeHandle } from "../workbench/sidebar-resize-handle";
 import { SystemStatsFooter } from "../workbench/system-stats";
 import { listDrag, setAgentDrag, setListDrag } from "./drag";
+import { PANEL_SHOWN_BG, PanelMark, panelPlaceOf } from "./panel-mark";
 import { RemoteSessions } from "./remote-sessions";
 
 type DropEdge = "before" | "after";
@@ -563,11 +564,8 @@ function AgentItem({
   /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
   where?: { readonly workspace: WorkspaceMeta; readonly root: WorkspaceMeta };
 }) {
-  const { t } = useTranslation();
   const key = session.key;
-  const where = useAgentViewStore((s) =>
-    leafShowing(s.root, key) !== null ? "shown" : leafHolding(s.root, key) ? "held" : null,
-  );
+  const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
   const managers = useManagerStore((s) => s.tasks[key] !== undefined);
   const run = activity.get(key);
@@ -585,9 +583,13 @@ function AgentItem({
     <div
       className={cn(
         "relative rounded-(--radius-raised) border px-2 py-1.5 text-app-ui-sm transition-colors",
-        session.phase === "attention"
-          ? "border-(--state-warning-fg)/40 bg-(--state-warning-fg)/5 hover:bg-[var(--state-hover-bg)]"
-          : "border-transparent hover:bg-[var(--state-hover-bg)]",
+        session.phase === "attention" ? "border-(--state-warning-fg)/40" : "border-transparent",
+        where === "shown"
+          ? PANEL_SHOWN_BG
+          : cn(
+              session.phase === "attention" && "bg-(--state-warning-fg)/5",
+              "hover:bg-[var(--state-hover-bg)]",
+            ),
       )}
       onPointerEnter={() => hover(true)}
       onPointerLeave={() => hover(false)}
@@ -622,20 +624,7 @@ function AgentItem({
           data-testid="agent-sidebar-drop"
         />
       )}
-      {/* In a panel: a bar at its left edge, bright where the panel shows it,
-          dim where another tab is in front, so the state and time line up. */}
-      {where && (
-        <span
-          role="img"
-          aria-label={t(where === "shown" ? "agentView.list.shown" : "agentView.list.held")}
-          className={cn(
-            "pointer-events-none absolute top-1.5 bottom-1.5 left-px w-0.5 rounded-full",
-            where === "shown" ? "bg-[var(--state-selected-indicator)]" : "bg-muted-foreground/60",
-          )}
-          data-testid="agent-sidebar-panel"
-          data-where={where}
-        />
-      )}
+      {where && <PanelMark where={where} testId="agent-sidebar-panel" />}
       {/* The row as one button behind its content, so the subagents' buttons stay buttons. */}
       <button
         type="button"

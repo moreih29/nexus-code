@@ -176,11 +176,23 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("Run bun test?");
   });
 
-  test("a row is a button that opens the session, marked while it is shown", () => {
-    const html = renderToStaticMarkup(
-      <RemoteSessionRow session={session({})} selected onOpen={() => {}} />,
+  test("a row is a button that opens the session, marked as this computer's are while a panel has it", () => {
+    const shown = renderToStaticMarkup(
+      <RemoteSessionRow session={session({})} where="shown" onOpen={() => {}} />,
     );
-    expect(html).toContain('<button type="button" aria-current="true"');
+    expect(shown).toContain('<button type="button" aria-current="true"');
+    expect(shown).toContain("bg-[var(--sidebar-item-selected-bg)]");
+    expect(shown).toContain('data-testid="remote-session-panel" data-where="shown"');
+    expect(shown).toContain('aria-label="Shown in a panel"');
+
+    const held = renderToStaticMarkup(<RemoteSessionRow session={session({})} where="held" />);
+    expect(held).not.toContain("aria-current");
+    expect(held).not.toContain("bg-[var(--sidebar-item-selected-bg)]");
+    expect(held).toContain('data-testid="remote-session-panel" data-where="held"');
+
+    const none = renderToStaticMarkup(<RemoteSessionRow session={session({})} />);
+    expect(none).not.toContain("remote-session-panel");
+    expect(none).not.toContain("aria-current");
   });
 
   test("a session's tab names its computer and title, and its state unless idle", () => {

@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import type { RemoteSession, SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
-import { leafHolding, leafShowing, remoteSessionKey } from "../../services/agent-view/layout";
+import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
 import {
   offlinePeers,
   type PeerSessions,
@@ -26,6 +26,7 @@ import { cn } from "../../utils/cn";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
+import { PANEL_SHOWN_BG, PanelMark, type PanelPlace, panelPlaceOf } from "./panel-mark";
 
 const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
 
@@ -213,10 +214,7 @@ export function PeerGroup({
                   <RemoteSessionRow
                     key={session.tabId}
                     session={session}
-                    selected={
-                      leafShowing(root, remoteSessionKey({ deviceId: peer.id, ...session })) !==
-                      null
-                    }
+                    where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
                     onOpen={() =>
                       open({
                         deviceId: peer.id,
@@ -257,11 +255,12 @@ export function PeerGroup({
 
 export function RemoteSessionRow({
   session,
-  selected = false,
+  where = null,
   onOpen,
 }: {
   session: RemoteSession;
-  selected?: boolean;
+  /** Where the agent view's panels have it, which its mark tells; none where they do not. */
+  where?: PanelPlace | null;
   onOpen?: () => void;
 }) {
   const { t } = useTranslation();
@@ -273,14 +272,17 @@ export function RemoteSessionRow({
     <button
       type="button"
       onClick={onOpen}
-      aria-current={selected || undefined}
+      aria-current={where === "shown" || undefined}
       className={cn(
-        "flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left hover:bg-[var(--state-hover-bg)]",
-        selected && "bg-[var(--sidebar-item-selected-bg)]",
+        "relative flex min-w-0 flex-col rounded-(--radius-control) px-2 py-1 text-left",
+        where === "shown" ? PANEL_SHOWN_BG : "hover:bg-[var(--state-hover-bg)]",
       )}
       title={session.last ? `${session.title}\n${session.last}` : session.title}
       data-testid="remote-session-row"
     >
+      {where && (
+        <PanelMark where={where} className="top-1 bottom-1" testId="remote-session-panel" />
+      )}
       <span className="flex min-w-0 items-center gap-1.5">
         <StateGlyph state={GROUP_STATE[group]} className={GROUP_TINT[group]} />
         <span className="sr-only">{state}</span>
