@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { RemoteComposer, Unreachable, remoteAnswerOf } = await import(
+const { Unreachable, contextLineOf, remoteAnswerOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-pane"
 );
 
@@ -22,22 +22,22 @@ describe("controlling another computer's chat", () => {
     expect(remoteAnswerOf({ kind: "deny-stop" })).toEqual({ decision: "deny", stop: true });
   });
 
-  test("the composer offers the stop while a turn runs, and the send when there is text", () => {
-    const render = (running: boolean) =>
-      renderToStaticMarkup(
-        <RemoteComposer
-          device="Work PC"
-          running={running}
-          onSend={async () => true}
-          onStop={() => {}}
-        />,
-      );
-    expect(render(true)).toContain('aria-label="Stop"');
-    // An empty box during a turn offers only the stop, as this app's own composer does.
-    expect(render(true)).not.toContain('aria-label="Send"');
-    expect(render(false)).not.toContain('aria-label="Stop"');
-    expect(render(false)).toContain('aria-label="Send"');
-    expect(render(false)).toContain('placeholder="Message Work PC"');
+  test("the line under the composer tells how full the context is, once the panel says", () => {
+    expect(contextLineOf(undefined)).toBeNull();
+    const panel = {
+      todos: [],
+      tasks: [],
+      agents: [],
+      changedFiles: [],
+      context: { usedTokens: 31_500, maxTokens: 1_000_000 },
+      goal: null,
+    };
+    expect(contextLineOf(panel)).toEqual({
+      context: { percent: 3, used: 31_500, max: 1_000_000 },
+      meters: [],
+      more: [],
+    });
+    expect(contextLineOf({ ...panel, context: null })).toBeNull();
   });
 
   test("a session out of reach says why, in place of the controls", () => {
