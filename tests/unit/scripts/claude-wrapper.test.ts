@@ -194,6 +194,13 @@ describeOnPosix("claude-wrapper.sh — NEXUS_AGENT_BIN 의무화", () => {
       command: `"\${NEXUS_AGENT_BIN}" cli agent-context`,
       timeout: 10,
     });
+
+    // SendMessage's own PreToolUse hook, waited on: it refuses a message to
+    // a Remote Control session, which the nexus CLI sends instead.
+    expect((hooks.PreToolUse as unknown[])[1]).toEqual({
+      matcher: "SendMessage",
+      hooks: [{ type: "command", command: `"\${NEXUS_AGENT_BIN}" hook send-message`, timeout: 5 }],
+    });
   });
 
   /**

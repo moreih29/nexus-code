@@ -106,6 +106,11 @@ func Run(args []string) int {
 		subcommand = args[0]
 	}
 
+	// SendMessage's hook is decided from the call alone, without the agent.
+	if subcommand == sendMessageSubcmd {
+		return runSendMessage(os.Stdin, os.Stdout)
+	}
+
 	// ENV에서 연결 정보 읽기.
 	socketPath := os.Getenv(envAgentSocket)
 	token := os.Getenv(envHookToken)
