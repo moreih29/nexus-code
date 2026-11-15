@@ -3,10 +3,49 @@
 // read it from one; from its data otherwise. Outside a Claude or Codex tab
 // it is a plain image.
 
+import { createContext, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf, imageSrc } from "../../services/chat/image-look";
 import type { ImageBlock, ToolCall } from "../../services/chat/model";
+import { cn } from "../../utils/cn";
 import { useChatLinks } from "./chat-links";
+
+/**
+ * Fetches an image whose bytes are elsewhere: another computer's chat's,
+ * which comes without them. None in a chat here, whose images have theirs.
+ */
+export const ImageLoaderContext = createContext<
+  ((image: ImageBlock) => Promise<ImageBlock>) | null
+>(null);
+
+/** The image with its bytes: at once when it has them, else once fetched; null till then, or when it failed. */
+function useImageBytes(image: ImageBlock | undefined): {
+  image: ImageBlock | null;
+  failed: boolean;
+} {
+  const load = useContext(ImageLoaderContext);
+  const away = image !== undefined && image.data === "" && image.remote !== undefined;
+  const [got, setGot] = useState<{ image: ImageBlock | null; failed: boolean }>({
+    image: null,
+    failed: false,
+  });
+  const ref = away && image.remote ? JSON.stringify(image.remote) : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fetched again only for another image
+  useEffect(() => {
+    if (!away || !load || !image) return;
+    let live = true;
+    load(image).then(
+      (loaded) => live && setGot({ image: loaded, failed: false }),
+      () => live && setGot({ image: null, failed: true }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [ref, load]);
+  if (!image) return { image: null, failed: false };
+  if (!away) return { image, failed: false };
+  return load ? got : { image: null, failed: true };
+}
 
 export function ChatImage({
   images,
@@ -24,8 +63,24 @@ export function ChatImage({
 }) {
   const { t } = useTranslation();
   const links = useChatLinks();
-  const image = images[index];
-  if (!image) return null;
+  const bytes = useImageBytes(images[index]);
+  if (!images[index]) return null;
+  const image = bytes.image;
+  // Another computer's image, while it comes, or when it did not.
+  if (!image) {
+    return (
+      <span
+        role="img"
+        aria-label={t("chat.links.look")}
+        className={cn(
+          "inline-block h-16 w-24 rounded-(--radius-control) bg-muted",
+          !bytes.failed && "animate-pulse",
+          className,
+        )}
+        data-testid="chat-image-pending"
+      />
+    );
+  }
   const img = <img src={imageSrc(image)} alt="" className={className} />;
   if (!links) return img;
   return (

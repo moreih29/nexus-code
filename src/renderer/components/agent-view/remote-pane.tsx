@@ -5,6 +5,7 @@ import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
+import { ChatFilesContext } from "../../services/chat/chat-files";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
 import type { ChatModel, PermissionRequest } from "../../services/chat/model";
@@ -20,22 +21,30 @@ import {
   usePeerControls,
   usePeerReach,
 } from "../../services/remote/room";
+import { useSelfDeviceId } from "../../services/remote/self-device";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
+import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { AgentStrip } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
+import { ImageLoaderContext } from "../chat/chat-image";
+import { ChatLinksContext } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
-import { MessageList } from "../chat/message-list";
+import { type MessageActions, MessageList } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
 import { PermissionCard } from "../chat/permission-card";
+import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
 import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
+import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
+import { RemoteLook, type RemoteLookList } from "./remote-look";
+import { RemoteSessionList } from "./remote-past-sessions";
 import { RemoteProfileChip } from "./remote-profile-chip";
 import {
   type RemotePanelPart,
@@ -43,7 +52,7 @@ import {
   remoteAgentsOf,
   remotePanelPartOf,
 } from "./remote-side-panel";
-import { usageLineOf } from "./remote-usage";
+import { rateLimitOf, usageLineOf } from "./remote-usage";
 
 /** How many lines of a terminal are shown. */
 const TERMINAL_LINES = 2000;
@@ -217,7 +226,13 @@ function RemoteChat({
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
   const page = read.status === "ready" ? read.value : null;
-  const model = useMemo(() => (page ? modelOfPage(page) : null), [page]);
+  const selfId = useSelfDeviceId();
+  const { deviceName } = target;
+  const model = useMemo(
+    () =>
+      page ? modelOfPage(page, { deviceId, deviceName, ...(selfId ? { selfId } : {}) }) : null,
+    [page, deviceId, deviceName, selfId],
+  );
   if (read.status !== "ready" || !page || !model) {
     return <Waiting read={read} reach={reach} device={target.deviceName} />;
   }
@@ -370,8 +385,53 @@ function RemoteChatView({
     if (place !== "beside") setDrawerOpen(false);
   };
 
+  // ⌘[ and ⌘] step through main and the subagents, as in a chat here.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+    if (event.key !== "[" && event.key !== "]") return;
+    if (agents.length === 0) return;
+    event.preventDefault();
+    const order = [null, ...agents.map((a) => a.toolUseId)];
+    const at = Math.max(0, order.indexOf(shown ? shown.toolUseId : null));
+    const step = event.key === "]" ? 1 : -1;
+    setShownId(order[(at + step + order.length) % order.length] ?? null);
+  };
+  // A task's end in the conversation shows the task: its agent's
+  // transcript, or its run in the side panel's background runs.
+  const taskShower = useRef<NonNullable<MessageActions["taskShower"]>>(() => undefined);
+  taskShower.current = (item) => {
+    const toolUseId =
+      model.tasks[item.taskId]?.toolUseId ??
+      item.toolUseId ??
+      agents.find((a) => a.taskId === item.taskId)?.toolUseId;
+    if (toolUseId && agents.some((a) => a.toolUseId === toolUseId)) {
+      return () => showAgent(toolUseId);
+    }
+    return claude && page.panel?.tasks.some((job) => job.taskId === item.taskId)
+      ? () => askPanel("jobs")
+      : undefined;
+  };
+  const running = model.running;
+  const actions = useMemo<MessageActions>(
+    () => ({ running, canFork: false, taskShower: (item) => taskShower.current(item) }),
+    [running],
+  );
+
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
+
+  // Its images, files and changes are read from that computer, shown in quick look here.
+  const loadImage = useMemo(
+    () => peerImageLoader({ deviceId, workspaceId, tabId }),
+    [deviceId, workspaceId, tabId],
+  );
+  const files = useMemo(() => peerChatFiles({ deviceId, workspaceId }), [deviceId, workspaceId]);
+  const [look, setLook] = useState<RemoteLookList | null>(null);
+  const links = useRemoteLinks(target, loadImage, setLook);
+  // A chat put out of sight takes its quick look with it.
+  useEffect(() => {
+    if (!visible) setLook(null);
+  }, [visible]);
 
   // The goal, as a chat here shows it over the composer; an ended one closed stays closed.
   const goal = useRemoteGoal(page.panel?.goal, claude ? "claude" : "codex");
@@ -384,8 +444,8 @@ function RemoteChatView({
           ...(model.turn?.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
         }
       : null;
-  const running = useRef(model.running);
-  running.current = model.running;
+  const runningNow = useRef(model.running);
+  runningNow.current = model.running;
   const asked = async (sent: Promise<IpcResult<unknown>>) => {
     const result = await sent;
     if (!result.ok) throw new Error(result.message);
@@ -400,10 +460,10 @@ function RemoteChatView({
       return;
     }
     // Claude Code runs /goal clear once the turn ends, which the goal holds off: it stops first.
-    if (running.current) {
+    if (runningNow.current) {
       await ipcCallResult("remote", "peerChatInterrupt", ref);
       const deadline = Date.now() + GOAL_STOP_MS;
-      while (running.current && Date.now() < deadline) {
+      while (runningNow.current && Date.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
@@ -453,106 +513,144 @@ function RemoteChatView({
   ) : null;
 
   return (
-    // The chat's font, as this app's own tabs take it.
-    <div
-      ref={rootRef}
-      className="chat-font relative flex min-h-0 flex-1 flex-col bg-background"
-      style={fontStyle}
-      data-testid="remote-chat"
-    >
-      {model.process === "exited" && (
-        <Banner variant="info" message={t(claude ? "chat.phase.ended" : "chat.codex.ended")} />
-      )}
-      <div className="relative flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          {claude && place === "summary" ? (
-            <>
-              <SummaryLine
-                counts={remoteSummaryCounts(page.panel, agents)}
-                open={drawerOpen}
-                onToggle={togglePanel}
+    <ImageLoaderContext.Provider value={loadImage}>
+      <ChatFilesContext.Provider value={files}>
+        <ChatLinksContext.Provider value={links}>
+          {/* The chat's font, as this app's own tabs take it. */}
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the chat */}
+          <div
+            ref={rootRef}
+            className="chat-font relative flex min-h-0 flex-1 flex-col bg-background"
+            style={fontStyle}
+            data-testid="remote-chat"
+            onKeyDown={onKeyDown}
+          >
+            {model.process === "exited" && (
+              <Banner
+                variant="info"
+                message={t(claude ? "chat.phase.ended" : "chat.codex.ended")}
               />
-              {shown && (
-                <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
+            )}
+            <div className="relative flex min-h-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
+                {claude && place === "summary" ? (
+                  <>
+                    <SummaryLine
+                      counts={remoteSummaryCounts(page.panel, agents)}
+                      open={drawerOpen}
+                      onToggle={togglePanel}
+                    />
+                    {shown && (
+                      <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
+                        <button
+                          type="button"
+                          onClick={() => showAgent(null)}
+                          className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                        >
+                          <ArrowLeft className="size-3.5" aria-hidden />
+                          {t("chat.strip.to_main")}
+                        </button>
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {shown.description}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <AgentStrip
+                    agents={agents}
+                    shown={shown ? shown.toolUseId : null}
+                    onShow={showAgent}
+                    {...(claude ? { panel: { open: panelOpen, onToggle: togglePanel } } : {})}
+                  />
+                )}
+                <MessageList
+                  workspaceId={`remote:${deviceId}`}
+                  cwd={target.path}
+                  rootPath={target.path}
+                  history={null}
+                  model={model}
+                  actions={shown ? undefined : actions}
+                  items={shown ? agentTranscript(model, shown) : undefined}
+                  empty={
+                    <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
+                      {claude ? (
+                        <ClaudeIcon className="size-8" />
+                      ) : (
+                        <CodexIcon className="size-8" />
+                      )}
+                      <div className="text-app-body">
+                        {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                      </div>
+                      <div
+                        className="max-w-full truncate font-mono text-app-micro"
+                        title={target.path}
+                      >
+                        {target.path}
+                      </div>
+                      {reachable && <RemoteSessionList target={target} />}
+                    </div>
+                  }
+                />
+                {reach !== "online" ? (
+                  <Unreachable reach={reach} device={target.deviceName} goalBar={goalBar} />
+                ) : !controls ? (
+                  <ViewOnly model={model} device={target.deviceName} goalBar={goalBar} />
+                ) : (
+                  <RemoteControls
+                    target={target}
+                    model={model}
+                    page={page}
+                    visible={visible}
+                    toMain={shown !== undefined}
+                    onShowMain={() => showAgent(null)}
+                    goalBar={goalBar}
+                    {...(claude ? { onPanelPart: askPanel } : {})}
+                  />
+                )}
+              </div>
+              {panel && place === "beside" && besideOpen && panel}
+              {panel && place !== "beside" && drawerOpen && (
+                <>
                   <button
                     type="button"
-                    onClick={() => showAgent(null)}
-                    className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 font-medium hover:bg-[var(--state-hover-bg)]"
+                    aria-label={t("chat.panel.hide")}
+                    tabIndex={-1}
+                    className={cn(
+                      "absolute inset-x-0 bottom-0 z-10 cursor-default",
+                      place === "summary" ? "top-7" : "top-8",
+                    )}
+                    onClick={() => setDrawerOpen(false)}
+                  />
+                  {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
+                  <div
+                    ref={drawerRef}
+                    tabIndex={-1}
+                    className={cn(
+                      // Below the strip, whose toggle closes it again.
+                      "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
+                      place === "summary" ? "top-7 w-full" : "top-8 w-80",
+                    )}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setDrawerOpen(false);
+                    }}
                   >
-                    <ArrowLeft className="size-3.5" aria-hidden />
-                    {t("chat.strip.to_main")}
-                  </button>
-                  <span className="min-w-0 truncate text-muted-foreground">
-                    {shown.description}
-                  </span>
-                </div>
+                    {panel}
+                  </div>
+                </>
               )}
-            </>
-          ) : (
-            <AgentStrip
-              agents={agents}
-              shown={shown ? shown.toolUseId : null}
-              onShow={showAgent}
-              {...(claude ? { panel: { open: panelOpen, onToggle: togglePanel } } : {})}
-            />
-          )}
-          <MessageList
-            workspaceId={`remote:${deviceId}`}
-            cwd={target.path}
-            rootPath={target.path}
-            history={null}
-            model={model}
-            items={shown ? agentTranscript(model, shown) : undefined}
-          />
-          {reach !== "online" ? (
-            <Unreachable reach={reach} device={target.deviceName} goalBar={goalBar} />
-          ) : !controls ? (
-            <ViewOnly model={model} device={target.deviceName} goalBar={goalBar} />
-          ) : (
-            <RemoteControls
-              target={target}
-              model={model}
-              page={page}
-              visible={visible}
-              toMain={shown !== undefined}
-              onShowMain={() => showAgent(null)}
-              goalBar={goalBar}
-              {...(claude ? { onPanelPart: askPanel } : {})}
-            />
-          )}
-        </div>
-        {panel && place === "beside" && besideOpen && panel}
-        {panel && place !== "beside" && drawerOpen && (
-          <>
-            <button
-              type="button"
-              aria-label={t("chat.panel.hide")}
-              tabIndex={-1}
-              className={cn(
-                "absolute inset-x-0 bottom-0 z-10 cursor-default",
-                place === "summary" ? "top-7" : "top-8",
-              )}
-              onClick={() => setDrawerOpen(false)}
-            />
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
-            <div
-              ref={drawerRef}
-              tabIndex={-1}
-              className={cn(
-                // Below the strip, whose toggle closes it again.
-                "absolute right-0 bottom-0 z-20 border-l border-border bg-background outline-none",
-                place === "summary" ? "top-7 w-full" : "top-8 w-80",
-              )}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") setDrawerOpen(false);
-              }}
-            >
-              {panel}
             </div>
-          </>
-        )}
-      </div>
-    </div>
+            {look && (
+              <RemoteLook
+                list={look}
+                onStep={(index) => setLook((now) => (now ? { ...now, index } : now))}
+                onClose={() => setLook(null)}
+              />
+            )}
+          </div>
+        </ChatLinksContext.Provider>
+      </ChatFilesContext.Provider>
+    </ImageLoaderContext.Provider>
   );
 }
 
@@ -608,10 +706,18 @@ function RemoteControls({
         ...remoteAnswerOf(given, request),
       }),
     );
+  // /resume's list above the composer, with the words it was given, as a chat here shows it.
+  const [resumeQuery, setResumeQuery] = useState<string | null>(null);
   const onCommand = (text: string): boolean => {
     const part = onPanelPart ? remotePanelPartOf(text) : null;
     if (part && onPanelPart) {
       onPanelPart(part);
+      return true;
+    }
+    const resume = /^\/resume(?:\s+([\s\S]*))?$/.exec(text.trim());
+    if (resume) {
+      if (model.running) showToast({ kind: "warning", message: t("chat.commands.resume_busy") });
+      else setResumeQuery(resume[1]?.trim() ?? "");
       return true;
     }
     return composer.onCommand(text);
@@ -619,6 +725,10 @@ function RemoteControls({
   // A minute's clock, so a window that resets leaves the line while it shows.
   const now = useNow(visible, 60_000);
   const line = useMemo(() => usageLineOf(page.panel, now), [page.panel, now]);
+  const limit = useMemo(
+    () => (target.kind === "codex" ? undefined : rateLimitOf(page.panel, now)),
+    [target.kind, page.panel, now],
+  );
   const chat =
     target.kind === "codex"
       ? { ...target, kind: "codex" as const }
@@ -660,6 +770,7 @@ function RemoteControls({
           </div>
         </div>
       )}
+      <RateLimitBanner limit={limit} />
       <Composer
         controller={composer.controller}
         state={composer.state}
@@ -674,14 +785,23 @@ function RemoteControls({
             : t("agentView.remote.placeholder", { device: target.deviceName })
         }
         above={
-          composer.card && (
-            <CommandCardView
-              card={composer.card}
-              workspaceId={`remote:${deviceId}`}
-              cwd={target.path}
-              rootPath={target.path}
-              onClose={composer.closeCard}
+          resumeQuery !== null ? (
+            <RemoteSessionList
+              target={target}
+              query={resumeQuery}
+              onClose={() => setResumeQuery(null)}
+              {...(model.sessionId ? { exceptSessionId: model.sessionId } : {})}
             />
+          ) : (
+            composer.card && (
+              <CommandCardView
+                card={composer.card}
+                workspaceId={`remote:${deviceId}`}
+                cwd={target.path}
+                rootPath={target.path}
+                onClose={composer.closeCard}
+              />
+            )
           )
         }
         below={

@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { ipcCallResult } from "@/ipc/client";
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
 import { isOutsideGranted, useOutsideGrantsStore } from "../../state/stores/outside-grants";
+import { useChatFiles } from "./chat-files";
 import { isUnder } from "./links";
 
 /**
@@ -140,15 +141,18 @@ export function useFoundFiles(
   const outside = useOutsideGrantsStore((s) =>
     paths.filter((path) => isOutsideGranted(s.byWorkspace, workspaceId, path)).join("\n"),
   );
-  const [found, setFound] = useState<ReadonlySet<string>>(
-    () => new Set(paths.filter((path) => presence.known(workspaceId, path) === true)),
+  // Another computer's chat finds them there.
+  const files = useChatFiles();
+  const [found, setFound] = useState<ReadonlySet<string>>(() =>
+    files ? new Set() : new Set(paths.filter((path) => presence.known(workspaceId, path) === true)),
   );
   // `key` stands for `paths`, which is a new array each render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `recheck` and `outside` only say when to look again
   useEffect(() => {
     let live = true;
     const wanted = key === "" ? [] : key.split("\n");
-    void filesThere(workspaceId, root, wanted).then((next) => {
+    const looked = files ? files.there(wanted) : filesThere(workspaceId, root, wanted);
+    void looked.then((next) => {
       if (!live) return;
       setFound((was) =>
         was.size === next.size && [...next].every((path) => was.has(path)) ? was : next,
@@ -157,6 +161,6 @@ export function useFoundFiles(
     return () => {
       live = false;
     };
-  }, [workspaceId, root, key, recheck, outside]);
+  }, [workspaceId, root, key, recheck, outside, files]);
   return found;
 }

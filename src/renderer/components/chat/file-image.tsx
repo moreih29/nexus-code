@@ -7,6 +7,8 @@
 import { Image as ImageIcon } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
+import { imageSrc } from "../../services/chat/image-look";
 import { baseName } from "../../services/chat/links";
 import { cn } from "../../utils/cn";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
@@ -28,13 +30,28 @@ export function FileImage({
   const { t } = useTranslation();
   const links = useChatLinks();
   const file = useWorkspaceFile(workspaceId, path);
+  // Another computer's chat reads the picture from there.
+  const files = useChatFiles();
+  const picture = useFilePicture(files, path);
   const [failedFor, setFailedFor] = useState<string | null>(null);
-  if (file.kind !== "inside" || failedFor === file.url) return <>{fallback}</>;
+  if (files) {
+    if (picture.failed) return <>{fallback}</>;
+    if (!picture.image) {
+      return (
+        <span
+          className="inline-block h-24 w-36 animate-pulse rounded-(--radius-control) bg-muted align-top"
+          data-testid="chat-file-image-pending"
+        />
+      );
+    }
+  }
+  const src = picture.image ? imageSrc(picture.image) : file.kind === "inside" ? file.url : null;
+  if (!src || failedFor === src) return <>{fallback}</>;
   const img = (
     <img
-      src={file.url}
+      src={src}
       alt={alt}
-      onError={() => setFailedFor(file.url)}
+      onError={() => setFailedFor(src)}
       className="max-h-60 max-w-full rounded-(--radius-control) border border-border object-contain"
     />
   );

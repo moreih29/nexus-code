@@ -1774,7 +1774,10 @@
       "offlineLast": "{{device}} is offline. Showing what it last sent.",
       "disconnectedLast": "Not connected to the server. Showing what came last.",
       "offlineTag": "Offline",
-      "profileBusy": "It can change once the reply ends or the request is answered"
+      "profileBusy": "It can change once the reply ends or the request is answered",
+      "fileTruncated": "Only the start of the file is shown",
+      "fileBinary": "This file can't be shown here",
+      "localAddress": "{{url}} is an address on {{device}}: open it there"
     }
   },
   "releaseNotes": {

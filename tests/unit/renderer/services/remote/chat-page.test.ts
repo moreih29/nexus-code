@@ -273,7 +273,7 @@ describe("a page drawn as this app's chat", () => {
     ]);
   });
 
-  test("leaves out an item of a kind it does not know, and an image's missing bytes", () => {
+  test("leaves out an item of a kind it does not know, and keeps an image's place to fetch it by", () => {
     const model = modelOfPage({
       ...chatPageOf(source({})),
       items: [
@@ -289,7 +289,15 @@ describe("a page drawn as this app's chat", () => {
       total: 2,
     });
     expect(model.items).toEqual([
-      { kind: "user", key: "a", text: "see", images: [], state: "taken" },
+      {
+        kind: "user",
+        key: "a",
+        text: "see",
+        images: [
+          { mediaType: "image/png", data: "", remote: { kind: "user", itemKey: "a", index: 0 } },
+        ],
+        state: "taken",
+      },
     ]);
   });
 

@@ -49,7 +49,6 @@ import {
   useAgentAsk,
   usePrintRuns,
 } from "../../services/chat/print-runs";
-import { rateLimitKey, rateLimitNotice } from "../../services/chat/rate-limit";
 import { withRelayed } from "../../services/chat/relayed";
 import { revertChangedFile } from "../../services/chat/revert-file";
 import { runAppCommand } from "../../services/chat/run-app-command";
@@ -63,14 +62,12 @@ import {
   useChatTab,
 } from "../../services/chat/store";
 import { useTerminalTwin } from "../../services/chat/terminal-twin";
-import { shownReset } from "../../services/chat/usage-line";
 import { MIN_CLAUDE_VERSION } from "../../services/chat/versions";
 import { registerTabFocusTarget } from "../../services/tab-focus";
 import { localUrlFor } from "../../state/operations/ports";
 import { openClaudeTab } from "../../state/operations/tabs";
 import { dropAgentAsk } from "../../state/stores/agent-reveal";
 import { useChatFontStyle } from "../../state/stores/chat-font";
-import { useNotificationsStore } from "../../state/stores/notifications";
 import { grantOutside } from "../../state/stores/outside-grants";
 import type { ClaudeTabProps } from "../../state/stores/tabs";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -91,6 +88,7 @@ import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./pane
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
+import { RateLimitBanner } from "./rate-limit-banner";
 import { RewindDialog } from "./rewind-dialog";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
@@ -657,7 +655,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
               </div>
             </div>
           )}
-          <RateLimitBanner state={state} />
+          <RateLimitBanner limit={state.model.rateLimit} />
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             controller={controller}
@@ -900,41 +898,6 @@ function TwinBanner({
         message={t("chat.twin.message")}
         actions={[{ label: t("chat.twin.show"), onAction: () => revealTabById(workspaceId, twin) }]}
       />
-    </div>
-  );
-}
-
-function RateLimitBanner({ state }: { state: ChatTabState }) {
-  const { t } = useTranslation();
-  const limit = state.model.rateLimit;
-  const warnings = useNotificationsStore((s) => s.rateLimitWarnings);
-  const dismissed = useNotificationsStore((s) => s.dismissedRateLimits);
-  const notice = rateLimitNotice(limit, { warnings, dismissed });
-  if (!limit || !notice) return null;
-  const resets = limit.resetsAt
-    ? shownReset(limit.resetsAt * 1000).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
-  const rejected = notice === "rejected";
-  const message = rejected
-    ? resets
-      ? t("chat.rate_limit.rejected_until", { time: resets })
-      : t("chat.rate_limit.rejected")
-    : resets
-      ? t("chat.rate_limit.warning_until", { time: resets })
-      : t("chat.rate_limit.warning");
-  // A warning closes until its limit resets; a limit reached stays up.
-  const dismiss = rejected
-    ? undefined
-    : {
-        label: t("chat.rate_limit.dismiss"),
-        onDismiss: () => useNotificationsStore.getState().dismissRateLimit(rateLimitKey(limit)),
-      };
-  return (
-    <div className="shrink-0" data-testid="chat-rate-limit">
-      <Banner variant={rejected ? "error" : "warning"} message={message} dismiss={dismiss} />
     </div>
   );
 }

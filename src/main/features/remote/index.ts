@@ -553,6 +553,30 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatStopTask.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.stopTask", params));
       },
+      peerChatImage: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatImage.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.image", params));
+      },
+      peerFilesList: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerFilesList.args, args);
+        return askPeer(() => inRoom().request(deviceId, "files.list", params));
+      },
+      peerFilesRead: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerFilesRead.args, args);
+        return askPeer(() => inRoom().request(deviceId, "files.read", params));
+      },
+      peerGitDiff: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerGitDiff.args, args);
+        return askPeer(() => inRoom().request(deviceId, "git.diff", params));
+      },
+      peerHistory: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerHistory.args, args);
+        return askPeer(() => inRoom().request(deviceId, "history.list", params));
+      },
+      peerChatResume: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatResume.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.resume", params));
+      },
       peerProfiles: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
         return askPeer(() => inRoom().request(deviceId, "profiles.list", params));

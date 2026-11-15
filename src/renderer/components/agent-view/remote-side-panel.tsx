@@ -3,9 +3,9 @@
  * parts: what it runs on and with, its context, its subagents and
  * background runs, its to-dos, the files it changed and the plan's usage.
  * They come from the panel its computer tells (chat.watch's `panel`), the
- * subagents' details from the conversation shown. What only the computer
- * the chat runs on can do with it (open its files, its MCP servers, Remote
- * Control) is left out.
+ * subagents' details from the conversation shown. A changed file opens its
+ * change, read from that computer. What only the computer the chat runs on
+ * can do with it (its MCP servers, Remote Control) is left out.
  */
 
 import { ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, Square } from "lucide-react";
@@ -19,6 +19,7 @@ import { formatTokens } from "../../services/chat/usage-line";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { StatusDot } from "../chat/agent-strip";
+import { useChatLinks } from "../chat/chat-links";
 import {
   AgentEntry,
   ChangedRow,
@@ -31,10 +32,11 @@ import {
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
 import { IconButton } from "../ui/icon-button";
+import { peerProfileName } from "./remote-profile-chip";
 import { usageLineOf } from "./remote-usage";
 
 /** The panel's parts a bare command shows: /status, /context, /usage. */
-export type RemotePanelPart = "status" | "context" | "usage";
+export type RemotePanelPart = "status" | "context" | "usage" | "jobs";
 
 /** The part of the panel a bare /status, /context or /usage shows; null for another. */
 export function remotePanelPartOf(text: string): RemotePanelPart | null {
@@ -93,6 +95,7 @@ export function RemoteSidePanel({
   className?: string;
 }) {
   const { t, i18n } = useTranslation();
+  const links = useChatLinks();
   const agents = useMemo(() => remoteAgentsOf(panel, model), [panel, model]);
   const jobs = panel?.tasks ?? [];
   const todos = panel?.todos ?? [];
@@ -137,7 +140,9 @@ export function RemoteSidePanel({
         )}
         {target.profile && (
           <Field label={t("chat.panel.env.profile")}>
-            <span className="min-w-0 truncate text-app-micro">{target.profile}</span>
+            <span className="min-w-0 truncate text-app-micro">
+              {peerProfileName(target.profile, t)}
+            </span>
           </Field>
         )}
       </Section>
@@ -201,7 +206,7 @@ export function RemoteSidePanel({
         </Section>
       )}
       {jobs.length > 0 && (
-        <Section title={t("chat.panel.jobs.title")} count={jobs.length}>
+        <Section title={t("chat.panel.jobs.title")} count={jobs.length} reveal={asked("jobs")}>
           {jobs.map((job) => (
             <RemoteJob
               key={job.taskId}
@@ -252,6 +257,7 @@ export function RemoteSidePanel({
                 toolUseIds: [],
               }}
               cwd={target.path}
+              {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
             />
           ))}
         </Section>

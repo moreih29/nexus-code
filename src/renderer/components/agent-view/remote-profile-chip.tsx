@@ -6,6 +6,7 @@
  * way or a request waits, so the choice waits too.
  */
 
+import type { TFunction } from "i18next";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../ipc/client";
@@ -14,6 +15,15 @@ import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote
 import { ProfileDot } from "../agent-profiles/profile-badge";
 import { Popover } from "../ui/popover";
 import { showToast } from "../ui/toast";
+
+/**
+ * A profile of that computer's as this app names it: its unnamed default
+ * profile comes as "default" (profiles.list) and reads as the default here.
+ */
+export function peerProfileName(name: string, t: TFunction): string {
+  return name === "default" ? t("settings:profiles.default_name") : name;
+}
+
 import { tooltipProps } from "../ui/tooltip";
 
 interface PeerProfile {
@@ -67,14 +77,17 @@ export function RemoteProfileChip({
       }
       useRemoteViewStore.getState().setProfile(remoteSessionKey(target), result.value.to);
       if (!fresh)
-        showToast({ kind: "info", message: t("chat.profile.moved", { name: result.value.to }) });
+        showToast({
+          kind: "info",
+          message: t("chat.profile.moved", { name: peerProfileName(result.value.to, t) }),
+        });
     });
   };
 
   const chip = (
     <span className="flex items-center gap-1">
       <ProfileDot color="gray" className="size-1.5" />
-      {!compact && <span className="max-w-28 truncate">{name}</span>}
+      {!compact && <span className="max-w-28 truncate">{peerProfileName(name, t)}</span>}
     </span>
   );
   if (!controls) {
@@ -114,7 +127,7 @@ export function RemoteProfileChip({
       <div className="flex flex-col gap-2 px-2 py-1.5 text-app-ui-sm">
         <div className="flex items-center gap-1.5 text-app-body text-foreground">
           <ProfileDot color="gray" />
-          <span className="truncate">{name}</span>
+          <span className="truncate">{peerProfileName(name, t)}</span>
         </div>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
           <dt className="text-muted-foreground">{t("chat.panel.env.computer")}</dt>
@@ -146,7 +159,7 @@ export function RemoteProfileChip({
                   data-testid="remote-profile-pick"
                 >
                   <ProfileDot color="gray" />
-                  <span className="truncate">{other.name}</span>
+                  <span className="truncate">{peerProfileName(other.name, t)}</span>
                 </button>
                 {conversation && (
                   <button

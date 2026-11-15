@@ -2561,6 +2561,36 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
         RPC_METHODS["chat.profile"].result,
       ),
+      /** An image of another device's chat: a message's or a tool's, by its place there. */
+      peerChatImage: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.image"].params),
+        RPC_METHODS["chat.image"].result,
+      ),
+      /** A folder of another device's workspace: whether the files its chats name are there. */
+      peerFilesList: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.list"].params),
+        RPC_METHODS["files.list"].result,
+      ),
+      /** A file of another device's workspace, as its chats name it. */
+      peerFilesRead: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.read"].params),
+        RPC_METHODS["files.read"].result,
+      ),
+      /** How a file of another device's workspace changed against its last commit. */
+      peerGitDiff: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["git.diff"].params),
+        RPC_METHODS["git.diff"].result,
+      ),
+      /** The past conversations another device's workspace can resume. */
+      peerHistory: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["history.list"].params),
+        RPC_METHODS["history.list"].result,
+      ),
+      /** Resumes a past conversation on another device, in a tab of its own there. */
+      peerChatResume: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.resume"].params),
+        RPC_METHODS["chat.resume"].result,
+      ),
       /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),
