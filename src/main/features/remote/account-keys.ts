@@ -272,7 +272,7 @@ export class AccountKeys {
    * with the password: the devices that stay get the new key sealed for
    * each, the removed ones do not. The device that asked for a reset that
    * waits may be removed without it, which calls the reset off; one that
-   * holds the key now takes it along, so only with `keepKey` (else
+   * may hold the key takes it along, so only with `keepKey` (else
    * needs-password): an owner who forgot the password can still stop a
    * stolen device's reset. With no key yet, the server only ends their
    * sign-ins. This device signs out through the account, not here.
@@ -290,7 +290,7 @@ export class AccountKeys {
       if (!found || (password === undefined && others.every((id) => id === resetter))) {
         const holder =
           found && resetter && others.length > 0 && !options.keepKey
-            ? await this.holdsKey(found, resetter)
+            ? await this.mayHoldKey(resetter)
             : false;
         if (holder) {
           throw new KeyError("needs-password");
@@ -306,23 +306,18 @@ export class AccountKeys {
   }
 
   /**
-   * Whether another device holds the bundle's key, as far as this one can
-   * tell: its key on the server is of the bundle's version and its
-   * certificate checks under the key held here, which only a device that
-   * held the key could make. The server lets a device put any key of its
-   * own (a device set up again keeps its id), so one could hide that it
-   * holds the key; it cannot make it look held when it is not. Where this
-   * device does not hold that key it cannot check, and takes it as held.
+   * Whether another device may hold the account key: whether it ever put a
+   * key of its own on the server. A device can overwrite its key there with
+   * any other (one set up again keeps its id) but never drop it, so one
+   * whose key does not check under the key now may have overwritten it to
+   * hide that it holds the key; only a device that never put one surely
+   * does not (NexusCloud: the key goes only with the device).
    */
-  private async holdsKey(found: KeyBundleResponse, deviceId: string): Promise<boolean> {
-    const k = found.bundle.kid;
+  private async mayHoldKey(deviceId: string): Promise<boolean> {
     const devices = KeyedDevicesSchema.parse(
       await this.deps.account.request("GET", "/devices"),
     ).devices;
-    const key = devices.find((device) => device.id === deviceId)?.key;
-    if (!key || key.kid !== k) return false;
-    if (!this.held || this.held.kid !== k) return true;
-    return certChecks(fromBase64Url(this.held.key), this.userId(), deviceId, key);
+    return Boolean(devices.find((device) => device.id === deviceId)?.key);
   }
 
   private async rotate(

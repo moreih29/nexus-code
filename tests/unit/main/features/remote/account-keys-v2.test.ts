@@ -344,19 +344,20 @@ describe("account keys v2", () => {
     expect(server.s.bundle?.bundle.kid).toBe(1);
   });
 
-  test("a reset's device whose key does not check under the key is taken as not holding it", async () => {
+  test("a reset's device whose key does not check may have overwritten it to hide the key: it needs the password too", async () => {
     const { server, a, b } = await threeDevices();
     await b.keys.reset(OTHER);
-    // Only a token: it put a key of version 1 with a certificate it could not make.
+    // It holds the key, yet overwrote its own with a certificate that does not check.
     const entry = server.s.devices.get("dev-b");
     if (entry?.key) entry.key = { ...entry.key, cert: "A".repeat(43) };
     await a.keys.refresh();
-    await a.keys.removeDevices(["dev-b"]);
-    expect(server.s.deletes).toEqual(["dev-b"]);
-    expect(server.s.bundle?.bundle.kid).toBe(1);
+    await expect(a.keys.removeDevices(["dev-b"])).rejects.toMatchObject({
+      failure: "needs-password",
+    });
+    expect(server.s.deletes).toEqual([]);
   });
 
-  test("a device that does not hold the key cannot check, so a reset's device of the key's version needs the password", async () => {
+  test("a locked device asks for the password too to remove a reset's device that put a key", async () => {
     const { server, b } = await threeDevices();
     const d = device(server, "dev-d");
     await d.keys.restore();
