@@ -114,23 +114,112 @@ describe("the agent view's other computers", () => {
     );
   });
 
-  test("lists the terminals when asked, when one is in a panel, or when a search finds one", () => {
+  test("lists a workspace's terminals when asked there, when one is in a panel, or when a search finds one", () => {
     const plain = session({ tabId: "t9", kind: "terminal", title: "dev server" });
+    const other = session({ tabId: "t8", workspaceId: "w2", kind: "terminal", title: "logs" });
     const chat = session({ tabId: "t1" });
     const none = () => false;
-    expect(listedSessions([chat, plain], "", false, none)).toEqual({ listed: [chat], hidden: 1 });
-    expect(listedSessions([chat, plain], "", true, none)).toEqual({
+    const all = [chat, plain, other];
+    expect(listedSessions(all, "", none, none)).toEqual({
+      listed: [chat],
+      hidden: new Map([
+        ["w1", 1],
+        ["w2", 1],
+      ]),
+    });
+    // Asked for in one workspace: the other's stay out of sight.
+    expect(listedSessions(all, "", (w) => w === "w1", none)).toEqual({
       listed: [chat, plain],
-      hidden: 0,
+      hidden: new Map([["w2", 1]]),
     });
-    expect(listedSessions([chat, plain], "", false, (s) => s.tabId === "t9").listed).toEqual([
-      chat,
-      plain,
-    ]);
-    expect(listedSessions([chat, plain], "server", false, none)).toEqual({
+    expect(listedSessions(all, "", none, (s) => s.tabId === "t9").listed).toEqual([chat, plain]);
+    expect(listedSessions(all, "server", none, none)).toEqual({
       listed: [plain],
-      hidden: 0,
+      hidden: new Map(),
     });
+  });
+
+  test("each workspace has its own toggle for its terminals, one with only terminals too", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+            session({ tabId: "t3", workspaceId: "w2", kind: "terminal", title: "logs" }),
+            session({ tabId: "t4", workspaceId: "w2", kind: "terminal", title: "tail" }),
+          ]),
+        }}
+      />,
+    );
+    expect(html.match(/data-testid="remote-terminals-toggle"/g)?.length).toBe(2);
+    expect(html).toContain('data-workspace="w1"');
+    expect(html).toContain('data-workspace="w2"');
+    expect(html).toContain("Show 1 terminal");
+    expect(html).toContain("Show 2 terminals");
+    // The workspace with only terminals is named, for its toggle.
+    expect(html).toContain(">web<");
+    expect(html).not.toContain("dev server");
+    expect(html).not.toContain(">logs<");
+    // Its toggle comes under its own sessions, not the computer's last.
+    expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf(">web<"));
+  });
+
+  test("heads a workspace as its group's title: a folder, or a task's branch and how it stands", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: {
+            workspaces: [
+              { id: "w1", name: "api", path: "/src/api" },
+              {
+                id: "w2",
+                name: "api-fix",
+                path: "/wt/api-fix",
+                parentId: "w1",
+                git: { branch: "fix/login", ahead: 2, behind: 0, uncommitted: 3 },
+              },
+            ],
+            sessions: [
+              session({ tabId: "t1", title: "Fix the build" }),
+              session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+            ],
+          },
+        }}
+      />,
+    );
+    const headings = html.split('data-testid="remote-workspace"').slice(1);
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toContain("lucide-folder");
+    expect(headings[0]).toContain("font-semibold");
+    expect(headings[1]).toContain("lucide-git-branch");
+    expect(headings[1]).toContain("fix/login ↑2 ●");
+  });
+
+  test("a workspace's terminals toggle reads as a link, lined up with the rows' titles", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+          ]),
+        }}
+      />,
+    );
+    const toggle = html.slice(html.indexOf('data-testid="remote-terminals-toggle"') - 400);
+    expect(toggle).toContain("text-(--state-selected-indicator)");
+    expect(toggle).toContain("pl-6.5");
+    expect(toggle).toContain("lucide-square-terminal");
   });
 
   test("finds sessions by their title or last line", () => {
