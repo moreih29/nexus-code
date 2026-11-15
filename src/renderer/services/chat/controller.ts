@@ -1065,7 +1065,8 @@ export class ChatController {
   /**
    * Asks for what the side panel shows that only a request tells: the
    * context, the plan's usage, the MCP servers. Only while the program
-   * runs; the answers land in the model.
+   * runs, and the servers once its initialize ended; the answers land in
+   * the model.
    */
   refreshPanel(parts: readonly PanelPart[]): void {
     if (!this.lineCanAsk()) return;
@@ -1080,7 +1081,14 @@ export class ChatController {
         continue;
       }
       const subtype = PANEL_REQUESTS[part];
-      if (this.supports(subtype)) this.request(subtype, this.panelParams(part)).catch(() => {});
+      if (!this.supports(subtype)) continue;
+      // After the program's initialize: asked before it ends, the MCP servers
+      // are not up yet and come back as none, which the panel would keep.
+      void this.initializing
+        .catch(() => {})
+        .then(() => {
+          if (this.lineCanAsk()) this.request(subtype, this.panelParams(part)).catch(() => {});
+        });
     }
   }
 
