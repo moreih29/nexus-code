@@ -50,3 +50,38 @@ test("a socket closed before it opened is told as unreachable; one closed after 
   await next(3);
   relay.stop();
 });
+
+test("reconnect opens a new socket now; the old one's close is not taken for a loss", async () => {
+  const sockets: FakeSocket[] = [];
+  const unreachable: string[] = [];
+  const relay = new RelayConnection({
+    url: async () => "wss://nexus.example/relay?ticket=t",
+    onOpen: () => {},
+    onFrame: () => {},
+    onStatus: () => {},
+    onSignedOut: () => {},
+    unreachable: (url) => unreachable.push(url),
+    socket: (url) => {
+      const socket = new FakeSocket(url);
+      sockets.push(socket);
+      return socket as never;
+    },
+    backoff: () => 60_000,
+  });
+  const settle = async (count: number) => {
+    for (let i = 0; i < 50 && sockets.length < count; i++) await Bun.sleep(1);
+  };
+  relay.start();
+  await settle(1);
+  sockets[0]?.emit("open");
+  relay.reconnect();
+  await settle(2);
+  expect(sockets).toHaveLength(2);
+  sockets[0]?.emit("close", { code: 1000 });
+  await Bun.sleep(5);
+  expect([sockets.length, unreachable]).toEqual([2, []]);
+  relay.stop();
+  relay.reconnect();
+  await Bun.sleep(5);
+  expect(sockets).toHaveLength(2);
+});

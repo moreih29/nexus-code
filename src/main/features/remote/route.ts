@@ -9,13 +9,20 @@
 /** How long requests go straight to the server once the proxy could not be reached. */
 export const PROXY_DOWN_MS = 5 * 60_000;
 
+/** How often a socket that went straight looks whether it can go back through the proxy. */
+export const RETURN_CHECK_MS = 60_000;
+
+/** How long the proxy has to answer, asked whether a socket may go back through it. */
+const RETURN_PROBE_TIMEOUT_MS = 5_000;
+
 export class ServerRoute {
   private downUntil = 0;
 
   constructor(
     /** The server signed in to, and gone to straight. */
     readonly server: string,
-    private readonly proxy: string | null = null,
+    /** The proxy requests go through; none to go straight. */
+    readonly proxy: string | null = null,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -44,6 +51,47 @@ export class ServerRoute {
     this.downUntil = this.now() + PROXY_DOWN_MS;
     return true;
   }
+}
+
+/**
+ * Brings a socket that went straight back through the proxy, as the relay's
+ * may stay for days on a desktop left on: once requests go through the
+ * proxy again while `via()` (the address the socket is open to, null while
+ * none is) is the server's, the proxy's /info is asked, and when it
+ * answers the socket is opened anew (`reconnect`), through it. When it
+ * does not, the proxy is passed by for another while. `check` looks now;
+ * the returned function stops the looking every RETURN_CHECK_MS.
+ */
+export function returnToProxy(options: {
+  route: ServerRoute;
+  via: () => string | null;
+  reconnect: () => void;
+  fetch?: typeof fetch;
+}): { check(): Promise<void>; stop(): void } {
+  const { route } = options;
+  const fetchFn = options.fetch ?? fetch;
+  let asking = false;
+  const check = async () => {
+    const proxy = route.proxy;
+    const via = options.via();
+    if (proxy === null || via === null || sameHost(via, proxy) || route.base() !== proxy) return;
+    if (asking) return;
+    asking = true;
+    try {
+      const res = await fetchFn(new URL("/info", proxy), {
+        signal: AbortSignal.timeout(RETURN_PROBE_TIMEOUT_MS),
+      });
+      if (res.ok) options.reconnect();
+      else route.unreachable(proxy);
+    } catch {
+      route.unreachable(proxy);
+    } finally {
+      asking = false;
+    }
+  };
+  const timer = setInterval(() => void check(), RETURN_CHECK_MS);
+  timer.unref?.();
+  return { check, stop: () => clearInterval(timer) };
 }
 
 /** Whether two addresses are of one host, a websocket's (wss:) and its https: alike. */

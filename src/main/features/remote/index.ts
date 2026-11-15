@@ -31,6 +31,7 @@ import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { RelayConnection } from "./relay-connection";
 import { RemoteRoom, RpcFailure } from "./room";
+import { returnToProxy } from "./route";
 import { electronSecretBox, SealedFile } from "./sealed-file";
 import { listSessions, servesWith, serveWith } from "./serve";
 import { remoteProxy, remoteServer } from "./server";
@@ -287,8 +288,17 @@ export async function registerRemoteChannel(options: {
     const { ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket"));
     const url = account.route.url("/relay", { socket: true });
     url.search = new URLSearchParams({ v: String(RELAY_VERSION), ticket }).toString();
+    relayVia = url.origin;
     return url.toString();
   };
+  /** Where the relay's socket went, and the socket: one that went straight goes back through the proxy. */
+  let relayVia: string | null = null;
+  let relay: RelayConnection | null = null;
+  returnToProxy({
+    route: account.route,
+    via: () => (roomState.status === "online" ? relayVia : null),
+    reconnect: () => relay?.reconnect(),
+  });
   function syncRoom(): void {
     const signedIn = account.state();
     const key = keys?.key() ?? null;
@@ -312,12 +322,14 @@ export async function registerRemoteChannel(options: {
           options.allowTerminal.get(),
           options.agents.get() !== "deny",
         ),
-      connect: (handlers) =>
-        new RelayConnection({
+      connect: (handlers) => {
+        relay = new RelayConnection({
           ...handlers,
           url: relayUrl,
           unreachable: (url) => void account.route.unreachable(url),
-        }),
+        });
+        return relay;
+      },
       serve: serveWith(options.services, {
         chats: watches,
         sessions: sessionWatches,

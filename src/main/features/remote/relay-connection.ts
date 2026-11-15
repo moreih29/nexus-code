@@ -80,6 +80,15 @@ export class RelayConnection {
     this.set("stopped");
   }
 
+  /** Opens a new socket now in place of this one, as to go another way; nothing when stopped. */
+  reconnect(): void {
+    if (!this.running) return;
+    this.clearTimer();
+    this.drop();
+    this.attempt = 0;
+    void this.connect();
+  }
+
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
   send(frame: ClientFrame): boolean {
     if (this.status !== "online" || !this.socket) return false;
