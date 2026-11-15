@@ -166,12 +166,15 @@ function monacoAssetsPlugin(): Plugin {
 // ---------------------------------------------------------------------------
 const EXCALIDRAW_FONTS_DIR = "excalidraw/fonts";
 
-function excalidrawAssetsPlugin(): Plugin {
-  // The package exports no ./package.json: its root is found from its entry.
+/** Excalidraw's package root. It exports no ./package.json: found from its entry. */
+function excalidrawRoot(): string {
   const entry = createRequire(resolve(__dirname, "package.json")).resolve("@excalidraw/excalidraw");
   const marker = `${sep}@excalidraw${sep}excalidraw${sep}`;
-  const root = entry.slice(0, entry.lastIndexOf(marker) + marker.length);
-  const source = resolve(root, "dist/prod/fonts");
+  return entry.slice(0, entry.lastIndexOf(marker) + marker.length);
+}
+
+function excalidrawAssetsPlugin(): Plugin {
+  const source = resolve(excalidrawRoot(), "dist/prod/fonts");
   const types: Record<string, string> = {
     ".woff2": "font/woff2",
     ".woff": "font/woff",
@@ -200,6 +203,52 @@ function excalidrawAssetsPlugin(): Plugin {
       cpSync(source, resolve(options.dir, EXCALIDRAW_FONTS_DIR), { recursive: true });
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Rollup chunks: keep Excalidraw's font-subsetting worker off the app bundle.
+//
+// A sketch's image is an SVG with its fonts embedded, which Excalidraw
+// subsets in a module worker, subset-worker.chunk.js, started from its own
+// address. The worker and Excalidraw's entry share two small modules (its
+// build-time constants and bundler helpers); Rollup put them in the
+// renderer's main chunk, so the worker imported the whole app and stopped at
+// its first `document`. Excalidraw then subset on the main thread, where its
+// WebAssembly glue builds functions from strings, which the window's
+// Content-Security-Policy blocks (no 'unsafe-eval'), and every sketch with
+// text embedded its fonts whole.
+//
+// The modules the worker and the entry both import statically get a chunk
+// of their own, so the worker loads only itself, the subsetting code and
+// that chunk. A worker from the app's files is not under the window's policy.
+// ---------------------------------------------------------------------------
+const EXCALIDRAW_SHARED_CHUNK = "excalidraw-shared";
+
+/** `file` and the files it imports statically, relative imports only. */
+function staticImports(file: string, seen = new Set<string>()): Set<string> {
+  if (seen.has(file) || !existsSync(file)) return seen;
+  seen.add(file);
+  // `import"./x.js"` and `…from"./x.js"`; a dynamic `import("./x.js")` does not match.
+  for (const match of readFileSync(file, "utf8").matchAll(
+    /\b(?:from|import)\s*["'](\.\.?\/[^"']+)["']/g,
+  )) {
+    staticImports(resolve(dirname(file), match[1] ?? ""), seen);
+  }
+  return seen;
+}
+
+/** A module id as a comparable path: no query, forward slashes, one case on Windows. */
+function modulePath(id: string): string {
+  const path = id.split("?")[0]?.replace(/\\/g, "/") ?? "";
+  return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
+function excalidrawManualChunks(): (id: string) => string | undefined {
+  const dist = resolve(excalidrawRoot(), "dist/prod");
+  const worker = staticImports(resolve(dist, "subset-worker.chunk.js"));
+  const entry = staticImports(resolve(dist, "index.js"));
+  const shared = new Set([...worker].filter((file) => entry.has(file)).map(modulePath));
+  return (id) => (shared.has(modulePath(id)) ? EXCALIDRAW_SHARED_CHUNK : undefined);
 }
 
 // ---------------------------------------------------------------------------
@@ -307,12 +356,20 @@ export default defineConfig({
       // bundle and every user (including the default Minimal theme, which never
       // shows them) would pay for it. Emitting them as separate files preserves
       // on-demand, browser-cached loading (VS Code-style) and keeps startup lean.
+      // AudioWorklet modules (*.worklet.js) stay files too: the window's
+      // Content-Security-Policy runs scripts from the app's files only, not
+      // from data: URLs (src/main/features/window/app-csp.ts).
       // All other assets keep Vite's default inline threshold.
       assetsInlineLimit: (filePath: string) =>
-        filePath.includes("assets/icons/material/") ? false : undefined,
+        filePath.includes("assets/icons/material/") || filePath.endsWith(".worklet.js")
+          ? false
+          : undefined,
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
+        },
+        output: {
+          manualChunks: excalidrawManualChunks(),
         },
       },
     },

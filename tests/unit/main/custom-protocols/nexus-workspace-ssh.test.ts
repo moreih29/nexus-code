@@ -14,11 +14,10 @@ import { READ_RANGE_MAX_BYTES } from "../../../../src/shared/fs/defaults";
 import type { FileReadBinaryResult } from "../../../../src/shared/fs/types";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
-// `nexus-workspace.ts` imports `protocol` and `net` from Electron at module
-// load time (for the public wiring entry points). In Bun the real electron
-// runtime isn't available — mock the minimal surface so the import resolves.
-// The SSH branch under test never calls into either symbol; only the local
-// branch's `net.fetch` would, and these tests don't exercise that.
+// `nexus-workspace.ts` imports Electron at module load time (for the public
+// wiring entry points). In Bun the real electron runtime isn't available —
+// mock the minimal surface so the import resolves. The SSH branch under test
+// never calls into it.
 mock.module("electron", () => ({
   net: { fetch: mock(() => Promise.resolve(new Response(null, { status: 500 }))) },
   protocol: {

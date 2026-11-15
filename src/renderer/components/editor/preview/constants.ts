@@ -9,7 +9,7 @@
 //   - 200 KB md ≈ 120 ms parse  → slight stutter on keystrokes
 //   - 1 MB md   ≈ 600–1000 ms   → noticeable but tolerable for a one-off render
 //
-// HTML preview is intentionally NOT capped: it renders via `<iframe srcdoc>`,
+// HTML preview is intentionally NOT capped: it renders in an `<iframe>`,
 // where the browser parses off the renderer's main thread, so large documents
 // don't block the UI. See html-preview.tsx.
 //
@@ -19,7 +19,7 @@ export const MAX_PREVIEW_BYTES = 1024 * 1024;
 
 /**
  * Truncate `source` to `MAX_PREVIEW_BYTES` and report whether truncation
- * occurred. UTF-8 friendliness is left to the renderer — `<iframe srcDoc>`
+ * occurred. UTF-8 friendliness is left to the renderer — an `<iframe>` page
  * and `Blob([str])` both tolerate mid-codepoint cuts (replacement char or
  * dropped glyph at the tail), which is fine because the user can always
  * switch to raw mode to see the full file.

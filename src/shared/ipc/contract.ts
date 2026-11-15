@@ -1712,6 +1712,26 @@ export const ipcContract = {
     listen: {},
   },
 
+  // ---------------------------------------------------------------------------
+  // preview — the HTML preview's documents, served at nexus-preview://<token>/.
+  //
+  // A pane puts its document (the page with the preview's preamble) and
+  // points its iframe at the address it gets back; it puts it again under the
+  // same token as the file is edited, and releases it when it closes. A
+  // srcdoc document would take on the app window's Content-Security-Policy
+  // (main's custom-protocols/nexus-preview.ts).
+  // ---------------------------------------------------------------------------
+  preview: {
+    call: {
+      putHtml: call(
+        z.object({ token: z.string().optional(), html: z.string() }),
+        z.object({ token: z.string(), url: z.string() }),
+      ),
+      releaseHtml: call(z.object({ token: z.string() }), z.void()),
+    },
+    listen: {},
+  },
+
   folderBookmark: {
     call: {
       list: call(z.void(), z.array(FolderBookmarkSchema)),

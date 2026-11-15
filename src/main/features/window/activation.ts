@@ -8,11 +8,12 @@
  * Space, pressed, not held. A click or tap counts, and only briefly: a
  * link's click handler opens it at once.
  *
- * The HTML preview's page is a sandboxed srcdoc frame, which Chromium runs
- * in a process of its own: input-event never sees input in it, so a link
- * there would never open. before-input-event and before-mouse-event see the
- * keys and the mouse in every frame; input-event still gives a tap, in the
- * app's own frame (watchActivation).
+ * The HTML preview's page is a sandboxed frame of its own scheme
+ * (nexus-preview://), which Chromium runs in a process of its own:
+ * input-event never sees input in it, so a link there would never open.
+ * before-input-event and before-mouse-event see the keys and the mouse in
+ * every frame; input-event still gives a tap, in the app's own frame
+ * (watchActivation).
  *
  * An input says nothing of the frame it went to, nor window.open of the
  * frame that called it: Enter typed in the editor would let a previewed

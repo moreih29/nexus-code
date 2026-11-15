@@ -9,8 +9,8 @@ import type { FsProvider } from "../../../../src/main/features/fs/bridge/provide
 import type { WorkspaceManager } from "../../../../src/main/features/workspace/manager";
 import type { WorkspaceMeta } from "../../../../src/shared/types/workspace";
 
-// The local branch's whole-file path goes through net.fetch, which a range
-// never reaches; it fails here so a test that fell through to it would show.
+// A local file is read off disk, never by net.fetch, which goes through the
+// app session's request guard; it fails here so a read through it would show.
 mock.module("electron", () => ({
   net: { fetch: mock(() => Promise.resolve(new Response(null, { status: 500 }))) },
   protocol: {
@@ -27,6 +27,7 @@ const BYTES = Buffer.from("0123456789");
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "nexus-range-")));
 fs.writeFileSync(path.join(root, "clip.mp4"), BYTES);
+fs.mkdirSync(path.join(root, "sub"));
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 function manager(meta: Partial<WorkspaceMeta>, fsProvider?: Partial<FsProvider>): WorkspaceManager {
@@ -123,3 +124,16 @@ for (const [name, handler] of [
     });
   });
 }
+
+describe("nexus-workspace:// whole files (local)", () => {
+  test("serves a file off disk, without a range", async () => {
+    const resp = await local(new Request("nexus-workspace://ws/clip.mp4"));
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("Content-Type")).toBe("video/mp4");
+    expect(await resp.text()).toBe("0123456789");
+  });
+
+  test("answers 404 for a folder", async () => {
+    expect((await local(new Request("nexus-workspace://ws/sub"))).status).toBe(404);
+  });
+});
