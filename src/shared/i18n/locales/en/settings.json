@@ -275,6 +275,7 @@
     "consent": {
       "title": "Allow an agent to change another workspace?",
       "description": "The terminal \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
+      "agent_description": "The {{agent}} tab \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
       "deny": "Don't allow",
       "session": "Allow until restart",
       "once": "Allow once",

@@ -2,6 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   askCliConsent,
+  describeConsent,
   settleCliConsent,
 } from "../../../../../src/renderer/components/cli/consent-dialog";
 import { type ToastInput, watchToasts } from "../../../../../src/renderer/components/ui/toast";
@@ -48,5 +49,34 @@ describe("settling a consent prompt from another device", () => {
     } finally {
       stop();
     }
+  });
+});
+
+describe("who a consent prompt says asks", () => {
+  const t = (key: string, values: Record<string, string>) => `${key} ${JSON.stringify(values)}`;
+
+  test("a terminal is told as one", () => {
+    expect(describeConsent(t, prompt(), "send")).toBe(
+      'agentCli.consent.description {"tab":"zsh","from":"app","to":"api","action":"send"}',
+    );
+  });
+
+  test("a Claude or Codex tab is told as that agent's tab, not a terminal", () => {
+    expect(
+      describeConsent(t, { ...prompt(), fromTab: "Review", fromAgent: "claude" }, "send"),
+    ).toBe(
+      'agentCli.consent.agent_description {"agent":"Claude","tab":"Review","from":"app","to":"api","action":"send"}',
+    );
+    expect(describeConsent(t, { ...prompt(), fromAgent: "codex" }, "send")).toContain(
+      '"agent":"Codex"',
+    );
+  });
+
+  test("another computer's agent is told by that computer", () => {
+    expect(
+      describeConsent(t, { ...prompt(), fromDevice: "Mac", fromAgent: "claude" }, "send"),
+    ).toBe(
+      'agentCli.consent.remote_description {"device":"Mac","tab":"zsh","to":"api","action":"send"}',
+    );
   });
 });

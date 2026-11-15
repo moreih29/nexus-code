@@ -275,6 +275,7 @@
     "consent": {
       "title": "에이전트가 다른 워크스페이스를 변경하도록 허용할까요?",
       "description": "{{from}}의 터미널 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
+      "agent_description": "{{from}}의 {{agent}} 탭 \"{{tab}}\"이(가) {{to}}에서 {{action}} 하려고 합니다.",
       "deny": "허용 안 함",
       "session": "재시작 전까지 허용",
       "once": "이번만 허용",

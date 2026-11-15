@@ -15,6 +15,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { DialogHeader } from "@/components/ui/dialog-header";
 import { showToast } from "@/components/ui/toast";
 import type { CliChange, CliConsentAnswer } from "../../../shared/cli/ui";
+import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { createListenerBus } from "../../../shared/util/listener-bus";
 
 export interface CliConsentPrompt {
@@ -22,6 +23,8 @@ export interface CliConsentPrompt {
   readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
+  /** The agent whose tab asks, when a Claude or Codex tab does; none for a terminal. */
+  readonly fromAgent?: ChatAgent;
   /** The user's other computer the agent asks from, by its name; none for this one. */
   readonly fromDevice?: string;
   readonly toWorkspace: string;
@@ -76,6 +79,39 @@ export function askCliConsent(prompt: CliConsentPrompt): Promise<CliConsentAnswe
   });
 }
 
+const AGENT_NAMES: Record<ChatAgent, string> = { claude: "Claude", codex: "Codex" };
+
+/**
+ * Who asks and for what, as the prompt says it: an agent of another
+ * computer by that computer, a Claude or Codex tab as one, else a terminal.
+ */
+export function describeConsent(
+  t: (key: string, values: Record<string, string>) => string,
+  prompt: CliConsentPrompt,
+  action: string,
+): string {
+  const to = prompt.toWorkspace;
+  if (prompt.fromDevice) {
+    return t("agentCli.consent.remote_description", {
+      device: prompt.fromDevice,
+      tab: prompt.fromTab,
+      to,
+      action,
+    });
+  }
+  const from = prompt.fromWorkspace;
+  if (prompt.fromAgent) {
+    return t("agentCli.consent.agent_description", {
+      agent: AGENT_NAMES[prompt.fromAgent],
+      tab: prompt.fromTab,
+      from,
+      to,
+      action,
+    });
+  }
+  return t("agentCli.consent.description", { tab: prompt.fromTab, from, to, action });
+}
+
 export function CliConsentDialogRoot(): React.JSX.Element {
   const { t } = useTranslation("settings");
   const [active, setActive] = useState<Pending | null>(queue[0] ?? null);
@@ -89,21 +125,7 @@ export function CliConsentDialogRoot(): React.JSX.Element {
   const kind = prompt?.change.kind;
   const permission = kind === "permissionAllow" || kind === "permissionDeny";
   const profile = kind === "chatProfile" || kind === "chatProfileNew";
-  const description = !prompt
-    ? ""
-    : prompt.fromDevice
-      ? t("agentCli.consent.remote_description", {
-          device: prompt.fromDevice,
-          tab: prompt.fromTab,
-          to: prompt.toWorkspace,
-          action,
-        })
-      : t("agentCli.consent.description", {
-          tab: prompt.fromTab,
-          from: prompt.fromWorkspace,
-          to: prompt.toWorkspace,
-          action,
-        });
+  const description = prompt ? describeConsent(t, prompt, action) : "";
 
   return (
     <Dialog

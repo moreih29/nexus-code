@@ -419,6 +419,9 @@ export const actionHandlers: {
       ...(id ? { id } : {}),
       fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
       fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
+      ...(fromTab?.type === "claude" || fromTab?.type === "codex"
+        ? { fromAgent: fromTab.type }
+        : {}),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
       change,
