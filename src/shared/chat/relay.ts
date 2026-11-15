@@ -9,7 +9,10 @@ import { z } from "zod";
 
 /** Who sent a message through the nexus command, when an agent did. */
 export const RelaySenderSchema = z.object({
-  /** A Claude or Codex tab's agent, an agent in a terminal, or the manager. */
+  /**
+   * A Claude or Codex tab's agent, or an agent in a terminal. "manager" is
+   * the agent manager of older versions, kept so what one sent still reads.
+   */
   kind: z.enum(["tab", "terminal", "manager"]),
   agent: z.enum(["claude", "codex"]).optional(),
   /** The tab's title when it sent the message. */

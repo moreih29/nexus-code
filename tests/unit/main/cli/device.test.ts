@@ -8,7 +8,6 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import type { CliDevice } from "../../../../src/main/features/cli/context";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { agentSenderOf, askDevice, resolveDevice } from "../../../../src/main/features/cli/remote";
-import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
 import { APP, CLAUDE_TAB, contextFor, type FakeApp, fakeApp, SHELL_TAB } from "./fake-services";
 
 const NOW = 1_700_000_000_000;
@@ -241,16 +240,6 @@ describe("--device", () => {
       agent: "claude",
       workspaceId: APP,
       tabId: CLAUDE_TAB,
-      hops: 1,
-    });
-    const manager = contextFor(app, [], {
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
-    });
-    expect(await agentSenderOf(manager)).toEqual({
-      kind: "manager",
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
       hops: 1,
     });
   });

@@ -9,7 +9,6 @@ import type {
   CliChatSettings,
   CliTabInfo,
 } from "../../../../shared/cli/ui";
-import { isManager } from "../../../../shared/manager/manager";
 import { CHAT_MODES, chatModeNamed, loosens } from "../../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../../shared/types/workspace";
@@ -19,7 +18,6 @@ import {
   type CliDevice,
   CliError,
   mayChange,
-  noteDispatch,
   placementFor,
   resolveTab,
   resolveWorkspace,
@@ -289,8 +287,7 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
 /**
  * Resolves when the user lets a tab go from mode `from` to `to`, a mode that
  * lets more run without asking: asked as an answer to a permission request
- * is, whatever the setting; the agent manager as Settings › Agent manager
- * lets it answer those.
+ * is, whatever the setting.
  */
 async function mayLoosen(
   ctx: CliContext,
@@ -301,13 +298,6 @@ async function mayLoosen(
   to: string,
 ): Promise<void> {
   if (!loosens(agent, from, to)) return;
-  const policy = isManager(ctx.caller) ? ctx.services.managerPermissions() : "ask";
-  if (policy === "user") {
-    throw new CliError(
-      `the user picks a mode that lets more run unasked (Settings › Agent manager); ask them to set ${tab.what} to ${to}`,
-    );
-  }
-  if (policy === "answer") return;
   await ctx.services.askUser({
     fromWorkspaceId: ctx.caller.workspaceId,
     fromTabId: ctx.caller.tabId,
@@ -402,7 +392,6 @@ const chatNew: CliCommand = {
         { exitCode: 1 },
       );
     }
-    if (prompt !== "") await noteDispatch(ctx, { workspaceId: workspace.id, tabId }, prompt);
     const text =
       prompt === ""
         ? `Opened ${AGENT_NAMES[agent]} tab ${shortId(tabId)} in ${cwd}.`
@@ -758,7 +747,6 @@ const chatSend: CliCommand = {
       { workspaceId: workspace.id, tabId: tab.id, text, ...(from ? { from } : {}) },
       SEND_TIMEOUT_MS,
     );
-    await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
     const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
     const json = { tabId: tab.id, workspaceId: workspace.id, text };
     if (timeoutMs === null) return output(sent, json);
@@ -808,14 +796,6 @@ const chatWait: CliCommand = {
 /** How chat.state tells a tool's permission request (renderer services/cli/chat-view). */
 const ASKS_TO_RUN = "asks to run ";
 
-/** Text set in under a line that introduces it. */
-function indent(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => `  ${line}`)
-    .join("\n");
-}
-
 const chatAnswer: CliCommand = {
   path: ["chat", "answer"],
   summary: "Allow or deny the tool a Claude or Codex tab asks to run",
@@ -823,8 +803,7 @@ const chatAnswer: CliCommand = {
   details:
     "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
     "the agent why with a deny. A question or a plan the agent puts to the user is theirs to\n" +
-    "answer in the app. The agent manager answers as Settings › Agent manager lets it; anyone\n" +
-    "else, with the user's leave.",
+    "answer in the app. An agent answers with the user's leave.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     workspace: WORKSPACE_FLAG,
@@ -870,13 +849,7 @@ const chatAnswer: CliCommand = {
         body: whole,
       },
     };
-    const policy = isManager(ctx.caller) ? ctx.services.managerPermissions() : "ask";
-    if (policy === "user") {
-      throw new CliError(
-        `the user answers other sessions' permission requests (Settings › Agent manager); tell them ${tab.title} asks to run ${info.request.tool}:\n${indent(whole)}`,
-      );
-    }
-    if (policy === "ask") await ctx.services.askUser(request);
+    await ctx.services.askUser(request);
     await ctx.services.ui("chat.answer", {
       ...target,
       decision,

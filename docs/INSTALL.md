@@ -268,7 +268,7 @@ sudo apparmor_parser -r /etc/apparmor.d/nexuscode-appimage
 
 ### Claude · Codex 탭이 API 키나 게이트웨이 설정을 못 찾을 때
 
-Claude · Codex 탭과 에이전트 매니저는 터미널처럼 사용자의 로그인 셸(`$SHELL -il`)이 내보내는 환경 변수를 받아 실행된다. `~/.zshrc`, `~/.bashrc` 같은 곳에서 `export ANTHROPIC_BASE_URL=…` 처럼 내보낸 값이 그대로 쓰이고, SSH 워크스페이스는 원격 호스트의 셸 설정을 읽는다. 셸 설정을 고친 뒤 10초쯤 지나 탭을 다시 시작하면 반영된다.
+Claude · Codex 탭은 터미널처럼 사용자의 로그인 셸(`$SHELL -il`)이 내보내는 환경 변수를 받아 실행된다. `~/.zshrc`, `~/.bashrc` 같은 곳에서 `export ANTHROPIC_BASE_URL=…` 처럼 내보낸 값이 그대로 쓰이고, SSH 워크스페이스는 원격 호스트의 셸 설정을 읽는다. 셸 설정을 고친 뒤 10초쯤 지나 탭을 다시 시작하면 반영된다.
 
 - 셸 시작 파일이 5초 안에 끝나지 않으면 이 값을 받지 못한다. `time $SHELL -ilc true` 로 걸리는 시간을 확인한다.
 - Windows 는 시스템 환경 변수를 쓴다.

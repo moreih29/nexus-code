@@ -7,7 +7,6 @@ import { CLI_COMMANDS } from "../../../../src/main/features/cli/commands";
 import { runCli } from "../../../../src/main/features/cli/registry";
 import { senderOf } from "../../../../src/main/features/cli/sender";
 import type { CliChatInfo, CliTabInfo } from "../../../../src/shared/cli/ui";
-import { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } from "../../../../src/shared/manager/manager";
 import {
   API,
   APP,
@@ -268,7 +267,6 @@ describe("chat new with settings", () => {
     expect(result.stdout).toBe(
       'Opened Claude tab cccccccc in /w/app, but could not set it: it offers no model "gpt"; it offers default, sonnet. The prompt was not sent.\n',
     );
-    expect(app.dispatched).toEqual([]);
   });
 });
 
@@ -300,8 +298,6 @@ describe("who sends a message", () => {
       hops: 1,
     });
     expect(await senderOf(at(SHELL_TAB))).toBeUndefined();
-    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID };
-    expect(await senderOf(contextFor(app, [], manager))).toEqual({ kind: "manager", hops: 1 });
   });
 
   test("one more than the agent's message that started the sender's turn; too far is a loop", async () => {
@@ -363,14 +359,6 @@ describe("who sends a message", () => {
     expect(await senderOf(contextFor(app, [], { workspaceId: APP, tabId: gone }))).toEqual(
       unknown(gone),
     );
-    // Nor is the manager's tab without its token the manager.
-    const manager = { workspaceId: MANAGER_WORKSPACE_ID, tabId: MANAGER_TAB_ID, verified: false };
-    expect(await senderOf(contextFor(app, [], manager))).toEqual({
-      kind: "terminal",
-      workspaceId: MANAGER_WORKSPACE_ID,
-      tabId: MANAGER_TAB_ID,
-      hops: 1,
-    });
   });
 
   test("an agent a terminal started that has said nothing yet is found by the terminal's program now", async () => {

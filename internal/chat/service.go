@@ -146,7 +146,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// A node package's command runs as node on its script: through npm's
-	// .cmd, cmd.exe would end the agent manager's prompt at its first line.
+	// .cmd, cmd.exe would end a multi-line argument at its first line.
 	cmd := nodeshim.Command(p.Program, p.Args...)
 	cmd.Dir = p.Cwd
 	cmd.Env = env

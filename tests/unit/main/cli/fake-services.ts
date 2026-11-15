@@ -46,7 +46,6 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
-import type { ManagerPermissions } from "../../../../src/shared/manager/manager";
 import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
@@ -190,9 +189,6 @@ export interface FakeApp {
   settings: {
     crossWorkspace: CrossWorkspacePolicy;
     agentContext: boolean;
-    managerPermissions: ManagerPermissions;
-    /** Whether the agent manager is on, as manager.dock tells. */
-    managerEnabled: boolean;
   };
   /** The answers the user gives to consent prompts, in turn; "deny" when none is left. */
   answers: CliConsentAnswer[];
@@ -232,8 +228,6 @@ export interface FakeApp {
   events: CliSessionEvent[];
   /** The permission requests chat.answer answered. */
   chatAnswered: Array<CliUiOps["chat.answer"]["args"]>;
-  /** What manager.dispatched was told: the sessions the manager handed work to. */
-  dispatched: Array<CliUiOps["manager.dispatched"]["args"]>;
   /** What each Claude or Codex tab runs with, by tab id; chat.settings sets what it is given. */
   chatChoices: Map<string, CliChatChoices>;
   /** What chat.open answers it could not set; it sets everything when absent. */
@@ -397,8 +391,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const settings: FakeApp["settings"] = {
     crossWorkspace: "ask",
     agentContext: true,
-    managerPermissions: "user",
-    managerEnabled: true,
   };
   const answers: CliConsentAnswer[] = [];
   const asked: ChangeRequest[] = [];
@@ -460,7 +452,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   const chatSent: FakeApp["chatSent"] = [];
   const events: FakeApp["events"] = [];
   const chatAnswered: FakeApp["chatAnswered"] = [];
-  const dispatched: FakeApp["dispatched"] = [];
   const chatChoices: FakeApp["chatChoices"] = new Map();
   const chatOpenError: FakeApp["chatOpenError"] = {};
   const closeRefused: FakeApp["closeRefused"] = new Map();
@@ -566,9 +557,6 @@ export function fakeApp(now = Date.now()): FakeApp {
       const error = chatOpenError.message;
       return { tabId: NEW_TAB, ...(error ? { error } : {}) } as CliUiOps[K]["result"];
     }
-    if (op === "manager.dock") {
-      return { enabled: settings.managerEnabled } as CliUiOps[K]["result"];
-    }
     // Any profile but "nope" is the agent's; the tab ran with the default one.
     if (op === "chat.profile") {
       const { profile } = args as CliUiOps["chat.profile"]["args"];
@@ -592,10 +580,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     }
     if (op === "chat.answer") {
       chatAnswered.push(args as CliUiOps["chat.answer"]["args"]);
-      return {} as CliUiOps[K]["result"];
-    }
-    if (op === "manager.dispatched") {
-      dispatched.push(args as CliUiOps["manager.dispatched"]["args"]);
       return {} as CliUiOps[K]["result"];
     }
     if (op === "chat.tool") {
@@ -694,7 +678,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     agentInputs: new AgentInputs(),
     consents: { list: () => [], answer: async () => false },
     remote,
-    managerWorkspace: () => null,
     claudeAgents: {
       list: (ws, t) => agents.get(`${ws}:${t}`) ?? [],
       stop: async (_ws, _t, agentId) => {
@@ -708,7 +691,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
-    managerPermissions: () => settings.managerPermissions,
     agentContextEnabled: () => settings.agentContext,
     foregroundProcess: async (_workspaceId, tabId) => foreground.get(tabId) ?? null,
     listeningPorts: async (workspaceId) => {
@@ -782,7 +764,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     chatSent,
     events,
     chatAnswered,
-    dispatched,
     chatChoices,
     chatOpenError,
     closeRefused,

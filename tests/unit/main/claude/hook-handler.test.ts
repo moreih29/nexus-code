@@ -33,9 +33,6 @@ mock.module("electron", () => ({
 }));
 
 const { registerHookHandler } = await import("../../../../src/main/features/claude/hook-handler");
-const { MANAGER_TAB_ID, MANAGER_WORKSPACE_ID } = await import(
-  "../../../../src/shared/manager/manager"
-);
 const { ClaudeStatusBroker } = await import("../../../../src/main/features/claude/status");
 const { ActiveContextStore } = await import("../../../../src/main/features/claude/active-context");
 const { PROMPT_MAX_CHARS } = await import("../../../../src/shared/claude/status");
@@ -925,19 +922,6 @@ describe("hook-handler — Notification OS 알림 발사(active context 분기)"
       await new Promise((r) => setTimeout(r, 0));
       expect(broker.get("ws-test", "tab-test")?.status).toBe("needsInput");
     }
-  });
-
-  test("the agent manager's session raises no notification of its own", async () => {
-    const { notifInstances, emit } = makeHarness(false /* unfocused */);
-    for (const subcommand of ["stop", "notification", "permission-request"]) {
-      emit({
-        ...makeHookPayload(subcommand, { tool_name: "Bash", message: "done" }),
-        workspaceId: MANAGER_WORKSPACE_ID,
-        tabId: MANAGER_TAB_ID,
-      });
-    }
-    await new Promise((r) => setTimeout(r, 0));
-    expect(notifInstances).toHaveLength(0);
   });
 });
 

@@ -15,7 +15,6 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../../ipc/client";
-import { useManagerStore } from "../../../state/stores/manager";
 import { useNotificationsStore } from "../../../state/stores/notifications";
 import { SettingsGroup, SettingsPage, SettingsSwitch } from "../section";
 
@@ -25,8 +24,6 @@ export function NotificationsPanel() {
   const setOsEnabled = useNotificationsStore((s) => s.setOsEnabled);
   const rateLimitWarnings = useNotificationsStore((s) => s.rateLimitWarnings);
   const setRateLimitWarnings = useNotificationsStore((s) => s.setRateLimitWarnings);
-  const managerReports = useManagerStore((s) => s.reports);
-  const setManager = useManagerStore((s) => s.setSettings);
 
   const handleOsToggleChange = useCallback(
     (next: boolean) => {
@@ -48,14 +45,6 @@ export function NotificationsPanel() {
           description={t("notifications.osEnabled.description")}
           checked={osEnabled}
           onChange={handleOsToggleChange}
-        />
-        {/* The agent manager's answers, while the app is not in front. */}
-        <SettingsSwitch
-          label={t("notifications.managerReports.label")}
-          description={t("notifications.managerReports.description")}
-          checked={managerReports}
-          onChange={(next) => setManager({ reports: next })}
-          disabled={!osEnabled}
         />
         {/* In the app, not on the desktop: independent of the switch above. */}
         <SettingsSwitch

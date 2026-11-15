@@ -35,7 +35,6 @@ import { useAgents } from "@/services/agent-view/use-agents";
 import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
-import { useManagerStore } from "@/state/stores/manager";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
@@ -45,7 +44,6 @@ import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-
 import { AgentMark, GROUP_STATE, GROUP_TINT, RowLine } from "../agent-list/status-view";
 import { NewChatMenuItems } from "../agent-profiles/new-chat-menu";
 import { GoalRowLine } from "../chat/goal-bar";
-import { ManagerChip } from "../manager/manager-chip";
 import { DropdownMenuContent, DropdownMenuRoot, DropdownMenuTrigger } from "../ui/dropdown-menu";
 import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
@@ -569,7 +567,6 @@ function AgentItem({
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
-  const managers = useManagerStore((s) => s.tasks[key] !== undefined);
   const run = activity.get(key);
   const facts =
     session.kind === "terminal"
@@ -678,7 +675,6 @@ function AgentItem({
         </div>
         <div className="flex min-w-0 items-center gap-1.5 pl-5.5 text-app-micro">
           {placed && <WorkspaceTag workspace={placed.workspace} root={placed.root} />}
-          {managers && <ManagerChip />}
           <RowLine session={session} facts={facts} />
         </div>
         {session.kind !== "terminal" && (

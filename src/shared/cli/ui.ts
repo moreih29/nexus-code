@@ -252,17 +252,6 @@ export function isTerminalChange(change: CliChange): boolean {
   );
 }
 
-/**
- * Whether a change types, runs or sends something: what is typed into a
- * terminal or sent a tab, or a change that carries what it would run or say
- * (a new terminal's command, a new tab's or task's prompt).
- */
-export function carriesInput(change: CliChange): boolean {
-  return (
-    change.kind === "terminalInput" || change.kind === "chatInput" || change.body !== undefined
-  );
-}
-
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */
 export interface CliChatSettings {
   readonly model?: string;
@@ -1044,27 +1033,6 @@ export interface CliUiOps {
        */
       always?: number[];
     };
-    result: Record<string, never>;
-  };
-  /**
-   * The agent manager handed work to a session, sending it `text` when it
-   * did: the session is its task from now (services/manager).
-   */
-  "manager.dispatched": {
-    args: { workspaceId: string; tabId: string; text?: string };
-    result: Record<string, never>;
-  };
-  /** Opens or shuts the agent manager's dock; tells whether the manager is on. */
-  "manager.dock": {
-    args: { open: boolean };
-    result: { enabled: boolean };
-  };
-  /**
-   * Starts the agent manager over, as its dock's New conversation does: the
-   * old conversation is left to resume. Refused while the manager is off.
-   */
-  "manager.new": {
-    args: Record<string, never>;
     result: Record<string, never>;
   };
   /**

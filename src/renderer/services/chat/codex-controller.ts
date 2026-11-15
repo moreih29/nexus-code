@@ -108,14 +108,6 @@ export interface CodexTabTarget {
    * tab's (a thread gone on with in another profile).
    */
   fork?: { threadId: string; title?: string; profileId?: string };
-  /** What the thread is told beside Codex's own instructions (the agent manager's). */
-  developerInstructions?: string;
-  /**
-   * Whether Codex is to take the folder as trusted, so its own rules
-   * (.codex/rules) apply, though the user's config says nothing of it (the
-   * agent manager's).
-   */
-  trusted?: boolean;
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
   /** Where the conversation went on in another profile. */
@@ -359,7 +351,6 @@ export class CodexController {
     void this.request("model/list", {}).catch(() => {});
     this.readRateLimits();
     const { cwd } = this.target;
-    const settings = threadSettings(this.target);
     const threadId = this.model.threadId ?? this.target.threadId;
     const fork = this.target.fork;
     if (!threadId && fork) {
@@ -368,7 +359,6 @@ export class CodexController {
         const forked = await this.request("thread/fork", {
           threadId: fork.threadId,
           cwd,
-          ...settings,
         });
         const id = (forked.thread as { id?: unknown } | undefined)?.id;
         const copy = typeof id === "string" ? id : undefined;
@@ -396,7 +386,6 @@ export class CodexController {
           threadId,
           cwd,
           excludeTurns: this.model.items.length > 0,
-          ...settings,
         });
         this.readGoal(threadId);
         return true;
@@ -1156,23 +1145,6 @@ const CARD_REQUESTS = new Set([
   "item/tool/requestUserInput",
 ]);
 
-/**
- * What a tab's thread starts or goes on with beside its folder: the
- * instructions it is given, and the folder's trust, for this thread only.
- * Codex reads a folder's own rules only when it is trusted, and said here
- * the trust is written to no config of the user's.
- */
-export function threadSettings({
-  cwd,
-  developerInstructions,
-  trusted,
-}: CodexTabTarget): Record<string, unknown> {
-  return {
-    ...(developerInstructions ? { developerInstructions } : {}),
-    ...(trusted ? { config: { projects: { [cwd]: { trust_level: "trusted" } } } } : {}),
-  };
-}
-
 /** The model, effort and preset a tab picked, for its next turn or thread. */
 export interface CodexPicks {
   model?: string;
@@ -1201,22 +1173,16 @@ export function picksOf(model: CodexModel): CodexPicks {
 }
 
 /**
- * thread/start's params: the tab's settings, then its picks; the effort
+ * thread/start's params: the tab's folder, then its picks; the effort
  * as a config override, as thread/start takes it no other way.
  */
 export function threadStartParams(
   target: CodexTabTarget,
   picks: CodexPicks,
 ): Record<string, unknown> {
-  const settings = threadSettings(target);
-  const config = {
-    ...(settings.config as Record<string, unknown> | undefined),
-    ...(picks.effort ? { model_reasoning_effort: picks.effort } : {}),
-  };
   return {
     cwd: target.cwd,
-    ...settings,
-    ...(Object.keys(config).length > 0 ? { config } : {}),
+    ...(picks.effort ? { config: { model_reasoning_effort: picks.effort } } : {}),
     ...(picks.model ? { model: picks.model } : {}),
     ...(picks.mode
       ? {

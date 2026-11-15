@@ -22,7 +22,6 @@ function services(fake: Fake, start = 100_000) {
       },
     },
     listWorkspaces: () => [{ id: "w1", name: "app", rootPath: "/src/app" }],
-    managerWorkspace: () => null,
     startedAgents: { since: () => undefined },
     claudeStatus: () => fake.claude ?? null,
     activity: () => null,

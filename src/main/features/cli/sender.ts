@@ -3,7 +3,6 @@
  * the tab shows the message and its agent is told: an agent, or the user.
  */
 import type { RelaySender } from "../../../shared/chat/relay";
-import { isManager } from "../../../shared/manager/manager";
 import { agentFromProgram } from "../../../shared/sessions/agent-state";
 import { terminalState } from "./agent-state";
 import type { CliContext } from "./context";
@@ -43,7 +42,6 @@ async function turnHops(ctx: CliContext, sender: RelaySender): Promise<number> {
 }
 
 async function agentOf(ctx: CliContext): Promise<RelaySender | undefined> {
-  if (isManager(ctx.caller)) return { kind: "manager" };
   const { workspaceId, tabId, verified } = ctx.caller;
   const tabs = await ctx.services
     .ui("tabs.list", { workspaceId })

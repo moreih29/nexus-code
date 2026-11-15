@@ -100,7 +100,7 @@ const settingsOpen: CliCommand = {
   details:
     `Pages: ${SETTINGS_PAGES.join(", ")}. A setting's key (nexus settings list) opens\n` +
     "the page that has it. With neither, the dialog opens where it was left. For what only\n" +
-    "the user sets: language servers, keybindings, browser permissions, the agent manager.",
+    "the user sets: language servers, keybindings, browser permissions.",
   async run(ctx, { positionals }) {
     if (positionals.length > 1) {
       throw new CliUsageError(`unexpected argument "${positionals[1]}"`);

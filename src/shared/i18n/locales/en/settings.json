@@ -12,7 +12,6 @@
     "keybindings": "Keyboard Shortcuts",
     "about": "About",
     "agent": "Agents",
-    "manager": "Manager",
     "claude": "Claude",
     "codex": "Codex",
     "profileRules": "Profiles by workspace",
@@ -252,10 +251,6 @@
       "label": "Desktop notifications",
       "description": "When an agent in a tab you aren't viewing finishes or waits"
     },
-    "managerReports": {
-      "label": "Agent manager reports",
-      "description": "Also get the manager's done and waiting reports as notifications"
-    },
     "rateLimitWarnings": {
       "label": "Usage limit warnings",
       "description": "Warn above a Claude tab's message box when the usage limit is near. A limit reached always shows."
@@ -280,6 +275,7 @@
     "consent": {
       "title": "Allow an agent to change another workspace?",
       "description": "The terminal \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
+      "agent_description": "The {{agent}} tab \"{{tab}}\" in {{from}} asks to {{action}} in {{to}}.",
       "deny": "Don't allow",
       "session": "Allow until restart",
       "once": "Allow once",
@@ -316,7 +312,6 @@
         "chatProfileNew": "change the profile of the tab {{detail}}, starting a new conversation"
       },
       "permission_title": "Answer another session's permission request?",
-      "manager_description": "The agent manager asks to {{action}} in {{to}}.",
       "mode_title": "Let an agent loosen a session's permission mode?",
       "profile_title": "Let an agent change a tab's profile?",
       "remote_title": "Allow an agent on another computer to change this one?",
@@ -530,36 +525,6 @@
     "ariaFontFamily": "Chat font family",
     "previewReply": "Replies show in this size and font. `Code` keeps its monospace font.",
     "previewTool": "Read src/greet.ts"
-  },
-  "manager": {
-    "enabled": {
-      "label": "Agent manager",
-      "description": "Starts with the app, sees every session and directs them"
-    },
-    "agent": {
-      "label": "Manager agent",
-      "description": "Uses that agent's own account and model"
-    },
-    "profile": {
-      "label": "Manager profile",
-      "description": "Changing it starts the manager over in a new conversation",
-      "inherit": "The agent's default ({{name}})"
-    },
-    "reports": "Reports and permissions",
-    "notify": {
-      "label": "Tell the manager about",
-      "tasks": "Its tasks",
-      "attention": "+ Waiting, errors",
-      "all": "Everything",
-      "description": "The more, the more usage"
-    },
-    "permissions": {
-      "label": "Permission requests",
-      "user": "Leave to me",
-      "ask": "Ask each time",
-      "answer": "Let it answer",
-      "description": "When another session asks to use a tool"
-    }
   },
   "profiles": {
     "heading": "Profiles",

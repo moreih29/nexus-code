@@ -12,7 +12,7 @@ import (
 // server's: the server's token bound to the workspace and tab ids. A
 // process holding one can speak only for the tab it was started in, so an
 // agent cannot set NEXUS_TAB_ID to another tab's (a terminal the user
-// types in) and be taken for the user, or for the agent manager. Main
+// types in) and be taken for the user. Main
 // makes the same token for the tabs it starts (tabHookToken in
 // src/main/features/workspace/tab-token.ts); hook.getInfo says the server
 // takes them ("tabTokens").

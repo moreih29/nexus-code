@@ -10,7 +10,6 @@ import { deviceCommands } from "./device";
 import { editorCommands } from "./editor";
 import { eventCommands } from "./events";
 import { layoutCommands, tabArrangeCommands } from "./layout";
-import { managerCommands } from "./manager";
 import { noteCommands } from "./note";
 import { notifyCommands } from "./notify";
 import { panelCommands } from "./panel";
@@ -31,7 +30,6 @@ export const CLI_COMMANDS: readonly CliCommand[] = [
   ...viewCommands,
   ...panelCommands,
   ...settingsCommands,
-  ...managerCommands,
   ...editorCommands,
   ...browserCommands,
   ...browserControlCommands,
