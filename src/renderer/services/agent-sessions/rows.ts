@@ -13,13 +13,20 @@ import { agentsOf as chatAgentsOf, contextOf, todosOf } from "../chat/panel";
 import { currentTool, liveAgents, shortTarget } from "./agents";
 import type { AgentSession } from "./model";
 
-/** The groups of the list, in its order: the user's turn first, those ended last. */
-export const ROW_GROUPS = ["attention", "running", "done", "idle", "ended"] as const;
+/** The groups of the list, in its order: the user's turn first, those quiet last. */
+export const ROW_GROUPS = ["attention", "running", "done", "idle"] as const;
 export type RowGroup = (typeof ROW_GROUPS)[number];
 
 export function groupOf(session: AgentSession): RowGroup {
-  if (session.state === "exited") return "ended";
   return session.phase;
+}
+
+/**
+ * Whether the agent lists show it: not an agent whose terminal ended. That
+ * terminal stays a tab of its workspace, which takes the agent up again.
+ */
+export function listed(session: AgentSession): boolean {
+  return session.state !== "exited";
 }
 
 /** Whether `session` has `query` in its title, last prompt or last answer; any does for none. */
@@ -44,7 +51,9 @@ export function sessionsIn(
 ): AgentSession[] {
   const order = group === "attention" ? 1 : -1;
   return sessions
-    .filter((session) => groupOf(session) === group && matchesQuery(session, query))
+    .filter(
+      (session) => listed(session) && groupOf(session) === group && matchesQuery(session, query),
+    )
     .sort((a, b) => order * ((a.since ?? 0) - (b.since ?? 0)));
 }
 

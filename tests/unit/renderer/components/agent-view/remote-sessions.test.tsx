@@ -112,6 +112,8 @@ describe("the agent view's other computers", () => {
     expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
       true,
     );
+    // One that ended is a terminal again, as an agent here whose terminal ended.
+    expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
   });
 
   test("lists a workspace's terminals when asked there, when one is in a panel, or when a search finds one", () => {

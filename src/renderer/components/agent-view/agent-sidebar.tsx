@@ -19,6 +19,7 @@ import {
   chatRowFacts,
   groupOf,
   hookRowFacts,
+  listed,
   matchesQuery,
   ROW_GROUPS,
   type RowGroup,
@@ -334,7 +335,7 @@ function WorkspaceGroups({ agents, activity, chats, query }: GroupsProps) {
         .map((worktree) => ({
           worktree,
           sessions: orderSessions(worktree.sessions, order[worktree.workspace.id]).filter(
-            (session) => matchesQuery(session, query),
+            (session) => listed(session) && matchesQuery(session, query),
           ),
         }))
         // A task shows with agents to list; the workspace itself does, for its + to start

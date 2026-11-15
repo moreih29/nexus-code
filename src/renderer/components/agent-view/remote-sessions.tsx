@@ -48,7 +48,8 @@ export const GROUP_OF: Record<SessionState, RowGroup> = {
   running: "running",
   "new-result": "done",
   idle: "idle",
-  ended: "ended",
+  // Left out of the list unasked, as an agent here whose terminal ended is.
+  ended: "idle",
 };
 
 /**
@@ -58,6 +59,7 @@ export const GROUP_OF: Record<SessionState, RowGroup> = {
  * runs one.
  */
 export function listedByDefault(session: RemoteSession): boolean {
+  if (session.state === "ended") return false;
   if (session.kind !== "terminal") return true;
   return (
     session.agent !== undefined ||

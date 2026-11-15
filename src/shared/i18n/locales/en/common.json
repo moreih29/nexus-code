@@ -627,8 +627,7 @@
       "attention": "Needs you",
       "running": "Working",
       "done": "New result",
-      "idle": "Idle",
-      "ended": "Ended"
+      "idle": "Idle"
     },
     "list": {
       "search": "Find a conversation",

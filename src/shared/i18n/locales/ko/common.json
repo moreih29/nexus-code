@@ -627,8 +627,7 @@
       "attention": "응답 필요",
       "running": "작업 중",
       "done": "새 결과",
-      "idle": "대기",
-      "ended": "종료"
+      "idle": "대기"
     },
     "list": {
       "search": "대화 찾기",
@@ -1725,7 +1724,7 @@
     },
     "list": {
       "title": "에이전트",
-      "group_by": "묶기",
+      "group_by": "분류",
       "grouping": {
         "status": "상태",
         "workspace": "워크스페이스"
