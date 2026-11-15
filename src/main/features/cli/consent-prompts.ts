@@ -1,7 +1,7 @@
 /**
  * The consent prompts waiting on the user, wherever they came from: a
- * nexus command changing another workspace, the agent manager, an agent of
- * another computer of theirs. The renderer shows them one at a time; this
+ * nexus command changing another workspace, an agent of another computer
+ * of theirs. The renderer shows them one at a time; this
  * keeps them by id meanwhile, so another device of the user's can list
  * them (the remote's sessions.list) and answer one (consent.answer), which
  * closes it here as the user's own answer would.

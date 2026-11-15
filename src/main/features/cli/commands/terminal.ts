@@ -8,7 +8,6 @@ import {
   type CliDevice,
   CliError,
   mayChange,
-  noteDispatch,
   placementFor,
   resolveTab,
   resolveWorkspace,
@@ -585,7 +584,6 @@ const terminalNew: CliCommand = {
       ...(shell !== undefined ? { shell } : {}),
       placement: placementFor(ctx, workspace, flags.show !== true),
     });
-    if (command) await noteDispatch(ctx, { workspaceId: workspace.id, tabId });
     return output(`Opened terminal ${shortId(tabId)} in ${cwd}.`, {
       tabId,
       workspaceId: workspace.id,
@@ -669,9 +667,6 @@ const terminalSend: CliCommand = {
     // An agent's input: the turn it starts there is down the chain from it.
     if (from?.hops !== undefined) {
       ctx.services.agentInputs.record(workspace.id, tab.id, from.hops, startedAt);
-    }
-    if (enter && text.trim() !== "") {
-      await noteDispatch(ctx, { workspaceId: workspace.id, tabId: tab.id }, text);
     }
     const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
     const json = { tabId: tab.id, workspaceId: workspace.id, text, enter };

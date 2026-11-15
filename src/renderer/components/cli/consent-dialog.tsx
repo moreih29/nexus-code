@@ -22,8 +22,6 @@ export interface CliConsentPrompt {
   readonly id?: string;
   readonly fromWorkspace: string;
   readonly fromTab: string;
-  /** Whether the agent manager asks: it is in no workspace of the user's. */
-  readonly fromManager: boolean;
   /** The user's other computer the agent asks from, by its name; none for this one. */
   readonly fromDevice?: string;
   readonly toWorkspace: string;
@@ -100,14 +98,12 @@ export function CliConsentDialogRoot(): React.JSX.Element {
           to: prompt.toWorkspace,
           action,
         })
-      : prompt.fromManager
-        ? t("agentCli.consent.manager_description", { to: prompt.toWorkspace, action })
-        : t("agentCli.consent.description", {
-            tab: prompt.fromTab,
-            from: prompt.fromWorkspace,
-            to: prompt.toWorkspace,
-            action,
-          });
+      : t("agentCli.consent.description", {
+          tab: prompt.fromTab,
+          from: prompt.fromWorkspace,
+          to: prompt.toWorkspace,
+          action,
+        });
 
   return (
     <Dialog

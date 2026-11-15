@@ -14,7 +14,6 @@ import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
 import { codexCommandsListed, parseCodexCommand } from "../../services/chat/codex-commands";
 import {
   type CodexController,
-  type CodexTabHooks,
   codexController,
   MIN_CODEX_VERSION,
 } from "../../services/chat/codex-controller";
@@ -74,29 +73,12 @@ interface CodexTabViewProps {
   tabId: string;
   props: CodexTabProps;
   isVisible: boolean;
-  /**
-   * What the conversation keeps, where it is no tab of the tabs store (the
-   * agent manager's): what owns it opens it.
-   */
-  hooks?: CodexTabHooks;
-  /** What the thread is told at its start, beside Codex's own instructions. */
-  developerInstructions?: string;
-  /** Whether Codex takes the folder as trusted, its own rules applying. */
-  trusted?: boolean;
 }
 
 /** From this width a file opens in a group beside the tab. */
 const SPLIT_FROM_PX = 900;
 
-export function CodexTabView({
-  workspaceId,
-  tabId,
-  props,
-  isVisible,
-  hooks,
-  developerInstructions,
-  trusted,
-}: CodexTabViewProps) {
+export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabViewProps) {
   const { t } = useTranslation();
   const rootPath = useWorkspacesStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.rootPath ?? "",
@@ -116,10 +98,8 @@ export function CodexTabView({
           ...(props.fork ? { fork: props.fork } : {}),
           ...(props.profileId ? { profileId: props.profileId } : {}),
           ...(props.chosen ? { chosen: props.chosen } : {}),
-          ...(developerInstructions ? { developerInstructions } : {}),
-          ...(trusted ? { trusted } : {}),
         },
-        hooks ?? codexTabHooks(workspaceId, tabId),
+        codexTabHooks(workspaceId, tabId),
       ),
     [workspaceId, tabId],
   );
@@ -133,8 +113,8 @@ export function CodexTabView({
   useEffect(() => {
     if (!isVisible || opened.current) return;
     opened.current = true;
-    if (!hooks) void controller.open();
-  }, [isVisible, controller, hooks]);
+    void controller.open();
+  }, [isVisible, controller]);
 
   const onAnswer = (request: PermissionRequest, answer: PermissionAnswer) => {
     void controller.answerPermission(request, answer).catch(() => {});
@@ -443,21 +423,17 @@ export function CodexTabView({
             visible={isVisible}
             tokens={model.tokens}
             rateLimits={model.rateLimits}
-            trailing={
-              hooks
-                ? undefined
-                : (compact) => (
-                    <ProfileUsageChip
-                      agent="codex"
-                      workspaceId={workspaceId}
-                      profileId={props.profileId}
-                      use={tabUse}
-                      onSwitch={switchProfile}
-                      onContinue={continueInProfile}
-                      compact={compact}
-                    />
-                  )
-            }
+            trailing={(compact) => (
+              <ProfileUsageChip
+                agent="codex"
+                workspaceId={workspaceId}
+                profileId={props.profileId}
+                use={tabUse}
+                onSwitch={switchProfile}
+                onContinue={continueInProfile}
+                compact={compact}
+              />
+            )}
           />
         }
         onCommand={(text) => {

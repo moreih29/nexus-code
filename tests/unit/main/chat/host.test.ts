@@ -113,12 +113,12 @@ describe("chat launch", () => {
 
   test("a claude that takes it is asked for its thinking's summaries, before a resume", () => {
     const flag = ["--thinking-display", "summarized"];
-    const args = claudeTabArgs({ resume: "s1" }, undefined, false, "2.1.323");
+    const args = claudeTabArgs({ resume: "s1" }, undefined, "2.1.323");
     expect(args.slice(-4)).toEqual([...flag, "--resume", "s1"]);
-    expect(claudeTabArgs({}, undefined, false, THINKING_DISPLAY_FROM).slice(-2)).toEqual(flag);
+    expect(claudeTabArgs({}, undefined, THINKING_DISPLAY_FROM).slice(-2)).toEqual(flag);
     // An older claude refuses the flag and does not start; an unknown one is not risked.
     for (const version of ["2.1.0", null, "garbage"]) {
-      expect(claudeTabArgs({}, undefined, false, version)).not.toContain("--thinking-display");
+      expect(claudeTabArgs({}, undefined, version)).not.toContain("--thinking-display");
     }
     expect(takesThinkingDisplay(THINKING_DISPLAY_FROM)).toBe(true);
     expect(takesThinkingDisplay("3.0.0")).toBe(true);

@@ -16,7 +16,6 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { CliChatChoices, CliChatState } from "../../../shared/cli/ui";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
 import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
@@ -124,15 +123,14 @@ function oneLine(text: string, max = 200): string {
 export type WorkspaceGit = (workspace: WorkspaceMeta) => RemoteWorkspace["git"] | undefined;
 
 /**
- * The workspaces and their sessions, the agent manager's last; a task's
- * git facts from `git`, which looks at them now and then rather than now.
+ * The workspaces and their sessions; a task's git facts from `git`, which
+ * looks at them now and then rather than now.
  */
 export async function listSessions(
   services: CliServices,
   git?: WorkspaceGit,
 ): Promise<RpcResult<"sessions.list">> {
-  const manager = services.managerWorkspace();
-  const workspaces = [...ordered(services.listWorkspaces()), ...(manager ? [manager] : [])];
+  const workspaces = ordered(services.listWorkspaces());
   const sessions: RemoteSession[] = [];
   const now = Date.now();
   for (const workspace of workspaces) {
@@ -207,7 +205,6 @@ export async function listSessions(
       path: w.rootPath,
       ...(w.task ? { parentId: w.task.parentId } : {}),
       ...(!w.task && w.pinned ? { pinned: true } : {}),
-      ...(isManagerWorkspace(w.id) ? { manager: true } : {}),
       ...(facts ? { git: facts } : {}),
     };
   });
@@ -234,13 +231,9 @@ export async function tabOf(
   return tab;
 }
 
-/** A workspace the sessions' list shows: the user's, or the agent manager's. */
+/** A workspace the sessions' list shows. */
 export function workspaceOf(services: CliServices, workspaceId: string): WorkspaceMeta | undefined {
-  const manager = services.managerWorkspace();
-  return (
-    services.listWorkspaces().find((w) => w.id === workspaceId) ??
-    (manager?.id === workspaceId ? manager : undefined)
-  );
+  return services.listWorkspaces().find((w) => w.id === workspaceId);
 }
 
 /**

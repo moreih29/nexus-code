@@ -1,6 +1,5 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { CliTaskStart, CliView } from "../../../../shared/cli/ui";
-import { isManager } from "../../../../shared/manager/manager";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
 import { CliUsageError, exactArgs } from "../args";
 import {
@@ -8,7 +7,6 @@ import {
   CliError,
   describeLocation,
   mayChange,
-  noteDispatch,
   pick,
   resolveWorkspace,
   shortId,
@@ -101,20 +99,6 @@ const status: CliCommand = {
         ]
       : [];
     const viewJson = seen ? { view: seen.view } : {};
-    if (isManager(ctx.caller)) {
-      const text = [
-        `NexusCode ${ctx.services.appVersion}`,
-        "you are:   the agent manager, in no workspace",
-        ...viewLine,
-        sees,
-      ].join("\n");
-      return output(text, {
-        version: ctx.services.appVersion,
-        manager: true,
-        ...viewJson,
-        shown,
-      });
-    }
     const workspace = resolveWorkspace(ctx, undefined);
     const text = [
       `NexusCode ${ctx.services.appVersion}`,
@@ -317,12 +301,6 @@ const worktreeNew: CliCommand = {
     );
     const { workspaceId, tabId } = created;
     const prompted = prompt.trim() !== "";
-    if (
-      tabId !== undefined &&
-      (prompted || ("command" in created.start && created.start.command !== ""))
-    ) {
-      await noteDispatch(ctx, { workspaceId, tabId }, prompted ? prompt.trim() : undefined);
-    }
     const command = "command" in created.start ? created.start.command : undefined;
     if (tabId !== undefined && command !== undefined && command !== "" && prompted) {
       ctx.services.startedAgents.mark({ workspaceId, tabId }, ctx.services.clock.now());

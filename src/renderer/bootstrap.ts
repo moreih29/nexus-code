@@ -13,7 +13,6 @@ import { startTabActivityPolling } from "./services/agent-sessions/activity-poll
 import { startSessionEvents } from "./services/agent-sessions/session-events";
 import { startAgentViewPruning, tabExists } from "./services/agent-view/show";
 import { markCliUiReady, startCliUiListener } from "./services/cli/ui-requests";
-import { startManager } from "./services/manager/runtime";
 import { startClaudeActiveContextSync } from "./state/claude-active-context-sync";
 import { startNoteRemovalListener } from "./state/note-removal";
 import { startNotificationClickListener } from "./state/notification-click";
@@ -47,7 +46,6 @@ import { useKeybindingsStore } from "./state/stores/keybindings";
 import { useLanguageStore } from "./state/stores/language";
 import { useLayoutStore } from "./state/stores/layout";
 import { useLspSettingsStore } from "./state/stores/lsp-settings";
-import { useManagerStore } from "./state/stores/manager";
 import { useNotificationsStore } from "./state/stores/notifications";
 import { usePreviewDefaultsStore } from "./state/stores/preview-defaults";
 import { restoredTitles, useTabsStore } from "./state/stores/tabs";
@@ -275,7 +273,6 @@ export async function bootstrapAppState(): Promise<void> {
   // persisted state on first render.
   useNotificationsStore.getState().hydrate(state);
   useVoiceStore.getState().hydrate(state);
-  useManagerStore.getState().hydrate(state);
   useAgentCliStore.getState().hydrate(state);
   useAgentListViewStore.getState().hydrate(state);
   usePreviewDefaultsStore.getState().hydrate(state.previewViewDefaults);
@@ -327,8 +324,6 @@ export async function bootstrapAppState(): Promise<void> {
 
   registerStatePersistence();
   markCliUiReady();
-  // The agent manager, if it is on: it starts with the app, the sessions restored.
-  startManager();
 
   // Dev-only console helper for testing window transparency before a settings
   // UI exists. `__setWindowOpacity(0.5)` dual-writes localStorage + appState

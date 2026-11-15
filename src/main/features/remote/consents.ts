@@ -15,7 +15,6 @@ import {
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
 import { isTerminalChange } from "../../../shared/cli/ui";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { CliServices, PendingConsent } from "../cli/context";
 import { RpcFailure } from "./room";
 
@@ -79,7 +78,6 @@ export async function remoteConsents(
     pending.map(async (p): Promise<RemoteConsent> => {
       const { request } = p;
       const remote = request.fromDevice !== undefined && request.fromDeviceId !== undefined;
-      const manager = !remote && isManagerWorkspace(request.fromWorkspaceId);
       const workspaceName = remote
         ? undefined
         : workspaces.find((w) => w.id === request.fromWorkspaceId)?.name;
@@ -96,7 +94,6 @@ export async function remoteConsents(
           ...(remote
             ? { device: { id: request.fromDeviceId as string, name: request.fromDevice as string } }
             : {}),
-          ...(manager ? { manager: true } : {}),
           workspaceId: request.fromWorkspaceId,
           ...(workspaceName !== undefined ? { workspaceName } : {}),
           tabId: request.fromTabId,

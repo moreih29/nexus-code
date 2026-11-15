@@ -12,7 +12,6 @@ import {
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
 import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
-import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
 function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
@@ -31,12 +30,10 @@ function services(pending: PendingConsent[] = []): CliServices {
       { id: "t4", type: "codex", title: "Review" },
       { id: "t6", type: "terminal", title: "Terminal", unstarted: true },
     ],
-    [MANAGER_WORKSPACE_ID]: [],
   };
   return {
     clock: { now: () => 1000, sleep: async () => {} },
     listWorkspaces: () => workspaces,
-    managerWorkspace: () => ({ id: MANAGER_WORKSPACE_ID, name: "Manager", rootPath: "/manager" }),
     claudeAsks: (_w: string, tab: string) =>
       tab === "t2" ? [{ id: "h1", tool: "Bash", target: "rm -rf dist", always: [], since: 5 }] : [],
     claudeStatus: (_w: string, tab: string) =>
@@ -94,14 +91,7 @@ describe("serving the sessions", () => {
       ],
     } as unknown as CliServices;
     const list = await listSessions(s);
-    expect(list.workspaces.map((w) => w.id)).toEqual([
-      "d",
-      "b",
-      "c",
-      "a",
-      "t",
-      MANAGER_WORKSPACE_ID,
-    ]);
+    expect(list.workspaces.map((w) => w.id)).toEqual(["d", "b", "c", "a", "t"]);
     expect(list.workspaces.filter((w) => w.pinned).map((w) => w.id)).toEqual(["d", "b"]);
   });
 
@@ -110,14 +100,13 @@ describe("serving the sessions", () => {
     const git = (w: { id: string }) =>
       w.id === "w2" ? { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 } : undefined;
     const list = await listSessions(services(), git);
-    expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3", MANAGER_WORKSPACE_ID]);
+    expect(list.workspaces.map((w) => w.id)).toEqual(["w1", "w2", "w3"]);
     expect(list.workspaces[0]).toEqual({ id: "w1", name: "app", path: "/src/app" });
-    // A task names its parent and how its branch stands; the manager's says it is the manager's.
+    // A task names its parent and how its branch stands.
     expect(list.workspaces[1]).toMatchObject({
       parentId: "w1",
       git: { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 },
     });
-    expect(list.workspaces[3]).toMatchObject({ manager: true });
     expect(list.sessions).toEqual([
       {
         workspaceId: "w1",

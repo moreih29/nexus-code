@@ -16,12 +16,6 @@ describe("the settings dialog's pages", () => {
     expect(nav.filter((item) => item.footer)).toHaveLength(1);
   });
 
-  test("include the manager's, under the agent's", () => {
-    expect(settingsNav(t).find((item) => item.id === "manager")).toMatchObject({
-      parent: "agent",
-    });
-  });
-
   test("show the dot on the pages told, and on none by default", () => {
     expect(settingsNav(t).some((item) => item.dirty)).toBe(false);
     const dotted = settingsNav(t, { editor: true, terminal: false })

@@ -8,7 +8,6 @@ import {
   remoteConsents,
 } from "../../../../../src/main/features/remote/consents";
 import type { CliChange, CliUiOps } from "../../../../../src/shared/cli/ui";
-import { MANAGER_WORKSPACE_ID } from "../../../../../src/shared/manager/manager";
 
 type AskArgs = CliUiOps["consent.ask"]["args"];
 
@@ -62,7 +61,7 @@ describe("the consent prompts another device is told", () => {
     const terminal: CliChange = { kind: "terminalInput", detail: "zsh", body: "rm -rf dist" };
     const { services } = setup([
       pendingOf("c1"),
-      pendingOf("c2", { fromWorkspaceId: MANAGER_WORKSPACE_ID, fromTabId: "m1", change: terminal }),
+      pendingOf("c2", { fromWorkspaceId: "w1", fromTabId: "gone", change: terminal }),
       pendingOf("c3", {
         fromWorkspaceId: "bw",
         fromTabId: "bt",
@@ -84,11 +83,12 @@ describe("the consent prompts another device is told", () => {
       eachTime: false,
       answerable: true,
     });
-    // The agent manager is in no workspace of the user's.
+    // A tab since closed: no name to tell.
     expect(listed[1]).toMatchObject({
-      from: { manager: true, workspaceId: MANAGER_WORKSPACE_ID, tabId: "m1" },
+      from: { workspaceId: "w1", workspaceName: "app", tabId: "gone" },
       change: terminal,
     });
+    expect(listed[1]?.from).not.toHaveProperty("name");
     // Another computer's agent: its workspace and tab name nothing here.
     expect(listed[2]).toMatchObject({
       from: {

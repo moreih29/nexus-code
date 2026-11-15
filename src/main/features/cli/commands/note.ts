@@ -1,5 +1,4 @@
 /** nexus note list|read|path: the workspace's notes, kept by the app. */
-import { isManager } from "../../../../shared/manager/manager";
 import { clockOf, transcriptMarkdown } from "../../../../shared/notes/transcript";
 import type { NoteContent, NoteSummary } from "../../../../shared/notes/types";
 import { noteMarkdown } from "../../notes/store";
@@ -18,10 +17,9 @@ function when(at: number, now: number): string {
 
 /**
  * Whether the command runs in a terminal on the machine the app runs on (a
- * local workspace's, or the agent manager's), where the notes' folders are.
+ * local workspace's), where the notes' folders are.
  */
 function onAppMachine(ctx: CliContext): boolean {
-  if (isManager(ctx.caller)) return true;
   const own = ctx.services.listWorkspaces().find((w) => w.id === ctx.caller.workspaceId);
   return own?.location.kind === "local";
 }

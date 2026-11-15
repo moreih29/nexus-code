@@ -23,7 +23,6 @@ import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
-import { isManagerWorkspace } from "../../../shared/manager/manager";
 import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
@@ -121,9 +120,6 @@ export const actionHandlers: {
     | "events.read"
     | "settings.list"
     | "settings.set"
-    | "manager.dispatched"
-    | "manager.dock"
-    | "manager.new"
     | "settings.open"
     | LayoutOp
     | `chat.${string}`
@@ -423,7 +419,6 @@ export const actionHandlers: {
       ...(id ? { id } : {}),
       fromWorkspace: fromDevice ? "" : name(fromWorkspaceId),
       fromTab: args.fromName ?? fromTab?.title ?? fromTabId.slice(0, 8),
-      fromManager: !fromDevice && isManagerWorkspace(fromWorkspaceId),
       ...(fromDevice ? { fromDevice } : {}),
       toWorkspace: name(toWorkspaceId),
       change,

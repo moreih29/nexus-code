@@ -112,12 +112,6 @@ export function settingsNav(
       keywords: [...PROFILE_KEYWORDS, "workspace", "ssh", "rule", "워크스페이스", "규칙"],
     },
     {
-      id: "manager",
-      label: t("nav.manager"),
-      parent: "agent",
-      keywords: ["manager", "agent", "report", "permission", "매니저", "보고", "권한"],
-    },
-    {
       id: "remote",
       label: t("nav.remote"),
       keywords: [

@@ -3,7 +3,6 @@
 // `codex app-server` gets the same marks.
 
 import { gte, valid } from "semver";
-import { MANAGER_PROMPT } from "../../../shared/manager/prompt";
 import { injectHarnessTerminalEnv } from "../pty/harness-env";
 
 /** The arguments every Claude tab runs `claude` with. */
@@ -58,31 +57,15 @@ export interface ResumeOptions {
 }
 
 /**
- * The nexus commands the agent manager's claude may run without asking,
- * for its session alone (the user's settings are left as they are).
- */
-export const MANAGER_ARGS: readonly string[] = ["--allowedTools", "Bash(nexus:*)"];
-
-/**
- * The program's arguments for a tab, going on with a session when asked;
- * the agent manager's (`manager`) with its own on top, and told what it is
- * after what every tab is told, in the one --append-system-prompt claude
- * takes. A claude whose `version` takes it is asked for its thinking's
- * summaries.
+ * The program's arguments for a tab, going on with a session when asked.
+ * A claude whose `version` takes it is asked for its thinking's summaries.
  */
 export function claudeTabArgs(
   options: ResumeOptions,
   hooksSettings?: string,
-  manager = false,
   version: string | null = null,
 ): string[] {
-  const prompt = manager ? `${CLAUDE_TAB_PROMPT}\n\n${MANAGER_PROMPT}` : CLAUDE_TAB_PROMPT;
-  const args = [
-    ...CLAUDE_TAB_ARGS,
-    "--append-system-prompt",
-    prompt,
-    ...(manager ? MANAGER_ARGS : []),
-  ];
+  const args = [...CLAUDE_TAB_ARGS, "--append-system-prompt", CLAUDE_TAB_PROMPT];
   if (hooksSettings !== undefined) args.unshift("--settings", hooksSettings);
   if (takesThinkingDisplay(version)) args.push("--thinking-display", "summarized");
   if (options.resume !== undefined) {

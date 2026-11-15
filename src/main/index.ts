@@ -58,7 +58,6 @@ import { registerGitChannel } from "./features/git/ipc";
 import { registerAutofetchChannel } from "./features/git/ipc/autofetch-handlers";
 import { type LspHostHandle, startConfiguredLspHost } from "./features/lsp/host";
 import { registerLspChannel } from "./features/lsp/ipc";
-import { registerManagerChannel } from "./features/manager";
 import { installAppMenu } from "./features/menu";
 import { type NotesFeature, registerNotesChannel } from "./features/notes";
 import { registerPanelChannel } from "./features/panel";
@@ -665,19 +664,6 @@ app.whenReady().then(async () => {
     workspaces: () => workspaceManager.list(),
   });
 
-  // The agent manager's workspace and its reports.
-  registerManagerChannel({
-    workspaceManager,
-    shouldNotify: () => {
-      const state = stateService.getState();
-      if (!(state.managerReports ?? true) || !(state.osNotificationsEnabled ?? true)) return false;
-      const win = getFocusedAppWindow();
-      return win === null || win.isMinimized();
-    },
-    focusWindow: showAppWindow,
-    broadcast: forwardBroadcast,
-  });
-
   // The nexus command in the app's terminals.
   cliFeature = setupCliFeature({
     agentHost: agentPtyHost,
@@ -696,7 +682,6 @@ app.whenReady().then(async () => {
         enabled: state.cliEnabled ?? true,
         crossWorkspace: state.cliCrossWorkspace ?? "ask",
         agentContext: state.cliAgentContext ?? true,
-        managerPermissions: state.managerPermissions ?? "user",
       };
     },
     getWindow: getActiveAppWindow,

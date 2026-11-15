@@ -10,7 +10,6 @@ const prompt = (id?: string) => ({
   ...(id ? { id } : {}),
   fromWorkspace: "app",
   fromTab: "zsh",
-  fromManager: false,
   toWorkspace: "api",
   change: { kind: "chatInput" as const, detail: "Review" },
   timeoutMs: 60_000,

@@ -533,7 +533,7 @@ func TestAClosedTabsProgramSendsNothingToTheTabsNext(t *testing.T) {
 	}
 	rec.reset()
 
-	// The tab opens again, as the agent manager's does on a new conversation.
+	// The tab opens again: a new program in the tab it closed.
 	startFake(t, service, "tab", nil)
 	_ = send(t, service, "tab", "hello")
 	rec.waitFor(t, "the new program's answer", func(lines []LinePayload, _ []ExitPayload) bool {

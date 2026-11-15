@@ -8,7 +8,6 @@ import { AgentSidebar } from "./components/agent-view/agent-sidebar";
 import { AgentView } from "./components/agent-view/agent-view";
 import { FilesPanel } from "./components/files";
 import { GlobalRoots } from "./components/global-roots";
-import { ManagerDock } from "./components/manager/manager-dock";
 import { AboutPanel } from "./components/settings/panels/about-panel";
 import { AgentPanel } from "./components/settings/panels/agent-panel";
 import { AgentProfilesPanel } from "./components/settings/panels/agent-profiles-panel";
@@ -17,7 +16,6 @@ import { BrowserPermissionsPanel } from "./components/settings/panels/browser-pe
 import { EditorPanel } from "./components/settings/panels/editor-panel";
 import { KeybindingsPanel } from "./components/settings/panels/keybindings-panel";
 import { LanguageServersPanel } from "./components/settings/panels/language-servers-panel";
-import { ManagerPanel } from "./components/settings/panels/manager-panel";
 import { NotesPanel } from "./components/settings/panels/notes-panel";
 import { NotificationsPanel } from "./components/settings/panels/notifications-panel";
 import { ProfileRulesPanel } from "./components/settings/panels/profile-rules-panel";
@@ -282,7 +280,6 @@ export function App() {
             if (activeId === "claude") return <AgentProfilesPanel agent="claude" onNavigate={go} />;
             if (activeId === "codex") return <AgentProfilesPanel agent="codex" onNavigate={go} />;
             if (activeId === "profile-rules") return <ProfileRulesPanel />;
-            if (activeId === "manager") return <ManagerPanel />;
             if (activeId === "remote") return <RemotePanel />;
             if (activeId === "browser-permissions") return <BrowserPermissionsPanel />;
             if (activeId === "keybindings") return <KeybindingsPanel />;
@@ -332,7 +329,6 @@ export function App() {
             <AgentView shown={agentView} />
             <ReleaseNotesView />
           </div>
-          <ManagerDock />
         </div>
       </div>
     </ErrorBoundary>

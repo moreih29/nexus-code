@@ -16,7 +16,6 @@ function services(over: Partial<Record<string, unknown>> = {}) {
   const answers: { askId: string; answer: string }[] = [];
   const s = {
     listWorkspaces: () => [{ id: "w1", name: "app", rootPath: "/src/app" }],
-    managerWorkspace: () => null,
     claudeAsks: (_w: string, tab: string) =>
       tab === "t2" ? [{ id: "h1", tool: "Bash", target: "rm -rf dist", always: [], since: 5 }] : [],
     answerClaudeAsk: async (_w: string, _t: string, askId: string, answer: string) => {
