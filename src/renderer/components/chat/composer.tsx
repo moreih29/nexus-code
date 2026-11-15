@@ -13,18 +13,7 @@
 // host, a file with no path here) the agent writes it first.
 
 import type { TFunction } from "i18next";
-import {
-  AtSign,
-  FileText,
-  ListPlus,
-  Paperclip,
-  Pencil,
-  Plus,
-  Send,
-  Slash,
-  Square,
-  X,
-} from "lucide-react";
+import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
 import {
   useCallback,
   useContext,
@@ -1019,8 +1008,10 @@ export const SEND_BUTTON_CLASS =
 
 /**
  * The box's main button, with the key that presses it. During a turn a
- * Claude tab's message waits for the call that runs, so it shows as queued;
- * a Codex tab's goes into the turn at once. Its tooltip tells the other keys.
+ * Claude tab's message waits for the call that runs, so its label says it
+ * queues; a Codex tab's goes into the turn at once. It is drawn the same
+ * either way: the chat shows a queued message as queued. Its tooltip tells
+ * the other keys.
  */
 function SendButton({
   running,
@@ -1056,7 +1047,7 @@ function SendButton({
       className={cn(SEND_BUTTON_CLASS, keycap ? "pr-1.5 pl-2" : "px-2")}
       data-testid="chat-send"
     >
-      {queues ? <ListPlus className="size-4" /> : <Send className="size-4" />}
+      <Send className="size-4" />
       {keycap && <Keycap>↵</Keycap>}
     </button>
   );
