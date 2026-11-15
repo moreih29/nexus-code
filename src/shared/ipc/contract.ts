@@ -110,6 +110,7 @@ import {
 import { PairingStateSchema } from "../remote/pairing";
 import { RoomStateSchema } from "../remote/room";
 import {
+  SetVoiceTermsArgsSchema,
   TranscribeResultSchema,
   TranscriptionSchema,
   VoiceAudioArgsSchema,
@@ -2675,6 +2676,10 @@ export const ipcContract = {
       voiceCancel: call(z.object({ id: z.string() }), z.void()),
       /** This month's voice minutes (GET /voice/usage). */
       voiceUsage: call(z.void(), VoiceUsageSchema),
+      /** The account's recognition terms (GET /voice/terms), shared by all its devices. */
+      voiceTerms: call(z.void(), z.array(z.string())),
+      /** Replaces them (PUT /voice/terms): the list as the server kept it. */
+      setVoiceTerms: call(SetVoiceTermsArgsSchema, z.array(z.string())),
       /** Sends a note recording's take for a second pass: its id, or why not. */
       voiceTranscribe: call(VoiceTranscribeArgsSchema, TranscribeResultSchema),
       /** A second pass: pending, done (its segments) or failed; not-found once it is gone. */

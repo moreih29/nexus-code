@@ -10,6 +10,12 @@
  * A note's recording also goes once more, whole, to the server for a
  * second pass (POST /voice/transcriptions), which is asked after until it
  * is done and then deleted there.
+ *
+ * The server hears with three layers of terms: its own, the account's
+ * (GET/PUT /voice/terms, edited in the settings), and, when the user turned
+ * it on, the names of the moment (the account's computers and workspaces),
+ * which go in the body of the ticket a session opens with: never in the
+ * socket's URL, which the server's edge logs.
  */
 import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
@@ -24,15 +30,17 @@ import {
   type VoiceUsage,
   VoiceUsageSchema,
 } from "../../../../packages/remote-protocol/src/voice";
-import type {
-  TranscribeFailure,
-  TranscribeResult,
-  VoiceEvent,
-  VoiceFailure,
-  VoiceStartResult,
+import {
+  type TranscribeFailure,
+  type TranscribeResult,
+  type VoiceEvent,
+  type VoiceFailure,
+  type VoiceStartResult,
+  VoiceTermsSchema,
 } from "../../../shared/remote/voice";
 import type { RemoteAccount } from "./account";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
+import { voiceNamesOf } from "./voice-names";
 
 /** POST /relay/ticket's answer: a short-lived ticket a socket signs in with (/relay, /voice). */
 export const TicketSchema = z.object({ ticket: z.string().min(1) });
@@ -70,6 +78,11 @@ export interface VoiceSessionsDeps {
   /** What the sessions are for; a note's carry voices, times and a second pass. */
   purpose?: VoicePurpose;
   emit(event: VoiceEvent): void;
+  /**
+   * The names of the moment to send with a session's ticket: none unless the
+   * user turned it on. A failure sends none.
+   */
+  names?: () => Promise<readonly string[]>;
   socket?: (url: string) => VoiceSocket;
 }
 
@@ -99,6 +112,16 @@ export function transcribeRefusalOf(error: ServerError): TranscribeFailure {
   if (error.status === 403) return "expired";
   if (error.status === 413) return "too-big";
   return "failed";
+}
+
+/**
+ * The body of the POST /relay/ticket a voice session opens with: the names
+ * to listen for, deduped, at most MAX_VOICE_NAMES, each clipped; no body
+ * without names, as the relay's ticket is asked.
+ */
+export function ticketBody(names: readonly string[]): { voiceTerms: string[] } | undefined {
+  const voiceTerms = voiceNamesOf([names]);
+  return voiceTerms.length > 0 ? { voiceTerms } : undefined;
 }
 
 function failed(reason: VoiceFailure, message: string): VoiceStartResult {
@@ -133,10 +156,13 @@ export class VoiceSessions {
     const state = account.state();
     if (state.status !== "signed-in") return failed("signed-out", "not signed in to NexusCode");
     let ticket: string;
+    // Gathered while the server is asked what it offers.
+    const names = (this.deps.names?.() ?? Promise.resolve([])).catch(() => []);
     try {
       const info = await account.info();
       if (!info.voice) return failed("unavailable", "the server has no voice input");
-      ({ ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket")));
+      const body = ticketBody(await names);
+      ({ ticket } = TicketSchema.parse(await account.request("POST", "/relay/ticket", body)));
     } catch (error) {
       if (error instanceof SignedOutError) return failed("signed-out", error.message);
       if (error instanceof UnreachableError) return failed("network", error.message);
@@ -248,6 +274,20 @@ export class VoiceSessions {
   /** This month's voice minutes: used, and allowed. */
   async usage(): Promise<VoiceUsage> {
     return VoiceUsageSchema.parse(await this.deps.account.request("GET", "/voice/usage"));
+  }
+
+  /** The account's recognition terms, shared by all its devices. */
+  async terms(): Promise<string[]> {
+    return VoiceTermsSchema.parse(await this.deps.account.request("GET", "/voice/terms")).terms;
+  }
+
+  /**
+   * Replaces the account's recognition terms: the list as the server kept
+   * it (trimmed, duplicates in any case dropped).
+   */
+  async setTerms(terms: readonly string[]): Promise<string[]> {
+    return VoiceTermsSchema.parse(await this.deps.account.request("PUT", "/voice/terms", { terms }))
+      .terms;
   }
 
   /**

@@ -653,6 +653,7 @@ app.whenReady().then(async () => {
       },
       recording: () => notesFeature?.recording(),
     },
+    voiceNames: () => stateService.getState().voiceSendNames ?? false,
   }).catch((error: unknown) => {
     logger.error(`the remote did not start: ${error instanceof Error ? error.stack : error}`);
     return null;

@@ -232,6 +232,11 @@ export const AppStateSchema = z.object({
   // "multi", which lets the server tell the language as the user speaks.
   voiceLanguage: z.enum(["app", "multi"]).default("app"),
 
+  // Whether a voice session sends the account's computer and workspace
+  // names along (in its ticket), so the speech recognition service hears
+  // them right. Off unless the user turned it on, on this computer only.
+  voiceSendNames: z.boolean().default(false),
+
   // Whether the account's other devices may control this one's chats
   // (send, answer, stop, open, close) or only look (main/features/remote).
   remoteControl: z.boolean().default(false),

@@ -33,6 +33,32 @@ export const VOICE_FAILURES = [
 export const VoiceFailureSchema = z.enum(VOICE_FAILURES);
 export type VoiceFailure = z.infer<typeof VoiceFailureSchema>;
 
+/** How many recognition terms an account keeps (GET/PUT /voice/terms). */
+export const MAX_VOICE_TERMS = 300;
+/** How long one term, or one name sent with a dictation, may be. */
+export const MAX_VOICE_TERM_CHARS = 80;
+/** How many names of the moment (computers, workspaces) a dictation's ticket carries. */
+export const MAX_VOICE_NAMES = 60;
+
+const VoiceTermSchema = z.string().max(MAX_VOICE_TERM_CHARS);
+
+/** The account's recognition terms, as the server keeps them (trimmed, without duplicates). */
+export const VoiceTermsSchema = z.object({ terms: z.array(z.string()) });
+
+/** Replaces the account's recognition terms; an empty list clears them. */
+export const SetVoiceTermsArgsSchema = z.object({
+  terms: z.array(VoiceTermSchema).max(MAX_VOICE_TERMS),
+});
+
+/**
+ * `text` cut to `max` UTF-16 units, as the server counts, without leaving
+ * half of a character that takes two.
+ */
+export function clipTerm(text: string, max = MAX_VOICE_TERM_CHARS): string {
+  const clipped = text.slice(0, max);
+  return /[\uD800-\uDBFF]$/.test(clipped) ? clipped.slice(0, -1) : clipped;
+}
+
 export const VoiceStartArgsSchema = z.object({
   language: VoiceLanguageSchema,
   /** A note's recording rather than a dictation (its own session, beside a dictation's). */

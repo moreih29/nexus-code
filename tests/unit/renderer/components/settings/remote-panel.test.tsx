@@ -155,3 +155,37 @@ describe("the remote panel's account deletion", () => {
     expect(html).toContain('data-variant="destructive"');
   });
 });
+
+const { VoiceGroup, VoiceTermChips } = await import(
+  "../../../../../src/renderer/components/settings/panels/remote-voice-group"
+);
+
+describe("the remote panel's voice input", () => {
+  test("offers the account's recognition terms and the names switch, off by default", () => {
+    const html = renderToStaticMarkup(<VoiceGroup />);
+    expect(html).toContain("Recognition terms");
+    expect(html).toContain('placeholder="Add a term"');
+    expect(html).toContain('aria-label="Add"');
+    expect(html).toContain("Used for dictation on all your devices.");
+    expect(html).toContain("Send computer and workspace names");
+    expect(html).toContain("Sent to the speech recognition service along with your dictation.");
+    expect(html).toContain('aria-checked="false"');
+    // The terms are still being asked for: the field waits.
+    expect(html).toContain("Loading…");
+  });
+
+  test("shows each term as a chip with its remove button, or says there are none", () => {
+    const html = renderToStaticMarkup(
+      <VoiceTermChips terms={["Soniox", "Tauri"]} onRemove={() => {}} />,
+    );
+    expect(html).toContain("Soniox");
+    expect(html).toContain('aria-label="Remove Soniox"');
+    expect(html).toContain('aria-label="Remove Tauri"');
+    expect(renderToStaticMarkup(<VoiceTermChips terms={[]} onRemove={() => {}} />)).toContain(
+      "No terms",
+    );
+    expect(
+      renderToStaticMarkup(<VoiceTermChips terms="unavailable" onRemove={() => {}} />),
+    ).toContain("load the terms.");
+  });
+});
