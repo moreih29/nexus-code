@@ -47,7 +47,7 @@ const record = (id: string, extra: Partial<RelayedMessage> = {}): RelayedMessage
 
 describe("the line the agent reads", () => {
   it("names who sent it, says the user did not, and that the answer goes back", () => {
-    expect(relayHeader(TAB)).toBe(
+    expect(relayHeader({ ...TAB, waits: true })).toBe(
       '[nexus] The "Plan the refactor" tab (Claude) sent this, not the user. Your answer here is what it reads.',
     );
     expect(relayHeader({ kind: "terminal", agent: "codex", name: "zsh" })).toStartWith(
@@ -58,10 +58,42 @@ describe("the line the agent reads", () => {
     );
   });
 
+  it("to a sender that does not wait, says how to write the answer back", () => {
+    expect(relayHeader({ ...TAB, waits: false })).toBe(
+      '[nexus] The "Plan the refactor" tab (Claude) sent this, not the user. ' +
+        "It is not waiting for an answer here; to answer it: nexus chat send tab-1 --workspace ws-1 -",
+    );
+    expect(relayHeader(TAB)).toBe(
+      '[nexus] The "Plan the refactor" tab (Claude) sent this, not the user. ' +
+        "Your answer here is what it reads if it waits; to write to it later: " +
+        "nexus chat send tab-1 --workspace ws-1 -",
+    );
+    expect(
+      relayHeader({
+        kind: "terminal",
+        agent: "claude",
+        name: "zsh",
+        workspaceId: "w",
+        tabId: "t",
+        waits: false,
+      }),
+    ).toEndWith("to answer it: nexus terminal send t --workspace w -");
+    // The manager, or a sender of no tab, is answered here only.
+    expect(relayHeader({ kind: "manager", waits: false })).toEndWith(
+      "Your answer here is what it reads.",
+    );
+  });
+
   it("from another computer, names it, and how to write to the sender later", () => {
     const device = { id: "3f2a91c0-aaaa", name: "MacBook" };
     expect(
-      relayHeader({ ...TAB, workspaceId: "5e6f7a8b-bbbb", tabId: "1a2b3c4d-cccc", device }),
+      relayHeader({
+        ...TAB,
+        workspaceId: "5e6f7a8b-bbbb",
+        tabId: "1a2b3c4d-cccc",
+        device,
+        waits: true,
+      }),
     ).toBe(
       '[nexus] The "Plan the refactor" tab (Claude) on the computer "MacBook" sent this, not the user. ' +
         "Your answer here is what it reads; to write to it later: " +

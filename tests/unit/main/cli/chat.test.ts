@@ -401,9 +401,24 @@ describe("who sends a message", () => {
     });
     await nexus(app, ["chat", "new", "--prompt", "look at the docs"], claude);
     expect(uiArgs(app, "chat.open")).toMatchObject({ from: { kind: "terminal" } });
+    // Whether it waits to read the answer is told only where it is known.
+    expect((uiArgs(app, "chat.open") as { from: object }).from).not.toHaveProperty("waits");
     const user = withChat();
     await nexus(user, ["chat", "send", "eeee", "run the tests"]);
     expect(uiArgs(user, "chat.send")).not.toHaveProperty("from");
+  });
+
+  test("chat send tells the tab whether its sender waits to read the answer", async () => {
+    const app = withChat();
+    const claude = { workspaceId: APP, tabId: CLAUDE_TAB };
+    await nexus(app, ["chat", "send", "eeee", "run the tests"], claude);
+    await nexus(
+      app,
+      ["chat", "send", "eeee", "run the tests", "--wait", "--timeout", "1s"],
+      claude,
+    );
+    const sent = app.uiCalls.filter((c) => c.op === "chat.send").map((c) => c.args);
+    expect(sent).toMatchObject([{ from: { waits: false } }, { from: { waits: true } }]);
   });
 });
 
