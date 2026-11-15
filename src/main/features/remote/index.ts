@@ -27,6 +27,7 @@ import { remoteConsents } from "./consents";
 import { ServerError, SignedOutError, UnreachableError } from "./errors";
 import { untrackedReader } from "./files";
 import type { RemoteRepository } from "./git";
+import { installIdAt } from "./install-id";
 import type { RemoteNotes } from "./notes";
 import { Pairing } from "./pairing";
 import { RelayConnection } from "./relay-connection";
@@ -258,6 +259,7 @@ export async function registerRemoteChannel(options: {
     proxy: remoteProxy(process.env, app.isPackaged, server),
     store,
     openExternal: (url) => shell.openExternal(url),
+    installId: () => installIdAt(join(app.getPath("userData"), "remote-install-id")),
     ...signInOptions(),
     onChange: (state) => {
       broadcast("remote", "accountChanged", state);

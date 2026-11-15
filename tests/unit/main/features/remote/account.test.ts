@@ -367,6 +367,34 @@ describe("the account", () => {
     }
   });
 
+  test("signs in with this install's id, so the server gives the same device back", async () => {
+    const trades: unknown[] = [];
+    for (const installId of [async () => "abcdefghijklmnop1234", undefined]) {
+      const server = fakeServer();
+      const { openExternal } = browser((start) => ({
+        code: "c1",
+        state: start.searchParams.get("state") ?? "",
+      }));
+      const account = new RemoteAccount({
+        server: SERVER,
+        store: memoryStore(),
+        openExternal,
+        fetch: server.fetchFn,
+        device: { name: "Mac", platform: "darwin" },
+        ...(installId ? { installId } : {}),
+      });
+      accounts.push(account);
+      expect((await account.signIn()).status).toBe("signed-in");
+      trades.push(
+        (server.requests.find((r) => r.path === "/auth/token")?.body as { device: unknown }).device,
+      );
+    }
+    expect(trades).toEqual([
+      { name: "Mac", platform: "darwin", installId: "abcdefghijklmnop1234" },
+      { name: "Mac", platform: "darwin" },
+    ]);
+  });
+
   test("gives a device an alias or takes it away, and keeps this one's", async () => {
     const store = memoryStore({ server: SERVER, token: "tok", user, device });
     const server = fakeServer();

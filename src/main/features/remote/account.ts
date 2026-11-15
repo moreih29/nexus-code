@@ -83,6 +83,8 @@ export interface RemoteAccountDeps {
   onChange?(state: RemoteAccountState): void;
   /** This device as the server should name it. */
   device?: { name: string; platform: string };
+  /** This install's id, sent with a sign-in so the server gives the same device back. */
+  installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
   timeoutMs?: number;
   /** The sign-in used when none is asked for. */
@@ -165,12 +167,13 @@ export class RemoteAccount {
         throw new SignInError(failure ?? "failed", back.error);
       }
       if (!back.code) throw new SignInError("failed", "no code");
+      const installId = await this.deps.installId?.().catch(() => undefined);
       const answer = await this.call("POST", "/auth/token", {
         body: {
           code: back.code,
           code_verifier: verifier,
           redirect_uri: listener.redirectUri,
-          device: this.deps.device ?? thisDevice(),
+          device: { ...(this.deps.device ?? thisDevice()), ...(installId ? { installId } : {}) },
         },
         signedIn: false,
       });
