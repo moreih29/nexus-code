@@ -1,6 +1,11 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
-import { MAX_LISTED_NOTES, RpcErrorCode } from "../../../../../packages/remote-protocol/src";
+import {
+  MAX_AGENT_DESCRIPTION,
+  MAX_LISTED_NOTES,
+  MAX_SESSION_AGENTS,
+  RpcErrorCode,
+} from "../../../../../packages/remote-protocol/src";
 import type { CliServices, PendingConsent } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import { AgentGate } from "../../../../../src/main/features/remote/agent-gate";
@@ -11,7 +16,13 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
-import { listSessions, servesWith, serveWith } from "../../../../../src/main/features/remote/serve";
+import {
+  listSessions,
+  servesWith,
+  serveWith,
+  sessionAgents,
+} from "../../../../../src/main/features/remote/serve";
+import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
 function services(pending: PendingConsent[] = []): CliServices {
   const workspaces = [
@@ -39,6 +50,7 @@ function services(pending: PendingConsent[] = []): CliServices {
     claudeStatus: (_w: string, tab: string) =>
       tab === "t2" ? { status: "permissionPending", message: "Allow rm?", since: 5 } : null,
     activity: () => null,
+    claudeAgents: { list: () => [], stop: async () => false },
     consents: {
       list: () => pending,
       answer: async (id: string) => {
@@ -68,6 +80,91 @@ function services(pending: PendingConsent[] = []): CliServices {
     },
   } as unknown as CliServices;
 }
+
+function agentRun(over: Partial<AgentRun>): AgentRun {
+  return {
+    id: "a1",
+    kind: "subagent",
+    start: 100,
+    state: "running",
+    tools: [],
+    toolCount: 0,
+    failedCount: 0,
+    ...over,
+  };
+}
+
+describe("a session's agents, as its row lists them", () => {
+  test("only those that still run, each on a line", () => {
+    const agents = sessionAgents([
+      agentRun({ id: "s1", type: "Explore", description: "Find the\n  config loader" }),
+      agentRun({ id: "s2", state: "permissionPending", type: "general-purpose" }),
+      agentRun({
+        id: "p1",
+        kind: "print",
+        program: "codex",
+        prompt: "Review the diff\nand say what breaks",
+        tools: [{ id: "t", name: "Bash", start: 1 }],
+        toolCount: 1,
+      }),
+      agentRun({ id: "done", end: 200, state: "completed", answer: "ok" }),
+    ]);
+    expect(agents).toEqual([
+      {
+        id: "s1",
+        kind: "subagent",
+        type: "Explore",
+        description: "Find the config loader",
+        state: "running",
+        start: 100,
+      },
+      {
+        id: "s2",
+        kind: "subagent",
+        type: "general-purpose",
+        state: "permissionPending",
+        start: 100,
+      },
+      {
+        id: "p1",
+        kind: "print",
+        program: "codex",
+        description: "Review the diff and say what breaks",
+        state: "running",
+        start: 100,
+      },
+    ]);
+  });
+
+  test("at most MAX_SESSION_AGENTS, a description cut to MAX_AGENT_DESCRIPTION, none when none run", () => {
+    const many = Array.from({ length: 12 }, (_, i) =>
+      agentRun({ id: `s${i}`, description: "x".repeat(300) }),
+    );
+    const agents = sessionAgents(many) ?? [];
+    expect(agents.length).toBe(MAX_SESSION_AGENTS);
+    expect(agents[0]?.description?.length).toBe(MAX_AGENT_DESCRIPTION);
+    expect(agents[0]?.description?.endsWith("…")).toBe(true);
+    expect(sessionAgents([agentRun({ end: 5, state: "stopped" })])).toBeUndefined();
+    expect(sessionAgents([])).toBeUndefined();
+  });
+
+  test("a chat's and a terminal's entries carry them; one with none has no field", async () => {
+    const base = services();
+    const s = {
+      ...base,
+      claudeAgents: {
+        list: (_w: string, tab: string) =>
+          tab === "t1" || tab === "t2" ? [agentRun({ id: `${tab}-agent`, type: "Explore" })] : [],
+        stop: async () => false,
+      },
+    } as unknown as CliServices;
+    const list = await listSessions(s);
+    const of = (tabId: string) => list.sessions.find((x) => x.tabId === tabId);
+    expect(of("t1")?.agents?.map((a) => a.id)).toEqual(["t1-agent"]);
+    expect(of("t2")?.agents?.map((a) => a.id)).toEqual(["t2-agent"]);
+    expect(of("t4")).not.toHaveProperty("agents");
+  });
+});
 
 describe("serving the sessions", () => {
   test("lists the workspaces in the sidebar's order: pinned first, each group by its order, a task after its workspace", async () => {

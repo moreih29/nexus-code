@@ -6,7 +6,10 @@
 import {
   type AgentSender,
   type Capability,
+  MAX_AGENT_DESCRIPTION,
+  MAX_SESSION_AGENTS,
   type RemoteSession,
+  type RemoteSessionAgent,
   type RemoteWorkspace,
   RpcErrorCode,
   type RpcMethod,
@@ -15,6 +18,7 @@ import {
   type SessionState,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { CliChatChoices, CliChatState } from "../../../shared/cli/ui";
 import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent-state";
 import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
@@ -121,6 +125,38 @@ function oneLine(text: string, max = 200): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/**
+ * The agents a session runs that still run, as the agent list shows them
+ * under its row: what each was asked to do on a line (a run told nothing
+ * more, its prompt's start); none when there are none.
+ */
+export function sessionAgents(agents: readonly AgentRun[]): RemoteSessionAgent[] | undefined {
+  const live = agents.filter((agent) => agent.end === undefined).slice(0, MAX_SESSION_AGENTS);
+  if (live.length === 0) return undefined;
+  return live.map((agent) => {
+    const said = agent.description ?? (agent.kind === "print" ? agent.prompt : undefined);
+    const description = said ? oneLine(said, MAX_AGENT_DESCRIPTION) : "";
+    return {
+      id: agent.id,
+      kind: agent.kind,
+      ...(agent.program ? { program: agent.program } : {}),
+      ...(agent.type ? { type: oneLine(agent.type, 60) } : {}),
+      ...(description ? { description } : {}),
+      state: agent.state,
+      start: agent.start,
+    };
+  });
+}
+
+function agentsField(
+  services: CliServices,
+  workspaceId: string,
+  tabId: string,
+): { agents?: RemoteSessionAgent[] } {
+  const agents = sessionAgents(services.claudeAgents.list(workspaceId, tabId));
+  return agents ? { agents } : {};
+}
+
 /** A task's git facts as last looked at; none for a workspace that is no task, or not looked at yet. */
 export type WorkspaceGit = (workspace: WorkspaceMeta) => RemoteWorkspace["git"] | undefined;
 
@@ -162,6 +198,7 @@ export async function listSessions(
           ...(info.state === "asking" && info.waiting
             ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
             : {}),
+          ...agentsField(services, workspace.id, tab.id),
         });
       } else if (tab.type === "terminal" && !tab.unstarted) {
         // One not started has nothing to show another device until its workspace is opened here.
@@ -195,6 +232,7 @@ export async function listSessions(
                 },
               }
             : {}),
+          ...agentsField(services, workspace.id, tab.id),
         });
       }
     }
