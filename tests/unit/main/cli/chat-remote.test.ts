@@ -135,6 +135,7 @@ describe("chat send --device", () => {
       tabId: REVIEW,
       timeoutMs: 10_000,
       after: NOW + 5,
+      from: expect.objectContaining({ agent: "claude", tabId: CLAUDE_TAB }),
     });
   });
 
@@ -231,7 +232,12 @@ describe("chat read --device", () => {
     expect(result.stdout).toBe(
       "── user #28\nReview it\n── claude #29\nLooks fine.\n\nClaude in Review is idle.\n",
     );
-    expect(asked(app, "chat.read")[0]).toEqual({ workspaceId: SITE, tabId: REVIEW, limit: 20 });
+    expect(asked(app, "chat.read")[0]).toEqual({
+      workspaceId: SITE,
+      tabId: REVIEW,
+      limit: 20,
+      from: expect.any(Object),
+    });
     const json = JSON.parse(
       (await nexus(app, ["chat", "read", "Review", "--device", "Mac mini", "--json"])).stdout,
     );
@@ -271,8 +277,8 @@ describe("chat read --device", () => {
     expect(lines.slice(0, -1).map((e) => e.i)).toEqual([24, 25, 26, 27, 28, 29]);
     expect(lines.at(-1)).toMatchObject({ state: "working" });
     expect(asked(app, "chat.read")).toEqual([
-      { workspaceId: SITE, tabId: REVIEW, limit: 500 },
-      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 500 },
+      { workspaceId: SITE, tabId: REVIEW, limit: 500, from: expect.any(Object) },
+      { workspaceId: SITE, tabId: REVIEW, before: 26, limit: 500, from: expect.any(Object) },
     ]);
   });
 });

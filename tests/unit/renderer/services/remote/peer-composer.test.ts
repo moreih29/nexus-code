@@ -74,7 +74,7 @@ describe("the composer of another computer's chat", () => {
     expect(calls[1]?.args).toEqual({ ...ref, text: "look", attachments: ["a1"] });
   });
 
-  test("a device before 0.12.0 keeps a message till the turn reads it: ⌘⇧↩ and ⌘↩ send it", async () => {
+  test("before its device says what it lets do: ⌘⇧↩ is held there, ⌘↩ goes as ↩ does", async () => {
     const { calls, call } = recording();
     const { made } = controller(call);
     made.enqueue("next", []);
@@ -82,13 +82,13 @@ describe("the composer of another computer's chat", () => {
     await made.sendNow?.("now");
     await made.readHeldNow?.();
     expect(calls).toEqual([
-      { method: "peerChatSend", args: { ...ref, text: "next" } },
+      { method: "peerChatSend", args: { ...ref, text: "next", when: "after" } },
       { method: "peerChatSend", args: { ...ref, text: "now" } },
     ]);
     expect(made.supports("cancel_async_message")).toBe(false);
   });
 
-  test("from 0.12.0 a message goes when its keys say, held there, taken back whole", async () => {
+  test("a message goes when its keys say, held there, taken back whole", async () => {
     const calls: { method: string; args: Record<string, unknown> }[] = [];
     const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
       calls.push({ method, args });
@@ -110,7 +110,6 @@ describe("the composer of another computer's chat", () => {
         withdraw: true,
         hurry: true,
       }),
-      holds: () => true,
       call,
     });
     made.enqueue("later", []);
@@ -142,7 +141,6 @@ describe("the composer of another computer's chat", () => {
       settings: () => settings,
       onSettings: () => {},
       filesRefused: "images only",
-      holds: () => true,
       call: recording().call,
     });
     expect(made.sendNow).toBeUndefined();

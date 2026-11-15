@@ -14,7 +14,6 @@ import {
   type RpcParams,
   type RpcResult,
 } from "../../../../packages/remote-protocol/src";
-import { speaks } from "../../../shared/remote/room";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
 import { refuseLoop } from "./hops";
@@ -197,7 +196,7 @@ function failureOf(device: CliDevice, method: RpcMethod, error: unknown, now: nu
   }
 }
 
-/** What an agent reads of another device, said as an agent's to one of 0.12.0 on. */
+/** What an agent reads of another device, said as an agent's. */
 const AGENT_READS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   "sessions.list",
   "chat.read",
@@ -220,26 +219,23 @@ export async function askDevice<M extends RpcMethod>(
 ): Promise<RpcResult<M>> {
   const now = ctx.services.clock.now();
   if (!device.online) throw offline(device, now);
-  // A read says who reads to a device that takes it so (0.12.0 on): one whose user
-  // turned agents down is read by people alone.
-  const reads = AGENT_READS.has(method) && speaks(device.schema, "0.12.0");
+  // A read says who reads: a device whose user turned agents down is read by people alone.
+  const reads = AGENT_READS.has(method);
   const params =
     reads && (given as { from?: AgentSender }).from === undefined
       ? ({ ...given, from: await agentReaderOf(ctx) } as RpcParams<M>)
       : given;
   const from = (params as { from?: AgentSender }).from;
   if (from && !device.serves.includes("agents")) {
-    throw device.schema === undefined
-      ? new CliError(`"${device.name}" runs an older NexusCode (no requests from agents)`, 3, {
-          error: "older",
-          device: deviceRef(device),
-          method,
-        })
-      : new CliError(`"${device.name}" does not take requests from agents (Settings › Remote)`, 1, {
-          error: "refused",
-          device: deviceRef(device),
-          message: "does not take requests from agents",
-        });
+    throw new CliError(
+      `"${device.name}" does not take requests from agents (Settings › Remote)`,
+      1,
+      {
+        error: "refused",
+        device: deviceRef(device),
+        message: "does not take requests from agents",
+      },
+    );
   }
   const timeoutMs =
     method === "chat.wait" || method === "terminal.wait"

@@ -238,10 +238,9 @@ describe("--device", () => {
       message: '"Mac mini" does not take requests from agents (Settings › Remote)',
       exitCode: 1,
     });
-    const old = device({ id: MINI, name: "Mac mini", serves: ["sessions", "chat.control"] });
-    await expect(askDevice(ctx(app), old, "chat.interrupt", params)).rejects.toMatchObject({
-      message: '"Mac mini" runs an older NexusCode (no requests from agents)',
-      exitCode: 3,
+    // A read, too, says who reads: refused there the same.
+    await expect(askDevice(ctx(app), deny, "sessions.list", {})).rejects.toMatchObject({
+      exitCode: 1,
     });
     expect(app.peers.requests).toEqual([]);
   });

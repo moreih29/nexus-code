@@ -73,15 +73,12 @@ export interface PeerComposerDeps {
   onRevealed?: (seq: number) => void;
   /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
   can?: () => ChatPanel["can"];
-  /** Whether the chat's device speaks 0.12.0: it holds messages for after the turn. */
-  holds?: () => boolean;
   call?: typeof ipcCallResult;
 }
 
 /**
  * The composer's controller for another computer's chat. A message held
- * for after the turn is held there, nothing here; one a device before
- * 0.12.0 takes waits there for the turn to read it.
+ * for after the turn is held there, nothing here.
  */
 export function peerComposerController(deps: PeerComposerDeps): ComposerController {
   const { ref, agent, filesRefused } = deps;
@@ -139,9 +136,8 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
             (await answerOf(call("remote", "peerChatWithdraw", { ...ref, itemKey }))).withdrawn,
         }
       : {}),
-    // Held there, from 0.12.0; before, the device keeps it till the turn reads it.
     enqueue: (text, images) => {
-      void send(text, images, deps.holds?.() ? "after" : undefined).catch(tell);
+      void send(text, images, "after").catch(tell);
     },
     removeQueued: (id) => {
       void answerOf(call("remote", "peerChatUnqueue", { ...ref, id })).catch(tell);
@@ -254,7 +250,6 @@ export function usePeerComposer({
   agent,
   model,
   panel,
-  holds = false,
   active,
   filesRefused,
   onError,
@@ -264,8 +259,6 @@ export function usePeerComposer({
   model: ChatModel;
   /** The chat's side panel as its device last told it: what it lets do, and what it holds. */
   panel?: ChatPanel | null;
-  /** Its device speaks 0.12.0: it holds messages for after the turn. */
-  holds?: boolean;
   /** The chat is in front and its device in reach: its settings are asked for. */
   active: boolean;
   filesRefused: string;
@@ -309,12 +302,10 @@ export function usePeerComposer({
     settings: ChatSettings | null;
     onError: (message: string) => void;
     can: ChatPanel["can"];
-    holds: boolean;
-  }>({ settings: null, onError, can: undefined, holds });
+  }>({ settings: null, onError, can: undefined });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
-  held.holds = holds;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -326,7 +317,6 @@ export function usePeerComposer({
         onError: (message) => held.onError(message),
         onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
         can: () => held.can,
-        holds: () => held.holds,
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );

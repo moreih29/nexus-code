@@ -92,7 +92,7 @@ describe("reads of another computer's, as an agent's", () => {
     });
   });
 
-  test("are turned down where its user turned agents down, and go as before to an older one", async () => {
+  test("are turned down where its user turned agents down", async () => {
     const off = newerPeer(["sessions", "terminal.read"], {
       "terminal.read": () => ({ text: "ready" }),
     });
@@ -100,9 +100,6 @@ describe("reads of another computer's, as an agent's", () => {
     expect(refused.exitCode).not.toBe(0);
     expect(refused.stderr).toContain("does not take requests from agents");
     expect(off.peers.requests).toEqual([]);
-    const older = withPeer({ "terminal.read": () => ({ text: "ready" }) });
-    await nexus(older, ["terminal", "read", "server", "--device", "Mac mini"]);
-    expect(asked(older, "terminal.read")[0]).not.toHaveProperty("from");
   });
 });
 
@@ -119,7 +116,13 @@ describe("terminal --device", () => {
       "20",
     ]);
     expect(result.stdout).toBe("$ npm run dev\nready\n");
-    expect(asked(app, "terminal.read")[0]).toEqual({ workspaceId: SITE, tabId: TERM, lines: 20 });
+    // A read says who reads, as every read does (see "reads of another computer's").
+    expect(asked(app, "terminal.read")[0]).toEqual({
+      workspaceId: SITE,
+      tabId: TERM,
+      lines: 20,
+      from: expect.any(Object),
+    });
     const missing = await nexus(app, ["terminal", "read", "--device", "Mac mini"]);
     expect(missing.exitCode).toBe(2);
   });
@@ -165,6 +168,7 @@ describe("terminal --device", () => {
       timeoutMs: 10_000,
       after: NOW + 7,
       quietMs: 3_000,
+      from: { kind: "terminal", agent: "claude", ...AGENT, name: expect.any(String), hops: 1 },
     });
   });
 
@@ -211,6 +215,7 @@ describe("terminal --device", () => {
       tabId: TERM,
       timeoutMs: 10_000,
       match: "^ready",
+      from: expect.any(Object),
     });
     const exited = withPeer({
       "terminal.wait": () => ({ done: true, state: "exited", message: "server has exited." }),
@@ -303,7 +308,11 @@ describe("events --device", () => {
         device: { id: MINI, name: "Mac mini" },
       }),
     ]);
-    expect(asked(app, "events.read")[0]).toEqual({ since: 3, limit: 500 });
+    expect(asked(app, "events.read")[0]).toEqual({
+      since: 3,
+      limit: 500,
+      from: expect.any(Object),
+    });
   });
 
   test("--wait asks again until a change comes; --device all is refused", async () => {
