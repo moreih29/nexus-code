@@ -1,10 +1,10 @@
-// A session of another computer, shown over the agent view's panels when
-// its row under Other computers is picked: a chat drawn by this app's
+// A session of another computer, shown as a tab of the agent view's panels
+// once its row under Other computers is picked: a chat drawn by this app's
 // message list from what that computer reads of it, which the user writes
 // to, answers and stops from here; or a terminal's text, to read only.
-// A chat is watched, a terminal read again every moment, while shown.
+// A chat is watched, a terminal read again every moment, while in front.
 
-import { CloudOff, Monitor, Send, Square, X } from "lucide-react";
+import { CloudOff, Send, Square } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
@@ -26,7 +26,7 @@ import {
   usePeerControls,
   usePeerReach,
 } from "../../services/remote/room";
-import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
+import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { SEND_BUTTON_CLASS } from "../chat/composer";
@@ -42,66 +42,27 @@ import { showToast } from "../ui/toast";
 const TERMINAL_LINES = 2000;
 
 /**
- * The session shown, over the panels; nothing when none is. It is read
- * only while the agent view is `visible`.
+ * The session in front of a panel, filling it below the panel's tabs. It
+ * is read only while the agent view is `visible`.
  */
-export function RemotePane({ visible }: { visible: boolean }) {
-  const shown = useRemoteViewStore((s) => s.shown);
-  if (!shown) return null;
-  return (
-    <RemoteSessionPane key={`${shown.deviceId}/${shown.tabId}`} target={shown} visible={visible} />
-  );
-}
-
 export function RemoteSessionPane({ target, visible }: { target: RemoteTarget; visible: boolean }) {
-  const { t } = useTranslation();
-  const close = useRemoteViewStore((s) => s.close);
   const reach = usePeerReach(target.deviceId);
   const controls = usePeerControls(target.deviceId);
-  useEffect(() => {
-    if (!visible) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) close();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [close, visible]);
   return (
+    // Out of reach, nothing in it turns: a running call shows as it was, not as live.
     <div
-      className="absolute inset-0 z-30 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-island) island-surface"
+      className={cn(
+        "absolute inset-0 flex min-h-0 min-w-0 flex-col overflow-hidden",
+        reach !== "online" && "[&_*]:animate-none!",
+      )}
       data-testid="remote-pane"
+      data-reach={reach}
     >
-      <div className="flex h-9 shrink-0 items-center gap-1.5 px-3">
-        <Monitor aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 text-app-ui-sm text-muted-foreground">
-          {target.deviceName} · {target.workspaceName}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-app-ui-sm text-foreground">
-          {target.title}
-        </span>
-        {(target.kind === "terminal" || !controls) && (
-          <span className="shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground">
-            {t("agentView.remote.viewOnly")}
-          </span>
-        )}
-        <IconButton label={t("agentView.remote.close")} onClick={close}>
-          <X aria-hidden className="size-3.5" />
-        </IconButton>
-      </div>
-      {/* Out of reach, nothing in it turns: a running call shows as it was, not as live. */}
-      <div
-        className={cn(
-          "relative flex min-h-0 min-w-0 flex-1 flex-col",
-          reach !== "online" && "[&_*]:animate-none!",
-        )}
-        data-reach={reach}
-      >
-        {target.kind === "terminal" ? (
-          <RemoteTerminal target={target} visible={visible} reach={reach} />
-        ) : (
-          <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
-        )}
-      </div>
+      {target.kind === "terminal" ? (
+        <RemoteTerminal target={target} visible={visible} reach={reach} />
+      ) : (
+        <RemoteChat target={target} visible={visible} reach={reach} controls={controls} />
+      )}
     </div>
   );
 }

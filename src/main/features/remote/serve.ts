@@ -157,7 +157,8 @@ export async function listSessions(
             ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
             : {}),
         });
-      } else if (tab.type === "terminal") {
+      } else if (tab.type === "terminal" && !tab.unstarted) {
+        // One not started has nothing to show another device until its workspace is opened here.
         const claude = services.claudeStatus(workspace.id, tab.id);
         const state = describeTerminal(
           claude,
@@ -176,6 +177,7 @@ export async function listSessions(
           kind: "terminal",
           title: tab.title,
           state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
+          ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
           ...(state.since !== undefined ? { since: state.since } : {}),
           ...(state.message ? { last: oneLine(state.message) } : {}),
           ...(ask

@@ -1759,9 +1759,10 @@
         "idle": "대기",
         "ended": "종료"
       },
-      "viewOnly": "보기 전용",
+      "terminalsShow_one": "터미널 {{count}}개 보기",
+      "terminalsShow_other": "터미널 {{count}}개 보기",
+      "terminalsHide": "터미널 숨기기",
       "viewOnlyNote": "{{device}}에서 다른 기기의 조작을 허용하지 않아 보기만 됩니다.",
-      "close": "닫기",
       "gone": "닫힌 세션입니다",
       "placeholder": "{{device}}에 메시지 보내기",
       "send": "보내기",

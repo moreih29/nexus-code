@@ -32,8 +32,13 @@ afterAll(() => {
   globals.document = originalDocument;
 });
 
-const { markCliUiReady, startCliUiListener } = await import(
+const { listTabs, markCliUiReady, startCliUiListener } = await import(
   "../../../../../src/renderer/services/cli/ui-requests"
+);
+const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
+const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout/store");
+const { registerTerminalController } = await import(
+  "../../../../../src/renderer/services/terminal/terminal-registry"
 );
 
 test("a request is carried out once, however often the app boots", async () => {
@@ -56,4 +61,39 @@ test("a request is carried out once, however often the app boots", async () => {
   startCliUiListener();
   older();
   expect(listeners.size).toBe(1);
+});
+
+test("a terminal not started yet, its workspace not opened, says so in the tabs' list", () => {
+  const ws = "ws-tabs";
+  const make = () =>
+    useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
+  const started = make();
+  const unstarted = make();
+  useLayoutStore.setState({
+    byWorkspace: {
+      [ws]: {
+        root: {
+          kind: "leaf",
+          id: "leaf",
+          tabIds: [started.id, unstarted.id],
+          activeTabId: started.id,
+        },
+        activeGroupId: "leaf",
+      },
+    },
+  });
+  const unregister = registerTerminalController(
+    started.id,
+    {} as Parameters<typeof registerTerminalController>[1],
+  );
+  try {
+    expect(listTabs(ws).map((tab) => [tab.id, tab.unstarted])).toEqual([
+      [started.id, undefined],
+      [unstarted.id, true],
+    ]);
+  } finally {
+    unregister();
+    useTabsStore.setState({ byWorkspace: {} });
+    useLayoutStore.setState({ byWorkspace: {} });
+  }
 });

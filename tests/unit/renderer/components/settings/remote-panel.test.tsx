@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteAccountState } from "../../../../../src/shared/remote/account";
+import { SERVER } from "../../../../../src/shared/remote/server";
 
 const { AccountGroup, DeleteAccountGroup, DeviceRow } = await import(
   "../../../../../src/renderer/components/settings/panels/remote-panel"
@@ -76,6 +77,14 @@ describe("the remote panel's account", () => {
     expect(html).toContain("Me");
     expect(html).toContain("me@example.com");
     expect(html).toContain("Sign out");
+    // Signed in, the page does not explain signing in.
+    expect(html).not.toContain("Sign in to see");
+  });
+
+  test("names the server only when it is not the released app's own", () => {
+    const html = render({ status: "signed-out", server: SERVER });
+    expect(html).not.toContain("Server:");
+    expect(render({ status: "signed-out", server })).toContain(`Server: ${server}`);
   });
 
   test("names each device's system, and tags this one", () => {
@@ -123,7 +132,8 @@ describe("the remote panel's account password", () => {
   test("a device holding the key offers the change and the reset", () => {
     const html = renderKey({ status: "unlocked", kid: 2 });
     expect(html).toContain(">Unlocked<");
-    expect(html).toContain("Key version 2");
+    expect(html).toContain("This device holds the account key");
+    expect(html).not.toContain("Key version");
     expect(html).toContain("Change password");
     expect(html).toContain("Reset");
     expect(html).not.toContain('type="password"');
@@ -141,7 +151,7 @@ describe("the remote panel's account deletion", () => {
   test("offers it, saying it cannot be undone", () => {
     const html = renderToStaticMarkup(<DeleteAccountGroup keyState={null} />);
     expect(html).toContain("Delete your NexusCode account");
-    expect(html).toContain("be undone.");
+    expect(html).toContain("for good");
     expect(html).toContain('data-variant="destructive"');
   });
 });

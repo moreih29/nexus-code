@@ -20,13 +20,17 @@ function services(pending: PendingConsent[] = []): CliServices {
     { id: "w2", name: "feat", rootPath: "/src/app-feat", task: { parentId: "w1", branch: "feat" } },
     { id: "w3", name: "closed", rootPath: "/src/closed" },
   ];
-  const tabs: Record<string, { id: string; type: string; title: string }[]> = {
+  const tabs: Record<string, { id: string; type: string; title: string; unstarted?: true }[]> = {
     w1: [
       { id: "t1", type: "claude", title: "Fix the build" },
       { id: "t2", type: "terminal", title: "zsh" },
       { id: "t3", type: "editor", title: "a.ts" },
+      { id: "t5", type: "terminal", title: "bash" },
     ],
-    w2: [{ id: "t4", type: "codex", title: "Review" }],
+    w2: [
+      { id: "t4", type: "codex", title: "Review" },
+      { id: "t6", type: "terminal", title: "Terminal", unstarted: true },
+    ],
     [MANAGER_WORKSPACE_ID]: [],
   };
   return {
@@ -69,6 +73,7 @@ function services(pending: PendingConsent[] = []): CliServices {
 }
 
 describe("serving the sessions", () => {
+  // A terminal not started (t6) is not listed: it has nothing to show until its workspace is opened.
   test("lists the chats and terminals of every workspace, in the app's order", async () => {
     const git = (w: { id: string }) =>
       w.id === "w2" ? { branch: "feat", ahead: 2, behind: 0, uncommitted: 3 } : undefined;
@@ -101,9 +106,12 @@ describe("serving the sessions", () => {
         state: "needs-you",
         since: 5,
         last: "Allow rm?",
+        agent: "claude",
         // What the terminal's Claude Code asks, as the app holds it.
         waiting: { kind: "permission", text: "Bash rm -rf dist", requestId: "h1" },
       },
+      // A terminal with only its shell: no agent, which the lists keep out of sight.
+      { workspaceId: "w1", tabId: "t5", kind: "terminal", title: "bash", state: "idle" },
       {
         workspaceId: "w2",
         tabId: "t4",

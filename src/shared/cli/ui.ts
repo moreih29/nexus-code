@@ -61,6 +61,11 @@ export interface CliTabInfo {
   readonly url?: string;
   /** A terminal whose process has ended. */
   readonly dead?: boolean;
+  /**
+   * A terminal not started yet: its workspace has not been opened since the
+   * app started, so it has nothing to read or watch.
+   */
+  readonly unstarted?: boolean;
   /** An editor, diff or untitled buffer with changes not saved. */
   readonly unsaved?: boolean;
   /** Pinned to the front of its group. */
@@ -811,10 +816,17 @@ export interface CliUiOps {
   /**
    * Starts telling main what changes in a Claude or Codex tab's
    * conversation, for another device watching it (the remote's chat.watch):
-   * its page now, then remote.chatChanged with `watchId` as it changes.
+   * its page now, then remote.chatChanged with `watchId` as it changes;
+   * with `appends`, text added to an assistant's block as appends.
    */
   "chat.watch": {
-    args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      watchId: string;
+      limit?: number;
+      appends?: boolean;
+    };
     result: ChatPage & { panel?: ChatPanel };
   };
   /**

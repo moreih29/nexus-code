@@ -120,6 +120,12 @@ export const RemoteSessionSchema = z.object({
   last: z.string().optional(),
   /** The agent profile it runs with. */
   profile: z.string().optional(),
+  /**
+   * The agent a terminal runs (claude, codex), or another that notifies
+   * ("agent"); absent for a terminal that only has its shell, which the
+   * lists keep out of sight until asked for. Never on a chat.
+   */
+  agent: z.string().max(40).optional(),
   /** What it waits on the user for, when it does. */
   waiting: z
     .object({
@@ -461,17 +467,65 @@ export const ChatPageSchema = z.object({
 export type ChatPage = z.infer<typeof ChatPageSchema>;
 
 /**
+ * Text added to the end of a block (text or thinking) of the assistant
+ * item at `index`: sent for a watch that asked for appends, in place of
+ * the whole item, while a reply streams in.
+ */
+export const ChatAppendSchema = z.object({
+  index: z.number().int().nonnegative(),
+  block: z.number().int().nonnegative(),
+  /** What follows the block's text, in UTF-16 code units: it may start inside a surrogate pair. */
+  text: z.string(),
+});
+export type ChatAppend = z.infer<typeof ChatAppendSchema>;
+
+/**
+ * Text added to the end of a block of the reply being written (the
+ * status's streaming message): a text, thinking or tool_use block, whose
+ * text for a tool is its input's JSON so far.
+ */
+export const ChatStreamAppendSchema = z.object({
+  block: z.number().int().nonnegative(),
+  /** What follows the block's text, in UTF-16 code units: it may start inside a surrogate pair. */
+  text: z.string(),
+});
+export type ChatStreamAppend = z.infer<typeof ChatStreamAppendSchema>;
+
+/**
+ * A chat.update's status: as a page's, but for a watch that asked for
+ * appends its `streaming` may be left out, when the watcher's own stays
+ * (with the update's streamAppends added).
+ */
+export const ChatUpdateStatusSchema = ChatStatusSchema.extend({
+  streaming: ChatStatusSchema.shape.streaming.optional(),
+});
+
+/**
  * What changed in a watched chat since its last update (or its watch
- * began). Items are put at their index; `total` cuts the list when it got
- * shorter. Tool calls, tasks and subagents' messages are put by id.
+ * began), applied in this order:
+ * - `items` are put at their index; `total` cuts the list when it got
+ *   shorter.
+ * - Each of `appends` adds its text to an assistant item's block. One
+ *   before the watcher's page is dropped; one to an item that is not an
+ *   assistant's, or to a block it does not have or that holds no text,
+ *   means the watcher missed something, and watches again.
+ * - `status` replaces the watcher's, keeping the watcher's streaming
+ *   message when it has no `streaming`.
+ * - Each of `streamAppends` adds its text to a block of that streaming
+ *   message; one with no streaming message, or no such block, means the
+ *   watcher missed something, and watches again.
+ * Tool calls, tasks and subagents' messages are put by id.
  */
 export const ChatUpdateSchema = z.object({
   watchId: z.string(),
   /** Counts the watch's updates from 1, so one lost shows. */
   rev: z.number().int().positive(),
-  status: ChatStatusSchema.optional(),
+  status: ChatUpdateStatusSchema.optional(),
   total: z.number().int().nonnegative(),
   items: z.array(z.object({ index: z.number().int().nonnegative(), item: ViewItemSchema })),
+  /** Only for a watch that asked for them (chat.watch's `appends`), as streamAppends. */
+  appends: z.array(ChatAppendSchema).optional(),
+  streamAppends: z.array(ChatStreamAppendSchema).optional(),
   tools: z.record(ViewToolCallSchema),
   tasks: z.record(ViewTaskSchema),
   agentItems: z.record(z.array(AssistantItemSchema)),
@@ -584,6 +638,12 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
+      /**
+       * The watcher takes text added to an assistant item's block, and to
+       * the reply being written, as `appends` and `streamAppends` in its
+       * chat.update; without it, the whole item or status comes.
+       */
+      appends: z.boolean().optional(),
     }),
     result: ChatPageSchema.extend({ watchId: z.string(), panel: ChatPanelSchema.optional() }),
   },

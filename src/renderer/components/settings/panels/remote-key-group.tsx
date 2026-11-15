@@ -60,7 +60,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
   const idle = () => setMode("idle");
 
   return (
-    <SettingsGroup title={t("remote.key.title")} description={t("remote.key.description")}>
+    <SettingsGroup title={t("remote.key.title")}>
       {state.status === "checking" && (
         <SettingsRow label={t("remote.key.checking")}>{null}</SettingsRow>
       )}
@@ -100,7 +100,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
         <>
           <SettingsRow
             label={t("remote.key.unlocked")}
-            description={t("remote.key.version", { kid: state.kid })}
+            description={t("remote.key.unlockedDescription")}
           >
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => setMode("change")}>

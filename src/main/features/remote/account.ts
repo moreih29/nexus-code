@@ -3,7 +3,8 @@
  * the system browser (OAuth with PKCE and a loopback redirect, as RFC 8252
  * has it for a desktop app), the server's session token it gets for this
  * device, and the account's devices. The token is what the relay and the
- * API take.
+ * API take. Requests go by its route: through the proxy when there is one,
+ * the server straight when it cannot be reached.
  */
 
 import os from "node:os";
@@ -20,6 +21,7 @@ import {
 import { ServerError, SignedOutError, SignInError, UnreachableError } from "./errors";
 import { type LoopbackListener, listenForCallback } from "./loopback";
 import { makePkce, makeState } from "./pkce";
+import { ServerRoute } from "./route";
 import type { Kept } from "./sealed-file";
 
 export { SignedOutError } from "./errors";
@@ -68,8 +70,12 @@ export function thisDevice(): { name: string; platform: string } {
 }
 
 export interface RemoteAccountDeps {
-  /** The server's address, e.g. http://localhost:8787. */
+  /** The server's address, e.g. http://localhost:8787: the one signed in to. */
   readonly server: string;
+  /** The proxy requests to the server go through; none to go straight. */
+  readonly proxy?: string | null;
+  /** The time now, for how long the proxy stays passed by. */
+  now?: () => number;
   readonly store: Kept<SavedAccount>;
   openExternal(url: string): Promise<void>;
   fetch?: typeof fetch;
@@ -91,9 +97,12 @@ export class RemoteAccount {
   /** Why the last sign-in failed, until the next one starts. */
   private failure: SignInFailure | undefined;
   private readonly fetch: typeof fetch;
+  /** How requests reach the server; the relay's and voice input's sockets go by it too. */
+  readonly route: ServerRoute;
 
   constructor(private readonly deps: RemoteAccountDeps) {
     this.fetch = deps.fetch ?? fetch;
+    this.route = new ServerRoute(deps.server, deps.proxy ?? null, deps.now);
   }
 
   /** Picks up the sign-in kept from the last run, if there is one for this server. */
@@ -281,17 +290,27 @@ export class RemoteAccount {
       : options.body !== undefined
         ? JSON.stringify(options.body)
         : undefined;
-    let res: Response;
-    try {
-      res = await this.fetch(new URL(path, this.deps.server), {
+    const send = (base: string) =>
+      this.fetch(this.route.url(path, { base }), {
         method,
         headers,
         signal: AbortSignal.timeout(options.timeoutMs ?? REQUEST_TIMEOUT_MS),
         ...(body !== undefined ? { body: body as NonNullable<RequestInit["body"]> } : {}),
       });
+    const base = this.route.base();
+    let res: Response;
+    try {
+      res = await send(base);
     } catch (error) {
-      // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it is slow.
-      throw new UnreachableError(error);
+      // fetch fails with a TypeError when the server cannot be reached, a TimeoutError when it
+      // is slow. The proxy not reached, the server is asked straight, now and for a while; a
+      // request that timed out may have gone through, and is not sent again.
+      if (!this.route.unreachable(base) || isTimeout(error)) throw new UnreachableError(error);
+      try {
+        res = await send(this.route.base());
+      } catch (again) {
+        throw new UnreachableError(again);
+      }
     }
     if (res.status === 401 && options.signedIn !== false) {
       this.forget();
@@ -352,4 +371,9 @@ function parseJson(text: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/** A fetch that gave up waiting (AbortSignal.timeout), rather than one that reached nothing. */
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && error.name === "TimeoutError";
 }
