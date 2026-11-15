@@ -783,6 +783,99 @@ describe("serving the conversations of the past", () => {
   });
 });
 
+describe("rewinding, forking and more of a Claude chat", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  function actionServices(answer: (op: string) => unknown = () => ({})) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        const a = answer(op);
+        if (a instanceof Error) throw a;
+        return a;
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("each goes to the app's chat as asked", async () => {
+    const { serve, asked } = actionServices((op) =>
+      op === "chat.fork"
+        ? { tabId: "t9", draft: "again" }
+        : op === "chat.rewindPreview"
+          ? { canRewind: true, filesChanged: ["/src/app/a.ts"], insertions: 2, deletions: 1 }
+          : {},
+    );
+    expect(
+      await serve({ from: "d", method: "chat.rewindPreview", params: { ...tab, itemKey: "u1" } }),
+    ).toEqual({ canRewind: true, filesChanged: ["/src/app/a.ts"], insertions: 2, deletions: 1 });
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.rewind",
+        params: { ...tab, itemKey: "u1", files: true },
+      }),
+    ).toEqual({});
+    expect(
+      await serve({ from: "d", method: "chat.fork", params: { ...tab, itemKey: "u1" } }),
+    ).toEqual({ tabId: "t9", draft: "again" });
+    await serve({ from: "d", method: "chat.fork", params: tab });
+    await serve({ from: "d", method: "chat.background", params: { ...tab, toolUseId: "c1" } });
+    await serve({ from: "d", method: "chat.remoteControl", params: { ...tab, enabled: true } });
+    expect(asked).toEqual([
+      ["chat.rewindPreview", { ...tab, itemKey: "u1" }],
+      ["chat.rewind", { ...tab, itemKey: "u1", files: true }],
+      ["chat.fork", { ...tab, itemKey: "u1" }],
+      ["chat.fork", tab],
+      ["chat.background", { ...tab, toolUseId: "c1" }],
+      ["chat.remoteControl", { ...tab, enabled: true }],
+    ]);
+  });
+
+  test("only a Claude chat's; NotFound for an item it does not have", async () => {
+    const { serve } = actionServices((op) =>
+      op === "chat.rewind" ? new Error("no item u9 in that tab") : new Error("a turn is running"),
+    );
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.fork",
+        params: { workspaceId: "w2", tabId: "t4" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "d", method: "chat.rewind", params: { ...tab, itemKey: "u9", files: false } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "d", method: "chat.background", params: { ...tab, toolUseId: "c1" } }),
+    ).rejects.toMatchObject({ code: 1003 });
+  });
+
+  test("a past conversation goes on in the chat named, of its agent", async () => {
+    const { serve, asked } = actionServices(() => ({ tabId: "t1" }));
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.resume",
+        params: { workspaceId: "w1", agent: "claude", sessionId: "s1", tabId: "t1" },
+      }),
+    ).toEqual({ tabId: "t1" });
+    expect(asked).toEqual([
+      ["chat.resume", { workspaceId: "w1", agent: "claude", sessionId: "s1", tabId: "t1" }],
+    ]);
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.resume",
+        params: { workspaceId: "w1", agent: "codex", sessionId: "s1", tabId: "t1" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
 describe("serving a chat's slash commands", () => {
   const commands = [
     { name: "review", description: "Review", runs: "send" },

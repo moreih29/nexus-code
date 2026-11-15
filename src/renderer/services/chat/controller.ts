@@ -599,9 +599,13 @@ export class ChatController {
   /**
    * Goes back to before one of the user's messages, in this tab: the files
    * first when asked, then the conversation, by a program that copies the
-   * session up to the message before it. The message goes back in the composer.
+   * session up to the message before it. The message goes back in the
+   * composer, unless another device asked (`draft` false): it goes back in that one's.
    */
-  async rewind(item: UserItem, { files }: { files: boolean }): Promise<void> {
+  async rewind(
+    item: UserItem,
+    { files, draft = true }: { files: boolean; draft?: boolean },
+  ): Promise<void> {
     const uuid = item.uuid;
     if (!uuid) throw new Error("the message has no uuid yet");
     if (this.state.model.running) throw new Error("a turn is running");
@@ -626,7 +630,7 @@ export class ChatController {
       history: kept.items.length > 0 ? kept : null,
       // The old program's last lines stay out of sight until the log starts over.
       model: { ...emptyModel(), lastSeq: prev.model.lastSeq },
-      draft: { text: item.text, images: item.images, nonce: Date.now() },
+      ...(draft ? { draft: { text: item.text, images: item.images, nonce: Date.now() } } : {}),
     }));
     if (await this.start({ ...this.startArgs(), resetLog: true })) await this.rebuild();
   }

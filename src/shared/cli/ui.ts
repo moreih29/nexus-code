@@ -24,6 +24,12 @@ export interface CliPastSession {
   cwd: string;
   /** The profile that keeps it. */
   profile: string;
+  /** Its first prompt, when its title is not. */
+  firstPrompt?: string;
+  /** The git branch it ran on. */
+  gitBranch?: string;
+  /** The tab it is open in now. */
+  tabId?: string;
 }
 
 /** An image of a chat, small enough to send. */
@@ -305,6 +311,8 @@ export interface CliChatInfo {
   readonly profile?: string;
   /** The goal it works toward (/goal), while it shows one. */
   readonly goal?: CliChatGoal;
+  /** The folder it runs in, when it is not its workspace's. */
+  readonly cwd?: string;
 }
 
 /** What a tab asks the user for. */
@@ -738,10 +746,11 @@ export interface CliUiOps {
   };
   /**
    * Goes on with a conversation of the past in a new tab, behind what the
-   * window shows; the tab that has it open already, if one does.
+   * window shows; the tab that has it open already, if one does. With
+   * `tabId`, a tab of the agent's with no conversation yet, in that tab.
    */
   "chat.resume": {
-    args: { workspaceId: string; agent: ChatAgent; sessionId: string };
+    args: { workspaceId: string; agent: ChatAgent; sessionId: string; tabId?: string };
     result: { tabId: string };
   };
   /**
@@ -861,6 +870,48 @@ export interface CliUiOps {
   /** Stops one of a Claude tab's tasks (a background run), by its id, as the panel's stop button does. */
   "chat.stopTask": {
     args: { workspaceId: string; tabId: string; taskId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * What rewinding a Claude tab to before one of the user's messages (by
+   * its item's key) would undo in the files, as its rewind dialog shows.
+   */
+  "chat.rewindPreview": {
+    args: { workspaceId: string; tabId: string; itemKey: string };
+    result: {
+      canRewind: boolean;
+      error?: string;
+      filesChanged: string[];
+      insertions: number;
+      deletions: number;
+    };
+  };
+  /**
+   * Rewinds a Claude tab to before one of the user's messages, by its
+   * item's key: the conversation, and with `files` the files too.
+   */
+  "chat.rewind": {
+    args: { workspaceId: string; tabId: string; itemKey: string; files: boolean };
+    result: Record<string, never>;
+  };
+  /**
+   * Forks a Claude tab into a new one behind what the window shows: from a
+   * user's message (by its item's key), the conversation before it, the
+   * message as `draft` for the asking device; from an answer, up to it;
+   * with no item, all of it.
+   */
+  "chat.fork": {
+    args: { workspaceId: string; tabId: string; itemKey?: string };
+    result: { tabId: string; draft?: string };
+  };
+  /** Sends a Claude tab's running command or subagent to the background, by its call's id. */
+  "chat.background": {
+    args: { workspaceId: string; tabId: string; toolUseId: string };
+    result: Record<string, never>;
+  };
+  /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
+  "chat.remoteControl": {
+    args: { workspaceId: string; tabId: string; enabled: boolean };
     result: Record<string, never>;
   };
   /** Stops a watch chat.watch started; nothing when there is none. */

@@ -20,6 +20,8 @@ import type {
   ViewStreaming,
 } from "../../../../packages/remote-protocol/src";
 import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
+import { profileOf } from "../../../shared/agent-profiles/profiles";
+import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { planUsageKeyFor, usePlanUsageStore } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
@@ -37,6 +39,7 @@ import {
   viewToolOf,
 } from "./chat-page";
 import { chatPanelOf } from "./chat-panel";
+import { cliProfileName } from "./profile-name";
 
 /** What a watch sends: an update but for its id and rev, which main gives it. */
 export type ChatChange = Omit<ChatUpdate, "watchId" | "rev">;
@@ -296,11 +299,28 @@ export function tabSource(
   if (!chat || !tab || (tab.type !== "claude" && tab.type !== "codex")) return null;
   const plan =
     usePlanUsageStore.getState().byKey[planUsageKeyFor(agent, workspaceId, tab.props.profileId)];
+  const config = useAgentProfilesStore.getState().config;
+  const moves = tab.props.moves?.map((move) => ({
+    after: move.after,
+    profile: cliProfileName(profileOf(config, agent, move.profileId)),
+    at: move.at,
+  }));
   return {
     agent,
     title: tab.title,
     chat,
     ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+    ...(moves && moves.length > 0 ? { moves } : {}),
+    ...(tab.type === "claude"
+      ? {
+          can: {
+            rewind: true,
+            // A fork copies a session: one the tab has, or the one it copies itself.
+            fork: Boolean(chat.model.sessionId ?? tab.props.sessionId ?? tab.props.fork?.sessionId),
+            background: true,
+          },
+        }
+      : {}),
     ...(plan?.claude || plan?.codex
       ? {
           plan: {

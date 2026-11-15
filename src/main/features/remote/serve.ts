@@ -154,6 +154,7 @@ export async function listSessions(
           ...(info.since !== undefined ? { since: info.since } : {}),
           ...(info.message ? { last: oneLine(info.message) } : {}),
           ...(info.profile ? { profile: info.profile } : {}),
+          ...(info.cwd ? { cwd: info.cwd } : {}),
           ...(info.state === "asking" && info.waiting
             ? { waiting: { kind: info.waiting.kind, text: oneLine(info.waiting.text) } }
             : {}),
@@ -762,6 +763,73 @@ export async function stopChatTask(
   return {};
 }
 
+/** A tab's failure as another device is told it: an item or a call it does not have is not found. */
+function chatFailure(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/^no (item|tool call|message) /.test(message)) {
+    throw new RpcFailure(RpcErrorCode.NotFound, message);
+  }
+  return unavailable(error);
+}
+
+/** What rewinding a Claude chat to before one of the user's messages would undo in the files. */
+export async function previewChatRewind(
+  services: CliServices,
+  { workspaceId, tabId, itemKey }: RpcParams<"chat.rewindPreview">,
+): Promise<RpcResult<"chat.rewindPreview">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  const preview = await services
+    .ui("chat.rewindPreview", { workspaceId, tabId, itemKey })
+    .catch(chatFailure);
+  // A rewind that touches many files names as many as go in a frame.
+  let { filesChanged } = preview;
+  while (filesChanged.length > 0 && !fitsAsResult({ ...preview, filesChanged })) {
+    filesChanged = filesChanged.slice(0, Math.floor(filesChanged.length / 2));
+  }
+  return { ...preview, filesChanged };
+}
+
+/** Rewinds a Claude chat to before one of the user's messages, as its rewind dialog does. */
+export async function rewindChat(
+  services: CliServices,
+  { workspaceId, tabId, itemKey, files }: RpcParams<"chat.rewind">,
+): Promise<RpcResult<"chat.rewind">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await services.ui("chat.rewind", { workspaceId, tabId, itemKey, files }).catch(chatFailure);
+  return {};
+}
+
+/** Forks a Claude chat into a new one, behind what this computer shows. */
+export async function forkChat(
+  services: CliServices,
+  { workspaceId, tabId, itemKey }: RpcParams<"chat.fork">,
+): Promise<RpcResult<"chat.fork">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  return services
+    .ui("chat.fork", { workspaceId, tabId, ...(itemKey ? { itemKey } : {}) })
+    .catch(chatFailure);
+}
+
+/** Sends a Claude chat's running command or subagent to the background. */
+export async function backgroundChatTool(
+  services: CliServices,
+  { workspaceId, tabId, toolUseId }: RpcParams<"chat.background">,
+): Promise<RpcResult<"chat.background">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await services.ui("chat.background", { workspaceId, tabId, toolUseId }).catch(chatFailure);
+  return {};
+}
+
+/** Turns a Claude chat's Remote Control on or off. */
+export async function setChatRemoteControl(
+  services: CliServices,
+  { workspaceId, tabId, enabled }: RpcParams<"chat.remoteControl">,
+): Promise<RpcResult<"chat.remoteControl">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await services.ui("chat.remoteControl", { workspaceId, tabId, enabled }).catch(chatFailure);
+  return {};
+}
+
 /** The workspace's conversations of the past that a new chat can go on with. */
 export async function listHistory(
   services: CliServices,
@@ -789,16 +857,19 @@ export async function listHistory(
 /** Goes on with a conversation of the past in a new chat, behind what this computer shows. */
 export async function resumeChat(
   services: CliServices,
-  { workspaceId, agent, sessionId }: RpcParams<"chat.resume">,
+  { workspaceId, agent, sessionId, tabId }: RpcParams<"chat.resume">,
 ): Promise<RpcResult<"chat.resume">> {
   if (!workspaceOf(services, workspaceId)) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
   }
-  return services.ui("chat.resume", { workspaceId, agent, sessionId }).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
-    return unavailable(error);
-  });
+  if (tabId) await tabOf(services, workspaceId, tabId, [agent]);
+  return services
+    .ui("chat.resume", { workspaceId, agent, sessionId, ...(tabId ? { tabId } : {}) })
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/^no conversation /.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);
+      return unavailable(error);
+    });
 }
 
 export async function closeChat(
@@ -1053,6 +1124,16 @@ export function serveWith(
         return chatPanel(s, request.params as RpcParams<"chat.panel">);
       case "chat.stopTask":
         return stopChatTask(s, request.params as RpcParams<"chat.stopTask">);
+      case "chat.rewindPreview":
+        return previewChatRewind(s, request.params as RpcParams<"chat.rewindPreview">);
+      case "chat.rewind":
+        return rewindChat(s, request.params as RpcParams<"chat.rewind">);
+      case "chat.fork":
+        return forkChat(s, request.params as RpcParams<"chat.fork">);
+      case "chat.background":
+        return backgroundChatTool(s, request.params as RpcParams<"chat.background">);
+      case "chat.remoteControl":
+        return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":
