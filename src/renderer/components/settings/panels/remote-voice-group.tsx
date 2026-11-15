@@ -11,10 +11,8 @@ import { type ClipboardEvent, type FormEvent, useEffect, useId, useState } from 
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { VoiceUsage } from "../../../../../packages/remote-protocol/src/voice";
-import { COMMANDS } from "../../../../shared/keybindings/commands";
 import { MAX_VOICE_TERM_CHARS, MAX_VOICE_TERMS } from "../../../../shared/remote/voice";
 import { ipcCallResult } from "../../../ipc/client";
-import { shortcutFor } from "../../../keybindings/shortcut-labels";
 import { addTerms, pastedTerms, removeTerm } from "../../../services/voice/terms";
 import { useLanguageStore } from "../../../state/stores/language";
 import { useVoiceStore, type VoiceLanguagePreference } from "../../../state/stores/voice";
@@ -253,16 +251,8 @@ export function VoiceGroup() {
     setSendNames(next);
     void ipcCallResult("appState", "set", { voiceSendNames: next });
   };
-  const shortcut = shortcutFor(COMMANDS.chatVoiceToggle);
   return (
-    <SettingsGroup
-      title={t("remote.voice.title")}
-      description={
-        shortcut
-          ? t("remote.voice.descriptionWithShortcut", { shortcut })
-          : t("remote.voice.description")
-      }
-    >
+    <SettingsGroup title={t("remote.voice.title")}>
       <VoiceUsageRow usage={usage} />
       <SettingsRow label={t("remote.voice.language")}>
         <SegmentedControl

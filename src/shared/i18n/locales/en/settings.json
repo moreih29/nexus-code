@@ -765,20 +765,18 @@
     },
     "delete": {
       "label": "Delete your NexusCode account",
-      "description": "Deletes the account and all its devices, for good",
+      "description": "Deletes the account and all its devices. This can't be undone.",
       "button": "Delete",
       "failed": "Couldn't delete the account. Try again.",
       "confirm": {
         "title": "Delete your NexusCode account?",
         "description": "The account and all its devices are deleted from the server. This can't be undone.",
         "confirm": "Delete account",
-        "descriptionPassword": "The account and all its devices are deleted from the server. This cannot be undone. Type the account password."
+        "descriptionPassword": "The account and all its devices are deleted from the server. This can't be undone. Type the account password."
       }
     },
     "voice": {
       "title": "Voice input",
-      "description": "Click the mic in a chat box and speak",
-      "descriptionWithShortcut": "Click the mic in a chat box, or press {{shortcut}}, and speak",
       "usage": "This month",
       "usageOf": "{{used}} of {{limit}} minutes used",
       "usageLoading": "Loading…",

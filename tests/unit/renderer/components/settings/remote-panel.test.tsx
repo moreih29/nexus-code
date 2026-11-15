@@ -165,7 +165,7 @@ describe("the remote panel's account deletion", () => {
   test("offers it, saying it cannot be undone", () => {
     const html = renderToStaticMarkup(<DeleteAccountGroup keyState={null} />);
     expect(html).toContain("Delete your NexusCode account");
-    expect(html).toContain("for good");
+    expect(html).toContain("be undone.");
     expect(html).toContain('data-variant="destructive"');
   });
 });

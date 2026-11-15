@@ -209,6 +209,9 @@ export function Composer({
     (dictation.phase === "idle" || dictation.phase === "listening");
   // Listening with nothing heard yet: the box says so.
   const listening = dictation.phase === "starting" || dictation.phase === "listening";
+  // An empty box tells its keys, during a turn what each does with the message,
+  // unless the tab says something of its own there.
+  const hint = placeholder ?? composerHint(t, running, program);
   // Sent during the turn, not yet read: what ⌘↩ with nothing typed hurries.
   const held = running && model.items.some((item) => item.kind === "user" && item.state === "sent");
   // Those wait above the box, where they can be taken back as the terminal's ↑ does.
@@ -352,7 +355,7 @@ export function Composer({
   useLayoutEffect(() => {
     const area = areaRef.current;
     if (area && !parked(area)) fitHeight(area, rootRef.current?.parentElement);
-  }, [text, placeholder, font]);
+  }, [text, hint, font]);
   // A tab in the background lays out at no width, where the placeholder
   // wraps a word to a line: the height it got there is wrong once the tab
   // shows, so a new width fits it again. The cap follows the column's
@@ -733,7 +736,7 @@ export function Composer({
               onPaste={onPaste}
               readOnly={sending || dictation.active}
               rows={2}
-              placeholder={listening ? t("voice.listeningPlaceholder") : placeholder}
+              placeholder={listening ? t("voice.listeningPlaceholder") : hint}
               aria-label={t("chat.composer.aria", agent)}
               className={cn(
                 "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body outline-none placeholder:text-muted-foreground",
@@ -1191,8 +1194,8 @@ export function composerKeys(): {
 }
 
 /**
- * The composer's keys as its send button's tooltip tells them, between
- * turns or during one, for a Claude tab or a Codex tab.
+ * The composer's keys as its empty box and its send button's tooltip tell
+ * them, between turns or during one, for a Claude tab or a Codex tab.
  */
 export function composerHint(t: TFunction, running: boolean, program: ChatAgent): string {
   return t(running ? "chat.composer.hint_running" : "chat.composer.hint", {
