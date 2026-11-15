@@ -15,13 +15,15 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   RemoteSession,
+  RemoteSessionAgent,
   RemoteWorkspace,
   SessionState,
 } from "../../../../packages/remote-protocol/src/rpc";
+import type { AgentRun } from "../../../shared/claude/activity";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
@@ -35,6 +37,7 @@ import {
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
+import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph } from "../agent-list/session-status";
 import { GROUP_STATE, GROUP_TINT } from "../agent-list/status-view";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
@@ -248,26 +251,35 @@ export function PeerGroup({
                   workspace={workspaces.get(workspaceId)}
                 />
                 {rows.map((session) => (
-                  <RemoteSessionRow
-                    key={session.tabId}
-                    session={session}
-                    where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
-                    onOpen={() =>
-                      open({
-                        deviceId: peer.id,
-                        deviceName: peer.name,
-                        workspaceId,
-                        workspaceName: names.get(workspaceId) ?? workspaceId,
-                        path: paths.get(workspaceId) ?? "",
-                        tabId: session.tabId,
-                        kind: session.kind,
-                        title: session.title,
-                        state: session.state,
-                        ...(session.profile ? { profile: session.profile } : {}),
-                        ...(session.cwd ? { cwd: session.cwd } : {}),
-                      })
-                    }
-                  />
+                  <Fragment key={session.tabId}>
+                    <RemoteSessionRow
+                      session={session}
+                      where={panelPlaceOf(
+                        root,
+                        remoteSessionKey({ deviceId: peer.id, ...session }),
+                      )}
+                      onOpen={() =>
+                        open({
+                          deviceId: peer.id,
+                          deviceName: peer.name,
+                          workspaceId,
+                          workspaceName: names.get(workspaceId) ?? workspaceId,
+                          path: paths.get(workspaceId) ?? "",
+                          tabId: session.tabId,
+                          kind: session.kind,
+                          title: session.title,
+                          state: session.state,
+                          ...(session.profile ? { profile: session.profile } : {}),
+                          ...(session.cwd ? { cwd: session.cwd } : {}),
+                        })
+                      }
+                    />
+                    <AgentRows
+                      agents={agentRunsOf(session.agents)}
+                      selectedId={undefined}
+                      className="pl-4"
+                    />
+                  </Fragment>
                 ))}
                 {toggles(workspaceId) && (
                   <button
@@ -334,6 +346,25 @@ function WorkspaceHeading({
       )}
     </span>
   );
+}
+
+/**
+ * Another computer's session's agents as this computer's rows read them:
+ * what it tells of each, with no tools (nothing opens from them).
+ */
+export function agentRunsOf(agents: readonly RemoteSessionAgent[] | undefined): AgentRun[] {
+  return (agents ?? []).map((agent) => ({
+    id: agent.id,
+    kind: agent.kind,
+    ...(agent.program ? { program: agent.program } : {}),
+    ...(agent.type ? { type: agent.type } : {}),
+    ...(agent.description ? { description: agent.description } : {}),
+    state: agent.state,
+    start: agent.start,
+    tools: [],
+    toolCount: 0,
+    failedCount: 0,
+  }));
 }
 
 export function RemoteSessionRow({
