@@ -25,6 +25,7 @@ function services(pending: PendingConsent[] = []): CliServices {
       { id: "t1", type: "claude", title: "Fix the build" },
       { id: "t2", type: "terminal", title: "zsh" },
       { id: "t3", type: "editor", title: "a.ts" },
+      { id: "t5", type: "terminal", title: "bash" },
     ],
     w2: [{ id: "t4", type: "codex", title: "Review" }],
     [MANAGER_WORKSPACE_ID]: [],
@@ -101,9 +102,12 @@ describe("serving the sessions", () => {
         state: "needs-you",
         since: 5,
         last: "Allow rm?",
+        agent: "claude",
         // What the terminal's Claude Code asks, as the app holds it.
         waiting: { kind: "permission", text: "Bash rm -rf dist", requestId: "h1" },
       },
+      // A terminal with only its shell: no agent, which the lists keep out of sight.
+      { workspaceId: "w1", tabId: "t5", kind: "terminal", title: "bash", state: "idle" },
       {
         workspaceId: "w2",
         tabId: "t4",

@@ -3,9 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { RemoteSession } from "../../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-const { OfflinePeer, PeerGroup, RemoteSessionRow, RemoteTabLabel } = await import(
-  "../../../../../src/renderer/components/agent-view/remote-sessions"
-);
+const {
+  OfflinePeer,
+  PeerGroup,
+  RemoteSessionRow,
+  RemoteTabLabel,
+  listedByDefault,
+  listedSessions,
+} = await import("../../../../../src/renderer/components/agent-view/remote-sessions");
 const { offlinePeers, servingPeers } = await import(
   "../../../../../src/renderer/services/remote/room"
 );
@@ -72,7 +77,14 @@ describe("the agent view's other computers", () => {
           status: "ready",
           list: list([
             session({ tabId: "t1", title: "Fix the build", last: "Done." }),
-            session({ tabId: "t2", workspaceId: "w2", kind: "terminal", title: "dev server" }),
+            session({
+              tabId: "t2",
+              workspaceId: "w2",
+              kind: "terminal",
+              title: "claude in a terminal",
+              agent: "claude",
+            }),
+            session({ tabId: "t3", workspaceId: "w2", kind: "terminal", title: "dev server" }),
           ]),
         }}
       />,
@@ -83,7 +95,42 @@ describe("the agent view's other computers", () => {
     expect(html).toContain("web");
     expect(html).toContain("Fix the build");
     expect(html).toContain("Done.");
-    expect(html).toContain("dev server");
+    expect(html).toContain("claude in a terminal");
+    // A terminal with only its shell waits behind the toggle.
+    expect(html).not.toContain("dev server");
+    expect(html).toContain("Show 1 terminal");
+  });
+
+  test("shows a terminal unasked only when it runs an agent, also as an older computer lists it", () => {
+    const terminal = (over: Partial<RemoteSession>) => session({ kind: "terminal", ...over });
+    expect(listedByDefault(session({}))).toBe(true);
+    expect(listedByDefault(terminal({}))).toBe(false);
+    expect(listedByDefault(terminal({ agent: "codex" }))).toBe(true);
+    // Without `agent`: one that waits, works or said something runs one.
+    expect(listedByDefault(terminal({ state: "running" }))).toBe(true);
+    expect(listedByDefault(terminal({ last: "Done" }))).toBe(true);
+    expect(listedByDefault(terminal({ waiting: { kind: "permission", text: "Bash rm" } }))).toBe(
+      true,
+    );
+  });
+
+  test("lists the terminals when asked, when one is in a panel, or when a search finds one", () => {
+    const plain = session({ tabId: "t9", kind: "terminal", title: "dev server" });
+    const chat = session({ tabId: "t1" });
+    const none = () => false;
+    expect(listedSessions([chat, plain], "", false, none)).toEqual({ listed: [chat], hidden: 1 });
+    expect(listedSessions([chat, plain], "", true, none)).toEqual({
+      listed: [chat, plain],
+      hidden: 0,
+    });
+    expect(listedSessions([chat, plain], "", false, (s) => s.tabId === "t9").listed).toEqual([
+      chat,
+      plain,
+    ]);
+    expect(listedSessions([chat, plain], "server", false, none)).toEqual({
+      listed: [plain],
+      hidden: 0,
+    });
   });
 
   test("finds sessions by their title or last line", () => {

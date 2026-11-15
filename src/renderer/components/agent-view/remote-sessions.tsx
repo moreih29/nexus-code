@@ -2,7 +2,9 @@
 // computers in the room, each with its workspaces' sessions as it lists
 // them (sessions.list), asked again every few seconds while the list is
 // shown. A computer folds; the search box finds sessions by their title or
-// last line, as it does this computer's.
+// last line, as it does this computer's. A terminal with only its shell is
+// out of sight until the user asks for the computer's terminals or
+// searches for it.
 
 import { ChevronDown, ChevronRight, Monitor, SquareTerminal } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -10,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import type { RemoteSession, SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
-import { leafShowing, remoteSessionKey } from "../../services/agent-view/layout";
+import { leafHolding, leafShowing, remoteSessionKey } from "../../services/agent-view/layout";
 import {
   offlinePeers,
   type PeerSessions,
@@ -35,6 +37,42 @@ export const GROUP_OF: Record<SessionState, RowGroup> = {
   idle: "idle",
   ended: "ended",
 };
+
+/**
+ * Whether the list shows a session without being asked: a chat, or a
+ * terminal running an agent. A computer of an older protocol names no
+ * terminal's agent; one that waits on the user, works, or said something
+ * runs one.
+ */
+export function listedByDefault(session: RemoteSession): boolean {
+  if (session.kind !== "terminal") return true;
+  return (
+    session.agent !== undefined ||
+    session.waiting !== undefined ||
+    session.state !== "idle" ||
+    session.last !== undefined
+  );
+}
+
+/**
+ * The sessions the list shows: those it shows unasked, the terminals too
+ * when they are asked for or one is in a panel, and those a search finds.
+ */
+export function listedSessions(
+  sessions: readonly RemoteSession[],
+  query: string,
+  terminals: boolean,
+  inPanel: (session: RemoteSession) => boolean,
+): { listed: RemoteSession[]; hidden: number } {
+  if (query.trim()) return { listed: sessions.filter((s) => matches(s, query)), hidden: 0 };
+  const listed: RemoteSession[] = [];
+  let hidden = 0;
+  for (const s of sessions) {
+    if (terminals || listedByDefault(s) || inPanel(s)) listed.push(s);
+    else hidden += 1;
+  }
+  return { listed, hidden };
+}
 
 function matches(session: RemoteSession, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -96,13 +134,22 @@ export function PeerGroup({
 }) {
   const { t } = useTranslation();
   const [folded, setFolded] = useState(false);
+  // Its terminals with only their shell, shown when asked for; not kept.
+  const [terminals, setTerminals] = useState(false);
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
-  const shownSessions = list ? list.sessions.filter((s) => matches(s, query)) : [];
+  const root = useAgentViewStore((s) => s.root);
+  const { listed: shownSessions, hidden } = listedSessions(
+    list?.sessions ?? [],
+    query,
+    terminals,
+    (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
+  );
+  // The terminals with only their shell: what the toggle shows and hides.
+  const plain = list?.sessions.filter((s) => !listedByDefault(s)).length ?? 0;
   const waiting = list?.sessions.filter((s) => s.state === "needs-you").length ?? 0;
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
-  const root = useAgentViewStore((s) => s.root);
   const open = useRemoteViewStore((s) => s.open);
   // The tabs of this computer's sessions take up their new titles.
   useEffect(() => {
@@ -136,7 +183,7 @@ export function PeerGroup({
                 <span className="sr-only">{t("agentView.remote.state.needs-you")}</span>
               </>
             )}
-            {list.sessions.length}
+            {list.sessions.filter(listedByDefault).length}
           </span>
         )}
       </button>
@@ -151,9 +198,11 @@ export function PeerGroup({
               {t("agentView.remote.unavailable")}
             </p>
           ) : shownSessions.length === 0 ? (
-            <p className="px-2 py-1 text-app-micro text-muted-foreground">
-              {t("agentView.remote.empty")}
-            </p>
+            hidden === 0 && (
+              <p className="px-2 py-1 text-app-micro text-muted-foreground">
+                {t("agentView.remote.empty")}
+              </p>
+            )
           ) : (
             [...byWorkspace].map(([workspaceId, rows]) => (
               <div key={workspaceId} className="flex flex-col">
@@ -185,6 +234,20 @@ export function PeerGroup({
                 ))}
               </div>
             ))
+          )}
+          {list && !query.trim() && (terminals ? plain > 0 : hidden > 0) && (
+            <button
+              type="button"
+              aria-expanded={terminals}
+              onClick={() => setTerminals((v) => !v)}
+              className="flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-left text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+              data-testid="remote-terminals-toggle"
+            >
+              <SquareTerminal aria-hidden className="size-3 shrink-0" />
+              {terminals
+                ? t("agentView.remote.terminalsHide")
+                : t("agentView.remote.terminalsShow", { count: hidden })}
+            </button>
           )}
         </div>
       )}
