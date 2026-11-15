@@ -73,6 +73,38 @@ function services(pending: PendingConsent[] = []): CliServices {
 }
 
 describe("serving the sessions", () => {
+  test("lists the workspaces in the sidebar's order: pinned first, each group by its order, a task after its workspace", async () => {
+    const base = services();
+    const s = {
+      ...base,
+      listWorkspaces: () => [
+        { id: "a", name: "a", rootPath: "/a", pinned: false, sortOrder: 2, pinnedSortOrder: 0 },
+        { id: "b", name: "b", rootPath: "/b", pinned: true, sortOrder: 0, pinnedSortOrder: 2 },
+        { id: "c", name: "c", rootPath: "/c", pinned: false, sortOrder: 1, pinnedSortOrder: 0 },
+        { id: "d", name: "d", rootPath: "/d", pinned: true, sortOrder: 0, pinnedSortOrder: 1 },
+        {
+          id: "t",
+          name: "t",
+          rootPath: "/a-t",
+          pinned: false,
+          sortOrder: 0,
+          pinnedSortOrder: 0,
+          task: { parentId: "a", branch: "t" },
+        },
+      ],
+    } as unknown as CliServices;
+    const list = await listSessions(s);
+    expect(list.workspaces.map((w) => w.id)).toEqual([
+      "d",
+      "b",
+      "c",
+      "a",
+      "t",
+      MANAGER_WORKSPACE_ID,
+    ]);
+    expect(list.workspaces.filter((w) => w.pinned).map((w) => w.id)).toEqual(["d", "b"]);
+  });
+
   // A terminal not started (t6) is not listed: it has nothing to show until its workspace is opened.
   test("lists the chats and terminals of every workspace, in the app's order", async () => {
     const git = (w: { id: string }) =>

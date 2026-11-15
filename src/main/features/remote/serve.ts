@@ -21,6 +21,7 @@ import { describeTerminal, isAgentSession } from "../../../shared/sessions/agent
 import { CHAT_MODES, chatModeNamed } from "../../../shared/sessions/chat-modes";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
+import { compareWorkspaceOrder } from "../../../shared/workspace-order";
 import { tryGetMainT } from "../../i18n";
 import type { CliServices } from "../cli/context";
 import type { FsProvider } from "../fs/bridge/provider";
@@ -101,9 +102,12 @@ function terminalSessionState(state: string): SessionState {
   return "idle";
 }
 
-/** The workspaces as the app lists them: roots, each followed by its task worktrees. */
+/**
+ * The workspaces as the sidebar lists them: roots, pinned first and each
+ * group in its own order, each followed by its task worktrees.
+ */
 function ordered(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
-  const roots = workspaces.filter((w) => !w.task);
+  const roots = workspaces.filter((w) => !w.task).sort(compareWorkspaceOrder);
   const out: WorkspaceMeta[] = [];
   for (const root of roots)
     out.push(root, ...workspaces.filter((w) => w.task?.parentId === root.id));
@@ -202,6 +206,7 @@ export async function listSessions(
       name: w.name,
       path: w.rootPath,
       ...(w.task ? { parentId: w.task.parentId } : {}),
+      ...(!w.task && w.pinned ? { pinned: true } : {}),
       ...(isManagerWorkspace(w.id) ? { manager: true } : {}),
       ...(facts ? { git: facts } : {}),
     };

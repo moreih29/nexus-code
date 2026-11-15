@@ -89,6 +89,11 @@ export const RemoteWorkspaceSchema = z.object({
   /** The agent manager's own workspace, where the session that directs the others runs. */
   manager: z.boolean().optional(),
   /**
+   * Pinned to the top of the sidebar. The list comes in the sidebar's
+   * order (pinned first, a task after its workspace). Since 0.11.0.
+   */
+  pinned: z.boolean().optional(),
+  /**
    * A task's branch and how it stands against its upstream, with how many
    * files it changed and did not commit. Looked at now and then, not live.
    */
