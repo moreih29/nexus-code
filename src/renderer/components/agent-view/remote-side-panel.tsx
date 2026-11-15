@@ -29,6 +29,7 @@ import {
   Row,
   Section,
 } from "../chat/side-panel";
+import { usageMeterLabel } from "../chat/usage-line";
 import { IconButton } from "../ui/icon-button";
 import { usageLineOf } from "./remote-usage";
 
@@ -272,10 +273,7 @@ export function RemoteSidePanel({
             >
               <Row className="text-app-micro">
                 <span className="min-w-0 flex-1 truncate">
-                  {t(`chat.panel.usage.kind.${limit.kind}`, {
-                    defaultValue: limit.kind,
-                    scope: limit.scope ?? "",
-                  })}
+                  {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
                 </span>
                 <span className="tabular-nums">{Math.round(limit.percent)}%</span>
               </Row>

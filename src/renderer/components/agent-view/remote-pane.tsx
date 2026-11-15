@@ -329,6 +329,21 @@ function RemoteChatView({
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
+  // The drawer covers the composer, so it takes the keyboard while open, as
+  // a chat here's does: Escape closes it from there. Closed, the keyboard
+  // goes back to where it was, unless the user put it somewhere else.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (!drawerOpen || !drawer) return;
+    const back = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!drawer.contains(document.activeElement)) drawer.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      const dropped = now === null || now === document.body || drawer.contains(now);
+      if (dropped && back?.isConnected) back.focus({ preventScroll: true });
+    };
+  }, [drawerOpen]);
   // A bare /status, /context or /usage opens the panel; its section opens itself.
   const [panelAsk, setPanelAsk] = useState<{ part: RemotePanelPart; seq: number } | null>(null);
   const askPanel = (part: RemotePanelPart) =>
@@ -521,6 +536,7 @@ function RemoteChatView({
             />
             {/* biome-ignore lint/a11y/noStaticElementInteractions: Esc closes the drawer */}
             <div
+              ref={drawerRef}
               tabIndex={-1}
               className={cn(
                 // Below the strip, whose toggle closes it again.

@@ -10,6 +10,7 @@ const { RemoteSidePanel, remoteAgentsOf, remotePanelPartOf } = await import(
 const { remoteSummaryCounts } = await import(
   "../../../../../src/renderer/components/agent-view/remote-pane"
 );
+const { usageMeterLabel } = await import("../../../../../src/renderer/components/chat/usage-line");
 const { RemoteProfileChip } = await import(
   "../../../../../src/renderer/components/agent-view/remote-profile-chip"
 );
@@ -159,6 +160,19 @@ describe("another computer's chat's side panel", () => {
     );
     expect(html).not.toContain("Compact");
     expect(html).not.toContain("Stop");
+  });
+
+  test("names the plan's meters as the usage line does, the week's too", () => {
+    const t = (key: string, options?: Record<string, unknown>) =>
+      options && Object.keys(options).length > 0 ? `${key} ${JSON.stringify(options)}` : key;
+    expect(usageMeterLabel(t, { kind: "weekly", percent: 1 })).toBe("chat.usage.kind.weekly");
+    expect(usageMeterLabel(t, { kind: "weekly", percent: 1 }, true)).toBe(
+      "chat.usage.kind.weekly_all",
+    );
+    expect(usageMeterLabel(t, { kind: "session", percent: 1 })).toBe("chat.usage.kind.session");
+    expect(usageMeterLabel(t, { kind: "window", windowMins: 300, percent: 1 })).toBe(
+      'chat.usage.kind.hours {"count":5}',
+    );
   });
 
   test("a bare /status, /context or /usage shows its part of the panel", () => {
