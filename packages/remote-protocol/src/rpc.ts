@@ -78,6 +78,25 @@ export const RpcErrorCode = {
 // Sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * A list a newer version may add to: an item this version cannot read, as
+ * one of a kind or state it does not know, is left out rather than failing
+ * the whole answer, and the list is cut to `max`. So a device of a newer
+ * version that adds an agent's state hides that agent from an older one,
+ * not every session of the computer. Since 0.12.1.
+ */
+export function readableList<T extends z.ZodTypeAny>(item: T, max = Number.POSITIVE_INFINITY) {
+  return z.array(z.unknown()).transform((items) => {
+    const read: z.output<T>[] = [];
+    for (const value of items) {
+      if (read.length >= max) break;
+      const one = item.safeParse(value);
+      if (one.success) read.push(one.data);
+    }
+    return read;
+  });
+}
+
 /** A workspace of the serving device. */
 export const RemoteWorkspaceSchema = z.object({
   id: z.string(),
@@ -163,7 +182,11 @@ export const RemoteSessionSchema = z.object({
    * lists keep out of sight until asked for. Never on a chat.
    */
   agent: z.string().max(40).optional(),
-  /** What it waits on the user for, when it does. */
+  /**
+   * What it waits on the user for, when it does. Since 0.12.1, one this
+   * version cannot read (a kind it does not know) is left out, and the
+   * session stays: one that waits on the user is the last to hide.
+   */
   waiting: z
     .object({
       kind: z.enum(["permission", "question", "plan"]),
@@ -171,13 +194,16 @@ export const RemoteSessionSchema = z.object({
       /** A terminal's Claude Code asking: the request terminal.answer answers. */
       requestId: z.string().optional(),
     })
-    .optional(),
+    .optional()
+    .catch(undefined),
   /**
    * The agents it runs beside its turn that still run, as the serving app
    * lists them under its row; at most MAX_SESSION_AGENTS, absent with none.
-   * A chat's or a terminal's Claude Code (or Codex) session alike. Since 0.12.0.
+   * A chat's or a terminal's Claude Code (or Codex) session alike. Since
+   * 0.12.0; since 0.12.1 one this version cannot read is left out, and
+   * more than MAX_SESSION_AGENTS are cut (readableList).
    */
-  agents: z.array(RemoteSessionAgentSchema).max(MAX_SESSION_AGENTS).optional(),
+  agents: readableList(RemoteSessionAgentSchema, MAX_SESSION_AGENTS).optional(),
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 
@@ -259,9 +285,13 @@ export type RemoteRecording = z.infer<typeof RemoteRecordingSchema>;
 
 const SessionsSchema = z.object({
   workspaces: z.array(RemoteWorkspaceSchema),
-  sessions: z.array(RemoteSessionSchema),
-  /** The consent prompts waiting on the user, in the order they are asked; absent before 0.3.0. */
-  consents: z.array(RemoteConsentSchema).optional(),
+  /** Since 0.12.1, a session this version cannot read (a kind or state it does not know) is left out. */
+  sessions: readableList(RemoteSessionSchema),
+  /**
+   * The consent prompts waiting on the user, in the order they are asked;
+   * absent before 0.3.0. Since 0.12.1, one this version cannot read is left out.
+   */
+  consents: readableList(RemoteConsentSchema).optional(),
   /** The note it records into, while it records; absent before 0.6.0. */
   recording: RemoteRecordingSchema.optional(),
 });
@@ -654,7 +684,8 @@ export const RPC_METHODS = {
       ...ReadBy,
     }),
     result: z.object({
-      events: z.array(SessionEventSchema),
+      /** Since 0.12.1, an event this version cannot read (a kind it does not know) is left out. */
+      events: readableList(SessionEventSchema),
       cursor: z.number().int().nonnegative(),
       more: z.boolean(),
     }),
