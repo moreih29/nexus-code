@@ -6,10 +6,22 @@
 // out of sight until the user asks for its workspace's terminals or
 // searches for it.
 
-import { ChevronDown, ChevronRight, Monitor, SquareTerminal } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Folder,
+  GitBranch,
+  Monitor,
+  SquareTerminal,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { RemoteSession, SessionState } from "../../../../packages/remote-protocol/src/rpc";
+import type {
+  RemoteSession,
+  RemoteWorkspace,
+  SessionState,
+} from "../../../../packages/remote-protocol/src/rpc";
 import type { RoomPeer } from "../../../shared/remote/room";
 import type { RowGroup } from "../../services/agent-sessions/rows";
 import { leafHolding, remoteSessionKey } from "../../services/agent-view/layout";
@@ -163,6 +175,7 @@ export function PeerGroup({
     !query.trim() &&
     ((terminalsIn.has(workspaceId) ? plain.get(workspaceId) : hidden.get(workspaceId)) ?? 0) > 0;
   const waiting = list?.sessions.filter((s) => s.state === "needs-you").length ?? 0;
+  const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
   const paths = new Map(list?.workspaces.map((w) => [w.id, w.path]) ?? []);
   const open = useRemoteViewStore((s) => s.open);
@@ -221,9 +234,10 @@ export function PeerGroup({
           ) : (
             groups.map(([workspaceId, rows]) => (
               <div key={workspaceId} className="flex flex-col">
-                <span className="truncate px-2 pt-1 text-app-micro text-muted-foreground">
-                  {names.get(workspaceId) ?? workspaceId}
-                </span>
+                <WorkspaceHeading
+                  name={names.get(workspaceId) ?? workspaceId}
+                  workspace={workspaces.get(workspaceId)}
+                />
                 {rows.map((session) => (
                   <RemoteSessionRow
                     key={session.tabId}
@@ -249,11 +263,16 @@ export function PeerGroup({
                     type="button"
                     aria-expanded={terminalsIn.has(workspaceId)}
                     onClick={() => toggleTerminals(workspaceId)}
-                    className="flex items-center gap-1.5 rounded-(--radius-control) px-2 py-1 text-left text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+                    // Lined up with the rows' titles: its icon where theirs is, after the state.
+                    className="flex items-center gap-1.5 rounded-(--radius-control) py-1 pr-2 pl-6.5 text-left text-app-micro text-(--state-selected-indicator) hover:bg-[var(--state-hover-bg)] hover:underline"
                     data-testid="remote-terminals-toggle"
                     data-workspace={workspaceId}
                   >
-                    <SquareTerminal aria-hidden className="size-3 shrink-0" />
+                    {terminalsIn.has(workspaceId) ? (
+                      <ChevronUp aria-hidden className="size-3 shrink-0" />
+                    ) : (
+                      <SquareTerminal aria-hidden className="size-3 shrink-0" />
+                    )}
                     {terminalsIn.has(workspaceId)
                       ? t("agentView.remote.terminalsHide")
                       : t("agentView.remote.terminalsShow", {
@@ -267,6 +286,42 @@ export function PeerGroup({
         </div>
       )}
     </div>
+  );
+}
+
+/** A workspace's sessions' heading: a folder, or a task's branch, and how its git stands. */
+function WorkspaceHeading({
+  name,
+  workspace,
+}: {
+  name: string;
+  workspace: RemoteWorkspace | undefined;
+}) {
+  const Icon = workspace?.parentId ? GitBranch : Folder;
+  const git = workspace?.git;
+  const stands = git
+    ? [
+        git.branch ?? "",
+        git.ahead > 0 ? `↑${git.ahead}` : "",
+        git.behind > 0 ? `↓${git.behind}` : "",
+        git.uncommitted > 0 ? "●" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : "";
+  return (
+    <span
+      className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
+      data-testid="remote-workspace"
+    >
+      <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      <span className="truncate font-semibold text-app-micro text-foreground">{name}</span>
+      {stands && (
+        <span className="min-w-0 shrink truncate font-mono text-app-micro text-muted-foreground">
+          {stands}
+        </span>
+      )}
+    </span>
   );
 }
 

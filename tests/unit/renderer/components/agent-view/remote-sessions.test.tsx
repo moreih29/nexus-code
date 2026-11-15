@@ -168,6 +168,60 @@ describe("the agent view's other computers", () => {
     expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf(">web<"));
   });
 
+  test("heads a workspace as its group's title: a folder, or a task's branch and how it stands", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: {
+            workspaces: [
+              { id: "w1", name: "api", path: "/src/api" },
+              {
+                id: "w2",
+                name: "api-fix",
+                path: "/wt/api-fix",
+                parentId: "w1",
+                git: { branch: "fix/login", ahead: 2, behind: 0, uncommitted: 3 },
+              },
+            ],
+            sessions: [
+              session({ tabId: "t1", title: "Fix the build" }),
+              session({ tabId: "t2", workspaceId: "w2", title: "Fix login" }),
+            ],
+          },
+        }}
+      />,
+    );
+    const headings = html.split('data-testid="remote-workspace"').slice(1);
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toContain("lucide-folder");
+    expect(headings[0]).toContain("font-semibold");
+    expect(headings[1]).toContain("lucide-git-branch");
+    expect(headings[1]).toContain("fix/login ↑2 ●");
+  });
+
+  test("a workspace's terminals toggle reads as a link, lined up with the rows' titles", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+          ]),
+        }}
+      />,
+    );
+    const toggle = html.slice(html.indexOf('data-testid="remote-terminals-toggle"') - 400);
+    expect(toggle).toContain("text-(--state-selected-indicator)");
+    expect(toggle).toContain("pl-6.5");
+    expect(toggle).toContain("lucide-square-terminal");
+  });
+
   test("finds sessions by their title or last line", () => {
     const html = renderToStaticMarkup(
       <PeerGroup
