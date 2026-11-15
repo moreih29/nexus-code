@@ -818,7 +818,22 @@
       "usageLoading": "불러오는 중…",
       "usageUnavailable": "사용량을 불러오지 못했습니다.",
       "language": "언어",
-      "languageMulti": "자동 감지"
+      "languageMulti": "자동 감지",
+      "terms": {
+        "label": "음성 인식 단어",
+        "placeholder": "단어 입력",
+        "add": "추가",
+        "remove": "{{term}} 삭제",
+        "empty": "단어 없음",
+        "loading": "불러오는 중…",
+        "unavailable": "단어를 불러오지 못했습니다.",
+        "hint": "모든 기기의 받아쓰기에 적용됩니다.",
+        "saveFailed": "단어를 저장하지 못했습니다. 다시 시도하세요.",
+        "tooLong": "단어는 {{max}}자까지 쓸 수 있습니다.",
+        "tooMany": "단어는 {{max}}개까지 둘 수 있습니다."
+      },
+      "sendNames": "컴퓨터·워크스페이스 이름 보내기",
+      "sendNamesDescription": "받아쓸 때 음성 인식 서비스로 함께 보냅니다."
     },
     "pair": {
       "giveLabel": "새 기기 연결",

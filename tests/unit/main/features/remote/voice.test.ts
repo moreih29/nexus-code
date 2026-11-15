@@ -4,6 +4,7 @@ import { ServerError, UnreachableError } from "../../../../../src/main/features/
 import { ServerRoute } from "../../../../../src/main/features/remote/route";
 import {
   refusalOf,
+  ticketBody,
   VoiceSessions,
   type VoiceSocket,
 } from "../../../../../src/main/features/remote/voice";
@@ -54,10 +55,11 @@ const signedIn = {
 function setup(options: {
   state?: unknown;
   info?: () => Promise<unknown>;
-  request?: (method: string, path: string) => Promise<unknown>;
+  request?: (method: string, path: string, body?: unknown) => Promise<unknown>;
   upload?: (path: string, bytes: Uint8Array, options: unknown) => Promise<unknown>;
   purpose?: "dictation" | "note";
   route?: ServerRoute;
+  names?: () => Promise<readonly string[]>;
 }) {
   const sockets: FakeSocket[] = [];
   const events: VoiceEvent[] = [];
@@ -71,6 +73,7 @@ function setup(options: {
       route: options.route ?? new ServerRoute("https://nexus.example"),
     },
     ...(options.purpose ? { purpose: options.purpose } : {}),
+    ...(options.names ? { names: options.names } : {}),
     emit: (event) => events.push(event),
     socket: (url) => {
       const socket = new FakeSocket(url);
@@ -293,5 +296,95 @@ describe("a note's recording", () => {
     expect(await voice.transcription("tr-1")).toMatchObject({ status: "done", seconds: 3 });
     await voice.dropTranscription("tr-1");
     expect(asked).toEqual(["GET /voice/transcriptions/tr-1", "DELETE /voice/transcriptions/tr-1"]);
+  });
+});
+
+describe("the terms voice input listens for", () => {
+  test("a ticket's body carries the names, deduped, capped and clipped; none without names", () => {
+    expect(ticketBody([])).toBeUndefined();
+    expect(ticketBody(["  ", ""])).toBeUndefined();
+    expect(ticketBody(["Mac Studio", "mac studio", " api-server "])).toEqual({
+      voiceTerms: ["Mac Studio", "api-server"],
+    });
+    const many = Array.from({ length: 80 }, (_, i) => `workspace-${i}`);
+    expect(ticketBody(many)?.voiceTerms).toHaveLength(60);
+    expect(ticketBody(["x".repeat(100)])?.voiceTerms).toEqual(["x".repeat(80)]);
+  });
+
+  test("a session's ticket is asked with the names in its body, never in the socket's URL", async () => {
+    const asked: { method: string; path: string; body: unknown }[] = [];
+    const { voice, socket } = setup({
+      names: async () => ["Mac Studio", "api-server"],
+      request: async (method, path, body) => {
+        asked.push({ method, path, body });
+        return { ticket: "t-1" };
+      },
+    });
+    const started = voice.start("ko");
+    const s = await socket();
+    expect(asked).toEqual([
+      {
+        method: "POST",
+        path: "/relay/ticket",
+        body: { voiceTerms: ["Mac Studio", "api-server"] },
+      },
+    ]);
+    expect(s.url).toBe("wss://nexus.example/voice?v=1&lang=ko&ticket=t-1");
+    s.say({ t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 600 });
+    expect((await started).status).toBe("ready");
+  });
+
+  test("without names, or when gathering them fails, the ticket is asked with no body", async () => {
+    for (const names of [undefined, async () => [], async () => Promise.reject(new Error("x"))]) {
+      const bodies: unknown[] = [];
+      const { voice, socket } = setup({
+        ...(names ? { names } : {}),
+        request: async (_method, _path, body) => {
+          bodies.push(body);
+          return { ticket: "t-1" };
+        },
+      });
+      const started = voice.start("en");
+      (await socket()).say({ t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 9 });
+      expect((await started).status).toBe("ready");
+      expect(bodies).toEqual([undefined]);
+    }
+  });
+
+  test("a note's session sends the names too", async () => {
+    const bodies: unknown[] = [];
+    const { voice, socket } = setup({
+      purpose: "note",
+      names: async () => ["Work PC"],
+      request: async (_method, _path, body) => {
+        bodies.push(body);
+        return { ticket: "t-1" };
+      },
+    });
+    const started = voice.start("ko");
+    (await socket()).say({ t: "ready", format: "pcm_s16le", sampleRate: 16000, maxSeconds: 9 });
+    await started;
+    expect(bodies).toEqual([{ voiceTerms: ["Work PC"] }]);
+  });
+
+  test("reads the account's terms, and replaces them with the list the server kept", async () => {
+    const asked: { method: string; path: string; body: unknown }[] = [];
+    const { voice } = setup({
+      request: async (method, path, body) => {
+        asked.push({ method, path, body });
+        return method === "GET" ? { terms: ["Soniox"] } : { terms: ["Soniox", "Tauri"] };
+      },
+    });
+    expect(await voice.terms()).toEqual(["Soniox"]);
+    expect(await voice.setTerms(["Soniox", " Tauri ", "soniox"])).toEqual(["Soniox", "Tauri"]);
+    expect(asked).toEqual([
+      { method: "GET", path: "/voice/terms", body: undefined },
+      { method: "PUT", path: "/voice/terms", body: { terms: ["Soniox", " Tauri ", "soniox"] } },
+    ]);
+  });
+
+  test("a server answer without a list of terms is an error", async () => {
+    const { voice } = setup({ request: async () => ({ terms: "no" }) });
+    await expect(voice.terms()).rejects.toThrow();
   });
 });

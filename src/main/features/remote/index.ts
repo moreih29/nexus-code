@@ -39,6 +39,7 @@ import { SessionWatches } from "./session-watches";
 import { TaskGit } from "./task-git";
 import { TerminalWatches } from "./terminal-watches";
 import { TicketSchema, VoiceSessions } from "./voice";
+import { listedComputers, VoiceNames } from "./voice-names";
 
 const c = ipcContract.remote.call;
 
@@ -171,6 +172,8 @@ export async function registerRemoteChannel(options: {
   noteFile?: (workspaceId: string, noteId: string, src: string) => Promise<Uint8Array>;
   /** The notes other devices list and put photos into, and the note it records into. */
   notes?: RemoteNotes;
+  /** Whether voice input sends the account's computer and workspace names along (off unless the user turned it on). */
+  voiceNames?: () => boolean;
 }): Promise<{
   account: RemoteAccount;
   keys: AccountKeys;
@@ -272,14 +275,28 @@ export async function registerRemoteChannel(options: {
     },
   });
   keys = accountKeys;
+  // The names of the moment a voice session sends along, when the user turned them on.
+  const voiceNames = new VoiceNames({
+    enabled: () => options.voiceNames?.() ?? false,
+    workspaces: () =>
+      options
+        .services()
+        ?.listWorkspaces()
+        .map((w) => w.name) ?? [],
+    computers: () => listedComputers(roomState),
+    list: (deviceId, timeoutMs) => inRoom().request(deviceId, "sessions.list", {}, timeoutMs),
+  });
+  const names = () => voiceNames.collect();
   const voice = new VoiceSessions({
     account,
+    names,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   // A note's recording: its own session, so a dictation can go on beside it.
   const noteVoice = new VoiceSessions({
     account,
     purpose: "note",
+    names,
     emit: (event) => broadcast("remote", "voiceEvent", event),
   });
   const sessionOf = (id: string) => (noteVoice.has(id) ? noteVoice : voice);
@@ -369,6 +386,7 @@ export async function registerRemoteChannel(options: {
             update: params as RpcNotificationParams<"terminal.update">,
           });
         } else if (method === "sessions.update") {
+          voiceNames.took(from, params as RpcNotificationParams<"sessions.update">);
           broadcast("remote", "peerSessionsUpdate", {
             deviceId: from,
             update: params as RpcNotificationParams<"sessions.update">,
@@ -481,11 +499,19 @@ export async function registerRemoteChannel(options: {
       },
       peerSessions: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessions.args, args);
-        return askPeer(() => inRoom().request(deviceId, "sessions.list", {}));
+        return askPeer(async () => {
+          const list = await inRoom().request(deviceId, "sessions.list", {});
+          voiceNames.took(deviceId, list);
+          return list;
+        });
       },
       peerSessionsWatch: (args: unknown) => {
         const { deviceId } = validateArgs(c.peerSessionsWatch.args, args);
-        return askPeer(() => inRoom().request(deviceId, "sessions.watch", {}));
+        return askPeer(async () => {
+          const list = await inRoom().request(deviceId, "sessions.watch", {});
+          voiceNames.took(deviceId, list);
+          return list;
+        });
       },
       peerSessionsUnwatch: (args: unknown) => {
         const { deviceId, watchId } = validateArgs(c.peerSessionsUnwatch.args, args);
@@ -630,6 +656,11 @@ export async function registerRemoteChannel(options: {
         return ipcOk(undefined);
       },
       voiceUsage: () => ask(() => voice.usage()),
+      voiceTerms: () => ask(() => voice.terms()),
+      setVoiceTerms: (args: unknown) => {
+        const { terms } = validateArgs(c.setVoiceTerms.args, args);
+        return ask(() => voice.setTerms(terms));
+      },
       voiceTranscribe: async (args: unknown) => {
         const { workspaceId, noteId, file, token, language } = validateArgs(
           c.voiceTranscribe.args,

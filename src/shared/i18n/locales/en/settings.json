@@ -818,7 +818,22 @@
       "usageLoading": "Loading…",
       "usageUnavailable": "Couldn't load the usage.",
       "language": "Language",
-      "languageMulti": "Detect"
+      "languageMulti": "Detect",
+      "terms": {
+        "label": "Recognition terms",
+        "placeholder": "Add a term",
+        "add": "Add",
+        "remove": "Remove {{term}}",
+        "empty": "No terms",
+        "loading": "Loading…",
+        "unavailable": "Couldn't load the terms.",
+        "hint": "Used for dictation on all your devices.",
+        "saveFailed": "Couldn't save the terms. Try again.",
+        "tooLong": "A term can be up to {{max}} characters.",
+        "tooMany": "You can keep up to {{max}} terms."
+      },
+      "sendNames": "Send computer and workspace names",
+      "sendNamesDescription": "Sent to the speech recognition service along with your dictation."
     },
     "pair": {
       "giveLabel": "Connect a new device",
