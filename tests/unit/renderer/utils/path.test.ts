@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { isWithinWorkspace } from "../../../../src/renderer/utils/path";
+import { isWithinWorkspace, shownPath } from "../../../../src/renderer/utils/path";
 
 describe("isWithinWorkspace", () => {
   it("1. file inside workspace → true", () => {
@@ -36,5 +36,18 @@ describe("isWithinWorkspace", () => {
 
   it("8. empty absPath → false", () => {
     expect(isWithinWorkspace("", "/workspace")).toBe(false);
+  });
+});
+
+describe("shownPath", () => {
+  it("names a file from its folder by either separator, as a rewind's list shows it", () => {
+    expect(shownPath("C:\\work\\demo\\notes\\r1.md", "C:\\work\\demo")).toBe("notes/r1.md");
+    expect(shownPath("C:\\work\\demo\\notes\\r1.md", "C:/work/demo")).toBe("notes/r1.md");
+    expect(shownPath("/Users/me/app/src/a.ts", "/Users/me/app/")).toBe("src/a.ts");
+  });
+
+  it("leaves a file outside the folder as written", () => {
+    expect(shownPath("D:\\other\\b.ts", "C:\\work\\demo")).toBe("D:\\other\\b.ts");
+    expect(shownPath("/tmp/x", "/Users/me/app")).toBe("/tmp/x");
   });
 });

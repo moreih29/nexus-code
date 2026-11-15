@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { lookItemOfChange, peerChatFiles, peerImageLoader, shownPath } = await import(
+const { lookItemOfChange, peerChatFiles, peerImageLoader } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
 );
+const { shownPath } = await import("../../../../../src/renderer/utils/path");
 const { rateLimitOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-usage"
 );

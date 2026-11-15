@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatController, RewindPreview } from "../../services/chat/controller";
 import type { UserItem } from "../../services/chat/model";
-import { relPath } from "../../utils/path";
+import { shownPath } from "../../utils/path";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { DialogHeader } from "../ui/dialog-header";
@@ -84,7 +84,7 @@ export function RewindDialog({
             <ul className="flex flex-col gap-0.5 font-mono text-app-micro text-muted-foreground">
               {changes.filesChanged.slice(0, MAX_FILES).map((file) => (
                 <li key={file} className="truncate" title={file}>
-                  {relPath(file, cwd)}
+                  {shownPath(file, cwd)}
                 </li>
               ))}
               {changes.filesChanged.length > MAX_FILES && (

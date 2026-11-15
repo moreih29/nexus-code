@@ -13,7 +13,7 @@ import type { ChatFiles } from "../../services/chat/chat-files";
 import { isLocalAddress, resolveFileLink } from "../../services/chat/links";
 import type { ImageBlock, RemoteImageRef } from "../../services/chat/model";
 import type { RemoteTarget } from "../../state/stores/remote-view";
-import { relPath } from "../../utils/path";
+import { shownPath } from "../../utils/path";
 import type { ChatLinks } from "../chat/chat-links";
 import { showToast } from "../ui/toast";
 import type { RemoteLookItem, RemoteLookList } from "./remote-look";
@@ -53,18 +53,6 @@ export function peerImageLoader(target: {
     }
     return pending;
   };
-}
-
-/**
- * A path as the conversation's folder sees it, by either separator: that
- * computer may be Windows, whose paths are written with / or \.
- */
-export function shownPath(path: string, cwd: string): string {
-  const slashed = path.replace(/\\/g, "/");
-  const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "") || "/";
-  const rel = relPath(slashed, base);
-  // Outside it (or the folder itself), as written.
-  return rel && rel !== slashed ? rel : path;
 }
 
 /** How long a folder's entries are trusted, as the agent there makes files. */
