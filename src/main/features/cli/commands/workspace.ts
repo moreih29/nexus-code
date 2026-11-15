@@ -253,11 +253,11 @@ const worktreeNew: CliCommand = {
     "As New Task in the app: a branch named after <name> from the workspace's HEAD, its worktree,\n" +
     "and a Claude or Codex tab there that is sent --prompt as its first message: --agent's, else\n" +
     "the task agent's (Settings › Agents; Claude by default). --command runs a command in a\n" +
-    "terminal instead, with --prompt as its last argument. An empty one makes the worktree with\n" +
-    "no tab: a plain shell opens when the user opens it, and terminal new --workspace <its id>\n" +
-    "opens one now. It starts behind the user's view unless --show. The tab's id is printed for\n" +
-    "chat wait/read/send (a terminal's for terminal wait/read/send), which reach it with\n" +
-    "--workspace <its id>.",
+    "terminal instead, with --prompt as its last argument. An empty one (--command=, which every\n" +
+    'shell passes; PowerShell drops "") makes the worktree with no tab: a plain shell opens when\n' +
+    "the user opens it, and terminal new --workspace <its id> opens one now. It starts behind the\n" +
+    "user's view unless --show. The tab's id is printed for chat wait/read/send (a terminal's\n" +
+    "for terminal wait/read/send), which reach it with --workspace <its id>.",
   flags: {
     prompt: { type: "string", value: "TEXT", description: "The agent's first prompt" },
     agent: {

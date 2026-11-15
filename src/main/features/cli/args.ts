@@ -72,9 +72,12 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
     }
     if (raw === undefined) {
       if (i >= argv.length) {
-        // `--since #3`: the shell took "#3" for a comment.
+        // `--since #3`: the shell took "#3" for a comment. `--command ""`:
+        // PowerShell 5.1 passes no empty argument.
         const hint =
-          spec.type === "number" ? " (a number alone: a shell drops a # and what follows)" : "";
+          spec.type === "number"
+            ? " (a number alone: a shell drops a # and what follows)"
+            : ` (an empty one: --${name}=, which every shell passes)`;
         throw new CliUsageError(`--${name} needs a value${hint}`);
       }
       raw = argv[i] as string;
