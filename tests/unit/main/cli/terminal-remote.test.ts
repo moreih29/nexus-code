@@ -56,7 +56,7 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
-const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
+const FROM_SHELL = { kind: "terminal", ...USER };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller));
@@ -160,7 +160,7 @@ describe("terminal --device", () => {
       tabId: TERM,
       text: "npm test",
       enter: true,
-      from: { kind: "terminal", hops: 1 },
+      from: { kind: "terminal" },
     });
     expect(asked(app, "terminal.wait")[0]).toEqual({
       workspaceId: SITE,
@@ -168,7 +168,7 @@ describe("terminal --device", () => {
       timeoutMs: 10_000,
       after: NOW + 7,
       quietMs: 3_000,
-      from: { kind: "terminal", agent: "claude", ...AGENT, name: expect.any(String), hops: 1 },
+      from: { kind: "terminal", agent: "claude", ...AGENT, name: expect.any(String) },
     });
   });
 

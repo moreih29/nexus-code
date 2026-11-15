@@ -16,7 +16,6 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import { type CliContext, type CliDevice, CliError, pick } from "./context";
 import { ago } from "./format";
-import { refuseLoop } from "./hops";
 import { senderOf } from "./sender";
 
 export const DEVICE_FLAG = {
@@ -110,26 +109,9 @@ export function deviceFlag(flags: Record<string, unknown>): string | undefined {
  */
 export async function agentSenderOf(ctx: CliContext): Promise<AgentSender> {
   const sender = await senderOf(ctx);
-  if (sender) refuseLoop(sender);
-  return agentSenderFrom(ctx, sender);
-}
-
-/**
- * Who reads, as the other computer is told it (since 0.12.0): as
- * agentSenderOf, but a read is no message in the agents' chain, so a long
- * one does not stop it.
- */
-async function agentReaderOf(ctx: CliContext): Promise<AgentSender> {
-  return agentSenderFrom(ctx, await senderOf(ctx));
-}
-
-function agentSenderFrom(
-  ctx: CliContext,
-  sender: Awaited<ReturnType<typeof senderOf>>,
-): AgentSender {
   if (!sender) {
     const { workspaceId, tabId } = ctx.caller;
-    return { kind: "terminal", workspaceId, tabId, hops: 1 };
+    return { kind: "terminal", workspaceId, tabId };
   }
   return {
     kind: sender.kind,
@@ -137,7 +119,6 @@ function agentSenderFrom(
     workspaceId: sender.workspaceId ?? ctx.caller.workspaceId,
     tabId: sender.tabId ?? ctx.caller.tabId,
     ...(sender.name ? { name: sender.name } : {}),
-    hops: sender.hops ?? 1,
   };
 }
 
@@ -223,7 +204,7 @@ export async function askDevice<M extends RpcMethod>(
   const reads = AGENT_READS.has(method);
   const params =
     reads && (given as { from?: AgentSender }).from === undefined
-      ? ({ ...given, from: await agentReaderOf(ctx) } as RpcParams<M>)
+      ? ({ ...given, from: await agentSenderOf(ctx) } as RpcParams<M>)
       : given;
   const from = (params as { from?: AgentSender }).from;
   if (from && !device.serves.includes("agents")) {

@@ -41,7 +41,6 @@ import {
   type CliServices,
   shortId,
 } from "./context";
-import { AgentInputs } from "./hops";
 import { listedAt } from "./listed";
 import { notifyTab } from "./notifier";
 import { runCli } from "./registry";
@@ -145,7 +144,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     foregroundGroup(workspaceId, tabId, true),
   );
   const waits = new WaitRegistry(agentHost);
-  const agentInputs = new AgentInputs();
   const startedAgents = new StartedAgents(agentHost);
   // Every consent prompt, kept by id while it waits, for another device to answer too.
   const consents = new ConsentPrompts({
@@ -246,7 +244,6 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
     waits: {
       begin: (waiter, target, since) => waits.begin(waiter, target, since),
     },
-    agentInputs,
     remote: {
       inRoom: () => options.remote?.()?.inRoom() ?? false,
       devices: async () => (await options.remote?.()?.devices()) ?? [],

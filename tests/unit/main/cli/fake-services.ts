@@ -25,7 +25,6 @@ import {
   type CliRemote,
   type CliServices,
 } from "../../../../src/main/features/cli/context";
-import { AgentInputs } from "../../../../src/main/features/cli/hops";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
@@ -174,8 +173,6 @@ export interface FakeApp {
   waits: WaitRegistry;
   /** The foreground program of each terminal, by tab id; unknown when absent. */
   foreground: Map<string, string>;
-  /** The hops of the message that started each chat tab's latest turn, by tab id; 0 when absent. */
-  turnHops: Map<string, number>;
   /** The user's other computers: the room, its devices, what was asked of them and how they answer. */
   peers: {
     inRoom: boolean;
@@ -462,7 +459,6 @@ export function fakeApp(now = Date.now()): FakeApp {
       return answers.shift() ?? "deny";
     },
   });
-  const turnHops: FakeApp["turnHops"] = new Map();
   const peers: FakeApp["peers"] = {
     inRoom: true,
     devices: [],
@@ -486,10 +482,6 @@ export function fakeApp(now = Date.now()): FakeApp {
   };
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
-    if (op === "chat.turnHops") {
-      const { tabId } = args as CliUiOps["chat.turnHops"]["args"];
-      return { hops: turnHops.get(tabId) ?? 0 } as CliUiOps[K]["result"];
-    }
     // Another device's chat page, its user messages and the agent's text told as chat read tells them.
     if (op === "chat.pageEntries") {
       const { page } = args as CliUiOps["chat.pageEntries"]["args"];
@@ -675,7 +667,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
     claudeAsks: () => [],
     answerClaudeAsk: async () => false,
-    agentInputs: new AgentInputs(),
     consents: { list: () => [], answer: async () => false },
     remote,
     claudeAgents: {
@@ -746,7 +737,6 @@ export function fakeApp(now = Date.now()): FakeApp {
     stops,
     waits,
     foreground,
-    turnHops,
     peers,
     screens,
     settings,

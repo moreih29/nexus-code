@@ -24,7 +24,6 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
-import { refuseLoop } from "../hops";
 import { absolutePath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
@@ -364,7 +363,6 @@ const chatNew: CliCommand = {
     }
     const setting = Object.keys(settings).length > 0;
     const from = prompt !== "" ? await senderOf(ctx) : undefined;
-    refuseLoop(from);
     const { tabId, error } = await ctx.services.ui(
       "chat.open",
       {
@@ -739,7 +737,6 @@ const chatSend: CliCommand = {
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
     const sender = await senderOf(ctx);
-    refuseLoop(sender);
     const from = sender ? { ...sender, waits: timeoutMs !== null } : undefined;
     // Starting a program that is gone comes before the message.
     await ctx.services.ui(

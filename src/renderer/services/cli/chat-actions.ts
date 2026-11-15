@@ -35,7 +35,6 @@ import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
 import { scopesOf } from "../chat/permission-scopes";
 import { sameProfile } from "../chat/profile-moves";
-import { turnHopsOf } from "../chat/relayed";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
@@ -565,11 +564,6 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const tool = conversationOf(sourceOf(workspaceId, tabId, agent)).tools[toolUseId];
     if (!tool) throw new UiRequestError(`no tool call ${toolUseId} in that tab`);
     return viewToolOf(tool, maxText);
-  },
-
-  "chat.turnHops": async ({ workspaceId, tabId }) => {
-    const { agent } = await readableTab(workspaceId, tabId);
-    return { hops: turnHopsOf(conversationOf(sourceOf(workspaceId, tabId, agent)).items) };
   },
 
   "chat.pageEntries": async ({ page, subagents }) => ({

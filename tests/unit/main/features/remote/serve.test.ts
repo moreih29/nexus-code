@@ -319,7 +319,6 @@ describe("serving the sessions", () => {
       name: "Fix",
       workspaceId: "bw",
       tabId: "bt",
-      hops: 1,
     };
     const read = (policy?: "allow" | "ask" | "deny") =>
       serveWith(
@@ -1317,7 +1316,6 @@ describe("serving a chat's controls", () => {
       name: "Fix",
       workspaceId: "bw",
       tabId: "bt",
-      hops: 2,
     };
     const params = { ...tab, text: "run the tests", from };
     // Not taken where no gate says agents may.

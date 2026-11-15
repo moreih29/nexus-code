@@ -218,7 +218,7 @@ describe("--device", () => {
     const app = withDevices();
     const mini = app.peers.devices[1] as CliDevice;
     app.peers.answer = async () => ({ done: true, state: "idle" });
-    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB, hops: 1 };
+    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB };
     await askDevice(ctx(app), mini, "chat.interrupt", {
       workspaceId: PEER_WS,
       tabId: PEER_TAB,
@@ -231,7 +231,7 @@ describe("--device", () => {
 
   test("an agent's request goes only to a computer that takes them", async () => {
     const app = withDevices();
-    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB, hops: 1 };
+    const from = { kind: "terminal" as const, workspaceId: APP, tabId: CLAUDE_TAB };
     const params = { workspaceId: PEER_WS, tabId: PEER_TAB, from };
     const deny = device({ id: MINI, name: "Mac mini", serves: ["sessions"], schema: "0.2.0" });
     await expect(askDevice(ctx(app), deny, "chat.interrupt", params)).rejects.toMatchObject({
@@ -252,14 +252,12 @@ describe("--device", () => {
       kind: "terminal",
       workspaceId: APP,
       tabId: SHELL_TAB,
-      hops: 1,
     });
     expect(await agentSenderOf(ctx(app, CLAUDE_TAB))).toMatchObject({
       kind: "terminal",
       agent: "claude",
       workspaceId: APP,
       tabId: CLAUDE_TAB,
-      hops: 1,
     });
   });
 });

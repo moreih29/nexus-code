@@ -85,7 +85,7 @@ function withPeer(handlers: Record<string, Handler> = {}): FakeApp {
 const AGENT = { workspaceId: APP, tabId: CLAUDE_TAB };
 const USER = { workspaceId: APP, tabId: SHELL_TAB };
 /** What the user runs at a shell goes there as an agent in that terminal: it is not told from one. */
-const FROM_SHELL = { kind: "terminal", ...USER, hops: 1 };
+const FROM_SHELL = { kind: "terminal", ...USER };
 
 async function nexus(app: FakeApp, argv: string[], caller = USER, stdin?: string) {
   return runCli(CLI_COMMANDS, contextFor(app, argv, caller, stdin === undefined ? {} : { stdin }));
@@ -126,7 +126,6 @@ describe("chat send --device", () => {
           workspaceId: APP,
           tabId: CLAUDE_TAB,
           name: expect.any(String),
-          hops: 1,
         },
       },
     ]);
@@ -315,7 +314,7 @@ describe("chat new --device", () => {
       prompt: "Fix it",
       model: "haiku",
       permissionMode: "plan",
-      from: { kind: "terminal", hops: 1 },
+      from: { kind: "terminal" },
     });
   });
 
@@ -431,7 +430,7 @@ describe("chat interrupt, set and tab close --device", () => {
     );
     expect(asked(app, "chat.configure")[0]).toMatchObject({
       permissionMode: "plan",
-      from: { hops: 1 },
+      from: expect.objectContaining({ kind: "terminal" }),
     });
     expect(
       (await nexus(app, ["chat", "set", "Review", "--device", "Mac mini", "--profile", "Work"]))

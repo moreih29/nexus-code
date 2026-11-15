@@ -284,12 +284,6 @@ export const AgentSenderSchema = z.object({
   tabId: z.string().min(1).max(100),
   /** Its tab's title, as the receiver shows the sender. */
   name: z.string().max(200).optional(),
-  /**
-   * How many messages between agents led to this one, the first being 1:
-   * a device refuses one past MAX_AGENT_HOPS, so agents on two devices
-   * cannot keep each other going without end.
-   */
-  hops: z.number().int().positive(),
 });
 export type AgentSender = z.infer<typeof AgentSenderSchema>;
 
@@ -348,9 +342,6 @@ export const TERMINAL_KEYS = [
 ] as const;
 export const TerminalKeySchema = z.enum(TERMINAL_KEYS);
 export type TerminalKey = z.infer<typeof TerminalKeySchema>;
-
-/** Most messages between agents one chain may take; past it, `from` requests are refused. */
-export const MAX_AGENT_HOPS = 8;
 
 /**
  * How long a serving device may ask its user about a request with `from`

@@ -1,8 +1,7 @@
 /**
  * Whether an agent on another computer of the user's may do what it asks
  * here (a request with `from`, from that computer's nexus command): not
- * past MAX_AGENT_HOPS messages between agents, not more than
- * MAX_AGENT_REQUESTS_PER_MINUTE from one agent nor
+ * more than MAX_AGENT_REQUESTS_PER_MINUTE from one agent nor
  * MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE from all of one device's, not more
  * than MAX_PENDING_PROMPTS_PER_DEVICE prompts of one device's waiting on
  * the user at once, and as the user set it
@@ -13,7 +12,6 @@
 import {
   AGENT_CONSENT_MS,
   type AgentSender,
-  MAX_AGENT_HOPS,
   MAX_AGENT_REQUESTS_PER_MINUTE,
   MAX_DEVICE_AGENT_REQUESTS_PER_MINUTE,
   RpcErrorCode,
@@ -78,9 +76,6 @@ export class AgentGate {
   async check(services: CliServices, request: AgentRequest): Promise<void> {
     const { device, params } = request;
     const { from } = params;
-    if (from.hops > MAX_AGENT_HOPS) {
-      throw forbidden(`the agents' chain is too long (${MAX_AGENT_HOPS} messages): a loop?`);
-    }
     // The device's share first: its agents' names are its to make up.
     this.count(
       device.id,
@@ -187,7 +182,6 @@ export function relaySenderOf(
     workspaceId: from.workspaceId,
     tabId: from.tabId,
     device: { id: device.id, name: device.name.slice(0, 200) },
-    hops: from.hops,
   };
 }
 

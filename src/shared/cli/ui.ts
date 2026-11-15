@@ -836,14 +836,6 @@ export interface CliUiOps {
     result: { title: string };
   };
   /**
-   * How many messages between agents led to the one that started the tab's
-   * latest turn: 0 for the user's. A message its agent sends counts one more.
-   */
-  "chat.turnHops": {
-    args: { workspaceId: string; tabId: string };
-    result: { hops: number };
-  };
-  /**
    * A page of a chat on another device (its chat.read) as chat read tells
    * it here: each item's entries, numbered by the item's index there.
    */

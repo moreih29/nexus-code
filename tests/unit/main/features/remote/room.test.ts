@@ -210,7 +210,7 @@ describe("the room", () => {
     b.room.start();
     await tick();
     const tab = { workspaceId: "w1", tabId: "t1" };
-    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
     // People may control the chats; agents may not.
     await expect(b.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject({
       code: RpcErrorCode.Forbidden,
@@ -247,7 +247,7 @@ describe("the room", () => {
     phone.room.start();
     await tick();
     const tab = { workspaceId: "w1", tabId: "t1" };
-    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "pw", tabId: "pt" };
     await expect(phone.room.request("a", "chat.interrupt", { ...tab, from })).rejects.toMatchObject(
       { code: RpcErrorCode.Forbidden, message: "agents' requests are not taken from a phone" },
     );
@@ -263,7 +263,7 @@ describe("the room", () => {
     a.room.start();
     b.room.start();
     await tick();
-    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt", hops: 1 };
+    const from = { kind: "tab" as const, workspaceId: "bw", tabId: "bt" };
     // consent.answer's params have no `from`: parsing them drops it.
     const params = { id: "c1", answer: "once" as const, from } as { id: string; answer: "once" };
     await expect(b.room.request("a", "consent.answer", params)).rejects.toMatchObject({
