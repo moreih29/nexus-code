@@ -351,6 +351,9 @@ export const SessionEventSchema = z.object({
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
 
 /** Most images and files one message takes. */
+/** The most folders folders.list gives. */
+export const MAX_FOLDERS = 1000;
+
 export const MAX_ATTACHMENTS = 4;
 
 /**
@@ -635,6 +638,47 @@ export const RPC_METHODS = {
       ),
     }),
   },
+  /**
+   * The folders in one of the device's folders, to pick one to add as a
+   * workspace: only folders (and links to them), no files; hidden ones
+   * (a leading dot, or Windows' hidden attribute) only with `hidden`. By
+   * name, case aside, at most MAX_FOLDERS (`truncated` past that). With no
+   * `path`, the home folder; a relative one is InvalidParams. NotFound for
+   * a path that is no folder; Forbidden ("permission denied") for one it
+   * may not read. Since 0.12.0.
+   */
+  "folders.list": {
+    capability: "workspace.create",
+    params: z.object({
+      path: z.string().min(1).max(4096).optional(),
+      hidden: z.boolean().optional(),
+    }),
+    result: z.object({
+      /** The folder listed, as the device writes it. */
+      path: z.string(),
+      /** The folder it is in; none at a root. */
+      parent: z.string().optional(),
+      home: z.string(),
+      /** Windows: its drives' roots ("C:\\"). */
+      roots: z.array(z.string()).optional(),
+      entries: z.array(z.object({ name: z.string() })),
+      truncated: z.boolean().optional(),
+    }),
+  },
+  /**
+   * Adds one of the device's folders as a workspace, at the sidebar's end
+   * (not pinned), named `name` or as the folder is. A workspace of that
+   * folder already there is given back, `created` false. NotFound for a
+   * path that is no folder. Since 0.12.0.
+   */
+  "workspace.create": {
+    capability: "workspace.create",
+    params: z.object({
+      path: z.string().min(1).max(4096),
+      name: z.string().trim().min(1).max(200).optional(),
+    }),
+    result: z.object({ workspace: RemoteWorkspaceSchema, created: z.boolean() }),
+  },
   /** The past chats of a workspace's folder that can be resumed, latest first. */
   "history.list": {
     capability: "chat.read",
@@ -758,9 +802,21 @@ export const RPC_METHODS = {
   },
 
   /**
-   * Sends a message, as its composer does: during a turn, the turn reads it
-   * next. `text` may be empty only with attachments. Sent by an agent
-   * (`from`), the chat shows it as that agent's, not the user's.
+   * Sends a message, as its composer does. `text` may be empty only with
+   * attachments. Sent by an agent (`from`), the chat shows it as that
+   * agent's, not the user's.
+   *
+   * During a turn, `when` (since 0.12.0) is as its composer's keys:
+   * - next (↩, the default): a Claude chat reads it after the tool it
+   *   runs, the message shown unread (UserItem.queued) until then, which
+   *   chat.withdraw takes back; a Codex chat takes it into the turn.
+   * - now (⌘↩): a Claude chat's running tools go to the background, or the
+   *   turn stops, and it reads the message at once (panel.can.now). A
+   *   Codex chat takes it as next.
+   * - after (⌘⇧↩): the serving device holds it (panel.held, `heldId`)
+   *   until the turn ends, then sends it, one a turn in the order they
+   *   came. chat.unqueue and chat.editHeld change it until then.
+   * With no turn running, each sends it at once.
    */
   "chat.send": {
     capability: "chat.control",
@@ -770,9 +826,53 @@ export const RPC_METHODS = {
       /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
+      when: z.enum(["next", "now", "after"]).optional(),
     }),
-    /** `at`: when the serving device took it, by its clock, for chat.wait's `after`. */
-    result: z.object({ at: z.number().optional() }),
+    /**
+     * `at`: when the serving device took it, by its clock, for chat.wait's
+     * `after`. `heldId`: the held message's id, when `after` held it.
+     */
+    result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+  },
+  /**
+   * Takes back a message held for after the turn (panel.held), with its
+   * whole text for the asking device's composer. NotFound once it went.
+   * Since 0.12.0.
+   */
+  "chat.unqueue": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, id: z.string() }),
+    result: z.object({ text: z.string() }),
+  },
+  /**
+   * Changes the text of a message held for after the turn, its attachments
+   * kept. NotFound once it went; InvalidParams for an empty text with no
+   * attachments. Since 0.12.0.
+   */
+  "chat.editHeld": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, id: z.string(), text: z.string() }),
+    result: Ok,
+  },
+  /**
+   * Takes back one of the user's messages a Claude chat has not read yet
+   * (UserItem.queued), by its item's key: `withdrawn` false once it was
+   * read. panel.can.withdraw says whether the chat's program can. Since 0.12.0.
+   */
+  "chat.withdraw": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, itemKey: z.string() }),
+    result: z.object({ withdrawn: z.boolean() }),
+  },
+  /**
+   * Has a Claude chat read its unread messages now, as ⌘↩ on an empty
+   * composer: its running tools go to the background, or the turn stops.
+   * Nothing unread: nothing done. Since 0.12.0.
+   */
+  "chat.hurry": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: Ok,
   },
   /**
    * Takes an image for the next chat.send to this tab: one image a request,

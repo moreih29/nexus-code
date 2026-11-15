@@ -301,6 +301,9 @@ export type ViewUsageMeter = z.infer<typeof ViewUsageMeterSchema>;
  * list, the tasks and subagents, the files it changed, the context it
  * fills, what it cost, and its goal.
  */
+/** The most of a held message's text the panel tells; chat.unqueue gives all of it. */
+export const MAX_HELD_TEXT = 500;
+
 export const ChatPanelSchema = z.object({
   todos: z.array(ViewTodoSchema),
   /** Background runs and the like, by the program's task ids (chat.stopTask stops one). */
@@ -387,6 +390,34 @@ export const ChatPanelSchema = z.object({
    * running command or subagent to the background (chat.background).
    * Absent before 0.11.0, which serves none of them.
    */
-  can: z.object({ rewind: z.boolean(), fork: z.boolean(), background: z.boolean() }).optional(),
+  can: z
+    .object({
+      rewind: z.boolean(),
+      fork: z.boolean(),
+      background: z.boolean(),
+      /** Send into the turn at once (chat.send `now`). Since 0.12.0. */
+      now: z.boolean().optional(),
+      /** Take back an unread message (chat.withdraw). Since 0.12.0. */
+      withdraw: z.boolean().optional(),
+      /** Have the unread messages read now (chat.hurry). Since 0.12.0. */
+      hurry: z.boolean().optional(),
+    })
+    .optional(),
+  /**
+   * The messages held for after the turn (chat.send `after`), in the order
+   * they go: each's text cut to MAX_HELD_TEXT (`truncated`), and how many
+   * images and files it carries. Since 0.12.0.
+   */
+  held: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        truncated: z.boolean().optional(),
+        images: z.number().int().positive().optional(),
+        files: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
 });
 export type ChatPanel = z.infer<typeof ChatPanelSchema>;
