@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { ChatModel, ToolCall } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { chatPanelOf } from "../../../../../src/renderer/services/remote/chat-panel";
+import { chatPanelOf, planLimitsOf } from "../../../../../src/renderer/services/remote/chat-panel";
 import { changesOf, sentOf } from "../../../../../src/renderer/services/remote/chat-watch";
 
 const call = (
@@ -82,6 +82,54 @@ describe("a chat's side panel", () => {
       maxTokens: 100,
     });
     expect(chatPanelOf(source({}, "codex"))).toMatchObject({ context: null, goal: null });
+  });
+
+  test("tells the plan's usage limits as the composer's line does, and none without a plan", () => {
+    const now = Date.parse("2026-11-15T09:00:00Z");
+    const usage = {
+      rate_limits: {
+        limits: [
+          { kind: "session", percent: 65, resets_at: "2026-11-15T10:00:00Z", is_active: true },
+          { kind: "weekly_all", percent: 41, resets_at: "2026-11-19T01:00:00Z", is_active: false },
+          {
+            kind: "weekly_scoped",
+            percent: 12,
+            scope: { model: { display_name: "Opus" } },
+            is_active: false,
+          },
+        ],
+      },
+    };
+    expect(chatPanelOf(source({ usage }), now).planLimits).toEqual([
+      { kind: "session", percent: 65, resetsAt: Date.parse("2026-11-15T10:00:00Z") },
+      { kind: "weekly", percent: 41, resetsAt: Date.parse("2026-11-19T01:00:00Z") },
+      { kind: "weekly_scoped", scope: "Opus", percent: 12 },
+    ]);
+    // The profile's, as this app last heard it, before what the program last told the tab.
+    const plan = {
+      rate_limits: { limits: [{ kind: "session", percent: 80, is_active: true }] },
+    };
+    expect(planLimitsOf({ ...source({ usage }), plan: { claude: plan } }, now)).toEqual([
+      { kind: "session", percent: 80 },
+    ]);
+    // A window that started over since is left out till the next answer.
+    expect(planLimitsOf(source({ usage }), Date.parse("2026-11-15T11:00:00Z"))).toHaveLength(2);
+    // Paid by API key: no limits, and the cost tells it.
+    const byKey = chatPanelOf(source({ costUsd: 0.42 }), now);
+    expect(byKey).not.toHaveProperty("planLimits");
+    expect(byKey.costUsd).toBe(0.42);
+  });
+
+  test("a Codex tab's limits are its windows, the week's named so", () => {
+    const now = 1_000_000;
+    const rateLimits = {
+      primary: { usedPercent: 30, windowMins: 300, resetsAt: 2_000 },
+      secondary: { usedPercent: 55, windowMins: 7 * 24 * 60 },
+    };
+    expect(planLimitsOf(source({ rateLimits }, "codex"), now)).toEqual([
+      { kind: "window", windowMins: 300, percent: 30, resetsAt: 2_000_000 },
+      { kind: "weekly", percent: 55 },
+    ]);
   });
 
   test("a watch sends it when it changed, and only then", () => {

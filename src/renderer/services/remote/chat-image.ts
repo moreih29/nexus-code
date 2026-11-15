@@ -2,12 +2,14 @@
  * An image of a chat as another device asks for it (chat.image): a user
  * message's or a tool result's, sent as it is when it fits in a frame and
  * is of a type the other device takes, else drawn smaller as a JPEG till
- * it fits. Not one whose header says it is huge, or tells no size: drawing
- * it would decode all of it, here or there (a decompression bomb).
+ * it fits; drawn smaller too when it is wider or taller than the device
+ * asked for (a thumbnail). Not one whose header says it is huge, or tells
+ * no size: drawing it would decode all of it, here or there (a
+ * decompression bomb).
  */
 
 import type { CliChatImage } from "../../../shared/cli/ui";
-import { decodable } from "../../../shared/remote/image-size";
+import { decodable, pixelSizeOf } from "../../../shared/remote/image-size";
 import type { ImageBlock } from "../chat/model";
 import { UiRequestError } from "../cli/handler";
 import { type ChatSource, conversationOf } from "./chat-page";
@@ -39,22 +41,41 @@ export function imageOf(source: ChatSource, ref: ChatImageRef): ImageBlock | nul
 /** The image drawn at `scale` of its size, as a JPEG. */
 export type Shrink = (image: ImageBlock, scale: number) => Promise<Required<CliChatImage>>;
 
-/** The image, as it is or drawn smaller, its base64 at most `maxChars`. */
+/** What an image is fitted to: its base64's length, and its longer side's pixels when asked. */
+export interface ImageLimits {
+  maxChars: number;
+  maxEdge?: number;
+}
+
+/**
+ * The image, as it is or drawn smaller: its base64 at most `maxChars`, its
+ * longer side at most `maxEdge` pixels. Its size in pixels goes with it.
+ */
 export async function fitImage(
   image: ImageBlock,
-  maxChars: number,
+  { maxChars, maxEdge }: ImageLimits,
   shrink: Shrink = shrinkOnCanvas,
-): Promise<CliChatImage> {
-  if (!decodable(bytesOf(image.data))) {
+): Promise<Required<CliChatImage>> {
+  const bytes = bytesOf(image.data);
+  const size = decodable(bytes) ? pixelSizeOf(bytes) : null;
+  if (!size) {
     throw new UiRequestError("the image is too big to draw, by its header, or not one read here");
   }
-  if (SENT_AS_IS.has(image.mediaType) && image.data.length <= maxChars) {
-    return { mediaType: image.mediaType as CliChatImage["mediaType"], data: image.data };
+  const edge = Math.max(size.width, size.height);
+  // Asked no bigger than it is, it is drawn at that size first.
+  const first = maxEdge !== undefined && edge > maxEdge ? maxEdge / edge : 1;
+  if (first === 1 && SENT_AS_IS.has(image.mediaType) && image.data.length <= maxChars) {
+    return {
+      mediaType: image.mediaType as CliChatImage["mediaType"],
+      data: image.data,
+      width: size.width,
+      height: size.height,
+    };
   }
-  // Drawn whole first: a JPEG may take far less than the PNG it was. Then
-  // smaller as its base64 grows with the pixels, by the square root of the
-  // share to lose, and a little more.
-  let scale = 1;
+  // A JPEG may take far less than the PNG it was. Then smaller as its
+  // base64 grows with the pixels, by the square root of the share to lose,
+  // and a little more.
+  let scale = first;
   for (let tries = 0; tries < MAX_TRIES; tries++) {
     const shrunk = await shrink(image, scale);
     if (shrunk.data.length <= maxChars) return shrunk;

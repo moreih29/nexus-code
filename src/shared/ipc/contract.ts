@@ -2516,6 +2516,37 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.interrupt"].params),
         RPC_METHODS["chat.interrupt"].result,
       ),
+      /** What another device's chat runs with, and may be set to. */
+      peerChatSettings: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.settings"].params),
+        RPC_METHODS["chat.settings"].result,
+      ),
+      /** Sets another device's chat's model, effort or permission mode, as the user. */
+      peerChatConfigure: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.configure"].params),
+        RPC_METHODS["chat.configure"].result,
+      ),
+      /** Another device's chat's slash commands. */
+      peerChatCommands: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.commands"].params),
+        RPC_METHODS["chat.commands"].result,
+      ),
+      /** Runs one of the app's commands in another device's chat, as the user. */
+      peerChatCommand: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
+        RPC_METHODS["chat.command"].result,
+      ),
+      /** Gives another device's chat an image for the next message sent it. */
+      peerChatAttach: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),
+        RPC_METHODS["chat.attach"].result,
+      ),
       /** What changed in a chat another device watches here (the renderer tells main). */
       chatChanged: call(
         z.object({

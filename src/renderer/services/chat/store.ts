@@ -146,6 +146,8 @@ export function revealPart(key: string, part: RevealPart, id?: string): void {
 
 /** The part asked for is shown: the ask is done, unless another came since. */
 export function takeReveal(key: string, seq: number): void {
+  // A chat not kept here (another computer's) holds its own: its controller's `revealed`.
+  if (!(key in useChatStore.getState().tabs)) return;
   useChatStore.getState().update(key, (prev) => {
     if (prev.reveal?.seq !== seq) return prev;
     const { reveal: _done, ...rest } = prev;
