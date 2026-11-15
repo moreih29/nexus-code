@@ -176,6 +176,7 @@ export async function listSessions(
           kind: "terminal",
           title: tab.title,
           state: isAgentSession(state) ? terminalSessionState(state.state) : "idle",
+          ...(isAgentSession(state) ? { agent: state.agent ?? "agent" } : {}),
           ...(state.since !== undefined ? { since: state.since } : {}),
           ...(state.message ? { last: oneLine(state.message) } : {}),
           ...(ask
