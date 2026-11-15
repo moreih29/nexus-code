@@ -16,6 +16,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_BYTES_CHUNK,
   MAX_IMAGE_EDGE,
+  MAX_SESSION_AGENTS,
   MAX_UPLOAD_BYTES,
   RPC_METHODS,
   SCHEMA_VERSION,
@@ -363,6 +364,56 @@ describe("the methods", () => {
     expect(ChatPanelSchema.safeParse({ ...panel, planLimits: [{ kind: "session" }] }).success).toBe(
       false,
     );
+  });
+
+  test("a session list leaves out what a newer version adds that this one cannot read", () => {
+    const agent = (id: string, state = "running") => ({
+      id,
+      kind: "subagent",
+      type: "Explore",
+      state,
+      start: 1,
+    });
+    const session = (tabId: string, more: object = {}) => ({
+      workspaceId: "w",
+      tabId,
+      kind: "claude",
+      title: "chat",
+      state: "running",
+      ...more,
+    });
+    const consent = (id: string, more: object = {}) => ({
+      id,
+      at: 1,
+      expiresAt: 2,
+      expiresInMs: 1,
+      from: { workspaceId: "w", tabId: "t" },
+      workspaceId: "w",
+      change: { kind: "chatInput" },
+      eachTime: false,
+      answerable: true,
+      ...more,
+    });
+    const list = RPC_METHODS["sessions.list"].result.parse({
+      workspaces: [{ id: "w", name: "ws", path: "/w" }],
+      sessions: [
+        session("a", { agents: [agent("1"), agent("2", "paused"), agent("3")] }),
+        session("b", { state: "sleeping" }),
+        session("c", { kind: "browser" }),
+        session("d", {
+          agents: Array.from({ length: MAX_SESSION_AGENTS + 3 }, (_, i) => agent(`x${i}`)),
+        }),
+      ],
+      consents: [consent("k1"), consent("k2", { eachTime: "maybe" })],
+    });
+    expect(list.sessions.map((s) => s.tabId)).toEqual(["a", "d"]);
+    expect(list.sessions[0]?.agents?.map((a) => a.id)).toEqual(["1", "3"]);
+    expect(list.sessions[1]?.agents).toHaveLength(MAX_SESSION_AGENTS);
+    expect(list.consents?.map((c) => c.id)).toEqual(["k1"]);
+    // Still a list: one that is not fails as before.
+    expect(
+      RPC_METHODS["sessions.list"].result.safeParse({ workspaces: [], sessions: "none" }).success,
+    ).toBe(false);
   });
 
   test("a chat moves to another profile only by the user, going on with its conversation or not", () => {
