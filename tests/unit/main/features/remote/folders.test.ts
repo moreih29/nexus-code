@@ -4,6 +4,7 @@
  * it may not read or that are none.
  */
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import {
   hiddenOf,
   listFolders,
   refusedFolder,
+  SYSTEM_FOLDERS,
 } from "../../../../../src/main/features/remote/folders";
 
 const made: string[] = [];
@@ -39,8 +41,12 @@ describe("listing folders", () => {
     const root = await tree();
     for (const dir of ["beta", "Alpha", ".git", "gamma"]) await mkdir(join(root, dir));
     await writeFile(join(root, "notes.txt"), "x");
-    await symlink(join(root, "gamma"), join(root, "delta"));
-    await symlink(join(root, "notes.txt"), join(root, "file-link"));
+    // A junction needs no privilege on Windows; elsewhere the type is ignored.
+    await symlink(join(root, "gamma"), join(root, "delta"), "junction");
+    // A link to a file there needs one (or Developer Mode), so none is made.
+    if (process.platform !== "win32") {
+      await symlink(join(root, "notes.txt"), join(root, "file-link"));
+    }
     const listed = await listFolders({ path: root }, system(root));
     expect(listed.entries.map((e) => e.name)).toEqual(["Alpha", "beta", "delta", "gamma"]);
     expect(listed).toMatchObject({ path: root, home: root, parent: join(root, "..") });
@@ -100,16 +106,35 @@ describe("listing folders", () => {
     expect(listed.roots).toEqual(["C:\\", "D:\\"]);
   });
 
-  test("attrib's listing: the names marked H", () => {
-    const listing = [
-      "A                    C:\\Users\\me\\notes.txt",
-      "     H               C:\\Users\\me\\AppData",
-      "                     C:\\Users\\me\\Documents",
-      "  S H                C:\\Users\\me\\NTUSER.DAT",
-      "",
-    ].join("\r\n");
-    expect([...hiddenOf(listing)].sort()).toEqual(["AppData", "NTUSER.DAT"]);
+  test("the hidden names' listing: a name a line, outside ASCII and with spaces too", () => {
+    const listing = "﻿AppData\r\nApplication Data\r\n시작 메뉴\r\nNTUSER.DAT\r\n";
+    expect([...hiddenOf(listing)].sort()).toEqual([
+      "AppData",
+      "Application Data",
+      "NTUSER.DAT",
+      "시작 메뉴",
+    ]);
   });
+
+  test.skipIf(process.platform !== "win32")(
+    "Windows itself: a hidden folder named outside ASCII, and a hidden junction to a shown one",
+    async () => {
+      const root = await tree();
+      for (const dir of ["shown", "숨김", "target"]) await mkdir(join(root, dir));
+      // A junction is told by its own attribute, not its target's.
+      await symlink(join(root, "target"), join(root, "옛 이름"), "junction");
+      const attrib = (args: string[]) => execFileSync("attrib", args, { windowsHide: true });
+      attrib(["+h", join(root, "숨김")]);
+      attrib(["+h", join(root, "옛 이름"), "/L"]);
+      const listed = await listFolders({ path: root }, { ...SYSTEM_FOLDERS, home: () => root });
+      expect(listed.entries.map((e) => e.name)).toEqual(["shown", "target"]);
+      const all = await listFolders(
+        { path: root, hidden: true },
+        { ...SYSTEM_FOLDERS, home: () => root },
+      );
+      expect(all.entries.map((e) => e.name).sort()).toEqual(["shown", "target", "숨김", "옛 이름"]);
+    },
+  );
 });
 
 describe("a folder another device may add", () => {

@@ -239,27 +239,45 @@ function folderFailure(error: unknown, dir: string): RpcFailure {
 }
 
 /**
- * The names in `dir` Windows marks hidden: attrib lists each entry with its
- * attribute letters before its path, H among them for a hidden one.
+ * Lists the names in $env:NEXUS_HIDDEN_IN that Windows marks hidden, a line
+ * each, in UTF-8. The folder comes in the environment, never in the command.
+ */
+const HIDDEN_NAMES =
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " +
+  "Get-ChildItem -LiteralPath $env:NEXUS_HIDDEN_IN -Force -Attributes Hidden -Name -ErrorAction SilentlyContinue";
+
+/**
+ * The names in `dir` Windows marks hidden, as Explorer hides them. attrib
+ * would not do: it tells a junction by its target's attributes, so the
+ * hidden Application Data, Local Settings and the like in the home folder
+ * showed; and it writes in the console's code page (CP949 and the like),
+ * so no name outside ASCII matched.
  */
 async function windowsHidden(dir: string): Promise<ReadonlySet<string>> {
-  const { stdout } = await run("attrib", [join(dir, "*"), "/D"], {
-    windowsHide: true,
-    timeout: 5_000,
-    maxBuffer: 8 * 1024 * 1024,
-  });
+  const root = process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows";
+  const powershell = win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const { stdout } = await run(
+    powershell,
+    ["-NoProfile", "-NonInteractive", "-Command", HIDDEN_NAMES],
+    {
+      env: { ...process.env, NEXUS_HIDDEN_IN: dir },
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 8 * 1024 * 1024,
+    },
+  );
   return hiddenOf(stdout);
 }
 
-/** The hidden names in attrib's listing. */
+/** The names in Get-ChildItem -Name's listing, a line each. */
 export function hiddenOf(listing: string): ReadonlySet<string> {
-  const hidden = new Set<string>();
-  for (const line of listing.split(/\r?\n/)) {
-    const at = line.search(/[A-Za-z]:\\|\\\\/);
-    if (at < 0) continue;
-    if (line.slice(0, at).includes("H")) hidden.add(win32.basename(line.slice(at).trim()));
-  }
-  return hidden;
+  return new Set(
+    listing
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/)
+      .filter((name) => name !== ""),
+  );
 }
 
 /** The drives' roots Windows has, C:\ and on. */
