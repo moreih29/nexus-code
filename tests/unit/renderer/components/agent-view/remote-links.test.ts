@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { lookItemOfChange, peerChatFiles, peerImageLoader, shownPath } = await import(
+const { lookItemOfChange, peerChatFiles, peerImageLoader } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
 );
+const { shownPath } = await import("../../../../../src/renderer/utils/path");
 const { rateLimitOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-usage"
 );
@@ -171,6 +172,20 @@ describe("what another computer's chat tells of its plan and senders", () => {
     });
     expect(rateLimitOf({ ...panel, planLimits: limits }, 6_000_000)).toBeUndefined();
     expect(rateLimitOf({ ...panel, planLimits: [limits[1]!] }, 1_000)).toBeUndefined();
+  });
+
+  test("from 0.11.0, the program's own word: near the limit too, until its window starts over", () => {
+    const told = {
+      ...panel,
+      rateLimit: { status: "allowed_warning", resetsAt: 5_000_000, kind: "five_hour" },
+      planLimits: [{ kind: "session", percent: 100, resetsAt: 9_000_000 }],
+    };
+    expect(rateLimitOf(told, 1_000)).toEqual({
+      status: "allowed_warning",
+      rateLimitType: "five_hour",
+      resetsAt: 5_000,
+    });
+    expect(rateLimitOf(told, 6_000_000)).toBeUndefined();
   });
 
   test("a tab there that sent a message is named with its computer", () => {

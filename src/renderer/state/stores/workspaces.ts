@@ -5,6 +5,7 @@ import type {
   WorkspaceConnectionProgressEvent,
   WorkspaceMeta,
 } from "../../../shared/types/workspace";
+import { compareWorkspaceOrder, workspaceSortKey } from "../../../shared/workspace-order";
 import { canUseIpcBridge, ipcCallResult, ipcListen, mustSucceed } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
@@ -56,26 +57,9 @@ interface WorkspacesStoreDeps {
 // Sort helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the effective sort key for a workspace within the unified list.
- * Primary sort: pinned rows float above unpinned rows (pinned=true → 0, false → 1).
- * Secondary sort: the group-specific order column (ascending).
- */
-function sortKey(meta: WorkspaceMeta): [number, number] {
-  const groupOrdinal = meta.pinned ? 0 : 1;
-  const orderWithinGroup = meta.pinned ? meta.pinnedSortOrder : meta.sortOrder;
-  return [groupOrdinal, orderWithinGroup ?? 0];
-}
-
-/**
- * Compares two workspaces using their (pinned DESC, groupOrder ASC) sort keys.
- */
-function compareSortKey(a: WorkspaceMeta, b: WorkspaceMeta): number {
-  const [ag, ao] = sortKey(a);
-  const [bg, bo] = sortKey(b);
-  if (ag !== bg) return ag - bg;
-  return ao - bo;
-}
+/** The sidebar's order: pinned first, then each group's own order. */
+const sortKey = workspaceSortKey;
+const compareSortKey = compareWorkspaceOrder;
 
 /**
  * Inserts `meta` into the correct sorted position within `workspaces`.

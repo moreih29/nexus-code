@@ -117,10 +117,16 @@ interface MessageListProps {
   /** A call to bring into view and light up, as the side panel asks. */
   reveal?: CallReveal | null;
   /** Where the conversation went on in another profile: a line after the message. */
-  moves?: readonly ProfileMove[];
+  moves?: readonly ShownMove[];
   /** The messages other agents sent through the nexus command: shown as received. */
   relayed?: readonly RelayedMessage[];
 }
+
+/**
+ * A move as the line shows it: by its profile here, or by `label`, a
+ * profile of another computer's (whose chat this one shows).
+ */
+export type ShownMove = ProfileMove & { label?: string };
 
 /** A call asked to be seen in the conversation; each ask its own seq, so asking again shows it again. */
 export interface CallReveal {
@@ -331,7 +337,7 @@ export function MessageList({
   // Each move after the last item of the message it follows; one whose
   // message is not shown (an agent's transcript, a conversation cleared) is not.
   const movesAfter = useMemo(() => {
-    const after = new Map<ChatItem, ProfileMove[]>();
+    const after = new Map<ChatItem, ShownMove[]>();
     if (items || !moves) return after;
     for (const move of moves) {
       const item = shownItems.findLast((i) => followsMessage(i, move.after));
@@ -1274,12 +1280,15 @@ function ManagerReport({ item }: { item: UserItem }) {
 }
 
 /** Where the conversation went on in another profile: its dot, its name, and when. */
-function MoveLine({ move }: { move: ProfileMove }) {
+function MoveLine({ move }: { move: ShownMove }) {
   const { t } = useTranslation();
   const agent = useContext(ChatAgentContext);
   // The default profile is made anew each time: the config is what holds still.
   const config = useAgentProfilesStore((s) => s.config);
-  const profile = profileOf(config, agent, move.profileId);
+  const own = profileOf(config, agent, move.profileId);
+  // Another computer's profile has no colour here.
+  const profile = move.label === undefined ? own : { ...own, color: "gray" as const };
+  const name = move.label ?? profileName(own, t);
   return (
     <div
       className="flex items-center gap-2 text-app-micro text-muted-foreground"
@@ -1288,9 +1297,7 @@ function MoveLine({ move }: { move: ProfileMove }) {
     >
       <div className="h-px flex-1 bg-border" />
       <ProfileDot color={profile.color} className="size-1.5" />
-      <span className="max-w-[70%] truncate">
-        {t("chat.profile.moved", { name: profileName(profile, t) })}
-      </span>
+      <span className="max-w-[70%] truncate">{t("chat.profile.moved", { name })}</span>
       <MessageTime at={move.at} />
       <div className="h-px flex-1 bg-border" />
     </div>

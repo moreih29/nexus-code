@@ -61,7 +61,11 @@ export function senderOf(from: ViewSender, source?: PageSource): MessageSource {
   return sender;
 }
 
-/** An item this version draws; one of a kind it does not know is left out. */
+/**
+ * An item this version draws; one of a kind it does not know is left out.
+ * A message's key stands for its id there (which the page leaves out): a
+ * rewind or fork from it, or a move after it, names it by its key.
+ */
 function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
   switch (item.kind) {
     case "user":
@@ -70,6 +74,8 @@ function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
       return {
         ...item,
         kind: "user",
+        // Only one the program took has an id to go back to.
+        ...(item.state === "taken" ? { uuid: item.key } : {}),
         images: (item.images as readonly ImageRef[]).map(({ mediaType }, index) => ({
           mediaType,
           data: "",
@@ -77,8 +83,13 @@ function itemOf(item: ViewItem, source?: PageSource): ChatItem | null {
         })),
       } as ChatItem;
     case "received":
-      return { ...item, from: senderOf(item.from as ViewSender, source) } as ChatItem;
+      return {
+        ...item,
+        uuid: item.key,
+        from: senderOf(item.from as ViewSender, source),
+      } as ChatItem;
     case "assistant":
+      return { ...item, uuid: item.key } as ChatItem;
     case "task_end":
     case "shell":
       return item as ChatItem;

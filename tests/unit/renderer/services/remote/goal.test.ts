@@ -37,6 +37,42 @@ describe("another computer's chat's goal", () => {
     );
   });
 
+  test("from 0.11.0, what its checks said, a Codex goal's time and tokens, and how long it took", () => {
+    const codex = remoteGoalView(
+      {
+        condition: "Ship it",
+        status: "active",
+        checks: 0,
+        usedSeconds: 90,
+        usedAt: 10_000,
+        tokens: 5_000,
+        tokenBudget: null,
+      },
+      "codex",
+    );
+    expect(codex).toMatchObject({
+      usedSeconds: 90,
+      usedAt: 10_000,
+      tokens: 5_000,
+      tokenBudget: null,
+    });
+    expect(goalSeconds(codex, 20_000)).toBe(90);
+    const met = remoteGoalView(
+      {
+        condition: "All tests pass",
+        status: "met",
+        setAt: 1_000,
+        checks: 1,
+        checkReasons: [{ at: 2_000, reason: "one fails" }],
+        durationMs: 30_000,
+        endedAt: 31_000,
+      },
+      "claude",
+    );
+    expect(met.checks).toEqual([{ at: 2_000, reason: "one fails" }]);
+    expect(goalSeconds(met, 99_000)).toBe(30);
+  });
+
   test("a status this version does not know reads as active", () => {
     expect(remoteGoalView({ condition: "x", status: "dreaming", checks: 0 }, "claude").status).toBe(
       "active",

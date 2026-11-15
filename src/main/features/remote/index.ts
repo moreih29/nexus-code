@@ -603,6 +603,26 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatResume.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.resume", params));
       },
+      peerChatRewindPreview: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRewindPreview.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.rewindPreview", params));
+      },
+      peerChatRewind: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRewind.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.rewind", params));
+      },
+      peerChatFork: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatFork.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.fork", params));
+      },
+      peerChatBackground: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatBackground.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.background", params));
+      },
+      peerChatRemoteControl: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRemoteControl.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.remoteControl", params));
+      },
       peerProfiles: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
         return askPeer(() => inRoom().request(deviceId, "profiles.list", params));

@@ -47,7 +47,14 @@ export type Delivered = z.infer<typeof DeliveredSchema>;
 /** A device of the account, as the relay tells who is in the room. */
 export const RoomDeviceSchema = z.object({
   id: DeviceIdSchema,
+  /** The name the device signed in with (its host's, say). */
   name: z.string(),
+  /**
+   * The name the user gave it, shown in its place (alias ?? name), with
+   * `name` beside it where devices are looked at closely; null or absent
+   * for none. A server before 0.11.0 sends none. Since 0.11.0.
+   */
+  alias: z.string().max(64).nullable().optional(),
   /** darwin, win32, linux, ios, android, web. */
   platform: z.string(),
   online: z.boolean(),

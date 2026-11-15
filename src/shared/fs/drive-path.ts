@@ -24,6 +24,16 @@ export function toSlashPath(path: string): string {
   return `${path[0].toUpperCase()}${path.slice(1).replaceAll("\\", "/")}`;
 }
 
+/**
+ * True when two absolute paths name the same folder, whichever separator or
+ * drive-letter case a Windows one is written with, and with or without a
+ * trailing separator.
+ */
+export function sameFolder(a: string, b: string): boolean {
+  const key = (path: string) => toSlashPath(path).replace(/[\\/]+$/, "");
+  return key(a) === key(b);
+}
+
 /** `C:/work/demo` → `C:\work\demo`, for showing or copying a path. */
 export function toNativeDrivePath(path: string): string {
   if (!isDrivePath(path)) return path;

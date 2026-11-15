@@ -89,6 +89,11 @@ export const RemoteWorkspaceSchema = z.object({
   /** The agent manager's own workspace, where the session that directs the others runs. */
   manager: z.boolean().optional(),
   /**
+   * Pinned to the top of the sidebar. The list comes in the sidebar's
+   * order (pinned first, a task after its workspace). Since 0.11.0.
+   */
+  pinned: z.boolean().optional(),
+  /**
    * A task's branch and how it stands against its upstream, with how many
    * files it changed and did not commit. Looked at now and then, not live.
    */
@@ -120,6 +125,12 @@ export const RemoteSessionSchema = z.object({
   last: z.string().optional(),
   /** The agent profile it runs with. */
   profile: z.string().optional(),
+  /**
+   * The folder a chat runs in, when it is not its workspace's (a folder
+   * under it, or one it was given): its links are written from there.
+   * Since 0.11.0.
+   */
+  cwd: z.string().optional(),
   /**
    * The agent a terminal runs (claude, codex), or another that notifies
    * ("agent"); absent for a terminal that only has its shell, which the
@@ -410,6 +421,12 @@ export const PastSessionSchema = z.object({
   /** The folder it ran in. */
   cwd: z.string().optional(),
   profile: z.string().optional(),
+  /** Its first prompt, when its title is not. Since 0.11.0. */
+  firstPrompt: z.string().optional(),
+  /** The git branch it ran on. Since 0.11.0. */
+  gitBranch: z.string().optional(),
+  /** The tab it is open in now, there; chat.resume shows that one. Since 0.11.0. */
+  tabId: z.string().optional(),
 });
 export type PastSession = z.infer<typeof PastSessionSchema>;
 
@@ -910,15 +927,73 @@ export const RPC_METHODS = {
     params: z.object({ ...TabRef, title: z.string().min(1).max(200) }),
     result: z.object({ title: z.string() }),
   },
-  /** Opens a past chat (history.list) in a new tab. */
+  /**
+   * Opens a past chat (history.list) in a new tab, or the tab it is open
+   * in. With `tabId`, a chat of the agent's, it goes on in that tab
+   * instead, as the desktop's /resume and a new tab's list of past sessions
+   * do; not while a turn runs (since 0.11.0; before, `tabId` is not known
+   * and a new tab opens).
+   */
   "chat.resume": {
     capability: "chat.control",
     params: z.object({
       workspaceId: z.string(),
       agent: z.enum(["claude", "codex"]),
       sessionId: z.string(),
+      tabId: z.string().optional(),
     }),
     result: z.object({ tabId: z.string() }),
+  },
+  /**
+   * What rewinding a Claude chat to before one of the user's messages (by
+   * its item's key) would undo in the files: those the turns since changed,
+   * and how many lines. `canRewind` false (with why) when the files cannot
+   * be rewound; the conversation still can. Since 0.11.0.
+   */
+  "chat.rewindPreview": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, itemKey: z.string() }),
+    result: z.object({
+      canRewind: z.boolean(),
+      error: z.string().optional(),
+      filesChanged: z.array(z.string()),
+      insertions: z.number().int().nonnegative(),
+      deletions: z.number().int().nonnegative(),
+    }),
+  },
+  /**
+   * Rewinds a Claude chat to before one of the user's messages, by its
+   * item's key: the conversation, and with `files` the files the turns
+   * since changed. The message is the asking device's to put back in its
+   * composer; the serving device's stays as it was. Since 0.11.0.
+   */
+  "chat.rewind": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, itemKey: z.string(), files: z.boolean() }),
+    result: Ok,
+  },
+  /**
+   * Forks a Claude chat into a new tab there, behind what that device
+   * shows: from one of the user's messages, the conversation before it,
+   * and the message as `draft` for the asking device's composer; from an
+   * answer, the conversation up to it; with no item, all of it. Since 0.11.0.
+   */
+  "chat.fork": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, itemKey: z.string().optional() }),
+    result: z.object({ tabId: z.string(), draft: z.string().optional() }),
+  },
+  /** Sends a Claude chat's running command or subagent to the background, by its call's id. Since 0.11.0. */
+  "chat.background": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, toolUseId: z.string() }),
+    result: Ok,
+  },
+  /** Turns a Claude chat's Remote Control on or off, as its panel's switch does. Since 0.11.0. */
+  "chat.remoteControl": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, enabled: z.boolean() }),
+    result: Ok,
   },
   /**
    * Opens a chat in one of the serving device's workspaces, sending it

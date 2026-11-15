@@ -19,6 +19,7 @@ import { ipcCallResult } from "../../ipc/client";
 import type { ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import { type ChatTabState, type CommandCard, emptyTabState, type RevealPart } from "../chat/store";
 import { fitImage } from "./chat-image";
+import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
 /** The chat, by the device it runs on and its tab there. */
 export interface PeerChatRef {
@@ -110,7 +111,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     },
     removeQueued: () => undefined,
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
-    clearDraft: () => {},
+    clearDraft: () => clearPeerDraft(ref),
     attach: async () => {
       throw new Error(filesRefused);
     },
@@ -329,14 +330,17 @@ export function usePeerComposer({
     [commands, deviceId, workspaceId, tabId, onError],
   );
 
+  // A message rewound or forked there, back in this composer.
+  const draft = usePeerDraft(ref);
   const state = useMemo<ChatTabState>(
     () => ({
       ...emptyTabState(),
       phase: "ready",
       model: withSettings(model, settings),
       ...(reveal ? { reveal } : {}),
+      ...(draft ? { draft } : {}),
     }),
-    [model, settings, reveal],
+    [model, settings, reveal, draft],
   );
   const infos = useMemo(() => commandInfosOf(commands), [commands]);
   return { controller, state, commands: infos, onCommand, card, closeCard };

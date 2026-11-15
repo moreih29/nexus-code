@@ -262,6 +262,17 @@ export const ViewGoalSchema = z.object({
   checks: z.number().int().nonnegative(),
   /** Once it ended: why. */
   reason: z.string().optional(),
+  /** The checks that found it unmet, oldest first, with what each said. Since 0.11.0. */
+  checkReasons: z.array(z.object({ at: z.number().optional(), reason: z.string() })).optional(),
+  /** A Codex goal: the seconds Codex worked toward it, as of `usedAt`. Since 0.11.0. */
+  usedSeconds: z.number().nonnegative().optional(),
+  usedAt: z.number().optional(),
+  /** The tokens it took so far, and a Codex goal's budget (null: none). Since 0.11.0. */
+  tokens: z.number().int().nonnegative().optional(),
+  tokenBudget: z.number().int().nonnegative().nullable().optional(),
+  /** Once it ended: how long it took, and when. Since 0.11.0. */
+  durationMs: z.number().nonnegative().optional(),
+  endedAt: z.number().optional(),
 });
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 
@@ -319,5 +330,63 @@ export const ChatPanelSchema = z.object({
    */
   planLimits: z.array(ViewUsageMeterSchema).optional(),
   goal: ViewGoalSchema.nullable(),
+  /**
+   * The program's own word on the plan's limit, as the desktop's banner
+   * over the composer shows it: allowed_warning when near, rejected when
+   * reached, until `resetsAt` (Unix milliseconds). Since 0.11.0.
+   */
+  rateLimit: z
+    .object({
+      status: z.string(),
+      resetsAt: z.number().optional(),
+      /** five_hour, seven_day… as the program names the window. */
+      kind: z.string().optional(),
+    })
+    .optional(),
+  /** The MCP servers the chat's program has, and how each stands (connected, failed…). Since 0.11.0. */
+  mcp: z
+    .array(
+      z.object({
+        name: z.string(),
+        status: z.string(),
+        scope: z.string().optional(),
+        transport: z.string().optional(),
+      }),
+    )
+    .optional(),
+  /** What the chat's program runs as: its session's id, its version, the account it is signed in with. Since 0.11.0. */
+  session: z
+    .object({
+      id: z.string().optional(),
+      version: z.string().optional(),
+      /** As the desktop's panel shows it: email · organization · plan. */
+      account: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * Claude Code's Remote Control: whether its program can turn it on,
+   * whether it is on, and the session's address there while it is
+   * (chat.remoteControl turns it). Since 0.11.0.
+   */
+  remoteControl: z
+    .object({
+      available: z.boolean(),
+      enabled: z.boolean(),
+      url: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * Where the conversation went on in another profile: after the item
+   * whose key is `after`, in the profile named `profile` (profiles.list's
+   * name), at `at`. Since 0.11.0.
+   */
+  moves: z.array(z.object({ after: z.string(), profile: z.string(), at: z.number() })).optional(),
+  /**
+   * What another device can do with the chat now: rewind it to before one
+   * of the user's messages (chat.rewind), fork it (chat.fork), send a
+   * running command or subagent to the background (chat.background).
+   * Absent before 0.11.0, which serves none of them.
+   */
+  can: z.object({ rewind: z.boolean(), fork: z.boolean(), background: z.boolean() }).optional(),
 });
 export type ChatPanel = z.infer<typeof ChatPanelSchema>;

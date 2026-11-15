@@ -72,8 +72,60 @@ describe("a chat's side panel", () => {
     expect(panel.changedFiles).toEqual([{ path: "/p/a.ts", added: 1, removed: 2 }]);
     expect(panel.context).toEqual({ usedTokens: 1200, maxTokens: 200_000 });
     expect(panel.costUsd).toBe(0.42);
-    expect(panel.goal).toEqual({ condition: "tests pass", status: "active", setAt: 5, checks: 1 });
+    expect(panel.goal).toEqual({
+      condition: "tests pass",
+      status: "active",
+      setAt: 5,
+      checks: 1,
+      checkReasons: [{ reason: "no" }],
+    });
     expect(panel).toMatchObject({ tasks: [], agents: [] });
+  });
+
+  test("a Claude chat's limit, MCP servers, program and Remote Control", () => {
+    const panel = chatPanelOf(
+      source({
+        sessionId: "s-1",
+        version: "2.9.0",
+        rateLimit: { status: "allowed_warning", resetsAt: 1_700, rateLimitType: "five_hour" },
+        mcp: [{ name: "docs", status: "connected", scope: "user" }],
+        init: {
+          commands: [],
+          models: [],
+          remoteControl: true,
+          account: { email: "a@example.com", subscription: "max", provider: "firstParty" },
+        },
+        remoteControl: { enabled: true, sessionUrl: "https://claude.ai/code/s-1" },
+      }),
+    );
+    expect(panel).toMatchObject({
+      rateLimit: { status: "allowed_warning", resetsAt: 1_700_000, kind: "five_hour" },
+      mcp: [{ name: "docs", status: "connected", scope: "user" }],
+      session: { id: "s-1", version: "2.9.0", account: "a@example.com · max" },
+      remoteControl: { available: true, enabled: true, url: "https://claude.ai/code/s-1" },
+    });
+    // A Codex chat's panel has none of them.
+    const codex = chatPanelOf(source({ sessionId: "x" }, "codex"));
+    for (const key of ["rateLimit", "mcp", "session", "remoteControl", "can"]) {
+      expect(codex).not.toHaveProperty(key);
+    }
+  });
+
+  test("where it went on in another profile, by the item each move follows", () => {
+    const items = [
+      { kind: "user", key: "u1", uuid: "m1", text: "hi", images: [], state: "taken" },
+      { kind: "assistant", key: "a1", uuid: "m2", blocks: [{ type: "text", text: "yo" }] },
+    ];
+    const panel = chatPanelOf({
+      ...source({ items }),
+      moves: [
+        { after: "m2", profile: "work", at: 9 },
+        { after: "gone", profile: "home", at: 10 },
+      ],
+      can: { rewind: true, fork: true, background: true },
+    });
+    expect(panel.moves).toEqual([{ after: "a1", profile: "work", at: 9 }]);
+    expect(panel.can).toEqual({ rewind: true, fork: true, background: true });
   });
 
   test("a Codex chat's context is its tokens; none before it told them", () => {

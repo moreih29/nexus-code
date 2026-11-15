@@ -19,6 +19,7 @@ import { chatPageOf } from "../../../../../src/renderer/services/remote/chat-pag
 import {
   appendsOf,
   changesOf,
+  eachTimeItCan,
   sentOf,
   streamAppendsOf,
   windowStart,
@@ -380,5 +381,28 @@ describe("putting an update in a page", () => {
     expect(
       grow({ status: { ...rest, streaming: null }, streamAppends: [{ block: 0, text: "x" }] }),
     ).toBeNull();
+  });
+});
+
+describe("asking again as the watched tab's program comes to take questions", () => {
+  test("acts once each time it can, not on every change while it can", () => {
+    let can = false;
+    let acted = 0;
+    const check = eachTimeItCan(
+      () => can,
+      () => acted++,
+    );
+    check();
+    expect(acted).toBe(0);
+    can = true;
+    check();
+    check();
+    expect(acted).toBe(1);
+    // Its program ended and started again (the app restarted it with the next message).
+    can = false;
+    check();
+    can = true;
+    check();
+    expect(acted).toBe(2);
   });
 });

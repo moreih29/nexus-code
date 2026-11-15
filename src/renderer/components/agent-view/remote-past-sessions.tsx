@@ -1,8 +1,11 @@
 /**
  * Another computer's chat's earlier sessions, as a chat here lists its
  * own: under its empty conversation, or above the composer for /resume.
- * They come from that computer (history.list); one picked goes on there
- * in a tab of its own (chat.resume), which opens here in this one's place.
+ * They come from that computer (history.list), each with its branch and
+ * the tab it is open in there; one picked goes on in this chat there
+ * (chat.resume's tabId, 0.11.0), or the tab it is open in shows here. A
+ * computer before 0.11.0 opens it in a tab of its own, which shows here
+ * in this one's place.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -39,11 +42,14 @@ function profilesOf(
   }));
 }
 
+/** A session listed, with the tab it is open in there. */
+type PastSession = ListedSession & { tabId?: string };
+
 /** Its earlier sessions, null until they come; an empty list when they cannot. */
 export function usePastSessions(
   target: Pick<RemoteTarget, "deviceId" | "workspaceId" | "kind">,
-): ListedSession[] | null {
-  const [listed, setListed] = useState<ListedSession[] | null>(null);
+): PastSession[] | null {
+  const [listed, setListed] = useState<PastSession[] | null>(null);
   const { deviceId, workspaceId, kind } = target;
   const agent: ChatAgent = kind === "codex" ? "codex" : "claude";
   useEffect(() => {
@@ -62,6 +68,9 @@ export function usePastSessions(
               title: session.title,
               lastModified: session.at,
               ...(session.bytes !== undefined ? { size: session.bytes } : {}),
+              ...(session.firstPrompt ? { firstPrompt: session.firstPrompt } : {}),
+              ...(session.gitBranch ? { gitBranch: session.gitBranch } : {}),
+              ...(session.tabId ? { tabId: session.tabId } : {}),
               profileId: profileIdOf(session.profile, agent),
             }))
           : [],
@@ -74,7 +83,7 @@ export function usePastSessions(
   return listed;
 }
 
-/** Goes on with one of them on that computer, and shows its tab here. */
+/** Goes on with one of them in this chat on that computer, and shows its tab here. */
 export function useResumePast(target: RemoteTarget): (sessionId: string, title: string) => void {
   const { t } = useTranslation();
   return (sessionId, title) => {
@@ -83,6 +92,7 @@ export function useResumePast(target: RemoteTarget): (sessionId: string, title: 
       workspaceId: target.workspaceId,
       agent: target.kind === "codex" ? "codex" : "claude",
       sessionId,
+      tabId: target.tabId,
     }).then((result) => {
       if (!result.ok) {
         showToast({
@@ -122,11 +132,22 @@ export function RemoteSessionList({
     () => profilesOf(listed ?? [], target.profile, agent),
     [listed, target.profile, agent],
   );
+  // The tabs there that have one open, as a chat here marks its own.
+  const openIn = useMemo(
+    () =>
+      new Map((listed ?? []).flatMap((s) => (s.tabId ? [[s.sessionId, s.tabId] as const] : []))),
+    [listed],
+  );
   return (
     <SessionPicker
       agent={agent}
       listed={listed}
-      openIn={NO_TABS}
+      openIn={openIn}
+      onShowTab={(tabId, session) => {
+        // Another tab: its folder and state come with that computer's next list.
+        const { cwd: _cwd, state: _state, ...where } = target;
+        useRemoteViewStore.getState().open({ ...where, tabId, title: session.title });
+      }}
       workspaceId={`remote:${target.deviceId}`}
       tabId={target.tabId}
       profileId={profileIdOf(target.profile, agent)}
@@ -141,5 +162,3 @@ export function RemoteSessionList({
     />
   );
 }
-
-const NO_TABS: ReadonlyMap<string, string> = new Map();

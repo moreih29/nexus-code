@@ -31,25 +31,41 @@ export function mergedSessions(lists: readonly (readonly ListedSession[])[]): Li
     });
 }
 
-/** The list as the protocol gives it: those that match, at most `limit`. */
+/** The most of a first prompt the list gives: enough to tell one session from another. */
+const FIRST_PROMPT_CHARS = 300;
+
+/**
+ * The list as the protocol gives it: those that match, at most `limit`,
+ * each with the tab it is open in (`openIn`), as a tab's own list marks it.
+ */
 export function pastSessionsOf(
   listed: readonly ListedSession[],
   cwd: string,
   profileName: (profileId: string) => string,
   query?: string,
   limit = DEFAULT_HISTORY,
+  openIn: (sessionId: string) => string | undefined = () => undefined,
 ): CliPastSession[] {
   return listed
     .filter((s) => sessionMatches(s, query))
     .slice(0, limit)
-    .map((s) => ({
-      sessionId: s.sessionId,
-      title: s.title,
-      at: s.lastModified,
-      ...(s.size !== undefined ? { bytes: s.size } : {}),
-      cwd,
-      profile: profileName(s.profileId),
-    }));
+    .map((s) => {
+      const firstPrompt = s.firstPrompt?.trim();
+      const tabId = openIn(s.sessionId);
+      return {
+        sessionId: s.sessionId,
+        title: s.title,
+        at: s.lastModified,
+        ...(s.size !== undefined ? { bytes: s.size } : {}),
+        cwd,
+        profile: profileName(s.profileId),
+        ...(firstPrompt && firstPrompt !== s.title
+          ? { firstPrompt: firstPrompt.slice(0, FIRST_PROMPT_CHARS) }
+          : {}),
+        ...(s.gitBranch ? { gitBranch: s.gitBranch } : {}),
+        ...(tabId ? { tabId } : {}),
+      };
+    });
 }
 
 /** Claude Code's sessions of the folder, in each of the profiles' folders. */
