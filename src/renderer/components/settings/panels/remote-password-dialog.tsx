@@ -19,6 +19,11 @@ export interface PasswordRequest {
   readonly destructive?: boolean;
   /** Runs with the password: null once done, else what to say in the dialog. */
   run(password: string): Promise<string | null>;
+  /** Another way to go on without the password, beside Cancel. */
+  readonly withoutPassword?: {
+    readonly label: string;
+    run(): Promise<string | null>;
+  };
 }
 
 export function PasswordDialog({
@@ -41,17 +46,28 @@ export function PasswordDialog({
     if (request) input.current?.focus();
   }, [request]);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!request || busy || !password) return;
-    setBusy(true);
-    setError(null);
-    const failure = await request.run(password);
+  const finish = (failure: string | null) => {
     setBusy(false);
     if (failure === null) {
       setPassword("");
       onClose();
     } else setError(failure);
+  };
+
+  const skip = async () => {
+    const other = request?.withoutPassword;
+    if (!other || busy) return;
+    setBusy(true);
+    setError(null);
+    finish(await other.run());
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!request || busy || !password) return;
+    setBusy(true);
+    setError(null);
+    finish(await request.run(password));
   };
 
   return (
@@ -83,6 +99,18 @@ export function PasswordDialog({
           </p>
         )}
         <div className="mt-3 flex justify-end gap-2">
+          {request?.withoutPassword && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mr-auto"
+              disabled={busy}
+              onClick={() => void skip()}
+            >
+              {request.withoutPassword.label}
+            </Button>
+          )}
           <RadixDialog.Close asChild>
             <Button type="button" variant="ghost" size="sm" disabled={busy}>
               {t("remote.account.cancel")}

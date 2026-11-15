@@ -213,7 +213,36 @@ function PendingResetNotice({
     if (!ok) return;
     setError(null);
     const result = await ipcCallResult("remote", "removeDevice", { id: reset.deviceId });
-    if (!result.ok) setError(keyFailureText(t, result.kind));
+    if (result.ok) return;
+    // It holds the key: removed with the password, which changes the key.
+    if (result.kind === "needs-password") {
+      setRequest({
+        title: t("remote.key.pendingReset.removeHolderTitle", { name: device }),
+        description: t("remote.key.pendingReset.removeHolderDescription"),
+        confirmLabel: t("remote.devices.removeConfirm.confirm"),
+        destructive: true,
+        run: async (password) => {
+          const again = await ipcCallResult("remote", "removeDevice", {
+            id: reset.deviceId,
+            password,
+          });
+          return again.ok || again.kind === "not-found" ? null : keyFailureText(t, again.kind);
+        },
+        // An owner who forgot the password can still stop the reset: the device keeps the key.
+        withoutPassword: {
+          label: t("remote.key.pendingReset.removeKeepKey"),
+          run: async () => {
+            const kept = await ipcCallResult("remote", "removeDevice", {
+              id: reset.deviceId,
+              keepKey: true,
+            });
+            return kept.ok || kept.kind === "not-found" ? null : keyFailureText(t, kept.kind);
+          },
+        },
+      });
+      return;
+    }
+    setError(keyFailureText(t, result.kind));
   };
   return (
     <div

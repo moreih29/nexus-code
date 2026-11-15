@@ -751,7 +751,8 @@
         "failed": "That didn't work. Try again.",
         "account-auth": "The server did not take this password. It may have been changed on another device. If this goes on, reset the password.",
         "device-key": "A device's key could not be checked, so the account key was not changed. Try again in a while.",
-        "reset-pending": "A reset is already waiting."
+        "reset-pending": "A reset is already waiting.",
+        "needs-password": "That device holds the account key. Type the password to remove it and change the key."
       },
       "resetDelayed": "The new password takes effect in 72 hours, and a device that knows the current one can call it off meanwhile. Your other devices then ask for the new one.",
       "pendingReset": {
@@ -762,7 +763,10 @@
         "cancelDescription": "Type the account password now to call off the waiting reset.",
         "remove": "Remove the device that asked",
         "removeTitle": "Remove {{name}}?",
-        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off, but keeps the account key: if that device may hold it, remove it from Devices with the password instead, which changes the key."
+        "removeDescription": "The device that asked for a reset can be removed without the password. Removing it calls the reset off, but keeps the account key: if that device may hold it, remove it from Devices with the password instead, which changes the key.",
+        "removeHolderTitle": "Remove {{name}} and change the key?",
+        "removeHolderDescription": "This device holds the account key. Removing it with the password changes the key, so the key it holds no longer connects. Without the password it can still be removed, which calls the reset off, but it keeps the key.",
+        "removeKeepKey": "Remove, keep the key"
       }
     },
     "delete": {

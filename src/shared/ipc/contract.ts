@@ -2423,10 +2423,15 @@ export const ipcContract = {
       /**
        * Removes a device; another one, on a server of account keys v2, with
        * the account password, which rotates the account key (its KeyFailure
-       * as the kind when that fails).
+       * as the kind when that fails). The device that asked for a reset goes
+       * without it, but one that holds the key only with `keepKey`.
        */
       removeDevice: call(
-        z.object({ id: z.string().min(1).max(64), password: z.string().max(1024).optional() }),
+        z.object({
+          id: z.string().min(1).max(64),
+          password: z.string().max(1024).optional(),
+          keepKey: z.boolean().optional(),
+        }),
         z.void(),
       ),
       /** Gives a device an alias, shown in place of its name, or takes it away (null or empty). */

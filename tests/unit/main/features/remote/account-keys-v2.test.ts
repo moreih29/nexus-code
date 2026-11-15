@@ -302,16 +302,71 @@ describe("account keys v2", () => {
     await expect(a.keys.cancelReset(OTHER)).rejects.toMatchObject({ failure: "wrong-password" });
     await a.keys.cancelReset(PASSWORD);
     expect(server.s.pending).toBeNull();
-    // Again; this time the owner removes the device that asked, without the password.
-    await b.keys.reset(OTHER);
+    // Again, from a device with no key: the owner removes it without the password.
+    const d = device(server, "dev-d");
+    await d.keys.restore();
+    await d.keys.reset(OTHER);
     await a.keys.refresh();
-    await a.keys.removeDevices(["dev-b"]);
-    expect(server.s.deletes).toEqual(["dev-b"]);
+    await a.keys.removeDevices(["dev-d"]);
+    expect(server.s.deletes).toEqual(["dev-d"]);
     expect(server.s.pending).toBeNull();
+    expect(server.s.bundle?.bundle.kid).toBe(1);
     // Another device still needs the password.
     await expect(a.keys.removeDevices(["dev-c"])).rejects.toMatchObject({
       failure: "wrong-password",
     });
+  });
+
+  test("a device that asked for a reset and holds the key is removed only with the password, which changes the key", async () => {
+    const { server, a, b, c } = await threeDevices();
+    await b.keys.reset(OTHER);
+    await a.keys.refresh();
+    await expect(a.keys.removeDevices(["dev-b"])).rejects.toMatchObject({
+      failure: "needs-password",
+    });
+    expect(server.s.devices.has("dev-b")).toBe(true);
+    expect(server.s.deletes).toEqual([]);
+    await a.keys.removeDevices(["dev-b"], PASSWORD);
+    expect(server.s.devices.has("dev-b")).toBe(false);
+    expect(server.s.pending).toBeNull();
+    expect(server.s.bundle?.bundle.kid).toBe(2);
+    await c.keys.refresh();
+    expect(c.keys.state()).toMatchObject({ status: "unlocked", kid: 2 });
+  });
+
+  test("an owner who forgot the password still removes a reset's device that holds the key, which keeps it", async () => {
+    const { server, a, b } = await threeDevices();
+    await b.keys.reset(OTHER);
+    await a.keys.refresh();
+    await a.keys.removeDevices(["dev-b"], undefined, { keepKey: true });
+    expect(server.s.deletes).toEqual(["dev-b"]);
+    expect(server.s.pending).toBeNull();
+    expect(server.s.bundle?.bundle.kid).toBe(1);
+  });
+
+  test("a reset's device whose key does not check under the key is taken as not holding it", async () => {
+    const { server, a, b } = await threeDevices();
+    await b.keys.reset(OTHER);
+    // Only a token: it put a key of version 1 with a certificate it could not make.
+    const entry = server.s.devices.get("dev-b");
+    if (entry?.key) entry.key = { ...entry.key, cert: "A".repeat(43) };
+    await a.keys.refresh();
+    await a.keys.removeDevices(["dev-b"]);
+    expect(server.s.deletes).toEqual(["dev-b"]);
+    expect(server.s.bundle?.bundle.kid).toBe(1);
+  });
+
+  test("a device that does not hold the key cannot check, so a reset's device of the key's version needs the password", async () => {
+    const { server, b } = await threeDevices();
+    const d = device(server, "dev-d");
+    await d.keys.restore();
+    expect(d.keys.state()).toMatchObject({ status: "locked", kid: 1 });
+    await b.keys.reset(OTHER);
+    await d.keys.refresh();
+    await expect(d.keys.removeDevices(["dev-b"])).rejects.toMatchObject({
+      failure: "needs-password",
+    });
+    expect(server.s.devices.has("dev-b")).toBe(true);
   });
 
   test("the proof for deleting the account; none for an account with no key yet", async () => {

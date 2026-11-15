@@ -157,7 +157,9 @@ export type AccountKeyState = z.infer<typeof AccountKeyStateSchema>;
  *   take its proof (its verifier is another's: a reset sets it anew);
  * - device-key: a device's key does not check under the account key, so
  *   the key was not rotated (someone changed it on the server);
- * - reset-pending: a reset already waits.
+ * - reset-pending: a reset already waits;
+ * - needs-password: the device that asked for a reset holds the key, so it
+ *   is removed only with the password, which changes the key.
  */
 export const KEY_FAILURES = [
   "too-short",
@@ -169,5 +171,6 @@ export const KEY_FAILURES = [
   "account-auth",
   "device-key",
   "reset-pending",
+  "needs-password",
 ] as const;
 export type KeyFailure = (typeof KEY_FAILURES)[number];

@@ -124,6 +124,7 @@ Without the password, no request can carry the proof. A stolen device does not k
 - While it waits, `GET /account/key-bundle` says `pendingReset: { appliesAt, deviceId }`, and the room is told `{ t: "account", event: "reset-pending", appliesAt }` at once. A device shows it, with the device that asked, and a way to call it off.
 - `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any bundle write that goes through calls it off too (a new password, a rotation).
 - The device that asked for it may be removed by any other device of the account without the proof, which calls the reset off. So an owner who forgot the password can still stop a stolen device's reset; a thief can only do the same to the owner's, which holds them up but takes nothing.
+- Removed so, a device that holds AK keeps it. Before such a removal the desktop looks at the device's key: when it is of the bundle's `kid` and its certificate checks under AK, which only a device that held AK can make, it asks for the password and rotates AK instead, and removes it without only when the user chooses to keep the key. A device can put any key of its own (a device set up again keeps its id), so it can hide that it holds AK, but cannot seem to hold it when it does not.
 - Removing the device that asked, in any way, calls it off.
 - With the password known, a reset is a `PUT` with the proof, at once, as in v1.
 

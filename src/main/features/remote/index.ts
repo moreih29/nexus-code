@@ -465,14 +465,14 @@ export async function registerRemoteChannel(options: {
         return ask(() => account.setDeviceAlias(id, alias));
       },
       removeDevice: (args: unknown) => {
-        const { id, password } = validateArgs(c.removeDevice.args, args);
+        const { id, password, keepKey } = validateArgs(c.removeDevice.args, args);
         const self = account.state();
         if (self.status === "signed-in" && self.device.id === id) {
           return ask(() => account.removeDevice(id));
         }
         return keyFlow(() =>
           ask(async () => {
-            await accountKeys.removeDevices([id], password);
+            await accountKeys.removeDevices([id], password, { keepKey });
           }),
         ).then((result) => (result.ok ? result.value : result));
       },

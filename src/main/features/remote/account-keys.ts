@@ -271,17 +271,30 @@ export class AccountKeys {
    * Removes other devices of the account. The key is rotated with them,
    * with the password: the devices that stay get the new key sealed for
    * each, the removed ones do not. The device that asked for a reset that
-   * waits may be removed without it, which calls the reset off; with no
-   * key yet, the server only ends their sign-ins. This device signs out
-   * through the account, not here.
+   * waits may be removed without it, which calls the reset off; one that
+   * holds the key now takes it along, so only with `keepKey` (else
+   * needs-password): an owner who forgot the password can still stop a
+   * stolen device's reset. With no key yet, the server only ends their
+   * sign-ins. This device signs out through the account, not here.
    */
-  removeDevices(ids: readonly string[], password?: string): Promise<AccountKeyState> {
+  removeDevices(
+    ids: readonly string[],
+    password?: string,
+    options: { readonly keepKey?: boolean } = {},
+  ): Promise<AccountKeyState> {
     return this.run(async () => {
       const self = this.deviceId();
       const others = ids.filter((id) => id !== self);
       const found = await this.fetch();
       const resetter = found?.pendingReset?.deviceId;
       if (!found || (password === undefined && others.every((id) => id === resetter))) {
+        const holder =
+          found && resetter && others.length > 0 && !options.keepKey
+            ? await this.holdsKey(found, resetter)
+            : false;
+        if (holder) {
+          throw new KeyError("needs-password");
+        }
         for (const id of others) await this.deleteDevice(id);
         return this.check();
       }
@@ -290,6 +303,26 @@ export class AccountKeys {
       await this.rotate(found, others, password);
       return this.check();
     });
+  }
+
+  /**
+   * Whether another device holds the bundle's key, as far as this one can
+   * tell: its key on the server is of the bundle's version and its
+   * certificate checks under the key held here, which only a device that
+   * held the key could make. The server lets a device put any key of its
+   * own (a device set up again keeps its id), so one could hide that it
+   * holds the key; it cannot make it look held when it is not. Where this
+   * device does not hold that key it cannot check, and takes it as held.
+   */
+  private async holdsKey(found: KeyBundleResponse, deviceId: string): Promise<boolean> {
+    const k = found.bundle.kid;
+    const devices = KeyedDevicesSchema.parse(
+      await this.deps.account.request("GET", "/devices"),
+    ).devices;
+    const key = devices.find((device) => device.id === deviceId)?.key;
+    if (!key || key.kid !== k) return false;
+    if (!this.held || this.held.kid !== k) return true;
+    return certChecks(fromBase64Url(this.held.key), this.userId(), deviceId, key);
   }
 
   private async rotate(
