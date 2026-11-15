@@ -186,7 +186,8 @@ export function useRemoteLinks(
 ): ChatLinks {
   // Each look its own: one that comes after another was opened does not replace it.
   const opened = useRef(0);
-  const { deviceId, workspaceId, path: cwd, deviceName } = target;
+  const { deviceId, workspaceId, deviceName } = target;
+  const cwd = target.cwd ?? target.path;
   return useMemo<ChatLinks>(() => {
     const where = { deviceId, workspaceId };
     const show = (items: RemoteLookItem[], index: number, fill: Promise<RemoteLookItem[]>) => {

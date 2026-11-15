@@ -2587,10 +2587,41 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["history.list"].params),
         RPC_METHODS["history.list"].result,
       ),
-      /** Resumes a past conversation on another device, in a tab of its own there. */
+      /** Resumes a past conversation on another device: in a tab of its own there, or the one named. */
       peerChatResume: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.resume"].params),
         RPC_METHODS["chat.resume"].result,
+      ),
+      /** What rewinding another device's Claude chat to before a message would undo in its files. */
+      peerChatRewindPreview: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.rewindPreview"].params),
+        RPC_METHODS["chat.rewindPreview"].result,
+      ),
+      /** Rewinds another device's Claude chat to before one of the user's messages. */
+      peerChatRewind: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rewind"].params),
+        RPC_METHODS["chat.rewind"].result,
+      ),
+      /** Forks another device's Claude chat into a new tab there. */
+      peerChatFork: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.fork"].params),
+        RPC_METHODS["chat.fork"].result,
+      ),
+      /** Sends another device's Claude chat's running command or subagent to the background. */
+      peerChatBackground: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.background"].params),
+        RPC_METHODS["chat.background"].result,
+      ),
+      /** Turns another device's Claude chat's Remote Control on or off. */
+      peerChatRemoteControl: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.remoteControl"].params),
+        RPC_METHODS["chat.remoteControl"].result,
       ),
       /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(

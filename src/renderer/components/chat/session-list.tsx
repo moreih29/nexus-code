@@ -127,6 +127,7 @@ export function SessionPicker({
   exceptSessionId,
   onDelete,
   profiles: theirProfiles,
+  onShowTab,
 }: ListProps & {
   agent: ChatAgent;
   /** Null until read. */
@@ -137,6 +138,8 @@ export function SessionPicker({
   onDelete?: DeleteSession;
   /** The profiles the sessions are kept by, where they are not this app's (another computer's). */
   profiles?: readonly AgentProfile[];
+  /** Shows the tab a session is open in, where it is not one of this app's (another computer's). */
+  onShowTab?: (tabId: string, session: ListedSession) => void;
 }) {
   const { t, i18n } = useTranslation();
   const config = useAgentProfilesStore((s) => s.config);
@@ -337,7 +340,8 @@ export function SessionPicker({
                 title={session.firstPrompt ?? session.title}
                 onClick={() => {
                   if (!tab) return onResume(session.sessionId, session.profileId, session.title);
-                  revealTabById(workspaceId, tab);
+                  if (onShowTab) onShowTab(tab, session);
+                  else revealTabById(workspaceId, tab);
                   onClose?.();
                 }}
               >

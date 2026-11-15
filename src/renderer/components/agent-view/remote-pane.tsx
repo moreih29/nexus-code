@@ -8,7 +8,12 @@ import { ipcCallResult } from "../../ipc/client";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
-import type { ChatModel, PermissionRequest } from "../../services/chat/model";
+import type {
+  AssistantItem,
+  ChatModel,
+  PermissionRequest,
+  UserItem,
+} from "../../services/chat/model";
 import { type AgentRow, agentTranscript } from "../../services/chat/panel";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
@@ -33,19 +38,21 @@ import { ChatLinksContext } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
-import { type MessageActions, MessageList } from "../chat/message-list";
+import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
 import { PermissionCard } from "../chat/permission-card";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
+import { RewindDialog } from "../chat/rewind-dialog";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
 import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
+import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteLook, type RemoteLookList } from "./remote-look";
 import { RemoteSessionList } from "./remote-past-sessions";
-import { RemoteProfileChip } from "./remote-profile-chip";
+import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
   type RemotePanelPart,
   RemoteSidePanel,
@@ -251,9 +258,9 @@ function RemoteChat({
 }
 
 /**
- * The chat's goal for its bar. Its computer tells no end time: one that
- * ended while shown took from when it was set until then; one that had
- * ended before has no time to tell.
+ * The chat's goal for its bar. A computer before 0.11.0 tells no end time:
+ * one that ended while shown took from when it was set until then; one
+ * that had ended before has no time to tell.
  */
 function useRemoteGoal(
   view: ViewGoal | null | undefined,
@@ -266,6 +273,7 @@ function useRemoteGoal(
     seen.current = { key: goal.key };
     return goal;
   }
+  if (goal.durationMs !== undefined) return goal;
   if (seen.current?.key === goal.key && goal.setAt !== undefined) {
     seen.current.endedAt ??= Date.now();
     return { ...goal, durationMs: seen.current.endedAt - goal.setAt };
@@ -411,14 +419,62 @@ function RemoteChatView({
       ? () => askPanel("jobs")
       : undefined;
   };
-  const running = model.running;
-  const actions = useMemo<MessageActions>(
-    () => ({ running, canFork: false, taskShower: (item) => taskShower.current(item) }),
-    [running],
-  );
-
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
+
+  // Rewind, fork and background, as a chat here's buttons, where its computer serves them (0.11.0).
+  const running = model.running;
+  const can = reachable ? page.panel?.can : undefined;
+  const [rewinding, setRewinding] = useState<UserItem | null>(null);
+  const rewinder = useMemo(
+    () => peerRewinder({ deviceId, workspaceId, tabId }),
+    [deviceId, workspaceId, tabId],
+  );
+  const forkFrom = useRef<(itemKey?: string) => void>(() => undefined);
+  forkFrom.current = (itemKey) => void forkPeerChat(target, itemKey);
+  const canRewind = can?.rewind === true;
+  const canFork = can?.fork === true;
+  const canBackground = can?.background === true;
+  const asking = model.permissions;
+  const actions = useMemo<MessageActions>(
+    () => ({
+      running,
+      canFork,
+      ...(canRewind ? { onRewind: (item: UserItem) => setRewinding(item) } : {}),
+      ...(canFork
+        ? { onFork: (item: UserItem | AssistantItem) => forkFrom.current(item.uuid ?? item.key) }
+        : {}),
+      ...(canBackground
+        ? {
+            onBackground: (toolUseId: string) =>
+              void ipcCallResult("remote", "peerChatBackground", {
+                deviceId,
+                workspaceId,
+                tabId,
+                toolUseId,
+              }).then((result) => {
+                if (!result.ok) showToast({ kind: "error", message: result.message });
+              }),
+          }
+        : {}),
+      waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+      taskShower: (item) => taskShower.current(item),
+    }),
+    [running, canFork, canRewind, canBackground, asking, deviceId, workspaceId, tabId],
+  );
+
+  // Where it went on in another of that computer's profiles, by its name there.
+  const movedThere = page.panel?.moves;
+  const moves = useMemo<ShownMove[] | undefined>(
+    () =>
+      movedThere?.map((move) => ({
+        profileId: `remote:${move.profile}`,
+        after: move.after,
+        at: move.at,
+        label: peerProfileName(move.profile, t),
+      })),
+    [movedThere, t],
+  );
 
   // Its images, files and changes are read from that computer, shown in quick look here.
   const loadImage = useMemo(
@@ -507,6 +563,13 @@ function RemoteChatView({
       onShowAgent={showAgent}
       onCompact={() => told(ipcCallResult("remote", "peerChatSend", { ...ref, text: "/compact" }))}
       onStopTask={(taskId) => told(ipcCallResult("remote", "peerChatStopTask", { ...ref, taskId }))}
+      {...(reachable && page.panel?.remoteControl
+        ? {
+            onRemoteControl: (enabled: boolean) =>
+              asked(ipcCallResult("remote", "peerChatRemoteControl", { ...ref, enabled })),
+          }
+        : {})}
+      {...(canFork ? { onForkSession: () => forkFrom.current() } : {})}
       reveal={panelAsk}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
@@ -566,12 +629,13 @@ function RemoteChatView({
                 )}
                 <MessageList
                   workspaceId={`remote:${deviceId}`}
-                  cwd={target.path}
+                  cwd={target.cwd ?? target.path}
                   rootPath={target.path}
                   history={null}
                   model={model}
                   actions={shown ? undefined : actions}
                   items={shown ? agentTranscript(model, shown) : undefined}
+                  {...(moves ? { moves } : {})}
                   empty={
                     <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                       {claude ? (
@@ -584,9 +648,9 @@ function RemoteChatView({
                       </div>
                       <div
                         className="max-w-full truncate font-mono text-app-micro"
-                        title={target.path}
+                        title={target.cwd ?? target.path}
                       >
-                        {target.path}
+                        {target.cwd ?? target.path}
                       </div>
                       {reachable && <RemoteSessionList target={target} />}
                     </div>
@@ -640,6 +704,14 @@ function RemoteChatView({
                 </>
               )}
             </div>
+            {canRewind && (
+              <RewindDialog
+                controller={rewinder}
+                item={rewinding}
+                cwd={target.cwd ?? target.path}
+                onClose={() => setRewinding(null)}
+              />
+            )}
             {look && (
               <RemoteLook
                 list={look}
@@ -761,7 +833,7 @@ function RemoteControls({
               <PermissionCard
                 requests={model.permissions}
                 workspaceId={`remote:${deviceId}`}
-                cwd={target.path}
+                cwd={target.cwd ?? target.path}
                 rootPath={target.path}
                 onAnswer={answer}
               />
@@ -778,7 +850,6 @@ function RemoteControls({
         appCommands={false}
         commands={composer.commands}
         onCommand={onCommand}
-        takesDraft={false}
         placeholder={
           toMain
             ? t("chat.strip.input_to_main")
@@ -797,7 +868,7 @@ function RemoteControls({
               <CommandCardView
                 card={composer.card}
                 workspaceId={`remote:${deviceId}`}
-                cwd={target.path}
+                cwd={target.cwd ?? target.path}
                 rootPath={target.path}
                 onClose={composer.closeCard}
               />

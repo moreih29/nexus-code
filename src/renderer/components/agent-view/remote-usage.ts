@@ -38,14 +38,25 @@ export function usageLineOf(panel: ChatPanel | undefined, now = Date.now()): Usa
 }
 
 /**
- * The plan's limit as a chat here's banner takes it: reached when a meter
- * the device tells is full, until that window starts over. A limit near
- * but not reached is the program's to say, which the panel does not tell.
+ * The plan's limit as a chat here's banner takes it: as the program said
+ * it (near or reached), from a device of 0.11.0 or later; before, reached
+ * when a meter the device tells is full. Either until its window starts over.
  */
 export function rateLimitOf(
   panel: ChatPanel | undefined,
   now = Date.now(),
 ): RateLimitInfo | undefined {
+  // The program's own word, from 0.11.0: near the limit too, as a chat here's banner tells it.
+  const told = panel?.rateLimit;
+  if (told) {
+    if (told.resetsAt !== undefined && told.resetsAt <= now) return undefined;
+    return {
+      status: told.status,
+      ...(told.kind ? { rateLimitType: told.kind } : {}),
+      // In seconds, as the program tells it.
+      ...(told.resetsAt !== undefined ? { resetsAt: Math.floor(told.resetsAt / 1000) } : {}),
+    };
+  }
   const full = (panel?.planLimits ?? []).find(
     (m) => m.percent >= 100 && (m.resetsAt === undefined || m.resetsAt > now),
   );

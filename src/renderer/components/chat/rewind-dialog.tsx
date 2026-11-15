@@ -21,7 +21,8 @@ export function RewindDialog({
   cwd,
   onClose,
 }: {
-  controller: ChatController;
+  /** The tab's own, or what does it for another computer's chat. */
+  controller: Pick<ChatController, "previewRewind" | "rewind">;
   item: UserItem | null;
   cwd: string;
   onClose: () => void;

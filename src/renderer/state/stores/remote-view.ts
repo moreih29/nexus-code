@@ -26,6 +26,8 @@ export interface RemoteTarget {
   state?: SessionState;
   /** The agent profile a chat runs with, by name, as its computer last listed it. */
   profile?: string;
+  /** The folder a chat runs in, when it is not its workspace's: its links are written from there. */
+  cwd?: string;
 }
 
 /** What the computer's list says of its sessions now, for the tabs to show. */
@@ -38,6 +40,7 @@ export interface ListedSessions {
     title: string;
     state: SessionState;
     profile?: string;
+    cwd?: string;
   }[];
 }
 
@@ -73,8 +76,12 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         (s) => s.workspaceId === target.workspaceId && s.tabId === target.tabId,
       );
       const workspace = listed.workspaces.find((w) => w.id === target.workspaceId);
+      const { cwd: _cwd, ...rest } = target;
+      // A chat listed tells its folder, or none for its workspace's.
+      const cwd = session ? session.cwd : target.cwd;
       const updated: RemoteTarget = {
-        ...target,
+        ...rest,
+        ...(cwd ? { cwd } : {}),
         title: session?.title ?? target.title,
         kind: session?.kind ?? target.kind,
         state: session?.state ?? target.state,
@@ -89,6 +96,7 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         updated.kind === target.kind &&
         updated.state === target.state &&
         updated.profile === target.profile &&
+        updated.cwd === target.cwd &&
         updated.workspaceName === target.workspaceName &&
         updated.path === target.path
       ) {

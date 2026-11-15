@@ -4,11 +4,20 @@
  * background runs, its to-dos, the files it changed and the plan's usage.
  * They come from the panel its computer tells (chat.watch's `panel`), the
  * subagents' details from the conversation shown. A changed file opens its
- * change, read from that computer. What only the computer the chat runs on
- * can do with it (its MCP servers, Remote Control) is left out.
+ * change, read from that computer. Its MCP servers are shown as they stand
+ * there; signing in to one, turning it off or on is that computer's to do.
  */
 
-import { ChevronDown, ChevronRight, Circle, CircleCheck, CircleDot, Square } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  CircleDot,
+  ExternalLink,
+  GitFork,
+  Square,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
@@ -23,6 +32,7 @@ import { useChatLinks } from "../chat/chat-links";
 import {
   AgentEntry,
   ChangedRow,
+  CopyIcon,
   Elapsed,
   Field,
   formatCost,
@@ -32,6 +42,8 @@ import {
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
 import { IconButton } from "../ui/icon-button";
+import { Switch } from "../ui/switch";
+import { showToast } from "../ui/toast";
 import { peerProfileName } from "./remote-profile-chip";
 import { usageLineOf } from "./remote-usage";
 
@@ -78,6 +90,8 @@ export function RemoteSidePanel({
   onShowAgent,
   onCompact,
   onStopTask,
+  onRemoteControl,
+  onForkSession,
   reveal,
   className,
 }: {
@@ -90,6 +104,10 @@ export function RemoteSidePanel({
   onShowAgent: (toolUseId: string) => void;
   onCompact: () => void;
   onStopTask: (taskId: string) => void;
+  /** Turns its Remote Control on or off there, where it may. */
+  onRemoteControl?: (enabled: boolean) => Promise<void>;
+  /** Forks its whole session into a new tab there, where it may. */
+  onForkSession?: () => void;
   /** The part a bare command asked for, each ask its own seq: it opens and comes into view. */
   reveal?: { part: RemotePanelPart; seq: number } | null;
   className?: string;
@@ -115,6 +133,27 @@ export function RemoteSidePanel({
   const taskOf = (toolUseId: string) =>
     Object.values(model.tasks).find((task) => task.toolUseId === toolUseId)?.taskId;
   const asked = (part: RemotePanelPart) => (reveal?.part === part ? reveal.seq : undefined);
+  const session = panel?.session;
+  const remote = panel?.remoteControl;
+  const [switching, setSwitching] = useState(false);
+  const canRemote =
+    controls &&
+    onRemoteControl !== undefined &&
+    remote?.available === true &&
+    model.process === "running" &&
+    !switching;
+  const turnRemote = (enabled: boolean) => {
+    if (!onRemoteControl) return;
+    setSwitching(true);
+    onRemoteControl(enabled)
+      .catch((error: Error) =>
+        showToast({
+          kind: "error",
+          message: t("chat.panel.env.remote_failed", { error: error.message }),
+        }),
+      )
+      .finally(() => setSwitching(false));
+  };
 
   return (
     <aside
@@ -123,19 +162,75 @@ export function RemoteSidePanel({
       data-testid="remote-side-panel"
     >
       <Section title={t("chat.panel.env.title")} reveal={asked("status")}>
+        {remote && (
+          <Field label={t("chat.panel.env.remote_control")}>
+            <Switch
+              checked={remote.enabled}
+              disabled={!canRemote}
+              onCheckedChange={turnRemote}
+              aria-label={t("chat.panel.env.remote_control")}
+              title={!remote.available ? t("chat.panel.env.remote_unavailable") : undefined}
+            />
+            {remote.enabled && remote.url && (
+              <>
+                <span
+                  className="min-w-0 flex-1 truncate font-mono text-app-micro"
+                  title={remote.url}
+                >
+                  {remote.url}
+                </span>
+                <CopyIcon text={remote.url} label={t("chat.panel.env.copy_url")} />
+                <IconButton
+                  label={t("chat.panel.env.open_url")}
+                  onClick={() => window.open(remote.url, "_blank", "noopener,noreferrer")}
+                >
+                  <ExternalLink className="size-3.5" />
+                </IconButton>
+              </>
+            )}
+          </Field>
+        )}
         <Field label={t("chat.panel.env.computer")}>
           <span className="min-w-0 truncate text-app-micro" title={target.deviceName}>
             {target.deviceName}
           </span>
         </Field>
         <Field label={t("chat.panel.env.folder")}>
-          <span className="min-w-0 truncate font-mono text-app-micro" title={target.path}>
-            {target.path}
+          <span
+            className="min-w-0 truncate font-mono text-app-micro"
+            title={target.cwd ?? target.path}
+          >
+            {target.cwd ?? target.path}
           </span>
         </Field>
+        {session?.id && (
+          <Field label={t("chat.panel.env.session")}>
+            <span className="min-w-0 truncate font-mono text-app-micro" title={session.id}>
+              {session.id.slice(0, 8)}
+            </span>
+            <CopyIcon text={session.id} label={t("chat.panel.env.copy_session")} />
+            {onForkSession && (
+              <IconButton label={t("chat.panel.env.fork_session")} onClick={onForkSession}>
+                <GitFork className="size-3.5" />
+              </IconButton>
+            )}
+          </Field>
+        )}
         {model.model && (
           <Field label={t("chat.panel.env.model")}>
             <span className="min-w-0 truncate font-mono text-app-micro">{model.model}</span>
+          </Field>
+        )}
+        {session?.version && (
+          <Field label={t("chat.panel.env.version")}>
+            <span className="font-mono text-app-micro">{session.version}</span>
+          </Field>
+        )}
+        {session?.account && (
+          <Field label={t("chat.panel.env.account")}>
+            <span className="min-w-0 truncate text-app-micro" title={session.account}>
+              {session.account}
+            </span>
           </Field>
         )}
         {target.profile && (
@@ -256,7 +351,7 @@ export function RemoteSidePanel({
                 created: false,
                 toolUseIds: [],
               }}
-              cwd={target.path}
+              cwd={target.cwd ?? target.path}
               {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
             />
           ))}
@@ -300,7 +395,29 @@ export function RemoteSidePanel({
           ))
         )}
       </Section>
+      {panel?.mcp && <RemoteMcp servers={panel.mcp} />}
     </aside>
+  );
+}
+
+/** Its MCP servers as they stand there, as a chat here lists its own. */
+function RemoteMcp({ servers }: { servers: NonNullable<ChatPanel["mcp"]> }) {
+  const { t } = useTranslation();
+  return (
+    <Section title={t("chat.panel.mcp.title")} count={servers.length} folded>
+      {servers.length === 0 ? (
+        <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>
+      ) : (
+        servers.map((server) => (
+          <Row key={server.name} title={server.name}>
+            <span className="min-w-0 flex-1 truncate">{server.name}</span>
+            <span className="shrink-0 text-app-micro text-muted-foreground">
+              {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
+            </span>
+          </Row>
+        ))
+      )}
+    </Section>
   );
 }
 

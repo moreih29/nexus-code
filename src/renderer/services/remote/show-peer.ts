@@ -33,5 +33,7 @@ export async function showPeerSession(ref: PeerSessionRef): Promise<void> {
     kind: session?.kind ?? ref.kind,
     title: session?.title ?? ref.title,
     ...(session ? { state: session.state } : {}),
+    ...(session?.profile ? { profile: session.profile } : {}),
+    ...(session?.cwd ? { cwd: session.cwd } : {}),
   });
 }

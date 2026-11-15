@@ -262,6 +262,7 @@ export function PeerGroup({
                         title: session.title,
                         state: session.state,
                         ...(session.profile ? { profile: session.profile } : {}),
+                        ...(session.cwd ? { cwd: session.cwd } : {}),
                       })
                     }
                   />

@@ -297,8 +297,22 @@ describe("a page drawn as this app's chat", () => {
           { mediaType: "image/png", data: "", remote: { kind: "user", itemKey: "a", index: 0 } },
         ],
         state: "taken",
+        // Its key is its id here: a rewind or fork from it names it by it.
+        uuid: "a",
       },
     ]);
+  });
+
+  test("a message's key is its id, once the program took one of the user's", () => {
+    const model = modelOfPage({
+      ...chatPageOf(source({})),
+      items: [
+        { kind: "user", key: "u1", text: "hi", images: [], state: "sent" },
+        { kind: "assistant", key: "a1", blocks: [{ type: "text", text: "yo" }] },
+      ],
+      total: 2,
+    });
+    expect(model.items.map((item) => ("uuid" in item ? item.uuid : null))).toEqual([null, "a1"]);
   });
 
   test("marks a result that was cut", () => {
