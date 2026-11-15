@@ -266,6 +266,26 @@ export const ViewGoalSchema = z.object({
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 
 /**
+ * A window of the plan's usage limits, as the desktop's line under the
+ * composer shows it (since 0.10.0).
+ */
+export const ViewUsageMeterSchema = z.object({
+  /**
+   * session (Claude's five hours), weekly (the week, every model),
+   * weekly_scoped (the week, one model: `scope`), window (a Codex window of
+   * `windowMins`); a kind this version does not know may come.
+   */
+  kind: z.string(),
+  scope: z.string().optional(),
+  windowMins: z.number().int().positive().optional(),
+  /** How much of it is spent, from 0 to 100. */
+  percent: z.number(),
+  /** When it starts over, in Unix milliseconds. */
+  resetsAt: z.number().optional(),
+});
+export type ViewUsageMeter = z.infer<typeof ViewUsageMeterSchema>;
+
+/**
  * What the chat's side panel shows beside the conversation: the to-do
  * list, the tasks and subagents, the files it changed, the context it
  * fills, what it cost, and its goal.
@@ -292,6 +312,12 @@ export const ChatPanelSchema = z.object({
     .nullable(),
   /** What the conversation cost so far, in US dollars, when the program tells it. */
   costUsd: z.number().nonnegative().optional(),
+  /**
+   * The plan's usage limits, for a profile signed in with a subscription:
+   * those the desktop shows (the session's and the week's first), none
+   * for one that pays by API key, whose cost `costUsd` tells. Since 0.10.0.
+   */
+  planLimits: z.array(ViewUsageMeterSchema).optional(),
   goal: ViewGoalSchema.nullable(),
 });
 export type ChatPanel = z.infer<typeof ChatPanelSchema>;
