@@ -92,6 +92,38 @@ describe("the composer of another computer's chat", () => {
     );
   });
 
+  test("a message sent during a turn that did not go is told, the box being empty already", async () => {
+    const { call } = recording("peerChatSend");
+    const errors: string[] = [];
+    const made = peerComposerController({
+      ref,
+      agent: "claude",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      onError: (message) => errors.push(message),
+      call,
+    });
+    made.enqueue("next", []);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(errors).toEqual(["not now"]);
+  });
+
+  test("a chip a bare command opened is dropped here, as the store drops a local chat's", () => {
+    const opened: number[] = [];
+    const made = peerComposerController({
+      ref,
+      agent: "claude",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      onRevealed: (seq) => opened.push(seq),
+      call: recording().call,
+    });
+    made.revealed?.(3);
+    expect(opened).toEqual([3]);
+  });
+
   test("its chips set what the chat runs with there, and hear what it runs with after", async () => {
     const { calls, call } = recording();
     const { made, told } = controller(call);

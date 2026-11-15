@@ -5,7 +5,7 @@ import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { ChatModel, PermissionRequest } from "../../services/chat/model";
-import type { UsageLine } from "../../services/chat/usage-line";
+import type { UsageLine, UsageMeter, UsageMeterKind } from "../../services/chat/usage-line";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
@@ -197,18 +197,38 @@ function RemoteChat({
   );
 }
 
-/** The line under the composer: how full the chat's context is, as its side panel tells. */
-export function contextLineOf(panel: WatchedChat["panel"]): UsageLine | null {
+/** The plan's meters this app names; a kind a newer device sends is left out. */
+const METER_KINDS: ReadonlySet<string> = new Set<UsageMeterKind>([
+  "session",
+  "weekly",
+  "weekly_scoped",
+  "window",
+]);
+
+/**
+ * The line under the composer, as a chat's own: how full its context is, and
+ * the plan's usage the device tells (planLimits), but for a window already
+ * started over since it told.
+ */
+export function usageLineOf(panel: WatchedChat["panel"], now = Date.now()): UsageLine | null {
   const context = panel?.context;
-  if (!context) return null;
+  const limits = (panel?.planLimits ?? []).filter(
+    (m) => METER_KINDS.has(m.kind) && (m.resetsAt === undefined || m.resetsAt > now),
+  ) as UsageMeter[];
+  if (!context && limits.length === 0) return null;
   return {
-    context: {
-      percent: Math.round((context.usedTokens / context.maxTokens) * 100),
-      used: context.usedTokens,
-      max: context.maxTokens,
-    },
-    meters: [],
-    more: [],
+    ...(context
+      ? {
+          context: {
+            percent: Math.round((context.usedTokens / context.maxTokens) * 100),
+            used: context.usedTokens,
+            max: context.maxTokens,
+          },
+        }
+      : {}),
+    // The week's for one model is told on hover, as a chat's own line tells it.
+    meters: limits.filter((m) => m.kind !== "weekly_scoped"),
+    more: limits.filter((m) => m.kind === "weekly_scoped"),
   };
 }
 
@@ -254,7 +274,7 @@ function RemoteControls({
         ...remoteAnswerOf(given),
       }),
     );
-  const line = useMemo(() => contextLineOf(page.panel), [page.panel]);
+  const line = useMemo(() => usageLineOf(page.panel), [page.panel]);
   return (
     <>
       {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}

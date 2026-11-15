@@ -44,6 +44,10 @@ export interface PeerComposerDeps {
   onSettings: (settings: ChatSettings) => void;
   /** What a file the user picked says when it cannot go: only images do. */
   filesRefused: string;
+  /** A message sent during a turn that did not go: the box was emptied already. */
+  onError?: (message: string) => void;
+  /** The chip a bare `/model` or `/effort` asked for has opened. */
+  onRevealed?: (seq: number) => void;
   call?: typeof ipcCallResult;
 }
 
@@ -89,7 +93,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     send,
     // The device keeps it till the turn reads it.
     enqueue: (text, images) => {
-      void send(text, images).catch(() => {});
+      void send(text, images).catch((error: Error) => deps.onError?.(error.message));
     },
     removeQueued: () => undefined,
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
@@ -103,6 +107,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     setPermissionMode: (permissionMode) => configure({ permissionMode }),
     setModel: (model) => configure({ model }),
     setEffort: (effort) => configure({ effort }),
+    revealed: (seq) => deps.onRevealed?.(seq),
   };
 }
 
@@ -220,9 +225,13 @@ export function usePeerComposer({
     };
   }, [deviceId, workspaceId, tabId, active]);
 
-  // The latest settings, for a controller made once a chat.
-  const [held] = useState<{ settings: ChatSettings | null }>({ settings: null });
+  // The latest settings and error handler, for a controller made once a chat.
+  const [held] = useState<{ settings: ChatSettings | null; onError: (message: string) => void }>({
+    settings: null,
+    onError,
+  });
   held.settings = settings;
+  held.onError = onError;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -231,6 +240,8 @@ export function usePeerComposer({
         settings: () => held.settings,
         onSettings: setSettings,
         filesRefused,
+        onError: (message) => held.onError(message),
+        onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );
