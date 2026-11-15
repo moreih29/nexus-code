@@ -846,17 +846,32 @@ export class CodexController {
     this.update((prev) => (prev.draft ? { ...prev, draft: undefined } : prev));
   }
 
-  /** Holds a message until the turn ends (⌘⇧↩). */
-  enqueue(text: string, images: ImageBlock[] = [], from?: RelaySender): void {
+  /**
+   * Holds a message until the turn ends (⌘⇧↩): its id while it is held,
+   * none when no turn runs and it went at once.
+   */
+  enqueue(text: string, images: ImageBlock[] = [], from?: RelaySender): string | undefined {
     const item: QueuedMessage = { id: nextId(), text, images, ...(from ? { from } : {}) };
     this.update((prev) => ({ ...prev, queue: [...prev.queue, item] }));
-    if (!this.model.running) this.sendNextQueued();
+    if (this.model.running) return item.id;
+    this.sendNextQueued();
+    return undefined;
   }
 
   removeQueued(id: string): QueuedMessage | undefined {
     const item = this.state.queue.find((q) => q.id === id);
     this.update((prev) => ({ ...prev, queue: prev.queue.filter((q) => q.id !== id) }));
     return item;
+  }
+
+  /** Changes a held message's text, its images kept: false once it went. */
+  editQueued(id: string, text: string): boolean {
+    if (!this.state.queue.some((q) => q.id === id)) return false;
+    this.update((prev) => ({
+      ...prev,
+      queue: prev.queue.map((q) => (q.id === id ? { ...q, text } : q)),
+    }));
+    return true;
   }
 
   private sendNextQueued(): void {

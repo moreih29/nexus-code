@@ -1830,5 +1830,8 @@
       "session": "음성 입력은 한 번에 10분까지입니다.",
       "quota": "이번 달 음성 입력 시간을 다 썼습니다."
     }
+  },
+  "remoteNotice": {
+    "workspaceAdded": "{{device}}에서 워크스페이스 추가"
   }
 }

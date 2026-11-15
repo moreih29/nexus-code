@@ -971,7 +971,33 @@ export interface CliUiOps {
        * the agent reads it, its path's mention after the text (base64).
        */
       files?: { name: string; data: string }[];
+      /**
+       * During a turn, as the composer's keys: next (↩, the default), now
+       * (⌘↩, Claude's alone), after the turn (⌘⇧↩, held by the tab).
+       */
+      when?: "next" | "now" | "after";
     };
+    /** `heldId`: the message's id while the tab holds it for after the turn. */
+    result: { heldId?: string };
+  };
+  /** Takes back a message the tab holds for after the turn, with its whole text. */
+  "chat.unqueue": {
+    args: { workspaceId: string; tabId: string; id: string };
+    result: { text: string };
+  };
+  /** Changes the text of a message the tab holds for after the turn, its images kept. */
+  "chat.editHeld": {
+    args: { workspaceId: string; tabId: string; id: string; text: string };
+    result: Record<string, never>;
+  };
+  /** Takes back a message of the user's a Claude tab has not read: false once it was read. */
+  "chat.withdraw": {
+    args: { workspaceId: string; tabId: string; itemKey: string };
+    result: { withdrawn: boolean };
+  };
+  /** Has a Claude tab read its unread messages now (⌘↩ on an empty composer). */
+  "chat.hurry": {
+    args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
   /**

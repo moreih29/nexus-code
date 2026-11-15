@@ -1830,5 +1830,8 @@
       "session": "Voice input stops after 10 minutes.",
       "quota": "This month's voice minutes ran out."
     }
+  },
+  "remoteNotice": {
+    "workspaceAdded": "Workspace added from {{device}}"
   }
 }

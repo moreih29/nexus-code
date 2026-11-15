@@ -29,6 +29,7 @@ import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
+import { type FolderSystem, folderAt, listFolders } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
 import { attachToNote, listNotes, PhotoQuota, type RemoteNotes } from "./notes";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
@@ -56,6 +57,7 @@ export const SERVES: readonly Capability[] = [
   "files",
   "git",
   "notes",
+  "workspace.create",
   "agents",
 ];
 
@@ -72,7 +74,7 @@ export function servesWith(
 ): readonly Capability[] {
   return SERVES.filter(
     (c) =>
-      (c !== "chat.control" || allowControl) &&
+      ((c !== "chat.control" && c !== "workspace.create") || allowControl) &&
       (c !== "terminal.control" || allowTerminal) &&
       (c !== "agents" || allowAgents),
   );
@@ -320,7 +322,7 @@ export async function readTerminal(
  */
 export async function sendChat(
   services: CliServices,
-  { workspaceId, tabId, text, attachments: ids = [] }: RpcParams<"chat.send">,
+  { workspaceId, tabId, text, attachments: ids = [], when }: RpcParams<"chat.send">,
   attached?: { device: string; attachments: Attachments },
   relay?: RelaySender,
 ): Promise<RpcResult<"chat.send">> {
@@ -341,7 +343,7 @@ export async function sendChat(
   const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
   // Before it goes: what the chat shows from here on is from this message on.
   const at = services.clock.now();
-  await services
+  const { heldId } = await services
     .ui("chat.send", {
       workspaceId,
       tabId,
@@ -350,10 +352,74 @@ export async function sendChat(
       ...(relay ? { from: relay } : { user: true }),
       ...(images.length > 0 ? { images } : {}),
       ...(files.length > 0 ? { files } : {}),
+      ...(when ? { when } : {}),
     })
     .catch(unavailable);
   attached?.attachments.drop(ids);
-  return { at };
+  return { at, ...(heldId ? { heldId } : {}) };
+}
+
+/** Takes back a message a chat holds for after its turn, with its whole text. */
+export async function unqueueChat(
+  services: CliServices,
+  { workspaceId, tabId, id }: RpcParams<"chat.unqueue">,
+): Promise<RpcResult<"chat.unqueue">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return services.ui("chat.unqueue", { workspaceId, tabId, id }).catch(chatFailure);
+}
+
+/** Changes the text of a message a chat holds for after its turn. */
+export async function editHeldChat(
+  services: CliServices,
+  { workspaceId, tabId, id, text }: RpcParams<"chat.editHeld">,
+): Promise<RpcResult<"chat.editHeld">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.editHeld", { workspaceId, tabId, id, text }).catch(chatFailure);
+  return {};
+}
+
+/** Takes back one of the user's messages a Claude chat has not read. */
+export async function withdrawChat(
+  services: CliServices,
+  { workspaceId, tabId, itemKey }: RpcParams<"chat.withdraw">,
+): Promise<RpcResult<"chat.withdraw">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  return services.ui("chat.withdraw", { workspaceId, tabId, itemKey }).catch(chatFailure);
+}
+
+/** Has a Claude chat read its unread messages now. */
+export async function hurryChat(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.hurry">,
+): Promise<RpcResult<"chat.hurry">> {
+  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await services.ui("chat.hurry", { workspaceId, tabId }).catch(chatFailure);
+  return {};
+}
+
+/**
+ * Adds one of this device's folders as a workspace, as Add Workspace does;
+ * the user is told which device added it.
+ */
+export async function createWorkspace(
+  services: CliServices,
+  { path: asked, name }: RpcParams<"workspace.create">,
+  device: string | undefined,
+): Promise<RpcResult<"workspace.create">> {
+  const rootPath = await folderAt(asked);
+  const { workspace, added } = await services
+    .addWorkspace({ kind: "local", rootPath }, name)
+    .catch(unavailable);
+  if (added) {
+    const t = tryGetMainT();
+    const from = device ?? "another device";
+    const title = t ? String(t("common:remoteNotice.workspaceAdded", { device: from })) : "";
+    services.notify(workspace.id, "", title || `Workspace added from ${from}`, rootPath);
+  }
+  return {
+    workspace: { id: workspace.id, name: workspace.name, path: workspace.rootPath },
+    created: added,
+  };
 }
 
 /** Room an image's base64 may take in its answer: the frame, less the envelope and its other fields. */
@@ -764,9 +830,10 @@ export async function stopChatTask(
 /** A tab's failure as another device is told it: an item or a call it does not have is not found. */
 function chatFailure(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
-  if (/^no (item|tool call|message) /.test(message)) {
+  if (/^no (item|tool call|message|held message) /.test(message)) {
     throw new RpcFailure(RpcErrorCode.NotFound, message);
   }
+  if (/^a message needs /.test(message)) throw new RpcFailure(RpcErrorCode.InvalidParams, message);
   return unavailable(error);
 }
 
@@ -907,6 +974,8 @@ export function serveWith(
     agents?: AgentGate;
     /** A device of the room by its id, as it names itself. */
     deviceName?: (id: string) => string | undefined;
+    /** The folders folders.list goes through; the system's when not given. */
+    folders?: FolderSystem;
     /**
      * What the user lets other devices control here, for the consent prompts
      * they may answer; none when not told.
@@ -1130,6 +1199,22 @@ export function serveWith(
         return forkChat(s, request.params as RpcParams<"chat.fork">);
       case "chat.background":
         return backgroundChatTool(s, request.params as RpcParams<"chat.background">);
+      case "chat.unqueue":
+        return unqueueChat(s, request.params as RpcParams<"chat.unqueue">);
+      case "chat.editHeld":
+        return editHeldChat(s, request.params as RpcParams<"chat.editHeld">);
+      case "chat.withdraw":
+        return withdrawChat(s, request.params as RpcParams<"chat.withdraw">);
+      case "chat.hurry":
+        return hurryChat(s, request.params as RpcParams<"chat.hurry">);
+      case "folders.list":
+        return listFolders(request.params as RpcParams<"folders.list">, watches.folders);
+      case "workspace.create":
+        return createWorkspace(
+          s,
+          request.params as RpcParams<"workspace.create">,
+          watches.deviceName?.(from),
+        );
       case "chat.remoteControl":
         return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);
       case "history.list":

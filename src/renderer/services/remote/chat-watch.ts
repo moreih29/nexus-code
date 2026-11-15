@@ -25,6 +25,7 @@ import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
 import { planUsageKeyFor, usePlanUsageStore } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
+import { supportsControl } from "../chat/versions";
 import {
   type ChatSource,
   type ChatWindow,
@@ -336,6 +337,9 @@ export function tabSource(
             // A fork copies a session: one the tab has, or the one it copies itself.
             fork: Boolean(chat.model.sessionId ?? tab.props.sessionId ?? tab.props.fork?.sessionId),
             background: true,
+            now: true,
+            withdraw: supportsControl(chat.version ?? chat.model.version, "cancel_async_message"),
+            hurry: true,
           },
         }
       : {}),

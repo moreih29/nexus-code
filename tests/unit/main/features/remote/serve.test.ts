@@ -309,6 +309,11 @@ describe("what this device serves", () => {
     expect(servesWith(false, false, true)).toContain("agents");
     expect(servesWith(true, true, false)).not.toContain("agents");
   });
+
+  test("adding a workspace only while chat control is allowed", () => {
+    expect(servesWith(true)).toContain("workspace.create");
+    expect(servesWith(false, true, true)).not.toContain("workspace.create");
+  });
 });
 
 describe("serving a workspace's notes", () => {
@@ -894,6 +899,130 @@ describe("rewinding, forking and more of a Claude chat", () => {
         params: { workspaceId: "w1", agent: "codex", sessionId: "s1", tabId: "t1" },
       }),
     ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
+describe("when a message goes, and the ones held for after the turn", () => {
+  const tab = { workspaceId: "w1", tabId: "t1" };
+  function sendServices(answer: (op: string) => unknown = () => ({})) {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        const a = answer(op);
+        if (a instanceof Error) throw a;
+        return a;
+      },
+    } as unknown as CliServices;
+    return { serve: serveWith(() => s), asked };
+  }
+
+  test("a message goes when asked, and one held tells its id", async () => {
+    const { serve, asked } = sendServices((op) => (op === "chat.send" ? { heldId: "q1" } : {}));
+    expect(
+      await serve({
+        from: "d",
+        method: "chat.send",
+        params: { ...tab, text: "hi", when: "after" },
+      }),
+    ).toEqual({ at: 1000, heldId: "q1" });
+    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "now", when: "now" } });
+    await serve({ from: "d", method: "chat.send", params: { ...tab, text: "next" } });
+    expect(asked).toEqual([
+      ["chat.send", { ...tab, text: "hi", user: true, when: "after" }],
+      ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
+      ["chat.send", { ...tab, text: "next", user: true }],
+    ]);
+  });
+
+  test("a held message is taken back whole, or changed; an unread one withdrawn; the unread hurried", async () => {
+    const { serve, asked } = sendServices((op) =>
+      op === "chat.unqueue"
+        ? { text: "the whole text" }
+        : op === "chat.withdraw"
+          ? { withdrawn: true }
+          : {},
+    );
+    expect(
+      await serve({ from: "d", method: "chat.unqueue", params: { ...tab, id: "q1" } }),
+    ).toEqual({ text: "the whole text" });
+    expect(
+      await serve({ from: "d", method: "chat.editHeld", params: { ...tab, id: "q2", text: "b" } }),
+    ).toEqual({});
+    expect(
+      await serve({ from: "d", method: "chat.withdraw", params: { ...tab, itemKey: "u3" } }),
+    ).toEqual({ withdrawn: true });
+    expect(await serve({ from: "d", method: "chat.hurry", params: tab })).toEqual({});
+    expect(asked).toEqual([
+      ["chat.unqueue", { ...tab, id: "q1" }],
+      ["chat.editHeld", { ...tab, id: "q2", text: "b" }],
+      ["chat.withdraw", { ...tab, itemKey: "u3" }],
+      ["chat.hurry", tab],
+    ]);
+  });
+
+  test("NotFound once a held message went; InvalidParams for an empty one; withdraw and hurry a Claude chat's", async () => {
+    const { serve } = sendServices((op) =>
+      op === "chat.editHeld"
+        ? new Error("a message needs text or an image")
+        : new Error("no held message q1: it went"),
+    );
+    await expect(
+      serve({ from: "d", method: "chat.unqueue", params: { ...tab, id: "q1" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "d", method: "chat.editHeld", params: { ...tab, id: "q1", text: " " } }),
+    ).rejects.toMatchObject({ code: -32602 });
+    await expect(
+      serve({ from: "d", method: "chat.hurry", params: { workspaceId: "w2", tabId: "t4" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+  });
+});
+
+describe("adding a workspace from another device", () => {
+  test("a folder is added and the user told which device added it; one listed is given back", async () => {
+    const added: unknown[] = [];
+    const told: unknown[] = [];
+    const base = services();
+    const listed = { id: "w9", name: "site", rootPath: "/tmp" };
+    const s = {
+      ...base,
+      addWorkspace: async (location: unknown, name: string | undefined) => {
+        added.push([location, name]);
+        return { workspace: { ...listed, ...(name ? { name } : {}) }, added: added.length === 1 };
+      },
+      notify: (...args: unknown[]) => {
+        told.push(args);
+        return true;
+      },
+    } as unknown as CliServices;
+    const serve = serveWith(() => s, { deviceName: (id) => (id === "p" ? "iPhone" : undefined) });
+    expect(
+      await serve({
+        from: "p",
+        method: "workspace.create",
+        params: { path: "/tmp", name: "Site" },
+      }),
+    ).toEqual({ workspace: { id: "w9", name: "Site", path: "/tmp" }, created: true });
+    expect(
+      await serve({ from: "p", method: "workspace.create", params: { path: "/tmp" } }),
+    ).toMatchObject({ created: false });
+    expect(added[0]).toEqual([{ kind: "local", rootPath: "/tmp" }, "Site"]);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject(["w9", "", expect.stringContaining("iPhone"), "/tmp"]);
+  });
+
+  test("a path that is no folder is NotFound, a relative one InvalidParams", async () => {
+    const serve = serveWith(() => services());
+    await expect(
+      serve({ from: "p", method: "workspace.create", params: { path: "/no/such/folder/here" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    await expect(
+      serve({ from: "p", method: "workspace.create", params: { path: "relative/dir" } }),
+    ).rejects.toMatchObject({ code: -32602 });
   });
 });
 
