@@ -36,7 +36,12 @@ function tabInfo(workspaceId: string, tab: Tab, groupId: string, shown: boolean)
   };
   switch (tab.type) {
     case "terminal":
-      return { ...base, cwd: tab.props.cwd, ...(tab.props.dead ? { dead: true } : {}) };
+      return {
+        ...base,
+        cwd: tab.props.cwd,
+        ...(tab.props.dead ? { dead: true } : {}),
+        ...(getTerminalController(tab.id) ? {} : { unstarted: true }),
+      };
     case "editor":
       return { ...base, filePath: tab.props.filePath };
     case "browser": {
