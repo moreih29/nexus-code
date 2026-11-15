@@ -67,7 +67,6 @@ export const GROUP_STATE: Record<RowGroup, string> = {
   running: "running",
   done: "completed",
   idle: "idle",
-  ended: "exited",
 };
 
 export const GROUP_TINT: Record<RowGroup, string> = {
@@ -75,7 +74,6 @@ export const GROUP_TINT: Record<RowGroup, string> = {
   running: "text-emerald-500",
   done: "text-(--tab-claude-attention-fg)",
   idle: "text-muted-foreground",
-  ended: "text-muted-foreground",
 };
 
 interface StatusViewProps {
@@ -241,7 +239,7 @@ function SessionRow({
         ? chatRowFacts(chat.model, activity)
         : hookRowFacts(undefined);
   const duration = useDurationLabel(session.since);
-  const compact = group === "idle" || group === "ended";
+  const compact = group === "idle";
   // The row of the tab the user went to stays in sight, as the file tree's does.
   const rowRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
