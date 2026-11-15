@@ -13,6 +13,7 @@ import {
   KeyBundlePutSchema,
   KeyBundleSchema,
   MAX_ATTACHMENT_BYTES,
+  MAX_IMAGE_EDGE,
   RPC_METHODS,
   SCHEMA_VERSION,
   SealedEnvelopeSchema,
@@ -322,6 +323,22 @@ describe("the methods", () => {
         size: 5,
       }).success,
     ).toBe(true);
+  });
+
+  test("chat.image may be asked for a thumbnail, its longer side in pixels", () => {
+    const image = RPC_METHODS["chat.image"];
+    const ask = (more: object) =>
+      image.params.safeParse({
+        workspaceId: "w",
+        tabId: "t",
+        ref: { kind: "tool", toolUseId: "tu1", index: 0 },
+        ...more,
+      }).success;
+    expect(ask({})).toBe(true);
+    expect(ask({ maxEdge: 320 })).toBe(true);
+    expect(ask({ maxEdge: MAX_IMAGE_EDGE + 1 })).toBe(false);
+    expect(ask({ maxEdge: 0 })).toBe(false);
+    expect(ask({ maxEdge: 1.5 })).toBe(false);
   });
 
   test("every method's capability is one the protocol names", () => {

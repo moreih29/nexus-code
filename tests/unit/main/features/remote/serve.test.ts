@@ -881,6 +881,9 @@ describe("serving a chat's controls", () => {
       data: "AAAA",
     });
     expect(asked[0]).toMatchObject({ ref, maxChars: expect.any(Number) });
+    expect(asked[0]).not.toHaveProperty("maxEdge");
+    await serve({ from: "d", method: "chat.image", params: { ...tab, ref, maxEdge: 320 } });
+    expect(asked[1]).toMatchObject({ ref, maxEdge: 320 });
     await expect(
       serve({ from: "d", method: "chat.image", params: { ...tab, ref: { ...ref, index: 9 } } }),
     ).rejects.toMatchObject({ code: 1001 });

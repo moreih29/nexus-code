@@ -519,11 +519,12 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { tabId: openTab(workspaceId, tab, { background: true }) };
   },
 
-  "chat.image": async ({ workspaceId, tabId, ref, maxChars }) => {
-    const { agent } = await openedTab(workspaceId, tabId);
+  "chat.image": async ({ workspaceId, tabId, ref, maxChars, maxEdge }) => {
+    // Read only: a Claude tab's transcript will do, its program not started for it.
+    const { agent } = await readableTab(workspaceId, tabId);
     const image = imageOf(sourceOf(workspaceId, tabId, agent), ref);
     if (!image) throw new UiRequestError("no such image in that tab");
-    return fitImage(image, maxChars);
+    return fitImage(image, { maxChars, ...(maxEdge !== undefined ? { maxEdge } : {}) });
   },
 
   "chat.commands": async ({ workspaceId, tabId }) => {

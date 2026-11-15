@@ -348,6 +348,9 @@ export const MAX_ATTACHMENTS = 4;
  */
 export const MAX_ATTACHMENT_BYTES = 560 * 1024;
 
+/** The longest side chat.image may be asked to draw an image at, in pixels. */
+export const MAX_IMAGE_EDGE = 4096;
+
 /** The image types a chat takes. */
 export const ImageMediaTypeSchema = z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
@@ -698,12 +701,16 @@ export const RPC_METHODS = {
   },
   /**
    * An image of the chat, made small enough for a frame: a user message's
-   * (by its item's key and the image's index) or a tool result's.
+   * (by its item's key and the image's index) or a tool result's. With
+   * `maxEdge`, drawn smaller (as a JPEG) till its longer side is at most
+   * that many pixels, for a thumbnail; one already that small goes as it is.
    */
   "chat.image": {
     capability: "chat.read",
     params: z.object({
       ...TabRef,
+      /** Since 0.9.0; a desktop before it sends the image whole. */
+      maxEdge: z.number().int().positive().max(MAX_IMAGE_EDGE).optional(),
       ref: z.discriminatedUnion("kind", [
         z.object({
           kind: z.literal("user"),
@@ -721,6 +728,7 @@ export const RPC_METHODS = {
       mediaType: ImageMediaTypeSchema,
       /** Base64. */
       data: z.string(),
+      /** In pixels: always, from 0.9.0; before, only when it was drawn smaller. */
       width: z.number().int().positive().optional(),
       height: z.number().int().positive().optional(),
     }),

@@ -871,7 +871,8 @@ export interface CliUiOps {
   /**
    * An image of a Claude or Codex tab: a user message's, by its item's key,
    * or a tool result's, by its call's id; at its index there. Made smaller
-   * when its base64 would take over `maxChars`.
+   * when its base64 would take over `maxChars`, or its longer side over
+   * `maxEdge` pixels.
    */
   "chat.image": {
     args: {
@@ -881,6 +882,7 @@ export interface CliUiOps {
         | { kind: "user"; itemKey: string; index: number }
         | { kind: "tool"; toolUseId: string; index: number };
       maxChars: number;
+      maxEdge?: number;
     };
     result: CliChatImage;
   };
