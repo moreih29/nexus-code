@@ -111,6 +111,18 @@ function infoOf(workspaceId: string, tabId: string, { agent }: AgentTabControlle
   return withProfile(workspaceId, tabId, chatInfoOf(agent, chat, sendUnseen(workspaceId, tabId)));
 }
 
+/**
+ * A Claude tab's MCP servers, asked once of a program that runs when it has
+ * none yet: the tab asks as its panel opens them, and another computer's
+ * panel shows them as the answer comes.
+ */
+function askMcp(workspaceId: string, tabId: string, target: AgentTabController): void {
+  const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+  if (target.agent === "claude" && chat && !chat.model.mcp) {
+    target.controller.refreshPanel(["mcp"]);
+  }
+}
+
 /** The info with what the tab keeps of its own: its profile, and its folder when not the workspace's. */
 function withProfile(workspaceId: string, tabId: string, info: CliChatInfo): CliChatInfo {
   const profile = profileShown(workspaceId, tabId, info.agent);
@@ -398,6 +410,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
     const target = await readableTab(workspaceId, tabId);
+    // The panel a watch carries shows them too, once they come.
+    askMcp(workspaceId, tabId, target);
     return startChatWatch(
       watchId,
       () => tabSource(workspaceId, tabId, target.agent),
@@ -492,11 +506,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.panel": async ({ workspaceId, tabId }) => {
     const target = await readableTab(workspaceId, tabId);
-    // Its MCP servers, asked once of a program that runs: the tab asks as its panel opens them.
-    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
-    if (target.agent === "claude" && chat && !chat.model.mcp) {
-      target.controller.refreshPanel(["mcp"]);
-    }
+    askMcp(workspaceId, tabId, target);
     return chatPanelOf(sourceOf(workspaceId, tabId, target.agent));
   },
 
