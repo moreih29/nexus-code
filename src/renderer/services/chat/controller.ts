@@ -12,7 +12,14 @@ import { createLogger } from "../../../shared/log/renderer";
 import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 import { backgroundIdOf } from "./app-commands";
-import { configUsageOf, type ListedKey, parseConfigUsage } from "./claude-config";
+import {
+  configUsageOf,
+  LISTED_KEYS_STORAGE,
+  type ListedKey,
+  parseConfigUsage,
+  savedListedKeys,
+  withListedKeys,
+} from "./claude-config";
 import {
   type HistoryCut,
   historyModel,
@@ -71,8 +78,9 @@ const GOAL_STOP_MS = 10_000;
 
 /**
  * What a bare /config lists, for each workspace's profile and Claude Code
- * version: asked of the CLI once (a run of a couple of seconds), and again
- * after a failure.
+ * version: asked of the CLI once a run of the app (a run of a second or
+ * two), and again after a failure. The answer is kept in localStorage too,
+ * which the dialog shows at once while this is asked.
  */
 const listedConfigKeys = new Map<string, Promise<ListedKey[] | null>>();
 
@@ -1249,16 +1257,15 @@ export class ChatController {
    * What the settings dialog (/config) shows: the settings Claude Code has
    * now (get_settings), and those of its global config file on the host,
    * which settings.json may lack; none of the file's when it is not read.
+   * The keys come apart: savedConfigKeys at once, listConfigKeys later.
    */
   async readConfig(): Promise<{
     effective: Record<string, unknown>;
     global: Record<string, unknown>;
     /** The model the program runs ("claude-opus-5-5"), whose default effort is shown. */
     model?: string;
-    /** The keys a bare /config lists; null when the CLI's list was not read. */
-    listed: ListedKey[] | null;
   }> {
-    const [settings, global, listed] = await Promise.all([
+    const [settings, global] = await Promise.all([
       this.ask("get_settings"),
       ipcCallResult("chat", "claudeConfig", {
         workspaceId: this.target.workspaceId,
@@ -1269,7 +1276,6 @@ export class ChatController {
           log.warn(`Claude Code's global config not read: ${err.message}`);
           return {};
         }),
-      this.listedConfigKeys(),
     ]);
     const effective = settings.effective;
     const applied = settings.applied as { model?: unknown } | undefined;
@@ -1280,15 +1286,41 @@ export class ChatController {
           : {},
       global,
       model: typeof applied?.model === "string" ? applied.model : undefined,
-      listed,
     };
   }
 
-  /** The keys a bare /config lists, asked of a `claude -p` run beside the tab's. */
-  private listedConfigKeys(): Promise<ListedKey[] | null> {
+  /** Where /config's list is kept for the tab: its workspace's profile, and the version it runs. */
+  private configKeysPlace(): { place: string; version: string } {
+    const { workspaceId, profileId } = this.target;
+    return {
+      place: [workspaceId, profileId ?? ""].join("\n"),
+      version: this.state.version ?? this.state.model.version ?? "",
+    };
+  }
+
+  /**
+   * The keys a bare /config listed when last asked for the tab's workspace,
+   * profile and Claude Code version, in this run of the app or an earlier
+   * one; null when they were not.
+   */
+  savedConfigKeys(): ListedKey[] | null {
+    const { place, version } = this.configKeysPlace();
+    try {
+      return savedListedKeys(localStorage.getItem(LISTED_KEYS_STORAGE), place, version);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The keys a bare /config lists, asked of a `claude -p` run beside the
+   * tab's (once a run of the app) and kept for savedConfigKeys; null when
+   * they were not read.
+   */
+  listConfigKeys(): Promise<ListedKey[] | null> {
     const { workspaceId, cwd, profileId } = this.target;
-    const version = this.state.version ?? this.state.model.version ?? "";
-    const key = [workspaceId, profileId ?? "", version].join("\n");
+    const { place, version } = this.configKeysPlace();
+    const key = [place, version].join("\n");
     let listed = listedConfigKeys.get(key);
     if (!listed) {
       listed = ipcCallResult("chat", "cli", {
@@ -1300,6 +1332,17 @@ export class ChatController {
         .then((result) => {
           const keys = parseConfigUsage(configUsageOf(unwrapIpcResult(result).stdout));
           if (keys.length === 0) throw new Error("no keys in its answer");
+          if (version) {
+            try {
+              const saved = localStorage.getItem(LISTED_KEYS_STORAGE);
+              localStorage.setItem(
+                LISTED_KEYS_STORAGE,
+                withListedKeys(saved, place, version, keys),
+              );
+            } catch (err) {
+              log.warn(`/config's keys not kept: ${(err as Error).message}`);
+            }
+          }
           return keys;
         })
         .catch((err: Error) => {

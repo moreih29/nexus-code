@@ -154,6 +154,65 @@ export function configKeysOf(listed: readonly ListedKey[] | null): ConfigKey[] {
   return [...known, ...unknown];
 }
 
+/**
+ * Where the keys a bare /config listed are kept between runs of the app:
+ * the last list for each workspace's profile, with the Claude Code version
+ * that gave it.
+ */
+export const LISTED_KEYS_STORAGE = "nexus.chat.configKeys";
+
+type SavedLists = Record<string, { version: string; keys: ListedKey[] }>;
+
+function savedLists(raw: string | null): SavedLists {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as SavedLists)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function isListedKey(value: unknown): value is ListedKey {
+  if (typeof value !== "object" || value === null) return false;
+  const { key, kind, options } = value as Partial<ListedKey>;
+  return (
+    typeof key === "string" &&
+    (kind === "boolean" || kind === "choice" || kind === "text") &&
+    (options === undefined ||
+      (Array.isArray(options) && options.every((o) => typeof o === "string")))
+  );
+}
+
+/**
+ * The keys kept for a workspace's profile (`place`), when the Claude Code
+ * that listed them is the one there now; null for another version, none
+ * kept, or what is kept being no list.
+ */
+export function savedListedKeys(
+  raw: string | null,
+  place: string,
+  version: string,
+): ListedKey[] | null {
+  if (!version) return null;
+  const saved = savedLists(raw)[place];
+  if (!saved || saved.version !== version || !Array.isArray(saved.keys)) return null;
+  if (saved.keys.length === 0 || !saved.keys.every(isListedKey)) return null;
+  return saved.keys;
+}
+
+/** What is kept with a workspace profile's new list, in place of its last. */
+export function withListedKeys(
+  raw: string | null,
+  place: string,
+  version: string,
+  keys: readonly ListedKey[],
+): string {
+  return JSON.stringify({ ...savedLists(raw), [place]: { version, keys } });
+}
+
 /** The keys that /output-style and /autocompact, typed bare, show the dialog at. */
 const CONFIG_COMMAND_FOCUS: Readonly<Record<string, string>> = {
   "output-style": "outputStyle",
