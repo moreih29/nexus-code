@@ -82,6 +82,16 @@ describe("the chats watched here", () => {
     expect(page.items).toHaveLength(2);
   });
 
+  test("a watch that takes appends asks the renderer for them", async () => {
+    const { watches, asked } = setup();
+    await watches.watch("d1", { ...chat, appends: true });
+    await watches.watch("d1", chat);
+    expect(asked.filter(([op]) => op === "chat.watch").map(([, a]) => a.appends)).toEqual([
+      true,
+      undefined,
+    ]);
+  });
+
   test("only its device ends a watch; a device leaving ends all of its own", async () => {
     const { watches, asked } = setup();
     const a = await watches.watch("d1", chat);

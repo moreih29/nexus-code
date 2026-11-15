@@ -480,23 +480,52 @@ export const ChatAppendSchema = z.object({
 export type ChatAppend = z.infer<typeof ChatAppendSchema>;
 
 /**
+ * Text added to the end of a block of the reply being written (the
+ * status's streaming message): a text, thinking or tool_use block, whose
+ * text for a tool is its input's JSON so far.
+ */
+export const ChatStreamAppendSchema = z.object({
+  block: z.number().int().nonnegative(),
+  /** What follows the block's text, in UTF-16 code units: it may start inside a surrogate pair. */
+  text: z.string(),
+});
+export type ChatStreamAppend = z.infer<typeof ChatStreamAppendSchema>;
+
+/**
+ * A chat.update's status: as a page's, but for a watch that asked for
+ * appends its `streaming` may be left out, when the watcher's own stays
+ * (with the update's streamAppends added).
+ */
+export const ChatUpdateStatusSchema = ChatStatusSchema.extend({
+  streaming: ChatStatusSchema.shape.streaming.optional(),
+});
+
+/**
  * What changed in a watched chat since its last update (or its watch
- * began). Items are put at their index; `total` cuts the list when it got
- * shorter; then each of `appends` adds its text. An append before the
- * watcher's page is dropped; one to an item that is not an assistant's,
- * or to a block it does not have or that holds no text, means the watcher
- * missed something, and watches again. Tool calls, tasks and subagents'
- * messages are put by id.
+ * began), applied in this order:
+ * - `items` are put at their index; `total` cuts the list when it got
+ *   shorter.
+ * - Each of `appends` adds its text to an assistant item's block. One
+ *   before the watcher's page is dropped; one to an item that is not an
+ *   assistant's, or to a block it does not have or that holds no text,
+ *   means the watcher missed something, and watches again.
+ * - `status` replaces the watcher's, keeping the watcher's streaming
+ *   message when it has no `streaming`.
+ * - Each of `streamAppends` adds its text to a block of that streaming
+ *   message; one with no streaming message, or no such block, means the
+ *   watcher missed something, and watches again.
+ * Tool calls, tasks and subagents' messages are put by id.
  */
 export const ChatUpdateSchema = z.object({
   watchId: z.string(),
   /** Counts the watch's updates from 1, so one lost shows. */
   rev: z.number().int().positive(),
-  status: ChatStatusSchema.optional(),
+  status: ChatUpdateStatusSchema.optional(),
   total: z.number().int().nonnegative(),
   items: z.array(z.object({ index: z.number().int().nonnegative(), item: ViewItemSchema })),
-  /** Only for a watch that asked for them (chat.watch's `appends`). */
+  /** Only for a watch that asked for them (chat.watch's `appends`), as streamAppends. */
   appends: z.array(ChatAppendSchema).optional(),
+  streamAppends: z.array(ChatStreamAppendSchema).optional(),
   tools: z.record(ViewToolCallSchema),
   tasks: z.record(ViewTaskSchema),
   agentItems: z.record(z.array(AssistantItemSchema)),
@@ -610,8 +639,9 @@ export const RPC_METHODS = {
       ...TabRef,
       limit: z.number().int().positive().max(MAX_READ_ITEMS).optional(),
       /**
-       * The watcher takes text added to an assistant item's block as
-       * `appends` in its chat.update; without it, the whole item comes.
+       * The watcher takes text added to an assistant item's block, and to
+       * the reply being written, as `appends` and `streamAppends` in its
+       * chat.update; without it, the whole item or status comes.
        */
       appends: z.boolean().optional(),
     }),

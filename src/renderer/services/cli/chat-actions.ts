@@ -361,7 +361,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
   },
 
-  "chat.watch": async ({ workspaceId, tabId, watchId, limit }) => {
+  "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
     const target = await readableTab(workspaceId, tabId);
     return startChatWatch(
       watchId,
@@ -369,6 +369,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       limit,
       (change) => void ipcCallResult("remote", "chatChanged", { watchId, change }),
       () => void ipcCallResult("remote", "chatWatchEnded", { watchId }),
+      { appends: appends === true },
     );
   },
 

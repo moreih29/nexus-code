@@ -819,10 +819,17 @@ export interface CliUiOps {
   /**
    * Starts telling main what changes in a Claude or Codex tab's
    * conversation, for another device watching it (the remote's chat.watch):
-   * its page now, then remote.chatChanged with `watchId` as it changes.
+   * its page now, then remote.chatChanged with `watchId` as it changes;
+   * with `appends`, text added to an assistant's block as appends.
    */
   "chat.watch": {
-    args: { workspaceId: string; tabId: string; watchId: string; limit?: number };
+    args: {
+      workspaceId: string;
+      tabId: string;
+      watchId: string;
+      limit?: number;
+      appends?: boolean;
+    };
     result: ChatPage & { panel?: ChatPanel };
   };
   /**
