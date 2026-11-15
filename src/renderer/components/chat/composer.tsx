@@ -115,6 +115,11 @@ export interface ComposerController {
   setPermissionMode(mode: string): Promise<unknown>;
   setModel(model: string): Promise<unknown>;
   setEffort(level: string): Promise<unknown>;
+  /**
+   * The chip a reveal asked for has opened: for a chat whose state is not in
+   * the chat store (another computer's), which drops it itself.
+   */
+  revealed?(seq: number): void;
 }
 
 interface ComposerProps {
@@ -864,7 +869,8 @@ function useRevealedMenu(
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
   useEffect(() => {
     if (reveal === undefined) return;
-    takeReveal(controller.key, reveal);
+    if (controller.revealed) controller.revealed(reveal);
+    else takeReveal(controller.key, reveal);
     if (unavailable) showToast({ kind: "info", message: unavailable });
     else setOpen(true);
   }, [reveal]);

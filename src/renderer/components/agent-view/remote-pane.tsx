@@ -1,24 +1,14 @@
-// A session of another computer, shown as a tab of the agent view's panels
-// once its row under Other computers is picked: a chat drawn by this app's
-// message list from what that computer reads of it, which the user writes
-// to, answers and stops from here; or a terminal's text, to read only.
-// A chat is watched, a terminal read again every moment, while in front.
-
-import { CloudOff, Send, Square } from "lucide-react";
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { CloudOff } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { ChatModel, PermissionRequest } from "../../services/chat/model";
+import type { UsageLine, UsageMeter, UsageMeterKind } from "../../services/chat/usage-line";
 import { modelOfPage } from "../../services/remote/chat-model";
-import { usePeerChat } from "../../services/remote/peer-chat";
+import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
+import { usePeerComposer } from "../../services/remote/peer-composer";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import {
   type PeerReach,
@@ -26,16 +16,15 @@ import {
   usePeerControls,
   usePeerReach,
 } from "../../services/remote/room";
+import { useChatFontStyle } from "../../state/stores/chat-font";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ChatAgentContext } from "../chat/chat-agent";
-import { SEND_BUTTON_CLASS } from "../chat/composer";
-import { DictationOverlay, MicButton, useComposerDictation } from "../chat/dictation";
+import { Composer } from "../chat/composer";
 import { MessageList } from "../chat/message-list";
 import { PermissionCard } from "../chat/permission-card";
 import { StatusLine } from "../chat/status-line";
-import { IconButton } from "../ui/icon-button";
-import { Keycap } from "../ui/keycap";
+import { UsageLineView } from "../chat/usage-line";
 import { showToast } from "../ui/toast";
 
 /** How many lines of a terminal are shown. */
@@ -173,21 +162,107 @@ function RemoteChat({
   /** The device lets this one control its chats; else they are only shown. */
   controls: boolean;
 }) {
-  const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
   const page = read.status === "ready" ? read.value : null;
   const model = useMemo(() => (page ? modelOfPage(page) : null), [page]);
+  const fontStyle = useChatFontStyle();
+  if (read.status !== "ready" || !page || !model) {
+    return <Waiting read={read} reach={reach} device={target.deviceName} />;
+  }
+  return (
+    <ChatAgentContext.Provider value={target.kind === "codex" ? "codex" : "claude"}>
+      {/* The chat's font, as this app's own tabs take it. */}
+      <div
+        className="chat-font relative flex min-h-0 flex-1 flex-col bg-background"
+        style={fontStyle}
+        data-testid="remote-chat"
+      >
+        <MessageList
+          workspaceId={`remote:${deviceId}`}
+          cwd={target.path}
+          rootPath={target.path}
+          history={null}
+          model={model}
+        />
+        {reach !== "online" ? (
+          <Unreachable reach={reach} device={target.deviceName} />
+        ) : !controls ? (
+          <ViewOnly model={model} device={target.deviceName} />
+        ) : (
+          <RemoteControls target={target} model={model} page={page} visible={visible} />
+        )}
+      </div>
+    </ChatAgentContext.Provider>
+  );
+}
+
+/** The plan's meters this app names; a kind a newer device sends is left out. */
+const METER_KINDS: ReadonlySet<string> = new Set<UsageMeterKind>([
+  "session",
+  "weekly",
+  "weekly_scoped",
+  "window",
+]);
+
+/**
+ * The line under the composer, as a chat's own: how full its context is, and
+ * the plan's usage the device tells (planLimits), but for a window already
+ * started over since it told.
+ */
+export function usageLineOf(panel: WatchedChat["panel"], now = Date.now()): UsageLine | null {
+  const context = panel?.context;
+  const limits = (panel?.planLimits ?? []).filter(
+    (m) => METER_KINDS.has(m.kind) && (m.resetsAt === undefined || m.resetsAt > now),
+  ) as UsageMeter[];
+  if (!context && limits.length === 0) return null;
+  return {
+    ...(context
+      ? {
+          context: {
+            percent: Math.round((context.usedTokens / context.maxTokens) * 100),
+            used: context.usedTokens,
+            max: context.maxTokens,
+          },
+        }
+      : {}),
+    // The week's for one model is told on hover, as a chat's own line tells it.
+    meters: limits.filter((m) => m.kind !== "weekly_scoped"),
+    more: limits.filter((m) => m.kind === "weekly_scoped"),
+  };
+}
+
+/** What the user answers, stops and writes to the chat with: this app's own card and composer. */
+function RemoteControls({
+  target,
+  model,
+  page,
+  visible,
+}: {
+  target: RemoteTarget;
+  model: ChatModel;
+  page: WatchedChat;
+  visible: boolean;
+}) {
+  const { t } = useTranslation();
+  const { deviceId, workspaceId, tabId } = target;
+  const onError = useCallback(
+    (message: string) =>
+      showToast({ kind: "error", message: t("agentView.remote.failed", { message }) }),
+    [t],
+  );
+  const composer = usePeerComposer({
+    ref: { deviceId, workspaceId, tabId },
+    agent: target.kind === "codex" ? "codex" : "claude",
+    model,
+    active: visible,
+    filesRefused: t("agentView.remote.filesRefused"),
+    onError,
+  });
   /** Runs a control; the watch shows what it did, and a refusal is told. */
-  const control = async (sent: Promise<IpcResult<unknown>>): Promise<boolean> => {
+  const control = async (sent: Promise<IpcResult<unknown>>) => {
     const result = await sent;
-    if (!result.ok) {
-      showToast({
-        kind: "error",
-        message: t("agentView.remote.failed", { message: result.message }),
-      });
-    }
-    return result.ok;
+    if (!result.ok) onError(result.message);
   };
   const answer = (request: PermissionRequest, given: PermissionAnswer) =>
     void control(
@@ -199,179 +274,38 @@ function RemoteChat({
         ...remoteAnswerOf(given),
       }),
     );
-  if (read.status !== "ready" || !model) {
-    return <Waiting read={read} reach={reach} device={target.deviceName} />;
-  }
+  const line = useMemo(() => usageLineOf(page.panel), [page.panel]);
   return (
-    <ChatAgentContext.Provider value={target.kind === "codex" ? "codex" : "claude"}>
-      <MessageList
-        workspaceId={`remote:${deviceId}`}
-        cwd={target.path}
-        rootPath={target.path}
-        history={null}
-        model={model}
-      />
-      {reach !== "online" ? (
-        <Unreachable reach={reach} device={target.deviceName} />
-      ) : !controls ? (
-        <ViewOnly model={model} device={target.deviceName} />
-      ) : (
-        <>
-          {(model.permissions.length > 0 || model.running) && (
-            <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
-              <div className="mx-auto flex max-w-[860px] flex-col gap-2">
-                {model.permissions.length > 0 && (
-                  <PermissionCard
-                    requests={model.permissions}
-                    workspaceId={`remote:${deviceId}`}
-                    cwd={target.path}
-                    rootPath={target.path}
-                    onAnswer={answer}
-                  />
-                )}
-                <StatusLine model={model} />
-              </div>
-            </div>
-          )}
-          <RemoteComposer
-            device={target.deviceName}
-            running={model.running}
-            onSend={(text) =>
-              control(
-                ipcCallResult("remote", "peerChatSend", { deviceId, workspaceId, tabId, text }),
-              )
-            }
-            onStop={() =>
-              void control(
-                ipcCallResult("remote", "peerChatInterrupt", { deviceId, workspaceId, tabId }),
-              )
-            }
-          />
-        </>
-      )}
-    </ChatAgentContext.Provider>
-  );
-}
-
-/**
- * Where the user writes to the chat from here: Enter sends, Shift+Enter
- * starts a line; during a turn the message waits for the turn to read it,
- * and the stop button stops the turn.
- */
-export function RemoteComposer({
-  device,
-  running,
-  onSend,
-  onStop,
-}: {
-  /** The device the chat runs on, named in the empty box. */
-  device: string;
-  running: boolean;
-  onSend: (text: string) => Promise<boolean>;
-  onStop: () => void;
-}) {
-  const { t } = useTranslation();
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const areaRef = useRef<HTMLTextAreaElement>(null);
-  const dictation = useComposerDictation({ text, setText, areaRef });
-  // Sent while listening, the dictation ends first and its whole text goes;
-  // not while it connects or finishes.
-  const canSend =
-    text.trim() !== "" &&
-    !sending &&
-    (dictation.phase === "idle" || dictation.phase === "listening");
-  const send = async (body = text) => {
-    if (dictation.active) {
-      if (canSend) dictation.finish((heard) => void sendRef.current(heard));
-      return;
-    }
-    const message = body.trim();
-    if (!message || sending) return;
-    setSending(true);
-    const sent = await onSend(message);
-    setSending(false);
-    if (sent) setText("");
-  };
-  // The send of the latest render, for one that waits on the dictation's end.
-  const sendRef = useRef(send);
-  sendRef.current = send;
-  const listening = dictation.phase === "starting" || dictation.phase === "listening";
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    // Dictating, the box only listens: Escape or Enter stops it, and nothing is sent.
-    if (dictation.active) {
-      if (event.key === "Escape" || event.key === "Enter") {
-        event.preventDefault();
-        event.stopPropagation();
-        dictation.toggle();
-      }
-      return;
-    }
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      void send();
-    }
-  };
-  const hasText = text.trim() !== "";
-  // Drawn as this app's own composer is, but for what only this device has.
-  return (
-    <div className="shrink-0 px-4 pt-1 pb-3">
-      <div className="mx-auto max-w-[860px] rounded-(--radius-raised) border border-border bg-background focus-within:border-ring">
-        <div className="relative">
-          <textarea
-            ref={areaRef}
-            value={text}
-            rows={Math.min(8, Math.max(2, text.split("\n").length))}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={onKeyDown}
-            onFocus={dictation.onFocus}
-            readOnly={sending || dictation.active}
-            placeholder={
-              listening
-                ? t("voice.listeningPlaceholder")
-                : t("agentView.remote.placeholder", { device })
-            }
-            aria-label={t("agentView.remote.placeholder", { device })}
-            className={cn(
-              "app-scrollbar block w-full resize-none bg-transparent px-3 py-2 text-app-body text-foreground outline-none placeholder:text-muted-foreground",
-              dictation.partial && "text-transparent caret-transparent",
+    <>
+      {/* Docked over the composer, so a request is seen wherever the list is scrolled. */}
+      {(model.permissions.length > 0 || model.running) && (
+        <div className="app-scrollbar max-h-[60%] shrink-0 overflow-y-auto px-4 py-2">
+          <div className="mx-auto flex max-w-[860px] flex-col gap-2">
+            {model.permissions.length > 0 && (
+              <PermissionCard
+                requests={model.permissions}
+                workspaceId={`remote:${deviceId}`}
+                cwd={target.path}
+                rootPath={target.path}
+                onAnswer={answer}
+              />
             )}
-            data-testid="remote-composer"
-          />
-          {dictation.partial && (
-            <DictationOverlay
-              text={text}
-              partial={dictation.partial}
-              areaRef={areaRef}
-              className="px-3 py-2 text-app-body"
-            />
-          )}
+            <StatusLine model={model} />
+          </div>
         </div>
-        <div className="flex items-center justify-end gap-1 px-1.5 pb-1.5">
-          <MicButton dictation={dictation} />
-          {running && (
-            <IconButton label={t("agentView.remote.stop")} size="md" onClick={onStop}>
-              <Square aria-hidden className="size-3.5 fill-current" />
-            </IconButton>
-          )}
-          {/* During a turn an empty box offers only stop, as this app's own does. */}
-          {(!running || hasText) && (
-            <button
-              type="button"
-              onClick={() => void send()}
-              disabled={!canSend}
-              aria-label={t("agentView.remote.send")}
-              title={t("agentView.remote.send")}
-              className={cn(SEND_BUTTON_CLASS, "pr-1.5 pl-2")}
-            >
-              <Send aria-hidden className="size-4" />
-              <Keycap>↵</Keycap>
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
+      )}
+      <Composer
+        controller={composer.controller}
+        state={composer.state}
+        local={false}
+        appCommands={false}
+        commands={composer.commands}
+        onCommand={composer.onCommand}
+        takesDraft={false}
+        placeholder={t("agentView.remote.placeholder", { device: target.deviceName })}
+        below={<UsageLineView line={line} />}
+      />
+    </>
   );
 }
 
