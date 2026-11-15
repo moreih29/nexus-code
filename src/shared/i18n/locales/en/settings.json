@@ -681,10 +681,11 @@
       },
       "online": "Online",
       "offline": "Offline",
-      "rename": "Rename {{name}}",
-      "renameTitle": "Rename {{name}}",
-      "renameLabel": "Name",
-      "renameConfirm": "Rename"
+      "alias": "Set an alias for {{name}}",
+      "aliasTitle": "Alias for {{name}}",
+      "aliasDescription": "All your devices show it by this alias. Leave it empty to show its own name ({{name}}).",
+      "aliasLabel": "Alias",
+      "aliasConfirm": "Save"
     },
     "controlTitle": "Control from other devices",
     "control": {

@@ -93,15 +93,29 @@ describe("the remote panel's account", () => {
         device={{ id: "d1", name: "Work PC", platform: "win32" }}
         current
         online
-        onRename={() => {}}
+        onAlias={() => {}}
         onRemove={() => {}}
       />,
     );
     expect(html).toContain('aria-label="Online"');
-    expect(html).toContain('aria-label="Rename Work PC"');
+    expect(html).toContain('aria-label="Set an alias for Work PC"');
     expect(html).toContain("Work PC");
     expect(html).toContain("Windows");
     expect(html).toContain("This device");
+    expect(html).toContain('aria-label="Remove Work PC"');
+  });
+
+  test("names a device by its alias, with the name it signed in with beside it", () => {
+    const html = renderToStaticMarkup(
+      <DeviceRow
+        device={{ id: "d1", name: "DESKTOP-7Q2", alias: "Work PC", platform: "win32" }}
+        current={false}
+        onAlias={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    expect(html).toContain(">Work PC</span>");
+    expect(html).toContain("DESKTOP-7Q2 · Windows");
     expect(html).toContain('aria-label="Remove Work PC"');
   });
 });

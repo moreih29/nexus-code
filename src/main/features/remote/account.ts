@@ -83,6 +83,8 @@ export interface RemoteAccountDeps {
   onChange?(state: RemoteAccountState): void;
   /** This device as the server should name it. */
   device?: { name: string; platform: string };
+  /** This install's id, sent with a sign-in so the server gives the same device back. */
+  installId?: () => Promise<string | undefined>;
   listen?: (timeoutMs: number) => Promise<LoopbackListener>;
   timeoutMs?: number;
   /** The sign-in used when none is asked for. */
@@ -165,12 +167,13 @@ export class RemoteAccount {
         throw new SignInError(failure ?? "failed", back.error);
       }
       if (!back.code) throw new SignInError("failed", "no code");
+      const installId = await this.deps.installId?.().catch(() => undefined);
       const answer = await this.call("POST", "/auth/token", {
         body: {
           code: back.code,
           code_verifier: verifier,
           redirect_uri: listener.redirectUri,
-          device: this.deps.device ?? thisDevice(),
+          device: { ...(this.deps.device ?? thisDevice()), ...(installId ? { installId } : {}) },
         },
         signedIn: false,
       });
@@ -205,11 +208,16 @@ export class RemoteAccount {
     return ServerInfoSchema.parse(await this.call("GET", "/info", { signedIn: false }));
   }
 
-  /** Names a device of the account anew; the room tells every device. */
-  async renameDevice(id: string, name: string): Promise<void> {
-    await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { name } });
+  /**
+   * Gives a device of the account an alias, shown in place of the name it
+   * signed in with, or takes it away (null or empty); the room tells every
+   * device.
+   */
+  async setDeviceAlias(id: string, alias: string | null): Promise<void> {
+    const given = alias?.trim() || null;
+    await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { alias: given } });
     if (this.saved && id === this.saved.device.id) {
-      this.saved = { ...this.saved, device: { ...this.saved.device, name: name.trim() } };
+      this.saved = { ...this.saved, device: { ...this.saved.device, alias: given } };
       await this.deps.store.save(this.saved);
       this.changed();
     }
