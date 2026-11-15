@@ -26,8 +26,8 @@ const agentContext: CliCommand = {
       "--prompt TEXT (--agent codex) opens one, and chat read, send --wait and wait follow it.",
       "What you send a tab reaches its agent after a line that says you sent it, and the tab",
       "shows it as yours, not the user's. A message to you that starts \"[nexus] ... sent this,",
-      "not the user\" is another agent's: your answer goes back to it; what only the user may",
-      "allow is still theirs to allow.",
+      "not the user\" is another agent's: answer it as that line says (here, or with the command",
+      "it gives when the sender is not waiting); what only the user may allow is still theirs.",
       "nexus events --since N --wait 10m follows every session's state changes as they come.",
       // Only when there are other computers to reach.
       ...(ctx.services.remote.inRoom()

@@ -747,9 +747,11 @@ const chatSend: CliCommand = {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
     await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title, body: text });
-    // An agent's message shows as its, and the tab's agent is told who sent it.
-    const from = await senderOf(ctx);
-    refuseLoop(from);
+    // An agent's message shows as its, and the tab's agent is told who sent
+    // it, and whether it waits to read the answer there or is to be written back to.
+    const sender = await senderOf(ctx);
+    refuseLoop(sender);
+    const from = sender ? { ...sender, waits: timeoutMs !== null } : undefined;
     // Starting a program that is gone comes before the message.
     await ctx.services.ui(
       "chat.send",
