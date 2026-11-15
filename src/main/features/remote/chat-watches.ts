@@ -44,7 +44,7 @@ export class ChatWatches {
   /** Starts a watch for `from`: the chat's page now, of as many items as go in a frame. */
   async watch(
     from: string,
-    { workspaceId, tabId, limit }: RpcParams<"chat.watch">,
+    { workspaceId, tabId, limit, appends }: RpcParams<"chat.watch">,
   ): Promise<RpcResult<"chat.watch">> {
     const services = this.servicesOrFail();
     await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -59,7 +59,13 @@ export class ChatWatches {
       // Known before the page comes back: a change may come first.
       this.watches.set(watchId, { from, rev: 0, total: 0 });
       const page = await services
-        .ui("chat.watch", { workspaceId, tabId, watchId, limit: count })
+        .ui("chat.watch", {
+          workspaceId,
+          tabId,
+          watchId,
+          limit: count,
+          ...(appends ? { appends: true } : {}),
+        })
         .catch((error: unknown) => {
           this.watches.delete(watchId);
           return unavailable(error);

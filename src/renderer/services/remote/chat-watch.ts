@@ -3,10 +3,22 @@
  * when the watch begins, then what changed since, as the tab's store
  * changes, at most UPDATES_PER_SECOND times a second. What changed is
  * found by the store's own objects: an item, call, task or subagent's
- * messages that is not the object sent last time is sent again.
+ * messages that is not the object sent last time is sent again. For a
+ * watch that takes appends, an assistant item whose text only grew sends
+ * the text it grew by instead.
  */
 
-import type { ChatPage, ChatPanel, ChatUpdate } from "../../../../packages/remote-protocol/src";
+import type {
+  ChatAppend,
+  ChatPage,
+  ChatPanel,
+  ChatStatus,
+  ChatStreamAppend,
+  ChatUpdate,
+  ViewAssistantItem,
+  ViewItem,
+  ViewStreaming,
+} from "../../../../packages/remote-protocol/src";
 import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { useTabsStore } from "../../state/stores/tabs";
 import { chatKey, useChatStore } from "../chat/store";
@@ -54,15 +66,103 @@ export function windowStart(was: number, total: number, limit: number): number {
   return total < was ? Math.max(0, total - limit) : was;
 }
 
-/** What changed from `was` to `now`; null when nothing did. */
-export function changesOf(was: Sent, now: Sent): ChatChange | null {
+/**
+ * The text an assistant item's blocks grew by from `was` to `now`, as
+ * appends to the item at `index`; null when anything else changed (a
+ * block came or went, or one's text is not the old text and more), so
+ * the whole item goes.
+ */
+export function appendsOf(
+  wasItem: ViewItem,
+  nowItem: ViewItem,
+  index: number,
+): ChatAppend[] | null {
+  if (wasItem.kind !== "assistant" || nowItem.kind !== "assistant") return null;
+  // The union's item of a kind not known yet keeps TypeScript from narrowing.
+  const was = wasItem as ViewAssistantItem;
+  const now = nowItem as ViewAssistantItem;
+  if (was.key !== now.key || was.messageId !== now.messageId || was.at !== now.at) return null;
+  if (was.blocks.length !== now.blocks.length) return null;
+  const appends: ChatAppend[] = [];
+  for (const [block, after] of now.blocks.entries()) {
+    const before = was.blocks[block];
+    if (before?.type !== after.type) return null;
+    if (after.type === "tool") {
+      if (before.type !== "tool" || before.toolUseId !== after.toolUseId) return null;
+      continue;
+    }
+    if (before.type === "tool") return null;
+    if (after.text === before.text) continue;
+    if (!after.text.startsWith(before.text)) return null;
+    appends.push({ index, block, text: after.text.slice(before.text.length) });
+  }
+  return appends.length > 0 ? appends : null;
+}
+
+/**
+ * The text the reply being written grew by, block by block (none when it
+ * did not); null when it is another reply, or a block came, went or
+ * changed other than by growing, so the whole message goes.
+ */
+export function streamAppendsOf(
+  was: ViewStreaming | null,
+  now: ViewStreaming | null,
+): ChatStreamAppend[] | null {
+  if (!was || !now || was.messageId !== now.messageId) return null;
+  if (was.blocks.length !== now.blocks.length) return null;
+  const appends: ChatStreamAppend[] = [];
+  for (const [block, after] of now.blocks.entries()) {
+    const before = was.blocks[block];
+    if (before?.type !== after.type || before.toolUseId !== after.toolUseId) return null;
+    if (after.text === before.text) continue;
+    if (!after.text.startsWith(before.text)) return null;
+    appends.push({ block, text: after.text.slice(before.text.length) });
+  }
+  return appends;
+}
+
+/**
+ * The status to send, and what its reply being written grew by: for a
+ * watch that takes appends, a reply that only grew comes as streamAppends,
+ * and the status without it, only when the rest of it changed.
+ */
+function statusChange(
+  was: string,
+  now: string,
+  appends: boolean,
+): Pick<ChatChange, "status" | "streamAppends"> {
+  if (now === was) return {};
+  const after = JSON.parse(now) as ChatStatus;
+  if (!appends) return { status: after };
+  const before = JSON.parse(was) as ChatStatus;
+  const grown = streamAppendsOf(before.streaming, after.streaming);
+  if (!grown) return { status: after };
+  const { streaming: _after, ...rest } = after;
+  const { streaming: _before, ...restBefore } = before;
+  return {
+    ...(JSON.stringify(rest) !== JSON.stringify(restBefore) ? { status: rest } : {}),
+    ...(grown.length > 0 ? { streamAppends: grown } : {}),
+  };
+}
+
+/**
+ * What changed from `was` to `now`; null when nothing did. With
+ * `appends`, an assistant item whose text only grew comes as appends, and
+ * so does the reply being written.
+ */
+export function changesOf(was: Sent, now: Sent, appends = false): ChatChange | null {
   const before = was.window;
   const after = now.window;
   const items: ChatChange["items"] = [];
+  const grown: ChatAppend[] = [];
   for (const [i, item] of after.items.entries()) {
     const index = after.start + i;
     const old = index >= before.start ? before.items[index - before.start] : undefined;
-    if (old !== item) items.push({ index, item: viewItemOf(item) });
+    if (old === item) continue;
+    const view = viewItemOf(item);
+    const added = appends && old !== undefined ? appendsOf(viewItemOf(old), view, index) : null;
+    if (added) grown.push(...added);
+    else items.push({ index, item: view });
   }
   const tools: ChatChange["tools"] = {};
   for (const [id, tool] of after.tools) {
@@ -76,7 +176,7 @@ export function changesOf(was: Sent, now: Sent): ChatChange | null {
   for (const [id, list] of after.agents) {
     if (before.agents.get(id) !== list) agentItems[id] = list.map(viewAssistantOf);
   }
-  const status = now.status !== was.status ? JSON.parse(now.status) : undefined;
+  const { status, streamAppends } = statusChange(was.status, now.status, appends);
   const panel = now.panel !== was.panel ? JSON.parse(now.panel) : undefined;
   const cut = after.total !== before.total;
   if (
@@ -84,6 +184,8 @@ export function changesOf(was: Sent, now: Sent): ChatChange | null {
     !status &&
     !panel &&
     items.length === 0 &&
+    grown.length === 0 &&
+    !streamAppends &&
     Object.keys(tools).length === 0 &&
     Object.keys(tasks).length === 0 &&
     Object.keys(agentItems).length === 0
@@ -94,6 +196,8 @@ export function changesOf(was: Sent, now: Sent): ChatChange | null {
     ...(status ? { status } : {}),
     total: after.total,
     items,
+    ...(grown.length > 0 ? { appends: grown } : {}),
+    ...(streamAppends ? { streamAppends } : {}),
     tools,
     tasks,
     agentItems,
@@ -116,7 +220,8 @@ type SourceOf = () => ChatSource | null;
 
 /**
  * Starts watching a chat for another device: its page now, then `push`
- * with each change, until stopChatWatch or the tab is gone (`onGone`).
+ * with each change, until stopChatWatch or the tab is gone (`onGone`);
+ * a reply's growing text as appends when the watcher takes them.
  */
 export function startChatWatch(
   watchId: string,
@@ -124,6 +229,7 @@ export function startChatWatch(
   limit: number | undefined,
   push: (change: ChatChange) => void,
   onGone: () => void,
+  options: { appends?: boolean } = {},
 ): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
   const source = sourceOf();
@@ -145,7 +251,7 @@ export function startChatWatch(
     }
     const total = conversationOf(now).items.length;
     const next = sentOf(now, windowStart(sent.window.start, total, count));
-    const change = changesOf(sent, next);
+    const change = changesOf(sent, next, options.appends === true);
     sent = next;
     if (change) push(change);
   };

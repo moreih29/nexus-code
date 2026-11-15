@@ -47,37 +47,47 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerRead<ChatPage> {
         return;
       }
       w.rev = update.rev;
-      setRead((now) =>
-        now.status === "ready" ? { status: "ready", value: applyUpdate(now.value, update) } : now,
-      );
+      setRead((now) => {
+        if (now.status !== "ready") return now;
+        const value = applyUpdate(now.value, update);
+        // An append with nothing to go on: something was missed.
+        if (!value) {
+          queueMicrotask(again);
+          return now;
+        }
+        return { status: "ready", value };
+      });
     });
-    void ipcCallResult("remote", "peerChatWatch", { deviceId, workspaceId, tabId }).then(
-      (result) => {
-        if (!live) {
-          if (result.ok) {
-            void ipcCallResult("remote", "peerChatUnwatch", {
-              deviceId,
-              watchId: result.value.watchId,
-            });
-          }
-          return;
-        }
+    void ipcCallResult("remote", "peerChatWatch", {
+      deviceId,
+      workspaceId,
+      tabId,
+      appends: true,
+    }).then((result) => {
+      if (!live) {
         if (result.ok) {
-          const { watchId, ...page } = result.value;
-          watch.current = { id: watchId, rev: 0 };
-          setRead({ status: "ready", value: page });
-          return;
+          void ipcCallResult("remote", "peerChatUnwatch", {
+            deviceId,
+            watchId: result.value.watchId,
+          });
         }
-        if (result.kind === "not-found") {
-          setRead({ status: "gone" });
-          return;
-        }
-        setRead((now) =>
-          now.status === "ready" ? now : { status: "unavailable", message: result.message },
-        );
-        retry = setTimeout(again, REWATCH_MS);
-      },
-    );
+        return;
+      }
+      if (result.ok) {
+        const { watchId, ...page } = result.value;
+        watch.current = { id: watchId, rev: 0 };
+        setRead({ status: "ready", value: page });
+        return;
+      }
+      if (result.kind === "not-found") {
+        setRead({ status: "gone" });
+        return;
+      }
+      setRead((now) =>
+        now.status === "ready" ? now : { status: "unavailable", message: result.message },
+      );
+      retry = setTimeout(again, REWATCH_MS);
+    });
     const alive = setInterval(() => {
       void ipcCallResult("remote", "peerChat", { deviceId, workspaceId, tabId, limit: 1 }).then(
         (result) => {
