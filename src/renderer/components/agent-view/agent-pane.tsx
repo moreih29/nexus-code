@@ -93,9 +93,6 @@ export function AgentPane({
   const frontKind = useTabsStore((s) =>
     front ? s.byWorkspace[front.workspaceId]?.[front.tabId]?.type : undefined,
   );
-  const frontRemote = useRemoteTarget(
-    leaf.activeTabId !== null && isRemoteKey(leaf.activeTabId) ? leaf.activeTabId : null,
-  );
   const viewShown = useAgentViewStore((s) => s.mode === "agents");
 
   const slotElRef = useRef<HTMLElement | null>(null);
@@ -338,7 +335,16 @@ export function AgentPane({
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
-        {frontRemote && <RemoteSessionPane target={frontRemote} visible={viewShown} />}
+        {/* Each kept while its tab is in the panel, as a chat here is: its draft,
+            drawer and goal stay its own. Only the front one is read. */}
+        {leaf.tabIds.filter(isRemoteKey).map((key) => (
+          <RemotePaneHost
+            key={key}
+            sessionKey={key}
+            front={key === leaf.activeTabId}
+            viewShown={viewShown}
+          />
+        ))}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
       {frontEnded && leaf.activeTabId !== null && (
@@ -469,6 +475,25 @@ function AgentTab({
     >
       <AgentTabLabel sessionKey={key} agents={agents} showWorkspace={showWorkspace} />
     </PanelTab>
+  );
+}
+
+/** A panel's tab of another computer's session, hidden while another tab is in front. */
+function RemotePaneHost({
+  sessionKey,
+  front,
+  viewShown,
+}: {
+  sessionKey: string;
+  front: boolean;
+  viewShown: boolean;
+}) {
+  const target = useRemoteTarget(sessionKey);
+  if (!target) return null;
+  return (
+    <div className={cn("absolute inset-0", !front && "hidden")} data-front={front || undefined}>
+      <RemoteSessionPane target={target} visible={viewShown && front} />
+    </div>
   );
 }
 

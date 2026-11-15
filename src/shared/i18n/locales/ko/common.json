@@ -1152,11 +1152,13 @@
         "copy_url": "Remote Control 링크 복사",
         "open_url": "Remote Control 링크 열기",
         "folder": "폴더",
+        "computer": "컴퓨터",
         "branch": "브랜치",
         "session": "세션",
         "copy_session": "세션 ID 복사",
         "fork_session": "세션 전체를 포크",
         "model": "모델",
+        "profile": "프로필",
         "version": "버전",
         "account": "계정"
       },
@@ -1771,7 +1773,8 @@
       "disconnected": "서버에 연결되지 않음",
       "offlineLast": "{{device}}이(가) 오프라인입니다. 마지막으로 받은 내용을 보여 줍니다.",
       "disconnectedLast": "서버에 연결되지 않았습니다. 마지막으로 받은 내용을 보여 줍니다.",
-      "offlineTag": "오프라인"
+      "offlineTag": "오프라인",
+      "profileBusy": "응답이 끝나거나 요청에 답한 뒤 바꿀 수 있습니다"
     }
   },
   "releaseNotes": {

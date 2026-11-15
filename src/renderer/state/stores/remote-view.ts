@@ -24,6 +24,8 @@ export interface RemoteTarget {
   title: string;
   /** How it stood when its computer last listed it. */
   state?: SessionState;
+  /** The agent profile a chat runs with, by name, as its computer last listed it. */
+  profile?: string;
 }
 
 /** What the computer's list says of its sessions now, for the tabs to show. */
@@ -35,6 +37,7 @@ export interface ListedSessions {
     kind: RemoteTarget["kind"];
     title: string;
     state: SessionState;
+    profile?: string;
   }[];
 }
 
@@ -47,6 +50,8 @@ interface RemoteViewState {
   open(target: RemoteTarget, leafId?: string): void;
   /** Takes up a computer's newer names and titles for the tabs of its sessions. */
   refresh(deviceId: string, listed: ListedSessions): void;
+  /** A chat now runs with another profile, by name, as chat.profile answered. */
+  setProfile(key: string, profile: string): void;
 }
 
 export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
@@ -73,6 +78,9 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         title: session?.title ?? target.title,
         kind: session?.kind ?? target.kind,
         state: session?.state ?? target.state,
+        ...((session?.profile ?? target.profile)
+          ? { profile: session?.profile ?? target.profile }
+          : {}),
         workspaceName: workspace?.name ?? target.workspaceName,
         path: workspace?.path || target.path,
       };
@@ -80,6 +88,7 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
         updated.title === target.title &&
         updated.kind === target.kind &&
         updated.state === target.state &&
+        updated.profile === target.profile &&
         updated.workspaceName === target.workspaceName &&
         updated.path === target.path
       ) {
@@ -89,6 +98,12 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
       next.set(key, updated);
     }
     if (next) set({ targets: next });
+  },
+
+  setProfile(key, profile) {
+    const target = get().targets.get(key);
+    if (!target || target.profile === profile) return;
+    set({ targets: new Map(get().targets).set(key, { ...target, profile }) });
   },
 }));
 
