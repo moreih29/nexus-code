@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -31,6 +33,10 @@ var attachRoot = func() (string, error) {
 	}
 	return filepath.Join(root, "attach"), nil
 }
+
+// windowsNames is whether a file's name is made one Windows can keep
+// (windowsName) before it is written; tests turn it on elsewhere.
+var windowsNames = runtime.GOOS == "windows"
 
 // AttachParams is the wire shape for chat.attach.
 type AttachParams struct {
@@ -68,6 +74,10 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 	if !ok {
 		return nil, protocolError("chat.attach name must be a file name")
 	}
+	if windowsNames {
+		// The path the message names is the file as written, under this name.
+		name = windowsName(name)
+	}
 	if base64.StdEncoding.DecodedLen(len(p.Data)) > maxAttachBytes+3 {
 		return nil, requestFailed("%s is larger than %d MiB", name, maxAttachBytes>>20)
 	}
@@ -97,6 +107,8 @@ func (s *Service) Attach(_ context.Context, raw json.RawMessage) (any, error) {
 		}
 		path := filepath.Join(slot, name)
 		if err := os.WriteFile(path, data, 0o600); err != nil {
+			// No empty folder, nor half a file, left behind.
+			_ = os.RemoveAll(slot)
 			return nil, requestFailed("chat.attach: %v", err)
 		}
 		return AttachResult{Path: path}, nil
@@ -159,6 +171,35 @@ func tabAttachDir(key tabKey) (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, workspaceID, tabID), nil
+}
+
+// windowsReserved matches the names Windows keeps for devices, with any
+// extension: "NUL" or "con.txt" is no file there (older Windows), or no
+// file at all ("NUL" writes to nowhere).
+var windowsReserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$) *(\.|$)`)
+
+// windowsName is a plain name (plainName) as Windows can keep it: the
+// characters it refuses in a name (<>:"/\|?* and control characters) are
+// "_", as a colon would otherwise put the bytes in a stream of another
+// file; its trailing dots and spaces, which Windows drops, go; a device's
+// name gets a "_" in front. A leading dot stays (".env"); never empty.
+func windowsName(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(`<>:"/\|?*`, r) {
+			b.WriteByte('_')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	cleaned := strings.TrimRight(b.String(), ". ")
+	if cleaned == "" {
+		return "file"
+	}
+	if windowsReserved.MatchString(cleaned) {
+		return "_" + cleaned
+	}
+	return cleaned
 }
 
 // plainName reports whether name is one path segment: not empty, not "."

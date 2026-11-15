@@ -43,6 +43,7 @@ import {
   terminalShells,
 } from "./terminal-control";
 import type { TerminalWatches } from "./terminal-watches";
+import { Uploads } from "./uploads";
 import { waitOnChat, waitOnTerminalFor } from "./waits";
 
 /** What this version serves; a hello says so, and the others ask for nothing more. */
@@ -314,8 +315,9 @@ export async function readTerminal(
  */
 
 /**
- * Sends the chat a message, with the images the device attached for it
- * (chat.attach), which then go; text or an image at least.
+ * Sends the chat a message, with the images and files the device attached
+ * for it (chat.attach, chat.upload), which then go; text or an attachment
+ * at least.
  */
 export async function sendChat(
   services: CliServices,
@@ -324,16 +326,20 @@ export async function sendChat(
   relay?: RelaySender,
 ): Promise<RpcResult<"chat.send">> {
   if (!text.trim() && ids.length === 0) {
-    throw new RpcFailure(RpcErrorCode.InvalidParams, "a message needs text or an image");
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "a message needs text or an attachment");
   }
   if (ids.length > 0 && !attached) {
-    throw new RpcFailure(RpcErrorCode.InvalidParams, "no images are kept here");
+    throw new RpcFailure(RpcErrorCode.InvalidParams, "no attachments are kept here");
   }
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
-  const images =
+  const held =
     attached && ids.length > 0
       ? attached.attachments.find(attached.device, workspaceId, tabId, ids)
       : [];
+  const images = held.flatMap((h) =>
+    h.kind === "image" ? [{ mediaType: h.mediaType, data: h.data }] : [],
+  );
+  const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
   // Before it goes: what the chat shows from here on is from this message on.
   const at = services.clock.now();
   await services
@@ -344,6 +350,7 @@ export async function sendChat(
       // An agent's shows as its, and waits while the chat asks the user something.
       ...(relay ? { from: relay } : { user: true }),
       ...(images.length > 0 ? { images } : {}),
+      ...(files.length > 0 ? { files } : {}),
     })
     .catch(unavailable);
   attached?.attachments.drop(ids);
@@ -387,6 +394,23 @@ export async function attachToChat(
 ): Promise<RpcResult<"chat.attach">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return { attachmentId: attachments.take(device, workspaceId, tabId, { mediaType, data }) };
+}
+
+/** Starts a file's upload for the device's next message to the chat. */
+export async function beginUpload(
+  services: CliServices,
+  { workspaceId, tabId, name, size, mediaType }: RpcParams<"chat.upload.begin">,
+  device: string,
+  uploads: Uploads,
+): Promise<RpcResult<"chat.upload.begin">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return {
+    uploadId: uploads.begin(device, workspaceId, tabId, {
+      name,
+      size,
+      ...(mediaType ? { mediaType } : {}),
+    }),
+  };
 }
 
 export async function answerChat(
@@ -798,8 +822,10 @@ export function serveWith(
     terminals?: TerminalWatches;
     /** The tasks' git facts the sessions' list tells. */
     git?: WorkspaceGit;
-    /** The images devices attached for their next messages. */
+    /** The images and files devices attached for their next messages. */
     attachments?: Attachments;
+    /** The files devices are sending a piece at a time; fresh ones when not given. */
+    uploads?: Uploads;
     /** The workspaces' file systems, and how an image is drawn smaller. */
     files?: Omit<RemoteFiles, "folders">;
     /** The workspaces' repositories, for git.status, git.diff, git.log and git.show. */
@@ -821,6 +847,7 @@ export function serveWith(
 ) {
   const { chats, sessions, terminals, git } = watches;
   const attachments = watches.attachments ?? new Attachments();
+  const uploads = watches.uploads ?? new Uploads(attachments);
   const photoQuota = watches.photoQuota ?? new PhotoQuota();
   /** files.find and files.search running now, by the device that asked. */
   const searching = new Map<string, number>();
@@ -979,6 +1006,20 @@ export function serveWith(
         return chatImage(s, request.params as RpcParams<"chat.image">);
       case "chat.attach":
         return attachToChat(s, request.params as RpcParams<"chat.attach">, from, attachments);
+      case "chat.upload.begin":
+        return beginUpload(s, request.params as RpcParams<"chat.upload.begin">, from, uploads);
+      case "chat.upload.chunk": {
+        const { uploadId, offset, data } = request.params as RpcParams<"chat.upload.chunk">;
+        uploads.chunk(from, uploadId, offset, data);
+        return {};
+      }
+      case "chat.upload.end":
+        return {
+          attachmentId: uploads.end(
+            from,
+            (request.params as RpcParams<"chat.upload.end">).uploadId,
+          ),
+        };
       case "chat.answer":
         return answerChat(s, request.params as RpcParams<"chat.answer">);
       case "chat.interrupt":
