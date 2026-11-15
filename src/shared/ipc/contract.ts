@@ -103,6 +103,7 @@ import { PortForwardSchema, WorkspaceForwardsSchema, WorkspacePortsSchema } from
 import { CustomShellSchema, ShellChoiceSchema, ShellInfoSchema } from "../pty/shell";
 import {
   AccountKeyStateSchema,
+  MAX_DEVICE_ALIAS,
   RemoteAccountStateSchema,
   RemoteDeviceInfoSchema,
   SignInProviderSchema,
@@ -2428,8 +2429,12 @@ export const ipcContract = {
         z.object({ id: z.string().min(1).max(64), password: z.string().max(1024).optional() }),
         z.void(),
       ),
-      renameDevice: call(
-        z.object({ id: z.string().min(1).max(64), name: z.string().trim().min(1).max(100) }),
+      /** Gives a device an alias, shown in place of its name, or takes it away (null or empty). */
+      setDeviceAlias: call(
+        z.object({
+          id: z.string().min(1).max(64),
+          alias: z.string().trim().max(MAX_DEVICE_ALIAS).nullable(),
+        }),
         z.void(),
       ),
       /**

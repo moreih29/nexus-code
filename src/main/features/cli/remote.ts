@@ -68,17 +68,32 @@ export async function resolveDevice(
   selector: string | undefined,
 ): Promise<CliDevice | null> {
   if (selector === undefined) return null;
-  const device = pick(
-    await listDevices(ctx),
-    selector,
-    (d) => d.id,
-    (d) => d.name,
-    "device",
-  );
+  const device = pickDevice(await listDevices(ctx), selector);
   if (device.self) {
     throw new CliError(`"${device.name}" is this computer: leave --device out`, 2);
   }
   return device;
+}
+
+/**
+ * The device a selector names, by id, id prefix or name; then by the name it
+ * signed in with, which its alias is shown in place of.
+ */
+function pickDevice(devices: readonly CliDevice[], selector: string): CliDevice {
+  try {
+    return pick(
+      devices,
+      selector,
+      (d) => d.id,
+      (d) => d.name,
+      "device",
+    );
+  } catch (error) {
+    const lower = selector.toLowerCase();
+    const byHost = devices.filter((d) => d.hostName?.toLowerCase() === lower);
+    if (byHost.length === 1) return byHost[0] as CliDevice;
+    throw error;
+  }
 }
 
 /** The --device flag as a command reads it. */

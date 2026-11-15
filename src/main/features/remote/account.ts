@@ -205,11 +205,16 @@ export class RemoteAccount {
     return ServerInfoSchema.parse(await this.call("GET", "/info", { signedIn: false }));
   }
 
-  /** Names a device of the account anew; the room tells every device. */
-  async renameDevice(id: string, name: string): Promise<void> {
-    await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { name } });
+  /**
+   * Gives a device of the account an alias, shown in place of the name it
+   * signed in with, or takes it away (null or empty); the room tells every
+   * device.
+   */
+  async setDeviceAlias(id: string, alias: string | null): Promise<void> {
+    const given = alias?.trim() || null;
+    await this.call("PATCH", `/devices/${encodeURIComponent(id)}`, { body: { alias: given } });
     if (this.saved && id === this.saved.device.id) {
-      this.saved = { ...this.saved, device: { ...this.saved.device, name: name.trim() } };
+      this.saved = { ...this.saved, device: { ...this.saved.device, alias: given } };
       await this.deps.store.save(this.saved);
       this.changed();
     }

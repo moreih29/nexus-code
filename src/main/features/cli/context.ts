@@ -39,7 +39,10 @@ export class CliError extends Error {
 /** A device of the user's account, as `nexus device list` shows it. */
 export interface CliDevice {
   readonly id: string;
+  /** As the user knows it: the alias they gave it, or the name it signed in with. */
   readonly name: string;
+  /** The name it signed in with (its host's), when an alias is `name`. */
+  readonly hostName?: string;
   readonly platform: string;
   /** Whether it is this computer. */
   readonly self: boolean;

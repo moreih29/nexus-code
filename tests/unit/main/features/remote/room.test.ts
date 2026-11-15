@@ -162,6 +162,27 @@ describe("the room", () => {
     expect(a.served).toEqual([{ from: "b", method: "sessions.list" }]);
   });
 
+  test("a device with an alias is named by it, with the name it signed in with beside it", async () => {
+    const relay = new MockRelay();
+    const key = await roomKey();
+    const a = device(relay, "a", key);
+    const b = device(relay, "b", key);
+    a.room.start();
+    b.room.start();
+    await tick();
+    const known = relay.devices.find((d) => d.id === "a") as RoomDevice;
+    known.alias = "Studio";
+    b.reopen();
+    await tick();
+    expect(b.room.state().peers[0]).toMatchObject({ id: "a", name: "Studio", hostName: "a-pc" });
+    known.alias = null;
+    b.reopen();
+    await tick();
+    const peer = b.room.state().peers[0];
+    expect(peer?.name).toBe("a-pc");
+    expect(peer && "hostName" in peer).toBe(false);
+  });
+
   test("refuses what it does not serve, and params not of the protocol", async () => {
     const relay = new MockRelay();
     const key = await roomKey();

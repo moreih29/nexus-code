@@ -367,6 +367,29 @@ describe("the account", () => {
     }
   });
 
+  test("gives a device an alias or takes it away, and keeps this one's", async () => {
+    const store = memoryStore({ server: SERVER, token: "tok", user, device });
+    const server = fakeServer();
+    const account = new RemoteAccount({
+      server: SERVER,
+      store,
+      openExternal: async () => {},
+      fetch: server.fetchFn,
+    });
+    await account.restore();
+    await account.setDeviceAlias("d1", "  Studio ");
+    await account.setDeviceAlias("d2", "");
+    expect(server.requests.map((r) => [r.method, r.path, r.body])).toEqual([
+      ["PATCH", "/devices/d1", { alias: "Studio" }],
+      ["PATCH", "/devices/d2", { alias: null }],
+    ]);
+    expect(store.value?.device).toEqual({ ...device, alias: "Studio" });
+    const state = account.state();
+    expect(state.status === "signed-in" && state.device.alias).toBe("Studio");
+    await account.setDeviceAlias("d1", null);
+    expect(store.value?.device.alias).toBeNull();
+  });
+
   test("names the device as the server takes it", () => {
     const { name, platform } = thisDevice();
     expect(name.length).toBeGreaterThan(0);

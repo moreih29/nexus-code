@@ -20,7 +20,10 @@ export type RemoteUser = z.infer<typeof RemoteUserSchema>;
 export const RemoteDeviceInfoSchema = z
   .object({
     id: z.string(),
+    /** The name it signed in with (its host's). */
     name: z.string(),
+    /** The name the user gave it, shown in its place; null or absent for none. */
+    alias: z.string().nullable().optional(),
     platform: z.string(),
     /** When the device signed in, and when the server last heard from it, in Unix ms. */
     createdAt: z.number().optional(),
@@ -30,6 +33,14 @@ export const RemoteDeviceInfoSchema = z
   })
   .passthrough();
 export type RemoteDeviceInfo = z.infer<typeof RemoteDeviceInfoSchema>;
+
+/** The longest alias a device is given (the server's limit). */
+export const MAX_DEVICE_ALIAS = 64;
+
+/** A device as the user knows it: its alias, or the name it signed in with. */
+export function deviceLabel(device: { name: string; alias?: string | null }): string {
+  return device.alias || device.name;
+}
 
 /**
  * Why a sign-in did not finish:

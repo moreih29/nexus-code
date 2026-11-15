@@ -17,7 +17,8 @@ const deviceList: CliCommand = {
   summary: "List your computers in the remote room, as --device names them",
   details:
     "The computers signed in to your NexusCode account (Settings › Remote). A command takes\n" +
-    "--device with another's id, id prefix or name to read or drive its sessions as it does\n" +
+    "--device with another's id, id prefix or name (an alias given in Settings, or the name\n" +
+    "it signed in with) to read or drive its sessions as it does\n" +
     "this computer's: session list, chat read/send/wait/new/answer/interrupt/set, tab close,\n" +
     "terminal read/send/key/wait/new, and events. Reading is always allowed; a change goes as\n" +
     "an agent's, yours at a shell too, which that computer's user allows, asks about or turns\n" +
@@ -41,7 +42,7 @@ const deviceList: CliCommand = {
             : "offline";
     const rows = devices.map((d) => [
       shortId(d.id),
-      oneLine(d.name, 30),
+      oneLine(d.hostName ? `${d.name} (${d.hostName})` : d.name, 40),
       d.platform,
       state(d),
       !d.self && d.online && d.serves.includes("agents") ? "yes" : "-",
@@ -51,6 +52,7 @@ const deviceList: CliCommand = {
       devices.map((d) => ({
         id: d.id,
         name: d.name,
+        ...(d.hostName ? { hostName: d.hostName } : {}),
         platform: d.platform,
         self: d.self,
         online: d.online,

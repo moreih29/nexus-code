@@ -94,6 +94,17 @@ describe("nexus device list", () => {
     );
   });
 
+  test("a computer with an alias is named by it, the name it signed in with beside it", async () => {
+    const app = withDevices();
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, name: "Studio", hostName: "Mac mini" } : d,
+    );
+    const result = await nexus(app, ["device", "list"]);
+    expect(result.stdout).toContain("9b1e44d2  Studio (Mac mini)");
+    const listed = JSON.parse((await nexus(app, ["device", "list", "--json"])).stdout);
+    expect(listed[1]).toMatchObject({ name: "Studio", hostName: "Mac mini" });
+  });
+
   test("--json has each one's serves and when an offline one was last seen", async () => {
     const result = await nexus(withDevices(), ["device", "list", "--json"]);
     const listed = JSON.parse(result.stdout);
@@ -130,6 +141,15 @@ describe("--device", () => {
     expect((await resolveDevice(ctx(app), "9b1e"))?.name).toBe("Mac mini");
     expect((await resolveDevice(ctx(app), "office pc"))?.name).toBe("Office PC");
     await expect(resolveDevice(ctx(app), "Laptop")).rejects.toThrow('no device "Laptop"');
+  });
+
+  test("a computer with an alias goes by it, and by the name it signed in with", async () => {
+    const app = withDevices();
+    app.peers.devices = app.peers.devices.map((d) =>
+      d.id === MINI ? { ...d, name: "Studio", hostName: "Mac mini" } : d,
+    );
+    expect((await resolveDevice(ctx(app), "studio"))?.id).toBe(MINI);
+    expect((await resolveDevice(ctx(app), "mac mini"))?.id).toBe(MINI);
   });
 
   test("naming this computer is a usage error", async () => {

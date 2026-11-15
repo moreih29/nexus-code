@@ -681,10 +681,11 @@
       },
       "online": "온라인",
       "offline": "오프라인",
-      "rename": "{{name}} 이름 바꾸기",
-      "renameTitle": "{{name}} 이름 바꾸기",
-      "renameLabel": "이름",
-      "renameConfirm": "바꾸기"
+      "alias": "{{name}} 별칭 정하기",
+      "aliasTitle": "{{name}} 별칭",
+      "aliasDescription": "내 기기 모두에 이 별칭으로 보입니다. 비워 두면 기기 이름({{name}})으로 보입니다.",
+      "aliasLabel": "별칭",
+      "aliasConfirm": "저장"
     },
     "controlTitle": "다른 기기의 조작",
     "control": {

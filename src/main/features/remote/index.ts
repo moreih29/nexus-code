@@ -12,7 +12,7 @@ import { MAX_TRANSCRIBE_BYTES } from "../../../../packages/remote-protocol/src/v
 import type { GitStatus } from "../../../shared/git/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { type IpcResult, ipcErr, ipcOk } from "../../../shared/ipc/result";
-import type { AccountKeyState } from "../../../shared/remote/account";
+import { type AccountKeyState, deviceLabel } from "../../../shared/remote/account";
 import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
@@ -457,9 +457,9 @@ export async function registerRemoteChannel(options: {
         ).then((result) => (result.ok ? result.value : result));
       },
       devices: () => ask(() => account.devices()),
-      renameDevice: (args: unknown) => {
-        const { id, name } = validateArgs(c.renameDevice.args, args);
-        return ask(() => account.renameDevice(id, name));
+      setDeviceAlias: (args: unknown) => {
+        const { id, alias } = validateArgs(c.setDeviceAlias.args, args);
+        return ask(() => account.setDeviceAlias(id, alias));
       },
       removeDevice: (args: unknown) => {
         const { id, password } = validateArgs(c.removeDevice.args, args);
@@ -765,17 +765,29 @@ export async function registerRemoteChannel(options: {
         const self = account.state();
         const selfId = self.status === "signed-in" ? self.device.id : "";
         const listed = await account.devices().catch(() => null);
-        const known: { id: string; name: string; platform: string; lastSeenAt?: number }[] =
-          listed ?? [
-            ...(self.status === "signed-in" ? [self.device] : []),
-            ...peers.map((p) => ({ id: p.id, name: p.name, platform: p.platform })),
-          ];
+        const known: {
+          id: string;
+          name: string;
+          alias?: string | null;
+          platform: string;
+          lastSeenAt?: number;
+        }[] = listed ?? [
+          ...(self.status === "signed-in" ? [self.device] : []),
+          ...peers.map((p) => ({
+            id: p.id,
+            name: p.hostName ?? p.name,
+            alias: p.hostName ? p.name : null,
+            platform: p.platform,
+          })),
+        ];
         return known.map((d) => {
           const peer = peers.find((p) => p.id === d.id);
           const isSelf = d.id === selfId;
+          const hostName = peer ? peer.hostName : d.alias ? d.name : undefined;
           return {
             id: d.id,
-            name: peer?.name ?? d.name,
+            name: peer?.name ?? deviceLabel(d),
+            ...(hostName ? { hostName } : {}),
             platform: d.platform,
             self: isSelf,
             online: isSelf ? roomState.status === "online" : (peer?.online ?? false),

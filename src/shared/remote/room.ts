@@ -20,7 +20,10 @@ export type RoomStatus = z.infer<typeof RoomStatusSchema>;
 
 export const RoomPeerSchema = z.object({
   id: z.string(),
+  /** As the user knows it: the alias they gave it, or the name it signed in with. */
   name: z.string(),
+  /** The name it signed in with (its host's), when an alias is shown in its place. */
+  hostName: z.string().optional(),
   platform: z.string(),
   online: z.boolean(),
   /** From its hello, once it said one: its app, and what it serves of its sessions. */
