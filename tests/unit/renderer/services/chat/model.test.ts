@@ -599,6 +599,133 @@ describe("messages written during a turn", () => {
   });
 });
 
+describe("the context's size during a turn", () => {
+  const counted = {
+    categories: [
+      { name: "System prompt", tokens: 3055, kind: "used" },
+      { name: "Messages", tokens: 9477, kind: "used" },
+      { name: "Autocompact buffer", tokens: 33000, kind: "buffer" },
+      { name: "Free space", tokens: 942461, kind: "free" },
+    ],
+    totalTokens: 24539,
+    maxTokens: 1000000,
+    percentage: 2,
+  };
+  const answered: ChatLine[] = [
+    {
+      seq: 1,
+      dir: "in",
+      message: {
+        type: "control_request",
+        request_id: "c1",
+        request: { subtype: "get_context_usage" },
+      },
+    },
+    {
+      seq: 1.5,
+      dir: "out",
+      message: {
+        type: "control_response",
+        response: { subtype: "success", request_id: "c1", response: counted },
+      },
+    },
+  ];
+  const usage = (input: number, created: number, read: number) => ({
+    input_tokens: input,
+    cache_creation_input_tokens: created,
+    cache_read_input_tokens: read,
+    output_tokens: 1,
+  });
+  const assistant = (seq: number, u: unknown, parent?: string): ChatLine => ({
+    seq,
+    dir: "out",
+    message: {
+      type: "assistant",
+      parent_tool_use_id: parent ?? null,
+      message: {
+        id: `msg${seq}`,
+        content: [{ type: "tool_use", id: `t${seq}`, name: "Bash", input: {} }],
+        usage: u,
+      },
+    },
+  });
+
+  test("each of the main thread's calls moves the counted total on, its percentage and free space with it", () => {
+    const model = run([...answered, assistant(2, usage(2, 5000, 300000))]);
+    expect(model.contextUsage).toEqual({
+      ...counted,
+      totalTokens: 305002,
+      percentage: 31,
+      categories: [
+        ...counted.categories.slice(0, 3),
+        { name: "Free space", tokens: 942461 - (305002 - 24539), kind: "free" },
+      ],
+    });
+  });
+
+  test("a call starting says it, before its first block", () => {
+    const model = run([
+      ...answered,
+      {
+        seq: 2,
+        dir: "out",
+        message: {
+          type: "stream_event",
+          event: { type: "message_start", message: { id: "m2", usage: usage(1, 100, 40000) } },
+        },
+      },
+    ]);
+    expect((model.contextUsage as typeof counted).totalTokens).toBe(40101);
+  });
+
+  test("a subagent's calls, a made-up message's zero usage, and calls before any count leave it", () => {
+    const model = run([
+      ...answered,
+      assistant(2, usage(2, 0, 90000), "toolu_agent"),
+      assistant(3, { input_tokens: 0, output_tokens: 0 }),
+      assistant(4, undefined),
+    ]);
+    expect(model.contextUsage).toEqual(counted);
+    expect(run([assistant(2, usage(2, 0, 90000))]).contextUsage).toBeUndefined();
+  });
+
+  test("a call's size is the total the CLI counts after it", () => {
+    // The fixture's first turn ends on a call that sent 2 + 113 + 25472
+    // tokens, and the app's count after it (app-2) is 25587.
+    const last = FIXTURE.find((line) => line.seq === 60) as ChatLine;
+    const model = run([...answered, last]);
+    expect((model.contextUsage as typeof counted).totalTokens).toBe(25587);
+    const recorded = run(FIXTURE.filter((line) => line.seq <= 66));
+    expect((recorded.contextUsage as typeof counted).totalTokens).toBe(25587);
+  });
+
+  test("a new count replaces the moved total", () => {
+    const recount = { ...counted, totalTokens: 50000, percentage: 5 };
+    const model = run([
+      ...answered,
+      assistant(2, usage(2, 0, 90000)),
+      {
+        seq: 3,
+        dir: "in",
+        message: {
+          type: "control_request",
+          request_id: "c2",
+          request: { subtype: "get_context_usage" },
+        },
+      },
+      {
+        seq: 3.5,
+        dir: "out",
+        message: {
+          type: "control_response",
+          response: { subtype: "success", request_id: "c2", response: recount },
+        },
+      },
+    ]);
+    expect(model.contextUsage).toEqual(recount);
+  });
+});
+
 describe("the plan's usage", () => {
   const usageAnswer = (seq: number, id: string, body: Record<string, unknown>): ChatLine[] => [
     {
