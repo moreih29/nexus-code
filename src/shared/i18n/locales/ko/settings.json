@@ -672,7 +672,7 @@
   "remote": {
     "account": {
       "title": "NexusCode 계정",
-      "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 볼 수 있습니다.",
+      "description": "로그인하면 다른 컴퓨터와 폰에서 이 컴퓨터의 세션을 봅니다",
       "signedOut": "로그인하지 않음",
       "signInWith": {
         "google": "Google로 로그인",
@@ -691,7 +691,7 @@
         "not_invited": "이 서버는 아직 초대된 계정만 쓸 수 있습니다.",
         "server_error": "서버에서 로그인하지 못했습니다. 잠시 후 다시 시도하세요.",
         "invalid_grant": "로그인이 만료됐습니다. 다시 시도하세요.",
-        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 기기에서 쓰지 않는 기기를 지운 뒤 다시 로그인하세요.",
+        "too_many_devices": "이 계정에 로그인한 기기가 너무 많습니다. 다른 기기의 설정 › 원격에서 쓰지 않는 기기를 해제한 뒤 다시 로그인하세요.",
         "mismatch": "다른 로그인의 응답이 왔습니다. 다시 시도하세요.",
         "unreachable": "서버에 연결할 수 없습니다.",
         "failed": "로그인하지 못했습니다. 다시 시도하세요."
@@ -721,24 +721,24 @@
       "renameLabel": "이름",
       "renameConfirm": "바꾸기"
     },
+    "controlTitle": "다른 기기의 조작",
     "control": {
-      "label": "다른 기기에서 채팅 조작 허용",
-      "description": "끄면 다른 기기에서는 채팅을 보기만 할 수 있습니다."
+      "label": "채팅 조작 허용",
+      "description": "메시지 보내기, 요청에 답하기, 멈추기"
     },
     "terminal": {
-      "label": "다른 기기에서 터미널 조작 허용",
-      "description": "끄면 다른 기기에서는 터미널을 보기만 할 수 있습니다. 켜면 입력하고 열고 닫을 수 있어, 이 컴퓨터에서 무엇이든 실행할 수 있습니다."
+      "label": "터미널 조작 허용",
+      "description": "입력하고 열고 닫기 (무엇이든 실행할 수 있음)"
     },
     "agents": {
       "label": "다른 컴퓨터의 에이전트",
       "ask": "매번 묻기",
       "allow": "허용",
       "deny": "허용 안 함",
-      "description": "다른 컴퓨터의 에이전트가 nexus(chat send --device …)로 여기서 하는 일: 채팅에 보내고 답하기, 터미널에 입력하기. 읽기는 항상 허용됩니다. 위의 채팅·터미널 조작 스위치도 켜져 있어야 합니다."
+      "description": "위에서 켠 조작만. 읽기는 항상 허용"
     },
     "key": {
       "title": "계정 암호",
-      "description": "기기끼리 주고받는 내용은 암호화되어 서버도 볼 수 없습니다.",
       "checking": "확인하는 중…",
       "unavailable": "서버에서 확인하지 못했습니다.",
       "retryLater": "잠시 후 다시 시도하세요.",
@@ -746,7 +746,7 @@
       "missing": "다른 기기를 연결할 때 쓸 암호를 정하세요({{count}}자 이상).",
       "locked": "계정 암호를 입력하세요.",
       "unlocked": "잠금 해제됨",
-      "version": "키 버전 {{kid}}",
+      "unlockedDescription": "이 기기에 계정 키가 있습니다",
       "change": "암호 변경",
       "reset": "재설정",
       "forgot": "암호를 잊었나요?",
@@ -784,8 +784,8 @@
         "device-key": "한 기기의 키를 확인할 수 없어 계정 키를 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
         "reset-pending": "이미 대기 중인 재설정이 있습니다."
       },
-      "needsProof": "서버가 이제 기기를 해제하거나 계정을 삭제하기 전에 계정 암호를 확인합니다. 암호를 한 번 입력해 주세요.",
-      "resetDelayed": "새 암호를 정합니다. 암호 없이 하는 재설정이라 72시간 뒤에 적용되고, 그동안 암호를 아는 기기에서 취소할 수 있습니다. 적용되면 다른 기기에서도 새 암호를 입력해야 합니다.",
+      "needsProof": "서버가 이제 기기 해제와 계정 삭제 전에 계정 암호를 확인합니다. 한 번 입력해 주세요.",
+      "resetDelayed": "새 암호는 72시간 뒤에 적용되고, 그동안 암호를 아는 기기에서 취소할 수 있습니다. 적용되면 다른 기기에서도 새 암호를 입력해야 합니다.",
       "pendingReset": {
         "self": "이 기기에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 적용되면 새 암호로 다시 연결하세요.",
         "other": "{{name}}에서 계정 암호 재설정을 요청했습니다. {{when}}에 적용됩니다. 본인이 한 것이 아니면 취소하거나 그 기기를 해제하세요.",
@@ -798,10 +798,9 @@
       }
     },
     "delete": {
-      "title": "계정 삭제",
       "label": "NexusCode 계정 삭제",
-      "description": "계정과 기기를 모두 지웁니다. 되돌릴 수 없습니다.",
-      "button": "계정 삭제",
+      "description": "계정과 기기를 모두 지웁니다 (되돌릴 수 없음)",
+      "button": "삭제",
       "failed": "계정을 삭제하지 못했습니다. 다시 시도하세요.",
       "confirm": {
         "title": "NexusCode 계정을 삭제할까요?",
@@ -812,8 +811,8 @@
     },
     "voice": {
       "title": "음성 입력",
-      "description": "입력창의 마이크를 누르고 말하세요.",
-      "descriptionWithShortcut": "입력창의 마이크나 {{shortcut}} 키를 누르고 말하세요.",
+      "description": "입력창의 마이크를 누르고 말하세요",
+      "descriptionWithShortcut": "입력창의 마이크나 {{shortcut}} 키를 누르고 말하세요",
       "usage": "이번 달",
       "usageOf": "{{limit}}분 중 {{used}}분 사용",
       "usageLoading": "불러오는 중…",
@@ -823,9 +822,9 @@
     },
     "pair": {
       "giveLabel": "새 기기 연결",
-      "giveDescription": "새 기기에서 이 QR 코드를 찍으면 계정 암호 없이 연결됩니다.",
+      "giveDescription": "새 기기에서 QR 코드를 찍으면 암호 없이 연결됩니다",
       "takeLabel": "다른 기기로 연결",
-      "takeDescription": "계정 키를 가진 폰으로 QR 코드를 찍으면 암호 없이 연결됩니다.",
+      "takeDescription": "계정 키가 있는 폰으로 QR 코드를 찍으면 암호 없이 연결됩니다",
       "show": "QR 코드 보기",
       "qrAlt": "연결용 QR 코드",
       "showingGive": "새 기기의 NexusCode에서 이 코드를 찍으세요. 연결을 요청하면 여기서 허용할지 묻습니다.",

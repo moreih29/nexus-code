@@ -3,8 +3,8 @@
 // The NexusCode account the remote runs on: signing in with one of the
 // server's sign-ins, Google or GitHub (sign-in-buttons; in the system
 // browser, main waits for it to come back), who the app is signed in as,
-// the account password (remote-key-group), and the account's devices,
-// each of which can be renamed or removed.
+// the account password (remote-key-group), what other devices may do here,
+// and the account's devices, each of which can be renamed or removed.
 
 import { Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -19,6 +19,7 @@ import {
   type SignInProvider,
 } from "../../../../shared/remote/account";
 import type { RoomState } from "../../../../shared/remote/room";
+import { SERVER } from "../../../../shared/remote/server";
 import type { RemoteAgentsPolicy } from "../../../../shared/types/app-state";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
 import { useRemoteRoom } from "../../../services/remote/room";
@@ -49,7 +50,14 @@ const iconButtonClass = cn(
 const tagClass =
   "shrink-0 rounded-(--radius-pill) border border-border px-1.5 text-app-micro text-muted-foreground";
 
-const PLATFORMS: Record<string, string> = { darwin: "macOS", win32: "Windows", linux: "Linux" };
+const PLATFORMS: Record<string, string> = {
+  darwin: "macOS",
+  win32: "Windows",
+  linux: "Linux",
+  ios: "iOS",
+  android: "Android",
+  web: "Web",
+};
 
 /** The account's state from main, kept up as it changes. */
 function useRemoteAccount(): RemoteAccountState | null {
@@ -116,6 +124,7 @@ export function RemotePanel() {
         onRetry={signIns.retry}
       />
       {state.status === "signed-in" && key && <AccountKeyGroup state={key} />}
+      {state.status === "signed-in" && <RemoteControlGroup />}
       {state.status === "signed-in" && (
         <DevicesGroup thisDevice={state.device.id} room={room} keyState={key} />
       )}
@@ -151,7 +160,10 @@ export function AccountGroup({
         : undefined;
 
   return (
-    <SettingsGroup title={t("remote.account.title")} description={t("remote.account.description")}>
+    <SettingsGroup
+      title={t("remote.account.title")}
+      description={state.status === "signed-in" ? undefined : t("remote.account.description")}
+    >
       {state.status === "signed-in" ? (
         <SettingsRow label={state.user.name || state.user.email} description={state.user.email}>
           <Button variant="outline" size="sm" onClick={signOut}>
@@ -191,9 +203,12 @@ export function AccountGroup({
           </div>
         </SettingsSection>
       )}
-      <p className="text-app-micro text-muted-foreground">
-        {t("remote.account.server", { server: state.server })}
-      </p>
+      {/* The released app's own server goes without saying. */}
+      {state.server !== SERVER && (
+        <p className="text-app-micro text-muted-foreground">
+          {t("remote.account.server", { server: state.server })}
+        </p>
+      )}
     </SettingsGroup>
   );
 }
@@ -293,6 +308,18 @@ export function RemoteAgentsPolicyRow() {
         disabled={policy === null}
       />
     </SettingsRow>
+  );
+}
+
+/** What the account's other devices may do here: chats, terminals, and their agents. */
+export function RemoteControlGroup() {
+  const { t } = useTranslation("settings");
+  return (
+    <SettingsGroup title={t("remote.controlTitle")}>
+      <RemoteControlSwitch />
+      <RemoteTerminalSwitch />
+      <RemoteAgentsPolicyRow />
+    </SettingsGroup>
   );
 }
 
@@ -405,9 +432,6 @@ function DevicesGroup({
         </button>
       }
     >
-      <RemoteControlSwitch />
-      <RemoteTerminalSwitch />
-      <RemoteAgentsPolicyRow />
       {view.status === "unavailable" && (
         <p className="text-app-ui-sm text-destructive" role="alert">
           {t("remote.devices.unavailable")}
@@ -558,7 +582,7 @@ export function DeleteAccountGroup({ keyState }: { keyState: AccountKeyState | n
     if (!result.ok && result.kind !== "session-expired") setError(true);
   };
   return (
-    <SettingsGroup title={t("remote.delete.title")}>
+    <SettingsGroup>
       <SettingsRow
         label={t("remote.delete.label")}
         description={
