@@ -3,6 +3,8 @@
  * the same services the nexus CLI uses, so the remote sees what `nexus
  * session list` would.
  */
+
+import { posix, win32 } from "node:path";
 import {
   type AgentSender,
   type Capability,
@@ -33,7 +35,7 @@ import { Attachments } from "./attachments";
 import type { ChatWatches } from "./chat-watches";
 import { answerConsent, type ConsentControls, remoteConsents } from "./consents";
 import { folderIn, listFiles, type RemoteFiles, readFile } from "./files";
-import { type FolderSystem, folderAt, listFolders } from "./folders";
+import { type FolderSystem, folderToAdd, listFolders, SYSTEM_FOLDERS } from "./folders";
 import { gitDiff, gitLog, gitShow, gitStatus, type RemoteGit } from "./git";
 import { attachToNote, listNotes, PhotoQuota, type RemoteNotes } from "./notes";
 import { fitsInFrame, MAX_MESSAGE_BYTES, RpcFailure } from "./room";
@@ -443,8 +445,9 @@ export async function createWorkspace(
   services: CliServices,
   { path: asked, name }: RpcParams<"workspace.create">,
   device: string | undefined,
+  system: FolderSystem = SYSTEM_FOLDERS,
 ): Promise<RpcResult<"workspace.create">> {
-  const rootPath = await folderAt(asked);
+  const rootPath = await folderToAdd(asked, system);
   const { workspace, added } = await services
     .addWorkspace({ kind: "local", rootPath }, name)
     .catch(unavailable);
@@ -636,7 +639,8 @@ export async function chatCommands(
  */
 export async function runChatCommand(
   services: CliServices,
-  { workspaceId, tabId, name, args }: RpcParams<"chat.command">,
+  { workspaceId, tabId, name, args: given }: RpcParams<"chat.command">,
+  system: FolderSystem = SYSTEM_FOLDERS,
 ): Promise<RpcResult<"chat.command">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const bare = name.replace(/^\//, "");
@@ -654,6 +658,12 @@ export async function runChatCommand(
           : `/${bare} sets what chat.configure sets`,
     );
   }
+  // A folder the chat may read, which the files methods then read too: by its
+  // real path, and not one that would open all of the disk.
+  const args =
+    bare === "add-dir" && given?.trim()
+      ? await folderToAdd(await addDirPath(services, workspaceId, tabId, given, system), system)
+      : given;
   return services
     .ui(
       "chat.command",
@@ -661,6 +671,27 @@ export async function runChatCommand(
       SETTINGS_TIMEOUT_MS,
     )
     .catch(unavailable);
+}
+
+/** The folder /add-dir names, as the composer reads it: from the chat's folder, or the home's. */
+async function addDirPath(
+  services: CliServices,
+  workspaceId: string,
+  tabId: string,
+  given: string,
+  system: FolderSystem,
+): Promise<string> {
+  const p = system.platform === "win32" ? win32 : posix;
+  const path = given.trim().replace(/^(["'])(.*)\1$/, "$2");
+  if (path === "~" || path.startsWith("~/") || path.startsWith("~\\")) {
+    return p.join(system.home(), path.slice(1));
+  }
+  if (p.isAbsolute(path)) return path;
+  const info = await services
+    .ui("chat.state", { workspaceId, tabId, peek: true })
+    .catch(() => null);
+  const cwd = info?.cwd ?? workspaceOf(services, workspaceId)?.rootPath ?? system.home();
+  return p.resolve(cwd, path);
 }
 
 /**
@@ -1210,7 +1241,7 @@ export function serveWith(
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
       case "chat.command":
-        return runChatCommand(s, request.params as RpcParams<"chat.command">);
+        return runChatCommand(s, request.params as RpcParams<"chat.command">, watches.folders);
       case "chat.new":
         return newChat(s, request.params as RpcParams<"chat.new">, watches.files?.fs, relay);
       case "chat.wait":
@@ -1252,6 +1283,7 @@ export function serveWith(
           s,
           request.params as RpcParams<"workspace.create">,
           watches.deviceName?.(from),
+          watches.folders,
         );
       case "chat.remoteControl":
         return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);

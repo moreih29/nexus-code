@@ -12,6 +12,7 @@ import {
   type FolderSystem,
   hiddenOf,
   listFolders,
+  refusedFolder,
 } from "../../../../../src/main/features/remote/folders";
 
 const made: string[] = [];
@@ -108,5 +109,40 @@ describe("listing folders", () => {
       "",
     ].join("\r\n");
     expect([...hiddenOf(listing)].sort()).toEqual(["AppData", "NTUSER.DAT"]);
+  });
+});
+
+describe("a folder another device may add", () => {
+  test("Windows: not a drive's root, the home folder or above it, nor a drive's system folders", () => {
+    const home = "C:\\Users\\me";
+    const refused = (dir: string) => refusedFolder(dir, home, "win32");
+    expect(refused("C:\\")).toBe("a drive's root");
+    expect(refused("D:\\")).toBe("a drive's root");
+    expect(refused("c:\\users\\ME")).toBe("the home folder");
+    expect(refused("C:\\Users")).toBe("a folder that holds the home folder");
+    expect(refused("C:\\Windows\\System32")).toBe("a system folder");
+    expect(refused("D:\\Program Files\\app")).toBe("a system folder");
+    expect(refused("C:\\Users\\me\\work\\app")).toBeUndefined();
+    expect(refused("D:\\src\\app")).toBeUndefined();
+  });
+
+  test("macOS and Linux: not the root, the home folder or above it, the system's, nor /tmp itself", () => {
+    expect(refusedFolder("/", "/Users/me", "darwin")).toBe("a drive's root");
+    expect(refusedFolder("/users/ME", "/Users/me", "darwin")).toBe("the home folder");
+    expect(refusedFolder("/Users", "/Users/me", "darwin")).toBe(
+      "a folder that holds the home folder",
+    );
+    expect(refusedFolder("/usr/local/lib", "/Users/me", "darwin")).toBe("a system folder");
+    expect(refusedFolder("/private/etc", "/Users/me", "darwin")).toBe("a system folder");
+    expect(refusedFolder("/private/tmp", "/Users/me", "darwin")).toBe(
+      "a folder that holds others' files",
+    );
+    expect(refusedFolder("/private/tmp/app", "/Users/me", "darwin")).toBeUndefined();
+    expect(refusedFolder("/Users/me/src/app", "/Users/me", "darwin")).toBeUndefined();
+    expect(refusedFolder("/etc/nginx", "/home/me", "linux")).toBe("a system folder");
+    expect(refusedFolder("/home", "/home/me", "linux")).toBe("a folder that holds the home folder");
+    expect(refusedFolder("/srv/site", "/home/me", "linux")).toBeUndefined();
+    // Linux names differ by case.
+    expect(refusedFolder("/home/ME", "/home/me", "linux")).toBeUndefined();
   });
 });

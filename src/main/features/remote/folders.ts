@@ -2,12 +2,19 @@
  * folders.list: going through this device's folders from another device,
  * to pick one to add as a workspace (workspace.create). Folders only, and
  * links to folders; never a file's name.
+ *
+ * A network or device path (\\host\share, \\?\C:\) is turned down before
+ * anything reads it: reading \\host\share has Windows connect to that host,
+ * and sign in to it as the user. A folder added from another device
+ * (workspace.create, a chat's /add-dir) is taken by its real path, and
+ * never a drive's root, the home folder or one above it, nor the system's:
+ * what the files methods then read would be all of the disk.
  */
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { access, readdir, stat } from "node:fs/promises";
+import { access, readdir, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
+import { dirname, isAbsolute, join, posix, resolve, win32 } from "node:path";
 import { promisify } from "node:util";
 import {
   MAX_FOLDERS,
@@ -42,6 +49,7 @@ export async function listFolders(
   system: FolderSystem = SYSTEM_FOLDERS,
 ): Promise<RpcResult<"folders.list">> {
   const home = system.home();
+  if (asked !== undefined) refuseNetworkPath(asked, system.platform);
   if (asked !== undefined && !isAbsolute(asked)) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "the path is to be absolute");
   }
@@ -80,20 +88,136 @@ export async function listFolders(
   };
 }
 
-/** The folder `asked` names, resolved; NotFound when it is none. */
-export async function folderAt(asked: string): Promise<string> {
+/**
+ * The real folder `asked` names, for another device to add: NotFound when
+ * it is none, Forbidden when it is one not to be added from there.
+ */
+export async function folderToAdd(
+  asked: string,
+  system: FolderSystem = SYSTEM_FOLDERS,
+): Promise<string> {
+  refuseNetworkPath(asked, system.platform);
   if (!isAbsolute(asked)) {
     throw new RpcFailure(RpcErrorCode.InvalidParams, "the path is to be absolute");
   }
-  const dir = resolve(asked);
+  let dir: string;
   let isDir: boolean;
   try {
+    dir = await realpath(resolve(asked));
     isDir = (await stat(dir)).isDirectory();
   } catch (error) {
-    throw folderFailure(error, dir);
+    throw folderFailure(error, resolve(asked));
   }
   if (!isDir) throw new RpcFailure(RpcErrorCode.NotFound, `no folder ${dir}`);
+  const home = system.home();
+  const homes = [home, await realpath(home).catch(() => home)];
+  const why = homes.map((h) => refusedFolder(dir, h, system.platform)).find(Boolean);
+  if (why) {
+    throw new RpcFailure(
+      RpcErrorCode.Forbidden,
+      `${dir} is ${why}: it is not added from another device`,
+    );
+  }
   return dir;
+}
+
+/** Turns down a network or device path, before anything reads it. */
+export function refuseNetworkPath(asked: string, platform: NodeJS.Platform): void {
+  // \\host\share, //host/share, \\?\C:\, \\.\pipe: Windows reads them all.
+  if (platform === "win32" ? /^[\\/]{2}/.test(asked) : asked.startsWith("\\\\")) {
+    throw new RpcFailure(
+      RpcErrorCode.InvalidParams,
+      "a network or device path is not taken from another device",
+    );
+  }
+}
+
+/** The system's own folders: none is added, nor any under it. */
+const POSIX_SYSTEM = [
+  "/System",
+  "/Library",
+  "/Applications",
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/etc",
+  "/dev",
+  "/proc",
+  "/sys",
+  "/boot",
+  "/lib",
+  "/lib32",
+  "/lib64",
+  "/run",
+  "/root",
+  "/var/root",
+  "/var/db",
+  "/var/lib",
+  "/var/log",
+  "/private/etc",
+  "/private/var/root",
+  "/private/var/db",
+  "/private/var/log",
+];
+/** Folders that hold others' or everything: not added themselves; one in them is. */
+const POSIX_HOLDERS = [
+  "/tmp",
+  "/var",
+  "/private",
+  "/private/tmp",
+  "/private/var",
+  "/Volumes",
+  "/opt",
+  "/mnt",
+  "/media",
+  "/srv",
+  "/home",
+  "/Users",
+];
+/** A Windows drive's system folders, on any drive: none is added, nor any under it. */
+const WINDOWS_SYSTEM = [
+  "windows",
+  "program files",
+  "program files (x86)",
+  "programdata",
+  "$recycle.bin",
+  "system volume information",
+];
+
+/**
+ * Why a real folder is not to be added from another device: a drive's root,
+ * the home folder or one that holds it, or the system's; undefined when it
+ * may be.
+ */
+export function refusedFolder(
+  dir: string,
+  home: string,
+  platform: NodeJS.Platform,
+): string | undefined {
+  const p = platform === "win32" ? win32 : posix;
+  // Windows' and macOS's names are the same whatever their case.
+  const key = (path: string) => {
+    const resolved = p.resolve(path);
+    return platform === "linux" ? resolved : resolved.toLowerCase();
+  };
+  const at = key(dir);
+  const under = (folder: string) => {
+    const of = key(folder);
+    return at === of || at.startsWith(of.endsWith(p.sep) ? of : of + p.sep);
+  };
+  if (p.dirname(p.resolve(dir)) === p.resolve(dir)) return "a drive's root";
+  if (at === key(home)) return "the home folder";
+  if (key(home).startsWith(at.endsWith(p.sep) ? at : at + p.sep))
+    return "a folder that holds the home folder";
+  if (platform === "win32") {
+    const { root } = win32.parse(win32.resolve(dir));
+    const first = at.slice(root.length).split(win32.sep)[0] ?? "";
+    return WINDOWS_SYSTEM.includes(first) ? "a system folder" : undefined;
+  }
+  if (POSIX_SYSTEM.some(under)) return "a system folder";
+  if (POSIX_HOLDERS.some((folder) => at === key(folder)))
+    return "a folder that holds others' files";
+  return undefined;
 }
 
 async function isFolder(target: string): Promise<boolean> {

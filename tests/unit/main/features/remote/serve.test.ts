@@ -1,5 +1,8 @@
 /** What this device serves the others: its sessions, as the CLI's services see them. */
 import { describe, expect, test } from "bun:test";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   MAX_AGENT_DESCRIPTION,
   MAX_LISTED_NOTES,
@@ -1081,10 +1084,11 @@ describe("when a message goes, and the ones held for after the turn", () => {
 
 describe("adding a workspace from another device", () => {
   test("a folder is added and the user told which device added it; one listed is given back", async () => {
+    const folder = await realpath(await mkdtemp(join(tmpdir(), "ws-create-")));
     const added: unknown[] = [];
     const told: unknown[] = [];
     const base = services();
-    const listed = { id: "w9", name: "site", rootPath: "/tmp" };
+    const listed = { id: "w9", name: "site", rootPath: folder };
     const s = {
       ...base,
       addWorkspace: async (location: unknown, name: string | undefined) => {
@@ -1101,15 +1105,41 @@ describe("adding a workspace from another device", () => {
       await serve({
         from: "p",
         method: "workspace.create",
-        params: { path: "/tmp", name: "Site" },
+        params: { path: folder, name: "Site" },
       }),
-    ).toEqual({ workspace: { id: "w9", name: "Site", path: "/tmp" }, created: true });
+    ).toEqual({ workspace: { id: "w9", name: "Site", path: folder }, created: true });
     expect(
-      await serve({ from: "p", method: "workspace.create", params: { path: "/tmp" } }),
+      await serve({ from: "p", method: "workspace.create", params: { path: folder } }),
     ).toMatchObject({ created: false });
-    expect(added[0]).toEqual([{ kind: "local", rootPath: "/tmp" }, "Site"]);
+    expect(added[0]).toEqual([{ kind: "local", rootPath: folder }, "Site"]);
     expect(told).toHaveLength(1);
-    expect(told[0]).toMatchObject(["w9", "", expect.stringContaining("iPhone"), "/tmp"]);
+    expect(told[0]).toMatchObject(["w9", "", expect.stringContaining("iPhone"), folder]);
+    await rm(folder, { recursive: true, force: true });
+  });
+
+  test("not a drive's root, the home folder or one above it, nor the system's", async () => {
+    const serve = serveWith(() => services());
+    const create = (path: string) =>
+      serve({ from: "p", method: "workspace.create", params: { path } });
+    await expect(create(homedir())).rejects.toMatchObject({ code: 1002 });
+    await expect(create(dirname(homedir()))).rejects.toMatchObject({ code: 1002 });
+    if (process.platform !== "win32") {
+      await expect(create("/")).rejects.toMatchObject({ code: 1002 });
+      await expect(create("/usr")).rejects.toMatchObject({ code: 1002 });
+    }
+  });
+
+  test("a network or device path on Windows is turned down before it is read", async () => {
+    const windows = { platform: "win32" as const, home: () => "C:\\Users\\me" };
+    const serve = serveWith(() => services(), { folders: windows });
+    for (const path of ["\\\\host\\share\\x", "//host/share", "\\\\?\\C:\\work"]) {
+      await expect(
+        serve({ from: "p", method: "workspace.create", params: { path } }),
+      ).rejects.toMatchObject({ code: -32602 });
+      await expect(
+        serve({ from: "p", method: "folders.list", params: { path } }),
+      ).rejects.toMatchObject({ code: -32602 });
+    }
   });
 
   test("a path that is no folder is NotFound, a relative one InvalidParams", async () => {
@@ -1129,24 +1159,30 @@ describe("serving a chat's slash commands", () => {
     { name: "model", description: "Model", runs: "settings", sets: "model" },
     { name: "btw", description: "Aside", runs: "command", args: "<question>" },
   ];
-  function commandServices() {
+  const listedCommands = [...commands, { name: "add-dir", description: "Add", runs: "command" }];
+  function commandServicesWith(base: CliServices) {
     const asked: [string, unknown][] = [];
-    const base = services();
     const s = {
       ...base,
       ui: async (op: string, args: { workspaceId: string }) => {
         if (op === "tabs.list") return base.ui("tabs.list", args);
+        if (op === "chat.state") return { agent: "claude", state: "idle" };
         asked.push([op, args]);
-        return op === "chat.commands" ? { commands } : { message: "an answer" };
+        return op === "chat.commands" ? { commands: listedCommands } : { message: "an answer" };
       },
     } as unknown as CliServices;
     return { serve: serveWith(() => s), asked };
+  }
+  function commandServices() {
+    return commandServicesWith(services());
   }
   const tab = { workspaceId: "w1", tabId: "t1" };
 
   test("lists them, and runs one of the app's with what follows it", async () => {
     const { serve, asked } = commandServices();
-    expect(await serve({ from: "d", method: "chat.commands", params: tab })).toEqual({ commands });
+    expect(await serve({ from: "d", method: "chat.commands", params: tab })).toEqual({
+      commands: listedCommands,
+    });
     const ran = await serve({
       from: "d",
       method: "chat.command",
@@ -1154,6 +1190,35 @@ describe("serving a chat's slash commands", () => {
     });
     expect(ran).toEqual({ message: "an answer" });
     expect(asked.at(-1)).toEqual(["chat.command", { ...tab, name: "btw", args: "why?" }]);
+  });
+
+  test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
+    const { serve, asked } = commandServices();
+    const root = await realpath(await mkdtemp(join(tmpdir(), "add-dir-")));
+    await mkdir(join(root, "sub"));
+    const s = services();
+    const listed = s.listWorkspaces();
+    const withRoot = {
+      ...s,
+      listWorkspaces: () => listed.map((w) => (w.id === "w1" ? { ...w, rootPath: root } : w)),
+    } as unknown as CliServices;
+    const add = (args: string, through = serve) =>
+      through({ from: "d", method: "chat.command", params: { ...tab, name: "add-dir", args } });
+    await add(join(root, "sub"));
+    expect(asked.at(-1)).toEqual([
+      "chat.command",
+      { ...tab, name: "add-dir", args: join(root, "sub") },
+    ]);
+    await expect(add("/")).rejects.toMatchObject({ code: 1002 });
+    await expect(add("~")).rejects.toMatchObject({ code: 1002 });
+    // A relative one is from the chat's folder: here the workspace's, as chat.state tells none.
+    const relative = commandServicesWith(withRoot);
+    await add("sub", relative.serve);
+    expect(relative.asked.at(-1)).toEqual([
+      "chat.command",
+      { ...tab, name: "add-dir", args: join(root, "sub") },
+    ]);
+    await rm(root, { recursive: true, force: true });
   });
 
   test("sends the agent's own and the settings elsewhere, and refuses one it does not list", async () => {
