@@ -64,7 +64,6 @@ function v2Server() {
         if (!s.bundle) throw new ServerError(404, "not_found", route);
         return {
           ...structuredClone(s.bundle),
-          hasVerifier: s.verifier !== null,
           pendingReset: s.pending
             ? { appliesAt: s.pending.appliesAt, deviceId: s.pending.deviceId }
             : null,
@@ -76,17 +75,13 @@ function v2Server() {
           expected: number | null;
           verifier?: string;
         };
+        if (!verifier) throw new ServerError(400, "invalid_body", route);
         if (!proofOk(headers)) throw forbidden();
         if (expected !== (s.bundle?.version ?? null)) throw new ServerError(409, "conflict", route);
         s.bundle = { bundle, version: (s.bundle?.version ?? 0) + 1 };
-        if (verifier) s.verifier = verifier;
+        s.verifier = verifier;
         s.pending = null;
         return { version: s.bundle.version };
-      }
-      if (route === "PUT /account/key-verifier") {
-        if (s.verifier !== null) throw new ServerError(409, "conflict", route);
-        s.verifier = (body as { verifier: string }).verifier;
-        return {};
       }
       if (route === "POST /account/key-reset") {
         if (s.pending) throw new ServerError(409, "conflict", route);
@@ -213,7 +208,7 @@ describe("account keys v2", () => {
     const { server, a, b } = await threeDevices();
     const { s } = server;
     expect(s.verifier).toHaveLength(43);
-    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1, v2: true });
+    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1 });
     const ak = a.keys.key()?.key as Uint8Array;
     for (const id of ["dev-a", "dev-b", "dev-c"]) {
       const key = s.devices.get(id)?.key as DeviceKey;
@@ -221,29 +216,6 @@ describe("account keys v2", () => {
       expect(certChecks(ak, USER, id, key)).toBe(true);
     }
     expect((await b.store.load())?.registered).toBe(1);
-  });
-
-  test("an account without a verifier asks for the password once, and takes its proof after", async () => {
-    const server = v2Server();
-    const a = device(server, "dev-a");
-    await a.keys.restore();
-    await a.keys.create(PASSWORD);
-    // As an account made before v2.
-    server.s.verifier = null;
-    await a.keys.refresh();
-    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1, v2: true, needsProof: true });
-    await expect(a.keys.confirmPassword(OTHER)).rejects.toMatchObject({
-      failure: "wrong-password",
-    });
-    await a.keys.confirmPassword(PASSWORD);
-    expect(server.s.verifier).not.toBeNull();
-    expect(a.keys.state()).toEqual({ status: "unlocked", kid: 1, v2: true });
-    // A new device's password fills one too.
-    server.s.verifier = null;
-    const b = device(server, "dev-b");
-    await b.keys.restore();
-    await b.keys.unlock(PASSWORD);
-    expect(server.s.verifier).not.toBeNull();
   });
 
   test("a new password carries the old one's proof; a verifier of another's is account-auth", async () => {
@@ -342,14 +314,32 @@ describe("account keys v2", () => {
     });
   });
 
-  test("the proof for deleting the account, only where the server keeps a verifier", async () => {
+  test("the proof for deleting the account; none for an account with no key yet", async () => {
     const { server, a } = await threeDevices();
     const headers = await a.keys.proofHeaders(PASSWORD);
     expect(sha(headers?.[ACCOUNT_AUTH_HEADER] as string)).toBe(server.s.verifier as string);
     await expect(a.keys.proofHeaders(OTHER)).rejects.toMatchObject({ failure: "wrong-password" });
-    server.s.verifier = null;
-    await a.keys.refresh();
-    expect(await a.keys.proofHeaders(PASSWORD)).toBeNull();
+    const fresh = device(v2Server(), "dev-a");
+    await fresh.keys.restore();
+    expect(await fresh.keys.proofHeaders(PASSWORD)).toBeNull();
+  });
+
+  test("a reset put in place: every device finds the next key locked until it types the new password", async () => {
+    const { server, a, b } = await threeDevices();
+    await b.keys.reset(OTHER);
+    const { s } = server;
+    const pending = s.pending as NonNullable<typeof s.pending>;
+    // The server puts it in place once its time has come.
+    s.bundle = { bundle: pending.bundle, version: (s.bundle?.version ?? 0) + 1 };
+    s.verifier = pending.verifier;
+    s.pending = null;
+    expect(await a.keys.refresh()).toEqual({ status: "locked", kid: 2 });
+    expect(await b.keys.refresh()).toEqual({ status: "locked", kid: 2 });
+    await expect(a.keys.unlock(PASSWORD)).rejects.toMatchObject({ failure: "wrong-password" });
+    await a.keys.unlock(OTHER);
+    await b.keys.unlock(OTHER);
+    expect(a.keys.state()).toMatchObject({ status: "unlocked", kid: 2 });
+    expect(b.keys.key()).toEqual(a.keys.key());
   });
 
   test("a key handed over by pairing is taken, and this device's key registered under it", async () => {

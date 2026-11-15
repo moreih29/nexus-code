@@ -426,7 +426,10 @@ describe("the account key's bundle", () => {
     expect(
       KeyBundleSchema.safeParse({ ...bundle, kdf: { ...bundle.kdf, mem: 1024 } }).success,
     ).toBe(false);
-    expect(KeyBundlePutSchema.parse({ bundle, expected: null }).expected).toBeNull();
+    const verifier = "A".repeat(43);
+    expect(KeyBundlePutSchema.parse({ bundle, expected: null, verifier }).expected).toBeNull();
+    // Every write carries the password's verifier, the first too.
+    expect(KeyBundlePutSchema.safeParse({ bundle, expected: null }).success).toBe(false);
   });
 
   test("is sealed for its user and version", () => {

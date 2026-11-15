@@ -1,4 +1,4 @@
-# The account key (v1, and v2 below)
+# The account key
 
 A user's devices seal what they send each other with a key only those devices hold. The relay passes the sealed messages on but cannot open them. A new device gets the key when the user signs in with Google and types the **account password**. The server keeps the key locked with that password and never sees the password or the key.
 
@@ -61,14 +61,12 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 4. A key is only ever replaced by a newer one. A device that holds a key does not take a bundle of an older `kid`: it keeps its key, and does not ask for a password to open the older bundle.
 4. Nothing is lost: the server keeps no history, only the sealed bundle.
 
-**Removing a device**
-- v1: `DELETE /devices/:id` ends its sign-in and closes its socket. AK stays the same, so the removed device's copy still opens what comes after.
-- v2: removing a device rotates AK (see "Rotation" below). The devices that stay take the new AK without the password; the removed one does not get it.
+**Removing a device** rotates AK (see "Rotation" below). The devices that stay take the new AK without the password; the removed one does not get it.
 
 ## What the server needs to provide
 
 - `GET /account/key-bundle` → `200 { bundle, version }` or `404`.
-- `PUT /account/key-bundle` with body `{ bundle, expected }` → `200 { version }`, or `409` when `expected` is not the current version (`null` when one exists already).
+- `PUT /account/key-bundle` with body `{ bundle, expected, verifier }` → `200 { version }`, or `409` when `expected` is not the current version (`null` when one exists already).
 - Check the bundle against `KeyBundleSchema` and cap its size (it is well under 1 KB). Store it opaque. Return it only to a signed-in device of the same user.
 - Rate-limit the GET per user. Anyone who gets the bundle can guess passwords offline, so keep it only for the account's own devices.
 
@@ -80,7 +78,7 @@ The design is open on purpose: its safety rests on the keys, not on the code bei
 
 # Version 2: device keys, pairing, rotation, the password's proof
 
-Schemas and strings: `src/device-keys.ts`, with `VerifierSchema`, `PendingResetSchema` and the new fields in `src/account.ts`, `AccountEventSchema` in `src/relay.ts`, and `accountKeys` in `src/info.ts`. A server with v2 says `accountKeys: { version: 2 }` in `GET /info`; a device keeps to v1 where it does not. Pairing needs nothing new of the server.
+Schemas and strings: `src/device-keys.ts`, with `VerifierSchema`, `PendingResetSchema` and the new fields in `src/account.ts`, `AccountEventSchema` in `src/relay.ts`, and `accountKeys` in `src/info.ts`. Since protocol 0.12.0 every server and device has v2: a device no longer speaks to a server without it, and the v1-only requests (`PUT /account/key-verifier`, a bundle written without a verifier) are gone. Pairing needs nothing new of the server.
 
 ## Primitives
 
@@ -97,14 +95,14 @@ Every device must make the same bytes; `Test vectors` below checks it.
 
 The server never learns the password, but it can tell whether a request comes from someone who knows it.
 
-- `KEK` is the key the password makes with the bundle's `kdf`, as in v1.
+- `KEK` is the key the password makes with the bundle's `kdf`, as above.
 - `authKey = HKDF(KEK, "nexus-remote/account-auth/v1")` (`ACCOUNT_AUTH_INFO`).
 - `verifier = base64url(SHA-256(authKey))`.
 - A request that needs the password carries `X-Account-Auth: base64url(authKey)` (`ACCOUNT_AUTH_HEADER`), the proof for the bundle on the server now. The server compares `SHA-256(header)` with the verifier it keeps, in constant time.
 - Missing or wrong: `403 { "error": "account-auth" }` (`ACCOUNT_AUTH_ERROR`). Failures are counted per account (10 in 10 minutes); past that, the server answers `429` with `Retry-After` before it checks the proof, a right one too.
 - Offline guessing gets nothing new: the verifier, like the bundle, costs one Argon2id per guess. If the server or a request is read, authKey lets one act as the owner toward the server, but it does not open the bundle (HKDF is one-way).
 
-**Needs the proof**, once the account has a verifier:
+**Needs the proof**:
 - `PUT /account/key-bundle` (a new password, or a reset when the password is known);
 - `POST /account/key-rotation`;
 - `DELETE /devices/:id` for another device;
@@ -114,19 +112,17 @@ The server never learns the password, but it can tell whether a request comes fr
 **Never needs it**: signing this device out, renaming a device, `PUT /devices/current/key`, `GET /devices/current/key-envelopes`, pairing.
 
 **Writing the verifier**
-- Each bundle a v2 device writes carries the verifier of the password it is locked with (`verifier` in the body). The server keeps it with the bundle, in the same statement.
-- An account without one yet (made before v2): `PUT /account/key-verifier { verifier }` sets it once; `409` if it has one. The server cannot check it, so a v2 desktop asks the user for the password soon after it finds `hasVerifier: false` in `GET /account/key-bundle`, opens the bundle with it to be sure it is right, and puts the verifier. Until then the account takes the v1 requests without the proof.
-- A device before v2 writes a bundle without a verifier and without the proof: the server takes it while the account has no verifier, and refuses it (`403`) once it has one.
+- Each bundle a device writes, the first one too, carries the verifier of the password it is locked with (`verifier` in the body). The server keeps it with the bundle, in the same statement, and refuses a write without one.
 
 ## A forgotten password: a reset that waits
 
 Without the password, no request can carry the proof. A stolen device does not know the password either, so a reset without it waits, and the devices that know the password can call it off.
 
 - `POST /account/key-reset { bundle, verifier }`, without the header: a new AK (`kid + 1`) locked with a new password. The server keeps it aside and answers `202 { appliesAt, deviceId }` (`PendingResetSchema`). `409` while another waits.
-- Its `bundle.kid` must be the bundle's `kid` now + 1, else `400`. An account without a verifier takes it too, so a device has one flow.
+- Its `bundle.kid` must be the bundle's `kid` now + 1, else `400`.
 - It is put in place after `RESET_DELAY_MS` (72 hours): by the hourly job, or sooner by `GET /account/key-bundle` or a request that needs the proof once the time has come. Bundle and verifier replaced, version + 1, envelopes dropped. The room is told `{ t: "account", event: "key-reset", kid }`. Devices then find frames or a bundle of a newer `kid` and ask for the new password, as in v1.
 - While it waits, `GET /account/key-bundle` says `pendingReset: { appliesAt, deviceId }`, and the room is told `{ t: "account", event: "reset-pending", appliesAt }` at once. A device shows it, with the device that asked, and a way to call it off.
-- `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any bundle write that goes through calls it off too (a new password, a rotation, a v1 `PUT` on an account without a verifier).
+- `DELETE /account/key-reset` with the proof calls it off (`{ t: "account", event: "reset-cancelled" }`). Any bundle write that goes through calls it off too (a new password, a rotation).
 - The device that asked for it may be removed by any other device of the account without the proof, which calls the reset off. So an owner who forgot the password can still stop a stolen device's reset; a thief can only do the same to the owner's, which holds them up but takes nothing.
 - Removing the device that asked, in any way, calls it off.
 - With the password known, a reset is a `PUT` with the proof, at once, as in v1.

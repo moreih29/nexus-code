@@ -716,7 +716,6 @@
       "change": "Change password",
       "reset": "Reset",
       "forgot": "Forgot the password?",
-      "resetExplained": "Set a new password. Your other devices will ask for it.",
       "mismatch": "The passwords don't match.",
       "field": {
         "password": "Account password",
@@ -750,7 +749,6 @@
         "device-key": "A device's key could not be checked, so the account key was not changed. Try again in a while.",
         "reset-pending": "A reset is already waiting."
       },
-      "needsProof": "The server now checks the account password before a device is removed or the account deleted. Type it once.",
       "resetDelayed": "The new password takes effect in 72 hours, and a device that knows the current one can call it off meanwhile. Your other devices then ask for the new one.",
       "pendingReset": {
         "self": "This device asked to reset the account password. It takes effect {{when}}. Then connect again with the new password.",

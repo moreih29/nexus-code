@@ -325,9 +325,9 @@ export function RemoteControlGroup() {
   );
 }
 
-/** Whether the server asks for the account password before removing a device or deleting the account (account keys v2). */
+/** Whether the server asks for the account password before removing a device or deleting the account: once the account has a key. */
 function asksPassword(key: AccountKeyState | null): boolean {
-  return (key?.status === "unlocked" || key?.status === "locked") && key.v2 === true;
+  return key?.status === "unlocked" || key?.status === "locked";
 }
 
 function DevicesGroup({
@@ -373,7 +373,7 @@ function DevicesGroup({
 
   const remove = async (device: RemoteDeviceInfo) => {
     const self = device.id === thisDevice;
-    // Another device, on a server of account keys v2: the account key is rotated, with the password.
+    // Another device: the account key is rotated, with the password.
     if (!self && asksPassword(keyState)) {
       setPasswordRequest({
         title: t("remote.devices.removeConfirm.title", { name: deviceLabel(device) }),

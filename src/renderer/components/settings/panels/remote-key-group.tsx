@@ -111,12 +111,6 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
               </Button>
             </div>
           </SettingsRow>
-          {state.needsProof && (
-            <>
-              <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.needsProof")}</p>
-              <PasswordForm kind="confirm" />
-            </>
-          )}
           <PairingRow giving />
         </>
       )}
@@ -125,11 +119,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
       )}
       {(state.status === "unlocked" || state.status === "locked") && mode === "reset" && (
         <>
-          <p className="text-app-ui-sm text-muted-foreground">
-            {state.v2 && !state.needsProof
-              ? t("remote.key.resetDelayed")
-              : t("remote.key.resetExplained")}
-          </p>
+          <p className="text-app-ui-sm text-muted-foreground">{t("remote.key.resetDelayed")}</p>
           <PasswordForm kind="reset" onCancel={idle} onDone={idle} />
         </>
       )}
@@ -137,7 +127,7 @@ export function AccountKeyGroup({ state }: { state: AccountKeyState }) {
   );
 }
 
-type FormKind = "create" | "unlock" | "change" | "reset" | "confirm";
+type FormKind = "create" | "unlock" | "change" | "reset";
 type Field = "password" | "current" | "next" | "confirm";
 
 const FIELDS: Record<FormKind, readonly Field[]> = {
@@ -145,7 +135,6 @@ const FIELDS: Record<FormKind, readonly Field[]> = {
   unlock: ["password"],
   change: ["current", "next", "confirm"],
   reset: ["next", "confirm"],
-  confirm: ["password"],
 };
 
 const EMPTY: Record<Field, string> = { password: "", current: "", next: "", confirm: "" };
@@ -164,8 +153,6 @@ function send(kind: FormKind, values: Record<Field, string>) {
       });
     case "reset":
       return ipcCallResult("remote", "resetKey", { password: values.next });
-    case "confirm":
-      return ipcCallResult("remote", "confirmPassword", { password: values.password });
   }
 }
 

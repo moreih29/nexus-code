@@ -113,17 +113,8 @@ export const PendingResetInfoSchema = z.object({
 });
 export type PendingResetInfo = z.infer<typeof PendingResetInfoSchema>;
 
-/**
- * What a server with account keys v2 adds to where the key stands:
- * - v2: the server has them (a removal rotates the key, and needs the
- *   password);
- * - needsProof: the server keeps no verifier of the password yet: the user
- *   is asked to type it once;
- * - pendingReset: a reset that waits.
- */
+/** What the server says beside where the key stands: a reset that waits. */
 const KeyExtrasSchema = z.object({
-  v2: z.boolean().optional(),
-  needsProof: z.boolean().optional(),
   pendingReset: PendingResetInfoSchema.optional(),
 });
 

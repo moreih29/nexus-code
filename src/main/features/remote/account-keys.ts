@@ -4,10 +4,9 @@
  * first, type it on another device, change it, reset it when it is
  * forgotten), against the server's locked bundle (ACCOUNT_KEYS.md).
  *
- * With a server of account keys v2 it also keeps this device's key pair
- * registered, takes a new account key from an envelope after another device
- * rotated it, rotates it when it removes a device, and gives the server the
- * password's proof where it asks.
+ * It also keeps this device's key pair registered, takes a new account key
+ * from an envelope after another device rotated it, rotates it when it
+ * removes a device, and gives the server the password's proof where it asks.
  */
 import { z } from "zod";
 import {
@@ -92,7 +91,7 @@ export interface AccountKeysDeps {
   readonly now?: () => number;
 }
 
-/** A device of the account with its key, as GET /devices tells it (v2). */
+/** A device of the account with its key, as GET /devices tells it. */
 const KeyedDevicesSchema = z.object({
   devices: z.array(
     z.object({ id: z.string(), key: DeviceKeySchema.nullable().optional() }).passthrough(),
@@ -102,9 +101,6 @@ const KeyedDevicesSchema = z.object({
 /** What the server said of the account key the last time it was asked. */
 interface ServerSide {
   readonly kid: number;
-  /** It has account keys v2. */
-  readonly v2: boolean;
-  readonly hasVerifier: boolean;
   readonly pendingReset: { appliesAt: number; deviceId: string } | null;
 }
 
@@ -177,8 +173,7 @@ export class AccountKeys {
       const userId = this.userId();
       const found = await this.fetch();
       if (!found || this.older(found)) throw await this.conflict();
-      const { key, proof } = await this.open(found.bundle, password, userId);
-      if (found.hasVerifier === false) await this.putVerifier(proof);
+      const { key } = await this.open(found.bundle, password, userId);
       await this.hold(userId, found.bundle.kid, key);
       return this.check();
     });
@@ -193,21 +188,6 @@ export class AccountKeys {
       const userId = this.userId();
       if (this.held && this.held.kid > kid) throw new KeyError("conflict");
       await this.hold(userId, kid, key);
-      return this.check();
-    });
-  }
-
-  /**
-   * The user types the password once for a server that keeps no verifier of
-   * it yet: it must open the bundle, whose verifier the server then keeps.
-   */
-  confirmPassword(password: string): Promise<AccountKeyState> {
-    return this.run(async () => {
-      const userId = this.userId();
-      const found = await this.fetch();
-      if (!found) throw await this.conflict();
-      const { proof } = await this.open(found.bundle, password, userId);
-      await this.putVerifier(proof);
       return this.check();
     });
   }
@@ -229,10 +209,10 @@ export class AccountKeys {
 
   /**
    * The password is forgotten: a new key (the next version) under a new
-   * password. Where the server keeps a verifier, it waits (RESET_DELAY_MS)
-   * and the devices that know the password may call it off; else it is put
-   * in place at once. The account's other devices ask for the new password
-   * once they find the new version.
+   * password. It waits (RESET_DELAY_MS), and the devices that know the
+   * password may call it off; an account with no key yet has it at once.
+   * The account's other devices ask for the new password once they find
+   * the new version.
    */
   reset(nextPassword: string): Promise<AccountKeyState> {
     return this.run(async () => {
@@ -242,7 +222,7 @@ export class AccountKeys {
       const kid = Math.max(found?.bundle.kid ?? 0, this.held?.kid ?? 0) + 1;
       const key = await newAccountKey();
       const { bundle, proof } = await this.lock(key, kid, nextPassword, userId);
-      if (found?.hasVerifier) {
+      if (found) {
         try {
           await this.deps.account.request("POST", "/account/key-reset", {
             bundle,
@@ -256,7 +236,7 @@ export class AccountKeys {
         }
         return this.check();
       }
-      await this.put(bundle, found?.version ?? null, proof);
+      await this.put(bundle, null, proof);
       await this.hold(userId, kid, key);
       return this.check();
     });
@@ -276,24 +256,24 @@ export class AccountKeys {
     });
   }
 
-  /** The password's proof for the bundle now, as DELETE /account takes it; null on a server without one. */
+  /** The password's proof for the bundle now, as DELETE /account takes it; null with no bundle. */
   proofHeaders(password: string): Promise<Record<string, string> | null> {
     return this.run(async () => {
       const userId = this.userId();
       const found = await this.fetch();
-      if (!found?.hasVerifier) return null;
+      if (!found) return null;
       const { proof } = await this.open(found.bundle, password, userId);
       return authHeader(proof);
     });
   }
 
   /**
-   * Removes other devices of the account. On a server of account keys v2
-   * the key is rotated with them, with the password: the devices that stay
-   * get the new key sealed for each, the removed ones do not. The device
-   * that asked for a reset that waits may be removed without it, which
-   * calls the reset off. Elsewhere, as before: the server only ends their
-   * sign-ins. This device signs out through the account, not here.
+   * Removes other devices of the account. The key is rotated with them,
+   * with the password: the devices that stay get the new key sealed for
+   * each, the removed ones do not. The device that asked for a reset that
+   * waits may be removed without it, which calls the reset off; with no
+   * key yet, the server only ends their sign-ins. This device signs out
+   * through the account, not here.
    */
   removeDevices(ids: readonly string[], password?: string): Promise<AccountKeyState> {
     return this.run(async () => {
@@ -301,7 +281,7 @@ export class AccountKeys {
       const others = ids.filter((id) => id !== self);
       const found = await this.fetch();
       const resetter = found?.pendingReset?.deviceId;
-      if (!found?.v2Server || (password === undefined && others.every((id) => id === resetter))) {
+      if (!found || (password === undefined && others.every((id) => id === resetter))) {
         for (const id of others) await this.deleteDevice(id);
         return this.check();
       }
@@ -313,7 +293,7 @@ export class AccountKeys {
   }
 
   private async rotate(
-    found: KeyBundleResponse & { v2Server: boolean },
+    found: KeyBundleResponse,
     remove: readonly string[],
     password: string,
   ): Promise<void> {
@@ -409,7 +389,7 @@ export class AccountKeys {
     else this.set({ status: "checking" });
     try {
       const found = await this.fetch();
-      if (found && this.held && found.bundle.kid > this.held.kid && found.v2Server) {
+      if (found && this.held && found.bundle.kid > this.held.kid) {
         // Another device rotated the key: an envelope may carry it here.
         await this.takeEnvelopes().catch((error: unknown) =>
           console.warn("[remote] taking the new account key from an envelope failed:", error),
@@ -441,15 +421,13 @@ export class AccountKeys {
     return this.current;
   }
 
-  /** What a v2 server adds to the state. */
-  private extras(): { v2?: true; needsProof?: true; pendingReset?: AccountKeyStatePending } {
+  /** What the server said beside the key: a reset that waits. */
+  private extras(): { pendingReset?: AccountKeyStatePending } {
     const server = this.server;
-    if (!server?.v2) return {};
+    if (!server) return {};
     const self = this.deps.account.state();
     const selfId = self.status === "signed-in" ? self.device.id : undefined;
     return {
-      v2: true,
-      ...(!server.hasVerifier && this.held?.kid === server.kid ? { needsProof: true } : {}),
       ...(server.pendingReset
         ? {
             pendingReset: {
@@ -490,10 +468,10 @@ export class AccountKeys {
     if (current.kid > held.kid) await this.hold(held.userId, current.kid, current.key, current.kid);
   }
 
-  /** Registers this device's key under the key held, where the server has v2 and has not it yet. */
+  /** Registers this device's key under the key held, where the server has not it yet. */
   private async syncDeviceKey(): Promise<void> {
     const held = this.held;
-    if (!this.server?.v2 || !held || held.registered === held.kid) return;
+    if (!held || held.registered === held.kid) return;
     const pair = await this.devicePair();
     await this.register({
       publicKey: pair.publicKey,
@@ -540,20 +518,13 @@ export class AccountKeys {
   }
 
   /** The bundle on the server, or null before there is one; it notes what the server said. */
-  private async fetch(): Promise<(KeyBundleResponse & { v2Server: boolean }) | null> {
+  private async fetch(): Promise<KeyBundleResponse | null> {
     try {
       const found = KeyBundleResponseSchema.parse(
         await this.deps.account.request("GET", BUNDLE_PATH),
       );
-      // A server of v2 always tells whether it keeps a verifier.
-      const v2Server = found.hasVerifier !== undefined;
-      this.server = {
-        kid: found.bundle.kid,
-        v2: v2Server,
-        hasVerifier: found.hasVerifier === true,
-        pendingReset: found.pendingReset ?? null,
-      };
-      return { ...found, v2Server };
+      this.server = { kid: found.bundle.kid, pendingReset: found.pendingReset ?? null };
+      return found;
     } catch (error) {
       if (error instanceof ServerError && error.status === 404) {
         this.server = null;
@@ -586,18 +557,6 @@ export class AccountKeys {
       ) {
         throw await this.conflict();
       }
-      throw error;
-    }
-  }
-
-  /** Puts the verifier of an account that has none yet; one put meanwhile is as good. */
-  private async putVerifier(proof: PasswordProof): Promise<void> {
-    try {
-      await this.deps.account.request("PUT", "/account/key-verifier", {
-        verifier: proof.verifier,
-      });
-    } catch (error) {
-      if (error instanceof ServerError && (error.status === 409 || error.status === 404)) return;
       throw error;
     }
   }

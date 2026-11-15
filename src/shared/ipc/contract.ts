@@ -2680,8 +2680,6 @@ export const ipcContract = {
         AccountKeyStateSchema,
       ),
       resetKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
-      /** Types the password once, for a server that keeps no verifier of it yet. */
-      confirmPassword: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Calls off a reset that waits, with the password. */
       cancelReset: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),
       /** Where a pairing through a QR code stands. */

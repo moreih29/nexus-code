@@ -692,10 +692,6 @@ export async function registerRemoteChannel(options: {
         const { password } = validateArgs(c.resetKey.args, args);
         return keyFlow(() => accountKeys.reset(password));
       },
-      confirmPassword: (args: unknown) => {
-        const { password } = validateArgs(c.confirmPassword.args, args);
-        return keyFlow(() => accountKeys.confirmPassword(password));
-      },
       cancelReset: (args: unknown) => {
         const { password } = validateArgs(c.cancelReset.args, args);
         return keyFlow(() => accountKeys.cancelReset(password));
