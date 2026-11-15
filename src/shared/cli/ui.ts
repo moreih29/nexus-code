@@ -926,6 +926,11 @@ export interface CliUiOps {
       user?: boolean;
       /** Images with it, as the composer's pasted ones go (base64). */
       images?: { mediaType: string; data: string }[];
+      /**
+       * Files with it, as the composer's dropped ones go: each written where
+       * the agent reads it, its path's mention after the text (base64).
+       */
+      files?: { name: string; data: string }[];
     };
     result: Record<string, never>;
   };
