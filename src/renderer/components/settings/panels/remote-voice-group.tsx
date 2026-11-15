@@ -163,8 +163,12 @@ function VoiceTermsSection() {
       setError(t("remote.voice.terms.tooLong", { max: MAX_VOICE_TERM_CHARS }));
     } else if (next.status === "too-many") {
       setError(t("remote.voice.terms.tooMany", { max: MAX_VOICE_TERMS }));
-    } else if (await save(next.terms)) {
+    } else {
+      // Emptied at once, so what is typed while it saves is the next term's;
+      // given back when it was not saved, unless something new was typed.
+      const typed = input;
       setInput("");
+      if (!(await save(next.terms))) setInput((now) => now || typed);
     }
   };
 
@@ -194,7 +198,8 @@ function VoiceTermsSection() {
           spellCheck={false}
           autoComplete="off"
           placeholder={t("remote.voice.terms.placeholder")}
-          disabled={!ready || busy}
+          // Kept while a change saves: the next term can be typed meanwhile.
+          disabled={!ready}
           onChange={(e) => setInput(e.target.value)}
           onPaste={paste}
         />
