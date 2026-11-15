@@ -16,7 +16,7 @@ import type { RemoteTarget } from "../../state/stores/remote-view";
 import { relPath } from "../../utils/path";
 import type { ChatLinks } from "../chat/chat-links";
 import { showToast } from "../ui/toast";
-import { patchOf, type RemoteLookItem, type RemoteLookList } from "./remote-look";
+import type { RemoteLookItem, RemoteLookList } from "./remote-look";
 
 /** The longest edge an image is fetched at: enough for quick look, far less than a photo's. */
 const IMAGE_EDGE = 2048;
@@ -160,7 +160,7 @@ export async function lookItemOfChange(
   if (diff.binary) return { kind: "message", title, text: t("agentView.remote.fileBinary") };
   // Committed since, or not in a repository: the file as it is now.
   if (diff.hunks.length === 0) return lookItemOfFile(target, path);
-  return { kind: "diff", title, text: patchOf(diff.hunks) };
+  return { kind: "diff", title, hunks: diff.hunks };
 }
 
 /**

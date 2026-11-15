@@ -13,30 +13,19 @@ import type { DiffHunk } from "../../../../packages/remote-protocol/src/rpc";
 import { imageSrc } from "../../services/chat/image-look";
 import type { ImageBlock } from "../../services/chat/model";
 import { Highlighted, languageOf } from "../chat/code-highlight";
+import { PatchView } from "../chat/tool-row";
 import { IconButton } from "../ui/icon-button";
 
 export type RemoteLookItem =
   | { kind: "loading"; title: string }
   | { kind: "image"; title: string; image: ImageBlock }
   | { kind: "text"; title: string; text: string; truncated: boolean; line?: number }
-  | { kind: "diff"; title: string; text: string }
+  | { kind: "diff"; title: string; hunks: readonly DiffHunk[] }
   | { kind: "message"; title: string; text: string };
 
 export interface RemoteLookList {
   items: RemoteLookItem[];
   index: number;
-}
-
-/** A diff's hunks as the patch text the highlighter colours. */
-export function patchOf(hunks: readonly DiffHunk[]): string {
-  return hunks
-    .map((hunk) =>
-      [
-        `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`,
-        ...hunk.lines,
-      ].join("\n"),
-    )
-    .join("\n");
 }
 
 export function RemoteLook({
@@ -127,9 +116,11 @@ export function RemoteLook({
             />
           </div>
         ) : item.kind === "diff" ? (
-          <pre className="px-3 py-2 font-mono text-app-ui-sm whitespace-pre">
-            <Highlighted code={item.text} language="diff" />
-          </pre>
+          <PatchView
+            hunks={item.hunks}
+            language={languageOf(item.title)}
+            className="py-1 text-app-ui-sm"
+          />
         ) : (
           <TextLines text={item.text} title={item.title} truncated={item.truncated} line={line} />
         )}
@@ -155,7 +146,7 @@ function TextLines({
   const lines = text.replace(/\r?\n$/, "").split("\n");
   const language = languageOf(title);
   return (
-    <div className="flex min-w-max flex-col py-2 font-mono text-app-ui-sm">
+    <div className="code-hl flex min-w-max flex-col py-2 font-mono text-app-ui-sm">
       {lines.map((each, i) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: a file's lines, in order

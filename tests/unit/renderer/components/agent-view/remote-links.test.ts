@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { peerChatFiles, peerImageLoader } = await import(
+const { lookItemOfChange, peerChatFiles, peerImageLoader } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
 );
-const { patchOf } = await import("../../../../../src/renderer/components/agent-view/remote-look");
 const { rateLimitOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-usage"
 );
@@ -114,13 +113,30 @@ describe("another computer's chat, read from there", () => {
     expect(await load(here)).toBe(here);
   });
 
-  test("a change shows as the patch its hunks make", () => {
-    expect(
-      patchOf([
-        { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" a", "-b", "+c"] },
-        { oldStart: 9, oldLines: 1, newStart: 9, newLines: 0, lines: ["-z"] },
-      ]),
-    ).toBe("@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -9,1 +9,0 @@\n-z");
+  test("a change shows as its hunks; one committed since, as the file now", async () => {
+    const hunks = [
+      { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" a", "-b", "+c"] },
+    ];
+    answer = (method) =>
+      method === "peerGitDiff"
+        ? { path: "/w/a.ts", binary: false, hunks }
+        : { kind: "text", path: "/w/a.ts", text: "c", size: 1, truncated: false };
+    const where = { deviceId: "d1", workspaceId: "w1" };
+    expect(await lookItemOfChange(where, "/w/a.ts")).toEqual({
+      kind: "diff",
+      title: "/w/a.ts",
+      hunks,
+    });
+    answer = (method) =>
+      method === "peerGitDiff"
+        ? { path: "/w/a.ts", binary: false, hunks: [] }
+        : { kind: "text", path: "/w/a.ts", text: "c", size: 1, truncated: false };
+    expect(await lookItemOfChange(where, "/w/a.ts")).toEqual({
+      kind: "text",
+      title: "/w/a.ts",
+      text: "c",
+      truncated: false,
+    });
   });
 });
 
