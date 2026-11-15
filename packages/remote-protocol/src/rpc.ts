@@ -112,6 +112,32 @@ export type RemoteWorkspace = z.infer<typeof RemoteWorkspaceSchema>;
 export const SessionStateSchema = z.enum(["needs-you", "running", "new-result", "idle", "ended"]);
 export type SessionState = z.infer<typeof SessionStateSchema>;
 
+/** Most agents a session's entry lists. */
+export const MAX_SESSION_AGENTS = 8;
+/** Longest an agent's description is, in characters. */
+export const MAX_AGENT_DESCRIPTION = 120;
+
+/**
+ * An agent a session runs beside its turn, as the serving app's agent list
+ * shows it under the session's row: a subagent of its Claude Code, or a
+ * `claude -p` or `codex exec` run started inside it ("print").
+ */
+export const RemoteSessionAgentSchema = z.object({
+  /** The subagent's agent_id, or the run's own id. */
+  id: z.string().max(200),
+  kind: z.enum(["subagent", "print"]),
+  /** For a run: the program it runs; "codex" for a `codex exec` run. */
+  program: z.enum(["claude", "codex"]).optional(),
+  /** The subagent's type, as "Explore". */
+  type: z.string().max(60).optional(),
+  /** What it was asked to do, on one line; for a run told nothing more, its prompt's start. */
+  description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
+  state: z.enum(["running", "permissionPending", "completed", "stopped", "failed"]),
+  /** When it started, in Unix milliseconds. */
+  start: z.number(),
+});
+export type RemoteSessionAgent = z.infer<typeof RemoteSessionAgentSchema>;
+
 /** An agent session or terminal of the serving device. */
 export const RemoteSessionSchema = z.object({
   workspaceId: z.string(),
@@ -146,6 +172,12 @@ export const RemoteSessionSchema = z.object({
       requestId: z.string().optional(),
     })
     .optional(),
+  /**
+   * The agents it runs beside its turn that still run, as the serving app
+   * lists them under its row; at most MAX_SESSION_AGENTS, absent with none.
+   * A chat's or a terminal's Claude Code (or Codex) session alike. Since 0.12.0.
+   */
+  agents: z.array(RemoteSessionAgentSchema).max(MAX_SESSION_AGENTS).optional(),
 });
 export type RemoteSession = z.infer<typeof RemoteSessionSchema>;
 
