@@ -356,11 +356,17 @@ const IMAGE_CHARS = MAX_MESSAGE_BYTES - ENVELOPE_BYTES - 256;
 /** An image of the chat, drawn smaller where it would not go in a frame. */
 export async function chatImage(
   services: CliServices,
-  { workspaceId, tabId, ref }: RpcParams<"chat.image">,
+  { workspaceId, tabId, ref, maxEdge }: RpcParams<"chat.image">,
 ): Promise<RpcResult<"chat.image">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const image = await services
-    .ui("chat.image", { workspaceId, tabId, ref, maxChars: IMAGE_CHARS })
+    .ui("chat.image", {
+      workspaceId,
+      tabId,
+      ref,
+      maxChars: IMAGE_CHARS,
+      ...(maxEdge !== undefined ? { maxEdge } : {}),
+    })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/no such image/.test(message)) throw new RpcFailure(RpcErrorCode.NotFound, message);

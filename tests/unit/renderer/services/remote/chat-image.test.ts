@@ -72,7 +72,53 @@ describe("an image of a chat", () => {
       throw new Error("drawn");
     };
     const data = pngData(2, 2);
-    expect(await fitImage(pic(data), 100, never)).toEqual({ mediaType: "image/png", data });
+    expect(await fitImage(pic(data), { maxChars: 100 }, never)).toEqual({
+      mediaType: "image/png",
+      data,
+      width: 2,
+      height: 2,
+    });
+  });
+
+  test("asked for one no bigger than it is, goes as it is", async () => {
+    const never: Shrink = async () => {
+      throw new Error("drawn");
+    };
+    const data = pngData(300, 200);
+    expect(await fitImage(pic(data), { maxChars: 100, maxEdge: 320 }, never)).toEqual({
+      mediaType: "image/png",
+      data,
+      width: 300,
+      height: 200,
+    });
+  });
+
+  test("asked for a smaller one, is drawn with its longer side at that, first", async () => {
+    const scales: number[] = [];
+    const shrink: Shrink = async (_image, scale) => {
+      scales.push(scale);
+      return { mediaType: "image/jpeg", data: "jpg", width: Math.round(400 * scale), height: 1 };
+    };
+    // Tall: its height is the side asked for.
+    const fitted = await fitImage(pic(pngData(400, 1600)), { maxChars: 100, maxEdge: 320 }, shrink);
+    expect(scales).toEqual([0.2]);
+    expect(fitted).toEqual({ mediaType: "image/jpeg", data: "jpg", width: 80, height: 1 });
+  });
+
+  test("asked for a smaller one that would still not fit, is drawn smaller again", async () => {
+    const scales: number[] = [];
+    const shrink: Shrink = async (_image, scale) => {
+      scales.push(scale);
+      return {
+        mediaType: "image/jpeg",
+        data: "x".repeat(scales.length === 1 ? 400 : 50),
+        width: 1,
+        height: 1,
+      };
+    };
+    await fitImage(pic(pngData(1000, 500)), { maxChars: 100, maxEdge: 500 }, shrink);
+    expect(scales[0]).toBe(0.5);
+    expect(scales[1]).toBeLessThan(0.5);
   });
 
   test("is drawn smaller till it fits, or given up on", async () => {
@@ -84,7 +130,7 @@ describe("an image of a chat", () => {
       return { mediaType: "image/jpeg", data: "x".repeat(chars), width: 10, height: 10 };
     };
     const big = pngData(800, 600, 1000);
-    const fitted = await fitImage(pic(big), 400, shrink);
+    const fitted = await fitImage(pic(big), { maxChars: 400 }, shrink);
     expect(fitted.data.length).toBeLessThanOrEqual(400);
     expect(scales).toHaveLength(2);
     expect(scales[1]).toBeLessThan(scales[0]);
@@ -94,7 +140,7 @@ describe("an image of a chat", () => {
       width: 1,
       height: 1,
     });
-    await expect(fitImage(pic(big), 400, stubborn)).rejects.toThrow("small enough");
+    await expect(fitImage(pic(big), { maxChars: 400 }, stubborn)).rejects.toThrow("small enough");
   });
 
   test("of a type the other device does not take is drawn again, though small", async () => {
@@ -103,9 +149,9 @@ describe("an image of a chat", () => {
       drawn = true;
       return { mediaType: "image/jpeg", data: "jpg", width: 1, height: 1 };
     };
-    expect((await fitImage(pic(bmpData(4, 4), "image/bmp"), 100, shrink)).mediaType).toBe(
-      "image/jpeg",
-    );
+    expect(
+      (await fitImage(pic(bmpData(4, 4), "image/bmp"), { maxChars: 100 }, shrink)).mediaType,
+    ).toBe("image/jpeg");
     expect(drawn).toBe(true);
   });
 
@@ -113,10 +159,14 @@ describe("an image of a chat", () => {
     const never: Shrink = async () => {
       throw new Error("drawn");
     };
-    await expect(fitImage(pic(pngData(30_000, 30_000)), 100, never)).rejects.toThrow("too big");
-    await expect(fitImage(pic(bmpData(30_000, 30_000), "image/bmp"), 100, never)).rejects.toThrow(
+    await expect(fitImage(pic(pngData(30_000, 30_000)), { maxChars: 100 }, never)).rejects.toThrow(
       "too big",
     );
-    await expect(fitImage(pic(btoa("not an image")), 100, never)).rejects.toThrow("too big");
+    await expect(
+      fitImage(pic(bmpData(30_000, 30_000), "image/bmp"), { maxChars: 100 }, never),
+    ).rejects.toThrow("too big");
+    await expect(fitImage(pic(btoa("not an image")), { maxChars: 100 }, never)).rejects.toThrow(
+      "too big",
+    );
   });
 });
