@@ -95,6 +95,9 @@ if [[ -z "${NEXUS_AGENT_BIN:-}" ]]; then
 fi
 
 # 6) The hooks settings JSON.
+#    SendMessage's PreToolUse hook waits on its answer: it refuses a message
+#    to a Remote Control session (bridge:...), which the nexus CLI sends
+#    instead under its tab's name (hookclient/send_message.go).
 #    command 필드에 리터럴 ${NEXUS_AGENT_BIN}을 기록한다 — exec 시점(claude hook 실행)에 셸이 확장한다.
 #    wrapper 실행 시점에 경로를 확장하지 않으므로 JSON-escape 처리가 불필요하다.
 SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
@@ -103,7 +106,7 @@ SETTINGS_JSON="$(cat <<'SETTINGS_EOF'
   "hooks": {
     "SessionStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook session-start","timeout":10,"async":true},{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" cli agent-context","timeout":10}]}],
     "UserPromptSubmit": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook user-prompt-submit","timeout":10,"async":true}]}],
-    "PreToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook pre-tool-use","timeout":5,"async":true}]}],
+    "PreToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook pre-tool-use","timeout":5,"async":true}]},{"matcher":"SendMessage","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook send-message","timeout":5}]}],
     "PostToolUse": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use","timeout":5,"async":true}]}],
     "PostToolUseFailure": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook post-tool-use-failure","timeout":5,"async":true}]}],
     "SubagentStart": [{"matcher":"","hooks":[{"type":"command","command":"\"${NEXUS_AGENT_BIN}\" hook subagent-start","timeout":5,"async":true}]}],
