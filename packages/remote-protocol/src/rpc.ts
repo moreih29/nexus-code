@@ -339,8 +339,14 @@ export const SessionEventSchema = z.object({
 });
 export type SessionEvent = z.infer<typeof SessionEventSchema>;
 
-/** Most images one message takes. */
+/** Most images and files one message takes. */
 export const MAX_ATTACHMENTS = 4;
+
+/**
+ * Most bytes one file chat.upload takes (since 0.10.0): as many as a file
+ * dropped on the desktop's own composer.
+ */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 /**
  * Most bytes one image chat.attach takes, before base64: its base64 and the
@@ -744,7 +750,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       text: z.string(),
-      /** Images chat.attach took, at most MAX_ATTACHMENTS. */
+      /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
     }),
@@ -766,6 +772,50 @@ export const RPC_METHODS = {
         .min(1)
         .max(Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4),
     }),
+    result: z.object({ attachmentId: z.string() }),
+  },
+  /**
+   * Starts sending a file for the next chat.send to this tab, any file of
+   * at most MAX_UPLOAD_BYTES, a chunk a request (chat.upload.chunk), then
+   * chat.upload.end. Since 0.10.0. The upload is for this device only, and
+   * dropped when it goes 10 minutes without a chunk or a chunk is refused.
+   */
+  "chat.upload.begin": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      /** The file's name, without a folder: what the agent is told it was. */
+      name: z.string().min(1).max(255),
+      /** Its bytes, all of them. */
+      size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
+      /** Its type when known; an image the chat takes goes as an image. */
+      mediaType: z.string().min(1).max(255).optional(),
+    }),
+    result: z.object({ uploadId: z.string() }),
+  },
+  /** The next piece of an upload, from `offset`, the bytes sent so far. Since 0.10.0. */
+  "chat.upload.chunk": {
+    capability: "chat.control",
+    params: z.object({
+      uploadId: z.string().min(1).max(64),
+      offset: z.number().int().nonnegative().max(MAX_UPLOAD_BYTES),
+      /** Base64, of at most MAX_BYTES_CHUNK bytes. */
+      data: z
+        .string()
+        .min(1)
+        .max(Math.ceil(MAX_BYTES_CHUNK / 3) * 4),
+    }),
+    result: Ok,
+  },
+  /**
+   * Ends an upload whose bytes all came: its id for chat.send's attachments,
+   * kept 10 minutes as chat.attach's. Since 0.10.0. A PNG, JPEG, GIF or WebP
+   * small enough goes to the chat as an image; any other file as a dropped
+   * file does on the desktop, its path after the message's text.
+   */
+  "chat.upload.end": {
+    capability: "chat.control",
+    params: z.object({ uploadId: z.string().min(1).max(64) }),
     result: z.object({ attachmentId: z.string() }),
   },
   /** Answers the permission request `requestId`, as its card's buttons do. */

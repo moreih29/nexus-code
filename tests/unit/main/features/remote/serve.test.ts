@@ -859,7 +859,94 @@ describe("serving a chat's controls", () => {
     await expect(send("d")).rejects.toMatchObject({ code: -32602 });
     await expect(
       serve({ from: "d", method: "chat.send", params: { ...tab, text: "  " } }),
-    ).rejects.toMatchObject({ code: -32602, message: expect.stringContaining("text or an image") });
+    ).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining("text or an attachment"),
+    });
+  });
+
+  test("sends a file the device uploaded in pieces as a dropped file goes, with an image", async () => {
+    const { serve, asked } = recording();
+    const csv = Buffer.from("a,b\n1,2\n");
+    const { uploadId } = (await serve({
+      from: "d",
+      method: "chat.upload.begin",
+      params: { ...tab, name: "data.csv", size: csv.length, mediaType: "text/csv" },
+    })) as { uploadId: string };
+    const chunk = (from: string, offset: number, bytes: Buffer) =>
+      serve({
+        from,
+        method: "chat.upload.chunk",
+        params: { uploadId, offset, data: bytes.toString("base64") },
+      });
+    // Another device's upload is none of its.
+    await expect(chunk("other", 0, csv)).rejects.toMatchObject({ code: -32602 });
+    await chunk("d", 0, csv.subarray(0, 3));
+    await chunk("d", 3, csv.subarray(3));
+    const { attachmentId: file } = (await serve({
+      from: "d",
+      method: "chat.upload.end",
+      params: { uploadId },
+    })) as { attachmentId: string };
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2]).toString("base64");
+    const { attachmentId: image } = (await serve({
+      from: "d",
+      method: "chat.attach",
+      params: { ...tab, mediaType: "image/jpeg", data: jpeg },
+    })) as { attachmentId: string };
+    await serve({
+      from: "d",
+      method: "chat.send",
+      params: { ...tab, text: "look", attachments: [file, image] },
+    });
+    expect(asked).toEqual([
+      [
+        "chat.send",
+        {
+          ...tab,
+          text: "look",
+          user: true,
+          images: [{ mediaType: "image/jpeg", data: jpeg }],
+          files: [{ name: "data.csv", data: csv.toString("base64") }],
+        },
+      ],
+    ]);
+  });
+
+  test("refuses an upload out of order, of another size, or for no chat", async () => {
+    const { serve } = recording();
+    const begin = async () =>
+      (
+        (await serve({
+          from: "d",
+          method: "chat.upload.begin",
+          params: { ...tab, name: "a.bin", size: 8 },
+        })) as { uploadId: string }
+      ).uploadId;
+    const late = await begin();
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.upload.chunk",
+        params: { uploadId: late, offset: 4, data: Buffer.alloc(4).toString("base64") },
+      }),
+    ).rejects.toMatchObject({ code: -32602, message: expect.stringContaining("in order") });
+    const short = await begin();
+    await serve({
+      from: "d",
+      method: "chat.upload.chunk",
+      params: { uploadId: short, offset: 0, data: Buffer.alloc(4).toString("base64") },
+    });
+    await expect(
+      serve({ from: "d", method: "chat.upload.end", params: { uploadId: short } }),
+    ).rejects.toMatchObject({ code: -32602, message: expect.stringContaining("8 bytes") });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.upload.begin",
+        params: { workspaceId: "w1", tabId: "nope", name: "a.bin", size: 8 },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
   });
 
   test("an image of the chat, small enough for a frame, and NotFound for none", async () => {

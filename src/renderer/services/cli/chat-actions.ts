@@ -30,6 +30,7 @@ import {
   sendUnseen,
   startAgentTab,
 } from "../chat/agent-tab";
+import { fileMention } from "../chat/composer-input";
 import { scopesOf } from "../chat/permission-scopes";
 import { sameProfile } from "../chat/profile-moves";
 import { turnHopsOf } from "../chat/relayed";
@@ -389,14 +390,21 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return tool;
   },
 
-  "chat.send": async ({ workspaceId, tabId, text, from, user, images }) => {
+  "chat.send": async ({ workspaceId, tabId, text, from, user, images, files = [] }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
       throw new UiRequestError(
         "it is waiting for the user to answer a request; that is for the user to answer",
       );
     }
-    await sendToAgentTab(workspaceId, tabId, target, text, from, images);
+    // As the composer sends a dropped file: written where the program reads
+    // it, its path's mention after the text.
+    const paths = await Promise.all(
+      files.map((file) => target.controller.attach(file.name, file.data)),
+    );
+    const mentions = paths.map(fileMention).join(" ");
+    const body = mentions === "" ? text : text.trim() ? `${text}\n\n${mentions}` : mentions;
+    await sendToAgentTab(workspaceId, tabId, target, body, from, images);
     return {};
   },
 

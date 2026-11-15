@@ -1,9 +1,10 @@
 /**
- * The images another device sends a chat ahead of its message
- * (chat.attach), kept until chat.send names them: one request carries one
- * image, so a message with several takes several. Each is kept for the
- * device that sent it and the tab it was for, ATTACHMENT_TTL_MS at most,
- * and goes once the message it was attached to is sent.
+ * The images and files another device sends a chat ahead of its message
+ * (chat.attach, or chat.upload for a file of any kind), kept until
+ * chat.send names them: one request carries one image, so a message with
+ * several takes several. Each is kept for the device that sent it and the
+ * tab it was for, ATTACHMENT_TTL_MS at most, and goes once the message it
+ * was attached to is sent.
  */
 import { randomUUID } from "node:crypto";
 import { MAX_ATTACHMENT_BYTES, RpcErrorCode } from "../../../../packages/remote-protocol/src";
@@ -15,19 +16,35 @@ export const ATTACHMENT_TTL_MS = 10 * 60_000;
 /** Most images one device may have waiting: more than a few messages' worth is no message. */
 export const MAX_KEPT_PER_DEVICE = 16;
 
+/** Most bytes of files one device may have waiting: a few uploads' worth. */
+export const MAX_KEPT_BYTES_PER_DEVICE = 64 * 1024 * 1024;
+
 export interface Attached {
   mediaType: string;
   /** Base64. */
   data: string;
 }
 
-interface Kept extends Attached {
+/** What a message is sent with: an image, or a file the agent is given the path of. */
+export type Held =
+  | ({ kind: "image" } & Attached)
+  | {
+      kind: "file";
+      /** Its name, without a folder. */
+      name: string;
+      /** Base64. */
+      data: string;
+    };
+
+type Kept = Held & {
   id: string;
   device: string;
   workspaceId: string;
   tabId: string;
   at: number;
-}
+  /** Its bytes, before base64. */
+  bytes: number;
+};
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
@@ -67,29 +84,46 @@ export class Attachments {
     if (!looksLike(image.mediaType, bytes)) {
       throw invalid(`the image is not the ${image.mediaType} it says it is`);
     }
+    return this.hold(device, workspaceId, tabId, { kind: "image", ...image }, bytes.length);
+  }
+
+  /**
+   * Keeps what an upload brought (checked there) for the device's next
+   * message to the tab; its id. The device's oldest go to make room.
+   */
+  hold(device: string, workspaceId: string, tabId: string, held: Held, bytes: number): string {
     this.sweep();
-    const mine = this.kept.filter((k) => k.device === device);
-    if (mine.length >= MAX_KEPT_PER_DEVICE) {
+    let mine = this.kept.filter((k) => k.device === device);
+    while (
+      mine.length > 0 &&
+      (mine.length >= MAX_KEPT_PER_DEVICE ||
+        mine.reduce((sum, k) => sum + k.bytes, 0) + bytes > MAX_KEPT_BYTES_PER_DEVICE)
+    ) {
       const oldest = mine[0];
       this.kept = this.kept.filter((k) => k !== oldest);
+      mine = mine.slice(1);
     }
     const id = randomUUID();
-    this.kept.push({ id, device, workspaceId, tabId, at: this.now(), ...image });
+    this.kept.push({ ...held, id, device, workspaceId, tabId, at: this.now(), bytes });
     return id;
   }
 
-  /** The images the device kept for the tab, in the order named; refuses any it does not hold. */
-  find(device: string, workspaceId: string, tabId: string, ids: readonly string[]): Attached[] {
+  /** What the device kept for the tab, in the order named; refuses any it does not hold. */
+  find(device: string, workspaceId: string, tabId: string, ids: readonly string[]): Held[] {
     this.sweep();
     return ids.map((id) => {
       const kept = this.kept.find((k) => k.id === id);
       if (!kept || kept.device !== device) {
-        throw invalid(`no image ${id} is waiting: chat.attach keeps one for 10 minutes`);
+        throw invalid(
+          `no image or file ${id} is waiting: chat.attach and chat.upload keep one for 10 minutes`,
+        );
       }
       if (kept.workspaceId !== workspaceId || kept.tabId !== tabId) {
-        throw invalid(`the image ${id} was attached for another chat`);
+        throw invalid(`the attachment ${id} was for another chat`);
       }
-      return { mediaType: kept.mediaType, data: kept.data };
+      return kept.kind === "image"
+        ? { kind: "image", mediaType: kept.mediaType, data: kept.data }
+        : { kind: "file", name: kept.name, data: kept.data };
     });
   }
 
