@@ -1,25 +1,62 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { Unreachable, usageLineOf, remoteAnswerOf } = await import(
+const { usageLineOf } = await import(
+  "../../../../../src/renderer/components/agent-view/remote-usage"
+);
+const { Unreachable, remoteAnswerOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-pane"
 );
 
 describe("controlling another computer's chat", () => {
   test("the card's answers go as the protocol has them", () => {
-    expect(remoteAnswerOf({ kind: "allow" })).toEqual({ decision: "allow" });
-    expect(remoteAnswerOf({ kind: "allow", updatedInput: { answers: { q: "a" } } })).toEqual({
+    const request = {
+      requestId: "r",
+      toolName: "Bash",
+      input: {},
+      suggestions: [
+        { type: "remote", label: "Bash(npm test:*)", index: 0 },
+        { type: "remote", label: "Accept edits", index: 1 },
+      ],
+    };
+    expect(remoteAnswerOf({ kind: "allow" }, request)).toEqual({ decision: "allow" });
+    expect(
+      remoteAnswerOf({ kind: "allow", updatedInput: { answers: { q: "a" } } }, request),
+    ).toEqual({
       decision: "allow",
       updatedInput: { answers: { q: "a" } },
     });
-    expect(remoteAnswerOf({ kind: "allow-always", suggestions: [{}] })).toEqual({
-      decision: "allow",
-    });
-    expect(remoteAnswerOf({ kind: "deny", message: "not now" })).toEqual({
+    expect(remoteAnswerOf({ kind: "deny", message: "not now" }, request)).toEqual({
       decision: "deny",
       message: "not now",
     });
-    expect(remoteAnswerOf({ kind: "deny-stop" })).toEqual({ decision: "deny", stop: true });
+    expect(remoteAnswerOf({ kind: "deny-stop" }, request)).toEqual({
+      decision: "deny",
+      stop: true,
+    });
+  });
+
+  test("an always-allow keeps the suggestions it picked by their index there, or all of them", () => {
+    const request = {
+      requestId: "r",
+      toolName: "Bash",
+      input: {},
+      suggestions: [
+        { type: "remote", label: "Bash(npm test:*)", index: 0 },
+        { type: "remote", label: "Accept edits", index: 1 },
+      ],
+    };
+    expect(remoteAnswerOf({ kind: "allow-always" }, request)).toEqual({
+      decision: "allow",
+      always: [0, 1],
+    });
+    expect(
+      remoteAnswerOf({ kind: "allow-always", suggestions: [request.suggestions[1]] }, request),
+    ).toEqual({ decision: "allow", always: [1] });
+    // A request with none to keep is allowed once.
+    expect(remoteAnswerOf({ kind: "allow-always" }, { ...request, suggestions: [] })).toEqual({
+      decision: "allow",
+    });
   });
 
   test("the line under the composer tells how full the context is, once the panel says", () => {

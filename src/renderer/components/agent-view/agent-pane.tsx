@@ -20,6 +20,7 @@ import {
   isRemoteKey,
   parseSessionKey,
   placeKey,
+  remoteSessionKey,
   removeKey,
   selectKey,
   setActiveLeaf,
@@ -338,7 +339,14 @@ export function AgentPane({
       <div ref={slotRef} data-agent-slot={leaf.id} className="relative min-h-0 min-w-0 flex-1">
         {leaf.tabIds.length === 0 && <EmptyPane />}
         {front && <OfflinePane workspaceId={front.workspaceId} />}
-        {frontRemote && <RemoteSessionPane target={frontRemote} visible={viewShown} />}
+        {/* Its own each: a session's panel, drawer and goal are not the next one's. */}
+        {frontRemote && (
+          <RemoteSessionPane
+            key={remoteSessionKey(frontRemote)}
+            target={frontRemote}
+            visible={viewShown}
+          />
+        )}
         {dropZone && <DropIndicator zone={dropZone} />}
       </div>
       {frontEnded && leaf.activeTabId !== null && (

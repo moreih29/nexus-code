@@ -1152,11 +1152,13 @@
         "copy_url": "Copy the Remote Control link",
         "open_url": "Open the Remote Control link",
         "folder": "Folder",
+        "computer": "Computer",
         "branch": "Branch",
         "session": "Session",
         "copy_session": "Copy the session ID",
         "fork_session": "Fork the whole session",
         "model": "Model",
+        "profile": "Profile",
         "version": "Version",
         "account": "Account"
       },
@@ -1771,7 +1773,8 @@
       "disconnected": "Not connected to the server",
       "offlineLast": "{{device}} is offline. Showing what it last sent.",
       "disconnectedLast": "Not connected to the server. Showing what came last.",
-      "offlineTag": "Offline"
+      "offlineTag": "Offline",
+      "profileBusy": "It can change once the reply ends or the request is answered"
     }
   },
   "releaseNotes": {

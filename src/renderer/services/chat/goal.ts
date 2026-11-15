@@ -161,7 +161,9 @@ export function goalSeconds(
     if (goal.setAt === undefined) return null;
     return Math.max(0, Math.floor((now - goal.setAt) / 1000));
   }
-  const used = goal.usedSeconds ?? 0;
+  // Another computer's Codex goal comes without the time it worked.
+  if (goal.usedSeconds === undefined) return null;
+  const used = goal.usedSeconds;
   if (!turn?.running || goal.status !== "active") return used;
   const from = Math.max(goal.usedAt ?? 0, turn.startedAt ?? 0);
   return from > 0 ? used + Math.max(0, Math.floor((now - from) / 1000)) : used;

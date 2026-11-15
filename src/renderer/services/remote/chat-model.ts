@@ -69,9 +69,14 @@ export function modelOfPage(page: ChatPage): ChatModel {
     ...emptyModel(),
     items: page.items.flatMap((item) => itemOf(item) ?? []),
     tools: Object.fromEntries(Object.entries(page.tools).map(([id, t]) => [id, toolOf(t)])),
-    permissions: status.permissions.map(({ preview, ...p }) => ({
+    permissions: status.permissions.map(({ preview, suggestions, ...p }) => ({
       ...p,
-      suggestions: [],
+      // In the serving computer's words; chat.answer keeps them by index.
+      suggestions: (suggestions ?? []).map(({ label }, index) => ({
+        type: "remote",
+        label,
+        index,
+      })),
       ...(preview ? { preview: toolOf(preview) } : {}),
     })),
     streaming: status.streaming

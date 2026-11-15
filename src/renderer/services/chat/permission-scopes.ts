@@ -24,6 +24,8 @@ export function scopesOf(suggestions: readonly unknown[], t: Translate): Scope[]
 function describeSuggestion(raw: unknown, t: Translate): string {
   const s = raw as Record<string, unknown> | null;
   if (!s || typeof s !== "object") return "";
+  // Another computer's request, worded there.
+  if (s.type === "remote" && typeof s.label === "string") return s.label;
   if (s.type === "addRules" && Array.isArray(s.rules)) {
     return (s.rules as Record<string, unknown>[])
       .map((rule) => {

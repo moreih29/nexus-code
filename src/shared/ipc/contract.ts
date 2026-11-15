@@ -2542,6 +2542,25 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
         RPC_METHODS["chat.command"].result,
       ),
+      /** Stops a background run or subagent of another device's chat, as its side panel's button does. */
+      peerChatStopTask: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.stopTask"].params),
+        RPC_METHODS["chat.stopTask"].result,
+      ),
+      /** The agent profiles another device's chats can run with. */
+      peerProfiles: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["profiles.list"].params),
+        RPC_METHODS["profiles.list"].result,
+      ),
+      /** Has another device's chat run with another profile, as the user. */
+      peerChatProfile: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
+        RPC_METHODS["chat.profile"].result,
+      ),
       /** Gives another device's chat an image for the next message sent it. */
       peerChatAttach: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.attach"].params),

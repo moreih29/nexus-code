@@ -5,7 +5,7 @@
 // What only a chat here has (a queue kept here, a message taken back, a
 // file's path) it does without.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ChatCommand,
   type ChatSettings,
@@ -14,9 +14,10 @@ import {
 import type { IpcResult } from "../../../shared/ipc/result";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import type { ComposerController } from "../../components/chat/composer";
+import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
 import type { ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
-import { type ChatTabState, emptyTabState, type RevealPart } from "../chat/store";
+import { type ChatTabState, type CommandCard, emptyTabState, type RevealPart } from "../chat/store";
 import { fitImage } from "./chat-image";
 
 /** The chat, by the device it runs on and its tab there. */
@@ -24,6 +25,18 @@ export interface PeerChatRef {
   deviceId: string;
   workspaceId: string;
   tabId: string;
+}
+
+/**
+ * How long a command may take before its card shows, working: a quick one
+ * (a goal paused) says what it did in a toast, as it does here; one that
+ * takes its time (/btw asks the model) shows its answer in the card.
+ */
+const CARD_AFTER_MS = 400;
+
+/** An answer too long for a toast goes in a card however fast it came. */
+export function answerInCard(message: string, waited: boolean): boolean {
+  return waited || message.length > 160 || message.includes("\n");
 }
 
 /** Room an image's base64 takes in chat.attach. */
@@ -169,6 +182,9 @@ export interface PeerComposer {
   state: ChatTabState;
   commands: CommandInfo[];
   onCommand: (text: string) => boolean;
+  /** What the last command said, over the composer as a chat here shows it. */
+  card: CommandCard | undefined;
+  closeCard: () => void;
 }
 
 /**
@@ -246,11 +262,26 @@ export function usePeerComposer({
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );
 
+  const [card, setCard] = useState<CommandCard | undefined>();
+  const cards = useRef(0);
+  const closeCard = useCallback(() => setCard(undefined), []);
+
   const onCommand = useCallback(
     (text: string): boolean => {
       const found = commandOf(commands, text);
       if (!found) return false;
       if (found.kind === "command") {
+        cards.current += 1;
+        const id = `peer-card-${cards.current}`;
+        const title = text.trim();
+        // The card belongs to its command: one asked after took its place.
+        const fill = (next: CommandCard | undefined) =>
+          setCard((now) => (now === undefined || now.id === id ? next : now));
+        let waited = false;
+        const timer = setTimeout(() => {
+          waited = true;
+          setCard({ id, title, loading: true });
+        }, CARD_AFTER_MS);
         void answerOf(
           ipcCallResult("remote", "peerChatCommand", {
             deviceId,
@@ -261,9 +292,20 @@ export function usePeerComposer({
           }),
         ).then(
           (said) => {
-            if (said.message) onError(said.message);
+            clearTimeout(timer);
+            const message = said.message;
+            if (message && answerInCard(message, waited)) {
+              fill({ id, title, text: message });
+              return;
+            }
+            if (waited) fill(undefined);
+            if (message) showToast({ kind: "info", message });
           },
-          (error: Error) => onError(error.message),
+          (error: Error) => {
+            clearTimeout(timer);
+            if (waited) fill({ id, title, error: error.message });
+            else onError(error.message);
+          },
         );
         return true;
       }
@@ -297,5 +339,5 @@ export function usePeerComposer({
     [model, settings, reveal],
   );
   const infos = useMemo(() => commandInfosOf(commands), [commands]);
-  return { controller, state, commands: infos, onCommand };
+  return { controller, state, commands: infos, onCommand, card, closeCard };
 }

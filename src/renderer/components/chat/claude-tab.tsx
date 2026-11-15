@@ -2,14 +2,7 @@
 // agent, shown as a conversation. The program outlives the window and the
 // connection, so the view only reads what its controller has.
 
-import {
-  ArrowLeft,
-  Bot,
-  ListChecks,
-  PanelRightClose,
-  PanelRightOpen,
-  SquareTerminal,
-} from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
@@ -42,16 +35,13 @@ import {
   revealTabById,
 } from "../../services/chat/open-beside";
 import {
-  type AgentRow,
   agentsOf,
   agentTranscript,
   changedFilesOf,
-  contextOf,
   imagesOf,
   jobOutputFiles,
   jobsOf,
   outsideLinksOf,
-  todosOf,
 } from "../../services/chat/panel";
 import {
   printRunRows,
@@ -88,7 +78,6 @@ import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { cn } from "../../utils/cn";
 import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
-import { ContextRing } from "../ui/context-ring";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
@@ -98,6 +87,7 @@ import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
 import { closeGoalBar, GoalBar, useTabGoal } from "./goal-bar";
 import { type CallReveal, type MessageActions, MessageList } from "./message-list";
+import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "./panel-place";
 import { focusChatTab, PermissionCard } from "./permission-card";
 import { PrintRunPane } from "./print-run-pane";
 import { QuickLook, type QuickLookList } from "./quick-look";
@@ -105,6 +95,7 @@ import { RewindDialog } from "./rewind-dialog";
 import { SessionList } from "./session-list";
 import { SidePanel } from "./side-panel";
 import { StatusLine } from "./status-line";
+import { SummaryLine, summaryCountsOf } from "./summary-line";
 import { toolSummary } from "./tool-row";
 import { ClaudeUsageLine } from "./usage-line";
 
@@ -120,40 +111,8 @@ interface ClaudeTabViewProps {
   hooks?: ChatTabHooks;
 }
 
-/** From this width the side panel sits beside the conversation. */
-const PANEL_BESIDE_PX = 900;
-/** Below this width the tab shows a one-line summary in place of the strip. */
-const SUMMARY_BELOW_PX = 520;
-
-/** Whether the side panel is open where it sits beside the conversation. */
-const PANEL_PREF_KEY = "nexus.claude-tab.panel";
-
-type PanelPlace = "beside" | "drawer" | "summary";
-
 /** The parts a bare command asks for that are in the side panel. */
 const PANEL_PARTS: ReadonlySet<RevealPart> = new Set(["context", "usage", "mcp", "status", "jobs"]);
-
-function placeFor(width: number): PanelPlace {
-  if (width >= PANEL_BESIDE_PX) return "beside";
-  if (width >= SUMMARY_BELOW_PX) return "drawer";
-  return "summary";
-}
-
-function readPanelPref(): boolean {
-  try {
-    return localStorage.getItem(PANEL_PREF_KEY) !== "closed";
-  } catch {
-    return true;
-  }
-}
-
-function writePanelPref(open: boolean): void {
-  try {
-    localStorage.setItem(PANEL_PREF_KEY, open ? "open" : "closed");
-  } catch {
-    // Not kept: the panel opens by default next time.
-  }
-}
 
 export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: ClaudeTabViewProps) {
   const { t } = useTranslation();
@@ -579,7 +538,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible, hooks }: C
         <div className="flex min-w-0 flex-1 flex-col">
           {place === "summary" ? (
             <>
-              <SummaryLine state={state} runs={runRows} open={drawerOpen} onToggle={togglePanel} />
+              <SummaryLine
+                counts={summaryCountsOf(state.model, runRows)}
+                open={drawerOpen}
+                onToggle={togglePanel}
+              />
               {/* Too narrow for the agents' strip: the way back from one's transcript. */}
               {shown && (
                 <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border px-2 text-app-ui-sm">
@@ -848,94 +811,6 @@ function forkFrom(
     const draft: ComposerDraft = { text: item.text, images: item.images, nonce: Date.now() };
     useChatStore.getState().update(chatKey(workspaceId, tab.id), (prev) => ({ ...prev, draft }));
   }
-}
-
-/**
- * The tab's state in one line, where it is too narrow for the strip and the
- * panel: its subagents, background jobs, to-dos and context, each an icon
- * and a number as the agent list's rows tell them. It opens the panel.
- */
-function SummaryLine({
-  state,
-  runs,
-  open,
-  onToggle,
-}: {
-  state: ChatTabState;
-  /** The session's `claude -p` runs, counted with its agents. */
-  runs: readonly AgentRow[];
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const { t } = useTranslation();
-  const { model } = state;
-  const facts: { key: string; icon: React.ReactNode; value: string; label: string }[] = [];
-  const agents = [...agentsOf(model), ...runs].filter((a) => a.status === "running").length;
-  if (agents > 0) {
-    facts.push({
-      key: "agents",
-      icon: <Bot aria-hidden className="size-3 shrink-0" />,
-      value: String(agents),
-      label: t("chat.strip.summary.agents", { count: agents }),
-    });
-  }
-  const jobs = jobsOf(model).filter((j) => j.status === "running").length;
-  if (jobs > 0) {
-    facts.push({
-      key: "jobs",
-      icon: <SquareTerminal aria-hidden className="size-3 shrink-0" />,
-      value: String(jobs),
-      label: t("chat.strip.summary.jobs", { count: jobs }),
-    });
-  }
-  const todos = todosOf(model.tools);
-  if (todos.length > 0) {
-    const done = todos.filter((todo) => todo.status === "completed").length;
-    facts.push({
-      key: "todos",
-      icon: <ListChecks aria-hidden className="size-3 shrink-0" />,
-      value: `${done}/${todos.length}`,
-      label: t("chat.strip.summary.todos", { done, total: todos.length }),
-    });
-  }
-  const context = contextOf(model.contextUsage);
-  if (context && context.maxTokens > 0) {
-    const percent = Math.round((context.totalTokens / context.maxTokens) * 100);
-    facts.push({
-      key: "context",
-      icon: <ContextRing percent={percent} />,
-      value: `${percent}%`,
-      label: t("chat.strip.summary.context", { percent }),
-    });
-  }
-  const label = facts.length > 0 ? facts.map((fact) => fact.label).join(" · ") : undefined;
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      aria-label={label}
-      title={label}
-      className="flex h-7 shrink-0 items-center gap-3 border-b border-border px-3 text-left text-app-micro text-muted-foreground tabular-nums hover:text-foreground"
-      data-testid="chat-summary-line"
-    >
-      {facts.length > 0 ? (
-        facts.map((fact) => (
-          <span key={fact.key} className="flex shrink-0 items-center gap-1">
-            {fact.icon}
-            {fact.value}
-          </span>
-        ))
-      ) : (
-        <span className="min-w-0 truncate">{t("chat.panel.show")}</span>
-      )}
-      {open ? (
-        <PanelRightClose aria-hidden className="ml-auto size-3.5 shrink-0" />
-      ) : (
-        <PanelRightOpen aria-hidden className="ml-auto size-3.5 shrink-0" />
-      )}
-    </button>
-  );
 }
 
 function PhaseBanner({ controller, state }: { controller: ChatController; state: ChatTabState }) {

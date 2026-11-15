@@ -226,6 +226,7 @@ export function PeerGroup({
                         kind: session.kind,
                         title: session.title,
                         state: session.state,
+                        ...(session.profile ? { profile: session.profile } : {}),
                       })
                     }
                   />
