@@ -44,6 +44,8 @@ export interface RelayConnectionDeps {
   onStatus(status: RelayStatus): void;
   /** The relay or the server says the sign-in ended. */
   onSignedOut(): void;
+  /** The socket to `url` closed before it opened: what it went to was not reached. */
+  unreachable?(url: string): void;
   socket?: (url: string) => Socket;
   /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
@@ -78,6 +80,15 @@ export class RelayConnection {
     this.set("stopped");
   }
 
+  /** Opens a new socket now in place of this one, as to go another way; nothing when stopped. */
+  reconnect(): void {
+    if (!this.running) return;
+    this.clearTimer();
+    this.drop();
+    this.attempt = 0;
+    void this.connect();
+  }
+
   /** Sends a frame while online; false when it cannot go (offline, or too big). */
   send(frame: ClientFrame): boolean {
     if (this.status !== "online" || !this.socket) return false;
@@ -107,8 +118,10 @@ export class RelayConnection {
     if (!this.running) return;
     const socket = (this.deps.socket ?? ((u) => new WebSocket(u) as Socket))(url);
     this.socket = socket;
+    let opened = false;
     socket.addEventListener("open", () => {
       if (this.socket !== socket) return;
+      opened = true;
       this.set("online");
       this.deps.onOpen();
     });
@@ -130,7 +143,10 @@ export class RelayConnection {
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
         this.deps.onSignedOut();
-      } else this.retry();
+      } else {
+        if (!opened) this.deps.unreachable?.(url);
+        this.retry();
+      }
     });
     // An error is followed by a close, which decides what comes next.
     socket.addEventListener("error", () => {});

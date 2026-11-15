@@ -30,13 +30,20 @@ function fakeServer(
     devicesError?: string;
   } = {},
 ) {
-  const requests: { method: string; path: string; body?: unknown; auth?: string }[] = [];
+  const requests: {
+    method: string;
+    path: string;
+    host: string;
+    body?: unknown;
+    auth?: string;
+  }[] = [];
   const fetchFn = (async (input: URL | string, init?: RequestInit) => {
     const url = new URL(String(input));
     const headers = (init?.headers ?? {}) as Record<string, string>;
     requests.push({
       method: init?.method ?? "GET",
       path: url.pathname,
+      host: url.host,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
       auth: headers.authorization,
     });
@@ -100,6 +107,84 @@ describe("the loopback", () => {
   test("gives up when the time is up", async () => {
     const listener = await listenForCallback(20);
     await expect(listener.result).rejects.toMatchObject({ failure: "timed-out" });
+  });
+});
+
+describe("the way to the server", () => {
+  const PROXY = "https://proxy.example";
+  const saved = { server: SERVER, token: "tok", user, device };
+  /** The server, behind a proxy that fails as told. */
+  function behind(proxy: (url: URL) => Error | null) {
+    const server = fakeServer();
+    const fetchFn = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const failure = url.origin === PROXY ? proxy(url) : null;
+      if (failure) throw failure;
+      return server.fetchFn(input, init);
+    }) as typeof fetch;
+    return { server, fetchFn };
+  }
+
+  test("signs in at the server's own page, asks through the proxy, and stays the server's", async () => {
+    const { server, fetchFn } = behind(() => null);
+    const { opened, openExternal } = browser((start) => ({
+      code: "c1",
+      state: start.searchParams.get("state") ?? "",
+    }));
+    const store = memoryStore();
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store,
+      openExternal,
+      fetch: fetchFn,
+    });
+    accounts.push(account);
+    expect(await account.signIn()).toMatchObject({ status: "signed-in", server: SERVER });
+    expect(opened[0]?.origin).toBe(SERVER);
+    expect(server.requests.map((r) => [r.path, r.host])).toEqual([
+      ["/auth/token", "proxy.example"],
+    ]);
+    expect(store.value?.server).toBe(SERVER);
+  });
+
+  test("a proxy not reached: the request goes again straight, and the next ones too", async () => {
+    let now = 0;
+    const { server, fetchFn } = behind(() => new TypeError("fetch failed"));
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: fetchFn,
+      now: () => now,
+    });
+    await account.restore();
+    expect(await account.devices()).toEqual([{ ...device, current: true }]);
+    expect(await account.devices()).toHaveLength(1);
+    expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787", "localhost:8787"]);
+    expect(account.route.base()).toBe(SERVER);
+    // After a while, the proxy is tried again.
+    now = 5 * 60_000;
+    expect(account.route.base()).toBe(PROXY);
+  });
+
+  test("one through the proxy that timed out is not sent again; the next goes straight", async () => {
+    const timeout = Object.assign(new Error("timed out"), { name: "TimeoutError" });
+    const { server, fetchFn } = behind(() => timeout);
+    const account = new RemoteAccount({
+      server: SERVER,
+      proxy: PROXY,
+      store: memoryStore(saved),
+      openExternal: async () => {},
+      fetch: fetchFn,
+      now: () => 0,
+    });
+    await account.restore();
+    await expect(account.devices()).rejects.toThrow("did not answer");
+    expect(server.requests).toEqual([]);
+    expect(await account.devices()).toHaveLength(1);
+    expect(server.requests.map((r) => r.host)).toEqual(["localhost:8787"]);
   });
 });
 

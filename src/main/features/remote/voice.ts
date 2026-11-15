@@ -66,7 +66,7 @@ export interface UpgradeRefusal {
 }
 
 export interface VoiceSessionsDeps {
-  account: Pick<RemoteAccount, "state" | "info" | "request" | "upload">;
+  account: Pick<RemoteAccount, "state" | "info" | "request" | "upload" | "route">;
   /** What the sessions are for; a note's carry voices, times and a second pass. */
   purpose?: VoicePurpose;
   emit(event: VoiceEvent): void;
@@ -143,8 +143,7 @@ export class VoiceSessions {
       if (error instanceof ServerError) return failed("failed", error.message);
       throw error;
     }
-    const url = new URL("/voice", state.server);
-    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const url = account.route.url("/voice", { socket: true });
     url.search = new URLSearchParams({
       v: String(VOICE_VERSION),
       lang: language,
@@ -187,6 +186,8 @@ export class VoiceSessions {
         });
       });
       socket.on("error", (error) => {
+        // Not reached before it answered: the next try goes straight when it was the proxy.
+        if (!settled) account.route.unreachable(url.toString());
         settle(failed("network", error.message));
       });
       socket.on("message", (data, binary) => {
