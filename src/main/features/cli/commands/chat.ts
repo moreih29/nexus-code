@@ -288,9 +288,9 @@ function settingsFlags(agent: ChatAgent, flags: ParsedArgs["flags"]): CliChatSet
 
 /**
  * Resolves when the user lets a tab go from mode `from` to `to`, a mode that
- * lets more run without asking: asked each time, as an answer to a
- * permission request is; the agent manager as Settings › Agent manager lets
- * it answer those.
+ * lets more run without asking: asked as an answer to a permission request
+ * is, whatever the setting; the agent manager as Settings › Agent manager
+ * lets it answer those.
  */
 async function mayLoosen(
   ctx: CliContext,
@@ -324,7 +324,7 @@ const chatNew: CliCommand = {
     "--prompt its program starts at once, shown or not, and is sent the prompt as its composer\n" +
     "sends it. Its id is printed for chat wait/read/send. --model, --effort and --mode are\n" +
     "set before the prompt, as its composer's menus set them; a mode that lets more run\n" +
-    "without asking than the default is the user's to allow, each time.",
+    "without asking than the default is the user's to allow.",
   flags: {
     agent: { type: "string", value: "AGENT", description: "claude (default) or codex" },
     prompt: { type: "string", value: "TEXT", description: "The first message" },
@@ -450,11 +450,11 @@ const chatSet: CliCommand = {
     "As its composer's menus set them, for its next turn on. With no flag, prints what it runs\n" +
     "with and what it takes: the models its program lists, its model's efforts, the modes.\n" +
     "Its program must run: a tab whose program ended starts it again with a message. A mode\n" +
-    "that lets more run without asking is the user's to allow, each time; the one that lets\n" +
+    "that lets more run without asking is the user's to allow; the one that lets\n" +
     "everything run, only the user picks.\n" +
     "--profile runs it with another agent profile (another account or settings), as its\n" +
     "profile chip does: its conversation goes on there, or a new one starts with --new. The\n" +
-    "user allows it each time; not while it works or asks the user.",
+    "user allows it; not while it works or asks the user.",
   flags: {
     ...SETTING_FLAGS,
     profile: { type: "string", value: "NAME", description: "Run it with that agent profile" },
@@ -523,7 +523,7 @@ const chatSet: CliCommand = {
 };
 
 /**
- * Has a tab run with another profile, the user allowing it each time: its
+ * Has a tab run with another profile, the user allowing it: its
  * conversation goes on there, or a new one starts (`fresh`).
  */
 async function setProfile(
@@ -822,7 +822,7 @@ const chatAnswer: CliCommand = {
     "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
     "the agent why with a deny. A question or a plan the agent puts to the user is theirs to\n" +
     "answer in the app. The agent manager answers as Settings › Agent manager lets it; anyone\n" +
-    "else, with the user's leave, asked each time.",
+    "else, with the user's leave.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
     workspace: WORKSPACE_FLAG,

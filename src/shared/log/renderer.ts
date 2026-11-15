@@ -61,11 +61,34 @@ type LogSink = {
   debug: (...a: unknown[]) => void;
 };
 
+/**
+ * The bridge electron-log's preload puts on the page (main's
+ * `log.initialize()` adds that preload to the session), which sends each call
+ * to the main process's transports; null where there is none. A bundled
+ * renderer has no `require`, so electron-log/renderer cannot be loaded there,
+ * and every line went to the console only; the bridge is what that module
+ * sends through anyway.
+ */
+function electronLogBridge(): LogSink | null {
+  if (typeof window === "undefined") return null;
+  const bridge = (window as { __electronLog?: Partial<LogSink> }).__electronLog;
+  if (!bridge) return null;
+  const { error, warn, info, debug } = bridge;
+  if ([error, warn, info, debug].some((fn) => typeof fn !== "function")) return null;
+  return bridge as LogSink;
+}
+
 export function createLogger(source: LogSource | string): Logger {
   let cached: LogSink | null = null;
 
   function getLog(): LogSink {
     if (cached !== null) return cached;
+
+    const bridge = electronLogBridge();
+    if (bridge !== null) {
+      cached = bridge;
+      return cached;
+    }
 
     if (!hasWindowMessaging()) {
       // Non-Electron renderer environment: fall back to console so tests and

@@ -31,12 +31,7 @@ import { formatPick, type PickedElement } from "./browser/pick";
 import { savePickPicture } from "./browser/pick-pictures";
 import { ClaudeExitWatch } from "./claude-exit";
 import { CLI_COMMANDS } from "./commands";
-import {
-  askEachTime,
-  type ChangeRequest,
-  CrossWorkspaceConsent,
-  type CrossWorkspacePolicy,
-} from "./consent";
+import { type ChangeRequest, CrossWorkspaceConsent, type CrossWorkspacePolicy } from "./consent";
 import { ConsentPrompts } from "./consent-prompts";
 import {
   type CliCaller,
@@ -305,7 +300,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
       }
     },
     allowChange: (request) => consent.check(request),
-    askUser: (request) => askEachTime(request, askConsent),
+    askUser: (request) => consent.ask(request),
     managerPermissions: () => options.settings().managerPermissions,
     agentContextEnabled: () => options.settings().agentContext,
     foregroundProcess,

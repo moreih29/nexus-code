@@ -30,9 +30,15 @@ import { type CliFeature, setupCliFeature } from "./features/cli";
 import type { CliRemote } from "./features/cli/context";
 import { registerClipboardChannel } from "./features/clipboard/ipc";
 import {
-  installNexusWorkspaceProtocol,
-  registerNexusWorkspaceSchemes,
-} from "./features/custom-protocols/nexus-workspace";
+  installAppRequestGuard,
+  registerAppSchemes,
+} from "./features/custom-protocols/app-schemes";
+import {
+  installNexusPreviewProtocol,
+  PreviewDocuments,
+  registerPreviewChannel,
+} from "./features/custom-protocols/nexus-preview";
+import { installNexusWorkspaceProtocol } from "./features/custom-protocols/nexus-workspace";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -74,7 +80,8 @@ import {
   canUpdateInPlace,
   createElectronUpdateBackend,
 } from "./features/updates/electron-update-backend";
-import { createMainWindow, updateTitleBarOverlays } from "./features/window";
+import { appPage, createMainWindow, updateTitleBarOverlays } from "./features/window";
+import { installAppCsp } from "./features/window/app-csp";
 import { installAppSessionPermissions } from "./features/window/app-session-permissions";
 import {
   getActiveAppWindow,
@@ -132,9 +139,12 @@ logChildProcessDeaths(app);
 
 setupRouter();
 
-// Register the nexus-workspace:// custom scheme as a privileged standard
-// scheme.  Must be called before app.whenReady().
-registerNexusWorkspaceSchemes();
+// Register the nexus-workspace:// and nexus-preview:// custom schemes as
+// privileged standard schemes.  Must be called before app.whenReady().
+registerAppSchemes();
+
+// The HTML preview's documents, served at nexus-preview://<token>/.
+const previewDocuments = new PreviewDocuments();
 
 // Dev runs must execute the agent from Go sources so an out-of-date
 // `dist/agent` cannot silently route requests to an outdated dispatcher.
@@ -413,6 +423,7 @@ registerSystemChannel({
 });
 registerWindowChannel();
 registerClipboardChannel();
+registerPreviewChannel(previewDocuments);
 
 // Install the updates domain. IPC handlers are registered synchronously here;
 // the auto-polls start inside app.whenReady() via startAutoChecks().
@@ -430,6 +441,16 @@ updatesHandle = installUpdatesDomain({
 
 app.whenReady().then(async () => {
   installAppSessionPermissions(session.defaultSession);
+  // The app window's Content-Security-Policy. NEXUS_CSP_REPORT_ONLY=1 makes
+  // an unpackaged run only report what it would block, in the console.
+  installAppCsp(
+    session.defaultSession,
+    appPage(),
+    !app.isPackaged && process.env.NEXUS_CSP_REPORT_ONLY === "1",
+  );
+  // The session's request guard: the app's schemes, and file:// outside the
+  // renderer's folder, which the policy's 'self' takes in in a build.
+  installAppRequestGuard(session.defaultSession, path.dirname(appPage().indexPath));
   // On Linux, find out whether the notification service answers before the
   // first notification has to wait on it (infra/platform/desktop-notifications).
   startDesktopNotifications();
@@ -489,6 +510,7 @@ app.whenReady().then(async () => {
   // Install the nexus-workspace:// protocol handler after the workspace
   // manager is initialised so workspace lookups resolve correctly.
   installNexusWorkspaceProtocol(workspaceManager);
+  installNexusPreviewProtocol(previewDocuments);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
   gitHelpersIpc = new GitHelpersIpcManager({ userDataDir: userData, broadcast: forwardBroadcast });

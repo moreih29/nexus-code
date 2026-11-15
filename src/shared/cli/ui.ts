@@ -242,26 +242,14 @@ export function isTerminalChange(change: CliChange): boolean {
 }
 
 /**
- * The changes the user is asked about each time, never allowed until the
- * app restarts: an answer to a permission request, a mode that lets more run
- * unasked, another profile (another account) for a tab, what is typed into
- * a terminal or sent a tab, and any change that carries what it would run
- * or say (a new terminal's command, a new tab's or task's prompt). Allowing
- * one of these says nothing of the next, which may say anything.
+ * Whether a change types, runs or sends something: what is typed into a
+ * terminal or sent a tab, or a change that carries what it would run or say
+ * (a new terminal's command, a new tab's or task's prompt).
  */
-export function askedEachTime(change: CliChange): boolean {
-  switch (change.kind) {
-    case "permissionAllow":
-    case "permissionDeny":
-    case "chatMode":
-    case "chatProfile":
-    case "chatProfileNew":
-    case "terminalInput":
-    case "chatInput":
-      return true;
-    default:
-      return change.body !== undefined;
-  }
+export function carriesInput(change: CliChange): boolean {
+  return (
+    change.kind === "terminalInput" || change.kind === "chatInput" || change.body !== undefined
+  );
 }
 
 /** What a Claude or Codex tab runs with: those given of its model, effort and permission mode. */

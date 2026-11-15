@@ -18,6 +18,7 @@ import {
   UserActivation,
   watchActivation,
 } from "./activation";
+import type { AppPage } from "./app-csp";
 import { getAppWindows, trackAppWindow } from "./app-windows";
 import { opensTransparentOnLinux } from "./linux-transparency";
 import { isAllowedMainWindowNavigation } from "./navigation";
@@ -79,6 +80,18 @@ export function updateTitleBarOverlays(themePreference: AppState["themePreferenc
     if (backdrop === undefined) continue;
     win.setTitleBarOverlay(titleBarOverlayColors(themePreference, backdrop));
   }
+}
+
+/**
+ * Where the app's windows load their page from: the renderer's files, or in
+ * dev the electron-vite dev server (ELECTRON_RENDERER_URL). The window's
+ * Content-Security-Policy goes with that page (app-csp.ts).
+ */
+export function appPage(): AppPage {
+  return {
+    indexPath: join(__dirname, "../renderer/index.html"),
+    devServerUrl: app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL,
+  };
 }
 
 export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
@@ -198,11 +211,11 @@ export function createMainWindow(appState?: Readonly<AppState>): BrowserWindow {
   // packaged build ignores it: launched from a shell that still has it set,
   // it would hand the preload (full IPC, terminal spawn included) to whatever
   // serves that port, such as a repository's own dev server.
-  const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
+  const { indexPath, devServerUrl } = appPage();
   if (devServerUrl !== undefined) {
     win.loadURL(devServerUrl);
   } else {
-    win.loadFile(join(__dirname, "../renderer/index.html"));
+    win.loadFile(indexPath);
   }
 
   // The app is a single page and never navigates its window; any page that

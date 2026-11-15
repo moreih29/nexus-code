@@ -210,8 +210,8 @@ export class RemoteAccount {
    * Deletes the account on the server: its devices, its key bundle, all
    * of it. Every device is signed out; this one forgets its sign-in.
    */
-  async deleteAccount(): Promise<void> {
-    await this.call("DELETE", "/account");
+  async deleteAccount(headers?: Record<string, string>): Promise<void> {
+    await this.call("DELETE", "/account", headers ? { headers } : {});
     this.forget();
   }
 
@@ -227,10 +227,19 @@ export class RemoteAccount {
 
   /**
    * Asks the server as this device: the JSON it answered, or a ServerError;
-   * a 401 signs the app out and throws SignedOutError.
+   * a 401 signs the app out and throws SignedOutError. `headers` adds to the
+   * request's own (the account password's proof, say).
    */
-  request(method: string, path: string, body?: unknown): Promise<unknown> {
-    return this.call(method, path, body === undefined ? {} : { body });
+  request(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<unknown> {
+    return this.call(method, path, {
+      ...(body !== undefined ? { body } : {}),
+      ...(headers ? { headers } : {}),
+    });
   }
 
   /**
@@ -255,11 +264,12 @@ export class RemoteAccount {
     options: {
       body?: unknown;
       raw?: { bytes: Uint8Array; type: string; headers: Record<string, string> };
+      headers?: Record<string, string>;
       signedIn?: boolean;
       timeoutMs?: number;
     } = {},
   ): Promise<unknown> {
-    const headers: Record<string, string> = { ...options.raw?.headers };
+    const headers: Record<string, string> = { ...options.raw?.headers, ...options.headers };
     if (options.signedIn !== false) {
       if (!this.saved) throw new SignedOutError();
       headers.authorization = `Bearer ${this.saved.token}`;

@@ -14,5 +14,11 @@ export const ServerInfoSchema = z.object({
   relay: z.object({ version: z.number().int() }).nullable(),
   /** Null where the server has no speech-to-text provider: no microphone then. */
   voice: z.object({ version: z.number().int() }).nullable(),
+  /**
+   * Account keys v2 (device keys, rotation, the password's proof, a reset
+   * that waits): `{ version: 2 }` where the server has them. Absent or null
+   * before; a device then keeps to v1. Pairing needs nothing of the server.
+   */
+  accountKeys: z.object({ version: z.number().int() }).nullable().optional(),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;

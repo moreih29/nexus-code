@@ -14,7 +14,7 @@ import {
   type RemoteConsent,
   RpcErrorCode,
 } from "../../../../packages/remote-protocol/src";
-import { askedEachTime, isTerminalChange } from "../../../shared/cli/ui";
+import { isTerminalChange } from "../../../shared/cli/ui";
 import { isManagerWorkspace } from "../../../shared/manager/manager";
 import type { CliServices, PendingConsent } from "../cli/context";
 import { RpcFailure } from "./room";
@@ -108,7 +108,8 @@ export async function remoteConsents(
           ...(detail !== undefined ? { detail } : {}),
           ...(body !== undefined ? { body: clipBody(body) } : {}),
         },
-        eachTime: askedEachTime(request.change),
+        // "Until restart" answers every prompt now; older phones read this.
+        eachTime: false,
         answerable: refusalFor(p, deviceId, controls) === null,
       };
     }),
@@ -124,7 +125,7 @@ function clipBody(body: string): string {
 /**
  * Answers the prompt `id` from the device `deviceId` (named `deviceName`):
  * NotFound once it no longer waits, Forbidden when that device may not
- * answer it, or not so ("session" to what is asked about each time).
+ * answer it.
  */
 export async function answerConsent(
   services: CliServices,
@@ -138,12 +139,6 @@ export async function answerConsent(
   }
   const refusal = refusalFor(pending, device.id, controls);
   if (refusal) throw new RpcFailure(RpcErrorCode.Forbidden, refusal);
-  if (answer === "session" && askedEachTime(pending.request.change)) {
-    throw new RpcFailure(
-      RpcErrorCode.Forbidden,
-      "it is asked about each time: allow it once, or turn it down",
-    );
-  }
   if (!(await services.consents.answer(id, answer, device.name))) {
     throw new RpcFailure(RpcErrorCode.NotFound, "no such prompt: answered, or run out, since");
   }

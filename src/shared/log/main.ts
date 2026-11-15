@@ -168,20 +168,33 @@ function configureConsoleTransport(log: {
  */
 export function initMainLogger(): void {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { app } = require("electron") as typeof import("electron");
+  const { app, session } = require("electron") as typeof import("electron");
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const log = (require("electron-log/main") as { default: unknown }).default as {
     transports: { file: Record<string, unknown>; console: Record<string, unknown> };
-    initialize(): void;
+    initialize(options: {
+      getSessions: () => unknown[];
+      includeFutureSession: boolean;
+      includeFutureSessions: boolean;
+    }): void;
   };
 
   const logsDir = app.getPath("logs");
   configureFileTransport(log, logsDir);
   configureConsoleTransport(log);
 
-  // Injects the built-in electron-log preload script into all sessions so
-  // the renderer can send log messages over IPC without a custom channel.
-  log.initialize();
+  // Injects electron-log's preload into the app's session, so the renderer
+  // sends its log records over IPC without a channel of its own. Only that
+  // session's: by default it goes into every session, the browser tabs'
+  // included, where any site would get window.__electronLog to write
+  // main.log with, under a source of its choosing. electron-log 5.4 reads
+  // `includeFutureSession` and its types declare `includeFutureSessions`:
+  // both are passed. getSessions is called once the app is ready.
+  log.initialize({
+    getSessions: () => [session.defaultSession],
+    includeFutureSession: false,
+    includeFutureSessions: false,
+  });
 }
 
 /**
