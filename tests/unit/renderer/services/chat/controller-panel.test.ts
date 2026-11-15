@@ -4,7 +4,7 @@
  * come back as none. The real ipc client is spread under a spy, so later
  * files keep its other exports.
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sent: Record<string, unknown>[] = [];
 
@@ -55,7 +55,27 @@ const settle = async () => {
   for (let i = 0; i < 4; i++) await Promise.resolve();
 };
 
+let lineSeq = 0;
+
+/** Answers the last mcp_status asked, as the program does, with `servers`. */
+function answerMcp(c: Controller, servers: unknown[]): void {
+  const request = sent
+    .filter((m) => m.type === "control_request")
+    .findLast((m) => (m.request as { subtype: string }).subtype === "mcp_status");
+  const response = {
+    subtype: "success",
+    request_id: request?.request_id,
+    response: { mcpServers: servers },
+  };
+  c.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: { type: "control_response", response },
+  } as never);
+}
+
 afterEach(() => {
+  jest.useRealTimers();
   for (const c of live.splice(0)) c.dispose();
   sent.length = 0;
 });
@@ -81,5 +101,41 @@ describe("the side panel's MCP servers", () => {
     ended();
     await settle();
     expect(asked()).not.toContain("mcp_status");
+  });
+
+  test("said to be none as the program came up, are asked again a few times, then left", async () => {
+    jest.useFakeTimers();
+    const { c, ended } = starting();
+    ended();
+    c.refreshPanel(["mcp"]);
+    await settle();
+    const count = () => asked().filter((s) => s === "mcp_status").length;
+    expect(count()).toBe(1);
+    // Still coming up: none, again and again, till the asks run out.
+    for (let i = 2; i <= 5; i++) {
+      answerMcp(c, []);
+      await settle();
+      jest.advanceTimersByTime(2_000);
+      await settle();
+      expect(count()).toBe(i);
+    }
+    answerMcp(c, []);
+    await settle();
+    jest.advanceTimersByTime(10_000);
+    await settle();
+    expect(count()).toBe(5);
+  });
+
+  test("once some are said, are not asked again", async () => {
+    jest.useFakeTimers();
+    const { c, ended } = starting();
+    ended();
+    c.refreshPanel(["mcp"]);
+    await settle();
+    answerMcp(c, [{ name: "github", status: "connected" }]);
+    await settle();
+    jest.advanceTimersByTime(10_000);
+    await settle();
+    expect(asked().filter((s) => s === "mcp_status")).toHaveLength(1);
   });
 });

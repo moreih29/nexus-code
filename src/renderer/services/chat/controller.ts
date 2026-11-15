@@ -89,6 +89,14 @@ const USAGE_TIMEOUT_MS = 60_000;
 
 /** How long after a failed ask for the context it is asked once more. */
 const CONTEXT_RETRY_MS = 3_000;
+/**
+ * MCP servers said to be none may still be coming up: for a few seconds
+ * after the program's initialize, its servers' list is empty. Asked again
+ * this long after, at most MCP_EMPTY_ASKS times a run of the program, as a
+ * session can have none.
+ */
+const MCP_EMPTY_RETRY_MS = 2_000;
+const MCP_EMPTY_ASKS = 4;
 
 interface ReplayResult {
   found: boolean;
@@ -220,6 +228,8 @@ export class ChatController {
   private chosenModel: string | undefined;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
+  /** How many times this run of the program said it had no MCP servers, and was asked again. */
+  private mcpEmptyAsks = 0;
   private buffered: ChatLine[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /** New lines held while the log is sent again. */
@@ -1084,12 +1094,21 @@ export class ChatController {
       if (!this.supports(subtype)) continue;
       // After the program's initialize: asked before it ends, the MCP servers
       // are not up yet and come back as none, which the panel would keep.
-      void this.initializing
-        .catch(() => {})
-        .then(() => {
-          if (this.lineCanAsk()) this.request(subtype, this.panelParams(part)).catch(() => {});
-        });
+      void this.initializing.catch(() => {}).then(() => this.askPanel(part, subtype));
     }
+  }
+
+  /** Asks for a part of the panel; MCP servers said to be none, again a little later. */
+  private askPanel(part: PanelPart, subtype: string): void {
+    if (!this.lineCanAsk()) return;
+    this.request(subtype, this.panelParams(part))
+      .then((body) => {
+        const none = part === "mcp" && Array.isArray(body.mcpServers) && !body.mcpServers.length;
+        if (!none || this.mcpEmptyAsks >= MCP_EMPTY_ASKS) return;
+        this.mcpEmptyAsks += 1;
+        setTimeout(() => this.askPanel(part, subtype), MCP_EMPTY_RETRY_MS);
+      })
+      .catch(() => {});
   }
 
   /**
@@ -1740,6 +1759,7 @@ export class ChatController {
     if (before.running && !model.running) this.sendNextQueued();
     if (model.process === "exited" && before.process !== "exited") {
       this.rejectPending("the program exited");
+      this.mcpEmptyAsks = 0;
     }
   }
 
