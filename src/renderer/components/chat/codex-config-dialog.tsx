@@ -2,10 +2,13 @@
 // a new conversation starts with, read from Codex's config and saved in the
 // profile's config.toml. The composer's chips set only their tab's; the
 // tab the dialog is opened in takes the new ones, as the CLI's session does.
+// Another computer's Codex chat has the same dialog, its defaults read and
+// saved there (CodexDefaultsSource).
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { CodexController } from "../../services/chat/codex-controller";
+import type { ModelInfo } from "../../services/chat/model";
 import type { ChatTabState } from "../../services/chat/store";
 import { SettingsGroup, SettingsRow } from "../settings/section";
 import { Button } from "../ui/button";
@@ -14,7 +17,20 @@ import { DialogHeader } from "../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
 
-type Loaded = "loading" | { failed: string } | { model?: string; effort?: string };
+/** A Codex's defaults, and the models it takes when they come with them. */
+export interface CodexDefaults {
+  model?: string;
+  effort?: string;
+  models?: readonly ModelInfo[];
+}
+
+/** Where the dialog reads Codex's defaults and saves the changed ones: a tab's controller, say. */
+export interface CodexDefaultsSource {
+  readDefaults(): Promise<CodexDefaults>;
+  saveDefaults(changes: { model?: string; effort?: string }): Promise<void>;
+}
+
+type Loaded = "loading" | { failed: string } | CodexDefaults;
 
 export function CodexConfigDialog({
   controller,
@@ -24,6 +40,30 @@ export function CodexConfigDialog({
 }: {
   controller: CodexController;
   state: ChatTabState;
+  open: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <CodexDefaultsDialog
+      source={controller}
+      // The tab's list: its read does not bring one.
+      models={state.model.init?.models ?? []}
+      open={open}
+      onClose={onClose}
+    />
+  );
+}
+
+/** The defaults dialog, from where `source` reads and saves them. */
+export function CodexDefaultsDialog({
+  source,
+  models: listed,
+  open,
+  onClose,
+}: {
+  source: CodexDefaultsSource;
+  /** The models the tab lists, where the read does not bring them. */
+  models?: readonly ModelInfo[];
   open: boolean;
   onClose: () => void;
 }) {
@@ -40,17 +80,17 @@ export function CodexConfigDialog({
     setModel(undefined);
     setEffort(undefined);
     setBusy(false);
-    controller.readDefaults().then(
+    source.readDefaults().then(
       (defaults) => live && setLoaded(defaults),
       (err: Error) => live && setLoaded({ failed: err.message }),
     );
     return () => {
       live = false;
     };
-  }, [controller, open]);
+  }, [source, open]);
 
-  const models = state.model.init?.models ?? [];
   const now = typeof loaded === "object" && !("failed" in loaded) ? loaded : null;
+  const models = now?.models ?? listed ?? [];
   const shownModel = model ?? now?.model;
   const levels = models.find((m) => m.value === shownModel)?.supportedEffortLevels ?? [];
   const shownEffort = effort ?? now?.effort;
@@ -63,7 +103,7 @@ export function CodexConfigDialog({
   const apply = async () => {
     setBusy(true);
     try {
-      await controller.saveDefaults(changes);
+      await source.saveDefaults(changes);
       onClose();
     } catch (err) {
       setBusy(false);

@@ -179,7 +179,10 @@ export function exitCodeOf(summary: string | undefined): number | undefined {
 }
 
 /** The command a job runs, as the Bash call that started it gave it. */
-export function jobCommand(job: TaskInfo, tools: Record<string, ToolCall>): string | undefined {
+export function jobCommand(
+  job: Pick<TaskInfo, "toolUseId">,
+  tools: Record<string, ToolCall>,
+): string | undefined {
   const tool = job.toolUseId ? tools[job.toolUseId] : undefined;
   return str(rec(tool?.input)?.command);
 }

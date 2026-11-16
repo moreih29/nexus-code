@@ -16,7 +16,9 @@
  *     tabs can ask is asked: its tabs show its usage as it goes, whether or
  *     not they have a turn (an empty one too), and once shown again the
  *     window asks at once. A tab asks too as it is shown or its program
- *     comes up, and after each turn.
+ *     comes up, and after each turn. A chat another device watches is shown
+ *     there: its profile is asked as it starts to be watched, and each
+ *     minute while it is, the window hidden or not.
  *   - After an answer, none for 50 seconds (Claude Code keeps its own
  *     snapshot for a minute); after a failure, 2, 4, 8, then 15 minutes, and
  *     the last good numbers stay. A profile without plan limits (an API key)
@@ -82,6 +84,8 @@ interface PlanUsageState {
 export const usePlanUsageStore = create<PlanUsageState>(() => ({ byKey: {} }));
 
 const sources = new Set<PlanUsageSource>();
+/** The profiles of the chats other devices watch, by each watch: shown there. */
+const watchedAfar = new Map<string, () => string | null>();
 const inflight = new Map<string, Promise<void>>();
 let clock: () => number = () => Date.now();
 /** Stops the minute's asks; set while any tab is a source. */
@@ -131,14 +135,38 @@ const windowShown = (): boolean =>
   typeof document === "undefined" || document.visibilityState !== "hidden";
 
 /**
- * Asks for each profile one of whose tabs can ask, if it is time; none
- * while the window is hidden.
+ * Asks for each profile one of whose tabs can ask, if it is time; while
+ * the window is hidden, only those another device shows a chat of.
  */
 export function pollPlanUsage(): void {
-  if (!windowShown()) return;
+  const shown = windowShown();
+  const afar = new Set<string>();
+  for (const keyOf of watchedAfar.values()) {
+    const key = keyOf();
+    if (key) afar.add(key);
+  }
   const keys = new Set<string>();
-  for (const source of sources) if (source.ready()) keys.add(source.usageKey());
+  for (const source of sources) {
+    if (!source.ready()) continue;
+    const key = source.usageKey();
+    if (shown || afar.has(key)) keys.add(key);
+  }
   for (const key of keys) void wantPlanUsage(key);
+}
+
+/**
+ * A chat another device watches (by its watch), whose profile `keyOf`
+ * tells (null once its tab is gone): asked for now, as a tab is as it
+ * shows, and each minute while it is watched. The function it gives back
+ * stops it.
+ */
+export function watchPlanUsageAfar(watchId: string, keyOf: () => string | null): () => void {
+  watchedAfar.set(watchId, keyOf);
+  const key = keyOf();
+  if (key) void wantPlanUsage(key);
+  return () => {
+    if (watchedAfar.get(watchId) === keyOf) watchedAfar.delete(watchId);
+  };
 }
 
 function startPoll(): void {
@@ -389,6 +417,7 @@ export function usePlanCodexLimits(
 export function resetPlanUsage(now: () => number = () => Date.now()): void {
   endPoll();
   sources.clear();
+  watchedAfar.clear();
   inflight.clear();
   clock = now;
   usePlanUsageStore.setState({ byKey: {} });

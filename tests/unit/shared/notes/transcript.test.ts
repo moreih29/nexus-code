@@ -74,6 +74,20 @@ describe("a note's transcript", () => {
     expect(carryNames(live, { "1": "지현" }, next)).toEqual({ A: "지현" });
   });
 
+  test("a live voice's name goes to the one new voice that shares the most with it", () => {
+    // Heard live as one voice; the pass tells two people apart.
+    const live = [line("1", 0, 9000, "a"), line("2", 9000, 12000, "b")];
+    const next = [line("A", 0, 6000, "a"), line("C", 6000, 9000, "x"), line("B", 9000, 12000, "b")];
+    expect(carryNames(live, { "1": "지현", "2": "민수" }, next)).toEqual({ A: "지현", B: "민수" });
+    // Two live voices the user named alike are one person: both their new voices take it.
+    const twice = [line("1", 0, 5000, "a"), line("2", 5000, 9000, "b")];
+    const split = [line("A", 0, 5000, "a"), line("B", 5000, 9000, "b")];
+    expect(carryNames(twice, { "1": "지현", "2": "지현" }, split)).toEqual({
+      A: "지현",
+      B: "지현",
+    });
+  });
+
   test("a take's second pass replaces its lines, moved to the take's place, and keeps the others", () => {
     const r = recording({
       takes: [

@@ -59,7 +59,10 @@ describe("a chat's side panel", () => {
         tools,
         costUsd: 0.42,
         contextUsage: {
-          categories: [{ name: "Messages", tokens: 1200, kind: "used" }],
+          categories: [
+            { name: "Messages", tokens: 1200, kind: "used" },
+            { name: "Free space", tokens: 198_800, kind: "free" },
+          ],
           totalTokens: 1200,
           maxTokens: 200_000,
         },
@@ -71,7 +74,12 @@ describe("a chat's side panel", () => {
       { content: "fix", status: "in_progress" },
     ]);
     expect(panel.changedFiles).toEqual([{ path: "/p/a.ts", added: 1, removed: 2 }]);
-    expect(panel.context).toEqual({ usedTokens: 1200, maxTokens: 200_000 });
+    expect(panel.context).toEqual({
+      usedTokens: 1200,
+      maxTokens: 200_000,
+      categories: [{ name: "Messages", tokens: 1200 }],
+      freeTokens: 198_800,
+    });
     expect(panel.costUsd).toBe(0.42);
     expect(panel.goal).toEqual({
       condition: "tests pass",
@@ -81,6 +89,76 @@ describe("a chat's side panel", () => {
       checkReasons: [{ reason: "no" }],
     });
     expect(panel).toMatchObject({ tasks: [], agents: [] });
+  });
+
+  test("a background run tells where its output is written: as its end said, or its start", () => {
+    const bash = call(
+      "bash",
+      "Bash",
+      { command: "make", run_in_background: true },
+      {
+        result: {
+          text: "Command running in background with ID: b2. Output is being written to: /tmp/c/b2.output.",
+          isError: false,
+          images: [],
+        },
+      },
+    );
+    const panel = chatPanelOf(
+      source({
+        tools: { bash },
+        tasks: {
+          b1: {
+            taskId: "b1",
+            type: "local_bash",
+            description: "ended",
+            status: "completed",
+            outputFile: "/tmp/c/b1.output",
+          },
+          b2: {
+            taskId: "b2",
+            type: "local_bash",
+            description: "running",
+            status: "running",
+            toolUseId: "bash",
+          },
+        },
+      }),
+    );
+    expect(panel.tasks.map((t) => [t.taskId, t.outputFile])).toEqual([
+      ["b1", "/tmp/c/b1.output"],
+      ["b2", "/tmp/c/b2.output"],
+    ]);
+  });
+
+  test("a file the chat made is told as made", () => {
+    const write = call(
+      "write",
+      "Write",
+      { file_path: "/p/new.ts", content: "x\ny" },
+      { result: { text: "", isError: false, images: [], structured: { type: "create" } } },
+    );
+    const panel = chatPanelOf(source({ tools: { ...tools, write } }));
+    expect(panel.changedFiles).toEqual([
+      { path: "/p/a.ts", added: 1, removed: 2 },
+      { path: "/p/new.ts", added: 2, removed: 0, created: true },
+    ]);
+  });
+
+  test("an ended goal's checks, the last that ended it too", () => {
+    const panel = chatPanelOf(
+      source({
+        goal: {
+          condition: "say ok",
+          status: "met",
+          setAt: 5,
+          checks: [],
+          iterations: 1,
+          endedLive: true,
+        },
+      }),
+    );
+    expect(panel.goal).toMatchObject({ status: "met", checks: 0, iterations: 1 });
   });
 
   test("a Claude chat's limit, MCP servers, program and Remote Control", () => {
@@ -123,10 +201,10 @@ describe("a chat's side panel", () => {
         { after: "m2", profile: "work", at: 9 },
         { after: "gone", profile: "home", at: 10 },
       ],
-      can: { rewind: true, fork: true, background: true },
+      can: { rewind: true, fork: true, background: true, moveNow: true },
     });
     expect(panel.moves).toEqual([{ after: "a1", profile: "work", at: 9 }]);
-    expect(panel.can).toEqual({ rewind: true, fork: true, background: true });
+    expect(panel.can).toEqual({ rewind: true, fork: true, background: true, moveNow: true });
   });
 
   test("the messages held for after the turn, each's text cut short, and its images counted", () => {

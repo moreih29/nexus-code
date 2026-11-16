@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type {
   ChatCommand,
+  ChatConfig,
   ChatPage,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
@@ -751,6 +752,30 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
+   * Starts a Claude or Codex tab's program again, as its ended or failed
+   * banner does, or as the card after /login does while it runs.
+   */
+  "chat.restart": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Asks a Codex tab's program again whether it is signed in, as its
+   * signed-out banner's "check again" does; whether it still is not.
+   */
+  "chat.checkSignIn": {
+    args: { workspaceId: string; tabId: string };
+    result: { signedOut: boolean };
+  };
+  /**
+   * The files a workspace's Claude and Codex tabs' background jobs write
+   * their output to, absolute: what each tab's side panel reads of them.
+   */
+  "chat.jobOutputs": {
+    args: { workspaceId: string };
+    result: { files: string[] };
+  };
+  /**
    * Sets a Claude or Codex tab's model, effort and permission mode, as its
    * composer's chips do, those given only; tells what it runs with then and
    * what it takes. Its program is started if it was not.
@@ -797,19 +822,29 @@ export interface CliUiOps {
     result: { commands: ChatCommand[] };
   };
   /**
+   * What an @ in a Claude or Codex tab's composer may name for `query`, as
+   * its agent suggests it there; none while its program does not run.
+   */
+  "chat.fileSuggestions": {
+    args: { workspaceId: string; tabId: string; query: string };
+    result: { paths: string[] };
+  };
+  /**
    * Runs one of the app's own commands in a Claude or Codex tab as its
    * composer runs it typed, for the user on another device; what it said,
    * and the tab it opened, when it opened one.
    */
   "chat.command": {
     args: { workspaceId: string; tabId: string; name: string; args?: string };
-    result: { message?: string; tabId?: string };
+    /** card: the message is its card's, not a toast's. */
+    result: { message?: string; card?: boolean; tabId?: string };
   };
   /**
    * Has a Claude or Codex tab run with another agent profile (by name or id),
    * as its profile chip does: its conversation goes on in that profile, or,
    * `fresh`, a new one starts there. `dryRun` only checks that it can.
-   * Refused while it works or asks the user.
+   * Refused while it works or asks the user, unless `stop`: its turn stops
+   * then, as its chip's choice there stops it.
    */
   "chat.profile": {
     args: {
@@ -818,6 +853,7 @@ export interface CliUiOps {
       profile: string;
       fresh: boolean;
       dryRun?: boolean;
+      stop?: boolean;
     };
     /** The profiles by name: the one it ran with, the one it runs with now. */
     result: { from: string; to: string };
@@ -935,6 +971,35 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; toolUseId: string };
     result: Record<string, never>;
   };
+  /**
+   * Works a Claude tab's MCP server as its panel does, for another device:
+   * connects it again, turns it on or off, or signs in with that device's
+   * browser (`signIn` gives the page, `signedIn` finishes it).
+   */
+  "chat.mcp": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      server: string;
+      action: "reconnect" | "enable" | "disable" | "signIn" | "signedIn";
+      redirectUri?: string;
+      callbackUrl?: string;
+    };
+    result: { authUrl?: string; back?: boolean };
+  };
+  /**
+   * A Claude tab's Claude Code settings (/config) for another device, as
+   * its settings dialog has them: what they are now, or (`set`) the
+   * changes saved as the dialog saves them.
+   */
+  "chat.config": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      set?: { changes: Record<string, boolean | string>; effort?: string };
+    };
+    result: { config?: ChatConfig };
+  };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
     args: { workspaceId: string; tabId: string; enabled: boolean };
@@ -947,7 +1012,8 @@ export interface CliUiOps {
   };
   /**
    * An image of a Claude or Codex tab: a user message's, by its item's key,
-   * or a tool result's, by its call's id; at its index there. Made smaller
+   * a tool result's, by its call's id, or a message's held for after the
+   * turn, by its id; at its index there. Made smaller
    * when its base64 would take over `maxChars`, or its longer side over
    * `maxEdge` pixels.
    */
@@ -957,7 +1023,8 @@ export interface CliUiOps {
       tabId: string;
       ref:
         | { kind: "user"; itemKey: string; index: number }
-        | { kind: "tool"; toolUseId: string; index: number };
+        | { kind: "tool"; toolUseId: string; index: number }
+        | { kind: "held"; id: string; index: number };
       maxChars: number;
       maxEdge?: number;
     };
@@ -970,6 +1037,14 @@ export interface CliUiOps {
   "chat.toolCall": {
     args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
     result: ViewToolCall;
+  };
+  /**
+   * A file a Claude or Codex tab's session changed as it was before its
+   * first change (null for one it wrote new); `found` false when it is not kept.
+   */
+  "chat.original": {
+    args: { workspaceId: string; tabId: string; path: string };
+    result: { found: boolean; before: string | null };
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
@@ -1137,6 +1212,8 @@ export interface CliUiOps {
        * now on, by their index as chat.read words them; the user only.
        */
       always?: number[];
+      /** With allow of a plan: the mode the chat goes on in, as the plan card's approvals set it. */
+      planMode?: "acceptEdits" | "default";
     };
     result: Record<string, never>;
   };

@@ -126,6 +126,7 @@ describe("chat send --device", () => {
           workspaceId: APP,
           tabId: CLAUDE_TAB,
           name: expect.any(String),
+          waits: true,
         },
       },
     ]);
@@ -147,7 +148,8 @@ describe("chat send --device", () => {
       device: { id: MINI, name: "Mac mini" },
       text: "hi",
     });
-    expect(asked(app, "chat.send")[0]).toMatchObject({ from: FROM_SHELL });
+    // Sent without --wait: the agent there is told to write back.
+    expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
   });
 
   test("a tab is found among the computer's, in --workspace when given; . is this computer's", async () => {

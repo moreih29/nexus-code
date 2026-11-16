@@ -12,6 +12,7 @@ import type { CustomScheme } from "electron";
 import * as electron from "electron";
 import { READ_RANGE_MAX_BYTES } from "../../../shared/fs/defaults";
 import { outsideWorkspaceOf } from "../../../shared/fs/outside-url";
+import { PEER_HOST, type PeerWorkspace, peerFileOf } from "../../../shared/fs/peer-url";
 import type { FileReadBinaryResult } from "../../../shared/fs/types";
 import { createLogger } from "../../../shared/log/main";
 import { isOutsideGranted, resolveOutsideGrant } from "../fs/outside-grants";
@@ -153,11 +154,29 @@ function unsatisfiable(size: number): Response {
 // ---------------------------------------------------------------------------
 
 /**
+ * Reads up to `length` bytes, at most PEER_PIECE_BYTES, of a file of another
+ * computer's workspace from `offset`, through the room: "missing" when that
+ * computer has no such file there. Throws when it cannot be asked.
+ */
+export type PeerFileReader = (
+  peer: PeerWorkspace,
+  absPath: string,
+  offset: number,
+  length: number,
+) => Promise<{ base64: string; size: number } | "missing">;
+
+/** The most one request reads of another computer's file (the protocol's MAX_BYTES_CHUNK). */
+export const PEER_PIECE_BYTES = 512 * 1024;
+
+/**
  * Builds the protocol handler function.  Exported so tests can call it
- * directly without requiring a live Electron app context.
+ * directly without requiring a live Electron app context. `peers` reads the
+ * files of other computers' workspaces, which quick look over their chats
+ * shows; none are served without it.
  */
 export function buildNexusWorkspaceHandler(
   workspaceManager: WorkspaceManager,
+  peers?: () => PeerFileReader | null,
 ): (req: Request) => Promise<Response> {
   return async (req: Request): Promise<Response> => {
     // Step 1 — parse the custom URL.
@@ -181,6 +200,14 @@ export function buildNexusWorkspaceHandler(
       return new Response(null, { status: 404 });
     }
     const relPath = segments.join(path.sep);
+
+    // A file of another computer's workspace, by its path there.
+    if (parsed.host === PEER_HOST) {
+      const file = peerFileOf(segments);
+      const reader = peers?.() ?? null;
+      if (!file || !reader) return new Response(null, { status: 404 });
+      return servePeerFile(reader, file.peer, file.absPath, req.headers.get("range"));
+    }
 
     // Step 2 — look up the workspace meta.
     const metas = workspaceManager.list();
@@ -351,6 +378,7 @@ function piecesStream(
   head: Buffer,
   mtime: string,
   filePath: string,
+  pieceSize: number = READ_RANGE_MAX_BYTES,
 ): ReadableStream<Uint8Array> {
   const end = span.end + 1;
   const first = head.subarray(0, Math.min(head.length, end - span.start));
@@ -358,7 +386,7 @@ function piecesStream(
   let next = span.start + first.length;
   const request = () => {
     const offset = next;
-    const length = Math.min(READ_RANGE_MAX_BYTES, end - offset);
+    const length = Math.min(pieceSize, end - offset);
     next += length;
     const piece = read(offset, length).then((result) =>
       pieceBytes(result, length, mtime, filePath),
@@ -406,34 +434,71 @@ async function serveViaAgent(
       : fsProvider.readRange(posixRelPath, offset, length);
 
   try {
-    // The first piece tells the file's size. It is read where the range
-    // asked starts, so that a seek takes one round trip before it plays.
-    const start = rangeStart(rangeHeader);
-    let first = await read(start, READ_RANGE_MAX_BYTES);
-    if (first.kind === "missing") return new Response(null, { status: 404 });
-    const size = first.sizeBytes;
-    const range = requestedRange(rangeHeader, size);
-    if (range === "unsatisfiable") return unsatisfiable(size);
-    const span = range ?? { start: 0, end: size - 1 };
-    // A range from the end starts where only the size tells.
-    if (span.start !== start) {
-      first = await read(span.start, READ_RANGE_MAX_BYTES);
-      if (first.kind === "missing") return new Response(null, { status: 404 });
-    }
-    const body = piecesStream(
-      read,
-      span,
-      Buffer.from(first.base64, "base64"),
-      first.mtime,
-      posixRelPath,
-    );
-    if (range !== null) return partialResponse(body, range, size, posixRelPath);
-    return new Response(body, {
-      status: 200,
-      headers: { ...responseHeaders(posixRelPath), "Content-Length": String(size) },
-    });
+    return await servePieces(read, posixRelPath, rangeHeader, READ_RANGE_MAX_BYTES);
   } catch (err) {
     logger.warn(`SSH readRange failed: ${workspaceId}:${posixRelPath} — ${(err as Error).message}`);
+    return new Response(null, { status: 404 });
+  }
+}
+
+/** A file read by `read` a piece of at most `pieceSize` at a time: whole, or the range asked. */
+async function servePieces(
+  read: PieceReader,
+  filePath: string,
+  rangeHeader: string | null,
+  pieceSize: number,
+): Promise<Response> {
+  // The first piece tells the file's size. It is read where the range
+  // asked starts, so that a seek takes one round trip before it plays.
+  const start = rangeStart(rangeHeader);
+  let first = await read(start, pieceSize);
+  if (first.kind === "missing") return new Response(null, { status: 404 });
+  const size = first.sizeBytes;
+  const range = requestedRange(rangeHeader, size);
+  if (range === "unsatisfiable") return unsatisfiable(size);
+  const span = range ?? { start: 0, end: size - 1 };
+  // A range from the end starts where only the size tells.
+  if (span.start !== start) {
+    first = await read(span.start, pieceSize);
+    if (first.kind === "missing") return new Response(null, { status: 404 });
+  }
+  const body = piecesStream(
+    read,
+    span,
+    Buffer.from(first.base64, "base64"),
+    first.mtime,
+    filePath,
+    pieceSize,
+  );
+  if (range !== null) return partialResponse(body, range, size, filePath);
+  return new Response(body, {
+    status: 200,
+    headers: { ...responseHeaders(filePath), "Content-Length": String(size) },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Another computer's file — read through the room (files.read), which that
+// computer keeps to the workspace's folders, a piece of at most
+// PEER_PIECE_BYTES at a time. It tells no modification time: the size
+// stands for one, so a piece of a file that grew or shrank fails the stream.
+// ---------------------------------------------------------------------------
+
+async function servePeerFile(
+  reader: PeerFileReader,
+  peer: PeerWorkspace,
+  absPath: string,
+  rangeHeader: string | null,
+): Promise<Response> {
+  const read: PieceReader = async (offset, length) => {
+    const piece = await reader(peer, absPath, offset, Math.min(length, PEER_PIECE_BYTES));
+    if (piece === "missing") return { kind: "missing", reason: "not-found" };
+    return { kind: "ok", base64: piece.base64, sizeBytes: piece.size, mtime: `size:${piece.size}` };
+  };
+  try {
+    return await servePieces(read, absPath, rangeHeader, PEER_PIECE_BYTES);
+  } catch (err) {
+    logger.warn(`peer read failed: ${peer.deviceId}:${absPath} — ${(err as Error).message}`);
     return new Response(null, { status: 404 });
   }
 }
@@ -470,6 +535,9 @@ export const NEXUS_WORKSPACE_SCHEME: CustomScheme = {
  * Installs the `nexus-workspace://` protocol handler.
  * Must be called **after** `app.whenReady()`.
  */
-export function installNexusWorkspaceProtocol(workspaceManager: WorkspaceManager): void {
-  electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager));
+export function installNexusWorkspaceProtocol(
+  workspaceManager: WorkspaceManager,
+  peers?: () => PeerFileReader | null,
+): void {
+  electron.protocol.handle("nexus-workspace", buildNexusWorkspaceHandler(workspaceManager, peers));
 }

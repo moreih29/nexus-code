@@ -31,10 +31,24 @@ function contextOfModel(source: ChatSource): ChatPanel["context"] {
       : null;
   }
   const summary = contextOf(model.contextUsage);
-  return summary && summary.maxTokens > 0
-    ? { usedTokens: summary.totalTokens, maxTokens: summary.maxTokens }
-    : null;
+  if (!summary || summary.maxTokens <= 0) return null;
+  const tokens = (n: number) => Math.max(0, Math.round(n));
+  return {
+    usedTokens: summary.totalTokens,
+    maxTokens: summary.maxTokens,
+    ...(summary.used.length > 0
+      ? {
+          categories: summary.used
+            .slice(0, MAX_CONTEXT_CATEGORIES)
+            .map(({ name, tokens: n }) => ({ name: name.slice(0, 200), tokens: tokens(n) })),
+        }
+      : {}),
+    ...(summary.free !== undefined ? { freeTokens: tokens(summary.free) } : {}),
+  };
 }
+
+/** The most kinds of what fills the context a panel tells. */
+const MAX_CONTEXT_CATEGORIES = 50;
 
 /**
  * The plan's usage limits as the composer's line shows them, the session's
@@ -79,6 +93,7 @@ function viewGoalOf(goal: GoalView): ViewGoal {
     ...(goal.tokenBudget !== undefined ? { tokenBudget: goal.tokenBudget } : {}),
     ...(goal.durationMs !== undefined ? { durationMs: goal.durationMs } : {}),
     ...(goal.endedAt !== undefined ? { endedAt: goal.endedAt } : {}),
+    ...(goal.iterations !== undefined ? { iterations: goal.iterations } : {}),
   };
 }
 
@@ -156,7 +171,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   const moves = movesOf(source, items);
   return {
     todos: todosOf(tools).map(({ content, status }) => ({ content, status })),
-    tasks: jobsOf(model).map(viewTaskOf),
+    tasks: jobsOf(model).map((job) => viewTaskOf(job, tools)),
     agents: agentsOf(model).map((agent) => ({
       toolUseId: agent.toolUseId,
       description: agent.description,
@@ -164,10 +179,11 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
       ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
       ...(agent.endedAt !== undefined ? { endedAt: agent.endedAt } : {}),
     })),
-    changedFiles: changedFilesOf(tools).map(({ path, added, removed }) => ({
+    changedFiles: changedFilesOf(tools).map(({ path, added, removed, created }) => ({
       path,
       added,
       removed,
+      ...(created ? { created } : {}),
     })),
     context: contextOfModel(source),
     ...(model.costUsd !== undefined ? { costUsd: model.costUsd } : {}),
