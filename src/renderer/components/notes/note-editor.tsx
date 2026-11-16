@@ -7,7 +7,7 @@
  */
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
-import { Bot, FolderOpen, MoreHorizontal, ScrollText, Terminal, Trash2 } from "lucide-react";
+import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocNode } from "../../../shared/notes/markdown";
@@ -468,12 +468,6 @@ function LoadedNote({
               <DropdownMenuItem onSelect={() => void notesApi.revealNote(workspaceId, note.id)}>
                 <FolderOpen className="size-3.5" aria-hidden="true" />
                 {t("editor.reveal")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => void navigator.clipboard.writeText(`nexus note read ${note.id}`)}
-              >
-                <Terminal className="size-3.5" aria-hidden="true" />
-                {t("editor.copyCommand")}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void remove()}>
                 <Trash2 className="size-3.5" aria-hidden="true" />

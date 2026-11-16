@@ -32,7 +32,6 @@
     "toAgent": "To an agent",
     "more": "More",
     "reveal": "Show the note's folder",
-    "copyCommand": "Copy the read command",
     "delete": "Delete note",
     "deleteConfirm": {
       "title": "Delete the note “{{title}}”?",
@@ -130,6 +129,7 @@
     "title": "Transcript",
     "show": "Transcript",
     "hide": "Hide the transcript",
+    "resize": "Resize the transcript",
     "empty": "Start recording and what is said shows here.",
     "listening": "Listening…",
     "nothing": "Nothing was heard.",

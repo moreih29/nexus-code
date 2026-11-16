@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { createLogger } from "../../../shared/log/renderer";
+import type { AppState } from "../../../shared/types/app-state";
 import { ipcCallResult } from "../../ipc/client";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 
@@ -17,6 +18,15 @@ export const FILES_PANEL_WIDTH_MIN = 160;
 export const FILES_PANEL_WIDTH_MAX = 600;
 export const FILES_PANEL_WIDTH_DEFAULT = 240;
 
+/** A note's transcript beside its text (the note wide): its width. */
+export const NOTE_TRANSCRIPT_WIDTH_MIN = 220;
+export const NOTE_TRANSCRIPT_WIDTH_MAX = 900;
+export const NOTE_TRANSCRIPT_WIDTH_DEFAULT = 340;
+/** A note's transcript under its text (the note narrow): its share of the note's height. */
+export const NOTE_TRANSCRIPT_SHARE_MIN = 0.15;
+export const NOTE_TRANSCRIPT_SHARE_MAX = 0.85;
+export const NOTE_TRANSCRIPT_SHARE_DEFAULT = 0.45;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -29,6 +39,23 @@ function clampFilesPanel(value: number): number {
   return Math.min(FILES_PANEL_WIDTH_MAX, Math.max(FILES_PANEL_WIDTH_MIN, value));
 }
 
+function clampTranscriptWidth(value: number): number {
+  return Math.round(
+    Math.min(NOTE_TRANSCRIPT_WIDTH_MAX, Math.max(NOTE_TRANSCRIPT_WIDTH_MIN, value)),
+  );
+}
+
+function clampTranscriptShare(value: number): number {
+  return Math.min(NOTE_TRANSCRIPT_SHARE_MAX, Math.max(NOTE_TRANSCRIPT_SHARE_MIN, value));
+}
+
+function saved(partial: Partial<AppState>): void {
+  // Fire-and-forget: local state is source of truth; appState is the durable store.
+  void ipcCallResult("appState", "set", partial).then((result) => {
+    if (!result.ok) log.warn(`appState set failed: ${result.message}`);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // State shape
 // ---------------------------------------------------------------------------
@@ -36,6 +63,8 @@ function clampFilesPanel(value: number): number {
 interface HydrateOpts {
   sidebarWidth?: number;
   filesPanelWidth?: number;
+  noteTranscriptWidth?: number;
+  noteTranscriptShare?: number;
   sidebarHidden?: boolean;
   filesPanelHidden?: boolean;
   agentListFoldedGroups?: readonly string[];
@@ -68,6 +97,9 @@ export const FILES_PANEL_MODE_DEFAULT: FilesPanelMode = "tree";
 interface UIState {
   sidebarWidth: number;
   filesPanelWidth: number;
+  /** A note's transcript: its width beside the text, its share of the height under it. */
+  noteTranscriptWidth: number;
+  noteTranscriptShare: number;
   /**
    * Visibility flags for the two left-hand columns. `false` (visible) is
    * the default; the ⌘B / ⌘⇧B commands flip these. Widths persist
@@ -84,6 +116,8 @@ interface UIState {
   hydrate(opts: HydrateOpts): void;
   setSidebarWidth(width: number, persist?: boolean): void;
   setFilesPanelWidth(width: number, persist?: boolean): void;
+  setNoteTranscriptWidth(width: number, persist?: boolean): void;
+  setNoteTranscriptShare(share: number, persist?: boolean): void;
   /** Folds an agent list's group, or opens it again. Persists. */
   toggleAgentListGroup(group: string): void;
   /** Unfolds a worktree's facts in the task view, or folds them again. Persists. */
@@ -122,6 +156,8 @@ export const useUIStore = create<UIState>((set, get) => {
   return {
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     filesPanelWidth: FILES_PANEL_WIDTH_DEFAULT,
+    noteTranscriptWidth: NOTE_TRANSCRIPT_WIDTH_DEFAULT,
+    noteTranscriptShare: NOTE_TRANSCRIPT_SHARE_DEFAULT,
     sidebarHidden: false,
     filesPanelHidden: false,
     agentListFoldedGroups: new Set(),
@@ -131,6 +167,8 @@ export const useUIStore = create<UIState>((set, get) => {
     hydrate({
       sidebarWidth,
       filesPanelWidth,
+      noteTranscriptWidth,
+      noteTranscriptShare,
       sidebarHidden,
       filesPanelHidden,
       agentListFoldedGroups,
@@ -144,6 +182,14 @@ export const useUIStore = create<UIState>((set, get) => {
           filesPanelWidth !== undefined
             ? clampFilesPanel(filesPanelWidth)
             : FILES_PANEL_WIDTH_DEFAULT,
+        noteTranscriptWidth:
+          noteTranscriptWidth !== undefined
+            ? clampTranscriptWidth(noteTranscriptWidth)
+            : NOTE_TRANSCRIPT_WIDTH_DEFAULT,
+        noteTranscriptShare:
+          noteTranscriptShare !== undefined
+            ? clampTranscriptShare(noteTranscriptShare)
+            : NOTE_TRANSCRIPT_SHARE_DEFAULT,
         sidebarHidden: sidebarHidden ?? false,
         filesPanelHidden: filesPanelHidden ?? false,
         agentListFoldedGroups: new Set(agentListFoldedGroups ?? []),
@@ -172,6 +218,18 @@ export const useUIStore = create<UIState>((set, get) => {
           if (!result.ok) log.warn(`appState set failed: ${result.message}`);
         });
       }
+    },
+
+    setNoteTranscriptWidth(width, persist) {
+      const next = clampTranscriptWidth(width);
+      set({ noteTranscriptWidth: next });
+      if (persist) saved({ noteTranscriptWidth: next });
+    },
+
+    setNoteTranscriptShare(share, persist) {
+      const next = clampTranscriptShare(share);
+      set({ noteTranscriptShare: next });
+      if (persist) saved({ noteTranscriptShare: next });
     },
 
     toggleAgentListGroup(group) {

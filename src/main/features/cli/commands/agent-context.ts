@@ -44,6 +44,8 @@ const agentContext: CliCommand = {
       "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
       "and nexus view agents|workspaces, view layout/open/split for the agent view's panels;",
       "nexus problems lists the language servers' errors in open files.",
+      "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",
+      "not another app's. nexus note list lists the workspace's, nexus note read prints one.",
       "When the user means an element on a page, nexus browser pick has them click it and",
       "prints its ref and selector.",
       "A claude -p or codex exec run you start, best in the background, is followed as a",
