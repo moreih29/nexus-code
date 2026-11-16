@@ -32,7 +32,6 @@
     "toAgent": "에이전트에게",
     "more": "더 보기",
     "reveal": "노트 폴더 보기",
-    "copyCommand": "읽기 명령 복사",
     "delete": "노트 지우기",
     "deleteConfirm": {
       "title": "‘{{title}}’ 노트를 지울까요?",
@@ -130,6 +129,7 @@
     "title": "원문",
     "show": "원문",
     "hide": "원문 숨기기",
+    "resize": "원문 크기 조절",
     "empty": "녹음을 시작하면 말한 내용이 여기에 쌓입니다.",
     "listening": "듣는 중…",
     "nothing": "들린 말이 없습니다.",

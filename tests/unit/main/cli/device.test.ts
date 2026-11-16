@@ -330,6 +330,11 @@ describe("nexus session list", () => {
 });
 
 describe("nexus agent-context", () => {
+  test("tells a session that the user's notes are the app's", async () => {
+    const app = withDevices();
+    app.settings.agentContext = true;
+    expect((await nexus(app, ["agent-context"])).stdout).toContain("nexus note read");
+  });
   test("tells a session of the other computers only when this one is in the room", async () => {
     const app = withDevices();
     app.settings.agentContext = true;
