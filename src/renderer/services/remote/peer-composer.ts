@@ -7,7 +7,8 @@
 // chat.unqueue), and an unread one is taken back (chat.withdraw) or
 // hurried (chat.hurry). From 0.13.0 an @ lists what the chat's agent
 // suggests (chat.fileSuggestions); before, the workspace's files by name
-// (files.find). A file's path it does without.
+// (files.find). A file other than an image goes ahead with chat.upload
+// (0.10.0), and the chat's device puts its path after the message.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -15,6 +16,8 @@ import {
   type ChatPanel,
   type ChatSettings,
   MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS,
+  MAX_BYTES_CHUNK,
 } from "../../../../packages/remote-protocol/src";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
@@ -29,6 +32,7 @@ import {
   type QueuedMessage,
   type RevealPart,
 } from "../chat/store";
+import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
@@ -67,7 +71,7 @@ export interface PeerComposerDeps {
   /** What the chat runs with, as chat.settings or chat.configure last said; null before. */
   settings: () => ChatSettings | null;
   onSettings: (settings: ChatSettings) => void;
-  /** What a file the user picked says when it cannot go: only images do. */
+  /** What a file the user picked says when it cannot go: only images do, before 0.10.0. */
   filesRefused: string;
   /** A message sent during a turn that did not go: the box was emptied already. */
   onError?: (message: string) => void;
@@ -117,6 +121,34 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   const { ref, agent, filesRefused } = deps;
   const call = deps.call ?? ipcCallResult;
   const can = () => deps.can?.();
+  /** A file sent ahead in pieces (chat.upload): its id for chat.send. */
+  const upload = async (file: File): Promise<string> => {
+    const begun = await call("remote", "peerChatUploadBegin", {
+      ...ref,
+      name: file.name.slice(-255) || "file",
+      size: file.size,
+      ...(file.type ? { mediaType: file.type.slice(0, 255) } : {}),
+    });
+    if (!begun.ok) throw new Error(begun.kind === "unsupported" ? filesRefused : begun.message);
+    const { uploadId } = begun.value;
+    for (let offset = 0; offset < file.size; offset += MAX_BYTES_CHUNK) {
+      const piece = new Uint8Array(
+        await file.slice(offset, offset + MAX_BYTES_CHUNK).arrayBuffer(),
+      );
+      await answerOf(
+        call("remote", "peerChatUploadChunk", {
+          deviceId: ref.deviceId,
+          uploadId,
+          offset,
+          data: bytesToBase64(piece),
+        }),
+      );
+    }
+    const ended = await answerOf(
+      call("remote", "peerChatUploadEnd", { deviceId: ref.deviceId, uploadId }),
+    );
+    return ended.attachmentId;
+  };
   // A device before 0.13.0 has no chat.fileSuggestions: asked once.
   let suggests = true;
   const fileSuggestions = async (query: string): Promise<string[]> => {
@@ -147,6 +179,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   const send = async (
     text: string,
     images: ImageBlock[] = [],
+    uploads: readonly string[] = [],
     when?: "now" | "after",
   ): Promise<void> => {
     const attachments: string[] = [];
@@ -161,6 +194,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       );
       attachments.push(attachmentId);
     }
+    attachments.push(...uploads);
     await answerOf(
       call("remote", "peerChatSend", {
         ...ref,
@@ -180,7 +214,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     ...(agent === "claude"
       ? {
           sendNow: (text: string, images?: ImageBlock[]) =>
-            send(text, images, can()?.now ? "now" : undefined),
+            send(text, images, [], can()?.now ? "now" : undefined),
           readHeldNow: async () => {
             if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
           },
@@ -190,7 +224,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
         }
       : {}),
     enqueue: (text, images) => {
-      void send(text, images, "after").catch(tell);
+      void send(text, images, [], "after").catch(tell);
     },
     removeQueued: (id) => {
       void answerOf(call("remote", "peerChatUnqueue", { ...ref, id })).catch(tell);
@@ -202,9 +236,23 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     },
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
     clearDraft: () => clearPeerDraft(ref),
+    // Its files go ahead as uploads, not to a path here.
     attach: async () => {
       throw new Error(filesRefused);
     },
+    upload,
+    sendUploaded: (how, text, images, uploads) =>
+      send(
+        text,
+        images,
+        uploads,
+        how === "queue"
+          ? "after"
+          : how === "now" && agent === "claude" && can()?.now
+            ? "now"
+            : undefined,
+      ),
+    maxAttachments: MAX_ATTACHMENTS,
     fileSuggestions,
     supports: (subtype) =>
       subtype === "apply_flag_settings"

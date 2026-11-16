@@ -1063,6 +1063,7 @@
       "files": "Files",
       "remove_file": "Remove file",
       "file_too_large": "{{name}} is larger than 20 MB, the most a file can be sent.",
+      "too_many_attachments": "A message can carry up to {{max}} images and files together.",
       "drop_title": "Drop to attach",
       "drop_hint": "Images and files go with your message",
       "aria_codex": "Message to Codex"
@@ -1769,7 +1770,7 @@
       "gone": "This session was closed",
       "placeholder": "Message {{device}}",
       "failed": "Didn't go through: {{message}}",
-      "filesRefused": "Only images can be sent to another computer's chat",
+      "filesRefused": "That computer's app is too old to take files other than images",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
       "outdated": "This version can't connect",

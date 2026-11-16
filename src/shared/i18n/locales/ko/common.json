@@ -1063,6 +1063,7 @@
       "files": "파일",
       "remove_file": "파일 제거",
       "file_too_large": "{{name}}은(는) 보낼 수 있는 파일 크기(20MB)보다 큽니다.",
+      "too_many_attachments": "한 메시지에는 이미지와 파일을 합쳐 {{max}}개까지 첨부할 수 있습니다.",
       "drop_title": "여기에 놓아 첨부",
       "drop_hint": "이미지와 파일을 메시지에 붙입니다",
       "aria_codex": "Codex에게 보낼 메시지"
@@ -1769,7 +1770,7 @@
       "gone": "닫힌 세션입니다",
       "placeholder": "{{device}}에 메시지 보내기",
       "failed": "전달하지 못했습니다: {{message}}",
-      "filesRefused": "다른 컴퓨터의 채팅에는 이미지만 보낼 수 있습니다",
+      "filesRefused": "그 컴퓨터의 앱이 이전 버전이라 이미지만 보낼 수 있습니다",
       "offline": "{{device}}이(가) 오프라인입니다",
       "disconnected": "서버에 연결되지 않음",
       "outdated": "이 버전으로는 연결할 수 없습니다",

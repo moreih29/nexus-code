@@ -229,6 +229,55 @@ describe("the composer of another computer's chat", () => {
     expect(controller(call).made.supports("cancel_async_message")).toBe(false);
   });
 
+  test("a file other than an image goes ahead in pieces, and its message carries it", async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push({ method, args });
+      if (method === "peerChatUploadBegin") return { ok: true, value: { uploadId: "u1" } };
+      if (method === "peerChatUploadEnd") return { ok: true, value: { attachmentId: "f1" } };
+      if (method === "peerChatAttach") return { ok: true, value: { attachmentId: "i1" } };
+      return { ok: true, value: {} };
+    }) as never;
+    const { made } = controller(call);
+    expect(made.maxAttachments).toBe(4);
+    const big = new File([new Uint8Array(512 * 1024 + 3).fill(7)], "data.bin", {
+      type: "application/octet-stream",
+    });
+    expect(await made.upload?.(big)).toBe("f1");
+    expect(calls.map((c) => c.method)).toEqual([
+      "peerChatUploadBegin",
+      "peerChatUploadChunk",
+      "peerChatUploadChunk",
+      "peerChatUploadEnd",
+    ]);
+    expect(calls[0]?.args).toEqual({
+      ...ref,
+      name: "data.bin",
+      size: 512 * 1024 + 3,
+      mediaType: "application/octet-stream",
+    });
+    expect(calls.slice(1, 3).map((c) => c.args.offset)).toEqual([0, 512 * 1024]);
+    expect(calls[2]?.args).toMatchObject({ deviceId: "d1", uploadId: "u1" });
+    expect(Buffer.from(String(calls[2]?.args.data), "base64")).toEqual(Buffer.from([7, 7, 7]));
+    calls.length = 0;
+    await made.sendUploaded?.("queue", "see", [{ mediaType: "image/png", data: png() }], ["f1"]);
+    expect(calls.at(-1)).toEqual({
+      method: "peerChatSend",
+      args: { ...ref, text: "see", attachments: ["i1", "f1"], when: "after" },
+    });
+  });
+
+  test("a device before 0.10.0 takes images only, and says so", async () => {
+    const call = (async (_channel: string, method: string) =>
+      method === "peerChatUploadBegin"
+        ? { ok: false, kind: "unsupported", message: "no method" }
+        : { ok: true, value: {} }) as never;
+    const file = new File(["hi"], "a.txt", { type: "text/plain" });
+    await expect(controller(call).made.upload?.(file) ?? Promise.resolve()).rejects.toThrow(
+      "images only",
+    );
+  });
+
   test("an @ lists what the chat's agent suggests there", async () => {
     const calls: { method: string; args: Record<string, unknown> }[] = [];
     const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {

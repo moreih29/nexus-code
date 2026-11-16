@@ -2520,6 +2520,27 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.commands"].params),
         RPC_METHODS["chat.commands"].result,
       ),
+      /** Starts sending a file for the next message to another device's chat. */
+      peerChatUploadBegin: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.begin"].params),
+        RPC_METHODS["chat.upload.begin"].result,
+      ),
+      /** The next piece of a file going to another device's chat. */
+      peerChatUploadChunk: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.chunk"].params),
+        RPC_METHODS["chat.upload.chunk"].result,
+      ),
+      /** Ends a file going to another device's chat: its id for the message. */
+      peerChatUploadEnd: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.end"].params),
+        RPC_METHODS["chat.upload.end"].result,
+      ),
       /** What an @ in another device's chat's composer may name. */
       peerChatFileSuggestions: call(
         z

@@ -590,6 +590,18 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatCommands.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.commands", params));
       },
+      peerChatUploadBegin: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadBegin.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.begin", params));
+      },
+      peerChatUploadChunk: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadChunk.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.chunk", params));
+      },
+      peerChatUploadEnd: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadEnd.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.end", params));
+      },
       peerChatFileSuggestions: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatFileSuggestions.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.fileSuggestions", params));
