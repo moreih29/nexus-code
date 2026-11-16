@@ -12,8 +12,10 @@
 import i18next from "i18next";
 import { create } from "zustand";
 import {
+  movedLines,
   peopleIn,
   speakerKey,
+  type TranscriptLine,
   type TranscriptRecording,
   takeFile,
 } from "../../../shared/notes/transcript";
@@ -24,7 +26,15 @@ import { type Capture, CaptureError, openMicrophone, startCapture } from "../voi
 import { tellFailure } from "../voice/dictation";
 import { notesApi } from "./api";
 import { runSecondPass } from "./second-pass";
-import { flushTranscript, loadTranscript, updateRecording, updateTranscript } from "./transcripts";
+import {
+  flushTranscript,
+  loadTranscript,
+  transcriptKey,
+  updateRecording,
+  updateTranscript,
+  useTranscriptsStore,
+} from "./transcripts";
+import { VOICE_PRINT_RATE, VoiceTracker, voicePrintAvailable } from "./voice-print";
 
 /** How much audio each piece written to the take's file holds. */
 export const AUDIO_SLICE_MS = 3000;
@@ -92,6 +102,10 @@ interface Active {
   mediaDone: Promise<void>;
   endTimer?: ReturnType<typeof setTimeout>;
   levelTimer?: ReturnType<typeof setInterval>;
+  /** Whether the app can tell the voices apart by voice print, asked as the recording starts. */
+  voicePrint: Promise<boolean>;
+  /** The voices told apart by voice print, when the app can. */
+  voices: VoiceTracker | null;
 }
 
 let active: Active | null = null;
@@ -131,13 +145,47 @@ function setTake(
   update((r) => ({ ...r, takes: r.takes.map((tk, i) => (i === index ? change(tk) : tk)) }));
 }
 
+function recordingOf(a: Active): TranscriptRecording | undefined {
+  return useTranscriptsStore
+    .getState()
+    .byNote[transcriptKey(a.workspaceId, a.noteId)]?.recordings.find((r) => r.id === a.recordingId);
+}
+
+/** The voice keys a recording has, in its lines (but the one starting at `except`) and its names. */
+function keysOf(a: Active, except?: number): string[] {
+  const r = recordingOf(a);
+  if (!r) return [];
+  const lines = r.lines.filter((l) => l.startMs !== except);
+  return [...lines.map((l) => l.speaker), ...Object.keys(r.speakers)];
+}
+
+/** The voice of words under server label `label`: by voice print when the app can. */
+function voiceOfLabel(a: Active, label: string): string {
+  return a.voices ? a.voices.provisional(label, keysOf(a)) : speakerKey(a.take, label);
+}
+
+/** Lines' voices as grouped again (by start), except the ones the user moved. */
+function regrouped(a: Active, keys: ReadonlyMap<number, string>): void {
+  // The recording's, even once it has stopped: a voice print may come after.
+  updateRecording(a.workspaceId, a.noteId, a.recordingId, (r) => {
+    let changed = false;
+    const lines = r.lines.map((l) => {
+      const key = keys.get(l.startMs);
+      if (!key || key === l.speaker || l.pinned) return l;
+      changed = true;
+      return { ...l, speaker: key };
+    });
+    return changed ? { ...r, lines } : r;
+  });
+}
+
 function onEvent({ id, event }: VoiceEvent): void {
   const a = active;
   if (!a || a.sessionId !== id) return;
   switch (event.t) {
     case "partial": {
       const text = event.text.trim();
-      set({ partial: text ? { speaker: speakerKey(a.take, event.speaker ?? "1"), text } : null });
+      set({ partial: text ? { speaker: voiceOfLabel(a, event.speaker ?? "1"), text } : null });
       return;
     }
     case "final": {
@@ -145,13 +193,31 @@ function onEvent({ id, event }: VoiceEvent): void {
       set({ partial: null });
       if (!text) return;
       const now = Date.now() - a.takeSince;
-      const line = {
-        speaker: speakerKey(a.take, event.speaker ?? "1"),
-        startMs: a.offsetMs + (event.startMs ?? Math.max(0, now - 2000)),
-        endMs: a.offsetMs + (event.endMs ?? now),
+      const label = event.speaker ?? "1";
+      const startMs = event.startMs ?? Math.max(0, now - 2000);
+      const endMs = event.endMs ?? now;
+      const line: TranscriptLine = {
+        speaker: voiceOfLabel(a, label),
+        startMs: a.offsetMs + startMs,
+        endMs: a.offsetMs + endMs,
         text,
       };
       update((r) => ({ ...r, lines: [...r.lines, line] }));
+      const voices = a.voices;
+      if (voices) {
+        void voices
+          .lineHeard(
+            { at: line.startMs, endAt: line.endMs, startMs, endMs, label },
+            // Not its own key as shown so far, which it may keep as a new voice's.
+            () => keysOf(a, line.startMs),
+            () => recordingOf(a)?.speakers ?? {},
+          )
+          .then(({ key, regrouped: keys }) => {
+            if (keys) regrouped(a, keys);
+            regrouped(a, new Map([[line.startMs, key]]));
+          })
+          .catch(() => {});
+      }
       return;
     }
     case "limit":
@@ -217,6 +283,9 @@ export async function startRecording(
     ending: null,
     writes: Promise.resolve(),
     mediaDone: Promise.resolve(),
+    // Asked now, while the microphone and the session open; it loads the model.
+    voicePrint: voicePrintAvailable(),
+    voices: null,
   };
   active = mine;
   set({ ...IDLE, phase: "starting", workspaceId, noteId, recordingId });
@@ -280,12 +349,20 @@ async function startTake(a: Active): Promise<boolean> {
   }
   const { id, sampleRate } = started.value;
   const stream = a.stream;
+  // The first take finds out whether the app can tell the voices apart; the recording keys its
+  // voices so from its first line on.
+  if (a.take === -1 && sampleRate === VOICE_PRINT_RATE && (await a.voicePrint) && active === a) {
+    a.voices = new VoiceTracker();
+    update((r) => ({ ...r, voicePrint: true }));
+  }
+  const voices = a.voices;
+  voices?.startTake();
   try {
     a.capture = await startCapture(
       stream,
       sampleRate,
       (audio) => void ipcCallResult("remote", "voiceAudio", { id, audio }),
-      { keepStream: true },
+      { keepStream: true, ...(voices ? { onSamples: (s: Float32Array) => voices.hear(s) } : {}) },
     );
   } catch (error) {
     void ipcCallResult("remote", "voiceCancel", { id });
@@ -398,6 +475,12 @@ async function finishTake(a: Active): Promise<void> {
   await a.writes;
   a.media = null;
   if (active !== a) return;
+  // The take's last lines heard, all of them are grouped once more.
+  if (a.voices) {
+    await a.voices.settled();
+    if (active !== a) return;
+    regrouped(a, a.voices.regroup(recordingOf(a)?.speakers ?? {}));
+  }
   const baseMs = a.offsetMs + length;
   if (ending === "chain") {
     set({ baseMs, takeSince: null });
@@ -426,6 +509,29 @@ async function finishRecording(a: Active): Promise<void> {
   if (!recording) return;
   // Words of more than one person: a meeting, which the second pass hears better. One: done.
   if (peopleIn(recording) >= 2) void runSecondPass(a.workspaceId, a.noteId, a.recordingId);
+}
+
+/**
+ * The user moved a shown line to voice `to` (or a new one): its lines stay
+ * there, and while the recording records, the lines heard next and the
+ * ones before are grouped again by it.
+ */
+export function moveLine(
+  workspaceId: string,
+  noteId: string,
+  recordingId: string,
+  shown: Pick<TranscriptLine, "speaker" | "startMs" | "endMs">,
+  to: string,
+): void {
+  let moved: number[] = [];
+  updateRecording(workspaceId, noteId, recordingId, (r) => {
+    const next = movedLines(r, shown, to);
+    moved = next.lines.filter((l, i) => l !== r.lines[i]).map((l) => l.startMs);
+    return next;
+  });
+  const a = active;
+  if (!a?.voices || a.recordingId !== recordingId || !moved.length) return;
+  regrouped(a, a.voices.pin(moved, to, recordingOf(a)?.speakers ?? {}));
 }
 
 /** Pauses the recording: the take ends, and the microphone goes off. */

@@ -18,6 +18,7 @@ import {
   workspaceLocationKey,
 } from "../../../shared/types/workspace";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
+import { VoicePrints } from "../voice-print";
 import { NotesStore } from "./store";
 
 const c = ipcContract.notes.call;
@@ -127,6 +128,8 @@ export function registerNotesChannel(opts: {
     return noteLocationOf(meta, all);
   };
   const changed = (event: NoteChanged) => broadcast("notes", "changed", event);
+  // Beside the main bundle (electron.vite.config.ts).
+  const voicePrints = new VoicePrints(path.join(__dirname, "voice-print-host.js"));
 
   // The windows' recorders, by window: what each told last.
   const recordings = new Map<number, NoteRecording>();
@@ -371,6 +374,10 @@ export function registerNotesChannel(opts: {
         const { workspaceId, noteId, file, audio } = validateArgs(c.appendAudio.args, args);
         await store.appendAudio(locationOf(workspaceId), noteId, file, audio);
         return ipcOk(undefined);
+      },
+      voicePrint: async (args: unknown) => {
+        const { audio } = validateArgs(c.voicePrint.args, args);
+        return ipcOk(await voicePrints.vector(audio));
       },
       removeRecording: async (args: unknown) => {
         const { workspaceId, noteId, recordingId, text } = validateArgs(

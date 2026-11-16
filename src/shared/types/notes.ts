@@ -14,6 +14,8 @@ export const MAX_NOTE_IMAGE_BYTES = 30 * 1024 * 1024;
 
 /** Most bytes of one piece of a recording's audio, as it is written while recording. */
 export const MAX_RECORDING_CHUNK_BYTES = 8 * 1024 * 1024;
+/** The most audio a voice print is asked for: 10 s at 16 kHz. */
+export const MAX_VOICE_PRINT_SAMPLES = 16_000 * 10;
 
 /** Most characters of a sketch's scene JSON (it holds its images). */
 export const MAX_SKETCH_SCENE_CHARS = 60 * 1024 * 1024;
@@ -110,6 +112,13 @@ export const NotesArgs = {
     audio: z.custom<Uint8Array>(
       (v) => v instanceof Uint8Array && v.byteLength <= MAX_RECORDING_CHUNK_BYTES,
       "audio bytes",
+    ),
+  }),
+  /** A line's audio (16 kHz, at most 10 s), for its voice print. */
+  voicePrint: z.object({
+    audio: z.custom<Float32Array>(
+      (v) => v instanceof Float32Array && v.length <= MAX_VOICE_PRINT_SAMPLES,
+      "16 kHz samples",
     ),
   }),
   /** Moves a recording's audio to the Trash; with `text`, its words go from the transcript too. */

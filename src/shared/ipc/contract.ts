@@ -2351,6 +2351,8 @@ export const ipcContract = {
       /** Writes transcript.json, and transcript.md beside it. */
       saveTranscript: call(NotesArgs.saveTranscript, z.void()),
       appendAudio: call(NotesArgs.appendAudio, z.void()),
+      /** A line's voice print (a unit vector), which tells its voice; null when the app has no model. */
+      voicePrint: call(NotesArgs.voicePrint, z.array(z.number()).nullable()),
       removeRecording: call(NotesArgs.removeRecording, TranscriptFileSchema),
     },
     listen: {

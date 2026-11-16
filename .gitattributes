@@ -4,3 +4,6 @@
 
 # Vendored as shipped, with CRLF line endings.
 src/renderer/assets/fonts/D2Coding/LICENSE -text
+
+# Models, byte for byte.
+*.onnx binary

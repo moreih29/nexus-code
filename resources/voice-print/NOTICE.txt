@@ -1,0 +1,18 @@
+Voice print model
+
+NexusCode tells the voices of a note's recording apart with CAM++, a speaker
+verification model by the 3D-Speaker project of Alibaba's Tongyi Lab:
+
+  iic/speech_campplus_sv_zh_en_16k-common_advanced
+  https://www.modelscope.cn/models/iic/speech_campplus_sv_zh_en_16k-common_advanced
+  https://github.com/modelscope/3D-Speaker
+  Licensed under the Apache License, Version 2.0 (LICENSE-Apache-2.0.txt).
+
+The app uses the ONNX export of the k2-fsa sherpa-onnx project
+(3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx, from
+https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models).
+
+campp-zh-en.onnx is that file as it is. campp-zh-en-int8.onnx is that file
+changed by NexusCode: its weights quantized to 8 bits with ONNX Runtime
+1.32.0 (quant_pre_process with skip_symbolic_shape, then quantize_dynamic
+with QInt8 weights per channel), and the original's metadata kept.

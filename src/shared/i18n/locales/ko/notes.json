@@ -135,6 +135,8 @@
     "nothing": "들린 말이 없습니다.",
     "speaker": "화자 {{label}}",
     "rename": "눌러서 이름 붙이기",
+    "moveLine": "화자 바꾸기",
+    "newSpeaker": "새 화자",
     "namePlaceholder": "이름",
     "insert": "노트에 인용으로 넣기",
     "live": "녹음 중",
