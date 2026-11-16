@@ -1377,7 +1377,6 @@
         "setup-vertex": "Set up Google Vertex AI, in a terminal",
         "web-setup": "Set up cloud sessions with GitHub, in a terminal",
         "remote-env": "Choose the cloud agents' default environment, in a terminal",
-        "ultrareview": "Review the branch in a cloud session, in a terminal",
         "autofix-pr": "Watch the PR and fix what fails, in a terminal",
         "resume": "Go on with an earlier session of this folder in this tab",
         "status": "Show this session's status: version, model, account, Remote Control",
