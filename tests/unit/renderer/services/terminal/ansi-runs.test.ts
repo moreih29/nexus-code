@@ -7,6 +7,7 @@ import {
   parseAnsi,
   sixteenOf,
   stripAnsi,
+  withCaret,
 } from "../../../../../src/renderer/services/terminal/ansi-runs";
 
 const ESC = "\x1b";
@@ -66,5 +67,34 @@ describe("sixteenOf", () => {
     expect(sixteen[0]).toBe("#000000");
     expect(sixteen[1]).toBe("#ff0000");
     expect(sixteen[15]).toBe("#fefefe");
+  });
+});
+
+describe("the cursor in the runs", () => {
+  test("puts the character it is on in a run of its own, in the run's style", () => {
+    const runs = parseAnsi(`$ ${ESC}[1mgit${ESC}[0m sta`);
+    expect(withCaret(runs, 3)).toEqual([
+      { text: "$ ", style: {} },
+      { text: "g", style: { bold: true } },
+      { text: "i", style: { bold: true }, caret: true },
+      { text: "t", style: { bold: true } },
+      { text: " sta", style: {} },
+    ]);
+  });
+
+  test("past the end, blanks up to it and one for it", () => {
+    expect(withCaret(parseAnsi("$ ls"), 5)).toEqual([
+      { text: "$ ls", style: {} },
+      { text: " ", style: {} },
+      { text: " ", style: {}, caret: true },
+    ]);
+    expect(withCaret([], 0)).toEqual([{ text: " ", style: {}, caret: true }]);
+  });
+
+  test("counts code points, so an emoji or a wide character is one", () => {
+    expect(withCaret(parseAnsi("😀한x"), 2)).toEqual([
+      { text: "😀한", style: {} },
+      { text: "x", style: {}, caret: true },
+    ]);
   });
 });

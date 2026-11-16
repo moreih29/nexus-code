@@ -963,6 +963,7 @@ function RemoteTerminal({
     <>
       <RemoteTerminalScreen
         text={read.value.text}
+        {...(read.value.caret ? { caret: read.value.caret } : {})}
         {...(types && reach === "online" ? { typing } : {})}
       />
       {reach !== "online" ? (

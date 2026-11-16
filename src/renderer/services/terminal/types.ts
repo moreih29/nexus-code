@@ -1,4 +1,5 @@
 import type { ShellChoice } from "../../../shared/pty/shell";
+import type { AnsiScreen } from "./buffer-ansi";
 
 export interface TerminalInput {
   workspaceId: string;
@@ -83,6 +84,11 @@ export interface TerminalController {
    * with `ansi`, with their colors and styles as SGR escapes.
    */
   readText: (lines: number, ansi?: boolean) => string;
+  /**
+   * The last `lines` lines as readText with `ansi` gives them, and where the
+   * cursor is in them, unless the program hid it.
+   */
+  readScreen: (lines: number) => AnsiScreen;
   /**
    * Types `text` into the session: as one paste, which an app that turned on
    * bracketed paste takes as a whole, or as keystrokes. False before the

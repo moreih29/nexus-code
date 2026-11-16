@@ -5,12 +5,19 @@
 import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  caretLook,
   lookOf,
   RemoteTerminalScreen,
 } from "../../../../../src/renderer/components/agent-view/remote-terminal-screen";
 
 const sixteen = Array.from({ length: 16 }, (_, i) => `#0000${i.toString(16).padStart(2, "0")}`);
-const colors = { sixteen, foreground: "#eeeeee", background: "var(--surface-island-bg)" };
+const colors = {
+  sixteen,
+  foreground: "#eeeeee",
+  background: "var(--surface-island-bg)",
+  cursor: "#ffcc00",
+  cursorAccent: "#000000",
+};
 
 describe("a run's look", () => {
   test("is none in the default style", () => {
@@ -72,5 +79,37 @@ describe("the screen", () => {
     );
     expect(typing).toContain('data-testid="remote-terminal-input"');
     expect(typing).toContain("cursor-text");
+  });
+});
+
+describe("the cursor", () => {
+  test("is a block in the cursor's colors with the keyboard here, an outline without", () => {
+    expect(caretLook({ bold: true }, colors, true)).toEqual({
+      fontWeight: 700,
+      color: "#000000",
+      backgroundColor: "#ffcc00",
+    });
+    expect(caretLook({}, colors, false)).toEqual({
+      outline: "1px solid #ffcc00",
+      outlineOffset: -1,
+    });
+  });
+
+  test("is drawn on its character, and on blank lines below the text when there", () => {
+    const html = renderToStaticMarkup(
+      <RemoteTerminalScreen text="$ ls" caret={{ line: 0, column: 2 }} />,
+    );
+    expect(html).toContain('$ <span style="outline:1px solid');
+    expect(html).toContain(">l</span>s</pre>");
+    const below = renderToStaticMarkup(
+      <RemoteTerminalScreen text="$ sleep 30" caret={{ line: 1, column: 0 }} />,
+    );
+    expect(below).toContain("$ sleep 30\n<span");
+    expect(below).toContain("> </span></pre>");
+  });
+
+  test("is not drawn where none is told", () => {
+    const html = renderToStaticMarkup(<RemoteTerminalScreen text="$ ls" />);
+    expect(html).not.toContain("outline");
   });
 });

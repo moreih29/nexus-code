@@ -8,7 +8,11 @@ import {
   TerminalWatches,
 } from "../../../../../src/main/features/remote/terminal-watches";
 
-function setup() {
+function setup(
+  screen: { text: string; caret?: { line: number; column: number } } = {
+    text: "$ ls\nREADME.md",
+  },
+) {
   const asked: [string, Record<string, unknown>][] = [];
   const sent: [string, TerminalUpdate][] = [];
   const services = {
@@ -16,7 +20,7 @@ function setup() {
     ui: async (op: string, args: Record<string, unknown>) => {
       if (op === "tabs.list") return { tabs: [{ id: "t1", type: "terminal", title: "zsh" }] };
       asked.push([op, args]);
-      return op === "terminal.watch" ? { text: "$ ls\nREADME.md" } : {};
+      return op === "terminal.watch" ? screen : {};
     },
   } as unknown as CliServices;
   const watches = new TerminalWatches({
@@ -42,6 +46,23 @@ describe("watching a terminal", () => {
     expect(sent).toEqual([
       ["phone", { watchId, rev: 1, start: 14, text: "\n$ " }],
       ["phone", { watchId, rev: 2, start: 17, text: "git" }],
+    ]);
+  });
+
+  test("starts with the cursor where the app tells it, and sends it with each change", async () => {
+    const { watches, sent } = setup({ text: "$ ls", caret: { line: 0, column: 4 } });
+    const started = await watches.watch("phone", { ...tab, ansi: true });
+    expect(started).toEqual({
+      text: "$ ls",
+      watchId: started.watchId,
+      caret: { line: 0, column: 4 },
+    });
+    await watches.changed(started.watchId, { start: 4, text: "", caret: { line: 0, column: 3 } });
+    expect(sent).toEqual([
+      [
+        "phone",
+        { watchId: started.watchId, rev: 1, start: 4, text: "", caret: { line: 0, column: 3 } },
+      ],
     ]);
   });
 
