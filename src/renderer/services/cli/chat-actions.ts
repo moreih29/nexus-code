@@ -40,7 +40,13 @@ import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
-import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
+import {
+  ConfigRefusal,
+  chatConfigOf,
+  codexConfigOf,
+  codexDefaultsSetOf,
+  configSetOf,
+} from "../remote/chat-config";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { originalOf } from "../remote/chat-original";
 import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
@@ -742,6 +748,27 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
   },
 
   "chat.config": async ({ workspaceId, tabId, set }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (target?.agent === "codex") {
+      // As its defaults dialog reads and saves them.
+      const codex = target.controller;
+      const read = async () =>
+        codexConfigOf({
+          defaults: await codex.readDefaults(),
+          models: codex.model.init?.models ?? [],
+          ...(codex.model.model ? { running: codex.model.model } : {}),
+        });
+      if (!set) return { config: await read() };
+      let defaults: ReturnType<typeof codexDefaultsSetOf>;
+      try {
+        defaults = codexDefaultsSetOf(set, await read());
+      } catch (err) {
+        if (err instanceof ConfigRefusal) throw new UiRequestError(err.message);
+        throw err;
+      }
+      await codex.saveDefaults(defaults);
+      return {};
+    }
     const controller = await claudeTab(workspaceId, tabId, true);
     // As the dialog reads them, the keys last listed or listed now.
     const read = async () => {

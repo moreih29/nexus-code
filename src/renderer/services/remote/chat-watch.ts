@@ -354,7 +354,7 @@ export function tabSource(
             config: true,
           },
         }
-      : { can: { rewind: false, fork: false, background: false, moveNow: true } }),
+      : { can: { rewind: false, fork: false, background: false, moveNow: true, config: true } }),
     ...(plan?.claude || plan?.codex
       ? {
           plan: {

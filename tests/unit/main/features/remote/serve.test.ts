@@ -1180,12 +1180,16 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(await serve({ from: "d", method: "chat.config", params: tab })).toEqual({ config });
     const set = { ...tab, set: { changes: { verbose: true } } };
     await serve({ from: "d", method: "chat.config", params: set });
+    // A Codex chat's defaults, the same way; a terminal has none.
+    const codex = { workspaceId: "w2", tabId: "t4" };
+    await serve({ from: "d", method: "chat.config", params: codex });
     await expect(
-      serve({ from: "d", method: "chat.config", params: { workspaceId: "w2", tabId: "t4" } }),
+      serve({ from: "d", method: "chat.config", params: { workspaceId: "w1", tabId: "t2" } }),
     ).rejects.toMatchObject({ code: 1001 });
     expect(asked).toEqual([
       ["chat.config", tab],
       ["chat.config", set],
+      ["chat.config", codex],
     ]);
   });
 

@@ -17,7 +17,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude-config";
-import { codexStatusMarkdown } from "../../services/chat/codex-commands";
+import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex-commands";
 import { emptyCodexModel } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
@@ -77,7 +77,7 @@ import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
-import { RemoteConfigDialog } from "./remote-config-dialog";
+import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
@@ -935,6 +935,15 @@ function RemoteControls({
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
   const folder = target.cwd ?? target.path;
+  // A Codex chat's /resume and /config, which this pane runs, in its picker as in a Codex tab's.
+  const configurable = page.panel?.can?.config === true;
+  const paneCommands = useMemo(
+    () =>
+      agent === "codex"
+        ? CODEX_COMMANDS.filter((c) => c.name === "resume" || (c.name === "config" && configurable))
+        : [],
+    [agent, configurable],
+  );
   const onError = useCallback(
     (message: string) =>
       showToast({ kind: "error", message: t("agentView.remote.failed", { message }) }),
@@ -976,6 +985,7 @@ function RemoteControls({
         ),
       openUrl: (url) => links?.openUrl(url),
     },
+    paneCommands,
     // The tab /fork or /branch opened there shows, as a fork from a message's does.
     onOpened: (opened, draft) => {
       if (draft) putPeerDraft({ deviceId, workspaceId, tabId: opened }, draft);
@@ -1002,8 +1012,15 @@ function RemoteControls({
   // Its Claude Code settings (/config), and the one a command opened them at, as a chat here has them.
   const [config, setConfig] = useState<{ focus?: string } | null>(null);
   const onCommand = (text: string): boolean => {
+    // Its settings (/config), where its computer serves them: a Codex chat's defaults, bare.
     const opened =
-      agent === "claude" && page.panel?.can?.config === true ? configCommandOf(text) : null;
+      page.panel?.can?.config !== true
+        ? null
+        : agent === "claude"
+          ? configCommandOf(text)
+          : /^\/(config|settings)$/i.test(text.trim())
+            ? {}
+            : null;
     if (opened) {
       setConfig(opened);
       return true;
@@ -1121,12 +1138,18 @@ function RemoteControls({
           />
         }
       />
-      {agent === "claude" && (
+      {agent === "claude" ? (
         <RemoteConfigDialog
           chat={{ deviceId, workspaceId, tabId }}
           running={model.running}
           open={config !== null}
           focus={config?.focus}
+          onClose={() => setConfig(null)}
+        />
+      ) : (
+        <RemoteCodexConfigDialog
+          chat={{ deviceId, workspaceId, tabId }}
+          open={config !== null}
           onClose={() => setConfig(null)}
         />
       )}

@@ -1164,12 +1164,15 @@ export async function setChatRemoteControl(
   return {};
 }
 
-/** A Claude chat's Claude Code settings, read or changed as its dialog does: the user's, from another device. */
+/**
+ * A Claude chat's Claude Code settings, or a Codex chat's defaults, read or
+ * changed as its dialog does: the user's, from another device.
+ */
 export async function workChatConfig(
   services: CliServices,
   params: RpcParams<"chat.config">,
 ): Promise<RpcResult<"chat.config">> {
-  await tabOf(services, params.workspaceId, params.tabId, ["claude"]);
+  await tabOf(services, params.workspaceId, params.tabId, ["claude", "codex"]);
   return services.ui("chat.config", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
 }
 

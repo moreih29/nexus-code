@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   ConfigRefusal,
   chatConfigOf,
+  codexConfigOf,
+  codexDefaultsSetOf,
   configSetOf,
   configShownOf,
 } from "../../../../../src/renderer/services/remote/chat-config";
@@ -134,5 +136,55 @@ describe("the changes another device saves", () => {
       ConfigRefusal,
     );
     expect(() => configSetOf({ changes: {}, effort: "low" }, told(false))).toThrow(ConfigRefusal);
+  });
+});
+
+describe("a Codex chat's defaults (its /config)", () => {
+  const models = [
+    { value: "gpt-a", displayName: "A", supportedEffortLevels: ["low", "high"] },
+    { value: "gpt-b", supportedEffortLevels: ["medium"] },
+  ];
+  const config = codexConfigOf({
+    defaults: { model: "gpt-a", effort: "low" },
+    models,
+    running: "gpt-b",
+  });
+
+  test("are told as one key, its model, the models it takes and its effort", () => {
+    expect(config).toEqual({
+      keys: [
+        {
+          key: "model",
+          group: "conversation",
+          kind: "choice",
+          options: ["gpt-a", "gpt-b"],
+          value: "gpt-a",
+        },
+      ],
+      model: "gpt-b",
+      models,
+      efforts: { level: "low", byModel: {} },
+    });
+    expect(codexConfigOf({ defaults: {}, models: [] }).efforts).toEqual({ byModel: {} });
+  });
+
+  test("are saved as its dialog lets them be chosen", () => {
+    expect(codexDefaultsSetOf({ changes: { model: "gpt-b" }, effort: "medium" }, config)).toEqual({
+      model: "gpt-b",
+      effort: "medium",
+    });
+    // An effort of the model it has.
+    expect(codexDefaultsSetOf({ changes: {}, effort: "high" }, config)).toEqual({
+      effort: "high",
+    });
+  });
+
+  test("are refused what its dialog does not offer", () => {
+    const refused = (set: Parameters<typeof codexDefaultsSetOf>[0]) =>
+      expect(() => codexDefaultsSetOf(set, config)).toThrow(ConfigRefusal);
+    refused({ changes: { verbose: true } });
+    refused({ changes: { model: true } });
+    refused({ changes: { model: "gpt-z" } });
+    refused({ changes: { model: "gpt-b" }, effort: "high" });
   });
 });

@@ -558,7 +558,10 @@ const ConfigValueSchema = z.union([z.boolean(), z.string().max(1000)]);
  * what it is now (none when no setting says); the models the model takes
  * and the output styles; the model the session runs; and the default
  * effort the settings give each model (`efforts`, by its id; `level` the
- * one for any), none when that program cannot save one. Since 0.13.0.
+ * one for any), none when that program cannot save one. A Codex chat's
+ * defaults (its /config): one key, `model`, the model a new conversation
+ * starts with, a choice of `models`; and `efforts.level` its reasoning
+ * effort. Since 0.13.0.
  */
 export const ChatConfigSchema = z.object({
   keys: z
@@ -1274,8 +1277,9 @@ export const RPC_METHODS = {
    * there has them: without `set`, what they are now (`config`); with it,
    * the changes saved as that dialog saves them (/config messages), and a
    * new default effort for the model the session then runs. Not while the
-   * chat is working. Only the user's: an agent does not send it. Since
-   * 0.13.0.
+   * chat is working. A Codex chat's defaults the same way: `changes.model`
+   * and `effort`, saved in its config, and the chat then runs them. Only
+   * the user's: an agent does not send it. Since 0.13.0.
    */
   "chat.config": {
     capability: "chat.control",

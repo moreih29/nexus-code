@@ -27,7 +27,7 @@ import type { ComposerController } from "../../components/chat/composer";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
 import { copyText } from "../../utils/clipboard";
-import { copyIndex, nthAnswer } from "../chat/app-commands";
+import { type AppCommand, copyIndex, nthAnswer } from "../chat/app-commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,
@@ -374,6 +374,8 @@ export function commandOf(
 }
 
 /** What the app's commands another computer's chat runs here need. */
+const NO_COMMANDS: readonly AppCommand[] = [];
+
 export interface HereCommandDeps {
   /** The conversation as this app shows it, for /copy. */
   items: () => readonly ChatItem[];
@@ -432,6 +434,7 @@ export function usePeerComposer({
   onError,
   folders,
   here,
+  paneCommands = NO_COMMANDS,
   onOpened,
 }: {
   ref: PeerChatRef;
@@ -447,6 +450,8 @@ export function usePeerComposer({
   onError: (message: string) => void;
   /** What the app's commands that run here for the chat need (/copy, /diff, /help…). */
   here?: HereCommandDeps;
+  /** The commands the pane runs itself (/resume, a Codex chat's /config), for the picker. */
+  paneCommands?: readonly AppCommand[];
   /**
    * A command opened a tab there (/fork, /branch): its id, and what goes in
    * its box (/fork's prompt), for the pane to show it as a chat here does.
@@ -672,8 +677,15 @@ export function usePeerComposer({
             ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
           }))
         : []),
+      ...paneCommands
+        .filter((c) => !commands.some((listed) => listed.name === c.name))
+        .map((c) => ({
+          name: c.name,
+          description: describe(agent, c.name),
+          ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+        })),
     ],
-    [agent, commands, hereCommands, here],
+    [agent, commands, hereCommands, here, paneCommands],
   );
   return { controller, state, commands: infos, onCommand, card, closeCard };
 }

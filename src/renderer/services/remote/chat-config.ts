@@ -3,7 +3,9 @@
  * (chat.config): what the computer it runs on tells of them, read as its
  * settings dialog reads them, and what another device's dialog shows of
  * that; and the changes that dialog saves, checked against the keys there
- * before they go out as /config messages.
+ * before they go out as /config messages. A Codex chat's defaults (its
+ * /config) go the same way: the model a new conversation starts with, a
+ * choice of those it takes, and its reasoning effort.
  */
 
 import type { ChatConfig } from "../../../../packages/remote-protocol/src";
@@ -156,4 +158,72 @@ export function configSetOf(
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
   };
+}
+
+/** The most models told: a list longer than this is not one to pick from. */
+const MAX_MODELS = 100;
+
+/**
+ * A Codex chat's defaults as chat.config tells them: one key, its model, a
+ * choice of the models it takes; its effort the level of `efforts`; and the
+ * model the chat runs now.
+ */
+export function codexConfigOf(read: {
+  defaults: { model?: string; effort?: string };
+  models: readonly ModelInfo[];
+  running?: string;
+}): ChatConfig {
+  const models = read.models.slice(0, MAX_MODELS).map((m) => ({
+    value: m.value,
+    ...(m.displayName ? { displayName: m.displayName } : {}),
+    ...(m.supportedEffortLevels ? { supportedEffortLevels: [...m.supportedEffortLevels] } : {}),
+  }));
+  const { model, effort } = read.defaults;
+  return {
+    keys: [
+      {
+        key: "model",
+        group: "conversation",
+        kind: "choice",
+        options: models.map((m) => m.value),
+        ...(model ? { value: model.slice(0, MAX_VALUE) } : {}),
+      },
+    ],
+    ...(read.running ? { model: read.running } : {}),
+    models,
+    efforts: { ...(effort ? { level: effort.slice(0, MAX_VALUE) } : {}), byModel: {} },
+  };
+}
+
+/**
+ * The defaults a chat.config `set` saves for a Codex chat, as its dialog
+ * would let them be chosen: a model it takes (or the one it has), and an
+ * effort that model takes (or the one it has); refused otherwise.
+ */
+export function codexDefaultsSetOf(
+  set: { changes: Readonly<Record<string, ConfigValue>>; effort?: string },
+  config: ChatConfig,
+): { model?: string; effort?: string } {
+  for (const key of Object.keys(set.changes)) {
+    if (key !== "model") throw new ConfigRefusal(`${key} is not one of a Codex chat's defaults`);
+  }
+  const model = set.changes.model;
+  if (model !== undefined && typeof model !== "string") {
+    throw new ConfigRefusal("model takes a model's name");
+  }
+  const now = config.keys.find((key) => key.key === "model")?.value;
+  const had = typeof now === "string" ? now : undefined;
+  if (model !== undefined && model !== had && !config.models.some((m) => m.value === model)) {
+    throw new ConfigRefusal(`it does not take the model ${model}`);
+  }
+  const chosen = model ?? had;
+  const levels = config.models.find((m) => m.value === chosen)?.supportedEffortLevels ?? [];
+  if (
+    set.effort !== undefined &&
+    set.effort !== config.efforts?.level &&
+    !levels.includes(set.effort)
+  ) {
+    throw new ConfigRefusal(`${chosen ?? "its model"} does not take the effort ${set.effort}`);
+  }
+  return { ...(model ? { model } : {}), ...(set.effort ? { effort: set.effort } : {}) };
 }

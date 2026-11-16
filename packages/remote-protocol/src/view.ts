@@ -469,7 +469,7 @@ export const ChatPanelSchema = z.object({
       moveNow: z.boolean().optional(),
       /** Work its MCP servers: sign in, connect again, turn on or off (chat.mcp). Since 0.13.0. */
       mcp: z.boolean().optional(),
-      /** Read and change its Claude Code settings (chat.config). Since 0.13.0. */
+      /** Read and change its Claude Code settings, or a Codex chat's defaults (chat.config). Since 0.13.0. */
       config: z.boolean().optional(),
     })
     .optional(),
