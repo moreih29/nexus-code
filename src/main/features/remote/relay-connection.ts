@@ -4,6 +4,8 @@
  * so: replaced by another connection of this device (4000), whose
  * reconnecting would push this one off in turn, or signed out (4001); or
  * when the ticket says the app is too old for the server (OutdatedError).
+ * A heartbeat finds a socket that no longer reaches the relay and joins
+ * the room again.
  */
 import {
   type ClientFrame,
@@ -31,6 +33,21 @@ export const QUICK_RETRY_EVERY_MS = 30_000;
  * send, and the sender's id the relay adds. A longer one is not read.
  */
 export const MAX_DELIVERED_CHARS = MAX_FRAME_BYTES + 1024;
+
+/** A heartbeat, and the relay's answer to it: the runtime's own, which does not wake the room. */
+export const RELAY_PING = '{"t":"ping"}';
+export const RELAY_PONG = '{"t":"pong"}';
+
+/**
+ * How often an open socket is asked whether it still reaches the relay. A
+ * socket whose way there broke (the computer slept, or went to another
+ * network) says nothing until something is sent on it, and stays "online"
+ * while what is sent on it goes nowhere; and a connection quiet for long
+ * may be cut on the way.
+ */
+export const HEARTBEAT_EVERY_MS = 25_000;
+/** How long an answer is waited for before the socket is taken for lost. */
+export const PONG_WAIT_MS = 10_000;
 
 /**
  * - connecting: asking for a ticket, or opening the socket;
@@ -63,6 +80,8 @@ export interface RelayConnectionDeps {
   /** How long to wait before the `attempt`th try again, in ms. */
   backoff?: (attempt: number) => number;
   now?: () => number;
+  /** HEARTBEAT_EVERY_MS and PONG_WAIT_MS, unless given. */
+  heartbeat?: { every: number; wait: number };
 }
 
 /** 1 s doubling to 30 s, give or take a fifth, so devices do not come back all at once. */
@@ -79,6 +98,9 @@ export class RelayConnection {
   private status: RelayStatus = "stopped";
   /** When a lost connection last tried again at once. */
   private quickAt = Number.NEGATIVE_INFINITY;
+  private beat: ReturnType<typeof setInterval> | null = null;
+  /** Running while a heartbeat waits for the relay to answer. */
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly deps: RelayConnectionDeps) {}
 
@@ -140,10 +162,14 @@ export class RelayConnection {
       if (this.socket !== socket) return;
       opened = true;
       this.set("online");
+      this.startHeartbeat(socket);
       this.deps.onOpen();
     });
     socket.addEventListener("message", (event: { data: unknown }) => {
-      if (this.socket !== socket || typeof event.data !== "string") return;
+      if (this.socket !== socket) return;
+      // Anything from the relay answers the heartbeat.
+      this.clearPongTimer();
+      if (typeof event.data !== "string" || event.data === RELAY_PONG) return;
       if (event.data.length > MAX_DELIVERED_CHARS) return;
       let parsed: ReturnType<typeof ServerFrameSchema.safeParse>;
       try {
@@ -156,6 +182,7 @@ export class RelayConnection {
     socket.addEventListener("close", (event: { code: number }) => {
       if (this.socket !== socket) return;
       this.socket = null;
+      this.stopHeartbeat();
       if (event.code === CLOSE_REPLACED) this.giveUp("replaced");
       else if (event.code === CLOSE_SIGNED_OUT) {
         this.giveUp("stopped");
@@ -169,6 +196,51 @@ export class RelayConnection {
     });
     // An error is followed by a close, which decides what comes next.
     socket.addEventListener("error", () => {});
+  }
+
+  /**
+   * Sends the relay a heartbeat now and then while `socket` is open; one
+   * not answered in time lets the socket go and joins the room again, as a
+   * socket that closed does. Its own close may come long after, or never.
+   */
+  private startHeartbeat(socket: Socket): void {
+    this.stopHeartbeat();
+    const { every, wait } = this.deps.heartbeat ?? {
+      every: HEARTBEAT_EVERY_MS,
+      wait: PONG_WAIT_MS,
+    };
+    this.beat = setInterval(() => {
+      if (this.socket !== socket || this.pongTimer) return;
+      try {
+        socket.send(RELAY_PING);
+      } catch {
+        return;
+      }
+      this.pongTimer = setTimeout(() => {
+        this.pongTimer = null;
+        if (this.socket !== socket) return;
+        this.socket = null;
+        this.stopHeartbeat();
+        try {
+          socket.close();
+        } catch {
+          // Closing already.
+        }
+        if (this.quickRetry()) void this.connect();
+        else this.retry();
+      }, wait);
+    }, every);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.beat) clearInterval(this.beat);
+    this.beat = null;
+    this.clearPongTimer();
+  }
+
+  private clearPongTimer(): void {
+    if (this.pongTimer) clearTimeout(this.pongTimer);
+    this.pongTimer = null;
   }
 
   /** Whether a connection lost from the room may try again at once (QUICK_RETRY_EVERY_MS). */
@@ -202,6 +274,7 @@ export class RelayConnection {
   private drop(): void {
     const socket = this.socket;
     this.socket = null;
+    this.stopHeartbeat();
     if (socket && socket.readyState <= 1) socket.close(1000, "bye");
   }
 
