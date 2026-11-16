@@ -196,7 +196,7 @@ export function RemoteTerminalScreen({
   const typeHeld = (box: HTMLTextAreaElement) => {
     const held = box.value;
     box.value = "";
-    if (held) type({ text: held });
+    if (held) type({ text: held, typed: true });
   };
 
   return (

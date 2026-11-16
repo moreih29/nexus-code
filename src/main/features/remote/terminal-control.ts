@@ -17,10 +17,13 @@ import { folderIn } from "./files";
 import { RpcFailure } from "./room";
 import { tabOf, unavailable, workspaceOf } from "./serve";
 
-/** Types into the terminal: the text pasted, then the keys, then Enter; when it was typed. */
+/**
+ * Types into the terminal: the text pasted (or as keystrokes, `typed`, a line break as the
+ * Return key sends it), then the keys, then Enter; when it was typed.
+ */
 export async function inputTerminal(
   services: CliServices,
-  { workspaceId, tabId, text, keys, enter }: RpcParams<"terminal.input">,
+  { workspaceId, tabId, text, typed, keys, enter }: RpcParams<"terminal.input">,
   now: () => number = Date.now,
 ): Promise<RpcResult<"terminal.input">> {
   if (!text && !keys?.length && !enter) {
@@ -32,11 +35,13 @@ export async function inputTerminal(
     services
       .ui("terminal.input", { workspaceId, tabId, text: typed, mode, enter: andEnter })
       .catch(unavailable);
+  const mode = typed ? "keys" : "paste";
+  const given = typed ? (text ?? "").replace(/\r?\n/g, "\r") : (text ?? "");
   if (keys?.length) {
-    if (text) await type(text, "paste", false);
+    if (given) await type(given, mode, false);
     await type(keys.map(keySequence).join(""), "keys", enter ?? false);
   } else {
-    await type(text ?? "", "paste", enter ?? false);
+    await type(given, mode, enter ?? false);
   }
   return { at };
 }
