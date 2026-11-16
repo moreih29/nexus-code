@@ -55,7 +55,6 @@ export const APP_COMMANDS: readonly AppCommand[] = [
   { name: "setup-vertex" },
   { name: "web-setup" },
   { name: "remote-env" },
-  { name: "ultrareview", argumentHint: "[PR]" },
   { name: "ultraplan", argumentHint: "<prompt>" },
   { name: "autofix-pr" },
   { name: "help" },
@@ -522,7 +521,6 @@ export function terminalCommandOf(
     case "setup-vertex":
     case "web-setup":
     case "remote-env":
-    case "ultrareview":
     case "ultraplan":
     case "autofix-pr":
       return { command: "claude", argument: `/${name}${args ? ` ${args}` : ""}` };

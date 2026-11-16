@@ -58,22 +58,22 @@ describe("Claude's commands that run in a terminal, from another computer", () =
   test("are listed and run only where that computer's terminals can be typed into", () => {
     const names = (terminal: boolean) => hereCommandsOf("claude", [], terminal).map((c) => c.name);
     expect(names(false)).not.toContain("login");
-    expect(names(true)).toEqual(
-      expect.arrayContaining(["login", "logout", "update", "ultrareview"]),
-    );
+    expect(names(true)).toEqual(expect.arrayContaining(["login", "logout", "update", "ultraplan"]));
     expect(hereCommandOf("claude", [], "/login", false)).toBeNull();
-    expect(hereCommandOf("claude", [], "/ultrareview 12", true)).toEqual({
-      name: "ultrareview",
-      args: "12",
+    expect(hereCommandOf("claude", [], "/ultraplan fix it", true)).toEqual({
+      name: "ultraplan",
+      args: "fix it",
     });
+    // Claude Code runs /ultrareview in the conversation itself.
+    expect(hereCommandOf("claude", [], "/ultrareview 12", true)).toBeNull();
     // A Codex chat has none.
     expect(hereCommandsOf("codex", [], true).some((c) => c.name === "login")).toBe(false);
   });
 
   test("type the line a terminal here runs, its argument one word in any shell there", () => {
     expect(inTerminalLineOf("login", "")).toBe("claude auth login");
-    expect(inTerminalLineOf("ultrareview", "")).toBe("claude /ultrareview");
-    expect(inTerminalLineOf("ultrareview", "12")).toBe('claude "/ultrareview 12"');
+    expect(inTerminalLineOf("ultraplan", "")).toBe("claude /ultraplan");
+    expect(inTerminalLineOf("ultraplan", "fix it")).toBe('claude "/ultraplan fix it"');
     // What a shell there would expand does not go.
     expect(inTerminalLineOf("ultraplan", "fix $HOME")).toBeNull();
     expect(inTerminalLineOf("ultraplan", 'say "hi"')).toBeNull();

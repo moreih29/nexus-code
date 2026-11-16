@@ -1377,7 +1377,6 @@
         "setup-vertex": "Google Vertex AI 설정 (터미널)",
         "web-setup": "GitHub로 클라우드 세션 설정 (터미널)",
         "remote-env": "클라우드 에이전트 기본 환경 선택 (터미널)",
-        "ultrareview": "클라우드 세션에서 브랜치 리뷰 (터미널)",
         "autofix-pr": "PR을 지켜보며 실패한 검사 고치기 (터미널)",
         "resume": "이 폴더의 이전 세션을 이 탭에서 이어가기",
         "status": "버전, 모델, 계정, 원격 제어 등 이 세션의 상태 보기",
