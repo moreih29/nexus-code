@@ -55,6 +55,7 @@ import {
   type CallReveal,
   type MessageActions,
   MessageList,
+  type OlderMessages,
   type ShownMove,
 } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
@@ -257,8 +258,18 @@ function RemoteChat({
   controls: boolean;
 }) {
   const { deviceId, workspaceId, tabId } = target;
-  const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
+  const { read, loadEarlier, loadingEarlier } = usePeerChat(
+    { deviceId, workspaceId, tabId },
+    visible,
+  );
   const page = read.status === "ready" ? read.value : null;
+  const older = useMemo<OlderMessages | undefined>(
+    () =>
+      page && page.start > 0
+        ? { count: page.start, loading: loadingEarlier, load: loadEarlier }
+        : undefined,
+    [page, loadingEarlier, loadEarlier],
+  );
   const selfId = useSelfDeviceId();
   const { deviceName } = target;
   const model = useMemo(
@@ -275,6 +286,7 @@ function RemoteChat({
         target={target}
         page={page}
         model={model}
+        {...(older ? { older } : {})}
         visible={visible}
         reach={reach}
         controls={controls}
@@ -340,6 +352,7 @@ function RemoteChatView({
   target,
   page,
   model,
+  older,
   visible,
   reach,
   controls,
@@ -347,6 +360,8 @@ function RemoteChatView({
   target: RemoteTarget;
   page: WatchedChat;
   model: ChatModel;
+  /** The chat's messages before those read so far. */
+  older?: OlderMessages;
   visible: boolean;
   reach: PeerReach;
   controls: boolean;
@@ -685,6 +700,7 @@ function RemoteChatView({
                   items={shown ? agentTranscript(model, shown) : undefined}
                   reveal={shown ? null : callAsk}
                   {...(moves ? { moves } : {})}
+                  {...(older && !shown ? { older } : {})}
                   empty={
                     <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                       {claude ? (

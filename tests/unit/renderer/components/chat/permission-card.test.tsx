@@ -1,6 +1,7 @@
 /**
  * The card an agent's request shows in: a command shown whole, what "always
- * allow" would add, and where the keyboard goes while a request waits.
+ * allow" would add, the questions going on to the next, and where the
+ * keyboard goes while a request waits.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -8,6 +9,7 @@ import i18next from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   focusChatTab,
+  nextUnanswered,
   PermissionCard,
   scopesOf,
 } from "../../../../../src/renderer/components/chat/permission-card";
@@ -34,6 +36,38 @@ describe("a tool's request", () => {
     expect(html).toContain("whitespace-pre-wrap");
     // One line still fits its row.
     expect(render({ input: { command: "ls" } })).not.toContain("whitespace-pre-wrap");
+  });
+});
+
+describe("the questions", () => {
+  const question = (name: string, multiSelect = false) => ({
+    question: `${name}?`,
+    header: name,
+    multiSelect,
+    options: [{ label: "yes" }, { label: "no" }],
+  });
+
+  it("go on to the next without an answer, from the first past the last", () => {
+    expect(nextUnanswered([true, true, true], 0)).toBe(1);
+    expect(nextUnanswered([true, false, true], 0)).toBe(2);
+    expect(nextUnanswered([true, false, false], 2)).toBe(0);
+    expect(nextUnanswered([false, true, false], 1)).toBe(-1);
+    expect(nextUnanswered([false, false], 0)).toBe(-1);
+    expect(nextUnanswered([true], 0)).toBe(-1);
+  });
+
+  it("show a button to the next while another waits, and send once none does", () => {
+    const next = i18next.t("chat.question.next");
+    const send = i18next.t("chat.question.submit");
+    const several = render({
+      toolName: "AskUserQuestion",
+      input: { questions: [question("Port", true), question("Host")] },
+    });
+    expect(several).toContain(next);
+    expect(several).not.toContain(send);
+    const one = render({ toolName: "AskUserQuestion", input: { questions: [question("Port")] } });
+    expect(one).toContain(send);
+    expect(one).not.toContain(next);
   });
 });
 

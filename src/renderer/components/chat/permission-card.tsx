@@ -9,6 +9,7 @@
 
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -529,10 +530,24 @@ export function readQuestions(input: Record<string, unknown>): Question[] {
     }));
 }
 
+/** How long a picked answer shows before the next question takes its place. */
+export const ONWARD_MS = 200;
+
+/**
+ * The question after `shown` still without an answer (from the first, past
+ * the last), or -1 when no other is left.
+ */
+export function nextUnanswered(unanswered: readonly boolean[], shown: number): number {
+  const after = unanswered.findIndex((open, i) => open && i > shown);
+  return after >= 0 ? after : unanswered.findIndex((open, i) => open && i !== shown);
+}
+
 /**
  * The questions, one at a time: the number keys pick the shown one's
- * options (the last number writes another answer), and Enter goes on to the
- * next unanswered one, or sends the answers once all have one.
+ * options (the last number writes another answer). A question of one answer
+ * goes on to the next unanswered one as it is picked; the button marked ↵
+ * (and Enter) goes on after several, or a written one, and sends the answers
+ * once all have one. They are never sent by a pick alone.
  */
 function QuestionForm({ request, onAnswer }: FormProps) {
   const { t } = useTranslation();
@@ -542,7 +557,14 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   const [current, setCurrent] = useState(0);
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [other, setOther] = useState<Record<string, string>>({});
+  const onwardTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useTakeKeyboard(root, request.requestId);
+  useEffect(
+    () => () => {
+      if (onwardTimer.current) clearTimeout(onwardTimer.current);
+    },
+    [],
+  );
 
   const answerOf = (q: Question): string => {
     const labels = [...(picked[q.question] ?? [])];
@@ -555,7 +577,12 @@ function QuestionForm({ request, onAnswer }: FormProps) {
   const shown = Math.min(current, questions.length - 1);
   const q = questions[shown];
 
+  const unanswered = questions.map((each) => answerOf(each) === "");
+  const next = nextUnanswered(unanswered, shown);
+
   const show = (i: number) => {
+    if (onwardTimer.current) clearTimeout(onwardTimer.current);
+    onwardTimer.current = null;
     setCurrent(i);
     giveKeys(root.current);
   };
@@ -570,8 +597,14 @@ function QuestionForm({ request, onAnswer }: FormProps) {
       submit();
       return;
     }
-    const after = questions.findIndex((each, i) => i > shown && answerOf(each) === "");
-    show(after >= 0 ? after : questions.findIndex((each) => answerOf(each) === ""));
+    if (next >= 0) show(next);
+  };
+  /** Picks `label` for the shown question; one of one answer goes on to the next. */
+  const pick = (question: Question, label: string) => {
+    toggle(question, label);
+    if (question.multiSelect || next < 0) return;
+    if (onwardTimer.current) clearTimeout(onwardTimer.current);
+    onwardTimer.current = setTimeout(() => show(next), ONWARD_MS);
   };
   const toggle = (question: Question, label: string) => {
     setPicked((prev) => {
@@ -606,7 +639,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
         const number = /^[1-9]$/.test(event.key) ? Number(event.key) : 0;
         if (number > 0 && number <= q.options.length) {
           event.preventDefault();
-          toggle(q, q.options[number - 1].label);
+          pick(q, q.options[number - 1].label);
         } else if (number === q.options.length + 1) {
           event.preventDefault();
           otherRef.current?.focus();
@@ -668,7 +701,7 @@ function QuestionForm({ request, onAnswer }: FormProps) {
               key={option.label}
               data-option="true"
               onClick={() => {
-                toggle(q, option.label);
+                pick(q, option.label);
                 giveKeys(root.current);
               }}
               aria-pressed={on}
@@ -720,22 +753,36 @@ function QuestionForm({ request, onAnswer }: FormProps) {
           {t("chat.question.skip")}
         </Button>
         <span className="flex-1" />
-        <Button
-          type="submit"
-          size="sm"
-          disabled={!complete}
-          className="pr-1.5"
-          title={t("chat.question.submit")}
-          aria-label={t("chat.question.submit")}
-        >
-          <Send aria-hidden className="size-3.5" />
-          {questions.length > 1 && (
-            <span className="tabular-nums">
-              {answered}/{questions.length}
-            </span>
-          )}
-          <Keycap>↵</Keycap>
-        </Button>
+        {next >= 0 ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={unanswered[shown]}
+            onClick={onward}
+            className="pr-1.5"
+          >
+            {t("chat.question.next")}
+            <ArrowRight aria-hidden className="size-3.5" />
+            <Keycap>↵</Keycap>
+          </Button>
+        ) : (
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!complete}
+            className="pr-1.5"
+            title={t("chat.question.submit")}
+            aria-label={t("chat.question.submit")}
+          >
+            <Send aria-hidden className="size-3.5" />
+            {questions.length > 1 && (
+              <span className="tabular-nums">
+                {answered}/{questions.length}
+              </span>
+            )}
+            <Keycap>↵</Keycap>
+          </Button>
+        )}
       </div>
     </form>
   );
