@@ -556,9 +556,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
     const { phase } = target.controller.state;
     // As its banner does: an ended program goes on with its session; a failed one opens again.
-    if (phase === "ended") await target.controller.restart();
+    // One that runs starts again on its session, as the card after /login offers.
+    if (phase === "ended" || phase === "ready") await target.controller.restart();
     else if (phase === "failed" || phase === "not-found") await target.controller.open();
-    else throw new UiRequestError("its program has not ended");
+    else throw new UiRequestError("its program is starting");
     return {};
   },
 

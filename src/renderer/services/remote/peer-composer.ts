@@ -27,7 +27,13 @@ import type { ComposerController } from "../../components/chat/composer";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
 import { copyText } from "../../utils/clipboard";
-import { type AppCommand, copyIndex, nthAnswer } from "../chat/app-commands";
+import {
+  type AppCommand,
+  copyIndex,
+  nthAnswer,
+  RESTART_AFTER,
+  terminalCommandOf,
+} from "../chat/app-commands";
 import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,
@@ -38,7 +44,7 @@ import {
 } from "../chat/store";
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
-import { hereCommandOf, hereCommandsOf, hereLinkOf } from "./here-commands";
+import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
 import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
 /** The chat, by the device it runs on and its tab there. */
@@ -384,6 +390,12 @@ export interface HereCommandDeps {
   /** /status: what this app shows of the chat, as Markdown lines. */
   status?: () => string;
   openUrl: (url: string) => void;
+  /**
+   * Where that computer lets this one type into its terminals: a command
+   * that runs in a terminal (/login, /update…) runs in one of its, shown
+   * here; and its program started again after, where it can be.
+   */
+  terminal?: { run: (line: string) => void; restart?: () => void };
 }
 
 /** A command's description, as its tab's help writes it. */
@@ -529,7 +541,11 @@ export function usePeerComposer({
   const cards = useRef(0);
   const closeCard = useCallback(() => setCard(undefined), []);
 
-  const hereCommands = useMemo(() => hereCommandsOf(agent, commands), [agent, commands]);
+  const terminal = Boolean(here?.terminal);
+  const hereCommands = useMemo(
+    () => hereCommandsOf(agent, commands, terminal),
+    [agent, commands, terminal],
+  );
   /** One of the app's commands that runs here, as the chat's tab runs it there. */
   const runHere = useCallback(
     (name: string, args: string, title: string, deps: HereCommandDeps) => {
@@ -537,6 +553,48 @@ export function usePeerComposer({
       const link = hereLinkOf(name);
       if (link) {
         deps.openUrl(link);
+        return;
+      }
+      if (terminalCommandOf(name, args) && deps.terminal) {
+        const line = inTerminalLineOf(name, args);
+        if (line === null) {
+          showToast({ kind: "warning", message: t("agentView.remote.terminalArgument") });
+          return;
+        }
+        deps.terminal.run(line);
+        const restart = deps.terminal.restart;
+        cards.current += 1;
+        const id = `peer-card-${cards.current}`;
+        setCard({
+          id,
+          title,
+          text: t("chat.commands.in_terminal", { command: line }),
+          ...(RESTART_AFTER.has(name) && restart
+            ? {
+                sections: [
+                  {
+                    title: t("chat.commands.restart_after"),
+                    empty: "",
+                    rows: [
+                      {
+                        id: "restart",
+                        label: t("chat.commands.restart_hint"),
+                        actions: [
+                          {
+                            label: t("chat.commands.restart"),
+                            run: () => {
+                              setCard((now) => (now?.id === id ? undefined : now));
+                              restart();
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        });
         return;
       }
       switch (name) {
@@ -583,7 +641,9 @@ export function usePeerComposer({
 
   const onCommand = useCallback(
     (text: string): boolean => {
-      const ran = held.here ? hereCommandOf(agent, commands, text) : null;
+      const ran = held.here
+        ? hereCommandOf(agent, commands, text, Boolean(held.here.terminal))
+        : null;
       if (ran && held.here) {
         runHere(ran.name, ran.args, text.trim(), held.here);
         return true;

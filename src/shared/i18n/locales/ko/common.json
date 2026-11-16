@@ -1774,6 +1774,7 @@
       "gone": "닫힌 세션입니다",
       "placeholder": "{{send}} {{device}}에 보내기 · {{newLine}} 줄바꿈 · / 명령 · @ 파일",
       "placeholder_codex": "{{send}} {{device}}에 보내기 · {{newLine}} 줄바꿈 · @ 파일",
+      "terminalArgument": "그 컴퓨터의 터미널에 그대로 넘길 수 없는 글자가 있습니다: 따옴표, $, %, & 같은 글자를 빼고 다시 입력하세요.",
       "failed": "전달하지 못했습니다: {{message}}",
       "filesRefused": "그 컴퓨터의 앱이 이전 버전이라 이미지만 보낼 수 있습니다",
       "noChanges": "이 채팅이 바꾼 파일이 없습니다",

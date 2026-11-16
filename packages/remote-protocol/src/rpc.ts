@@ -1215,8 +1215,10 @@ export const RPC_METHODS = {
   /**
    * Starts a chat's program again, as its banner there does: going on with
    * the session once it ended (`phase` ended), or opening it again where it
-   * failed or its session was not found. Only the user's: an agent does
-   * not send it. Since 0.13.0.
+   * failed or its session was not found; and one that runs (`phase` ready)
+   * again on its session, as the card after /login or /update offers, a
+   * turn under way stopping. Only the user's: an agent does not send it.
+   * Since 0.13.0.
    */
   "chat.restart": {
     capability: "chat.control",

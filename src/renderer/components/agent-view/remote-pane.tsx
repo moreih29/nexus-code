@@ -1,4 +1,4 @@
-import type { TFunction } from "i18next";
+import i18next, { type TFunction } from "i18next";
 import { ArrowLeft, CloudOff } from "lucide-react";
 import {
   useCallback,
@@ -21,6 +21,7 @@ import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex-c
 import { emptyCodexModel } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
+import { isUnder } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type {
   AssistantItem,
@@ -129,6 +130,41 @@ export function changesCard(
       },
     ],
   };
+}
+
+/**
+ * Runs a command in a new terminal of the chat's computer, in the chat's
+ * folder where that is in its workspace, and shows the terminal here, as a
+ * chat here runs one in a terminal of its own.
+ */
+function runInPeerTerminal(target: RemoteTarget, command: string): void {
+  const { deviceId, workspaceId } = target;
+  // A folder outside its workspace is not one a terminal there opens in.
+  const folder =
+    target.cwd && target.cwd !== target.path && isUnder(target.cwd, target.path)
+      ? target.cwd
+      : undefined;
+  void ipcCallResult("remote", "peerTerminalOpen", {
+    deviceId,
+    workspaceId,
+    command,
+    ...(folder ? { folder } : {}),
+  }).then((result) => {
+    if (!result.ok) {
+      showToast({
+        kind: "error",
+        message: i18next.t("agentView.remote.failed", { message: result.message }),
+      });
+      return;
+    }
+    const { profile: _theirs, cwd: _its, state: _was, ...rest } = target;
+    useRemoteViewStore.getState().open({
+      ...rest,
+      kind: "terminal",
+      tabId: result.value.tabId,
+      title: command,
+    });
+  });
 }
 
 /** What signs a Codex in on another computer: by a code shown in its terminal. */
@@ -687,27 +723,7 @@ function RemoteChatView({
     });
   // As a Codex tab here signs in, in a terminal of its computer, shown here: by a code, as
   // a browser here cannot reach a sign-in that waits there.
-  const signInThere = () =>
-    void ipcCallResult("remote", "peerTerminalOpen", {
-      deviceId,
-      workspaceId,
-      command: CODEX_SIGN_IN,
-    }).then((result) => {
-      if (!result.ok) {
-        showToast({
-          kind: "error",
-          message: t("agentView.remote.failed", { message: result.message }),
-        });
-        return;
-      }
-      const { profile: _theirs, cwd: _its, state: _was, ...rest } = target;
-      useRemoteViewStore.getState().open({
-        ...rest,
-        kind: "terminal",
-        tabId: result.value.tabId,
-        title: CODEX_SIGN_IN,
-      });
-    });
+  const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN);
   const panel = claude ? (
     <RemoteSidePanel
       target={target}
@@ -935,6 +951,7 @@ function RemoteControls({
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
   const folder = target.cwd ?? target.path;
+  const types = usePeerTypes(deviceId);
   // A Codex chat's /resume and /config, which this pane runs, in its picker as in a Codex tab's.
   const configurable = page.panel?.can?.config === true;
   const paneCommands = useMemo(
@@ -984,6 +1001,26 @@ function RemoteControls({
           t,
         ),
       openUrl: (url) => links?.openUrl(url),
+      ...(types
+        ? {
+            terminal: {
+              run: (line: string) => runInPeerTerminal(target, line),
+              // Its program started again, as the card a chat here shows after /login does.
+              ...(page.status.phase
+                ? {
+                    restart: () =>
+                      void ipcCallResult("remote", "peerChatRestart", {
+                        deviceId,
+                        workspaceId,
+                        tabId,
+                      }).then((result) => {
+                        if (!result.ok) onError(result.message);
+                      }),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     },
     paneCommands,
     // The tab /fork or /branch opened there shows, as a fork from a message's does.
