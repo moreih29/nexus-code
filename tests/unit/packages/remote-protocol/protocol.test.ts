@@ -165,6 +165,17 @@ describe("the methods", () => {
     expect(RPC_METHODS["terminal.input"].capability).toBe("terminal.control");
   });
 
+  test("terminal.open may name the profile whose environment its shell gets (0.13.1)", () => {
+    const params = RPC_METHODS["terminal.open"].params;
+    expect(
+      params.parse({ workspaceId: "w", command: "codex login", profile: "codex-ab12" }),
+    ).toEqual({ workspaceId: "w", command: "codex login", profile: "codex-ab12" });
+    expect(params.safeParse({ workspaceId: "w", profile: "" }).success).toBe(false);
+    expect(params.safeParse({ workspaceId: "w", profile: "x".repeat(101) }).success).toBe(false);
+    // One before 0.13.1 drops what it does not know, and opens in the default folder.
+    expect(params.parse({ workspaceId: "w" })).toEqual({ workspaceId: "w" });
+  });
+
   test("the version a hello tells is the package's", async () => {
     const pkg = await Bun.file(
       new URL("../../../../packages/remote-protocol/package.json", import.meta.url),

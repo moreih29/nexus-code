@@ -14,6 +14,8 @@ export const TerminalTabPropsSchema = z.object({
   cwd: z.string(),
   /** The shell the tab was opened with ("New terminal with"); absent = the default. */
   shell: ShellChoiceSchema.optional(),
+  /** The agent profile it was opened for (by id), whose environment its shell gets. */
+  profile: z.string().max(64).optional(),
 });
 export type TerminalTabProps = z.infer<typeof TerminalTabPropsSchema>;
 

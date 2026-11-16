@@ -401,6 +401,27 @@ describe("services/terminal open and close", () => {
     resetIpc();
   });
 
+  it("a terminal opened for a profile keeps it, and its shell is spawned in it", async () => {
+    const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace", profile: "codex-ab12" });
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId];
+    expect(tab?.type === "terminal" ? tab.props.profile : null).toBe("codex-ab12");
+
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: terminal.tabId,
+      cwd: "/workspace",
+      profile: "codex-ab12",
+      onData: () => {},
+      onExit: () => {},
+    });
+    await client.spawn({ cols: 80, rows: 24 });
+    expect(ipcCalls.find((call) => call.method === "spawn")?.args).toMatchObject({
+      tabId: terminal.tabId,
+      profile: "codex-ab12",
+    });
+    client.dispose();
+  });
+
   it("closeTerminal kills the PTY session and closes the tab transaction", () => {
     const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace" });
 

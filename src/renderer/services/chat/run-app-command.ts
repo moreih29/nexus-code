@@ -466,7 +466,12 @@ async function showTasks(
           {
             label: t("chat.commands.open"),
             run: () => {
-              const { tabId } = openTerminal({ workspaceId: ctx.workspaceId, cwd: ctx.cwd });
+              // The session is in the profile's folder.
+              const { tabId } = openTerminal({
+                workspaceId: ctx.workspaceId,
+                cwd: ctx.cwd,
+                profile: ctx.controller.profileId,
+              });
               queueStartupInput(ctx.workspaceId, tabId, () => `claude attach ${session.id}\r`);
             },
           },
@@ -535,7 +540,12 @@ function failed(err: Error): void {
 
 /** Opens a terminal in the tab's folder that runs `command`, with `argument` quoted for its shell. */
 function runInTerminal(ctx: AppCommandContext, command: string, argument: string): void {
-  const { tabId } = openTerminal({ workspaceId: ctx.workspaceId, cwd: ctx.cwd });
+  // In the tab's profile, as its program runs: /login and /logout there are the profile's.
+  const { tabId } = openTerminal({
+    workspaceId: ctx.workspaceId,
+    cwd: ctx.cwd,
+    profile: ctx.controller.profileId,
+  });
   queueStartupInput(
     ctx.workspaceId,
     tabId,

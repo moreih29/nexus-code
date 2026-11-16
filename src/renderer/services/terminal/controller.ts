@@ -749,6 +749,7 @@ class XtermTerminalController implements TerminalController {
       tabId: this.options.tabId,
       cwd: this.options.cwd,
       shell: this.options.shell,
+      ...(this.options.profile !== undefined ? { profile: this.options.profile } : {}),
       onData: (chunk, replay) => {
         // Replayed output too: a shell that printed before was at its prompt.
         this.noteStartingOutput();

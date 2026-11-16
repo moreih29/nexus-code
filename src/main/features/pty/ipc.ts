@@ -65,6 +65,12 @@ export interface PtyChannelOptions {
     /** Whether the workspace runs on this machine; only those take a chosen shell. */
     isLocal?(workspaceId: string): boolean;
   };
+  /**
+   * What a chat of the profile runs with in the workspace (its folder's
+   * variable, made on the workspace's host, and its own variables); null
+   * for a profile there is not.
+   */
+  profileEnv?: (workspaceId: string, profileId: string) => Promise<Record<string, string> | null>;
   /** The default shell from Settings › Terminal, read at every spawn. */
   getDefaultShell?: () => ShellChoice | undefined;
   /** The shells the user added in Settings › Terminal, read at every spawn. */
@@ -182,10 +188,19 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
           cwd,
           cols,
           rows,
-          env,
+          env: givenEnv,
           args: spawnArgs,
           shell: tabShell,
+          profile,
         } = validateArgs(c.spawn.args, args);
+        // A terminal opened for a profile (a sign-in for it) runs as its chat
+        // does; without it, it would sign in or out of the default folder.
+        let env = givenEnv;
+        if (profile !== undefined) {
+          const fromProfile = await options.profileEnv?.(workspaceId, profile);
+          if (!fromProfile) throw new Error(`no profile ${profile}`);
+          env = { ...givenEnv, ...fromProfile };
+        }
         recorder.start(workspaceId, tabId, cols, rows);
         // hookInfo must be read after channel.ready for it to be guaranteed fresh.
         // Called right after a channel reconnect, a stale cache (the previous boot's socket path)

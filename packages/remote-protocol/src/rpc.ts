@@ -1584,7 +1584,14 @@ export const RPC_METHODS = {
       shells: z.array(z.object({ id: z.string(), name: z.string(), isDefault: z.boolean() })),
     }),
   },
-  /** Opens a terminal: a shell (by its id), in a folder inside the workspace, running `command`. */
+  /**
+   * Opens a terminal: a shell (by its id), in a folder inside the workspace,
+   * running `command`. With `profile` (profiles.list's id, or a name only
+   * one profile has) its shell runs with what a chat of that profile runs
+   * with: the profile's folder (CODEX_HOME, CLAUDE_CONFIG_DIR) and its own
+   * variables. A profile that computer has not is InvalidParams: the
+   * terminal never opens with the default folder in its place. Since 0.13.1.
+   */
   "terminal.open": {
     capability: "terminal.control",
     params: z.object({
@@ -1593,6 +1600,7 @@ export const RPC_METHODS = {
       folder: z.string().min(1).max(4096).optional(),
       command: z.string().min(1).max(10_000).optional(),
       title: z.string().min(1).max(200).optional(),
+      profile: z.string().min(1).max(100).optional(),
       from: AgentSenderSchema.optional(),
     }),
     result: z.object({ tabId: z.string() }),

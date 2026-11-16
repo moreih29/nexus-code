@@ -34,6 +34,11 @@ export interface TerminalTabProps {
   cwd: string;
   /** The shell the tab was opened with; absent = the default shell setting. */
   shell?: ShellChoice;
+  /**
+   * The agent profile it was opened for (by id): its shell runs with what a
+   * chat of it runs with, as a sign-in for the profile needs.
+   */
+  profile?: string;
   dead?: boolean;
 }
 

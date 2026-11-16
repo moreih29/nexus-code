@@ -745,6 +745,12 @@ export const ipcContract = {
            * the remote host's login shell.
            */
           shell: ShellChoiceSchema.optional(),
+          /**
+           * An agent profile, by id: the shell runs with what a chat of it
+           * runs with (its folder's variable, its own variables). One that
+           * is not there fails the spawn: never the default folder instead.
+           */
+          profile: z.string().max(64).optional(),
         }),
         z.object({
           pid: z.number().int(),

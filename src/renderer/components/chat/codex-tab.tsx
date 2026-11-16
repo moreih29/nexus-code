@@ -282,7 +282,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const signIn = () => {
     // A browser on this machine cannot reach a sign-in an SSH host waits for.
     const command = isLocal ? "codex login" : "codex login --device-auth";
-    const { tabId: terminal } = openTerminal({ workspaceId, cwd: props.cwd });
+    // In the tab's profile: in another, `codex login` would sign the default folder out.
+    const { tabId: terminal } = openTerminal({ workspaceId, cwd: props.cwd, profile: profileId });
     queueStartupInput(
       workspaceId,
       terminal,

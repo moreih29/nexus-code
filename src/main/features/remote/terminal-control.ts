@@ -58,14 +58,39 @@ export async function terminalShells(
   return { shells: shells.map(({ id, name, isDefault }) => ({ id, name, isDefault })) };
 }
 
-/** Opens a terminal behind what the window shows: in a folder of the workspace, a shell, a command. */
+/**
+ * The id of the profile `profile` names: its id, or a name only one profile
+ * has (profiles.list's). One this computer has not, or a name two have, is
+ * InvalidParams: a terminal is never opened with the default folder in its
+ * place.
+ */
+async function profileIdOf(services: CliServices, profile: string): Promise<string> {
+  const { profiles } = await services.ui("chat.profiles", {}).catch(unavailable);
+  const byId = profiles.find((p) => p.id === profile);
+  if (byId) return byId.id;
+  const wanted = profile.trim().toLowerCase();
+  const named = profiles.filter((p) => p.name.trim().toLowerCase() === wanted);
+  if (named.length === 1 && named[0]) return named[0].id;
+  throw new RpcFailure(
+    RpcErrorCode.InvalidParams,
+    named.length > 1
+      ? `more than one profile is named "${profile}"; give its id: ${named.map((p) => p.id).join(", ")}`
+      : `no profile "${profile}"; there are ${profiles.map((p) => p.id).join(", ")}`,
+  );
+}
+
+/**
+ * Opens a terminal behind what the window shows: in a folder of the
+ * workspace, a shell, a command, with a profile's environment.
+ */
 export async function openTerminal(
   services: CliServices,
-  { workspaceId, shell, folder, command, title }: RpcParams<"terminal.open">,
+  { workspaceId, shell, folder, command, title, profile }: RpcParams<"terminal.open">,
   fs?: (workspaceId: string) => Promise<FsProvider>,
 ): Promise<RpcResult<"terminal.open">> {
   const workspace = workspaceOf(services, workspaceId);
   if (!workspace) throw new RpcFailure(RpcErrorCode.NotFound, "no such workspace");
+  const profileId = profile !== undefined ? await profileIdOf(services, profile) : undefined;
   const cwd = folder
     ? await folderIn(
         fs ? await fs(workspaceId).catch(unavailable) : null,
@@ -80,10 +105,16 @@ export async function openTerminal(
       ...(title ? { title } : {}),
       ...(command ? { command } : {}),
       ...(shell ? { shell } : {}),
+      ...(profileId !== undefined ? { profile: profileId } : {}),
       // Behind what the window shows: whoever sits at this computer keeps their place.
       placement: { background: true },
     })
-    .catch(unavailable);
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      // The profile went between the two asks.
+      if (/^no profile /.test(message)) throw new RpcFailure(RpcErrorCode.InvalidParams, message);
+      return unavailable(error);
+    });
 }
 
 export async function renameTerminal(
