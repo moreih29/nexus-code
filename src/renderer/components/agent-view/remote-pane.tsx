@@ -1,5 +1,13 @@
 import { ArrowLeft, CloudOff } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import type { IpcResult } from "../../../shared/ipc/result";
@@ -71,6 +79,13 @@ const TERMINAL_LINES = 2000;
 
 /** How long clearing a Claude goal waits for the turn it stopped to end, as a chat here does. */
 const GOAL_STOP_MS = 10_000;
+
+/**
+ * The ended goal whose bar was closed, by each chat's session key: kept
+ * while the app runs, as a chat here keeps it in its tab's state, so a
+ * chat opened again or put back in sight does not show it again.
+ */
+const closedGoals = new Map<string, string>();
 
 /**
  * The session in front of a panel, filling it below the panel's tabs. It
@@ -505,7 +520,12 @@ function RemoteChatView({
 
   // The goal, as a chat here shows it over the composer; an ended one closed stays closed.
   const goal = useRemoteGoal(page.panel?.goal, claude ? "claude" : "codex");
-  const [closedGoal, setClosedGoal] = useState<string | null>(null);
+  const [, goalClosed] = useReducer((n: number) => n + 1, 0);
+  const closedGoal = closedGoals.get(focusKey);
+  const closeGoal = (key: string) => {
+    closedGoals.set(focusKey, key);
+    goalClosed();
+  };
   const tabGoal: TabGoal | null =
     goal && !(goal.ended && closedGoal === goal.key)
       ? {
@@ -555,7 +575,7 @@ function RemoteChatView({
               ),
           }
         : {})}
-      onClose={() => setClosedGoal(tabGoal.goal.key)}
+      onClose={() => closeGoal(tabGoal.goal.key)}
     />
   ) : null;
 
