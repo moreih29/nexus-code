@@ -78,6 +78,11 @@ describe("Claude's commands that run in a terminal, from another computer", () =
     expect(inTerminalLineOf("ultraplan", "fix $HOME")).toBeNull();
     expect(inTerminalLineOf("ultraplan", 'say "hi"')).toBeNull();
     expect(inTerminalLineOf("ultraplan", "a & b")).toBeNull();
+    // PowerShell ends a double-quoted string at a typographic double quote too.
+    expect(inTerminalLineOf("ultraplan", "a” ; echo hi; “b")).toBeNull();
+    expect(inTerminalLineOf("ultraplan", "say „hi")).toBeNull();
+    // Its typographic single quotes, like ', are as they are in double quotes.
+    expect(inTerminalLineOf("ultraplan", "it’s ‘fine’")).toBe('claude "/ultraplan it’s ‘fine’"');
     expect(inTerminalLineOf("copy", "")).toBeNull();
   });
 });

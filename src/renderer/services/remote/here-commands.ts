@@ -72,8 +72,12 @@ export function hereLinkOf(name: string): string | undefined {
 
 /** A word any shell there takes as it is. */
 const BARE = /^[A-Za-z0-9_./:@+=-]+$/;
-/** Text a shell there takes as one word in double quotes: none of what any of them expands. */
-const QUOTABLE = /^[^"$`\\!%^&|<>\r\n]*$/;
+/**
+ * Text a shell there takes as one word in double quotes: none of what any
+ * of them expands, and none of the typographic double quotes, which
+ * PowerShell takes as `"`.
+ */
+const QUOTABLE = /^[^"“”„$`\\!%^&|<>\r\n]*$/;
 
 /**
  * The line a command that runs in a terminal types into that computer's,
