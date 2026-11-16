@@ -148,7 +148,8 @@ describe("changing another workspace", () => {
     browser press Enter | browser upload e1 index.ts | browser eval 1
     chat unsend eeee r7 | chat edit eeee r7 x | chat rewind eeee 0 | chat fork eeee
     chat background eeee 2 | chat stop-task eeee b1 | chat remote-control eeee on
-    chat command eeee compact | chat resume 5f2a`;
+    chat command eeee compact | chat resume 5f2a | note new x | note show nmhz00cc
+    note write nmhz00cc hi | note add nmhz00cc index.ts | note record nmhz00cc`;
   const READS = `
     worktree list | tab list | tab show codex | terminal list | terminal read codex
     terminal wait codex --match Working | session list | events | layout show | problems

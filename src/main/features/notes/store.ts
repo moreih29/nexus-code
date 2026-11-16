@@ -16,6 +16,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as path from "node:path";
+import { withBlocks } from "../../../shared/notes/insert";
 import { type DocNode, docToMarkdown } from "../../../shared/notes/markdown";
 import {
   EMPTY_TRANSCRIPT,
@@ -69,8 +70,8 @@ export function newSketchId(now = Date.now()): string {
 }
 
 export class NotesStore {
-  /** By note folder: the photo going into that note's document now, which the next waits for. */
-  private readonly photoTurns = new Map<string, Promise<void>>();
+  /** By note folder: the blocks going into that note's document now, which the next wait for. */
+  private readonly appendTurns = new Map<string, Promise<void>>();
 
   constructor(
     /** The notes folder: <app data>/notes. */
@@ -200,21 +201,50 @@ export class NotesStore {
     // A note that is not there gets no file either.
     await this.read(location, id);
     const asset = await this.addImage(location, id, bytes, ext, name ?? `photo-${stamp()}`);
-    // Photos that come at once go into the note one after another: each
-    // reads the note as the one before left it.
+    await this.appendBlocks(location, id, [imageBlock(asset)]);
+    return asset;
+  }
+
+  /**
+   * Puts blocks into the note's document: at its end, or at the end of the
+   * part under the heading `under` names (insertionIndex). Blocks that come
+   * at once go in one after another: each reads the note as the one before
+   * left it. A NoteError when `under` names no heading.
+   */
+  async appendBlocks(
+    location: NoteLocation,
+    id: string,
+    blocks: DocNode[],
+    under?: string,
+  ): Promise<void> {
     const dir = this.noteDir(location, id);
-    const turn = (this.photoTurns.get(dir) ?? Promise.resolve()).then(async () => {
+    const turn = (this.appendTurns.get(dir) ?? Promise.resolve()).then(async () => {
       const note = await this.read(location, id);
-      const content = [...(note.doc.content ?? []), imageBlock(asset)];
-      await this.save(location, id, { doc: { ...note.doc, content } });
+      const doc = withBlocks(note.doc, blocks, under);
+      if (!doc) throw new NoteError("bad-request", `no heading "${under}" in the note`);
+      await this.save(location, id, { doc });
     });
     const settled = turn.catch(() => {});
-    this.photoTurns.set(dir, settled);
+    this.appendTurns.set(dir, settled);
     void settled.then(() => {
-      if (this.photoTurns.get(dir) === settled) this.photoTurns.delete(dir);
+      if (this.appendTurns.get(dir) === settled) this.appendTurns.delete(dir);
     });
     await turn;
-    return asset;
+  }
+
+  /** Writes a file's bytes into the note's materials/, under a name not taken yet. */
+  async addFileBytes(
+    location: NoteLocation,
+    id: string,
+    bytes: Uint8Array,
+    name: string,
+  ): Promise<NoteAsset> {
+    const sub = path.join(this.noteDir(location, id), NOTE_DIRS.files);
+    await fs.mkdir(sub, { recursive: true });
+    const file = await claimFree(sub, safeName(name), (target) =>
+      fs.writeFile(target, bytes, { flag: "wx" }),
+    );
+    return { src: `${NOTE_DIRS.files}/${file}`, name: file, size: bytes.byteLength };
   }
 
   /** Writes a sketch's scene and its picture; a new sketch gets an id. */

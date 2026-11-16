@@ -39,6 +39,13 @@ function watch(): void {
   void check(null);
 }
 
+/** Whether voice input can be used here, asked now. */
+export async function voiceAvailabilityNow(): Promise<VoiceAvailability> {
+  watch();
+  await check(null);
+  return useAvailabilityStore.getState().status;
+}
+
 export function useVoiceAvailability(): VoiceAvailability {
   useEffect(watch, []);
   return useAvailabilityStore((s) => s.status);

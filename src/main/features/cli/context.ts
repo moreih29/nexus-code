@@ -14,8 +14,9 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
-import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
+import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
@@ -194,6 +195,21 @@ export interface CliNotes {
   read(workspaceId: string, noteId: string): Promise<NoteContent>;
   /** Its recordings' words; an empty transcript for a note with none. */
   transcript(workspaceId: string, noteId: string): Promise<TranscriptFile>;
+  /** Makes a note. */
+  create(workspaceId: string, title: string): Promise<NoteContent>;
+  /**
+   * Puts blocks into a note, at its end or at the end of the part under the
+   * heading `under` names (an editor open on it too); fails when there is no
+   * such heading.
+   */
+  append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
+  /** Writes a file into a note's folder (an image where it shows); the block that shows it. */
+  addAsset(
+    workspaceId: string,
+    noteId: string,
+    bytes: Uint8Array,
+    name: string,
+  ): Promise<{ asset: NoteAsset; block: DocNode }>;
 }
 
 /**

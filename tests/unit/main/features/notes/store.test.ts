@@ -244,6 +244,33 @@ describe("a photo from the user's phone", () => {
   });
 });
 
+describe("blocks an agent puts into a note", () => {
+  test("go at its end or under a heading, one after another when they come at once", async () => {
+    const note = await store.create(here, "Meeting");
+    const p = (t: string) => ({ type: "paragraph", content: [{ type: "text", text: t }] });
+    await store.appendBlocks(here, note.id, [
+      { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Notes" }] },
+    ]);
+    await Promise.all([
+      store.appendBlocks(here, note.id, [p("a")], "Notes"),
+      store.appendBlocks(here, note.id, [p("b")], "Notes"),
+    ]);
+    const read = await store.read(here, note.id);
+    expect(read.doc.content?.map((b) => b.content?.[0]?.text)).toEqual(["Notes", "a", "b"]);
+    await expect(store.appendBlocks(here, note.id, [p("c")], "Nope")).rejects.toThrow(
+      'no heading "Nope"',
+    );
+  });
+
+  test("a file's bytes go into materials/, under a name not taken yet", async () => {
+    const note = await store.create(here);
+    const file = await store.addFileBytes(here, note.id, new Uint8Array([1, 2]), "data.csv");
+    expect(file).toEqual({ src: "materials/data.csv", name: "data.csv", size: 2 });
+    const again = await store.addFileBytes(here, note.id, new Uint8Array([3]), "data.csv");
+    expect(again.src).not.toBe(file.src);
+  });
+});
+
 describe("what a note has in it", () => {
   test("counts sketches, files, images and to-dos", () => {
     expect(
