@@ -20,7 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { CodexRateLimits } from "../chat/codex-model";
+import type { CodexModel, CodexRateLimits } from "../chat/codex-model";
 import type {
   AssistantItem,
   ChatItem,
@@ -211,6 +211,7 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     phase: chat.phase,
     ...(chat.error ? { error: chat.error.slice(0, MAX_STATUS_TEXT) } : {}),
     ...(version ? { version } : {}),
+    ...((model as Partial<CodexModel>).signedOut ? { signedOut: true } : {}),
     ...(model.exit
       ? {
           exit: {

@@ -169,7 +169,7 @@ export function useRemoteLinks(
   files: ChatFiles,
   setLook: (look: QuickLookList | null) => void,
 ): ChatLinks {
-  const { deviceId, deviceName } = target;
+  const { deviceId, deviceName, tabId } = target;
   const peerWorkspace = target.workspaceId;
   const cwd = target.cwd ?? target.path;
   const latest = useRef(source);
@@ -184,6 +184,24 @@ export function useRemoteLinks(
         if (list && opened === mine) setLook(list);
       });
     };
+    /** A changed file against its last commit: from how it differs now, the file as that had it. */
+    const sinceCommit = (path: string): Promise<QuickLookList> =>
+      Promise.all([
+        ipcCallResult("remote", "peerGitDiff", { ...where, path }),
+        ipcCallResult("remote", "peerFilesRead", { ...where, path }),
+      ]).then(([diff, read]): QuickLookList => {
+        const now =
+          read.ok && read.value.kind === "text" && !read.value.truncated ? read.value.text : null;
+        const before =
+          diff.ok && !diff.value.binary && diff.value.hunks.length > 0 && now !== null
+            ? beforeOfHunks(diff.value.hunks, now)
+            : null;
+        return {
+          files: [path],
+          index: 0,
+          ...(before !== null ? { changes: { [path]: before } } : {}),
+        };
+      });
     /** Quick look over the conversation's images, at `target`; `alone` when it is not among them. */
     const lookAt = (image: ShownImage, alone?: () => QuickLookList) => {
       const { model } = latest.current;
@@ -221,27 +239,20 @@ export function useRemoteLinks(
           setLook({ files: [path], index: 0, changes: { [path]: known } });
           return;
         }
-        // Its first change is further back than the conversation read here:
-        // the file as its last commit had it, from how it differs now.
+        // Not in the conversation read here (a Codex chat's, or one further
+        // back): the original that computer kept of it (0.13.0); without
+        // one, the file as its last commit had it, from how it differs now.
         show(
-          Promise.all([
-            ipcCallResult("remote", "peerGitDiff", { ...where, path }),
-            ipcCallResult("remote", "peerFilesRead", { ...where, path }),
-          ]).then(([diff, read]): QuickLookList => {
-            const now =
-              read.ok && read.value.kind === "text" && !read.value.truncated
-                ? read.value.text
-                : null;
-            const before =
-              diff.ok && !diff.value.binary && diff.value.hunks.length > 0 && now !== null
-                ? beforeOfHunks(diff.value.hunks, now)
-                : null;
-            return {
-              files: [path],
-              index: 0,
-              ...(before !== null ? { changes: { [path]: before } } : {}),
-            };
-          }),
+          ipcCallResult("remote", "peerChatOriginal", { ...where, tabId, path }).then(
+            (kept): Promise<QuickLookList> =>
+              kept.ok
+                ? Promise.resolve({
+                    files: [path],
+                    index: 0,
+                    changes: { [path]: kept.value.before },
+                  })
+                : sinceCommit(path),
+          ),
         );
       },
       openUrl(url) {
@@ -257,5 +268,5 @@ export function useRemoteLinks(
       },
       urlsOneWay: true,
     };
-  }, [deviceId, peerWorkspace, cwd, deviceName, files, setLook]);
+  }, [deviceId, peerWorkspace, tabId, cwd, deviceName, files, setLook]);
 }

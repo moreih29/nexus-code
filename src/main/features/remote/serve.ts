@@ -788,6 +788,15 @@ export async function restartChat(
   return {};
 }
 
+/** Asks a Codex chat's program again whether it is signed in, as its banner does: the user's. */
+export async function checkChatSignIn(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.checkSignIn">,
+): Promise<RpcResult<"chat.checkSignIn">> {
+  await tabOf(services, workspaceId, tabId, ["codex"]);
+  return services.ui("chat.checkSignIn", { workspaceId, tabId }).catch(chatFailure);
+}
+
 export async function newChat(
   services: CliServices,
   {
@@ -932,6 +941,23 @@ export async function chatTool(
     tool = await ask(maxText);
   }
   return tool;
+}
+
+/** A file the chat changed as it was before, for its diff, where it is kept and goes in a frame. */
+export async function chatOriginal(
+  services: CliServices,
+  { workspaceId, tabId, path }: RpcParams<"chat.original">,
+): Promise<RpcResult<"chat.original">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const { found, before } = await services
+    .ui("chat.original", { workspaceId, tabId, path })
+    .catch(unavailable);
+  if (!found) throw new RpcFailure(RpcErrorCode.NotFound, `no original kept of ${path}`);
+  const result = { before };
+  if (!fitsAsResult(result)) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, "that file is too large to send");
+  }
+  return result;
 }
 
 /** What the chat's side panel shows; its changed files cut to what goes in a frame. */
@@ -1433,6 +1459,8 @@ export function serveWith(
       case "chat.restart":
         // The user's own, as chat.mcp.
         return restartChat(s, request.params as RpcParams<"chat.restart">);
+      case "chat.checkSignIn":
+        return checkChatSignIn(s, request.params as RpcParams<"chat.checkSignIn">);
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
@@ -1460,6 +1488,8 @@ export function serveWith(
         return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":
         return chatTool(s, request.params as RpcParams<"chat.tool">);
+      case "chat.original":
+        return chatOriginal(s, request.params as RpcParams<"chat.original">);
       case "chat.panel":
         return chatPanel(s, request.params as RpcParams<"chat.panel">);
       case "chat.stopTask":

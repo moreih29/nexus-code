@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ChatStatus } from "../../../../../packages/remote-protocol/src/view";
 
-const { RemotePhaseBanner } = await import(
+const { RemotePhaseBanner, RemoteSignedOutBanner } = await import(
   "../../../../../src/renderer/components/agent-view/remote-phase-banner"
 );
 
@@ -55,5 +55,42 @@ describe("another computer's chat's banner", () => {
     expect(renderToStaticMarkup(<RemotePhaseBanner status={status({ phase: "ready" })} />)).toBe(
       "",
     );
+  });
+});
+
+describe("another computer's Codex chat signed out", () => {
+  const codex = (more: Partial<ChatStatus>) => status({ agent: "codex", ...more });
+
+  test("shows as a Codex tab here does, with signing in there and checking again", () => {
+    const html = renderToStaticMarkup(
+      <RemoteSignedOutBanner
+        status={codex({ signedOut: true })}
+        onSignIn={() => {}}
+        onCheck={() => {}}
+      />,
+    );
+    expect(html).toContain("Codex is not signed in");
+    expect(html).toContain(">Sign in in a terminal<");
+    expect(html).toContain(">Check again<");
+  });
+
+  test("without what this device may not do there", () => {
+    const html = renderToStaticMarkup(
+      <RemoteSignedOutBanner status={codex({ signedOut: true })} onCheck={() => {}} />,
+    );
+    expect(html).not.toContain(">Sign in in a terminal<");
+    expect(html).toContain(">Check again<");
+    expect(
+      renderToStaticMarkup(<RemoteSignedOutBanner status={codex({ signedOut: true })} />),
+    ).not.toContain("<button");
+  });
+
+  test("none while it is signed in, or its program does not run", () => {
+    expect(renderToStaticMarkup(<RemoteSignedOutBanner status={codex({})} />)).toBe("");
+    expect(
+      renderToStaticMarkup(
+        <RemoteSignedOutBanner status={codex({ signedOut: true, process: "exited" })} />,
+      ),
+    ).toBe("");
   });
 });

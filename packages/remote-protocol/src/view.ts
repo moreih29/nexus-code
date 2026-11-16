@@ -242,6 +242,11 @@ export const ChatStatusSchema = z.object({
   error: z.string().optional(),
   /** Its program's version, as it told it. Since 0.13.0. */
   version: z.string().optional(),
+  /**
+   * Its program needs a sign-in before a turn can run (a Codex chat's):
+   * signed in there, chat.checkSignIn asks it again. Since 0.13.0.
+   */
+  signedOut: z.boolean().optional(),
   /** How its program last exited: its code or signal, and the end of what it wrote to stderr. Since 0.13.0. */
   exit: z
     .object({

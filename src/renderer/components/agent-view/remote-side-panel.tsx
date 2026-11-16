@@ -83,7 +83,8 @@ export interface RemotePanelAsk {
 
 /**
  * The part of the panel a bare /status, /context, /usage or /mcp shows; null for
- * another. A Codex chat has /status only, as its tab here does.
+ * another. A Codex chat has no side panel, as its tab here has none: its
+ * /status is a card.
  */
 export function remotePanelPartOf(
   text: string,
@@ -91,7 +92,7 @@ export function remotePanelPartOf(
 ): RemotePanelPart | null {
   const match = /^\/(status|context|usage|mcp)\s*$/i.exec(text.trim());
   const part = match?.[1]?.toLowerCase() as RemotePanelPart | undefined;
-  if (!part || (agent === "codex" && part !== "status")) return null;
+  if (!part || agent === "codex") return null;
   return part;
 }
 

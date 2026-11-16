@@ -578,6 +578,14 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatRestart.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.restart", params));
       },
+      peerChatOriginal: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatOriginal.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.original", params));
+      },
+      peerChatCheckSignIn: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatCheckSignIn.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.checkSignIn", params));
+      },
       peerChatRuns: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatRuns.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.runs", params));
@@ -725,6 +733,10 @@ export async function registerRemoteChannel(options: {
       peerTerminalInput: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminalInput.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.input", params));
+      },
+      peerTerminalOpen: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalOpen.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.open", params));
       },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),

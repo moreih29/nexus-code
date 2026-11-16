@@ -42,6 +42,7 @@ import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
 import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
 import { fitImage, imageOf } from "../remote/chat-image";
+import { originalOf } from "../remote/chat-original";
 import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
@@ -445,6 +446,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
+  "chat.original": async ({ workspaceId, tabId, path }) => {
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    const before = originalOf(chat, path);
+    return before === undefined ? { found: false, before: null } : { found: true, before };
+  },
+
   "chat.tool": async ({ workspaceId, tabId, ref }) => {
     const { agent } = await openedTab(workspaceId, tabId);
     const tool = chatToolOf(
@@ -546,6 +554,15 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     else if (phase === "failed" || phase === "not-found") await target.controller.open();
     else throw new UiRequestError("its program has not ended");
     return {};
+  },
+
+  "chat.checkSignIn": async ({ workspaceId, tabId }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (target?.agent !== "codex") throw new UiRequestError("that tab is not a Codex tab");
+    await target.controller.refreshAccount();
+    // Its answer waits for the next frame to reach the model.
+    target.controller.flushNow();
+    return { signedOut: target.controller.model.signedOut === true };
   },
 
   "chat.jobOutputs": async ({ workspaceId }) => {

@@ -1138,6 +1138,39 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(asked).toEqual([["chat.restart", tab]]);
   });
 
+  test("a Codex chat's program is asked again whether it is signed in, as its banner does (0.13.0)", async () => {
+    const codex = { workspaceId: "w2", tabId: "t4" };
+    const { serve, asked } = actionServices(() => ({ signedOut: false }));
+    expect(await serve({ from: "d", method: "chat.checkSignIn", params: codex })).toEqual({
+      signedOut: false,
+    });
+    expect(asked).toEqual([["chat.checkSignIn", codex]]);
+    // A Claude chat has no sign-in to check.
+    await expect(serve({ from: "d", method: "chat.checkSignIn", params: tab })).rejects.toThrow();
+  });
+
+  test("a file the chat changed is told as it was before, where it is kept and fits (0.13.0)", async () => {
+    const path = "/src/app/a.ts";
+    let kept: { found: boolean; before: string | null } = { found: true, before: "was\n" };
+    const { serve, asked } = actionServices(() => kept);
+    expect(await serve({ from: "d", method: "chat.original", params: { ...tab, path } })).toEqual({
+      before: "was\n",
+    });
+    expect(asked).toEqual([["chat.original", { ...tab, path }]]);
+    kept = { found: true, before: null };
+    expect(await serve({ from: "d", method: "chat.original", params: { ...tab, path } })).toEqual({
+      before: null,
+    });
+    kept = { found: false, before: null };
+    await expect(
+      serve({ from: "d", method: "chat.original", params: { ...tab, path } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    kept = { found: true, before: "x".repeat(2 * 1024 * 1024) };
+    await expect(
+      serve({ from: "d", method: "chat.original", params: { ...tab, path } }),
+    ).rejects.toMatchObject({ code: 1003 });
+  });
+
   test("its Claude Code settings are read and saved as its dialog does them (0.13.0)", async () => {
     const config = {
       keys: [{ key: "verbose", group: "other" as const, kind: "boolean" as const, value: false }],

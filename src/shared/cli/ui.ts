@@ -716,6 +716,14 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
+   * Asks a Codex tab's program again whether it is signed in, as its
+   * signed-out banner's "check again" does; whether it still is not.
+   */
+  "chat.checkSignIn": {
+    args: { workspaceId: string; tabId: string };
+    result: { signedOut: boolean };
+  };
+  /**
    * The files a workspace's Claude and Codex tabs' background jobs write
    * their output to, absolute: what each tab's side panel reads of them.
    */
@@ -985,6 +993,14 @@ export interface CliUiOps {
   "chat.toolCall": {
     args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
     result: ViewToolCall;
+  };
+  /**
+   * A file a Claude or Codex tab's session changed as it was before its
+   * first change (null for one it wrote new); `found` false when it is not kept.
+   */
+  "chat.original": {
+    args: { workspaceId: string; tabId: string; path: string };
+    result: { found: boolean; before: string | null };
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {

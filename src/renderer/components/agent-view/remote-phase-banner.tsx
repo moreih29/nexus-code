@@ -4,6 +4,9 @@
  * wrote to stderr, and starting it again), its session not found, or
  * failed (and trying again). A computer before protocol 0.13.0 tells only
  * that its program exited: that ends it, with nothing to do from here.
+ *
+ * A Codex chat whose program is not signed in shows the banner a Codex
+ * tab here does, with signing in there and asking it again.
  */
 
 import { useTranslation } from "react-i18next";
@@ -69,4 +72,33 @@ export function RemotePhaseBanner({
     default:
       return null;
   }
+}
+
+export function RemoteSignedOutBanner({
+  status,
+  onSignIn,
+  onCheck,
+}: {
+  status: ChatStatus;
+  /** Opens a terminal there that signs in, shown here: where this device may. */
+  onSignIn?: () => void;
+  /** Asks its program again whether it is signed in: where this device may. */
+  onCheck?: () => void;
+}) {
+  const { t } = useTranslation();
+  // As a Codex tab here: only while its program runs.
+  if (!status.signedOut || status.process !== "running") return null;
+  const actions = [
+    ...(onSignIn ? [{ label: t("chat.codex.sign_in"), onAction: onSignIn }] : []),
+    ...(onCheck ? [{ label: t("chat.codex.sign_in_check"), onAction: onCheck }] : []),
+  ];
+  return (
+    <div className="shrink-0" data-testid="codex-signed-out">
+      <Banner
+        variant="warning"
+        message={t("chat.codex.signed_out")}
+        {...(actions.length > 0 ? { actions } : {})}
+      />
+    </div>
+  );
 }

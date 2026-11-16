@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { ArrowLeft, CloudOff } from "lucide-react";
 import {
   useCallback,
@@ -16,6 +17,8 @@ import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude-config";
+import { codexStatusMarkdown } from "../../services/chat/codex-commands";
+import { emptyCodexModel } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
 import { lookAreaOf } from "../../services/chat/look-area";
@@ -26,6 +29,7 @@ import type {
   UserItem,
 } from "../../services/chat/model";
 import { type AgentRow, agentTranscript } from "../../services/chat/panel";
+import type { CommandCard } from "../../services/chat/store";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
@@ -67,6 +71,7 @@ import { focusChatTab, PermissionCard } from "../chat/permission-card";
 import { QuickLook, type QuickLookList } from "../chat/quick-look";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
+import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
@@ -75,7 +80,7 @@ import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteConfigDialog } from "./remote-config-dialog";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
-import { RemotePhaseBanner } from "./remote-phase-banner";
+import { RemotePhaseBanner, RemoteSignedOutBanner } from "./remote-phase-banner";
 import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
@@ -100,6 +105,34 @@ const GOAL_STOP_MS = 10_000;
  * chat opened again or put back in sight does not show it again.
  */
 const closedGoals = new Map<string, string>();
+
+/** A Codex chat's changed files as a card, as /diff shows them: each opens its diff. */
+export function changesCard(
+  changed: NonNullable<WatchedChat["panel"]>["changedFiles"],
+  folder: string,
+  t: TFunction,
+  openChange: (path: string) => void,
+): Pick<CommandCard, "sections"> {
+  return {
+    sections: [
+      {
+        title: t("chat.panel.changed.title"),
+        empty: t("agentView.remote.noChanges"),
+        rows: changed.map((file) => ({
+          id: file.path,
+          label: shortPath(file.path, folder),
+          detail: file.created
+            ? t("chat.panel.results.created")
+            : `+${file.added ?? 0} −${file.removed ?? 0}`,
+          actions: [{ label: t("chat.commands.open"), run: () => openChange(file.path) }],
+        })),
+      },
+    ],
+  };
+}
+
+/** What signs a Codex in on another computer: by a code shown in its terminal. */
+const CODEX_SIGN_IN = "codex login --device-auth";
 
 /**
  * The session in front of a panel, filling it below the panel's tabs. It
@@ -504,6 +537,7 @@ function RemoteChatView({
   };
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
+  const types = usePeerTypes(deviceId);
 
   // Rewind, fork and background, as a chat here's buttons, where its computer serves them (0.11.0).
   const running = model.running;
@@ -651,6 +685,29 @@ function RemoteChatView({
         });
       }
     });
+  // As a Codex tab here signs in, in a terminal of its computer, shown here: by a code, as
+  // a browser here cannot reach a sign-in that waits there.
+  const signInThere = () =>
+    void ipcCallResult("remote", "peerTerminalOpen", {
+      deviceId,
+      workspaceId,
+      command: CODEX_SIGN_IN,
+    }).then((result) => {
+      if (!result.ok) {
+        showToast({
+          kind: "error",
+          message: t("agentView.remote.failed", { message: result.message }),
+        });
+        return;
+      }
+      const { profile: _theirs, cwd: _its, state: _was, ...rest } = target;
+      useRemoteViewStore.getState().open({
+        ...rest,
+        kind: "terminal",
+        tabId: result.value.tabId,
+        title: CODEX_SIGN_IN,
+      });
+    });
   const panel = claude ? (
     <RemoteSidePanel
       target={target}
@@ -694,6 +751,15 @@ function RemoteChatView({
               // A computer that tells its phase starts it again (chat.restart).
               {...(reachable && page.status.phase
                 ? { onRestart: () => told(ipcCallResult("remote", "peerChatRestart", ref)) }
+                : {})}
+            />
+            <RemoteSignedOutBanner
+              status={page.status}
+              {...(reachable && types ? { onSignIn: signInThere } : {})}
+              {...(reachable
+                ? {
+                    onCheck: () => told(ipcCallResult("remote", "peerChatCheckSignIn", ref)),
+                  }
                 : {})}
             />
             <div className="relative flex min-h-0 flex-1">
@@ -868,6 +934,7 @@ function RemoteControls({
   const links = useChatLinks();
   const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
+  const folder = target.cwd ?? target.path;
   const onError = useCallback(
     (message: string) =>
       showToast({ kind: "error", message: t("agentView.remote.failed", { message }) }),
@@ -885,10 +952,28 @@ function RemoteControls({
     here: {
       items: () => model.items,
       showChanges: () => {
-        if ((page.panel?.changedFiles?.length ?? 0) === 0) {
+        const changed = page.panel?.changedFiles ?? [];
+        if (changed.length === 0) {
           showToast({ kind: "info", message: t("agentView.remote.noChanges") });
-        } else onPanelPart?.("changes");
+          return undefined;
+        }
+        // A Codex chat has no side panel to open: its files in a card, each to its diff.
+        if (agent === "codex")
+          return changesCard(changed, folder, t, (path) => links?.openChange(path));
+        onPanelPart?.("changes");
+        return undefined;
       },
+      // A computer before 0.13.0 does not run a Codex chat's /status: what this app shows of it.
+      status: () =>
+        codexStatusMarkdown(
+          {
+            ...emptyCodexModel(),
+            ...model,
+            ...(page.status.signedOut ? { account: null } : {}),
+          },
+          folder,
+          t,
+        ),
       openUrl: (url) => links?.openUrl(url),
     },
     // The tab /fork or /branch opened there shows, as a fork from a message's does.

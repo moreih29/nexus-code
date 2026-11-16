@@ -243,6 +243,13 @@ describe("where its tab stands with its program (0.13.0)", () => {
     expect(page.status.exit?.stderrTail?.endsWith("boom")).toBe(true);
     expect(page.status.exit?.stderrTail?.length).toBe(8 * 1024);
   });
+
+  test("a Codex program that needs a sign-in says so; one signed in says nothing", () => {
+    const out = chatPageOf(source({ process: "running", signedOut: true } as Partial<ChatModel>));
+    expect(ChatPageSchema.safeParse(out).success).toBe(true);
+    expect(out.status.signedOut).toBe(true);
+    expect(chatPageOf(source({ process: "running" })).status).not.toHaveProperty("signedOut");
+  });
 });
 
 describe("a request's always-allow suggestions", () => {

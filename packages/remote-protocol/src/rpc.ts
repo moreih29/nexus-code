@@ -952,6 +952,18 @@ export const RPC_METHODS = {
     result: ViewToolCallSchema,
   },
   /**
+   * A file the chat changed as it was before its first change, for its
+   * diff (`path` as its changes name it): null for one it wrote new.
+   * NotFound when it is not kept (the change did not report it, or the
+   * file is not one the chat changed); Unavailable when too large to send.
+   * Since 0.13.0.
+   */
+  "chat.original": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, path: z.string().min(1).max(4096) }),
+    result: z.object({ before: z.string().nullable() }),
+  },
+  /**
    * Waits up to `timeoutMs` (at most MAX_WAIT_MS) for the chat to be done
    * with its turn: no longer working (asking, idle, error, or closed). Ask
    * again while `done` is false. `after`: a chat.send's `at`, so a message
@@ -1207,6 +1219,17 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object(TabRef),
     result: Ok,
+  },
+  /**
+   * Asks a Codex chat's program again whether it is signed in, as its
+   * signed-out banner's "check again" does once the user signed in there
+   * (status `signedOut`); whether it still is not. Only the user's: an
+   * agent does not send it. Since 0.13.0.
+   */
+  "chat.checkSignIn": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: z.object({ signedOut: z.boolean() }),
   },
   /**
    * Sets any of model, effort and permission mode, as the composer's chips

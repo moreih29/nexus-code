@@ -3,7 +3,9 @@
  * its own runs them there: what they need is what this app shows of the
  * chat (/copy, /help), a part of its side panel (/diff), or a page to open
  * (/feedback and the like). A command the chat lists under the same name is
- * the chat's, as a CLI's own is the CLI's in a tab here.
+ * the chat's, as a CLI's own is the CLI's in a tab here: a Codex chat's
+ * /status is its computer's from 0.13.0, and from what this app shows of
+ * it before.
  */
 
 import type { ChatCommand } from "../../../../packages/remote-protocol/src";
@@ -12,7 +14,7 @@ import { CODEX_COMMANDS } from "../chat/codex-commands";
 
 const HERE: Record<"claude" | "codex", ReadonlySet<string>> = {
   claude: new Set(["copy", "diff", "help", ...Object.keys(COMMAND_LINKS)]),
-  codex: new Set(["copy", "diff", "help"]),
+  codex: new Set(["copy", "diff", "help", "status"]),
 };
 
 /** The names a command is typed by, in lower case. */

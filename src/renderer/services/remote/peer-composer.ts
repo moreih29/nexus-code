@@ -377,8 +377,10 @@ export function commandOf(
 export interface HereCommandDeps {
   /** The conversation as this app shows it, for /copy. */
   items: () => readonly ChatItem[];
-  /** /diff: the files the chat changed, in its side panel. */
-  showChanges: () => void;
+  /** /diff: the files the chat changed, in its side panel; or a card of them, where it has none. */
+  showChanges: () => Pick<CommandCard, "sections"> | undefined;
+  /** /status: what this app shows of the chat, as Markdown lines. */
+  status?: () => string;
   openUrl: (url: string) => void;
 }
 
@@ -544,9 +546,19 @@ export function usePeerComposer({
           showToast({ kind: "info", message: t("chat.commands.copied") });
           return;
         }
-        case "diff":
-          deps.showChanges();
+        case "diff": {
+          const shown = deps.showChanges();
+          if (!shown) return;
+          cards.current += 1;
+          setCard({ id: `peer-card-${cards.current}`, title, ...shown });
           return;
+        }
+        case "status": {
+          if (!deps.status) return;
+          cards.current += 1;
+          setCard({ id: `peer-card-${cards.current}`, title, text: deps.status() });
+          return;
+        }
         case "help":
           cards.current += 1;
           setCard({

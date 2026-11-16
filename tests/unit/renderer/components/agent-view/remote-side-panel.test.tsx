@@ -222,6 +222,7 @@ describe("another computer's chat's side panel", () => {
     expect(remotePanelPartOf("/status")).toBe("status");
     expect(remotePanelPartOf("/mcp")).toBe("mcp");
     expect(remotePanelPartOf("/mcp", "codex")).toBeNull();
+    expect(remotePanelPartOf("/status", "codex")).toBeNull();
     // With words after it, it goes to the computer as typed.
     expect(remotePanelPartOf("/context more")).toBeNull();
     expect(remotePanelPartOf("/compact")).toBeNull();

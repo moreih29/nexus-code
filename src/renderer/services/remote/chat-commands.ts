@@ -56,6 +56,7 @@ export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "review",
   "init",
   "goal",
+  "status",
   "rename",
   "fork",
   "export",

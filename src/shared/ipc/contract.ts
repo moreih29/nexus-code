@@ -2497,6 +2497,20 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.restart"].params),
         RPC_METHODS["chat.restart"].result,
       ),
+      /** A file another device's chat changed as it was before, for its diff. */
+      peerChatOriginal: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.original"].params),
+        RPC_METHODS["chat.original"].result,
+      ),
+      /** Asks another device's Codex chat's program again whether it is signed in. */
+      peerChatCheckSignIn: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.checkSignIn"].params),
+        RPC_METHODS["chat.checkSignIn"].result,
+      ),
       /** The `claude -p` and `codex exec` runs another device's chat's session started. */
       peerChatRuns: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runs"].params),
@@ -2745,6 +2759,13 @@ export const ipcContract = {
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.input"].params),
         RPC_METHODS["terminal.input"].result,
+      ),
+      /** Opens a terminal on another device, where it lets this one (terminal.control). */
+      peerTerminalOpen: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.open"].params),
+        RPC_METHODS["terminal.open"].result,
       ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),

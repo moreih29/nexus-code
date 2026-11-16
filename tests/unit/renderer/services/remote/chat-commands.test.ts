@@ -103,6 +103,8 @@ describe("a chat's commands for another device", () => {
     expect(commands.some((c) => c.name === "logout" || c.name === "copy")).toBe(false);
     expect(commands.find((c) => c.name === "new")).toMatchObject({ aliases: ["clear"] });
     expect(commands.find((c) => c.name === "mcp")).toMatchObject({ runs: "command" });
+    // What it tells of the thread there, its card's text for an answer (0.13.0).
+    expect(commands.find((c) => c.name === "status")).toMatchObject({ runs: "command" });
   });
 });
 

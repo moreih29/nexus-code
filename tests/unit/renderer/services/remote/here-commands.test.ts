@@ -20,7 +20,18 @@ describe("commands run here for another computer's chat", () => {
       "privacy-settings",
       "help",
     ]);
-    expect(hereCommandsOf("codex", []).map((c) => c.name)).toEqual(["diff", "copy", "help"]);
+    expect(hereCommandsOf("codex", []).map((c) => c.name)).toEqual([
+      "status",
+      "diff",
+      "copy",
+      "help",
+    ]);
+  });
+
+  test("a Codex chat's /status is its computer's where it lists it (0.13.0), else this app's", () => {
+    const status: ChatCommand = { name: "status", description: "", runs: "command" };
+    expect(hereCommandOf("codex", [status], "/status")).toBeNull();
+    expect(hereCommandOf("codex", [], "/status")).toEqual({ name: "status", args: "" });
   });
 
   test("one the chat lists by the same name is the chat's", () => {
