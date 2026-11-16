@@ -626,10 +626,27 @@ export const ChatUpdateSchema = z.object({
 export type ChatUpdate = z.infer<typeof ChatUpdateSchema>;
 
 /**
+ * Where a terminal's cursor is in its text (terminal.read and
+ * terminal.watch with `ansi`; since 0.13.0): on its `line`th line from 0,
+ * after `column` characters of it (code points, escapes not counted). Past
+ * the line's end each blank cell counts one, and past the text's last line
+ * the lines are blank, the text leaving out the blank lines at its end.
+ * There is none while the program hides the cursor (as one that draws its
+ * own does), or when it is above the lines sent.
+ */
+export const TerminalCaretSchema = z.object({
+  line: z.number().int().nonnegative(),
+  column: z.number().int().nonnegative(),
+});
+export type TerminalCaret = z.infer<typeof TerminalCaretSchema>;
+
+/**
  * A watched terminal's text changed: the text from `start` (a UTF-16
  * offset into the text as it was) is now `text`. A redraw at the bottom
  * sends only the bottom; a scroll, all of it from 0. A watch with `ansi`
- * counts in the text with its escapes.
+ * counts in the text with its escapes, and tells where the cursor is now
+ * (`caret`, none while hidden; since 0.13.0), the text unchanged
+ * (`start` at its end, `text` empty) when only the cursor moved.
  */
 export const TerminalUpdateSchema = z.object({
   watchId: z.string(),
@@ -637,6 +654,7 @@ export const TerminalUpdateSchema = z.object({
   rev: z.number().int().positive(),
   start: z.number().int().nonnegative(),
   text: z.string(),
+  caret: TerminalCaretSchema.optional(),
 });
 export type TerminalUpdate = z.infer<typeof TerminalUpdateSchema>;
 
@@ -1201,7 +1219,8 @@ export const RPC_METHODS = {
 
   /**
    * A terminal's screen and the lines above it, as text; with `ansi`, with
-   * its colors and styles as SGR escapes (no other escapes).
+   * its colors and styles as SGR escapes (no other escapes), and where its
+   * cursor is (`caret`, TerminalCaretSchema; since 0.13.0).
    */
   "terminal.read": {
     capability: "terminal.read",
@@ -1211,7 +1230,7 @@ export const RPC_METHODS = {
       ansi: z.boolean().optional(),
       ...ReadBy,
     }),
-    result: z.object({ text: z.string() }),
+    result: z.object({ text: z.string(), caret: TerminalCaretSchema.optional() }),
   },
   /** The terminal's text now, as terminal.read; then a terminal.update each time it changes, until terminal.unwatch. */
   "terminal.watch": {
@@ -1221,7 +1240,11 @@ export const RPC_METHODS = {
       lines: z.number().int().positive().max(5000).optional(),
       ansi: z.boolean().optional(),
     }),
-    result: z.object({ text: z.string(), watchId: z.string() }),
+    result: z.object({
+      text: z.string(),
+      watchId: z.string(),
+      caret: TerminalCaretSchema.optional(),
+    }),
   },
   "terminal.unwatch": {
     capability: "terminal.read",

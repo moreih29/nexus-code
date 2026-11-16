@@ -1,9 +1,12 @@
 /**
  * A terminal's lines with their colors and styles, as SGR escapes and no
  * other escapes, for another device to draw them as this window does
- * (terminal.read and terminal.watch with `ansi`). Each line starts from
- * the default style and ends back at it, so any line can start a text.
+ * (terminal.read and terminal.watch with `ansi`), and where its cursor is
+ * in them. Each line starts from the default style and ends back at it, so
+ * any line can start a text.
  */
+
+import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
 
 /** A cell of xterm's buffer, as much as the escapes need. */
 export interface CellLike {
@@ -129,14 +132,29 @@ function rowAnsi(line: AnsiLineLike, cell: CellLike | undefined, trim: boolean):
   return out;
 }
 
-/**
- * The last `lines` lines it shows, scrollback included, as bufferText
- * tells them (a wrapped line whole, the blank ones at the end left out),
- * with their colors and styles.
- */
-export function bufferAnsi(buffer: AnsiBufferLike, lines: number): string {
+/** Where the cursor is: its row in the buffer (scrollback included) and its cell in that row. */
+export interface CursorAt {
+  row: number;
+  cell: number;
+}
+
+/** A terminal's text with its escapes, and its cursor in it (TerminalCaretSchema). */
+export interface AnsiScreen {
+  text: string;
+  caret?: TerminalCaret;
+}
+
+interface Row {
+  /** Its first and last rows in the buffer: more than one where the terminal wrapped it. */
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** The buffer's lines, a line the terminal wrapped joined back up. */
+function rowsOf(buffer: AnsiBufferLike): Row[] {
   const length = buffer.length ?? 0;
-  const rows: { start: number; end: number; text: string }[] = [];
+  const rows: Row[] = [];
   for (let y = 0; y < length; y++) {
     const line = buffer.getLine?.(y);
     if (!line) continue;
@@ -149,10 +167,53 @@ export function bufferAnsi(buffer: AnsiBufferLike, lines: number): string {
       rows.push({ start: y, end: y, text });
     }
   }
-  while (rows.length > 0 && rows[rows.length - 1]?.text.trim() === "") rows.pop();
+  return rows;
+}
+
+/**
+ * The characters (code points) of `row` before the cursor's cell, as
+ * rowAnsi gives them, a blank cell past the end counting one; undefined
+ * for a row without its cells.
+ */
+function caretColumn(
+  buffer: AnsiBufferLike,
+  row: Row,
+  cursor: CursorAt,
+  cell: CellLike | undefined,
+): number | undefined {
+  let column = 0;
+  for (let y = row.start; y <= cursor.row; y++) {
+    const line = buffer.getLine?.(y);
+    const at = line?.getCell?.bind(line);
+    if (!line || !at || line.length === undefined) return undefined;
+    const end = y === cursor.row ? cursor.cell : line.length;
+    for (let x = 0; x < end; x++) {
+      const c = at(x, cell);
+      if (c?.getWidth() === 0) continue;
+      column += c ? Array.from(c.getChars() || " ").length : 1;
+    }
+  }
+  return column;
+}
+
+/**
+ * The last `lines` lines it shows, scrollback included, as bufferText
+ * tells them (a wrapped line whole, the blank ones at the end left out),
+ * with their colors and styles; and, given the cursor, where it is in
+ * them, as long as it is not above them.
+ */
+export function bufferScreen(
+  buffer: AnsiBufferLike,
+  lines: number,
+  cursor?: CursorAt | null,
+): AnsiScreen {
+  const rows = rowsOf(buffer);
+  let last = rows.length;
+  while (last > 0 && rows[last - 1]?.text.trim() === "") last--;
+  const first = Math.max(0, last - lines);
   const cell = buffer.getNullCell?.();
-  return rows
-    .slice(-lines)
+  const text = rows
+    .slice(first, last)
     .map(({ start, end }) => {
       let out = "";
       for (let y = start; y <= end; y++) {
@@ -162,4 +223,15 @@ export function bufferAnsi(buffer: AnsiBufferLike, lines: number): string {
       return out;
     })
     .join("\n");
+  if (!cursor) return { text };
+  const at = rows.findIndex((row) => row.start <= cursor.row && cursor.row <= row.end);
+  const row = rows[at];
+  if (!row || at < first) return { text };
+  const column = caretColumn(buffer, row, cursor, cell);
+  return column === undefined ? { text } : { text, caret: { line: at - first, column } };
+}
+
+/** bufferScreen's text, without the cursor. */
+export function bufferAnsi(buffer: AnsiBufferLike, lines: number): string {
+  return bufferScreen(buffer, lines).text;
 }

@@ -24,6 +24,8 @@ export interface Style {
 export interface Run {
   text: string;
   style: Style;
+  /** The character the terminal's cursor is on. */
+  caret?: boolean;
 }
 
 // CSI (with its final byte), OSC (to BEL or ST), and the short escapes.
@@ -49,6 +51,36 @@ export function parseAnsi(text: string): Run[] {
   }
   push(text.slice(at));
   return runs;
+}
+
+/**
+ * The runs with the character after `column` characters (code points) of
+ * them in a run of its own, marked as the cursor's; past their end, blanks
+ * up to it and a blank for it (TerminalCaretSchema).
+ */
+export function withCaret(runs: readonly Run[], column: number): Run[] {
+  const out: Run[] = [];
+  let left = column;
+  let placed = false;
+  for (const run of runs) {
+    const chars = placed ? [] : Array.from(run.text);
+    if (placed || left >= chars.length) {
+      out.push(run);
+      left -= chars.length;
+      continue;
+    }
+    const before = chars.slice(0, left).join("");
+    const after = chars.slice(left + 1).join("");
+    if (before) out.push({ text: before, style: run.style });
+    out.push({ text: chars[left] ?? " ", style: run.style, caret: true });
+    if (after) out.push({ text: after, style: run.style });
+    placed = true;
+  }
+  if (!placed) {
+    if (left > 0) out.push({ text: " ".repeat(left), style: {} });
+    out.push({ text: " ", style: {}, caret: true });
+  }
+  return out;
 }
 
 /** The text with every escape taken out. */

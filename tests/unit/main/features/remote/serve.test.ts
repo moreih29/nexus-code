@@ -392,6 +392,32 @@ describe("serving a chat and a terminal to read", () => {
     expect(text.startsWith("\x1b[0;31m")).toBe(true);
   });
 
+  test("the cursor goes up with the lines cut from a text too long; above them, it is not told", async () => {
+    const line = `\x1b[0;31m${"x".repeat(990)}\x1b[0m`;
+    const all = Array.from({ length: 1000 }, (_, i) => (i === 999 ? "$ ls" : line)).join("\n");
+    const read = async (caret: { line: number; column: number }) => {
+      const { s } = recording(() => ({ text: all, caret }));
+      return (await serveWith(() => s)({
+        from: "d",
+        method: "terminal.read",
+        params: { workspaceId: "w1", tabId: "t2", ansi: true },
+      })) as { text: string; caret?: { line: number; column: number } };
+    };
+    const end = await read({ line: 999, column: 4 });
+    const lines = end.text.split("\n");
+    expect(end.caret).toEqual({ line: lines.length - 1, column: 4 });
+    expect(lines[end.caret?.line ?? -1]).toBe("$ ls");
+    expect((await read({ line: 0, column: 0 })).caret).toBeUndefined();
+    const { s } = recording(() => ({ text: "$ ls", caret: { line: 0, column: 4 } }));
+    expect(
+      await serveWith(() => s)({
+        from: "d",
+        method: "terminal.read",
+        params: { workspaceId: "w1", tabId: "t2", ansi: true },
+      }),
+    ).toEqual({ text: "$ ls", caret: { line: 0, column: 4 } });
+  });
+
   test("a tab that is not there, or not of that kind, is not found", async () => {
     const { s, asked } = recording();
     const serve = serveWith(() => s);

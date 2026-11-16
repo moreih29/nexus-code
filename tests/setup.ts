@@ -66,6 +66,12 @@ mock.module("@xterm/xterm", () => ({
       ): typeof disposable {
         return disposable;
       },
+      registerEscHandler(
+        _id: { intermediates?: string; final: string },
+        _cb: () => boolean,
+      ): typeof disposable {
+        return disposable;
+      },
     };
     options: { theme: unknown } = { theme: undefined };
     readonly buffer = { active: { type: "normal" as "normal" | "alternate" } };

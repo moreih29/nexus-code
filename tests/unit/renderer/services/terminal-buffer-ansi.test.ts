@@ -1,8 +1,9 @@
 /** bufferAnsi: a terminal's lines with their colors and styles, for another device. */
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   type AnsiLineLike,
   bufferAnsi,
+  bufferScreen,
   type CellLike,
   sgrOf,
 } from "../../../../src/renderer/services/terminal/buffer-ansi";
@@ -98,4 +99,52 @@ test("a wrapped line whole, and only the last lines asked for", () => {
 test("rows without their cells read as plain text", () => {
   const plain = { isWrapped: false, translateToString: () => "no cells" };
   expect(bufferAnsi(buffer([plain as AnsiLineLike]), 5)).toBe("no cells");
+});
+
+describe("where the cursor is in the text", () => {
+  test("after the characters before it, a blank cell past the line's end counting one", () => {
+    // "$ ls " with the cursor after the space the text leaves out.
+    const rows = [row(text("$ ls")), row([])];
+    expect(bufferScreen(buffer(rows), 10, { row: 0, cell: 5 })).toEqual({
+      text: "$ ls",
+      caret: { line: 0, column: 5 },
+    });
+    expect(bufferScreen(buffer(rows), 10, { row: 0, cell: 2 }).caret).toEqual({
+      line: 0,
+      column: 2,
+    });
+  });
+
+  test("a wide character counts one, and a wrapped line all its rows", () => {
+    const wide = [cell("한", {}, 2), cell("", {}, 0), cell("글", {}, 2), cell("", {}, 0)];
+    expect(bufferScreen(buffer([row([...wide, ...text("a")])]), 5, { row: 0, cell: 4 })).toEqual({
+      text: "한글a",
+      caret: { line: 0, column: 2 },
+    });
+    const rows = [row(text("0123456789")), row(text("ab"), 10, true)];
+    expect(bufferScreen(buffer(rows), 5, { row: 1, cell: 1 }).caret).toEqual({
+      line: 0,
+      column: 11,
+    });
+  });
+
+  test("on a blank line below the text, the line it would be", () => {
+    // A command running: its output so far, the cursor on the next line.
+    const rows = [row(text("$ sleep 30")), row([]), row([])];
+    expect(bufferScreen(buffer(rows), 10, { row: 1, cell: 0 })).toEqual({
+      text: "$ sleep 30",
+      caret: { line: 1, column: 0 },
+    });
+  });
+
+  test("counts from the first line sent, and is not told above it or when not asked", () => {
+    const rows = [row(text("a")), row(text("b")), row(text("c"))];
+    expect(bufferScreen(buffer(rows), 2, { row: 2, cell: 1 })).toEqual({
+      text: "b\nc",
+      caret: { line: 1, column: 1 },
+    });
+    expect(bufferScreen(buffer(rows), 2, { row: 0, cell: 0 })).toEqual({ text: "b\nc" });
+    expect(bufferScreen(buffer(rows), 2)).toEqual({ text: "b\nc" });
+    expect(bufferScreen(buffer(rows), 2, null)).toEqual({ text: "b\nc" });
+  });
 });
