@@ -741,7 +741,9 @@ const chatSend: CliCommand = {
     'chat unsend and chat edit. "-" reads the text from standard input. --file attaches a\n' +
     "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
     "path after the text. Refused while the tab waits for the user to answer a request.\n" +
-    "--wait then waits as chat wait does and prints how it ended.",
+    "--wait then waits as chat wait does and prints how it ended. Another computer's tab\n" +
+    "(--device) takes it as its composer sends it, or --now: it holds no agent's message for\n" +
+    "after the turn.",
   flags: {
     now: { type: "boolean", description: "During a turn: into it at once (a Claude tab's)" },
     after: { type: "boolean", description: "During a turn: held until it ends" },
@@ -776,7 +778,13 @@ const chatSend: CliCommand = {
     if (device) {
       if (files.length > 0) throw new CliUsageError("--file goes to this computer's tabs");
       if (hurry) throw new CliUsageError("--now with no text goes to this computer's tabs");
-      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when);
+      // As that computer answers an agent's chat.send `after`, before it is asked.
+      if (when === "after") {
+        throw new CliUsageError(
+          "--after goes to this computer's tabs: another computer's does not hold an agent's message for after the turn; send it without --after, or with --now",
+        );
+      }
+      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when === "now");
     }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
