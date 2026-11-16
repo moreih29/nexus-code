@@ -32,6 +32,7 @@ import {
   jobCommand,
 } from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
+import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { StatusDot } from "../chat/agent-strip";
@@ -48,6 +49,7 @@ import {
   JobButton,
   Meter,
   newestJobsFirst,
+  ResultsSection,
   Row,
   Section,
   useRevealedRow,
@@ -379,6 +381,13 @@ export function RemoteSidePanel({
           ))}
         </Section>
       )}
+      <ResultsSection
+        items={model.items}
+        tools={model.tools}
+        cwd={target.cwd ?? target.path}
+        workspaceId={peerWorkspaceId(target.deviceId, target.workspaceId)}
+        rootPath={target.path}
+      />
       {changed.length > 0 && (
         <Section
           title={t("chat.panel.changed.title")}

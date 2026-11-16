@@ -31,7 +31,7 @@ import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
-import type { TaskInfo, ToolCall } from "../../services/chat/model";
+import type { ChatItem, TaskInfo, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
   agentsOf,
@@ -113,53 +113,11 @@ export function SidePanel({
   const listed = useMemo(() => newestJobsFirst(jobs), [jobs]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
-  // A file is listed once it is found to be one.
-  const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
-  const filePaths = useMemo(() => {
-    const paths = new Map<string, string>();
-    for (const result of named) {
-      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
-      if (path) paths.set(result.target, path);
-    }
-    return paths;
-  }, [named, cwd]);
-  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
-  // A file named before the agent made it is found once a tool of its is done.
-  const toolsDone = useMemo(
-    () =>
-      Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
-    [tools],
-  );
-  const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  const results = useMemo(
-    () =>
-      distinctResults(
-        named.filter((result) => {
-          if (result.kind !== "file") return true;
-          const path = filePaths.get(result.target);
-          return path !== undefined && found.has(path);
-        }),
-        cwd,
-      ),
-    [named, filePaths, found, cwd],
-  );
-  // The pages it published to claude.ai, newest first, as what it made; a
-  // reply's link to one is that page.
-  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
-  const made = useMemo(() => {
-    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
-    // Newest first, as the pages: the first few show.
-    return results
-      .filter((result) => !(result.kind === "url" && pages.has(result.target)))
-      .reverse();
-  }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useNow(anyRunning);
 
   const links = useChatLinks();
-  const open = (target: string, kind: ResultEntry["kind"]) =>
-    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
   // A version without stop_task keeps the button, saying which version has it.
   const stopNote = controller.supports("stop_task")
     ? undefined
@@ -260,31 +218,13 @@ export function SidePanel({
           ))}
         </Section>
       )}
-      {made.length + artifacts.length > 0 && (
-        <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
-          <FirstFew>
-            {[
-              ...artifacts.map((page) => (
-                <ArtifactRow
-                  key={page.url ?? page.file}
-                  page={page}
-                  workspaceId={workspaceId}
-                  rootPath={rootPath}
-                />
-              )),
-              ...made.map((result) => (
-                <ResultRow
-                  key={result.target}
-                  result={result}
-                  cwd={cwd}
-                  workspaceId={workspaceId}
-                  onOpen={() => open(result.target, result.kind)}
-                />
-              )),
-            ]}
-          </FirstFew>
-        </Section>
-      )}
+      <ResultsSection
+        items={items}
+        tools={tools}
+        cwd={cwd}
+        workspaceId={workspaceId}
+        rootPath={rootPath}
+      />
       {changed.length > 0 && (
         <Section title={t("chat.panel.changed.title")} count={changed.length} folded>
           {changed.map((file) => (
@@ -314,6 +254,96 @@ export function shortPath(path: string, cwd: string): string {
   const base = slashWindowsPath(cwd).replace(/\/$/, "");
   const file = slashWindowsPath(path);
   return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
+}
+
+/**
+ * What the chat made, newest first: the pages it published to claude.ai,
+ * the files it named once they are found to be files, and the addresses it
+ * gave. Another computer's chat finds its files there (ChatFilesContext).
+ */
+export function ResultsSection({
+  items,
+  tools,
+  cwd,
+  workspaceId,
+  rootPath,
+}: {
+  items: ChatItem[];
+  tools: Record<string, ToolCall>;
+  cwd: string;
+  workspaceId: string;
+  rootPath: string;
+}) {
+  const { t } = useTranslation();
+  // A file is listed once it is found to be one.
+  const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
+  const filePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const result of named) {
+      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+      if (path) paths.set(result.target, path);
+    }
+    return paths;
+  }, [named, cwd]);
+  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
+  // A file named before the agent made it is found once a tool of its is done.
+  const toolsDone = useMemo(
+    () =>
+      Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
+    [tools],
+  );
+  const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
+  const results = useMemo(
+    () =>
+      distinctResults(
+        named.filter((result) => {
+          if (result.kind !== "file") return true;
+          const path = filePaths.get(result.target);
+          return path !== undefined && found.has(path);
+        }),
+        cwd,
+      ),
+    [named, filePaths, found, cwd],
+  );
+  // The pages it published to claude.ai, newest first, as what it made; a
+  // reply's link to one is that page.
+  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
+  const made = useMemo(() => {
+    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
+    // Newest first, as the pages: the first few show.
+    return results
+      .filter((result) => !(result.kind === "url" && pages.has(result.target)))
+      .reverse();
+  }, [artifacts, results]);
+  const links = useChatLinks();
+  const open = (target: string, kind: ResultEntry["kind"]) =>
+    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  if (made.length + artifacts.length === 0) return null;
+  return (
+    <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
+      <FirstFew>
+        {[
+          ...artifacts.map((page) => (
+            <ArtifactRow
+              key={page.url ?? page.file}
+              page={page}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+            />
+          )),
+          ...made.map((result) => (
+            <ResultRow
+              key={result.target}
+              result={result}
+              cwd={cwd}
+              workspaceId={workspaceId}
+              onOpen={() => open(result.target, result.kind)}
+            />
+          )),
+        ]}
+      </FirstFew>
+    </Section>
+  );
 }
 
 /** How long a section a bare command opened keeps itself at the top as it fills. */
