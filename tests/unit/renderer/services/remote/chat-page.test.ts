@@ -228,6 +228,23 @@ describe("a turn stopping, or trying the API again (0.13.0)", () => {
   });
 });
 
+describe("where its tab stands with its program (0.13.0)", () => {
+  test("its phase, why it failed, its version and how its program exited", () => {
+    const base = source({
+      process: "exited",
+      version: "2.1.0",
+      exit: { code: 1, stderrTail: `${"x".repeat(9000)}boom` },
+    });
+    const page = chatPageOf({ ...base, chat: { ...base.chat, phase: "ended", error: "gone" } });
+    expect(ChatPageSchema.safeParse(page).success).toBe(true);
+    expect(page.status).toMatchObject({ phase: "ended", error: "gone", version: "2.1.0" });
+    expect(page.status.exit?.code).toBe(1);
+    // The end of what it wrote, as much as a banner's details take.
+    expect(page.status.exit?.stderrTail?.endsWith("boom")).toBe(true);
+    expect(page.status.exit?.stderrTail?.length).toBe(8 * 1024);
+  });
+});
+
 describe("a request's always-allow suggestions", () => {
   test("are worded, by the index chat.answer's always gives back; those it cannot word left out", () => {
     const page = chatPageOf(

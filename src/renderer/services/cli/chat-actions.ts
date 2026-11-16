@@ -528,6 +528,17 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
+  "chat.restart": async ({ workspaceId, tabId }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+    const { phase } = target.controller.state;
+    // As its banner does: an ended program goes on with its session; a failed one opens again.
+    if (phase === "ended") await target.controller.restart();
+    else if (phase === "failed" || phase === "not-found") await target.controller.open();
+    else throw new UiRequestError("its program has not ended");
+    return {};
+  },
+
   "chat.interrupt": async ({ workspaceId, tabId }) => {
     const target = await openedTab(workspaceId, tabId);
     const { state } = infoOf(workspaceId, tabId, target);

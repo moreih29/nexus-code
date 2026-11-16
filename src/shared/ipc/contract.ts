@@ -2492,6 +2492,11 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.answer"].params),
         RPC_METHODS["chat.answer"].result,
       ),
+      /** Starts another device's chat's program again, as its banner does. */
+      peerChatRestart: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.restart"].params),
+        RPC_METHODS["chat.restart"].result,
+      ),
       /** Stops another device's chat's turn. */
       peerChatInterrupt: call(
         z

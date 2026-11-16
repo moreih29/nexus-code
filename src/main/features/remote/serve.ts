@@ -775,6 +775,16 @@ export async function interruptChat(
   return {};
 }
 
+/** Starts a chat's program again, as its banner does: the user's, from another device. */
+export async function restartChat(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.restart">,
+): Promise<RpcResult<"chat.restart">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.restart", { workspaceId, tabId }).catch(chatFailure);
+  return {};
+}
+
 export async function newChat(
   services: CliServices,
   {
@@ -1304,6 +1314,9 @@ export function serveWith(
         return answerChat(s, request.params as RpcParams<"chat.answer">);
       case "chat.interrupt":
         return interruptChat(s, request.params as RpcParams<"chat.interrupt">);
+      case "chat.restart":
+        // The user's own, as chat.mcp.
+        return restartChat(s, request.params as RpcParams<"chat.restart">);
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":

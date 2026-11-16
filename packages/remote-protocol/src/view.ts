@@ -224,6 +224,26 @@ export const ChatStatusSchema = z.object({
   /** The turn was told to stop and has not yet (its stop button pressed). Since 0.13.0. */
   interrupting: z.boolean().optional(),
   process: z.enum(["none", "running", "exited"]),
+  /**
+   * Where its tab there stands with its program, as its banners tell it:
+   * starting, ready, held (waiting to start), ended (it exited; chat.restart
+   * starts it again), not-found (its session is gone) or failed (`error`
+   * says why; "old-version" for a program too old, `version` it); idle
+   * before it opens. Since 0.13.0.
+   */
+  phase: z.string().optional(),
+  /** Why it failed, or what was not found. Since 0.13.0. */
+  error: z.string().optional(),
+  /** Its program's version, as it told it. Since 0.13.0. */
+  version: z.string().optional(),
+  /** How its program last exited: its code or signal, and the end of what it wrote to stderr. Since 0.13.0. */
+  exit: z
+    .object({
+      code: z.number().nullable(),
+      signal: z.string().optional(),
+      stderrTail: z.string().optional(),
+    })
+    .optional(),
   turn: z
     .object({
       startedAt: z.number().optional(),

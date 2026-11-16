@@ -1127,6 +1127,17 @@ export const RPC_METHODS = {
     result: Ok,
   },
   /**
+   * Starts a chat's program again, as its banner there does: going on with
+   * the session once it ended (`phase` ended), or opening it again where it
+   * failed or its session was not found. Only the user's: an agent does
+   * not send it. Since 0.13.0.
+   */
+  "chat.restart": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: Ok,
+  },
+  /**
    * Sets any of model, effort and permission mode, as the composer's chips
    * do; what it runs with after. A mode the serving device's policy does
    * not allow is refused (Forbidden) with why.

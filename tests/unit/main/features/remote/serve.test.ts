@@ -1058,6 +1058,12 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(asked).toEqual([["chat.mcp", signIn]]);
   });
 
+  test("its program is started again as its banner does, a Claude or Codex chat's (0.13.0)", async () => {
+    const { serve, asked } = actionServices(() => ({}));
+    await serve({ from: "d", method: "chat.restart", params: tab });
+    expect(asked).toEqual([["chat.restart", tab]]);
+  });
+
   test("its Claude Code settings are read and saved as its dialog does them (0.13.0)", async () => {
     const config = {
       keys: [{ key: "verbose", group: "other" as const, kind: "boolean" as const, value: false }],

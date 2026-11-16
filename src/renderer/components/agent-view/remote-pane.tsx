@@ -69,12 +69,12 @@ import { RewindDialog } from "../chat/rewind-dialog";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
-import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteConfigDialog } from "./remote-config-dialog";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
+import { RemotePhaseBanner } from "./remote-phase-banner";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
   type RemotePanelAsk,
@@ -673,12 +673,13 @@ function RemoteChatView({
             data-chat-drop
             onKeyDown={onKeyDown}
           >
-            {model.process === "exited" && (
-              <Banner
-                variant="info"
-                message={t(claude ? "chat.phase.ended" : "chat.codex.ended")}
-              />
-            )}
+            <RemotePhaseBanner
+              status={page.status}
+              // A computer that tells its phase starts it again (chat.restart).
+              {...(reachable && page.status.phase
+                ? { onRestart: () => told(ipcCallResult("remote", "peerChatRestart", ref)) }
+                : {})}
+            />
             <div className="relative flex min-h-0 flex-1">
               <div className="flex min-w-0 flex-1 flex-col">
                 {claude && place === "summary" ? (

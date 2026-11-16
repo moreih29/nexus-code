@@ -37,6 +37,9 @@ import type { ChatTabState } from "../chat/store";
 /** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;
 
+/** The most of a failure's text, or of a program's stderr, a status tells: its banner's details. */
+const MAX_STATUS_TEXT = 8 * 1024;
+
 export interface ChatSource {
   agent: ChatAgent;
   title: string;
@@ -188,6 +191,7 @@ export function viewTaskOf(task: TaskInfo): ViewTask {
 
 export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
   const model: ChatModel = chat.model;
+  const version = chat.version ?? model.version;
   return {
     agent,
     title,
@@ -197,6 +201,20 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     running: model.running,
     ...(model.interrupting ? { interrupting: true } : {}),
     process: model.process,
+    phase: chat.phase,
+    ...(chat.error ? { error: chat.error.slice(0, MAX_STATUS_TEXT) } : {}),
+    ...(version ? { version } : {}),
+    ...(model.exit
+      ? {
+          exit: {
+            code: model.exit.code,
+            ...(model.exit.signal ? { signal: model.exit.signal } : {}),
+            ...(model.exit.stderrTail
+              ? { stderrTail: model.exit.stderrTail.slice(-MAX_STATUS_TEXT) }
+              : {}),
+          },
+        }
+      : {}),
     turn: model.turn
       ? {
           ...(model.turn.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),

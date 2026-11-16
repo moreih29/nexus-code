@@ -710,6 +710,11 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
   };
+  /** Starts a Claude or Codex tab's program again, as its ended or failed banner does. */
+  "chat.restart": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
   /**
    * Sets a Claude or Codex tab's model, effort and permission mode, as its
    * composer's chips do, those given only; tells what it runs with then and
