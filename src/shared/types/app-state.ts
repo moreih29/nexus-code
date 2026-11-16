@@ -32,6 +32,10 @@ export const AppStateSchema = z.object({
   lastActiveWorkspaceId: z.string().optional(),
   sidebarWidth: z.number().int().positive().optional(),
   filesPanelWidth: z.number().int().positive().optional(),
+  // A note's transcript: its width beside the text, where the note is wide, and its share
+  // of the note's height under the text, where it is narrow. Absent = the defaults.
+  noteTranscriptWidth: z.number().int().positive().optional(),
+  noteTranscriptShare: z.number().gt(0).lt(1).optional(),
   // Sidebar (workspace switcher strip) hidden state. Persisted so a
   // restart preserves the layout the user last chose. Absent = visible.
   sidebarHidden: z.boolean().optional(),

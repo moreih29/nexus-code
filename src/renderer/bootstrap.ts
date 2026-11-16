@@ -164,6 +164,8 @@ export async function bootstrapAppState(): Promise<void> {
   useUIStore.getState().hydrate({
     sidebarWidth: state.sidebarWidth,
     filesPanelWidth: state.filesPanelWidth,
+    noteTranscriptWidth: state.noteTranscriptWidth,
+    noteTranscriptShare: state.noteTranscriptShare,
     sidebarHidden: state.sidebarHidden,
     filesPanelHidden: state.filesPanelHidden,
     agentListFoldedGroups: state.agentListFoldedGroups,

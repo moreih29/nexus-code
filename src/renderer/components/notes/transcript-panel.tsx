@@ -3,10 +3,11 @@
  * what they said, a time to a line. While this note records, the words
  * come in as they are said. A voice is named by clicking it (the name goes
  * to every line of it); a line goes into the note as a quote; a recording
- * of more than one person is heard again, whole, once it ends.
+ * of more than one person is heard again, whole, once it ends. The line
+ * between it and the text is dragged to give either more room.
  */
 import { Loader2, MoreHorizontal, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import { dateTimeFormat } from "@/utils/intl-format";
@@ -33,6 +34,15 @@ import {
   transcriptKey,
   useTranscriptsStore,
 } from "../../services/notes/transcripts";
+import {
+  NOTE_TRANSCRIPT_SHARE_DEFAULT,
+  NOTE_TRANSCRIPT_SHARE_MAX,
+  NOTE_TRANSCRIPT_SHARE_MIN,
+  NOTE_TRANSCRIPT_WIDTH_DEFAULT,
+  NOTE_TRANSCRIPT_WIDTH_MAX,
+  NOTE_TRANSCRIPT_WIDTH_MIN,
+  useUIStore,
+} from "../../state/stores/ui";
 import { showConfirmDialog } from "../ui/confirm-dialog";
 import {
   DropdownMenuContent,
@@ -40,6 +50,8 @@ import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
+import { KEYBOARD_NUDGE_PX } from "../ui/resize-handle";
+import { useDragHandle } from "../ui/use-drag-handle";
 
 /** A voice's color, by the order it first spoke. */
 const SPEAKER_COLORS = [
@@ -50,6 +62,97 @@ const SPEAKER_COLORS = [
   "var(--state-error-fg)",
   "var(--muted-foreground)",
 ];
+
+/** The least width the note's text keeps beside the transcript. */
+const NOTE_TEXT_MIN = 320;
+
+/**
+ * The line between a note's text and its transcript, dragged (or moved with the arrow keys) to
+ * give either more room; a double click puts it back. One is on the transcript's left edge, shown
+ * where the note is wide and the transcript beside the text; the other on its top edge, shown where
+ * it is narrow and the transcript under the text.
+ */
+function TranscriptSash({
+  beside,
+  panel,
+}: {
+  beside: boolean;
+  panel: React.RefObject<HTMLElement | null>;
+}) {
+  const { t } = useTranslation("notes");
+  const width = useUIStore((s) => s.noteTranscriptWidth);
+  const share = useUIStore((s) => s.noteTranscriptShare);
+  const start = useRef(0);
+  // The note's body, the text and the transcript in it.
+  const body = () => panel.current?.parentElement ?? null;
+  // Toward the text (left, or up) the transcript grows.
+  const resize = (grow: number, persist: boolean, from: number) => {
+    const ui = useUIStore.getState();
+    const box = body();
+    if (beside) {
+      const most = box ? box.clientWidth - NOTE_TEXT_MIN : NOTE_TRANSCRIPT_WIDTH_MAX;
+      ui.setNoteTranscriptWidth(Math.min(from + grow, most), persist);
+    } else if (box && box.clientHeight > 0) {
+      ui.setNoteTranscriptShare(from + grow / box.clientHeight, persist);
+    }
+  };
+  const { isDragging, handleMouseDown } = useDragHandle({
+    orientation: beside ? "vertical" : "horizontal",
+    onDragStart: () => {
+      const ui = useUIStore.getState();
+      start.current = beside ? ui.noteTranscriptWidth : ui.noteTranscriptShare;
+    },
+    onDragMove: (delta) => resize(-delta, false, start.current),
+    onDragEnd: () => {
+      const ui = useUIStore.getState();
+      if (beside) ui.setNoteTranscriptWidth(ui.noteTranscriptWidth, true);
+      else ui.setNoteTranscriptShare(ui.noteTranscriptShare, true);
+    },
+  });
+  const nudge = (e: React.KeyboardEvent) => {
+    const grow = beside
+      ? { ArrowLeft: 1, ArrowRight: -1 }[e.key]
+      : { ArrowUp: 1, ArrowDown: -1 }[e.key];
+    if (!grow) return;
+    e.preventDefault();
+    resize(grow * KEYBOARD_NUDGE_PX, true, beside ? width : share);
+  };
+  const reset = () => {
+    const ui = useUIStore.getState();
+    if (beside) ui.setNoteTranscriptWidth(NOTE_TRANSCRIPT_WIDTH_DEFAULT, true);
+    else ui.setNoteTranscriptShare(NOTE_TRANSCRIPT_SHARE_DEFAULT, true);
+  };
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a sash is not a button or a rule
+    <div
+      role="separator"
+      aria-orientation={beside ? "vertical" : "horizontal"}
+      aria-label={t("transcript.resize")}
+      aria-valuenow={beside ? width : Math.round(share * 100)}
+      aria-valuemin={beside ? NOTE_TRANSCRIPT_WIDTH_MIN : NOTE_TRANSCRIPT_SHARE_MIN * 100}
+      aria-valuemax={beside ? NOTE_TRANSCRIPT_WIDTH_MAX : NOTE_TRANSCRIPT_SHARE_MAX * 100}
+      tabIndex={0}
+      onMouseDown={handleMouseDown}
+      onDoubleClick={reset}
+      onKeyDown={nudge}
+      data-testid={beside ? "note-transcript-sash-beside" : "note-transcript-sash-under"}
+      className={cn(
+        "group absolute z-10 [-webkit-app-region:no-drag]",
+        beside
+          ? "top-0 left-0 hidden h-full w-2 -translate-x-1/2 cursor-col-resize @min-[720px]/note:block"
+          : "top-0 right-0 left-0 h-2 -translate-y-1/2 cursor-row-resize @min-[720px]/note:hidden",
+      )}
+    >
+      <div
+        className={cn(
+          "absolute bg-[var(--splitter-hover)]",
+          beside ? "top-0 left-[3px] h-full w-0.5" : "top-[3px] left-0 h-0.5 w-full",
+          !isDragging && "opacity-0 transition-opacity duration-100 group-hover:opacity-100",
+        )}
+      />
+    </div>
+  );
+}
 
 export interface TranscriptQuote {
   speaker: string;
@@ -78,6 +181,9 @@ export function TranscriptPanel({
   const partial = useRecorderStore((s) => (recordingHere ? s.partial : null));
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  const panel = useRef<HTMLElement>(null);
+  const width = useUIStore((s) => s.noteTranscriptWidth);
+  const share = useUIStore((s) => s.noteTranscriptShare);
 
   useEffect(() => {
     void loadTranscript(workspaceId, noteId).then(() => resumeSecondPasses(workspaceId, noteId));
@@ -103,13 +209,23 @@ export function TranscriptPanel({
 
   return (
     <aside
+      ref={panel}
       className={cn(
-        "flex h-[45%] min-h-0 shrink-0 flex-col border-t border-border",
-        "@min-[720px]/note:h-auto @min-[720px]/note:w-[340px] @min-[720px]/note:border-t-0 @min-[720px]/note:border-l",
+        "relative flex h-(--transcript-share) min-h-0 shrink-0 flex-col border-t border-border",
+        "@min-[720px]/note:h-auto @min-[720px]/note:w-(--transcript-width) @min-[720px]/note:max-w-[calc(100%-var(--note-text-min))] @min-[720px]/note:border-t-0 @min-[720px]/note:border-l",
       )}
+      style={
+        {
+          "--transcript-share": `${share * 100}%`,
+          "--transcript-width": `${width}px`,
+          "--note-text-min": `${NOTE_TEXT_MIN}px`,
+        } as CSSProperties
+      }
       aria-label={t("transcript.title")}
       data-testid="note-transcript"
     >
+      <TranscriptSash beside panel={panel} />
+      <TranscriptSash beside={false} panel={panel} />
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
         <span className="text-app-ui-sm font-medium text-foreground">{t("transcript.title")}</span>
         <button
