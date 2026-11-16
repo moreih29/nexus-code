@@ -396,6 +396,8 @@ export interface HereCommandDeps {
    * here; and its program started again after, where it can be.
    */
   terminal?: { run: (line: string) => void; restart?: () => void };
+  /** /exit: its tab there closed, once the user says so, its session kept. */
+  exit?: () => void;
 }
 
 /** A command's description, as its tab's help writes it. */
@@ -616,6 +618,9 @@ export function usePeerComposer({
           setCard({ id: `peer-card-${cards.current}`, title, ...shown });
           return;
         }
+        case "exit":
+          deps.exit?.();
+          return;
         case "status": {
           if (!deps.status) return;
           cards.current += 1;

@@ -20,8 +20,8 @@ import {
 import { CODEX_COMMANDS } from "../chat/codex-commands";
 
 const HERE: Record<"claude" | "codex", ReadonlySet<string>> = {
-  claude: new Set(["copy", "diff", "help", ...Object.keys(COMMAND_LINKS)]),
-  codex: new Set(["copy", "diff", "help", "status"]),
+  claude: new Set(["copy", "diff", "help", "exit", ...Object.keys(COMMAND_LINKS)]),
+  codex: new Set(["copy", "diff", "help", "status", "exit"]),
 };
 
 /** Claude's commands that run once in a terminal, outside the conversation. */

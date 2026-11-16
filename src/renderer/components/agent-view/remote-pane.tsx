@@ -14,7 +14,7 @@ import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
-import { remoteSessionKey } from "../../services/agent-view/layout";
+import { remoteSessionKey, removeKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import { configCommandOf } from "../../services/chat/claude-config";
 import { CODEX_COMMANDS, codexStatusMarkdown } from "../../services/chat/codex-commands";
@@ -49,6 +49,7 @@ import {
 import { useSelfDeviceId } from "../../services/remote/self-device";
 import { TerminalTyping } from "../../services/remote/terminal-typing";
 import { registerTabFocusTarget } from "../../services/tab-focus";
+import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -76,6 +77,7 @@ import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
 import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
+import { showConfirmDialog } from "../ui/confirm-dialog";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { RemoteCodexConfigDialog, RemoteConfigDialog } from "./remote-config-dialog";
@@ -1001,6 +1003,27 @@ function RemoteControls({
           t,
         ),
       openUrl: (url) => links?.openUrl(url),
+      // Its tab there closed, as /exit closes a chat here: once the user says so, as it is not here.
+      exit: () =>
+        void showConfirmDialog({
+          title: t("agentView.remote.exitTitle", { device: target.deviceName }),
+          description: t("agentView.remote.exitBody"),
+          confirmLabel: t("agentView.remote.exitConfirm"),
+          variant: "destructive",
+        }).then(async (confirmed) => {
+          if (!confirmed) return;
+          const result = await ipcCallResult("remote", "peerChatClose", {
+            deviceId,
+            workspaceId,
+            tabId,
+          });
+          if (!result.ok) {
+            onError(result.message);
+            return;
+          }
+          const key = remoteSessionKey(target);
+          useAgentViewStore.getState().update((layout) => removeKey(layout, key));
+        }),
       ...(types
         ? {
             terminal: {

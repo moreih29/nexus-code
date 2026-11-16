@@ -582,6 +582,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatOriginal.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.original", params));
       },
+      peerChatClose: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatClose.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.close", params));
+      },
       peerChatCheckSignIn: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatCheckSignIn.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.checkSignIn", params));

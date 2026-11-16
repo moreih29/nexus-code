@@ -2504,6 +2504,11 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.original"].params),
         RPC_METHODS["chat.original"].result,
       ),
+      /** Closes another device's chat's tab, its session kept, as /exit does. */
+      peerChatClose: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.close"].params),
+        RPC_METHODS["chat.close"].result,
+      ),
       /** Asks another device's Codex chat's program again whether it is signed in. */
       peerChatCheckSignIn: call(
         z

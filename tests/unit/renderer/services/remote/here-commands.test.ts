@@ -11,7 +11,7 @@ import {
 const btw: ChatCommand = { name: "btw", description: "Aside", runs: "command" };
 
 describe("commands run here for another computer's chat", () => {
-  test("a Claude chat's: /copy, /diff, /help and the pages, in its tab's order", () => {
+  test("a Claude chat's: /copy, /diff, /help, /exit and the pages, in its tab's order", () => {
     expect(hereCommandsOf("claude", [btw]).map((c) => c.name)).toEqual([
       "copy",
       "diff",
@@ -20,13 +20,16 @@ describe("commands run here for another computer's chat", () => {
       "feedback",
       "privacy-settings",
       "help",
+      "exit",
     ]);
     expect(hereCommandsOf("codex", []).map((c) => c.name)).toEqual([
       "status",
       "diff",
       "copy",
       "help",
+      "exit",
     ]);
+    expect(hereCommandOf("codex", [], "/quit")).toEqual({ name: "exit", args: "" });
   });
 
   test("a Codex chat's /status is its computer's where it lists it (0.13.0), else this app's", () => {
