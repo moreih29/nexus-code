@@ -675,6 +675,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerTerminalUnwatch.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.unwatch", params));
       },
+      peerTerminalInput: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalInput.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.input", params));
+      },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),
       createKey: (args: unknown) => {
