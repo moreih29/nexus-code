@@ -51,7 +51,12 @@ import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
-import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
+import {
+  type CallReveal,
+  type MessageActions,
+  MessageList,
+  type ShownMove,
+} from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
 import { focusChatTab, PermissionCard } from "../chat/permission-card";
 import { QuickLook, type QuickLookList } from "../chat/quick-look";
@@ -67,6 +72,7 @@ import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
+  type RemotePanelAsk,
   type RemotePanelPart,
   RemoteSidePanel,
   remoteAgentsOf,
@@ -394,9 +400,9 @@ function RemoteChatView({
     };
   }, [drawerOpen]);
   // A bare /status, /context or /usage opens the panel; its section opens itself.
-  const [panelAsk, setPanelAsk] = useState<{ part: RemotePanelPart; seq: number } | null>(null);
-  const askPanel = (part: RemotePanelPart) =>
-    setPanelAsk((prev) => ({ part, seq: (prev?.seq ?? 0) + 1 }));
+  const [panelAsk, setPanelAsk] = useState<RemotePanelAsk | null>(null);
+  const askPanel = (part: RemotePanelPart, id?: string) =>
+    setPanelAsk((prev) => ({ part, seq: (prev?.seq ?? 0) + 1, ...(id ? { id } : {}) }));
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, where the panel then is
   useEffect(() => {
     if (!panelAsk) return;
@@ -442,8 +448,14 @@ function RemoteChatView({
       return () => showAgent(toolUseId);
     }
     return claude && page.panel?.tasks.some((job) => job.taskId === item.taskId)
-      ? () => askPanel("jobs")
+      ? () => askPanel("jobs", item.taskId)
       : undefined;
+  };
+  // A call the side panel asked to see in the conversation, by its id; each ask its own seq.
+  const [callAsk, setCallAsk] = useState<CallReveal | null>(null);
+  const showCall = (toolUseId: string) => {
+    showAgent(null);
+    setCallAsk((prev) => ({ toolUseId, seq: (prev?.seq ?? 0) + 1 }));
   };
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
@@ -595,6 +607,7 @@ function RemoteChatView({
       model={model}
       controls={reachable}
       onShowAgent={showAgent}
+      onShowCall={showCall}
       onCompact={() => told(ipcCallResult("remote", "peerChatSend", { ...ref, text: "/compact" }))}
       onStopTask={(taskId) => told(ipcCallResult("remote", "peerChatStopTask", { ...ref, taskId }))}
       {...(reachable && page.panel?.remoteControl
@@ -670,6 +683,7 @@ function RemoteChatView({
                   model={model}
                   actions={shown ? undefined : actions}
                   items={shown ? agentTranscript(model, shown) : undefined}
+                  reveal={shown ? null : callAsk}
                   {...(moves ? { moves } : {})}
                   empty={
                     <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">

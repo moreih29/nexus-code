@@ -16,19 +16,27 @@ import {
   CircleDot,
   ExternalLink,
   GitFork,
+  MessageSquare,
   Square,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
 import { useNow } from "../../hooks/use-now";
-import type { ChatModel } from "../../services/chat/model";
-import { type AgentRow, type AgentStatus, agentsOf } from "../../services/chat/panel";
+import type { ChatModel, ToolCall } from "../../services/chat/model";
+import {
+  type AgentRow,
+  type AgentStatus,
+  agentsOf,
+  exitCodeOf,
+  jobCommand,
+} from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { StatusDot } from "../chat/agent-strip";
 import { useChatLinks } from "../chat/chat-links";
+import { Highlighted } from "../chat/code-highlight";
 import {
   AgentEntry,
   ChangedRow,
@@ -37,10 +45,12 @@ import {
   Field,
   FirstFew,
   formatCost,
+  JobButton,
   Meter,
   newestJobsFirst,
   Row,
   Section,
+  useRevealedRow,
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
 import { IconButton } from "../ui/icon-button";
@@ -51,6 +61,13 @@ import { usageLineOf } from "./remote-usage";
 
 /** The panel's parts a bare command shows: /status, /context, /usage; /diff its changed files. */
 export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes";
+
+/** A part of the panel asked for, each ask its own seq; `id`: the task of the job meant. */
+export interface RemotePanelAsk {
+  part: RemotePanelPart;
+  seq: number;
+  id?: string;
+}
 
 /**
  * The part of the panel a bare /status, /context or /usage shows; null for
@@ -98,6 +115,7 @@ export function RemoteSidePanel({
   model,
   controls,
   onShowAgent,
+  onShowCall,
   onCompact,
   onStopTask,
   onRemoteControl,
@@ -112,14 +130,19 @@ export function RemoteSidePanel({
   /** The computer lets this one control its chats: stop a run, compact. */
   controls: boolean;
   onShowAgent: (toolUseId: string) => void;
+  /** Brings a call into view in the conversation, as a job's "show the call" asks. */
+  onShowCall?: (toolUseId: string) => void;
   onCompact: () => void;
   onStopTask: (taskId: string) => void;
   /** Turns its Remote Control on or off there, where it may. */
   onRemoteControl?: (enabled: boolean) => Promise<void>;
   /** Forks its whole session into a new tab there, where it may. */
   onForkSession?: () => void;
-  /** The part a bare command asked for, each ask its own seq: it opens and comes into view. */
-  reveal?: { part: RemotePanelPart; seq: number } | null;
+  /**
+   * The part a bare command asked for, each ask its own seq: it opens and
+   * comes into view; with `id`, the job of that task the conversation named.
+   */
+  reveal?: RemotePanelAsk | null;
   className?: string;
 }) {
   const { t, i18n } = useTranslation();
@@ -317,8 +340,13 @@ export function RemoteSidePanel({
               <RemoteJob
                 key={job.taskId}
                 job={job}
+                tools={model.tools}
                 now={now}
+                reveal={
+                  reveal?.part === "jobs" && reveal.id === job.taskId ? reveal.seq : undefined
+                }
                 onStop={controls ? () => onStopTask(job.taskId) : undefined}
+                {...(onShowCall ? { onShowCall } : {})}
               />
             ))}
           </FirstFew>
@@ -438,21 +466,44 @@ function RemoteMcp({ servers }: { servers: NonNullable<ChatPanel["mcp"]> }) {
   );
 }
 
-/** A background run, as a chat here lists one: what it is, how long, what it said last. */
+/**
+ * A background run, as a chat here lists one: what it is, how long; opened,
+ * the command it runs, what it said last, how it ended, and its call. Its
+ * output is in a file on that computer, which this one does not read.
+ */
 function RemoteJob({
   job,
+  tools,
   now,
+  reveal,
   onStop,
+  onShowCall,
 }: {
   job: ChatPanel["tasks"][number];
+  tools: Record<string, ToolCall>;
   now: number;
-  onStop?: () => void;
+  /** Set when the conversation asked for this job: it opens and comes into view. */
+  reveal?: number | undefined;
+  onStop?: (() => void) | undefined;
+  onShowCall?: (toolUseId: string) => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const said = job.summary || job.activity;
+  const { ref, lit } = useRevealedRow(reveal, () => setOpen(true));
+  const running = job.status === "running";
+  const command = jobCommand(job, tools);
+  const said = running ? job.activity || job.summary : job.summary || job.activity;
+  const exitCode = exitCodeOf(job.summary);
+  const toolUseId = job.toolUseId;
   return (
-    <div className="-mx-1 flex flex-col rounded-(--radius-control) px-1" data-testid="remote-job">
+    <div
+      ref={ref}
+      className={cn(
+        "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
+        lit && "bg-[var(--state-hover-bg)]",
+      )}
+      data-testid="remote-job"
+    >
       <Row>
         <button
           type="button"
@@ -470,16 +521,60 @@ function RemoteJob({
             <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
           )}
         </button>
-        {job.status === "running" && onStop && (
+        {running && onStop && (
           <IconButton label={t("chat.panel.stop")} onClick={onStop}>
             <Square className="size-3" />
           </IconButton>
         )}
       </Row>
       {open && (
-        <div className="mt-0.5 ml-4 flex flex-col gap-0.5 border-l border-border pl-2 text-app-micro">
-          <div className="truncate font-mono text-muted-foreground">{job.type}</div>
-          {said ? <div className="line-clamp-6 whitespace-pre-wrap break-words">{said}</div> : null}
+        <div
+          className="mt-0.5 mb-1 ml-4 flex flex-col gap-1.5 border-l border-border pl-2 text-app-micro"
+          data-testid="remote-job-detail"
+        >
+          {(command || said) && (
+            <div className="overflow-hidden rounded-(--radius-control) border border-border">
+              {command && (
+                <div
+                  className={cn(
+                    "code-hl line-clamp-3 bg-[var(--state-hover-bg)] px-2 py-1 font-mono whitespace-pre-wrap break-all",
+                    said && "border-b border-border",
+                  )}
+                  title={command}
+                >
+                  <span className="text-[var(--state-success-fg)] select-none">$ </span>
+                  <Highlighted code={command} language="bash" />
+                </div>
+              )}
+              {said && (
+                <div className="line-clamp-6 px-2 py-1.5 whitespace-pre-wrap break-words">
+                  {said}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
+            {running ? (
+              <span className="flex items-center gap-1 text-[var(--state-success-fg)]">
+                <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
+                {t("chat.panel.jobs.live")}
+              </span>
+            ) : exitCode !== undefined ? (
+              <span className={cn(exitCode !== 0 && "text-[var(--state-error-fg)]")}>
+                {t("chat.panel.jobs.exit_code", { code: exitCode })}
+              </span>
+            ) : (
+              <span className="truncate font-mono">{job.type}</span>
+            )}
+          </div>
+          {toolUseId && onShowCall && (
+            <div className="flex flex-wrap gap-1">
+              <JobButton onClick={() => onShowCall(toolUseId)}>
+                <MessageSquare className="size-3" />
+                {t("chat.panel.jobs.show_call")}
+              </JobButton>
+            </div>
+          )}
         </div>
       )}
     </div>

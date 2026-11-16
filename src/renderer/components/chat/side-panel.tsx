@@ -346,6 +346,44 @@ function scrollIntoPanel(el: HTMLElement): void {
   }
 }
 
+/**
+ * A row the conversation asked for (a job its end names): it opens, comes
+ * into view and is lit for a moment, which tells which of the rows was meant.
+ * Each ask (`reveal`, its seq) once.
+ */
+export function useRevealedRow(
+  reveal: number | undefined,
+  open: () => void,
+  onRevealed?: (seq: number) => void,
+): { ref: React.RefObject<HTMLDivElement | null>; lit: boolean } {
+  const ref = useRef<HTMLDivElement>(null);
+  const [lit, setLit] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callbacks change
+  useEffect(() => {
+    if (reveal === undefined) return;
+    open();
+    setLit(reveal);
+    onRevealed?.(reveal);
+  }, [reveal]);
+  useEffect(() => {
+    const el = ref.current;
+    if (lit === null || !el) return;
+    scrollIntoPanel(el);
+    // What it shows opened comes a moment later and makes it taller: it follows for a while.
+    const observer = new ResizeObserver(() => scrollIntoPanel(el));
+    observer.observe(el);
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      setLit(null);
+    }, REVEAL_FOLLOW_MS);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [lit]);
+  return { ref, lit: lit !== null };
+}
+
 /** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
@@ -813,38 +851,13 @@ function JobEntry({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
-  const ref = useRef<HTMLDivElement>(null);
-  // The ask the row is lit for, for a moment: which of the jobs was meant.
-  const [lit, setLit] = useState<number | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
-  useEffect(() => {
-    if (reveal === undefined) return;
-    setOpen(true);
-    setLit(reveal);
-    onRevealed?.(reveal);
-  }, [reveal]);
-  useEffect(() => {
-    const el = ref.current;
-    if (lit === null || !el) return;
-    scrollIntoPanel(el);
-    // Its output comes a moment later and makes it taller: it follows for a while.
-    const observer = new ResizeObserver(() => scrollIntoPanel(el));
-    observer.observe(el);
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      setLit(null);
-    }, REVEAL_FOLLOW_MS);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [lit]);
+  const { ref, lit } = useRevealedRow(reveal, () => setOpen(true), onRevealed);
   return (
     <div
       ref={ref}
       className={cn(
         "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
-        lit !== null && "bg-[var(--state-hover-bg)]",
+        lit && "bg-[var(--state-hover-bg)]",
       )}
       data-testid="chat-job"
     >
@@ -1003,7 +1016,7 @@ function JobDetail({
   );
 }
 
-function JobButton({
+export function JobButton({
   onClick,
   title,
   children,
