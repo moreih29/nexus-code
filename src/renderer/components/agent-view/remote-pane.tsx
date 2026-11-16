@@ -591,6 +591,7 @@ function RemoteChatView({
             className="chat-font relative flex min-h-0 flex-1 flex-col bg-background"
             style={fontStyle}
             data-testid="remote-chat"
+            data-chat-drop
             onKeyDown={onKeyDown}
           >
             {model.process === "exited" && (
