@@ -273,6 +273,8 @@ export const ViewGoalSchema = z.object({
   /** Once it ended: how long it took, and when. Since 0.11.0. */
   durationMs: z.number().nonnegative().optional(),
   endedAt: z.number().optional(),
+  /** Once a Claude goal ended: the checks it took, the last that ended it too. Since 0.13.0. */
+  iterations: z.number().int().nonnegative().optional(),
 });
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 

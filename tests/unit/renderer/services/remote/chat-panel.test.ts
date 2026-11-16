@@ -83,6 +83,22 @@ describe("a chat's side panel", () => {
     expect(panel).toMatchObject({ tasks: [], agents: [] });
   });
 
+  test("an ended goal's checks, the last that ended it too", () => {
+    const panel = chatPanelOf(
+      source({
+        goal: {
+          condition: "say ok",
+          status: "met",
+          setAt: 5,
+          checks: [],
+          iterations: 1,
+          endedLive: true,
+        },
+      }),
+    );
+    expect(panel.goal).toMatchObject({ status: "met", checks: 0, iterations: 1 });
+  });
+
   test("a Claude chat's limit, MCP servers, program and Remote Control", () => {
     const panel = chatPanelOf(
       source({

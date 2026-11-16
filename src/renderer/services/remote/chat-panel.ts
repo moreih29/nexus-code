@@ -79,6 +79,7 @@ function viewGoalOf(goal: GoalView): ViewGoal {
     ...(goal.tokenBudget !== undefined ? { tokenBudget: goal.tokenBudget } : {}),
     ...(goal.durationMs !== undefined ? { durationMs: goal.durationMs } : {}),
     ...(goal.endedAt !== undefined ? { endedAt: goal.endedAt } : {}),
+    ...(goal.iterations !== undefined ? { iterations: goal.iterations } : {}),
   };
 }
 
