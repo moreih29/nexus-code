@@ -71,6 +71,17 @@ describe("typing into a terminal", () => {
     ]);
   });
 
+  test("typed text as keystrokes, a line break as Return, so a program takes it as keys", async () => {
+    const { s, typed } = services();
+    await inputTerminal(s, { ...ref, text: "jj", typed: true });
+    await inputTerminal(s, { ...ref, text: ":q\n", typed: true, keys: ["esc"], enter: true });
+    expect(typed().map((c) => c.args)).toEqual([
+      { ...ref, text: "jj", mode: "keys", enter: false },
+      { ...ref, text: ":q\r", mode: "keys", enter: false },
+      { ...ref, text: "\x1b", mode: "keys", enter: true },
+    ]);
+  });
+
   test("Enter alone; nothing at all is refused", async () => {
     const { s, typed } = services();
     await inputTerminal(s, { ...ref, enter: true });

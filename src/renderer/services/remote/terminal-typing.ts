@@ -7,6 +7,8 @@ import type { TerminalKey } from "../../../../packages/remote-protocol/src/rpc";
 
 export interface TypedInput {
   text?: string;
+  /** The text typed, which goes in as keystrokes; without it, pasted. */
+  typed?: boolean;
   keys?: TerminalKey[];
 }
 
@@ -55,13 +57,18 @@ function joined(last: TypedInput, next: TypedInput): TypedInput | null {
   const keys = [...(last.keys ?? []), ...(next.keys ?? [])];
   if (keys.length > MAX_KEYS) return null;
   if (next.text) {
-    // Text after keys would go in before them.
+    // Text after keys would go in before them; typed text and a paste go in as they came.
     if (last.keys?.length) return null;
+    if (last.text && !last.typed !== !next.typed) return null;
     const text = (last.text ?? "") + next.text;
     if (text.length > MAX_TEXT) return null;
-    return { text, ...(keys.length ? { keys } : {}) };
+    return { text, ...(next.typed ? { typed: true } : {}), ...(keys.length ? { keys } : {}) };
   }
-  return { ...(last.text ? { text: last.text } : {}), keys };
+  return {
+    ...(last.text ? { text: last.text } : {}),
+    ...(last.typed ? { typed: true } : {}),
+    keys,
+  };
 }
 
 export class TerminalTyping {
