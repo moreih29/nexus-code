@@ -147,7 +147,7 @@ export async function sendToPeer(
   selector: string,
   text: string,
   timeoutMs: number | null,
-  when?: "now" | "after",
+  now = false,
 ): Promise<CliOutput> {
   const peer = await resolvePeerTab(
     ctx,
@@ -158,16 +158,14 @@ export async function sendToPeer(
   );
   // The agent there is told whether this one waits to read its answer, or is to be written back to.
   const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
-  const { at, heldId } = await askDevice(ctx, device, "chat.send", {
+  const { at } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
     from,
-    ...(when ? { when } : {}),
+    ...(now ? { when: "now" as const } : {}),
   });
-  const sent = heldId
-    ? `Held for after the turn of ${named(peer)}, as ${heldId}.`
-    : `Sent to ${named(peer)}.`;
-  const json = { ...targetJson(peer), text, ...(heldId ? { heldId } : {}) };
+  const sent = `Sent to ${named(peer)}.`;
+  const json = { ...targetJson(peer), text };
   if (timeoutMs === null) return output(sent, json);
   const result = await waitOnPeerChats(ctx, [peer], timeoutMs, at);
   return peerWaitOutput(`${sent}\n${result.text}`, json, result);
