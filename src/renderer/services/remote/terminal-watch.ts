@@ -7,7 +7,7 @@
  */
 
 import type { TerminalUpdate } from "../../../../packages/remote-protocol/src";
-import { getTerminalController } from "../terminal/terminal-registry";
+import type { TerminalController } from "../terminal/types";
 
 /** What a watch sends: an update but for its id and rev, which main gives it. */
 export type TerminalChange = Omit<TerminalUpdate, "watchId" | "rev">;
@@ -61,19 +61,17 @@ const watches = new Map<string, Watch>();
  * Starts watching a terminal for another device: its last `lines` lines
  * now, then `push` with each change, until stopTerminalWatch or the
  * terminal is gone (`onGone`); with `ansi`, the text has its colors and
- * styles. Throws when it has not started.
+ * styles.
  */
 export function startTerminalWatch(
   watchId: string,
-  tabId: string,
+  controller: TerminalController,
   lines: number,
   push: (change: TerminalChange) => void,
   onGone: () => void,
   ansi = false,
 ): { text: string } {
   stopTerminalWatch(watchId);
-  const controller = getTerminalController(tabId);
-  if (!controller) throw new Error("that terminal has not started");
   const read = () => fitText(controller.readText(lines, ansi));
   let sent = read();
   let timer: ReturnType<typeof setTimeout> | null = null;

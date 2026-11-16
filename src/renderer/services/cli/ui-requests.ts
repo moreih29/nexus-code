@@ -16,7 +16,13 @@ import { readSessionEvents } from "../agent-sessions/session-events";
 import { focusHolder, restoreFocus } from "../keep-focus";
 import { startTerminalWatch, stopTerminalWatch } from "../remote/terminal-watch";
 import { getTerminalController } from "../terminal/terminal-registry";
-import { actionHandlers, type CliUiHandler, hasUnsavedChanges, UiRequestError } from "./actions";
+import {
+  actionHandlers,
+  type CliUiHandler,
+  hasUnsavedChanges,
+  startedTerminal,
+  UiRequestError,
+} from "./actions";
 import { appHandlers } from "./app-actions";
 import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
@@ -69,24 +75,15 @@ export function listTabs(workspaceId: string): CliTabInfo[] {
 
 const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
-  "terminal.read": async ({ tabId, lines, ansi }) => {
-    const controller = getTerminalController(tabId);
-    if (!controller) {
-      throw new UiRequestError(
-        "that terminal has not started: its workspace has not been opened since NexusCode started",
-      );
-    }
+  "terminal.read": async ({ workspaceId, tabId, lines, ansi }) => {
+    const controller = await startedTerminal(workspaceId, tabId);
     return { text: controller.readText(lines, ansi) };
   },
-  "terminal.watch": async ({ tabId, watchId, lines, ansi }) => {
-    if (!getTerminalController(tabId)) {
-      throw new UiRequestError(
-        "that terminal has not started: its workspace has not been opened since NexusCode started",
-      );
-    }
+  "terminal.watch": async ({ workspaceId, tabId, watchId, lines, ansi }) => {
+    const controller = await startedTerminal(workspaceId, tabId);
     return startTerminalWatch(
       watchId,
-      tabId,
+      controller,
       lines,
       (change) => void ipcCallResult("remote", "terminalChanged", { watchId, change }),
       () => void ipcCallResult("remote", "terminalWatchEnded", { watchId }),
