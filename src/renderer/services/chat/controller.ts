@@ -226,6 +226,16 @@ export class ChatController {
   private flags: Record<string, unknown> = {};
   /** The model picked in the tab, which a program started again for it takes too. */
   private chosenModel: string | undefined;
+  /**
+   * The permission mode the tab's program last had, which one started
+   * again for it (a rewind, a restart, another profile) goes on in: the
+   * settings' default mode is for a new conversation. Not kept past this
+   * run of the app, so the tab's first program in the next starts as the
+   * settings say.
+   */
+  private lastMode: string | undefined;
+  /** How many times the user picked a mode, which a program starting then takes over its last one's. */
+  private modePicks = 0;
   /** A started program's initialize, and the flags given again after it. */
   private initializing: Promise<void> = Promise.resolve();
   /** How many times this run of the program said it had no MCP servers, and was asked again. */
@@ -458,6 +468,9 @@ export class ChatController {
 
   private async start(resume: StartArgs): Promise<boolean> {
     const { workspaceId, tabId, cwd } = this.target;
+    // Before the new program's initialize tells the mode it starts in.
+    const mode = this.lastMode;
+    const picks = this.modePicks;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startChat>>;
     try {
@@ -493,10 +506,12 @@ export class ChatController {
     if (!result.attached) {
       // Subagents' text comes as messages under their Agent call, for the agent strip.
       let remote = false;
+      let started: unknown;
       this.initPending = true;
       this.initializing = this.request("initialize", { hooks: null, forwardSubagentText: true })
         .then((init) => {
           remote = remoteAtStartup(init);
+          started = init.current_permission_mode;
           // The settings' effort failing leaves the tab's own flags and pick to apply.
           return this.followSettings().catch((err: Error) =>
             log.warn(`settings' effort not applied: ${err.message}`),
@@ -517,6 +532,15 @@ export class ChatController {
           return this.request("set_model", { model: this.chosenModel }).then(
             () => {},
             (err: Error) => log.warn(`picked model not applied: ${err.message}`),
+          );
+        })
+        .then(() => {
+          // The program before went on in a mode the settings' default would
+          // drop; one the user picked as this one started holds instead.
+          if (!mode || mode === started || this.modePicks !== picks) return;
+          return this.request("set_permission_mode", { mode }).then(
+            () => {},
+            (err: Error) => log.warn(`mode ${mode} not given again: ${err.message}`),
           );
         })
         .then(() => {
@@ -1054,6 +1078,7 @@ export class ChatController {
   }
 
   setPermissionMode(mode: string): Promise<unknown> {
+    this.modePicks += 1;
     return this.shownAtOnce("permissionMode", mode, () =>
       this.request("set_permission_mode", { mode }),
     );
@@ -1801,6 +1826,8 @@ export class ChatController {
   }
 
   private afterModel(before: ChatModel, model: ChatModel): void {
+    // The mode the program is in, for one started again in the tab to go on in.
+    if (model.permissionMode) this.lastMode = model.permissionMode;
     if (model.sessionId && model.sessionId !== this.sessionId) {
       // The copy a fork made has its own id now: the tab goes on with it,
       // and a branch takes its name.
