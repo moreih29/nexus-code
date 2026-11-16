@@ -588,12 +588,17 @@ export class CodexController {
    * turn under way with it, and one of the new profile's forks the thread
    * from its file, its name too. The thread is left as it was, for the old
    * profile to go on with. The model and effort are the new profile's, the
-   * permission preset goes on. A tab with no thread yet just switches.
+   * permission preset goes on. A tab with no thread yet just switches, as
+   * does one whose thread has no turn yet: Codex writes a thread's file with
+   * its first turn, so there is none to fork (the fork would fail, an error
+   * in the log, and a new thread start anyway).
    */
   async continueInProfile(profileId: string): Promise<void> {
     if (sameProfile(profileId, this.target.profileId)) return;
+    // The lines come in first: a thread just read has its turns.
+    this.flushNow();
     const threadId = this.currentThread();
-    if (!threadId) {
+    if (!threadId || (this.model.process === "running" && this.model.items.length === 0)) {
       await this.switchProfile(profileId);
       return;
     }

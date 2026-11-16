@@ -169,7 +169,8 @@ export function RemoteProfileChip({
                 <button
                   type="button"
                   disabled={waits}
-                  onClick={() => pick(other, false)}
+                  // With no conversation yet there is nothing to go on with: a new one, as here.
+                  onClick={() => pick(other, !conversation)}
                   className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left disabled:opacity-40"
                   data-testid="remote-profile-pick"
                 >
