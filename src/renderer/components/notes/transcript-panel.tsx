@@ -56,6 +56,9 @@ import { KEYBOARD_NUDGE_PX } from "../ui/resize-handle";
 import { useDragHandle } from "../ui/use-drag-handle";
 
 /** A voice's color, by the order it first spoke. */
+/** Voice keys in order: numbers as numbers ("2" before "10"). */
+const byKey = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+
 const SPEAKER_COLORS = [
   "var(--state-info-fg)",
   "var(--state-success-fg)",
@@ -292,14 +295,22 @@ function RecordingView({
   const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
   const voices = speakersOf(recording);
   if (partial && !voices.includes(partial.speaker)) voices.push(partial.speaker);
-  // Voices given one name are one person: one chip, one color.
+  // Voices given one name are one person: one chip, one color. People go in their voices'
+  // order, not the order they first spoke in, so moving a line doesn't reorder or recolor them.
   const personOf = (key: string) => recording.speakers[key]?.trim() || `#${key}`;
-  const people = [...new Set(voices.map(personOf))].map((person) => ({
-    person,
-    keys: voices.filter((k) => personOf(k) === person),
-  }));
-  const colorOf = (key: string) =>
-    SPEAKER_COLORS[people.findIndex((p) => p.person === personOf(key)) % SPEAKER_COLORS.length];
+  const people = [...new Set(voices.map(personOf))]
+    .map((person) => ({
+      person,
+      keys: voices.filter((k) => personOf(k) === person).sort(byKey),
+    }))
+    .sort((a, b) => byKey(a.keys[0] as string, b.keys[0] as string));
+  // Numbered voices (a voice print recording's) keep their number's color, whoever else comes or goes.
+  const numbered = voices.every((k) => /^[1-9]\d*$/.test(k));
+  const colorOf = (key: string) => {
+    const index = people.findIndex((p) => p.person === personOf(key));
+    const n = numbered ? Number(people[index]?.keys[0]) - 1 : index;
+    return SPEAKER_COLORS[n % SPEAKER_COLORS.length];
+  };
   const unnamed = (key: string) => t("transcript.speaker", { label: key });
   const nameOf = (key: string) => speakerName(recording, key, unnamed);
   const lines = joinedLines(recording.lines);
@@ -477,7 +488,11 @@ function Line({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
           {others.map((o) => (
-            <DropdownMenuItem key={o.key} onSelect={() => onMove(o.key)}>
+            <DropdownMenuItem
+              key={o.key}
+              className="justify-start gap-2"
+              onSelect={() => onMove(o.key)}
+            >
               <span
                 className="size-1.5 rounded-full"
                 style={{ background: o.color }}
@@ -486,7 +501,7 @@ function Line({
               {o.name}
             </DropdownMenuItem>
           ))}
-          <DropdownMenuItem onSelect={() => onMove(null)}>
+          <DropdownMenuItem className="justify-start gap-2" onSelect={() => onMove(null)}>
             <Plus className="size-3.5" aria-hidden="true" />
             {t("transcript.newSpeaker")}
           </DropdownMenuItem>
