@@ -56,4 +56,21 @@ describe("the screen", () => {
     expect(html).toContain(">ok</span> done\nnext</pre>");
     expect(html).not.toContain("\x1b");
   });
+
+  test("goes on in the next line where the pane is narrower, as a terminal does", () => {
+    const html = renderToStaticMarkup(<RemoteTerminalScreen text="a long line" />);
+    expect(html).toContain("whitespace-pre-wrap");
+    expect(html).toContain("break-all");
+  });
+
+  test("takes the keyboard only where the computer lets this one type", () => {
+    const looking = renderToStaticMarkup(<RemoteTerminalScreen text="$ ls" />);
+    expect(looking).not.toContain("remote-terminal-input");
+    expect(looking).not.toContain("cursor-text");
+    const typing = renderToStaticMarkup(
+      <RemoteTerminalScreen text="$ ls" typing={{ type: () => {} }} />,
+    );
+    expect(typing).toContain('data-testid="remote-terminal-input"');
+    expect(typing).toContain("cursor-text");
+  });
 });

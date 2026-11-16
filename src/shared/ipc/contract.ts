@@ -2676,6 +2676,13 @@ export const ipcContract = {
           .merge(RPC_METHODS["terminal.unwatch"].params),
         RPC_METHODS["terminal.unwatch"].result,
       ),
+      /** Types into another device's terminal, where it lets this one (terminal.control). */
+      peerTerminalInput: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.input"].params),
+        RPC_METHODS["terminal.input"].result,
+      ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),
       createKey: call(z.object({ password: z.string().max(1024) }), AccountKeyStateSchema),

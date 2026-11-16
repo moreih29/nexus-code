@@ -2,8 +2,14 @@
  * Another computer's terminal as this one draws its own: in the theme's
  * terminal colors and the terminal's font and size (Settings › Terminal),
  * with the program's colors and styles as its SGR escapes give them, bold
- * in the bright colors as xterm draws it. It keeps to the end as output
+ * in the bright colors as xterm draws it. A line wider than the pane goes
+ * on in the next, as a terminal's does. It keeps to the end as output
  * comes, unless the user scrolled up to read; a button then goes back down.
+ *
+ * Where that computer lets this one type (`typing`), a click in it takes
+ * the keyboard: keys go in as the terminal's keys, text as typed (an IME's
+ * once composed), and a paste as pasted. A click that selects text leaves
+ * the keyboard where it was, so the text can be copied.
  *
  * Each line of the text starts and ends in the default style (bufferAnsi),
  * so a line is read, and drawn again, only when it changed.
@@ -13,6 +19,8 @@ import { ChevronDown } from "lucide-react";
 import { type CSSProperties, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
+import type { TypedInput } from "../../services/remote/terminal-typing";
+import { terminalKeyOf } from "../../services/remote/terminal-typing";
 import {
   type Color,
   paletteColor,
@@ -27,6 +35,8 @@ import {
   useTerminalStore,
 } from "../../state/stores/terminal";
 import { useThemeStore } from "../../state/stores/theme";
+import { cn } from "../../utils/cn";
+import { isImeComposing } from "../../utils/ime";
 
 /** How close to the end still counts as at it, in px. */
 const AT_END_PX = 24;
@@ -90,7 +100,14 @@ const Line = memo(function Line({
   );
 });
 
-export function RemoteTerminalScreen({ text }: { text: string }) {
+export function RemoteTerminalScreen({
+  text,
+  typing,
+}: {
+  text: string;
+  /** Where the computer lets this one type into it. */
+  typing?: { type(input: TypedInput): void };
+}) {
   const { t } = useTranslation();
   const themeId = useThemeStore((s) => s.resolved);
   // Read for their changes; the resolved values below fill in the defaults.
@@ -109,23 +126,42 @@ export function RemoteTerminalScreen({ text }: { text: string }) {
   );
   const lines = useMemo(() => text.trimEnd().split("\n"), [text]);
   const ref = useRef<HTMLPreElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const [typingHere, setTypingHere] = useState(false);
   // Kept at the end, as a terminal is, unless the user scrolled up to read.
   const stuck = useRef(true);
   const [away, setAway] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each new text keeps the end in sight
   useLayoutEffect(() => {
     const el = ref.current;
-    if (el && stuck.current) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (stuck.current) el.scrollTop = el.scrollHeight;
+    // Grown short enough to fit (cleared, or a program's screen), it is at the end again: no
+    // scroll comes to say so.
+    else if (el.scrollHeight - el.scrollTop - el.clientHeight < AT_END_PX) {
+      stuck.current = true;
+      setAway(false);
+    }
   }, [lines]);
-  const toEnd = () => {
+  const toEnd = (smooth: boolean) => {
     const el = ref.current;
     stuck.current = true;
     setAway(false);
-    el?.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el?.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  };
+  const type = (given: TypedInput) => {
+    typing?.type(given);
+    toEnd(false);
+  };
+  /** What the box holds, typed in, and the box emptied for the next. */
+  const typeHeld = (box: HTMLTextAreaElement) => {
+    const held = box.value;
+    box.value = "";
+    if (held) type({ text: held });
   };
 
   return (
-    <div className="relative min-h-0 flex-1">
+    <div className={cn("relative min-h-0 flex-1", typingHere && "ring-1 ring-ring ring-inset")}>
       <pre
         ref={ref}
         onScroll={(e) => {
@@ -134,8 +170,17 @@ export function RemoteTerminalScreen({ text }: { text: string }) {
           stuck.current = atEnd;
           setAway(!atEnd);
         }}
+        onMouseUp={() => {
+          if (typing && !window.getSelection()?.toString()) {
+            input.current?.focus({ preventScroll: true });
+          }
+        }}
         // The room around the text a terminal here has (.xterm's padding).
-        className="app-scrollbar absolute inset-0 m-0 overflow-auto whitespace-pre py-1.5 pr-3 pl-3 selection:bg-(--remote-terminal-selection)"
+        className={cn(
+          "app-scrollbar absolute inset-0 m-0 overflow-auto py-1.5 pr-3 pl-3 selection:bg-(--remote-terminal-selection)",
+          "whitespace-pre-wrap break-all",
+          typing && "cursor-text",
+        )}
         style={
           {
             fontFamily: resolvedTerminalFontFamily(),
@@ -153,10 +198,45 @@ export function RemoteTerminalScreen({ text }: { text: string }) {
           <Line key={i} text={line} colors={colors} end={i === lines.length - 1} />
         ))}
       </pre>
+      {typing && (
+        <textarea
+          ref={input}
+          aria-label={t("agentView.remote.terminalInput")}
+          autoCapitalize="off"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          onFocus={() => setTypingHere(true)}
+          onBlur={() => setTypingHere(false)}
+          onKeyDown={(e) => {
+            if (isImeComposing(e)) return;
+            const key = terminalKeyOf(e);
+            if (!key) return;
+            e.preventDefault();
+            // Text not yet sent goes in before the key.
+            typeHeld(e.currentTarget);
+            type({ keys: [key] });
+          }}
+          onInput={(e) => {
+            if ((e.nativeEvent as InputEvent).isComposing) return;
+            typeHeld(e.currentTarget);
+          }}
+          onCompositionEnd={(e) => typeHeld(e.currentTarget)}
+          onPaste={(e) => {
+            const pasted = e.clipboardData.getData("text/plain");
+            if (!pasted) return;
+            e.preventDefault();
+            typeHeld(e.currentTarget);
+            type({ text: pasted });
+          }}
+          className="pointer-events-none absolute bottom-0 left-0 size-px resize-none overflow-hidden opacity-0"
+          data-testid="remote-terminal-input"
+        />
+      )}
       {away && (
         <button
           type="button"
-          onClick={toEnd}
+          onClick={() => toEnd(true)}
           title={t("agentView.remote.terminalToEnd")}
           aria-label={t("agentView.remote.terminalToEnd")}
           className="absolute right-4 bottom-3 rounded-full border border-border bg-popover p-1.5 text-muted-foreground hover:text-foreground"

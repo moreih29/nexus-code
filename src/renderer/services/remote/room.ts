@@ -51,6 +51,17 @@ export function usePeerControls(deviceId: string): boolean {
   return serves ? serves.includes("chat.control") : true;
 }
 
+/**
+ * Whether another device lets this one type into its terminals: it serves
+ * terminal.control, as the user there allowed it (off unless allowed). No
+ * until its hello says.
+ */
+export function usePeerTypes(deviceId: string): boolean {
+  const room = useRemoteRoom();
+  const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
+  return serves?.includes("terminal.control") ?? false;
+}
+
 /** The devices in the room now that serve their sessions. */
 export function servingPeers(room: RoomState | null): RoomPeer[] {
   if (room?.status !== "online") return [];

@@ -25,8 +25,10 @@ import {
   type PeerRead,
   usePeerControls,
   usePeerReach,
+  usePeerTypes,
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
+import { TerminalTyping } from "../../services/remote/terminal-typing";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -928,15 +930,53 @@ function RemoteTerminal({
   visible: boolean;
   reach: PeerReach;
 }) {
+  const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
+  const types = usePeerTypes(deviceId);
+  const typing = useMemo(
+    () =>
+      new TerminalTyping(
+        async (input) => {
+          const result = await ipcCallResult("remote", "peerTerminalInput", {
+            deviceId,
+            workspaceId,
+            tabId,
+            ...input,
+          });
+          if (!result.ok) throw new Error(result.message);
+        },
+        (error) =>
+          showToast({
+            kind: "error",
+            message: t("agentView.remote.failed", {
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          }),
+      ),
+    [deviceId, workspaceId, tabId, t],
+  );
   if (read.status !== "ready") {
     return <Waiting read={read} reach={reach} device={target.deviceName} />;
   }
   return (
     <>
-      <RemoteTerminalScreen text={read.value.text} />
-      {reach !== "online" && <Unreachable reach={reach} device={target.deviceName} />}
+      <RemoteTerminalScreen
+        text={read.value.text}
+        {...(types && reach === "online" ? { typing } : {})}
+      />
+      {reach !== "online" ? (
+        <Unreachable reach={reach} device={target.deviceName} />
+      ) : (
+        !types && (
+          <p
+            className="shrink-0 border-border border-t px-3 py-1.5 text-app-micro text-muted-foreground"
+            data-testid="remote-terminal-view-only"
+          >
+            {t("agentView.remote.terminalViewOnly", { device: target.deviceName })}
+          </p>
+        )
+      )}
     </>
   );
 }
