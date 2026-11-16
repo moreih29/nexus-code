@@ -416,7 +416,12 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     useChatStore.getState().update(c.key, (prev) => ({
       ...prev,
       phase: "ready",
-      model: { ...prev.model, process: "running", threadName: "Named" } as typeof prev.model,
+      model: {
+        ...prev.model,
+        process: "running",
+        threadName: "Named",
+        items: [{ kind: "user", text: "hi", key: "u1", uuid: "item-1" }],
+      } as typeof prev.model,
     }));
     let lineSeq = 100;
     const sent: Record<string, unknown>[] = [];
@@ -454,6 +459,70 @@ describe("a Codex tab's thread gone on with in another profile", () => {
     expect(sent.find((m) => m.method === "thread/name/set")?.params).toEqual({
       threadId: "copy",
       name: "Named",
+    });
+  });
+
+  test("a thread with no turn yet has no file to fork: a new thread, nothing staged", async () => {
+    const seen: { profile?: string; moves?: readonly unknown[] } = {};
+    const c = new CodexController(
+      { workspaceId: "ws-switch", tabId: `x${++seq}`, cwd: "/p", threadId: "fresh" },
+      {
+        onProfile: (id) => {
+          seen.profile = id;
+        },
+        onMoves: (moves) => {
+          seen.moves = moves;
+        },
+      },
+    );
+    live.push(c);
+    useChatStore.getState().update(c.key, (prev) => ({
+      ...prev,
+      phase: "ready",
+      model: { ...prev.model, process: "running", threadId: "fresh" } as typeof prev.model,
+    }));
+    let lineSeq = 100;
+    const sent: Record<string, unknown>[] = [];
+    codex = (message) => {
+      sent.push(message);
+      if (message.id === undefined) return;
+      queueMicrotask(() =>
+        c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result: {} } } as never),
+      );
+    };
+    await c.continueInProfile("work");
+    await Bun.sleep(20);
+    expect(seen.profile).toBe("work");
+    expect(calls.some((call) => call.method === "stageThread")).toBe(false);
+    const asked = sent
+      .map((m) => String(m.method))
+      .filter((m) => !/^(account|model)\/|^thread\/goal|^initialized?$/.test(m));
+    expect(asked).toEqual(["thread/start"]);
+    expect(seen.moves).toBeUndefined();
+  });
+
+  test("a tab not running yet, its turns not read, still forks", async () => {
+    const c = new CodexController({
+      workspaceId: "ws-switch",
+      tabId: `x${++seq}`,
+      cwd: "/p",
+      threadId: "old",
+    });
+    live.push(c);
+    let lineSeq = 100;
+    const sent: Record<string, unknown>[] = [];
+    codex = (message) => {
+      sent.push(message);
+      if (message.id === undefined) return;
+      const result = message.method === "thread/fork" ? { thread: { id: "copy" } } : {};
+      queueMicrotask(() =>
+        c.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never),
+      );
+    };
+    await c.continueInProfile("work");
+    await Bun.sleep(20);
+    expect(sent.find((m) => m.method === "thread/fork")?.params).toMatchObject({
+      threadId: "old",
     });
   });
 });
