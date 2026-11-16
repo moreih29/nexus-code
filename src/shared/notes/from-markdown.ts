@@ -6,7 +6,7 @@
  * its text in a code block. An image becomes a noteImage block whose src is
  * as written, for the caller to put the file in the note and set it.
  */
-import type { PhrasingContent, RootContent } from "mdast";
+import type { ListItem, PhrasingContent, RootContent } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -50,17 +50,30 @@ function blockOf(node: RootContent, source: string): DocNode[] {
     case "code":
       return [codeBlock(node.value, node.lang ?? null)];
     case "list": {
-      const tasks = node.children.some((item) => typeof item.checked === "boolean");
-      const items = node.children.map((item) => {
-        const content = listItemContent(blocksOf(item.children, source));
-        return tasks
-          ? { type: "taskItem", attrs: { checked: item.checked === true }, content }
-          : { type: "listItem", content };
+      // A note's list is all to-dos or none: one with both is cut where the
+      // kind changes, so an item written without a box does not get one.
+      const runs: ListItem[][] = [];
+      for (const item of node.children) {
+        const run = runs.at(-1);
+        if (run?.[0] && isTask(run[0]) === isTask(item)) run.push(item);
+        else runs.push([item]);
+      }
+      let start = node.start ?? 1;
+      return runs.map((run) => {
+        const tasks = isTask(run[0]);
+        const items = run.map((item) => {
+          const content = listItemContent(blocksOf(item.children, source));
+          return tasks
+            ? { type: "taskItem", attrs: { checked: item.checked === true }, content }
+            : { type: "listItem", content };
+        });
+        const at = start;
+        start += run.length;
+        if (tasks) return { type: "taskList", content: items };
+        return node.ordered
+          ? { type: "orderedList", attrs: { start: at }, content: items }
+          : { type: "bulletList", content: items };
       });
-      if (tasks) return [{ type: "taskList", content: items }];
-      return node.ordered
-        ? [{ type: "orderedList", attrs: { start: node.start ?? 1 }, content: items }]
-        : [{ type: "bulletList", content: items }];
     }
     case "table": {
       // No table block in a note: its Markdown as it was written.
@@ -77,6 +90,11 @@ function blockOf(node: RootContent, source: string): DocNode[] {
       // Definitions, footnotes and the like: their text, if they have any.
       return "children" in node ? blocksOf(node.children as RootContent[], source) : [];
   }
+}
+
+/** A to-do: an item written with a box, "[ ]" or "[x]". */
+function isTask(item: ListItem | undefined): boolean {
+  return typeof item?.checked === "boolean";
 }
 
 /** A list item's blocks, which start with a paragraph. */

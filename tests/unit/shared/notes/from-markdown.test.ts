@@ -81,6 +81,26 @@ describe("markdownToBlocks", () => {
     expect(imagesOf(blocks)).toEqual([blocks[1] as DocNode]);
   });
 
+  test("a list with to-dos and plain items is cut where the kind changes: no box an item lacked", () => {
+    const item = (t: string): DocNode => ({ type: "listItem", content: [para(text(t))] });
+    const todo = (t: string, checked: boolean): DocNode => ({
+      type: "taskItem",
+      attrs: { checked },
+      content: [para(text(t))],
+    });
+    expect(markdownToBlocks("- plain\n- [ ] to do\n- [x] done\n- after\n")).toEqual([
+      { type: "bulletList", content: [item("plain")] },
+      { type: "taskList", content: [todo("to do", false), todo("done", true)] },
+      { type: "bulletList", content: [item("after")] },
+    ]);
+    // An ordered list's numbers go on across the cut.
+    expect(markdownToBlocks("4. four\n5. [ ] five\n6. six\n")).toEqual([
+      { type: "orderedList", attrs: { start: 4 }, content: [item("four")] },
+      { type: "taskList", content: [todo("five", false)] },
+      { type: "orderedList", attrs: { start: 6 }, content: [item("six")] },
+    ]);
+  });
+
   test("reads back as the Markdown it came from", () => {
     const md = "## Plan\n\n- [ ] ask\n\n1. one\n2. two\n\n> **so**\n";
     expect(docToMarkdown({ type: "doc", content: markdownToBlocks(md) })).toBe(md);
