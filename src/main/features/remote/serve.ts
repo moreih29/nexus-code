@@ -9,6 +9,7 @@ import {
   type AgentSender,
   type Capability,
   MAX_AGENT_DESCRIPTION,
+  MAX_FILE_SUGGESTIONS,
   MAX_SESSION_AGENTS,
   type RemoteSession,
   type RemoteSessionAgent,
@@ -656,6 +657,18 @@ export async function chatCommands(
   return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
 }
 
+/** What an @ in the tab's composer may name, as its agent suggests it. */
+export async function chatFileSuggestions(
+  services: CliServices,
+  { workspaceId, tabId, query }: RpcParams<"chat.fileSuggestions">,
+): Promise<RpcResult<"chat.fileSuggestions">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const { paths } = await services
+    .ui("chat.fileSuggestions", { workspaceId, tabId, query })
+    .catch(unavailable);
+  return { paths: paths.slice(0, MAX_FILE_SUGGESTIONS) };
+}
+
 /**
  * Runs one of the app's commands the tab lists, as its composer runs it
  * typed; one the agent runs goes with chat.send, and the model and effort
@@ -1266,6 +1279,8 @@ export function serveWith(
         return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
+      case "chat.fileSuggestions":
+        return chatFileSuggestions(s, request.params as RpcParams<"chat.fileSuggestions">);
       case "chat.command":
         return runChatCommand(s, request.params as RpcParams<"chat.command">, watches.folders);
       case "chat.new":

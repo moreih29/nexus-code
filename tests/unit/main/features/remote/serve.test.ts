@@ -1228,6 +1228,27 @@ describe("serving a chat's slash commands", () => {
     expect(asked.at(-1)).toEqual(["chat.command", { ...tab, name: "btw", args: "why?" }]);
   });
 
+  test("an @'s suggestions come from the tab's agent, as many as a frame takes", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return { paths: Array.from({ length: 150 }, (_, i) => `f${i}.ts`) };
+      },
+    } as unknown as CliServices;
+    const result = (await serveWith(() => s)({
+      from: "d",
+      method: "chat.fileSuggestions",
+      params: { ...tab, query: "f" },
+    })) as { paths: string[] };
+    expect(result.paths).toHaveLength(100);
+    expect(result.paths[0]).toBe("f0.ts");
+    expect(asked).toEqual([["chat.fileSuggestions", { ...tab, query: "f" }]]);
+  });
+
   test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
     const { serve, asked } = commandServices();
     const root = await realpath(await mkdtemp(join(tmpdir(), "add-dir-")));

@@ -6,6 +6,7 @@ import {
   commandInfosOf,
   commandOf,
   heldQueueOf,
+  mentionOf,
   modelsOf,
   peerComposerController,
   withSettings,
@@ -226,7 +227,52 @@ describe("the composer of another computer's chat", () => {
     expect(controller(call, none).made.supports("apply_flag_settings")).toBe(false);
     expect(controller(call, null).made.supports("apply_flag_settings")).toBe(false);
     expect(controller(call).made.supports("cancel_async_message")).toBe(false);
-    expect(controller(call).made.supports("file_suggestions")).toBe(false);
+  });
+
+  test("an @ lists what the chat's agent suggests there", async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push({ method, args });
+      return { ok: true, value: { paths: ["src/", "src/app.ts"] } };
+    }) as never;
+    const { made } = controller(call);
+    expect(made.supports("file_suggestions")).toBe(true);
+    expect(await made.fileSuggestions("app")).toEqual(["src/", "src/app.ts"]);
+    expect(await made.fileSuggestions("")).toEqual(["src/", "src/app.ts"]);
+    expect(calls).toEqual([
+      { method: "peerChatFileSuggestions", args: { ...ref, query: "app" } },
+      { method: "peerChatFileSuggestions", args: { ...ref, query: "" } },
+    ]);
+  });
+
+  test("from a device before 0.13.0, the workspace's files by name, from the chat's folder", async () => {
+    const calls: string[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push(method);
+      if (method === "peerChatFileSuggestions")
+        return { ok: false, kind: "unsupported", message: "no method" };
+      expect(args).toEqual({ deviceId: "d1", workspaceId: "w1", query: "app", limit: 50 });
+      return { ok: true, value: { files: ["pkg/src/app.ts", "docs/app.md"] } };
+    }) as never;
+    const made = peerComposerController({
+      ref,
+      agent: "claude",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      folders: () => ({ root: "/home/me/repo", cwd: "/home/me/repo/pkg" }),
+      call,
+    });
+    expect(await made.fileSuggestions("app")).toEqual(["src/app.ts", "/home/me/repo/docs/app.md"]);
+    // Asked once: the next @ goes to files.find straight; an empty one lists nothing.
+    expect(await made.fileSuggestions("app")).toHaveLength(2);
+    expect(await made.fileSuggestions(" ")).toEqual([]);
+    expect(calls).toEqual(["peerChatFileSuggestions", "peerFilesFind", "peerFilesFind"]);
+  });
+
+  test("a refused @ lists nothing", async () => {
+    const { call } = recording("peerChatFileSuggestions");
+    expect(await controller(call).made.fileSuggestions("app")).toEqual([]);
   });
 
   test("its model chip lists the chat's models, the one it runs knowing its efforts", () => {
@@ -271,5 +317,31 @@ describe("the composer of another computer's chat", () => {
       description: "Rename",
       argumentHint: "<title>",
     });
+  });
+});
+
+describe("an @ from a device before 0.13.0", () => {
+  const unix = { root: "/home/me/repo", cwd: "/home/me/repo" };
+  test("names a file of the chat's folder as the workspace's search found it", () => {
+    expect(mentionOf("src/app.ts", unix)).toBe("src/app.ts");
+    expect(mentionOf("src/app.ts", { root: "/home/me/repo/", cwd: "/home/me/repo" })).toBe(
+      "src/app.ts",
+    );
+  });
+
+  test("from a chat in a folder under the workspace's, relative to it, and absolute outside it", () => {
+    const sub = { root: "/home/me/repo", cwd: "/home/me/repo/pkg" };
+    expect(mentionOf("pkg/a.ts", sub)).toBe("a.ts");
+    expect(mentionOf("other/a.ts", sub)).toBe("/home/me/repo/other/a.ts");
+    // A folder whose name only starts with the workspace's is not in it.
+    expect(mentionOf("a.ts", { root: "/home/me/repo", cwd: "/home/me/repo2" })).toBe(
+      "/home/me/repo/a.ts",
+    );
+  });
+
+  test("on Windows, with its separators and its case", () => {
+    const win = { root: "C:\\Users\\me\\repo", cwd: "c:\\users\\me\\repo\\pkg" };
+    expect(mentionOf("pkg/src/a.ts", win)).toBe("src/a.ts");
+    expect(mentionOf("docs/a.md", win)).toBe("C:\\Users\\me\\repo\\docs\\a.md");
   });
 });

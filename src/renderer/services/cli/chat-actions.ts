@@ -752,6 +752,15 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { commands: chatCommandsOf(target.agent, chat.model) };
   },
 
+  "chat.fileSuggestions": async ({ workspaceId, tabId, query }) => {
+    // Asked as the user types: a tab whose program does not run has none,
+    // and is not started for them.
+    const target = agentTabController(workspaceId, tabId);
+    if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+    if (!opened(workspaceId, tabId)) return { paths: [] };
+    return { paths: await target.controller.fileSuggestions(query) };
+  },
+
   "chat.command": async ({ workspaceId, tabId, name, args }) => {
     const target = await openedTab(workspaceId, tabId);
     return runRemoteCommand(workspaceId, tabId, target, name, args?.trim() ?? "");

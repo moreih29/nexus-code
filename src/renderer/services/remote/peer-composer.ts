@@ -5,7 +5,9 @@
 // From 0.12.0 a message goes when its keys say (chat.send `when`), the
 // messages held for after the turn are that device's (panel.held,
 // chat.unqueue), and an unread one is taken back (chat.withdraw) or
-// hurried (chat.hurry). A file's path it does without.
+// hurried (chat.hurry). From 0.13.0 an @ lists what the chat's agent
+// suggests (chat.fileSuggestions); before, the workspace's files by name
+// (files.find). A file's path it does without.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -73,7 +75,38 @@ export interface PeerComposerDeps {
   onRevealed?: (seq: number) => void;
   /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
   can?: () => ChatPanel["can"];
+  /** Its workspace's folder and its own there, for an @ from a device before 0.13.0. */
+  folders?: () => PeerFolders | undefined;
   call?: typeof ipcCallResult;
+}
+
+/** Where another computer's chat runs: its workspace's folder, and its own. */
+export interface PeerFolders {
+  root: string;
+  cwd: string;
+}
+
+/** How many of the workspace's files an @ lists from a device before 0.13.0. */
+const FOUND_FILES = 50;
+
+/**
+ * A path files.find gave (relative to the workspace's folder, "/" between
+ * its parts) as an @ names it in a chat running in `cwd`: relative to that
+ * folder when it is in it, as the agent's own suggestions are, and
+ * absolute when it is not.
+ */
+export function mentionOf(found: string, { root, cwd }: PeerFolders): string {
+  const windows = /^[A-Za-z]:/.test(root) || root.includes("\\");
+  const sep = windows ? "\\" : "/";
+  const trim = (path: string) => path.replace(/[\\/]+$/, "");
+  const base = trim(root);
+  const here = trim(cwd);
+  const same = (a: string, b: string) => (windows ? a.toLowerCase() === b.toLowerCase() : a === b);
+  if (same(here, base)) return found;
+  const inside = same(here.slice(0, base.length), base) && /[\\/]/.test(here.charAt(base.length));
+  const under = inside ? here.slice(base.length + 1).replace(/\\/g, "/") : null;
+  if (under !== null && found.startsWith(`${under}/`)) return found.slice(under.length + 1);
+  return `${base}${sep}${windows ? found.replace(/\//g, "\\") : found}`;
 }
 
 /**
@@ -84,6 +117,26 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   const { ref, agent, filesRefused } = deps;
   const call = deps.call ?? ipcCallResult;
   const can = () => deps.can?.();
+  // A device before 0.13.0 has no chat.fileSuggestions: asked once.
+  let suggests = true;
+  const fileSuggestions = async (query: string): Promise<string[]> => {
+    if (suggests) {
+      const asked = await call("remote", "peerChatFileSuggestions", { ...ref, query });
+      if (asked.ok) return asked.value.paths;
+      if (asked.kind !== "unsupported") return [];
+      suggests = false;
+    }
+    const folders = deps.folders?.();
+    const words = query.trim().slice(0, 256);
+    if (!folders || !words) return [];
+    const found = await call("remote", "peerFilesFind", {
+      deviceId: ref.deviceId,
+      workspaceId: ref.workspaceId,
+      query: words,
+      limit: FOUND_FILES,
+    });
+    return found.ok ? found.value.files.map((file) => mentionOf(file, folders)) : [];
+  };
   const configure = async (change: {
     model?: string;
     effort?: string;
@@ -152,11 +205,12 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     attach: async () => {
       throw new Error(filesRefused);
     },
-    fileSuggestions: async () => [],
+    fileSuggestions,
     supports: (subtype) =>
       subtype === "apply_flag_settings"
         ? (deps.settings()?.options.efforts.length ?? 0) > 0
-        : subtype === "cancel_async_message" && can()?.withdraw === true,
+        : subtype === "file_suggestions" ||
+          (subtype === "cancel_async_message" && can()?.withdraw === true),
     setPermissionMode: (permissionMode) => configure({ permissionMode }),
     setModel: (model) => configure({ model }),
     setEffort: (effort) => configure({ effort }),
@@ -253,10 +307,13 @@ export function usePeerComposer({
   active,
   filesRefused,
   onError,
+  folders,
 }: {
   ref: PeerChatRef;
   agent: "claude" | "codex";
   model: ChatModel;
+  /** Its workspace's folder and its own there. */
+  folders?: PeerFolders;
   /** The chat's side panel as its device last told it: what it lets do, and what it holds. */
   panel?: ChatPanel | null;
   /** The chat is in front and its device in reach: its settings are asked for. */
@@ -302,10 +359,12 @@ export function usePeerComposer({
     settings: ChatSettings | null;
     onError: (message: string) => void;
     can: ChatPanel["can"];
-  }>({ settings: null, onError, can: undefined });
+    folders: PeerFolders | undefined;
+  }>({ settings: null, onError, can: undefined, folders });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
+  held.folders = folders;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -317,6 +376,7 @@ export function usePeerComposer({
         onError: (message) => held.onError(message),
         onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
         can: () => held.can,
+        folders: () => held.folders,
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );

@@ -752,6 +752,14 @@ export interface CliUiOps {
     result: { commands: ChatCommand[] };
   };
   /**
+   * What an @ in a Claude or Codex tab's composer may name for `query`, as
+   * its agent suggests it there; none while its program does not run.
+   */
+  "chat.fileSuggestions": {
+    args: { workspaceId: string; tabId: string; query: string };
+    result: { paths: string[] };
+  };
+  /**
    * Runs one of the app's own commands in a Claude or Codex tab as its
    * composer runs it typed, for the user on another device; what it said,
    * and the tab it opened, when it opened one.

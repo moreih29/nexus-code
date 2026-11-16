@@ -536,6 +536,9 @@ export const MAX_BYTES_CHUNK = 512 * 1024;
 /** Most paths one files.find gives. */
 export const MAX_FIND_RESULTS = 200;
 
+/** Most paths one chat.fileSuggestions gives. */
+export const MAX_FILE_SUGGESTIONS = 100;
+
 /** Most matches one files.search gives, all files together. */
 export const MAX_SEARCH_MATCHES = 1000;
 
@@ -910,6 +913,18 @@ export const RPC_METHODS = {
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
     result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+  },
+  /**
+   * What an @ in the chat's composer may name for `query`, as its agent
+   * suggests it for its own composer: paths relative to the chat's folder,
+   * or absolute, with the separators of its computer; a folder's ends in
+   * one. At most MAX_FILE_SUGGESTIONS; none while its program does not
+   * run. Since 0.13.0.
+   */
+  "chat.fileSuggestions": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, query: z.string().max(256) }),
+    result: z.object({ paths: z.array(z.string()).max(MAX_FILE_SUGGESTIONS) }),
   },
   /**
    * Takes back a message held for after the turn (panel.held), with its

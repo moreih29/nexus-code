@@ -771,6 +771,7 @@ function RemoteControls({
     active: visible,
     filesRefused: t("agentView.remote.filesRefused"),
     onError,
+    folders: { root: target.path, cwd: target.cwd ?? target.path },
   });
   /** Runs a control; the watch shows what it did, and a refusal is told. */
   const control = async (sent: Promise<IpcResult<unknown>>) => {

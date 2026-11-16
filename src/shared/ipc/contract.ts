@@ -2520,6 +2520,13 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.commands"].params),
         RPC_METHODS["chat.commands"].result,
       ),
+      /** What an @ in another device's chat's composer may name. */
+      peerChatFileSuggestions: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.fileSuggestions"].params),
+        RPC_METHODS["chat.fileSuggestions"].result,
+      ),
       /** Runs one of the app's commands in another device's chat, as the user. */
       peerChatCommand: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
@@ -2553,6 +2560,11 @@ export const ipcContract = {
       peerFilesList: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.list"].params),
         RPC_METHODS["files.list"].result,
+      ),
+      /** Files of another device's workspace by name: an @ in its chat's composer, before 0.13.0. */
+      peerFilesFind: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.find"].params),
+        RPC_METHODS["files.find"].result,
       ),
       /** A file of another device's workspace, as its chats name it. */
       peerFilesRead: call(
