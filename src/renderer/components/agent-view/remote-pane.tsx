@@ -57,7 +57,7 @@ import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
-import { Composer, composerHint } from "../chat/composer";
+import { Composer, composerHint, composerKeys } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
 import {
   type CallReveal,
@@ -1100,7 +1100,12 @@ function RemoteControls({
             : model.running
               ? // During a turn, what each key does with the message, as a chat here says.
                 composerHint(t, true, target.kind === "codex" ? "codex" : "claude")
-              : t("agentView.remote.placeholder", { device: target.deviceName })
+              : // As a chat here says it, and which computer it goes to.
+                t("agentView.remote.placeholder", {
+                  device: target.deviceName,
+                  ...composerKeys(),
+                  ...(target.kind === "codex" ? { context: "codex" } : {}),
+                })
         }
         above={
           resumeQuery !== null ? (
