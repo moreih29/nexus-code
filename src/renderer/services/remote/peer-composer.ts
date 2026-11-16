@@ -4,22 +4,37 @@
 // chat.commands, chat.command), and an image goes ahead with chat.attach.
 // From 0.12.0 a message goes when its keys say (chat.send `when`), the
 // messages held for after the turn are that device's (panel.held,
-// chat.unqueue), and an unread one is taken back (chat.withdraw) or
-// hurried (chat.hurry). A file's path it does without.
+// chat.unqueue, their images read back with chat.image from 0.13.0), and
+// an unread one is taken back (chat.withdraw) or hurried (chat.hurry).
+// From 0.13.0 an @ lists what the chat's agent suggests
+// (chat.fileSuggestions); before, the workspace's files by name
+// (files.find). A file other than an image goes ahead with chat.upload
+// (0.10.0), and the chat's device puts its path after the message.
 
+import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ChatCommand,
   type ChatPanel,
   type ChatSettings,
   MAX_ATTACHMENT_BYTES,
+  MAX_ATTACHMENTS,
+  MAX_BYTES_CHUNK,
 } from "../../../../packages/remote-protocol/src";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import type { ComposerController } from "../../components/chat/composer";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
-import type { ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
+import { copyText } from "../../utils/clipboard";
+import {
+  type AppCommand,
+  copyIndex,
+  nthAnswer,
+  RESTART_AFTER,
+  terminalCommandOf,
+} from "../chat/app-commands";
+import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,
   type CommandCard,
@@ -27,7 +42,9 @@ import {
   type QueuedMessage,
   type RevealPart,
 } from "../chat/store";
+import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
+import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
 import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
 /** The chat, by the device it runs on and its tab there. */
@@ -65,7 +82,7 @@ export interface PeerComposerDeps {
   /** What the chat runs with, as chat.settings or chat.configure last said; null before. */
   settings: () => ChatSettings | null;
   onSettings: (settings: ChatSettings) => void;
-  /** What a file the user picked says when it cannot go: only images do. */
+  /** What a file the user picked says when it cannot go: only images do, before 0.10.0. */
   filesRefused: string;
   /** A message sent during a turn that did not go: the box was emptied already. */
   onError?: (message: string) => void;
@@ -73,7 +90,40 @@ export interface PeerComposerDeps {
   onRevealed?: (seq: number) => void;
   /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
   can?: () => ChatPanel["can"];
+  /** The messages the chat's device holds for after the turn (panel.held). */
+  held?: () => ChatPanel["held"];
+  /** Its workspace's folder and its own there, for an @ from a device before 0.13.0. */
+  folders?: () => PeerFolders | undefined;
   call?: typeof ipcCallResult;
+}
+
+/** Where another computer's chat runs: its workspace's folder, and its own. */
+export interface PeerFolders {
+  root: string;
+  cwd: string;
+}
+
+/** How many of the workspace's files an @ lists from a device before 0.13.0. */
+const FOUND_FILES = 50;
+
+/**
+ * A path files.find gave (relative to the workspace's folder, "/" between
+ * its parts) as an @ names it in a chat running in `cwd`: relative to that
+ * folder when it is in it, as the agent's own suggestions are, and
+ * absolute when it is not.
+ */
+export function mentionOf(found: string, { root, cwd }: PeerFolders): string {
+  const windows = /^[A-Za-z]:/.test(root) || root.includes("\\");
+  const sep = windows ? "\\" : "/";
+  const trim = (path: string) => path.replace(/[\\/]+$/, "");
+  const base = trim(root);
+  const here = trim(cwd);
+  const same = (a: string, b: string) => (windows ? a.toLowerCase() === b.toLowerCase() : a === b);
+  if (same(here, base)) return found;
+  const inside = same(here.slice(0, base.length), base) && /[\\/]/.test(here.charAt(base.length));
+  const under = inside ? here.slice(base.length + 1).replace(/\\/g, "/") : null;
+  if (under !== null && found.startsWith(`${under}/`)) return found.slice(under.length + 1);
+  return `${base}${sep}${windows ? found.replace(/\//g, "\\") : found}`;
 }
 
 /**
@@ -84,6 +134,54 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   const { ref, agent, filesRefused } = deps;
   const call = deps.call ?? ipcCallResult;
   const can = () => deps.can?.();
+  /** A file sent ahead in pieces (chat.upload): its id for chat.send. */
+  const upload = async (file: File): Promise<string> => {
+    const begun = await call("remote", "peerChatUploadBegin", {
+      ...ref,
+      name: file.name.slice(-255) || "file",
+      size: file.size,
+      ...(file.type ? { mediaType: file.type.slice(0, 255) } : {}),
+    });
+    if (!begun.ok) throw new Error(begun.kind === "unsupported" ? filesRefused : begun.message);
+    const { uploadId } = begun.value;
+    for (let offset = 0; offset < file.size; offset += MAX_BYTES_CHUNK) {
+      const piece = new Uint8Array(
+        await file.slice(offset, offset + MAX_BYTES_CHUNK).arrayBuffer(),
+      );
+      await answerOf(
+        call("remote", "peerChatUploadChunk", {
+          deviceId: ref.deviceId,
+          uploadId,
+          offset,
+          data: bytesToBase64(piece),
+        }),
+      );
+    }
+    const ended = await answerOf(
+      call("remote", "peerChatUploadEnd", { deviceId: ref.deviceId, uploadId }),
+    );
+    return ended.attachmentId;
+  };
+  // A device before 0.13.0 has no chat.fileSuggestions: asked once.
+  let suggests = true;
+  const fileSuggestions = async (query: string): Promise<string[]> => {
+    if (suggests) {
+      const asked = await call("remote", "peerChatFileSuggestions", { ...ref, query });
+      if (asked.ok) return asked.value.paths;
+      if (asked.kind !== "unsupported") return [];
+      suggests = false;
+    }
+    const folders = deps.folders?.();
+    const words = query.trim().slice(0, 256);
+    if (!folders || !words) return [];
+    const found = await call("remote", "peerFilesFind", {
+      deviceId: ref.deviceId,
+      workspaceId: ref.workspaceId,
+      query: words,
+      limit: FOUND_FILES,
+    });
+    return found.ok ? found.value.files.map((file) => mentionOf(file, folders)) : [];
+  };
   const configure = async (change: {
     model?: string;
     effort?: string;
@@ -94,6 +192,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
   const send = async (
     text: string,
     images: ImageBlock[] = [],
+    uploads: readonly string[] = [],
     when?: "now" | "after",
   ): Promise<void> => {
     const attachments: string[] = [];
@@ -108,6 +207,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       );
       attachments.push(attachmentId);
     }
+    attachments.push(...uploads);
     await answerOf(
       call("remote", "peerChatSend", {
         ...ref,
@@ -127,7 +227,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     ...(agent === "claude"
       ? {
           sendNow: (text: string, images?: ImageBlock[]) =>
-            send(text, images, can()?.now ? "now" : undefined),
+            send(text, images, [], can()?.now ? "now" : undefined),
           readHeldNow: async () => {
             if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
           },
@@ -137,26 +237,44 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
         }
       : {}),
     enqueue: (text, images) => {
-      void send(text, images, "after").catch(tell);
+      void send(text, images, [], "after").catch(tell);
     },
     removeQueued: (id) => {
       void answerOf(call("remote", "peerChatUnqueue", { ...ref, id })).catch(tell);
       return undefined;
     },
     takeBackQueued: async (id): Promise<QueuedMessage> => {
+      // Its images read first: once it is taken back, that device has them no more.
+      const count = deps.held?.()?.find((item) => item.id === id)?.images ?? 0;
+      const images = await heldImagesOf(call, ref, id, count);
       const { text } = await answerOf(call("remote", "peerChatUnqueue", { ...ref, id }));
-      return { id, text, images: [] };
+      return { id, text, images };
     },
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
     clearDraft: () => clearPeerDraft(ref),
+    // Its files go ahead as uploads, not to a path here.
     attach: async () => {
       throw new Error(filesRefused);
     },
-    fileSuggestions: async () => [],
+    upload,
+    sendUploaded: (how, text, images, uploads) =>
+      send(
+        text,
+        images,
+        uploads,
+        how === "queue"
+          ? "after"
+          : how === "now" && agent === "claude" && can()?.now
+            ? "now"
+            : undefined,
+      ),
+    maxAttachments: MAX_ATTACHMENTS,
+    fileSuggestions,
     supports: (subtype) =>
       subtype === "apply_flag_settings"
         ? (deps.settings()?.options.efforts.length ?? 0) > 0
-        : subtype === "cancel_async_message" && can()?.withdraw === true,
+        : subtype === "file_suggestions" ||
+          (subtype === "cancel_async_message" && can()?.withdraw === true),
     setPermissionMode: (permissionMode) => configure({ permissionMode }),
     setModel: (model) => configure({ model }),
     setEffort: (effort) => configure({ effort }),
@@ -167,14 +285,40 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
 /**
  * The messages the chat's device holds for after the turn, as the queue
  * above the box shows them: a text cut short ends in an ellipsis, and its
- * images stay there (taking one back gives its whole text, not them).
+ * images stay there until one is taken back (chat.image's held refs).
  */
 export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
   return (held ?? []).map((item) => ({
     id: item.id,
     text: item.truncated ? `${item.text}…` : item.text,
-    images: [],
+    images: Array.from({ length: item.images ?? 0 }, (_, index) => ({
+      mediaType: "",
+      data: "",
+      remote: { kind: "held" as const, id: item.id, index },
+    })),
   }));
+}
+
+/**
+ * A held message's images, read whole from the chat's device for the box
+ * here; one it cannot give (a device before 0.13.0) is left out.
+ */
+export async function heldImagesOf(
+  call: typeof ipcCallResult,
+  ref: PeerChatRef,
+  id: string,
+  count: number,
+): Promise<ImageBlock[]> {
+  const read = await Promise.all(
+    Array.from({ length: count }, async (_, index): Promise<ImageBlock | null> => {
+      const result = await call("remote", "peerChatImage", {
+        ...ref,
+        ref: { kind: "held", id, index },
+      });
+      return result.ok ? { mediaType: result.value.mediaType, data: result.value.data } : null;
+    }),
+  );
+  return read.filter((image): image is ImageBlock => image !== null);
 }
 
 /** The models the chip offers: the chat's, its own one knowing its effort levels. */
@@ -223,11 +367,60 @@ export function commandOf(
   if (!match) return null;
   const [, name, rest] = match;
   const args = rest?.trim() || undefined;
-  const command = commands.find((c) => c.name === name);
+  const typed = name?.toLowerCase();
+  const command =
+    commands.find((c) => c.name === name) ??
+    commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === typed));
   if (!command || command.runs === "send") return null;
-  if (command.runs === "command") return { kind: "command", name, ...(args ? { args } : {}) };
+  if (command.runs === "command") {
+    return { kind: "command", name: command.name, ...(args ? { args } : {}) };
+  }
   if (!command.sets) return null;
   return { kind: "set", sets: command.sets, ...(args ? { value: args } : {}) };
+}
+
+/** What the app's commands another computer's chat runs here need. */
+const NO_COMMANDS: readonly AppCommand[] = [];
+
+export interface HereCommandDeps {
+  /** The conversation as this app shows it, for /copy. */
+  items: () => readonly ChatItem[];
+  /** /diff: the files the chat changed, in its side panel; or a card of them, where it has none. */
+  showChanges: () => Pick<CommandCard, "sections"> | undefined;
+  /** /status: what this app shows of the chat, as Markdown lines. */
+  status?: () => string;
+  openUrl: (url: string) => void;
+  /**
+   * Where that computer lets this one type into its terminals: a command
+   * that runs in a terminal (/login, /update…) runs in one of its, shown
+   * here; and its program started again after, where it can be.
+   */
+  terminal?: { run: (line: string) => void; restart?: () => void };
+  /** /exit: its tab there closed, once the user says so, its session kept. */
+  exit?: () => void;
+}
+
+/** A command's description, as its tab's help writes it. */
+function describe(agent: "claude" | "codex", name: string): string {
+  return i18next.t(
+    agent === "claude" ? `chat.commands.describe.${name}` : `chat.codex.commands.describe.${name}`,
+  );
+}
+
+/** /help for another computer's chat: the app's commands it runs, there or here, as a tab's lists its own. */
+export function helpText(
+  agent: "claude" | "codex",
+  commands: readonly ChatCommand[],
+  hereNames: readonly string[],
+): string {
+  const lines = [
+    ...commands.filter((c) => c.runs === "command").map((c) => [c.name, c.args, c.description]),
+    ...hereNames.map((name) => [name, undefined, describe(agent, name)]),
+  ].map(([name, args, description]) => `- \`/${name}${args ? ` ${args}` : ""}\` — ${description}`);
+  const intro = i18next.t(
+    agent === "claude" ? "chat.commands.help_intro" : "chat.codex.commands.help_intro",
+  );
+  return `${intro}\n\n${lines.join("\n")}`;
 }
 
 export interface PeerComposer {
@@ -253,16 +446,31 @@ export function usePeerComposer({
   active,
   filesRefused,
   onError,
+  folders,
+  here,
+  paneCommands = NO_COMMANDS,
+  onOpened,
 }: {
   ref: PeerChatRef;
   agent: "claude" | "codex";
   model: ChatModel;
+  /** Its workspace's folder and its own there. */
+  folders?: PeerFolders;
   /** The chat's side panel as its device last told it: what it lets do, and what it holds. */
   panel?: ChatPanel | null;
   /** The chat is in front and its device in reach: its settings are asked for. */
   active: boolean;
   filesRefused: string;
   onError: (message: string) => void;
+  /** What the app's commands that run here for the chat need (/copy, /diff, /help…). */
+  here?: HereCommandDeps;
+  /** The commands the pane runs itself (/resume, a Codex chat's /config), for the picker. */
+  paneCommands?: readonly AppCommand[];
+  /**
+   * A command opened a tab there (/fork, /branch): its id, and what goes in
+   * its box (/fork's prompt), for the pane to show it as a chat here does.
+   */
+  onOpened?: (tabId: string, draft?: string) => void;
 }): PeerComposer {
   const { deviceId, workspaceId, tabId } = ref;
   const [settings, setSettings] = useState<ChatSettings | null>(null);
@@ -302,10 +510,18 @@ export function usePeerComposer({
     settings: ChatSettings | null;
     onError: (message: string) => void;
     can: ChatPanel["can"];
-  }>({ settings: null, onError, can: undefined });
+    queued: ChatPanel["held"];
+    folders: PeerFolders | undefined;
+    here: HereCommandDeps | undefined;
+    onOpened: ((tabId: string, draft?: string) => void) | undefined;
+  }>({ settings: null, onError, can: undefined, queued: undefined, folders, here, onOpened });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
+  held.queued = panel?.held;
+  held.folders = folders;
+  held.here = here;
+  held.onOpened = onOpened;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -317,6 +533,8 @@ export function usePeerComposer({
         onError: (message) => held.onError(message),
         onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
         can: () => held.can,
+        held: () => held.queued,
+        folders: () => held.folders,
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );
@@ -325,8 +543,116 @@ export function usePeerComposer({
   const cards = useRef(0);
   const closeCard = useCallback(() => setCard(undefined), []);
 
+  const terminal = Boolean(here?.terminal);
+  const hereCommands = useMemo(
+    () => hereCommandsOf(agent, commands, terminal),
+    [agent, commands, terminal],
+  );
+  /** One of the app's commands that runs here, as the chat's tab runs it there. */
+  const runHere = useCallback(
+    (name: string, args: string, title: string, deps: HereCommandDeps) => {
+      const t = i18next.t.bind(i18next);
+      const link = hereLinkOf(name);
+      if (link) {
+        deps.openUrl(link);
+        return;
+      }
+      if (terminalCommandOf(name, args) && deps.terminal) {
+        const line = inTerminalLineOf(name, args);
+        if (line === null) {
+          showToast({ kind: "warning", message: t("agentView.remote.terminalArgument") });
+          return;
+        }
+        deps.terminal.run(line);
+        const restart = deps.terminal.restart;
+        cards.current += 1;
+        const id = `peer-card-${cards.current}`;
+        setCard({
+          id,
+          title,
+          text: t("chat.commands.in_terminal", { command: line }),
+          ...(RESTART_AFTER.has(name) && restart
+            ? {
+                sections: [
+                  {
+                    title: t("chat.commands.restart_after"),
+                    empty: "",
+                    rows: [
+                      {
+                        id: "restart",
+                        label: t("chat.commands.restart_hint"),
+                        actions: [
+                          {
+                            label: t("chat.commands.restart"),
+                            run: () => {
+                              setCard((now) => (now?.id === id ? undefined : now));
+                              restart();
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        });
+        return;
+      }
+      switch (name) {
+        case "copy": {
+          const n = copyIndex(args);
+          const answer = n === null ? null : nthAnswer(deps.items(), n);
+          if (answer === null) {
+            showToast({ kind: "warning", message: t("chat.commands.copy_none") });
+            return;
+          }
+          copyText(answer);
+          showToast({ kind: "info", message: t("chat.commands.copied") });
+          return;
+        }
+        case "diff": {
+          const shown = deps.showChanges();
+          if (!shown) return;
+          cards.current += 1;
+          setCard({ id: `peer-card-${cards.current}`, title, ...shown });
+          return;
+        }
+        case "exit":
+          deps.exit?.();
+          return;
+        case "status": {
+          if (!deps.status) return;
+          cards.current += 1;
+          setCard({ id: `peer-card-${cards.current}`, title, text: deps.status() });
+          return;
+        }
+        case "help":
+          cards.current += 1;
+          setCard({
+            id: `peer-card-${cards.current}`,
+            title,
+            text: helpText(
+              agent,
+              commands,
+              hereCommands.map((c) => c.name),
+            ),
+          });
+          return;
+      }
+    },
+    [agent, commands, hereCommands],
+  );
+
   const onCommand = useCallback(
     (text: string): boolean => {
+      const ran = held.here
+        ? hereCommandOf(agent, commands, text, Boolean(held.here.terminal))
+        : null;
+      if (ran && held.here) {
+        runHere(ran.name, ran.args, text.trim(), held.here);
+        return true;
+      }
       const found = commandOf(commands, text);
       if (!found) return false;
       if (found.kind === "command") {
@@ -352,8 +678,12 @@ export function usePeerComposer({
         ).then(
           (said) => {
             clearTimeout(timer);
+            if (said.tabId) {
+              held.onOpened?.(said.tabId, found.name === "fork" ? found.args : undefined);
+            }
             const message = said.message;
-            if (message && answerInCard(message, waited)) {
+            // As its tab shows it there, from 0.13.0; before, by how long and how fast it is.
+            if (message && (said.card ?? answerInCard(message, waited))) {
               fill({ id, title, text: message });
               return;
             }
@@ -385,7 +715,7 @@ export function usePeerComposer({
       ).then(setSettings, (error: Error) => onError(error.message));
       return true;
     },
-    [commands, deviceId, workspaceId, tabId, onError],
+    [agent, commands, deviceId, workspaceId, tabId, onError, held, runHere],
   );
 
   // A message rewound or forked there, back in this composer.
@@ -402,6 +732,25 @@ export function usePeerComposer({
     }),
     [model, settings, reveal, draft, queue],
   );
-  const infos = useMemo(() => commandInfosOf(commands), [commands]);
+  const infos = useMemo(
+    () => [
+      ...commandInfosOf(commands),
+      ...(here
+        ? hereCommands.map((c) => ({
+            name: c.name,
+            description: describe(agent, c.name),
+            ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+          }))
+        : []),
+      ...paneCommands
+        .filter((c) => !commands.some((listed) => listed.name === c.name))
+        .map((c) => ({
+          name: c.name,
+          description: describe(agent, c.name),
+          ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+        })),
+    ],
+    [agent, commands, hereCommands, here, paneCommands],
+  );
   return { controller, state, commands: infos, onCommand, card, closeCard };
 }

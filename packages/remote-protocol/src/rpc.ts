@@ -136,6 +136,71 @@ export const MAX_SESSION_AGENTS = 8;
 /** Longest an agent's description is, in characters. */
 export const MAX_AGENT_DESCRIPTION = 120;
 
+/** Most `claude -p` and `codex exec` runs chat.runs tells. */
+export const MAX_CHAT_RUNS = 20;
+/** Longest a run's prompt, answer or message is told, in characters. */
+export const MAX_RUN_TEXT = 16_000;
+
+const RunStateSchema = z.enum(["running", "permissionPending", "completed", "stopped", "failed"]);
+
+/**
+ * A `claude -p` or `codex exec` run a chat's session started, as the
+ * serving app recorded it and its chat shows it beside its subagents: as
+ * chat.runs lists it, what its row shows; chat.run tells its tools,
+ * messages and answer too.
+ */
+export const ChatRunSchema = z.object({
+  id: z.string().max(200),
+  /** "codex" for a `codex exec` run; absent for `claude -p`. */
+  program: z.enum(["claude", "codex"]).optional(),
+  /** Where its model is served when not by its program's own API: the gateway's host. */
+  endpoint: z.string().max(200).optional(),
+  model: z.string().max(200).optional(),
+  description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
+  /** What it was asked: its start, as chat.runs tells it; all of it (to MAX_RUN_TEXT) from chat.run. */
+  prompt: z.string().max(MAX_RUN_TEXT).optional(),
+  start: z.number(),
+  end: z.number().optional(),
+  state: RunStateSchema,
+  toolCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  /** Whether its tools are told (its output is a stream of events). */
+  toolsTold: z.boolean().optional(),
+  exitCode: z.number().int().optional(),
+  /** Its session's id, which chat.resume goes on with in a tab of its own. */
+  sessionId: z.string().max(200).optional(),
+  /** The tool it runs now, as "Bash npm test"; from chat.runs. */
+  current: z.string().max(200).optional(),
+  /** What it wrote last: its answer once it ended; its start, from chat.runs. */
+  last: z.string().max(MAX_RUN_TEXT).optional(),
+  /** Its latest tools, oldest first; from chat.run. */
+  tools: z
+    .array(
+      z.object({
+        id: z.string().max(200),
+        name: z.string().max(200),
+        target: z.string().max(2000).optional(),
+        note: z.string().max(2000).optional(),
+        start: z.number(),
+        end: z.number().optional(),
+        failed: z.boolean().optional(),
+        error: z.string().max(2000).optional(),
+        background: z.boolean().optional(),
+        denied: z.boolean().optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  /** Its latest messages, oldest first; from chat.run. */
+  messages: z
+    .array(z.object({ at: z.number(), text: z.string().max(MAX_RUN_TEXT) }))
+    .max(20)
+    .optional(),
+  /** Its answer, once it ended; from chat.run. */
+  answer: z.string().max(MAX_RUN_TEXT).optional(),
+});
+export type ChatRun = z.infer<typeof ChatRunSchema>;
+
 /**
  * An agent a session runs beside its turn, as the serving app's agent list
  * shows it under the session's row: a subagent of its Claude Code, or a
@@ -314,6 +379,13 @@ export const AgentSenderSchema = z.object({
   tabId: z.string().min(1).max(100),
   /** Its tab's title, as the receiver shows the sender. */
   name: z.string().max(200).optional(),
+  /**
+   * With chat.send: whether the sender waits for the answer (chat send
+   * --wait), and so reads what the agent answers in its tab, or sent and
+   * went on, and is to be written back to. Since 0.13.0; an older device
+   * leaves it out, and the agent is told the sender may be waiting.
+   */
+  waits: z.boolean().optional(),
 });
 export type AgentSender = z.infer<typeof AgentSenderSchema>;
 
@@ -472,8 +544,54 @@ export const ChatCommandSchema = z.object({
   sets: z.enum(["model", "effort", "permissionMode"]).optional(),
   /** What it takes after its name, as its help writes it ("<condition>"). */
   args: z.string().optional(),
+  /** Other names it is typed by ("bg" for "background"). Since 0.13.0. */
+  aliases: z.array(z.string()).optional(),
 });
 export type ChatCommand = z.infer<typeof ChatCommandSchema>;
+
+/** A value of a Claude Code setting (/config): on or off, a choice, or text. */
+const ConfigValueSchema = z.union([z.boolean(), z.string().max(1000)]);
+
+/**
+ * A Claude chat's Claude Code settings (/config), as its settings dialog
+ * shows them: each key in the dialog's order, its group, what it takes and
+ * what it is now (none when no setting says); the models the model takes
+ * and the output styles; the model the session runs; and the default
+ * effort the settings give each model (`efforts`, by its id; `level` the
+ * one for any), none when that program cannot save one. A Codex chat's
+ * defaults (its /config): one key, `model`, the model a new conversation
+ * starts with, a choice of `models`; and `efforts.level` its reasoning
+ * effort. Since 0.13.0.
+ */
+export const ChatConfigSchema = z.object({
+  keys: z
+    .array(
+      z.object({
+        key: z.string(),
+        group: z.enum(["conversation", "work", "other"]),
+        kind: z.enum(["boolean", "choice", "text"]),
+        options: z.array(z.string()).optional(),
+        value: ConfigValueSchema.optional(),
+      }),
+    )
+    .max(200),
+  model: z.string().optional(),
+  models: z
+    .array(
+      z.object({
+        value: z.string(),
+        displayName: z.string().optional(),
+        resolvedModel: z.string().optional(),
+        supportedEffortLevels: z.array(z.string()).optional(),
+      }),
+    )
+    .max(100),
+  outputStyles: z.array(z.string()).max(100).optional(),
+  efforts: z
+    .object({ level: z.string().optional(), byModel: z.record(z.string(), z.string()) })
+    .optional(),
+});
+export type ChatConfig = z.infer<typeof ChatConfigSchema>;
 
 /** A chat of the past that can be resumed: Claude Code's sessions, Codex's threads. */
 export const PastSessionSchema = z.object({
@@ -528,6 +646,9 @@ export const MAX_BYTES_CHUNK = 512 * 1024;
 
 /** Most paths one files.find gives. */
 export const MAX_FIND_RESULTS = 200;
+
+/** Most paths one chat.fileSuggestions gives. */
+export const MAX_FILE_SUGGESTIONS = 100;
 
 /** Most matches one files.search gives, all files together. */
 export const MAX_SEARCH_MATCHES = 1000;
@@ -834,6 +955,18 @@ export const RPC_METHODS = {
     result: ViewToolCallSchema,
   },
   /**
+   * A file the chat changed as it was before its first change, for its
+   * diff (`path` as its changes name it): null for one it wrote new.
+   * NotFound when it is not kept (the change did not report it, or the
+   * file is not one the chat changed); Unavailable when too large to send.
+   * Since 0.13.0.
+   */
+  "chat.original": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, path: z.string().min(1).max(4096) }),
+    result: z.object({ before: z.string().nullable() }),
+  },
+  /**
    * Waits up to `timeoutMs` (at most MAX_WAIT_MS) for the chat to be done
    * with its turn: no longer working (asking, idle, error, or closed). Ask
    * again while `done` is false. `after`: a chat.send's `at`, so a message
@@ -856,7 +989,8 @@ export const RPC_METHODS = {
   },
   /**
    * An image of the chat, made small enough for a frame: a user message's
-   * (by its item's key and the image's index) or a tool result's. With
+   * (by its item's key and the image's index), a tool result's, or (since
+   * 0.13.0) a message's held for after the turn (panel.held, by its id). With
    * `maxEdge`, drawn smaller (as a JPEG) till its longer side is at most
    * that many pixels, for a thumbnail; one already that small goes as it is.
    */
@@ -875,6 +1009,11 @@ export const RPC_METHODS = {
         z.object({
           kind: z.literal("tool"),
           toolUseId: z.string(),
+          index: z.number().int().nonnegative(),
+        }),
+        z.object({
+          kind: z.literal("held"),
+          id: z.string(),
           index: z.number().int().nonnegative(),
         }),
       ]),
@@ -921,6 +1060,18 @@ export const RPC_METHODS = {
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
     result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+  },
+  /**
+   * What an @ in the chat's composer may name for `query`, as its agent
+   * suggests it for its own composer: paths relative to the chat's folder,
+   * or absolute, with the separators of its computer; a folder's ends in
+   * one. At most MAX_FILE_SUGGESTIONS; none while its program does not
+   * run. Since 0.13.0.
+   */
+  "chat.fileSuggestions": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, query: z.string().max(256) }),
+    result: z.object({ paths: z.array(z.string()).max(MAX_FILE_SUGGESTIONS) }),
   },
   /**
    * Takes back a message held for after the turn (panel.held), with its
@@ -1045,6 +1196,13 @@ export const RPC_METHODS = {
        * ("always allow"). Refused from an agent (`from`), as allowAlways is.
        */
       always: z.array(z.number().int().nonnegative()).optional(),
+      /**
+       * With allow of a plan (ExitPlanMode): the permission mode the chat
+       * goes on in, as the plan card's approvals set it (edits allowed, or
+       * each asked). Refused from an agent (`from`), as `always` is. Since
+       * 0.13.0.
+       */
+      planMode: z.enum(["acceptEdits", "default"]).optional(),
       from: AgentSenderSchema.optional(),
     }),
     result: Ok,
@@ -1053,6 +1211,30 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({ ...TabRef, from: AgentSenderSchema.optional() }),
     result: Ok,
+  },
+  /**
+   * Starts a chat's program again, as its banner there does: going on with
+   * the session once it ended (`phase` ended), or opening it again where it
+   * failed or its session was not found; and one that runs (`phase` ready)
+   * again on its session, as the card after /login or /update offers, a
+   * turn under way stopping. Only the user's: an agent does not send it.
+   * Since 0.13.0.
+   */
+  "chat.restart": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: Ok,
+  },
+  /**
+   * Asks a Codex chat's program again whether it is signed in, as its
+   * signed-out banner's "check again" does once the user signed in there
+   * (status `signedOut`); whether it still is not. Only the user's: an
+   * agent does not send it. Since 0.13.0.
+   */
+  "chat.checkSignIn": {
+    capability: "chat.control",
+    params: z.object(TabRef),
+    result: z.object({ signedOut: z.boolean() }),
   },
   /**
    * Sets any of model, effort and permission mode, as the composer's chips
@@ -1075,10 +1257,12 @@ export const RPC_METHODS = {
    * (profiles.list, by id or name), as its profile chip does: its
    * conversation goes on there, or, `fresh`, a new one starts there. The
    * profiles' names, the one it ran with and the one it runs with now.
-   * Refused (Unavailable) while it works or waits on the user, or when it
-   * runs with that profile already; a profile its agent does not have is
-   * InvalidParams. Only the user's: an agent does not send it. The
-   * session's `profile` (sessions.list, sessions.watch) follows. From 0.10.0.
+   * Refused (Unavailable) while it works or waits on the user, unless
+   * `stop` (since 0.13.0, when its panel's `can.moveNow`): its turn stops
+   * then, as its chip there does. Refused too when it runs with that
+   * profile already; a profile its agent does not have is InvalidParams.
+   * Only the user's: an agent does not send it. The session's `profile`
+   * (sessions.list, sessions.watch) follows. From 0.10.0.
    */
   "chat.profile": {
     capability: "chat.control",
@@ -1086,8 +1270,54 @@ export const RPC_METHODS = {
       ...TabRef,
       profile: z.string().min(1).max(100),
       fresh: z.boolean().optional(),
+      stop: z.boolean().optional(),
     }),
     result: z.object({ from: z.string(), to: z.string() }),
+  },
+  /**
+   * A Claude chat's Claude Code settings (/config), as its settings dialog
+   * there has them: without `set`, what they are now (`config`); with it,
+   * the changes saved as that dialog saves them (/config messages), and a
+   * new default effort for the model the session then runs. Not while the
+   * chat is working. A Codex chat's defaults the same way: `changes.model`
+   * and `effort`, saved in its config, and the chat then runs them. Only
+   * the user's: an agent does not send it. Since 0.13.0.
+   */
+  "chat.config": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      set: z
+        .object({
+          changes: z.record(z.string().max(100), ConfigValueSchema),
+          effort: z.string().max(50).optional(),
+        })
+        .optional(),
+    }),
+    result: z.object({ config: ChatConfigSchema.optional() }),
+  },
+  /**
+   * Works one of a Claude chat's MCP servers as its panel there does (its
+   * panel's `can.mcp`): connects it again, or turns it on or off. A
+   * sign-in is the asking device's, its browser's: `signIn` with the
+   * address its sign-in page comes back to on that device (a loopback
+   * one) gives the page to open (`authUrl`; none when signed in already,
+   * connected again then), and when the page comes back there (`back`),
+   * `signedIn` with the address it came back to finishes it. Only the
+   * user's: an agent does not send it. Since 0.13.0.
+   */
+  "chat.mcp": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      server: z.string().min(1).max(200),
+      action: z.enum(["reconnect", "enable", "disable", "signIn", "signedIn"]),
+      /** `signIn`'s: where the sign-in page comes back to on the asking device. */
+      redirectUri: z.string().max(2048).optional(),
+      /** `signedIn`'s: the address the page came back to there. */
+      callbackUrl: z.string().max(16_384).optional(),
+    }),
+    result: z.object({ authUrl: z.string().optional(), back: z.boolean().optional() }),
   },
   /** Runs one of the app's slash commands (chat.commands' `command` ones), `args` after its name. */
   "chat.command": {
@@ -1100,6 +1330,11 @@ export const RPC_METHODS = {
     result: z.object({
       /** What it said, when it says something rather than changing the chat. */
       message: z.string().optional(),
+      /**
+       * The message is what its card says, which its tab shows over the
+       * composer; false, what a toast says. Since 0.13.0.
+       */
+      card: z.boolean().optional(),
       /** The tab it opened, when it opened one. */
       tabId: z.string().optional(),
     }),
@@ -1109,6 +1344,31 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({ ...TabRef, taskId: z.string() }),
     result: Ok,
+  },
+  /**
+   * The `claude -p` and `codex exec` runs the chat's session started, as
+   * its chat shows them among its agents: running ones, then those that
+   * ended, latest first, at most MAX_CHAT_RUNS. Since 0.13.0.
+   */
+  "chat.runs": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef }),
+    result: z.object({ runs: z.array(ChatRunSchema).max(MAX_CHAT_RUNS) }),
+  },
+  /** One of the chat's runs, with its tools, messages and answer; NotFound once it is not kept. Since 0.13.0. */
+  "chat.run": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, runId: z.string().max(200) }),
+    result: z.object({ run: ChatRunSchema }),
+  },
+  /**
+   * Stops one of the chat's running runs, as its pane's stop button does:
+   * `stopped` false when it no longer could be. Since 0.13.0.
+   */
+  "chat.stopRun": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, runId: z.string().max(200) }),
+    result: z.object({ stopped: z.boolean() }),
   },
   "chat.rename": {
     capability: "chat.control",

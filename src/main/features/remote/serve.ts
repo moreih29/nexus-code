@@ -8,7 +8,11 @@ import { posix, win32 } from "node:path";
 import {
   type AgentSender,
   type Capability,
+  type ChatRun,
   MAX_AGENT_DESCRIPTION,
+  MAX_CHAT_RUNS,
+  MAX_FILE_SUGGESTIONS,
+  MAX_RUN_TEXT,
   MAX_SESSION_AGENTS,
   type RemoteSession,
   type RemoteSessionAgent,
@@ -564,6 +568,7 @@ export async function answerChat(
     updatedInput,
     stop,
     always,
+    planMode,
   }: RpcParams<"chat.answer">,
 ): Promise<RpcResult<"chat.answer">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -577,6 +582,7 @@ export async function answerChat(
       ...(updatedInput ? { updatedInput } : {}),
       ...(stop ? { stop } : {}),
       ...(decision === "allow" && always?.length ? { always } : {}),
+      ...(decision === "allow" && planMode ? { planMode } : {}),
     })
     .catch(unavailable);
   return {};
@@ -666,6 +672,18 @@ export async function chatCommands(
   return services.ui("chat.commands", { workspaceId, tabId }).catch(unavailable);
 }
 
+/** What an @ in the tab's composer may name, as its agent suggests it. */
+export async function chatFileSuggestions(
+  services: CliServices,
+  { workspaceId, tabId, query }: RpcParams<"chat.fileSuggestions">,
+): Promise<RpcResult<"chat.fileSuggestions">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const { paths } = await services
+    .ui("chat.fileSuggestions", { workspaceId, tabId, query })
+    .catch(unavailable);
+  return { paths: paths.slice(0, MAX_FILE_SUGGESTIONS) };
+}
+
 /**
  * Runs one of the app's commands the tab lists, as its composer runs it
  * typed; one the agent runs goes with chat.send, and the model and effort
@@ -681,7 +699,7 @@ export async function runChatCommand(
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
     .catch(unavailable);
-  const command = commands.find((c) => c.name === bare);
+  const command = commands.find((c) => c.name === bare || c.aliases?.includes(bare));
   if (command?.runs !== "command") {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -695,13 +713,13 @@ export async function runChatCommand(
   // A folder the chat may read, which the files methods then read too: by its
   // real path, and not one that would open all of the disk.
   const args =
-    bare === "add-dir" && given?.trim()
+    command.name === "add-dir" && given?.trim()
       ? await folderToAdd(await addDirPath(services, workspaceId, tabId, given, system), system)
       : given;
   return services
     .ui(
       "chat.command",
-      { workspaceId, tabId, name: bare, ...(args ? { args } : {}) },
+      { workspaceId, tabId, name: command.name, ...(args ? { args } : {}) },
       SETTINGS_TIMEOUT_MS,
     )
     .catch(unavailable);
@@ -734,11 +752,15 @@ async function addDirPath(
  */
 export async function changeChatProfile(
   services: CliServices,
-  { workspaceId, tabId, profile, fresh }: RpcParams<"chat.profile">,
+  { workspaceId, tabId, profile, fresh, stop }: RpcParams<"chat.profile">,
 ): Promise<RpcResult<"chat.profile">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return services
-    .ui("chat.profile", { workspaceId, tabId, profile, fresh: fresh ?? false }, SETTINGS_TIMEOUT_MS)
+    .ui(
+      "chat.profile",
+      { workspaceId, tabId, profile, fresh: fresh ?? false, ...(stop ? { stop } : {}) },
+      SETTINGS_TIMEOUT_MS,
+    )
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/ has no profile /.test(message))
@@ -754,6 +776,25 @@ export async function interruptChat(
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   await services.ui("chat.interrupt", { workspaceId, tabId }).catch(unavailable);
   return {};
+}
+
+/** Starts a chat's program again, as its banner does: the user's, from another device. */
+export async function restartChat(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.restart">,
+): Promise<RpcResult<"chat.restart">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  await services.ui("chat.restart", { workspaceId, tabId }).catch(chatFailure);
+  return {};
+}
+
+/** Asks a Codex chat's program again whether it is signed in, as its banner does: the user's. */
+export async function checkChatSignIn(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.checkSignIn">,
+): Promise<RpcResult<"chat.checkSignIn">> {
+  await tabOf(services, workspaceId, tabId, ["codex"]);
+  return services.ui("chat.checkSignIn", { workspaceId, tabId }).catch(chatFailure);
 }
 
 export async function newChat(
@@ -902,6 +943,23 @@ export async function chatTool(
   return tool;
 }
 
+/** A file the chat changed as it was before, for its diff, where it is kept and goes in a frame. */
+export async function chatOriginal(
+  services: CliServices,
+  { workspaceId, tabId, path }: RpcParams<"chat.original">,
+): Promise<RpcResult<"chat.original">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const { found, before } = await services
+    .ui("chat.original", { workspaceId, tabId, path })
+    .catch(unavailable);
+  if (!found) throw new RpcFailure(RpcErrorCode.NotFound, `no original kept of ${path}`);
+  const result = { before };
+  if (!fitsAsResult(result)) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, "that file is too large to send");
+  }
+  return result;
+}
+
 /** What the chat's side panel shows; its changed files cut to what goes in a frame. */
 export async function chatPanel(
   services: CliServices,
@@ -914,6 +972,114 @@ export async function chatPanel(
     changedFiles = changedFiles.slice(0, Math.floor(changedFiles.length / 2));
   }
   return { ...panel, changedFiles };
+}
+
+/** Text cut to `max` characters, an ellipsis where it was cut. */
+function cut(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** What a run's row and its pane both tell of it. */
+function runFactsOf(run: AgentRun): ChatRun {
+  return {
+    id: run.id,
+    ...(run.program ? { program: run.program } : {}),
+    ...(run.endpoint ? { endpoint: cut(run.endpoint, 200) } : {}),
+    ...(run.model ? { model: cut(run.model, 200) } : {}),
+    ...(run.description ? { description: oneLine(run.description, MAX_AGENT_DESCRIPTION) } : {}),
+    start: run.start,
+    ...(run.end !== undefined ? { end: run.end } : {}),
+    state: run.state,
+    toolCount: Math.max(0, run.toolCount),
+    failedCount: Math.max(0, run.failedCount),
+    ...(run.toolsTold ? { toolsTold: true } : {}),
+    ...(run.exitCode !== undefined ? { exitCode: run.exitCode } : {}),
+    ...(run.sessionId ? { sessionId: cut(run.sessionId, 200) } : {}),
+  };
+}
+
+/** How long a run row's prompt, tool and last words are. */
+const RUN_ROW_TEXT = 300;
+
+/**
+ * A `claude -p` or `codex exec` run as the chat's agents list it: what it
+ * is, how it stands, the tool it runs now and what it wrote last.
+ */
+export function runRowOf(run: AgentRun): ChatRun {
+  const tool = [...run.tools].reverse().find((t) => t.end === undefined && !t.background);
+  const last = run.answer ?? run.messages?.at(-1)?.text;
+  return {
+    ...runFactsOf(run),
+    ...(run.prompt ? { prompt: cut(run.prompt, RUN_ROW_TEXT) } : {}),
+    ...(tool ? { current: cut(tool.target ? `${tool.name} ${tool.target}` : tool.name, 200) } : {}),
+    ...(last ? { last: cut(last, RUN_ROW_TEXT) } : {}),
+  };
+}
+
+/** A run as its pane shows it: its tools, messages and answer too, fewer messages where they would not fit. */
+export function runDetailOf(run: AgentRun): ChatRun {
+  const detail = (messages: NonNullable<AgentRun["messages"]> | undefined): ChatRun => ({
+    ...runFactsOf(run),
+    ...(run.prompt ? { prompt: cut(run.prompt, MAX_RUN_TEXT) } : {}),
+    tools: run.tools.slice(-30).map((tool) => ({
+      id: cut(tool.id, 200),
+      name: cut(tool.name, 200),
+      ...(tool.target ? { target: cut(tool.target, 2000) } : {}),
+      ...(tool.note ? { note: cut(tool.note, 2000) } : {}),
+      start: tool.start,
+      ...(tool.end !== undefined ? { end: tool.end } : {}),
+      ...(tool.failed ? { failed: true } : {}),
+      ...(tool.error ? { error: cut(tool.error, 2000) } : {}),
+      ...(tool.background ? { background: true } : {}),
+      ...(tool.denied ? { denied: true } : {}),
+    })),
+    ...(messages
+      ? { messages: messages.map((m) => ({ at: m.at, text: cut(m.text, MAX_RUN_TEXT) })) }
+      : {}),
+    ...(run.answer ? { answer: cut(run.answer, MAX_RUN_TEXT) } : {}),
+  });
+  let messages = run.messages?.slice(-20);
+  let shown = detail(messages);
+  while (messages && messages.length > 0 && !fitsAsResult({ run: shown })) {
+    messages = messages.slice(Math.ceil(messages.length / 2));
+    shown = detail(messages);
+  }
+  return shown;
+}
+
+/** The `claude -p` and `codex exec` runs of the chat's session, as its agents list them. */
+export async function chatRuns(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.runs">,
+): Promise<RpcResult<"chat.runs">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const runs = services.claudeAgents
+    .list(workspaceId, tabId)
+    .filter((agent) => agent.kind === "print")
+    .slice(0, MAX_CHAT_RUNS);
+  return { runs: runs.map(runRowOf) };
+}
+
+/** One of the chat's runs, as its pane shows it. */
+export async function chatRun(
+  services: CliServices,
+  { workspaceId, tabId, runId }: RpcParams<"chat.run">,
+): Promise<RpcResult<"chat.run">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const run = services.claudeAgents
+    .list(workspaceId, tabId)
+    .find((agent) => agent.kind === "print" && agent.id === runId);
+  if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
+  return { run: runDetailOf(run) };
+}
+
+/** Stops one of the chat's runs, as its pane's stop button does. */
+export async function stopChatRun(
+  services: CliServices,
+  { workspaceId, tabId, runId }: RpcParams<"chat.stopRun">,
+): Promise<RpcResult<"chat.stopRun">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return { stopped: await services.claudeAgents.stop(workspaceId, tabId, runId) };
 }
 
 /** Stops one of the chat's tasks, as its panel's stop button does. */
@@ -996,6 +1162,27 @@ export async function setChatRemoteControl(
   await tabOf(services, workspaceId, tabId, ["claude"]);
   await services.ui("chat.remoteControl", { workspaceId, tabId, enabled }).catch(chatFailure);
   return {};
+}
+
+/**
+ * A Claude chat's Claude Code settings, or a Codex chat's defaults, read or
+ * changed as its dialog does: the user's, from another device.
+ */
+export async function workChatConfig(
+  services: CliServices,
+  params: RpcParams<"chat.config">,
+): Promise<RpcResult<"chat.config">> {
+  await tabOf(services, params.workspaceId, params.tabId, ["claude", "codex"]);
+  return services.ui("chat.config", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
+}
+
+/** Works a Claude chat's MCP server, as its panel does: the user's, from another device. */
+export async function workChatMcp(
+  services: CliServices,
+  params: RpcParams<"chat.mcp">,
+): Promise<RpcResult<"chat.mcp">> {
+  await tabOf(services, params.workspaceId, params.tabId, ["claude"]);
+  return services.ui("chat.mcp", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
 }
 
 /** The workspace's conversations of the past that a new chat can go on with. */
@@ -1189,6 +1376,11 @@ export function serveWith(
               .ui("workspace.folders", { workspaceId: id })
               .then((r) => r.folders)
               .catch(() => []),
+          outputs: (id) =>
+            s
+              .ui("chat.jobOutputs", { workspaceId: id })
+              .then((r) => r.files)
+              .catch(() => []),
         };
         return request.method === "files.list"
           ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)
@@ -1267,6 +1459,11 @@ export function serveWith(
         return answerChat(s, request.params as RpcParams<"chat.answer">);
       case "chat.interrupt":
         return interruptChat(s, request.params as RpcParams<"chat.interrupt">);
+      case "chat.restart":
+        // The user's own, as chat.mcp.
+        return restartChat(s, request.params as RpcParams<"chat.restart">);
+      case "chat.checkSignIn":
+        return checkChatSignIn(s, request.params as RpcParams<"chat.checkSignIn">);
       case "chat.settings":
         return chatSettings(s, request.params as RpcParams<"chat.settings">);
       case "chat.configure":
@@ -1276,6 +1473,8 @@ export function serveWith(
         return changeChatProfile(s, request.params as RpcParams<"chat.profile">);
       case "chat.commands":
         return chatCommands(s, request.params as RpcParams<"chat.commands">);
+      case "chat.fileSuggestions":
+        return chatFileSuggestions(s, request.params as RpcParams<"chat.fileSuggestions">);
       case "chat.command":
         return runChatCommand(s, request.params as RpcParams<"chat.command">, watches.folders);
       case "chat.new":
@@ -1292,10 +1491,18 @@ export function serveWith(
         return renameChat(s, request.params as RpcParams<"chat.rename">);
       case "chat.tool":
         return chatTool(s, request.params as RpcParams<"chat.tool">);
+      case "chat.original":
+        return chatOriginal(s, request.params as RpcParams<"chat.original">);
       case "chat.panel":
         return chatPanel(s, request.params as RpcParams<"chat.panel">);
       case "chat.stopTask":
         return stopChatTask(s, request.params as RpcParams<"chat.stopTask">);
+      case "chat.runs":
+        return chatRuns(s, request.params as RpcParams<"chat.runs">);
+      case "chat.run":
+        return chatRun(s, request.params as RpcParams<"chat.run">);
+      case "chat.stopRun":
+        return stopChatRun(s, request.params as RpcParams<"chat.stopRun">);
       case "chat.rewindPreview":
         return previewChatRewind(s, request.params as RpcParams<"chat.rewindPreview">);
       case "chat.rewind":
@@ -1323,6 +1530,12 @@ export function serveWith(
         );
       case "chat.remoteControl":
         return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);
+      case "chat.mcp":
+        // The user's own: the room refuses an agent's, as its params have no `from`.
+        return workChatMcp(s, request.params as RpcParams<"chat.mcp">);
+      case "chat.config":
+        // The user's own, as chat.mcp.
+        return workChatConfig(s, request.params as RpcParams<"chat.config">);
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":

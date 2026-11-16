@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const { lookItemOfChange, peerChatFiles, peerImageLoader } = await import(
+const { beforeOfHunks, peerChatFiles, peerImageLoader } = await import(
   "../../../../../src/renderer/components/agent-view/remote-links"
 );
 const { shownPath } = await import("../../../../../src/renderer/utils/path");
@@ -115,30 +115,22 @@ describe("another computer's chat, read from there", () => {
     expect(await load(here)).toBe(here);
   });
 
-  test("a change shows as its hunks; one committed since, as the file now", async () => {
+  test("a change's file before it is the hunks against the last commit taken back", () => {
+    // a b d (committed) became a c d e: b changed to c, e added at the end.
     const hunks = [
-      { oldStart: 1, oldLines: 2, newStart: 1, newLines: 2, lines: [" a", "-b", "+c"] },
+      { oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" a", "-b", "+c", " d"] },
+      { oldStart: 3, oldLines: 0, newStart: 4, newLines: 1, lines: ["+e"] },
     ];
-    answer = (method) =>
-      method === "peerGitDiff"
-        ? { path: "/w/a.ts", binary: false, hunks }
-        : { kind: "text", path: "/w/a.ts", text: "c", size: 1, truncated: false };
-    const where = { deviceId: "d1", workspaceId: "w1" };
-    expect(await lookItemOfChange(where, "/w/a.ts")).toEqual({
-      kind: "diff",
-      title: "/w/a.ts",
-      hunks,
-    });
-    answer = (method) =>
-      method === "peerGitDiff"
-        ? { path: "/w/a.ts", binary: false, hunks: [] }
-        : { kind: "text", path: "/w/a.ts", text: "c", size: 1, truncated: false };
-    expect(await lookItemOfChange(where, "/w/a.ts")).toEqual({
-      kind: "text",
-      title: "/w/a.ts",
-      text: "c",
-      truncated: false,
-    });
+    expect(beforeOfHunks(hunks, "a\nc\nd\ne\n")).toBe("a\nb\nd\n");
+    // A line taken out comes back where it was.
+    expect(
+      beforeOfHunks(
+        [{ oldStart: 2, oldLines: 1, newStart: 1, newLines: 0, lines: ["-x"] }],
+        "a\nb",
+      ),
+    ).toBe("a\nx\nb");
+    // Hunks that do not fit the file now (it changed since) give nothing.
+    expect(beforeOfHunks(hunks, "z\ny\n")).toBeNull();
   });
 });
 

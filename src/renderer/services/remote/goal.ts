@@ -34,7 +34,12 @@ export function remoteGoalView(goal: ViewGoal, agent: "claude" | "codex"): GoalV
       ...(check.at !== undefined ? { at: check.at } : {}),
       reason: check.reason,
     })),
-    ...(agent === "claude" && goal.checks > 0 ? { iterations: goal.checks } : {}),
+    // Before 0.13.0 a computer tells only the checks that found it unmet.
+    ...(agent === "claude" && goal.iterations !== undefined
+      ? { iterations: goal.iterations }
+      : agent === "claude" && goal.checks > 0
+        ? { iterations: goal.checks }
+        : {}),
     ...(goal.reason ? { reason: goal.reason } : {}),
     ...(goal.usedSeconds !== undefined ? { usedSeconds: goal.usedSeconds } : {}),
     ...(goal.usedAt !== undefined ? { usedAt: goal.usedAt } : {}),

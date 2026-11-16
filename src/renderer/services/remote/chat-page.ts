@@ -20,7 +20,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { RelayedMessage } from "../../../shared/chat/relay";
 import type { ChatAgent } from "../../../shared/sessions/task-agent";
-import type { CodexRateLimits } from "../chat/codex-model";
+import type { CodexModel, CodexRateLimits } from "../chat/codex-model";
 import type {
   AssistantItem,
   ChatItem,
@@ -30,12 +30,19 @@ import type {
   TaskInfo,
   ToolCall,
 } from "../chat/model";
+import { jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
 
 /** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;
+
+/** The most of a failure's text, or of a program's stderr, a status tells: its banner's details. */
+const MAX_STATUS_TEXT = 8 * 1024;
+
+/** The longest path a job's output file is told by (ViewTask.outputFile). */
+const MAX_OUTPUT_PATH = 4096;
 
 export interface ChatSource {
   agent: ChatAgent;
@@ -58,6 +65,9 @@ export interface ChatSource {
     now?: boolean;
     withdraw?: boolean;
     hurry?: boolean;
+    moveNow?: boolean;
+    mcp?: boolean;
+    config?: boolean;
   };
 }
 
@@ -169,7 +179,9 @@ function viewPermissionOf(request: PermissionRequest): ViewPermission {
   };
 }
 
-export function viewTaskOf(task: TaskInfo): ViewTask {
+/** A task as the protocol tells it; `tools` give the call that started it, for its output file. */
+export function viewTaskOf(task: TaskInfo, tools: Record<string, ToolCall> = {}): ViewTask {
+  const outputFile = jobOutputFile(task, tools);
   return {
     taskId: task.taskId,
     type: task.type,
@@ -180,11 +192,13 @@ export function viewTaskOf(task: TaskInfo): ViewTask {
     ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
     ...(task.summary ? { summary: task.summary } : {}),
     ...(task.activity ? { activity: task.activity } : {}),
+    ...(outputFile && outputFile.length <= MAX_OUTPUT_PATH ? { outputFile } : {}),
   };
 }
 
 export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
   const model: ChatModel = chat.model;
+  const version = chat.version ?? model.version;
   return {
     agent,
     title,
@@ -192,12 +206,30 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     ...(model.effort ? { effort: model.effort } : {}),
     ...(model.permissionMode ? { permissionMode: model.permissionMode } : {}),
     running: model.running,
+    ...(model.interrupting ? { interrupting: true } : {}),
     process: model.process,
+    phase: chat.phase,
+    ...(chat.error ? { error: chat.error.slice(0, MAX_STATUS_TEXT) } : {}),
+    ...(version ? { version } : {}),
+    ...((model as Partial<CodexModel>).signedOut ? { signedOut: true } : {}),
+    ...(model.exit
+      ? {
+          exit: {
+            code: model.exit.code,
+            ...(model.exit.signal ? { signal: model.exit.signal } : {}),
+            ...(model.exit.stderrTail
+              ? { stderrTail: model.exit.stderrTail.slice(-MAX_STATUS_TEXT) }
+              : {}),
+          },
+        }
+      : {}),
     turn: model.turn
       ? {
           ...(model.turn.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
           outputTokens: model.turn.outputTokens,
+          ...(model.turn.thinkingTokens ? { thinkingTokens: model.turn.thinkingTokens } : {}),
           ...(model.turn.status ? { status: model.turn.status } : {}),
+          ...(model.turn.retry ? { retry: { ...model.turn.retry } } : {}),
         }
       : null,
     streaming: model.streaming
@@ -307,7 +339,8 @@ export function chatPageOf(
   source: ChatSource,
   { before, limit }: { before?: number; limit?: number } = {},
 ): ChatPage {
-  const total = conversationOf(source).items.length;
+  const conversation = conversationOf(source);
+  const total = conversation.items.length;
   const end = Math.min(before ?? total, total);
   const count = Math.min(limit ?? DEFAULT_READ_ITEMS, MAX_READ_ITEMS);
   const window = chatWindowOf(source, Math.max(0, end - count), end);
@@ -317,7 +350,9 @@ export function chatPageOf(
     total: window.total,
     items: window.items.map(viewItemOf),
     tools: Object.fromEntries([...window.tools].map(([id, tool]) => [id, viewToolOf(tool)])),
-    tasks: Object.fromEntries([...window.tasks].map(([id, task]) => [id, viewTaskOf(task)])),
+    tasks: Object.fromEntries(
+      [...window.tasks].map(([id, task]) => [id, viewTaskOf(task, conversation.tools)]),
+    ),
     agentItems: Object.fromEntries(
       [...window.agents].map(([id, items]) => [id, items.map(viewAssistantOf)]),
     ),

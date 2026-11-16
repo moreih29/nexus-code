@@ -1,8 +1,8 @@
 /**
  * An image of a chat as another device asks for it (chat.image): a user
- * message's or a tool result's, sent as it is when it fits in a frame and
- * is of a type the other device takes, else drawn smaller as a JPEG till
- * it fits; drawn smaller too when it is wider or taller than the device
+ * message's, a tool result's or a message's held for after the turn, sent
+ * as it is when it fits in a frame and is of a type the other device
+ * takes, else drawn smaller as a JPEG till it fits; drawn smaller too when it is wider or taller than the device
  * asked for (a thumbnail). Not one whose header says it is huge, or tells
  * no size: drawing it would decode all of it, here or there (a
  * decompression bomb).
@@ -16,7 +16,8 @@ import { type ChatSource, conversationOf } from "./chat-page";
 
 export type ChatImageRef =
   | { kind: "user"; itemKey: string; index: number }
-  | { kind: "tool"; toolUseId: string; index: number };
+  | { kind: "tool"; toolUseId: string; index: number }
+  | { kind: "held"; id: string; index: number };
 
 const SENT_AS_IS: ReadonlySet<string> = new Set([
   "image/png",
@@ -30,6 +31,9 @@ const MAX_TRIES = 6;
 
 /** The image the ref names in the tab's conversation; null when there is none. */
 export function imageOf(source: ChatSource, ref: ChatImageRef): ImageBlock | null {
+  if (ref.kind === "held") {
+    return source.chat.queue.find((q) => q.id === ref.id)?.images[ref.index] ?? null;
+  }
   const { items, tools } = conversationOf(source);
   if (ref.kind === "user") {
     const item = items.find((i) => i.key === ref.itemKey);

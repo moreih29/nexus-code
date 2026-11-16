@@ -34,10 +34,14 @@ export interface ImageBlock {
   remote?: RemoteImageRef;
 }
 
-/** Where another computer's chat has an image: a message's, or a tool's result's. */
+/**
+ * Where another computer's chat has an image: a message's, a tool's
+ * result's, or a message's held there for after the turn.
+ */
 export type RemoteImageRef =
   | { kind: "user"; itemKey: string; index: number }
-  | { kind: "tool"; toolUseId: string; index: number };
+  | { kind: "tool"; toolUseId: string; index: number }
+  | { kind: "held"; id: string; index: number };
 
 export interface UserItem {
   kind: "user";

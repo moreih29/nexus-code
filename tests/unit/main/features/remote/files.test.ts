@@ -55,6 +55,9 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
     },
     readRange: async (rel: string, offset: number, length: number) =>
       range(node(rel).bytes ?? Buffer.alloc(0), length, offset),
+    // A path outside the folder is in the tree by itself.
+    readAbsoluteRange: async (abs: string, offset: number, length: number) =>
+      range(node(abs).bytes ?? Buffer.alloc(0), length, offset),
     readBinary: async (rel: string) => range(node(rel).bytes ?? Buffer.alloc(0), Infinity),
   } as unknown as FsProvider;
 }
@@ -62,11 +65,16 @@ function fakeFs(tree: Record<string, Node>, kind: FsProvider["kind"] = "ssh"): F
 function files(
   tree: Record<string, Node>,
   shrunk: string | null = null,
-  { folders = ["/home/me/shared"], kind = "ssh" as FsProvider["kind"] } = {},
+  {
+    folders = ["/home/me/shared"],
+    kind = "ssh" as FsProvider["kind"],
+    outputs,
+  }: { folders?: string[]; kind?: FsProvider["kind"]; outputs?: string[] } = {},
 ): RemoteFiles {
   return {
     fs: async () => fakeFs(tree, kind),
     folders: async () => folders,
+    ...(outputs ? { outputs: async () => outputs } : {}),
     shrink: () => (shrunk ? { mediaType: "image/jpeg", data: shrunk } : null),
   };
 }
@@ -320,6 +328,38 @@ describe("reading a file", () => {
 
   test("a folder a chat was given is read only on this computer: its host's agent follows links", async () => {
     await expect(read("/home/me/shared/notes.md")).rejects.toMatchObject({ code: 1003 });
+  });
+});
+
+describe("a chat's job's output file", () => {
+  const output = "/tmp/claude-501/tasks/b1.output";
+  const tree: Record<string, Node> = {
+    [output]: text("line 1\nline 2\n"),
+    "/tmp/claude-501/tasks/other.output": text("not a job's"),
+  };
+
+  test("is read by its name, though it is outside the workspace's folders", async () => {
+    const got = await readFile(files(tree, null, { outputs: [output] }), root, {
+      workspaceId: ws,
+      path: output,
+      as: "bytes",
+      offset: 7,
+      length: 6,
+    });
+    expect(got).toMatchObject({ kind: "bytes", path: output, offset: 7, size: 14 });
+    expect(got.kind === "bytes" && Buffer.from(got.data, "base64").toString()).toBe("line 2");
+  });
+
+  test("and no other file beside it, nor one when no job tells it", async () => {
+    await expect(
+      readFile(files(tree, null, { outputs: [output] }), root, {
+        workspaceId: ws,
+        path: "/tmp/claude-501/tasks/other.output",
+      }),
+    ).rejects.toMatchObject({ code: 1002 });
+    await expect(
+      readFile(files(tree), root, { workspaceId: ws, path: output }),
+    ).rejects.toMatchObject({ code: 1002 });
   });
 });
 
