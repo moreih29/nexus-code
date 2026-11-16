@@ -64,6 +64,7 @@ import {
   remoteAgentsOf,
   remotePanelPartOf,
 } from "./remote-side-panel";
+import { RemoteTerminalScreen } from "./remote-terminal-screen";
 import { rateLimitOf, usageLineOf } from "./remote-usage";
 
 /** How many lines of a terminal are shown. */
@@ -929,28 +930,12 @@ function RemoteTerminal({
 }) {
   const { deviceId, workspaceId, tabId } = target;
   const read = usePeerTerminal({ deviceId, workspaceId, tabId }, TERMINAL_LINES, visible);
-  const ref = useRef<HTMLPreElement>(null);
-  const text = read.status === "ready" ? read.value.text : null;
-  // Kept at the end, as a terminal is, unless the user scrolled up to read.
-  const stuck = useRef(true);
-  useEffect(() => {
-    const el = ref.current;
-    if (el && text !== null && stuck.current) el.scrollTop = el.scrollHeight;
-  }, [text]);
-  if (text === null) return <Waiting read={read} reach={reach} device={target.deviceName} />;
+  if (read.status !== "ready") {
+    return <Waiting read={read} reach={reach} device={target.deviceName} />;
+  }
   return (
     <>
-      <pre
-        ref={ref}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-        }}
-        className="app-scrollbar min-h-0 flex-1 overflow-auto px-4 py-2 font-mono text-app-ui-sm whitespace-pre text-foreground"
-        data-testid="remote-terminal"
-      >
-        {text}
-      </pre>
+      <RemoteTerminalScreen text={read.value.text} />
       {reach !== "online" && <Unreachable reach={reach} device={target.deviceName} />}
     </>
   );
