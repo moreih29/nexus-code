@@ -3,6 +3,7 @@
  * drives them. A tab's conversation is the renderer's; these ask it, read it
  * whole or a piece at a time, and wait on one or several tabs.
  */
+import path from "node:path";
 import type {
   CliChatEntry,
   CliChatInfo,
@@ -24,7 +25,7 @@ import {
   shortId,
 } from "../context";
 import { oneLine } from "../format";
-import { absolutePath } from "../paths";
+import { absolutePath, callerPath } from "../paths";
 import { type CliCommand, type CliOutput, output } from "../registry";
 import { DEVICE_FLAG, deviceFlag, deviceRef, resolveDevice } from "../remote";
 import { senderOf } from "../sender";
@@ -103,9 +104,11 @@ export function chatTranscript(
     .map((entry) => {
       const label = entry.role === "agent" ? info.agent : ROLE_LABELS[entry.role];
       const sub = entry.parentToolUseId ? " (subagent)" : "";
+      // A message sent during a turn that the agent has not read: chat unsend takes it back.
+      const unread = entry.role === "user" && entry.status === "unread" ? " (unread)" : "";
       return entry.role === "tool" || entry.role === "notice"
         ? `[${label} #${entry.i}]${sub} ${cut(entry.text, maxChars)}`
-        : `── ${label} #${entry.i}\n${cut(entry.text, maxChars)}`;
+        : `── ${label} #${entry.i}${unread}\n${cut(entry.text, maxChars)}`;
     })
     .join("\n");
 }
@@ -703,15 +706,51 @@ const chatTool: CliCommand = {
   },
 };
 
+/** The files --file names, read where the caller runs, for a tab to take. */
+async function attachments(
+  ctx: CliContext,
+  given: readonly string[],
+): Promise<{ name: string; data: string }[]> {
+  return Promise.all(
+    given.map(async (file) => {
+      const where = callerPath(ctx, file);
+      const data = await ctx.services.readFile(ctx.caller.workspaceId, where);
+      if (data === null) throw new CliError(`no file ${where}`);
+      return { name: path.basename(where), data };
+    }),
+  );
+}
+
+/** A --file flag's paths: none, one, or more. */
+function filesFlag(flags: ParsedArgs["flags"]): string[] {
+  const given = flags.file;
+  if (given === undefined) return [];
+  const files = (Array.isArray(given) ? given : [String(given)]).filter((f) => f.trim() !== "");
+  if (files.length === 0) throw new CliUsageError("--file takes a path");
+  return files;
+}
+
 const chatSend: CliCommand = {
   path: ["chat", "send"],
   summary: "Send a Claude or Codex tab a message",
-  args: "<tab> <text...>",
+  args: "<tab> [text...]",
   details:
-    'As its composer sends it: during a turn, the agent reads it after the tool it runs. "-"\n' +
-    "reads the text from standard input. Refused while the tab waits for the user to answer a\n" +
-    "request. --wait then waits as chat wait does and prints how it ended.",
+    "As its composer sends it: during a turn, the agent reads it after the tool it runs. --now\n" +
+    "puts it into a Claude tab's turn at once; --now with no text has the tab read the\n" +
+    "messages it has not read yet. --after holds it until the turn ends, its id printed for\n" +
+    'chat unsend and chat edit. "-" reads the text from standard input. --file attaches a\n' +
+    "file of this computer (this terminal's), written where the tab's agent reads it, its\n" +
+    "path after the text. Refused while the tab waits for the user to answer a request.\n" +
+    "--wait then waits as chat wait does and prints how it ended.",
   flags: {
+    now: { type: "boolean", description: "During a turn: into it at once (a Claude tab's)" },
+    after: { type: "boolean", description: "During a turn: held until it ends" },
+    file: {
+      type: "string",
+      value: "PATH",
+      repeat: true,
+      description: "Attach a file; give it again for more",
+    },
     wait: { type: "boolean", description: "Then wait until it is done" },
     timeout: TIMEOUT_FLAG,
     workspace: WORKSPACE_FLAG,
@@ -720,32 +759,69 @@ const chatSend: CliCommand = {
   async run(ctx, { positionals, flags }) {
     const [selector, ...words] = positionals;
     if (selector === undefined) throw new CliUsageError("missing <tab>");
+    if (flags.now === true && flags.after === true) {
+      throw new CliUsageError("--now or --after, not both");
+    }
+    const when = flags.now === true ? "now" : flags.after === true ? "after" : undefined;
     const fromStdin = words.length === 1 && words[0] === "-";
     const text = (
       fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")
     ).trim();
-    if (text === "") throw new CliUsageError("nothing to send");
+    const files = filesFlag(flags);
+    // ⌘↩ on an empty composer: the messages sent during the turn are read now.
+    const hurry = when === "now" && words.length === 0 && files.length === 0;
+    if (text === "" && files.length === 0 && !hurry) throw new CliUsageError("nothing to send");
     const timeoutMs = flags.wait === true ? waitTimeout(flags) : null;
     const device = await resolveDevice(ctx, deviceFlag(flags));
-    if (device) return sendToPeer(ctx, device, flags, selector, text, timeoutMs);
+    if (device) {
+      if (files.length > 0) throw new CliUsageError("--file goes to this computer's tabs");
+      if (hurry) throw new CliUsageError("--now with no text goes to this computer's tabs");
+      return sendToPeer(ctx, device, flags, selector, text, timeoutMs, when);
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
     const tab = await resolveChat(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this tab; nexus sends only to other tabs");
     }
-    await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title, body: text });
+    const target = { workspaceId: workspace.id, tabId: tab.id };
+    if (hurry) {
+      if (tab.type !== "claude") throw new CliError("only a Claude tab reads its messages at once");
+      await mayChange(ctx, workspace, { kind: "chatInput", detail: tab.title });
+      await ctx.services.ui("chat.hurry", target);
+      return output(`Had ${tab.title} (${shortId(tab.id)}) read its messages now.`, target);
+    }
+    const attached = await attachments(ctx, files);
+    const listed = attached.map((file) => `[${file.name}]`).join(" ");
+    await mayChange(ctx, workspace, {
+      kind: "chatInput",
+      detail: tab.title,
+      body: [text, listed].filter(Boolean).join("\n\n"),
+    });
     // An agent's message shows as its, and the tab's agent is told who sent
     // it, and whether it waits to read the answer there or is to be written back to.
     const sender = await senderOf(ctx);
     const from = sender ? { ...sender, waits: timeoutMs !== null } : undefined;
     // Starting a program that is gone comes before the message.
-    await ctx.services.ui(
+    const { heldId } = await ctx.services.ui(
       "chat.send",
-      { workspaceId: workspace.id, tabId: tab.id, text, ...(from ? { from } : {}) },
+      {
+        ...target,
+        text,
+        ...(from ? { from } : {}),
+        ...(attached.length > 0 ? { files: attached } : {}),
+        ...(when ? { when } : {}),
+      },
       SEND_TIMEOUT_MS,
     );
-    const sent = `Sent to ${tab.title} (${shortId(tab.id)}).`;
-    const json = { tabId: tab.id, workspaceId: workspace.id, text };
+    const sent = heldId
+      ? `Held for after the turn of ${tab.title} (${shortId(tab.id)}), as ${heldId}.`
+      : `Sent to ${tab.title} (${shortId(tab.id)}).`;
+    const json = {
+      ...target,
+      text,
+      ...(attached.length > 0 ? { files: attached.map((file) => file.name) } : {}),
+      ...(heldId ? { heldId } : {}),
+    };
     if (timeoutMs === null) return output(sent, json);
     const result = await waitOnChat(ctx, workspace, tab, timeoutMs);
     return waitOutput(`${sent}\n${result.text}`, json, result);
@@ -753,7 +829,7 @@ const chatSend: CliCommand = {
 };
 
 /** How long chat send gives a tab to start its program and take the message. */
-const SEND_TIMEOUT_MS = 60_000;
+export const SEND_TIMEOUT_MS = 60_000;
 
 const chatWait: CliCommand = {
   path: ["chat", "wait"],
@@ -793,16 +869,94 @@ const chatWait: CliCommand = {
 /** How chat.state tells a tool's permission request (renderer services/cli/chat-view). */
 const ASKS_TO_RUN = "asks to run ";
 
+/** The tools whose requests are a question or a plan for the user, not a tool to allow. */
+const USERS_TO_ANSWER = new Set(["AskUserQuestion", "ExitPlanMode"]);
+
+/**
+ * The tab chat answer answers in: a Claude or Codex tab, or else a
+ * terminal whose Claude Code asks (a chat tab is named first).
+ */
+async function answeringTab(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  selector: string,
+): Promise<CliTabInfo> {
+  const tabs = await workspaceTabs(ctx, workspace.id);
+  try {
+    return resolveTab(
+      ctx,
+      tabs.filter(isChatTab),
+      selector,
+      `Claude or Codex tab in ${workspace.name}`,
+    );
+  } catch (error) {
+    const terminals = tabs.filter((tab) => tab.type === "terminal");
+    try {
+      return resolveTab(ctx, terminals, selector, `terminal in ${workspace.name}`);
+    } catch {
+      throw error;
+    }
+  }
+}
+
+/** chat answer for a terminal: the request its Claude Code holds, as the app's card answers it. */
+async function answerTerminal(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  tab: CliTabInfo,
+  decision: "allow" | "deny",
+  message: string | undefined,
+  stop: boolean,
+): Promise<CliOutput> {
+  if (message !== undefined) {
+    throw new CliUsageError("--message goes to a Claude or Codex tab, not a terminal");
+  }
+  const [ask] = [...ctx.services.claudeAsks(workspace.id, tab.id)].sort(
+    (a, b) => a.since - b.since,
+  );
+  if (!ask) throw new CliError(`${tab.title} waits on no permission request`);
+  if (USERS_TO_ANSWER.has(ask.tool)) {
+    throw new CliError(`${tab.title} asks the user; that is the user's to answer in the app`);
+  }
+  const what = [ask.tool, ask.target].filter(Boolean).join(" ");
+  await ctx.services.askUser({
+    fromWorkspaceId: ctx.caller.workspaceId,
+    fromTabId: ctx.caller.tabId,
+    toWorkspaceId: workspace.id,
+    change: {
+      kind: decision === "allow" ? "permissionAllow" : "permissionDeny",
+      detail: `${ask.tool} (${tab.title})`,
+      body: what,
+    },
+  });
+  const answer = decision === "allow" ? "allow" : stop ? "denyStop" : "deny";
+  if (!(await ctx.services.answerClaudeAsk(workspace.id, tab.id, ask.id, answer))) {
+    throw new CliError(
+      answer === "denyStop"
+        ? "a subagent's request cannot stop the turn"
+        : "that request no longer waits for an answer",
+    );
+  }
+  const target = { workspaceId: workspace.id, tabId: tab.id };
+  return output(`${decision === "allow" ? "Allowed" : "Denied"} ${what} in ${tab.title}.`, {
+    ...target,
+    decision,
+    tool: ask.tool,
+  });
+}
+
 const chatAnswer: CliCommand = {
   path: ["chat", "answer"],
-  summary: "Allow or deny the tool a Claude or Codex tab asks to run",
+  summary: "Allow or deny the tool a Claude or Codex tab, or a terminal's Claude Code, asks to run",
   args: "<tab> <allow|deny>",
   details:
     "Answers the permission request the tab waits on, as the user would in it; --message tells\n" +
-    "the agent why with a deny. A question or a plan the agent puts to the user is theirs to\n" +
-    "answer in the app. An agent answers with the user's leave.",
+    "the agent why with a deny, --stop stops its turn too. A terminal's Claude Code is answered\n" +
+    "as the app's card answers it. A question or a plan the agent puts to the user is theirs\n" +
+    "to answer in the app. An agent answers with the user's leave.",
   flags: {
     message: { type: "string", value: "TEXT", description: "With deny: what to tell the agent" },
+    stop: { type: "boolean", description: "With deny: stop the turn too" },
     workspace: WORKSPACE_FLAG,
     device: DEVICE_FLAG,
   },
@@ -815,12 +969,20 @@ const chatAnswer: CliCommand = {
     if (message !== undefined && decision !== "deny") {
       throw new CliUsageError("--message goes with deny");
     }
+    const stop = flags.stop === true;
+    if (stop && decision !== "deny") throw new CliUsageError("--stop goes with deny");
     const device = await resolveDevice(ctx, deviceFlag(flags));
-    if (device) return answerPeer(ctx, device, flags, selector, decision, message);
+    if (device) {
+      if (stop) throw new CliUsageError("--stop goes to this computer's tabs");
+      return answerPeer(ctx, device, flags, selector, decision, message);
+    }
     const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
-    const tab = await resolveChat(ctx, workspace, selector);
+    const tab = await answeringTab(ctx, workspace, selector);
     if (tab.id === ctx.caller.tabId) {
       throw new CliError("that is this tab; its requests are the user's to answer");
+    }
+    if (tab.type === "terminal") {
+      return answerTerminal(ctx, workspace, tab, decision, message, stop);
     }
     const target = { workspaceId: workspace.id, tabId: tab.id };
     const info = await ctx.services.ui("chat.state", target);
@@ -851,6 +1013,7 @@ const chatAnswer: CliCommand = {
       ...target,
       decision,
       ...(message ? { message } : {}),
+      ...(stop ? { stop } : {}),
       expect: info.request.id,
     });
     return output(`${decision === "allow" ? "Allowed" : "Denied"} ${tool} in ${tab.title}.`, {

@@ -215,6 +215,13 @@ export type CliChangeKind =
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
+  | "chatRewind"
+  | "chatRewindFiles"
+  | "chatFork"
+  | "chatBackground"
+  | "chatTaskStop"
+  | "chatRemoteControlOn"
+  | "chatRemoteControlOff"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -346,7 +353,10 @@ export interface CliChatEntry {
   readonly text: string;
   /** A tool call's id. */
   readonly toolUseId?: string;
-  /** A tool call's: streaming, running, done, error, denied or stopped. */
+  /**
+   * A tool call's: streaming, running, done, error, denied or stopped. A
+   * message sent during a turn that the agent has not read yet: unread.
+   */
   readonly status?: string;
   /** A subagent's tool call: the id of the Agent call it runs under. */
   readonly parentToolUseId?: string;
@@ -1084,6 +1094,16 @@ export interface CliUiOps {
   "chat.hurry": {
     args: { workspaceId: string; tabId: string };
     result: Record<string, never>;
+  };
+  /**
+   * The item of a Claude or Codex tab's conversation that an entry is part
+   * of, by the entry's i as chat.read numbers it: the item's key, which
+   * chat.rewind, chat.fork and chat.withdraw take, and its kind.
+   */
+  "chat.entryItem": {
+    args: { workspaceId: string; tabId: string; i: number };
+    /** `text`: a message of the user's, its text. */
+    result: { itemKey: string; kind: string; text?: string };
   };
   /**
    * Removes a task, as Delete Task does. Refuses one with unsaved files, and
