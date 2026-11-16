@@ -38,7 +38,12 @@ import { ChatLinksContext } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
-import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
+import {
+  type MessageActions,
+  MessageList,
+  type OlderMessages,
+  type ShownMove,
+} from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
 import { PermissionCard } from "../chat/permission-card";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
@@ -231,8 +236,18 @@ function RemoteChat({
   controls: boolean;
 }) {
   const { deviceId, workspaceId, tabId } = target;
-  const read = usePeerChat({ deviceId, workspaceId, tabId }, visible);
+  const { read, loadEarlier, loadingEarlier } = usePeerChat(
+    { deviceId, workspaceId, tabId },
+    visible,
+  );
   const page = read.status === "ready" ? read.value : null;
+  const older = useMemo<OlderMessages | undefined>(
+    () =>
+      page && page.start > 0
+        ? { count: page.start, loading: loadingEarlier, load: loadEarlier }
+        : undefined,
+    [page, loadingEarlier, loadEarlier],
+  );
   const selfId = useSelfDeviceId();
   const { deviceName } = target;
   const model = useMemo(
@@ -249,6 +264,7 @@ function RemoteChat({
         target={target}
         page={page}
         model={model}
+        {...(older ? { older } : {})}
         visible={visible}
         reach={reach}
         controls={controls}
@@ -314,6 +330,7 @@ function RemoteChatView({
   target,
   page,
   model,
+  older,
   visible,
   reach,
   controls,
@@ -321,6 +338,8 @@ function RemoteChatView({
   target: RemoteTarget;
   page: WatchedChat;
   model: ChatModel;
+  /** The chat's messages before those read so far. */
+  older?: OlderMessages;
   visible: boolean;
   reach: PeerReach;
   controls: boolean;
@@ -636,6 +655,7 @@ function RemoteChatView({
                   actions={shown ? undefined : actions}
                   items={shown ? agentTranscript(model, shown) : undefined}
                   {...(moves ? { moves } : {})}
+                  {...(older && !shown ? { older } : {})}
                   empty={
                     <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
                       {claude ? (
