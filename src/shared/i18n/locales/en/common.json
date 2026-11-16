@@ -1134,6 +1134,8 @@
       "aria": "Session details",
       "show": "Show side panel",
       "hide": "Hide side panel",
+      "more": "Show {{count}} more",
+      "less": "Show less",
       "stop": "Stop",
       "stop_failed": "Could not stop it",
       "needs_version": "Needs Claude Code {{version}} or later",

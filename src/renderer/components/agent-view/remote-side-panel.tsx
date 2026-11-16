@@ -35,8 +35,10 @@ import {
   CopyIcon,
   Elapsed,
   Field,
+  FirstFew,
   formatCost,
   Meter,
+  newestJobsFirst,
   Row,
   Section,
 } from "../chat/side-panel";
@@ -302,14 +304,16 @@ export function RemoteSidePanel({
       )}
       {jobs.length > 0 && (
         <Section title={t("chat.panel.jobs.title")} count={jobs.length} reveal={asked("jobs")}>
-          {jobs.map((job) => (
-            <RemoteJob
-              key={job.taskId}
-              job={job}
-              now={now}
-              onStop={controls ? () => onStopTask(job.taskId) : undefined}
-            />
-          ))}
+          <FirstFew>
+            {newestJobsFirst(jobs).map((job) => (
+              <RemoteJob
+                key={job.taskId}
+                job={job}
+                now={now}
+                onStop={controls ? () => onStopTask(job.taskId) : undefined}
+              />
+            ))}
+          </FirstFew>
         </Section>
       )}
       {todos.length > 0 && (

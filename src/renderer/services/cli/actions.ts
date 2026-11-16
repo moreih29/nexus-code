@@ -44,7 +44,8 @@ import {
 } from "../terminal/installed-shells";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
-import { getTerminalController } from "../terminal/terminal-registry";
+import { getTerminalController, whenTerminalController } from "../terminal/terminal-registry";
+import type { TerminalController } from "../terminal/types";
 import { activateWorkspace, removeTask, startTask, taskStartOf } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
@@ -58,12 +59,30 @@ export { type CliUiHandler, UiRequestError } from "./handler";
  */
 const ENTER_DELAY_MS = 120;
 
-function terminalController(tabId: string) {
-  const controller = getTerminalController(tabId);
+/** How long a terminal of a workspace not shown yet has to start behind the view. */
+const TERMINAL_START_MS = 10_000;
+
+/**
+ * A terminal's controller, once input reaches its shell. One whose
+ * workspace has not been opened yet, or just opened by terminal.new, starts
+ * behind the view, and is waited for: its view registers it before it opens,
+ * and its shell takes input once it has printed its prompt (whenReady).
+ */
+export async function startedTerminal(
+  workspaceId: string,
+  tabId: string,
+): Promise<TerminalController> {
+  const until = Date.now() + TERMINAL_START_MS;
+  let controller = getTerminalController(tabId);
   if (!controller) {
-    throw new UiRequestError(
-      "that terminal has not started: its workspace has not been opened since NexusCode started",
-    );
+    if (tabRecord(workspaceId, tabId).type !== "terminal") {
+      throw new UiRequestError("that tab is not a terminal");
+    }
+    useMountedWorkspacesStore.getState().mount(workspaceId);
+    controller = await whenTerminalController(tabId, TERMINAL_START_MS);
+  }
+  if (!controller || !(await controller.whenReady(Math.max(0, until - Date.now())))) {
+    throw new UiRequestError("that terminal did not start");
   }
   return controller;
 }
@@ -219,8 +238,8 @@ export const actionHandlers: {
     };
   },
 
-  "terminal.input": async ({ tabId, text, mode, enter }) => {
-    const controller = terminalController(tabId);
+  "terminal.input": async ({ workspaceId, tabId, text, mode, enter }) => {
+    const controller = await startedTerminal(workspaceId, tabId);
     if (text !== "" && !controller.input(text, mode)) {
       throw new UiRequestError("that terminal has not opened yet");
     }

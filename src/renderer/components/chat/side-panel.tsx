@@ -110,6 +110,7 @@ export function SidePanel({
   );
   const agents = useMemo(() => [...agentsOf(model), ...runs], [model, runs]);
   const jobs = useMemo(() => jobsOf(model), [model]);
+  const listed = useMemo(() => newestJobsFirst(jobs), [jobs]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
   // A file is listed once it is found to be one.
@@ -147,7 +148,10 @@ export function SidePanel({
   const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
   const made = useMemo(() => {
     const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
-    return results.filter((result) => !(result.kind === "url" && pages.has(result.target)));
+    // Newest first, as the pages: the first few show.
+    return results
+      .filter((result) => !(result.kind === "url" && pages.has(result.target)))
+      .reverse();
   }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
@@ -204,22 +208,30 @@ export function SidePanel({
           count={jobs.length}
           opened={revealSeq(state, "jobs")}
         >
-          {jobs.map((job) => (
-            <JobEntry
-              key={job.taskId}
-              job={job}
-              reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
-              onRevealed={(seq) => takeReveal(controller.key, seq)}
-              tools={tools}
-              now={now}
-              workspaceId={workspaceId}
-              rootPath={rootPath}
-              onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
-              stopNote={stopNote}
-              onShowCall={onShowCall}
-              onOpenFile={(path) => links?.openFile(path)}
-            />
-          ))}
+          <FirstFew
+            opened={
+              listed.findIndex((job) => job.taskId === state.reveal?.id) >= FIRST_FEW
+                ? revealSeq(state, "jobs")
+                : undefined
+            }
+          >
+            {listed.map((job) => (
+              <JobEntry
+                key={job.taskId}
+                job={job}
+                reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
+                onRevealed={(seq) => takeReveal(controller.key, seq)}
+                tools={tools}
+                now={now}
+                workspaceId={workspaceId}
+                rootPath={rootPath}
+                onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
+                stopNote={stopNote}
+                onShowCall={onShowCall}
+                onOpenFile={(path) => links?.openFile(path)}
+              />
+            ))}
+          </FirstFew>
         </Section>
       )}
       {todos.length > 0 && (
@@ -250,23 +262,27 @@ export function SidePanel({
       )}
       {made.length + artifacts.length > 0 && (
         <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
-          {artifacts.map((page) => (
-            <ArtifactRow
-              key={page.url ?? page.file}
-              page={page}
-              workspaceId={workspaceId}
-              rootPath={rootPath}
-            />
-          ))}
-          {made.map((result) => (
-            <ResultRow
-              key={result.target}
-              result={result}
-              cwd={cwd}
-              workspaceId={workspaceId}
-              onOpen={() => open(result.target, result.kind)}
-            />
-          ))}
+          <FirstFew>
+            {[
+              ...artifacts.map((page) => (
+                <ArtifactRow
+                  key={page.url ?? page.file}
+                  page={page}
+                  workspaceId={workspaceId}
+                  rootPath={rootPath}
+                />
+              )),
+              ...made.map((result) => (
+                <ResultRow
+                  key={result.target}
+                  result={result}
+                  cwd={cwd}
+                  workspaceId={workspaceId}
+                  onOpen={() => open(result.target, result.kind)}
+                />
+              )),
+            ]}
+          </FirstFew>
         </Section>
       )}
       {changed.length > 0 && (
@@ -333,6 +349,47 @@ function scrollIntoPanel(el: HTMLElement): void {
 /** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
+}
+
+/** How many rows of a long list (the jobs, the results) show before the rest is asked for. */
+export const FIRST_FEW = 3;
+
+/** Jobs as a list shows them: those running, then the newest. */
+export function newestJobsFirst<T extends { status: string }>(jobs: readonly T[]): T[] {
+  const newest = [...jobs].reverse();
+  return [
+    ...newest.filter((job) => job.status === "running"),
+    ...newest.filter((job) => job.status !== "running"),
+  ];
+}
+
+/**
+ * The first few rows of a list, the rest behind a button that counts them.
+ * `opened`, set when a row among the rest was asked for, shows them all.
+ */
+export function FirstFew({ opened, children }: { opened?: number; children: React.ReactNode[] }) {
+  const { t } = useTranslation();
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    if (opened !== undefined) setAll(true);
+  }, [opened]);
+  const rest = children.length - FIRST_FEW;
+  return (
+    <>
+      {all || rest <= 0 ? children : children.slice(0, FIRST_FEW)}
+      {rest > 0 && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          className="self-start rounded-(--radius-control) px-1 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          data-testid="panel-first-few"
+        >
+          {all ? t("chat.panel.less") : t("chat.panel.more", { count: rest })}
+        </button>
+      )}
+    </>
+  );
 }
 
 export function Section({

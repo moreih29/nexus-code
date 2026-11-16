@@ -90,6 +90,14 @@ export interface TerminalController {
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
   /**
+   * True once input reaches its shell: it has opened (after its view
+   * registers it, once its fonts have loaded) and its shell has started,
+   * printing its prompt and going quiet (PowerShell drops what comes
+   * before), or it prints nothing for a while; false after `timeoutMs` if
+   * not, or once it is gone.
+   */
+  whenReady: (timeoutMs: number) => Promise<boolean>;
+  /**
    * True once the program next writes output, other than replayed
    * scrollback; false after `timeoutMs` without any, or once the terminal
    * is gone.

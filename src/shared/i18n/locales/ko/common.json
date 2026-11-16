@@ -1134,6 +1134,8 @@
       "aria": "세션 정보",
       "show": "사이드 패널 보기",
       "hide": "사이드 패널 숨기기",
+      "more": "{{count}}개 더 보기",
+      "less": "접기",
       "stop": "중단",
       "stop_failed": "중단하지 못했습니다",
       "needs_version": "Claude Code {{version}} 이상이 필요합니다",

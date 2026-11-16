@@ -861,6 +861,95 @@ describe("services/terminal controller focus asked for before xterm opens", () =
   });
 });
 
+describe("services/terminal controller ready for input", () => {
+  beforeEach(() => resetIpc());
+
+  /**
+   * A controller whose fonts load when `loaded` is called, and whose session
+   * starts as `spawned` says (null: it was already running); with none, an
+   * ended terminal that is not started again.
+   */
+  function terminal(tabId: string, spawned?: { pid: number } | null) {
+    const harness = makeTerminalControllerDeps(() => Promise.resolve(spawned ?? null));
+    let loaded = () => {};
+    harness.deps.waitForTerminalFonts = () =>
+      new Promise<void>((resolve) => {
+        loaded = resolve;
+      });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId,
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        ...(spawned === undefined ? { autoSpawn: false } : {}),
+      },
+      harness.deps,
+    );
+    return { harness, controller, loaded: () => loaded() };
+  }
+
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("not before it opens; then at once, with no shell to wait for", async () => {
+    const { controller, loaded } = terminal("tab-ready-ended");
+    expect(controller.input("x", "keys")).toBe(false);
+    const ready = controller.whenReady(1000);
+    loaded();
+    expect(await ready).toBe(true);
+    expect(await controller.whenReady(0)).toBe(true);
+    expect(controller.input("x", "keys")).toBe(true);
+    controller.dispose();
+    expect(await controller.whenReady(1000)).toBe(false);
+  });
+
+  it("tells a wait no once it is gone, or after it", async () => {
+    const gone = terminal("tab-ready-gone");
+    const waiting = gone.controller.whenReady(1000);
+    gone.controller.dispose();
+    expect(await waiting).toBe(false);
+    const slow = terminal("tab-ready-slow");
+    expect(await slow.controller.whenReady(5)).toBe(false);
+    slow.controller.dispose();
+  });
+
+  it("a shell just started: once it has printed its prompt and gone quiet", async () => {
+    const { harness, controller, loaded } = terminal("tab-ready-shell", { pid: 7 });
+    let ready: boolean | undefined;
+    void controller.whenReady(3000).then((answer) => {
+      ready = answer;
+    });
+    loaded();
+    await flushTerminalInit();
+    // Open, but the shell has not printed: PowerShell would drop the input.
+    await pause(20);
+    expect(ready).toBeUndefined();
+    harness.getPtyOptions()?.onData("PS C:\\> ", false);
+    await pause(100);
+    expect(ready).toBeUndefined();
+    await pause(400);
+    expect(ready).toBe(true);
+    controller.dispose();
+  });
+
+  it("a session that comes back with its output replayed: once that has been written", async () => {
+    const { harness, controller, loaded } = terminal("tab-ready-replayed", { pid: 8 });
+    loaded();
+    await flushTerminalInit();
+    harness.getPtyOptions()?.onData("PS C:\\> ", true);
+    expect(await controller.whenReady(1000)).toBe(true);
+    controller.dispose();
+  });
+
+  it("a session already running: at once", async () => {
+    const { controller, loaded } = terminal("tab-ready-running", null);
+    loaded();
+    await flushTerminalInit();
+    expect(await controller.whenReady(0)).toBe(true);
+    controller.dispose();
+  });
+});
+
 describe("services/terminal controller replay", () => {
   beforeEach(resetIpc);
 

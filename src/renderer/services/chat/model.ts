@@ -10,6 +10,7 @@
 import { terminalText } from "../editor/preview/notebook";
 import { type ClaudeGoal, goalFeedbackReason } from "./goal";
 import { appliedEffort, settingsChoice, settingsModel } from "./settings-defaults";
+import { usageLimitsOf } from "./usage-limits";
 
 export type LineDir = "out" | "in" | "sys";
 
@@ -1604,9 +1605,9 @@ function applyControlResponse(
       return;
     case "get_usage": {
       // A usage endpoint that failed (a 429 among them) still answers, with
-      // no limits: the last answer that had them stays.
-      const limits = rec(body.rate_limits)?.limits;
-      if (!m.usage || (Array.isArray(limits) && limits.length > 0)) m.usage = body;
+      // the headers' windows or no limits at all: then the last answer that
+      // had them stays.
+      if (!m.usage || usageLimitsOf(body).length > 0) m.usage = body;
       return;
     }
     case "mcp_status":

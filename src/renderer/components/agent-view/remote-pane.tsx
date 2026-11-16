@@ -36,7 +36,7 @@ import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
-import { Composer } from "../chat/composer";
+import { Composer, composerHint } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
 import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
@@ -854,7 +854,10 @@ function RemoteControls({
         placeholder={
           toMain
             ? t("chat.strip.input_to_main")
-            : t("agentView.remote.placeholder", { device: target.deviceName })
+            : model.running
+              ? // During a turn, what each key does with the message, as a chat here says.
+                composerHint(t, true, target.kind === "codex" ? "codex" : "claude")
+              : t("agentView.remote.placeholder", { device: target.deviceName })
         }
         above={
           resumeQuery !== null ? (

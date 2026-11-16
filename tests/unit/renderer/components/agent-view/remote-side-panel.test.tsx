@@ -141,6 +141,38 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("Usage");
   });
 
+  test("shows the first few jobs, those running and the newest, and counts the rest", () => {
+    const job = (n: number, status: "running" | "completed") => ({
+      taskId: `j${n}`,
+      type: "local_bash",
+      description: `job number ${n}`,
+      status,
+    });
+    const html = renderToStaticMarkup(
+      <RemoteSidePanel
+        target={target}
+        panel={panel({
+          tasks: [
+            job(1, "running"),
+            job(2, "completed"),
+            job(3, "completed"),
+            job(4, "completed"),
+            job(5, "completed"),
+          ],
+        })}
+        model={emptyModel()}
+        controls
+        onShowAgent={() => {}}
+        onCompact={() => {}}
+        onStopTask={() => {}}
+      />,
+    );
+    // Each once, though a row names its job twice (its text and its title).
+    const shown = [...new Set([...html.matchAll(/job number (\d)/g)].map((match) => match[1]))];
+    expect(shown).toEqual(["1", "5", "4"]);
+    expect(html).toContain("Show 2 more");
+  });
+
   test("lets only a computer that allows control be compacted or have its runs stopped", () => {
     const html = renderToStaticMarkup(
       <RemoteSidePanel

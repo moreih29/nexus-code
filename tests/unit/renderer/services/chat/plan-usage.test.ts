@@ -125,6 +125,20 @@ describe("asking for a profile's usage", () => {
     expect(tab.asks).toBe(6);
   });
 
+  test("the windows Claude Code tells from the headers, its usage endpoint failing, are an answer", async () => {
+    const headers = {
+      rate_limits: {
+        five_hour: { utilization: 5, resets_at: "2026-11-16T05:20:00.000Z" },
+        seven_day: { utilization: 78, resets_at: "2026-11-19T14:00:00.000Z" },
+      },
+    };
+    source(() => Promise.resolve(headers));
+    await wantPlanUsage(KEY);
+    expect(entry()?.failures).toBe(0);
+    expect(entry()?.claude).toEqual(headers);
+    expect(entry()?.nextAt).toBe(now + FRESH_MS);
+  });
+
   test("an answer that comes back after failures starts the waits over", async () => {
     let answer: () => Promise<unknown> = () => Promise.reject(new Error("timeout"));
     source(() => answer());
