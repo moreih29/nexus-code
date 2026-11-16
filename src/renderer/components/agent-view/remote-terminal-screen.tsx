@@ -11,6 +11,9 @@
  * once composed), and a paste as pasted. A click that selects text leaves
  * the keyboard where it was, so the text can be copied.
  *
+ * Its cursor shows where that computer tells it (`caret`), as xterm draws
+ * one: a block while the keyboard is here, an outline otherwise.
+ *
  * Each line of the text starts and ends in the default style (bufferAnsi),
  * so a line is read, and drawn again, only when it changed.
  */
@@ -18,6 +21,7 @@
 import { ChevronDown } from "lucide-react";
 import { type CSSProperties, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TerminalCaret } from "../../../../packages/remote-protocol/src";
 import { TERMINAL_PALETTES } from "../../../shared/editor/terminal-palette";
 import type { TypedInput } from "../../services/remote/terminal-typing";
 import { terminalKeyOf } from "../../services/remote/terminal-typing";
@@ -25,8 +29,10 @@ import {
   type Color,
   paletteColor,
   parseAnsi,
+  type Run,
   type Style,
   sixteenOf,
+  withCaret,
 } from "../../services/terminal/ansi-runs";
 import {
   resolvedTerminalFontFamily,
@@ -45,6 +51,8 @@ interface Colors {
   sixteen: readonly string[];
   foreground: string;
   background: string;
+  cursor: string;
+  cursorAccent: string;
 }
 
 function colorOf(color: Color, colors: Colors): string {
@@ -72,20 +80,40 @@ export function lookOf(style: Style, colors: Colors): CSSProperties | undefined 
   };
 }
 
+/** The look of the cursor's character: a block while `focused`, as xterm's; an outline otherwise. */
+export function caretLook(style: Style, colors: Colors, focused: boolean): CSSProperties {
+  const look = lookOf(style, colors) ?? {};
+  return focused
+    ? { ...look, color: colors.cursorAccent, backgroundColor: colors.cursor }
+    : { ...look, outline: `1px solid ${colors.cursor}`, outlineOffset: -1 };
+}
+
+function runLook(run: Run, colors: Colors, focused: boolean): CSSProperties | undefined {
+  return run.caret ? caretLook(run.style, colors, focused) : lookOf(run.style, colors);
+}
+
 const Line = memo(function Line({
   text,
   colors,
   end,
+  caret,
+  focused = false,
 }: {
   text: string;
   colors: Colors;
   end: boolean;
+  /** Where the cursor is on this line: the characters before it. */
+  caret?: number;
+  focused?: boolean;
 }) {
-  const runs = useMemo(() => parseAnsi(text), [text]);
+  const runs = useMemo(() => {
+    const parsed = parseAnsi(text);
+    return caret === undefined ? parsed : withCaret(parsed, caret);
+  }, [text, caret]);
   return (
     <>
       {runs.map((run, i) => {
-        const look = lookOf(run.style, colors);
+        const look = runLook(run, colors, focused);
         return look ? (
           // biome-ignore lint/suspicious/noArrayIndexKey: runs have no identity but their place
           <span key={i} style={look}>
@@ -102,9 +130,12 @@ const Line = memo(function Line({
 
 export function RemoteTerminalScreen({
   text,
+  caret,
   typing,
 }: {
   text: string;
+  /** Where its cursor is, while it shows. */
+  caret?: TerminalCaret;
   /** Where the computer lets this one type into it. */
   typing?: { type(input: TypedInput): void };
 }) {
@@ -121,10 +152,18 @@ export function RemoteTerminalScreen({
       foreground: palette.foreground ?? "#ffffff",
       // The palette's is clear, over the island's surface: inverse text takes that.
       background: "var(--surface-island-bg)",
+      cursor: palette.cursor ?? palette.foreground ?? "#ffffff",
+      cursorAccent: palette.cursorAccent ?? "var(--surface-island-bg)",
     }),
     [palette],
   );
-  const lines = useMemo(() => text.trimEnd().split("\n"), [text]);
+  const caretLine = caret?.line;
+  const lines = useMemo(() => {
+    const shown = text.trimEnd().split("\n");
+    // The cursor below the last line: on a blank one, which the text leaves out.
+    while (caretLine !== undefined && shown.length <= caretLine) shown.push("");
+    return shown;
+  }, [text, caretLine]);
   const ref = useRef<HTMLPreElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const [typingHere, setTypingHere] = useState(false);
@@ -194,8 +233,14 @@ export function RemoteTerminalScreen({
         data-testid="remote-terminal"
       >
         {lines.map((line, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: a terminal's lines are their rows
-          <Line key={i} text={line} colors={colors} end={i === lines.length - 1} />
+          <Line
+            // biome-ignore lint/suspicious/noArrayIndexKey: a terminal's lines are their rows
+            key={i}
+            text={line}
+            colors={colors}
+            end={i === lines.length - 1}
+            {...(i === caretLine ? { caret: caret?.column, focused: typingHere } : {})}
+          />
         ))}
       </pre>
       {typing && (

@@ -77,7 +77,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   "tabs.list": async ({ workspaceId }) => ({ tabs: listTabs(workspaceId) }),
   "terminal.read": async ({ workspaceId, tabId, lines, ansi }) => {
     const controller = await startedTerminal(workspaceId, tabId);
-    return { text: controller.readText(lines, ansi) };
+    return ansi ? controller.readScreen(lines) : { text: controller.readText(lines) };
   },
   "terminal.watch": async ({ workspaceId, tabId, watchId, lines, ansi }) => {
     const controller = await startedTerminal(workspaceId, tabId);

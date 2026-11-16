@@ -18,7 +18,13 @@ import {
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
-import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
+import {
+  type AnsiBufferLike,
+  type AnsiLineLike,
+  type AnsiScreen,
+  bufferAnsi,
+  bufferScreen,
+} from "./buffer-ansi";
 import { clipboardTextOf } from "./osc-clipboard";
 import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
 import type {
@@ -71,6 +77,10 @@ interface ParserLike {
     id: { prefix?: string; intermediates?: string; final: string },
     callback: (params: CsiParamsLike) => boolean,
   ) => Disposable;
+  registerEscHandler: (
+    id: { intermediates?: string; final: string },
+    callback: () => boolean,
+  ) => Disposable;
 }
 
 /** The part of xterm's active buffer the controller reads. */
@@ -79,6 +89,10 @@ interface BufferLike extends AnsiBufferLike {
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
   getLine?(y: number): AnsiLineLike | undefined;
+  /** The cursor's cell, and its row on the screen, whose first row is the buffer's `baseY`th. */
+  readonly cursorX?: number;
+  readonly cursorY?: number;
+  readonly baseY?: number;
 }
 
 interface TerminalLike {
@@ -223,6 +237,8 @@ export function foregroundConfirmsTitle(foregroundName: string): boolean {
 const FOCUS_REPORTING_MODE = 1004;
 /** DECSET 2004, bracketed paste: a program setting up for input, as each does when it starts. */
 const BRACKETED_PASTE_MODE = 2004;
+/** DECTCEM (DECSET 25): the cursor shows; reset, the program hides it. */
+const CURSOR_MODE = 25;
 /**
  * How long after a program asks for focus reports it is told the terminal
  * lacks focus: Codex drops the input that comes while it sets up.
@@ -374,6 +390,9 @@ class XtermTerminalController implements TerminalController {
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
   private focusReportDisposable: Disposable | null = null;
+  /** Whether the program hid the cursor (DECTCEM), as one drawing its own does. */
+  private cursorHidden = false;
+  private cursorDisposables: Disposable[] = [];
   private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
@@ -449,6 +468,18 @@ class XtermTerminalController implements TerminalController {
     const buffer = this.term?.buffer.active;
     if (!buffer?.getLine || buffer.length === undefined) return "";
     return ansi ? bufferAnsi(buffer, lines) : bufferText(buffer, lines);
+  }
+
+  readScreen(lines: number): AnsiScreen {
+    const buffer = this.term?.buffer.active;
+    if (!buffer?.getLine || buffer.length === undefined) return { text: "" };
+    const { cursorX, cursorY, baseY } = buffer;
+    const shown = !this.cursorHidden && cursorX !== undefined && cursorY !== undefined;
+    return bufferScreen(
+      buffer,
+      lines,
+      shown ? { row: (baseY ?? 0) + cursorY, cell: cursorX } : null,
+    );
   }
 
   /**
@@ -578,6 +609,8 @@ class XtermTerminalController implements TerminalController {
     this.altExitDisposable = null;
     this.focusReportDisposable?.dispose();
     this.focusReportDisposable = null;
+    for (const d of this.cursorDisposables) d.dispose();
+    this.cursorDisposables = [];
     if (this.focusReportTimer !== null) {
       clearTimeout(this.focusReportTimer);
       this.focusReportTimer = null;
@@ -873,6 +906,28 @@ class XtermTerminalController implements TerminalController {
     // reporting on for the whole session when the shell started, so there the
     // program is told when it sets up for input instead, turning on bracketed
     // paste.
+    // Whether the cursor shows, for another device drawing this terminal: a program that draws
+    // its own (Claude Code, vim) hides it. A reset shows it again. xterm keeps on as it would.
+    this.cursorHidden = false;
+    for (const d of this.cursorDisposables) d.dispose();
+    const cursorShown = (shown: boolean) => (params: CsiParamsLike) => {
+      if (params.includes(CURSOR_MODE)) this.cursorHidden = !shown;
+      return false;
+    };
+    this.cursorDisposables = [
+      term.parser.registerCsiHandler({ prefix: "?", final: "h" }, cursorShown(true)),
+      term.parser.registerCsiHandler({ prefix: "?", final: "l" }, cursorShown(false)),
+      // DECSTR (CSI ! p) and RIS (ESC c).
+      term.parser.registerCsiHandler({ intermediates: "!", final: "p" }, () => {
+        this.cursorHidden = false;
+        return false;
+      }),
+      term.parser.registerEscHandler({ final: "c" }, () => {
+        this.cursorHidden = false;
+        return false;
+      }),
+    ];
+
     this.focusReportDisposable = term.parser.registerCsiHandler(
       { prefix: "?", final: "h" },
       (params) => {

@@ -4,7 +4,11 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
-import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
+import type {
+  ChatCommand,
+  ChatPage,
+  TerminalCaret,
+} from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
@@ -408,9 +412,9 @@ export interface CliUiOps {
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
   "terminal.read": {
-    /** `ansi`: with the colors and styles as SGR escapes, for another device. */
+    /** `ansi`: with the colors and styles as SGR escapes, and the cursor, for another device. */
     args: { workspaceId: string; tabId: string; lines: number; ansi?: boolean };
-    result: { text: string };
+    result: { text: string; caret?: TerminalCaret };
   };
   /**
    * Starts watching a terminal for another device: its text now, then
@@ -418,7 +422,7 @@ export interface CliUiOps {
    */
   "terminal.watch": {
     args: { workspaceId: string; tabId: string; watchId: string; lines: number; ansi?: boolean };
-    result: { text: string };
+    result: { text: string; caret?: TerminalCaret };
   };
   /** Stops a watch terminal.watch started; nothing when there is none. */
   "terminal.unwatch": {

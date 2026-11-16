@@ -3,10 +3,11 @@
  * text when the watch begins, then what changed of it as the program
  * writes, at most UPDATES_PER_SECOND times a second. What changed is sent
  * from where the text first differs, so a redraw at the bottom sends only
- * the bottom.
+ * the bottom. With `ansi`, the cursor goes with it, and a move of the
+ * cursor alone is sent too.
  */
 
-import type { TerminalUpdate } from "../../../../packages/remote-protocol/src";
+import type { TerminalCaret, TerminalUpdate } from "../../../../packages/remote-protocol/src";
 import type { TerminalController } from "../terminal/types";
 
 /** What a watch sends: an update but for its id and rev, which main gives it. */
@@ -32,6 +33,42 @@ export function fitText(text: string, maxBytes = MAX_TEXT_BYTES): string {
     shown = line >= 0 ? cut.slice(line + 1) : cut;
   }
   return shown;
+}
+
+/** A terminal as a watch sends it: its text, and its cursor, unless hidden or not asked for. */
+export interface Screen {
+  text: string;
+  caret?: TerminalCaret;
+}
+
+/**
+ * The screen with its text cut as fitText cuts it, the cursor going up with
+ * the lines cut; one above them, or in a line cut in two, is not told.
+ */
+export function fitScreen(screen: Screen, maxBytes = MAX_TEXT_BYTES): Screen {
+  const text = fitText(screen.text, maxBytes);
+  if (text === screen.text) return screen;
+  const cut = screen.text.slice(0, screen.text.length - text.length);
+  const line = (screen.caret?.line ?? -1) - (cut.split("\n").length - 1);
+  return screen.caret && cut.endsWith("\n") && line >= 0
+    ? { text, caret: { line, column: screen.caret.column } }
+    : { text };
+}
+
+function sameCaret(a: TerminalCaret | undefined, b: TerminalCaret | undefined): boolean {
+  return a?.line === b?.line && a?.column === b?.column;
+}
+
+/**
+ * What changed from `was` to `now`, with the cursor as it is now: the text
+ * as textChange tells it, or none (`start` at its end) when only the
+ * cursor moved; null when neither changed.
+ */
+export function screenChange(was: Screen, now: Screen): TerminalChange | null {
+  const text = textChange(was.text, now.text);
+  if (!text && sameCaret(was.caret, now.caret)) return null;
+  const change = text ?? { start: was.text.length, text: "" };
+  return now.caret ? { ...change, caret: now.caret } : change;
 }
 
 /** What changed from `was` to `now`: from where they first differ; null when nothing did. */
@@ -61,7 +98,7 @@ const watches = new Map<string, Watch>();
  * Starts watching a terminal for another device: its last `lines` lines
  * now, then `push` with each change, until stopTerminalWatch or the
  * terminal is gone (`onGone`); with `ansi`, the text has its colors and
- * styles.
+ * styles, and the cursor comes with it.
  */
 export function startTerminalWatch(
   watchId: string,
@@ -70,9 +107,10 @@ export function startTerminalWatch(
   push: (change: TerminalChange) => void,
   onGone: () => void,
   ansi = false,
-): { text: string } {
+): Screen {
   stopTerminalWatch(watchId);
-  const read = () => fitText(controller.readText(lines, ansi));
+  const read = () =>
+    fitScreen(ansi ? controller.readScreen(lines) : { text: controller.readText(lines) });
   let sent = read();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let last = 0;
@@ -81,7 +119,7 @@ export function startTerminalWatch(
     timer = null;
     last = Date.now();
     const now = read();
-    const change = textChange(sent, now);
+    const change = screenChange(sent, now);
     sent = now;
     if (change) push(change);
   };
@@ -101,7 +139,7 @@ export function startTerminalWatch(
     watches.delete(watchId);
   };
   watches.set(watchId, { stop });
-  return { text: sent };
+  return sent;
 }
 
 export function stopTerminalWatch(watchId: string): void {
