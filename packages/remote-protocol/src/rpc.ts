@@ -479,6 +479,8 @@ export const ChatCommandSchema = z.object({
   sets: z.enum(["model", "effort", "permissionMode"]).optional(),
   /** What it takes after its name, as its help writes it ("<condition>"). */
   args: z.string().optional(),
+  /** Other names it is typed by ("bg" for "background"). Since 0.13.0. */
+  aliases: z.array(z.string()).optional(),
 });
 export type ChatCommand = z.infer<typeof ChatCommandSchema>;
 
@@ -1104,6 +1106,11 @@ export const RPC_METHODS = {
     result: z.object({
       /** What it said, when it says something rather than changing the chat. */
       message: z.string().optional(),
+      /**
+       * The message is what its card says, which its tab shows over the
+       * composer; false, what a toast says. Since 0.13.0.
+       */
+      card: z.boolean().optional(),
       /** The tab it opened, when it opened one. */
       tabId: z.string().optional(),
     }),

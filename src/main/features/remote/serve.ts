@@ -684,7 +684,7 @@ export async function runChatCommand(
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
     .catch(unavailable);
-  const command = commands.find((c) => c.name === bare);
+  const command = commands.find((c) => c.name === bare || c.aliases?.includes(bare));
   if (command?.runs !== "command") {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -698,13 +698,13 @@ export async function runChatCommand(
   // A folder the chat may read, which the files methods then read too: by its
   // real path, and not one that would open all of the disk.
   const args =
-    bare === "add-dir" && given?.trim()
+    command.name === "add-dir" && given?.trim()
       ? await folderToAdd(await addDirPath(services, workspaceId, tabId, given, system), system)
       : given;
   return services
     .ui(
       "chat.command",
-      { workspaceId, tabId, name: bare, ...(args ? { args } : {}) },
+      { workspaceId, tabId, name: command.name, ...(args ? { args } : {}) },
       SETTINGS_TIMEOUT_MS,
     )
     .catch(unavailable);

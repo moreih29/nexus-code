@@ -6,6 +6,7 @@ import {
   commandInfosOf,
   commandOf,
   heldQueueOf,
+  helpText,
   mentionOf,
   modelsOf,
   peerComposerController,
@@ -366,6 +367,28 @@ describe("the composer of another computer's chat", () => {
       description: "Rename",
       argumentHint: "<title>",
     });
+  });
+});
+
+describe("a typed command of another computer's chat", () => {
+  const commands: ChatCommand[] = [
+    { name: "background", description: "Bg", runs: "command", aliases: ["bg"] },
+    { name: "review", description: "Review", runs: "send" },
+  ];
+  test("runs by its alias as by its name", () => {
+    expect(commandOf(commands, "/bg now")).toEqual({
+      kind: "command",
+      name: "background",
+      args: "now",
+    });
+    expect(commandOf(commands, "/review")).toBeNull();
+  });
+
+  test("/help lists the app's commands it runs, there and here", () => {
+    const text = helpText("claude", commands, ["copy"]);
+    expect(text).toContain("- `/background` — Bg");
+    expect(text).toContain("- `/copy` — ");
+    expect(text).not.toContain("/review");
   });
 });
 

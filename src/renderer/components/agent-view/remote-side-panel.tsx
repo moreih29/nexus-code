@@ -49,13 +49,21 @@ import { showToast } from "../ui/toast";
 import { peerProfileName } from "./remote-profile-chip";
 import { usageLineOf } from "./remote-usage";
 
-/** The panel's parts a bare command shows: /status, /context, /usage. */
-export type RemotePanelPart = "status" | "context" | "usage" | "jobs";
+/** The panel's parts a bare command shows: /status, /context, /usage; /diff its changed files. */
+export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes";
 
-/** The part of the panel a bare /status, /context or /usage shows; null for another. */
-export function remotePanelPartOf(text: string): RemotePanelPart | null {
+/**
+ * The part of the panel a bare /status, /context or /usage shows; null for
+ * another. A Codex chat has /status only, as its tab here does.
+ */
+export function remotePanelPartOf(
+  text: string,
+  agent: "claude" | "codex" = "claude",
+): RemotePanelPart | null {
   const match = /^\/(status|context|usage)\s*$/i.exec(text.trim());
-  return match?.[1] ? (match[1].toLowerCase() as RemotePanelPart) : null;
+  const part = match?.[1]?.toLowerCase() as RemotePanelPart | undefined;
+  if (!part || (agent === "codex" && part !== "status")) return null;
+  return part;
 }
 
 const AGENT_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed", "stopped"]);
@@ -344,7 +352,12 @@ export function RemoteSidePanel({
         </Section>
       )}
       {changed.length > 0 && (
-        <Section title={t("chat.panel.changed.title")} count={changed.length} folded>
+        <Section
+          title={t("chat.panel.changed.title")}
+          count={changed.length}
+          folded
+          reveal={asked("changes")}
+        >
           {changed.map((file) => (
             <ChangedRow
               key={file.path}

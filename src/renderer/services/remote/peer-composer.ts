@@ -10,6 +10,7 @@
 // (files.find). A file other than an image goes ahead with chat.upload
 // (0.10.0), and the chat's device puts its path after the message.
 
+import i18next from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ChatCommand,
@@ -24,7 +25,9 @@ import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
 import type { ComposerController } from "../../components/chat/composer";
 import { showToast } from "../../components/ui/toast";
 import { ipcCallResult } from "../../ipc/client";
-import type { ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
+import { copyText } from "../../utils/clipboard";
+import { copyIndex, nthAnswer } from "../chat/app-commands";
+import type { ChatItem, ChatModel, CommandInfo, ImageBlock, ModelInfo } from "../chat/model";
 import {
   type ChatTabState,
   type CommandCard,
@@ -34,6 +37,7 @@ import {
 } from "../chat/store";
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
+import { hereCommandOf, hereCommandsOf, hereLinkOf } from "./here-commands";
 import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
 
 /** The chat, by the device it runs on and its tab there. */
@@ -325,11 +329,48 @@ export function commandOf(
   if (!match) return null;
   const [, name, rest] = match;
   const args = rest?.trim() || undefined;
-  const command = commands.find((c) => c.name === name);
+  const typed = name?.toLowerCase();
+  const command =
+    commands.find((c) => c.name === name) ??
+    commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === typed));
   if (!command || command.runs === "send") return null;
-  if (command.runs === "command") return { kind: "command", name, ...(args ? { args } : {}) };
+  if (command.runs === "command") {
+    return { kind: "command", name: command.name, ...(args ? { args } : {}) };
+  }
   if (!command.sets) return null;
   return { kind: "set", sets: command.sets, ...(args ? { value: args } : {}) };
+}
+
+/** What the app's commands another computer's chat runs here need. */
+export interface HereCommandDeps {
+  /** The conversation as this app shows it, for /copy. */
+  items: () => readonly ChatItem[];
+  /** /diff: the files the chat changed, in its side panel. */
+  showChanges: () => void;
+  openUrl: (url: string) => void;
+}
+
+/** A command's description, as its tab's help writes it. */
+function describe(agent: "claude" | "codex", name: string): string {
+  return i18next.t(
+    agent === "claude" ? `chat.commands.describe.${name}` : `chat.codex.commands.describe.${name}`,
+  );
+}
+
+/** /help for another computer's chat: the app's commands it runs, there or here, as a tab's lists its own. */
+export function helpText(
+  agent: "claude" | "codex",
+  commands: readonly ChatCommand[],
+  hereNames: readonly string[],
+): string {
+  const lines = [
+    ...commands.filter((c) => c.runs === "command").map((c) => [c.name, c.args, c.description]),
+    ...hereNames.map((name) => [name, undefined, describe(agent, name)]),
+  ].map(([name, args, description]) => `- \`/${name}${args ? ` ${args}` : ""}\` — ${description}`);
+  const intro = i18next.t(
+    agent === "claude" ? "chat.commands.help_intro" : "chat.codex.commands.help_intro",
+  );
+  return `${intro}\n\n${lines.join("\n")}`;
 }
 
 export interface PeerComposer {
@@ -356,6 +397,7 @@ export function usePeerComposer({
   filesRefused,
   onError,
   folders,
+  here,
 }: {
   ref: PeerChatRef;
   agent: "claude" | "codex";
@@ -368,6 +410,8 @@ export function usePeerComposer({
   active: boolean;
   filesRefused: string;
   onError: (message: string) => void;
+  /** What the app's commands that run here for the chat need (/copy, /diff, /help…). */
+  here?: HereCommandDeps;
 }): PeerComposer {
   const { deviceId, workspaceId, tabId } = ref;
   const [settings, setSettings] = useState<ChatSettings | null>(null);
@@ -408,11 +452,13 @@ export function usePeerComposer({
     onError: (message: string) => void;
     can: ChatPanel["can"];
     folders: PeerFolders | undefined;
-  }>({ settings: null, onError, can: undefined, folders });
+    here: HereCommandDeps | undefined;
+  }>({ settings: null, onError, can: undefined, folders, here });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
   held.folders = folders;
+  held.here = here;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -433,8 +479,55 @@ export function usePeerComposer({
   const cards = useRef(0);
   const closeCard = useCallback(() => setCard(undefined), []);
 
+  const hereCommands = useMemo(() => hereCommandsOf(agent, commands), [agent, commands]);
+  /** One of the app's commands that runs here, as the chat's tab runs it there. */
+  const runHere = useCallback(
+    (name: string, args: string, title: string, deps: HereCommandDeps) => {
+      const t = i18next.t.bind(i18next);
+      const link = hereLinkOf(name);
+      if (link) {
+        deps.openUrl(link);
+        return;
+      }
+      switch (name) {
+        case "copy": {
+          const n = copyIndex(args);
+          const answer = n === null ? null : nthAnswer(deps.items(), n);
+          if (answer === null) {
+            showToast({ kind: "warning", message: t("chat.commands.copy_none") });
+            return;
+          }
+          copyText(answer);
+          showToast({ kind: "info", message: t("chat.commands.copied") });
+          return;
+        }
+        case "diff":
+          deps.showChanges();
+          return;
+        case "help":
+          cards.current += 1;
+          setCard({
+            id: `peer-card-${cards.current}`,
+            title,
+            text: helpText(
+              agent,
+              commands,
+              hereCommands.map((c) => c.name),
+            ),
+          });
+          return;
+      }
+    },
+    [agent, commands, hereCommands],
+  );
+
   const onCommand = useCallback(
     (text: string): boolean => {
+      const ran = held.here ? hereCommandOf(agent, commands, text) : null;
+      if (ran && held.here) {
+        runHere(ran.name, ran.args, text.trim(), held.here);
+        return true;
+      }
       const found = commandOf(commands, text);
       if (!found) return false;
       if (found.kind === "command") {
@@ -461,7 +554,8 @@ export function usePeerComposer({
           (said) => {
             clearTimeout(timer);
             const message = said.message;
-            if (message && answerInCard(message, waited)) {
+            // As its tab shows it there, from 0.13.0; before, by how long and how fast it is.
+            if (message && (said.card ?? answerInCard(message, waited))) {
               fill({ id, title, text: message });
               return;
             }
@@ -493,7 +587,7 @@ export function usePeerComposer({
       ).then(setSettings, (error: Error) => onError(error.message));
       return true;
     },
-    [commands, deviceId, workspaceId, tabId, onError],
+    [agent, commands, deviceId, workspaceId, tabId, onError, held, runHere],
   );
 
   // A message rewound or forked there, back in this composer.
@@ -510,6 +604,18 @@ export function usePeerComposer({
     }),
     [model, settings, reveal, draft, queue],
   );
-  const infos = useMemo(() => commandInfosOf(commands), [commands]);
+  const infos = useMemo(
+    () => [
+      ...commandInfosOf(commands),
+      ...(here
+        ? hereCommands.map((c) => ({
+            name: c.name,
+            description: describe(agent, c.name),
+            ...(c.argumentHint ? { argumentHint: c.argumentHint } : {}),
+          }))
+        : []),
+    ],
+    [agent, commands, hereCommands, here],
+  );
   return { controller, state, commands: infos, onCommand, card, closeCard };
 }

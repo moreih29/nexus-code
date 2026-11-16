@@ -20,10 +20,15 @@ import type { ChatModel, ToolCall } from "../chat/model";
 import { withRelayed } from "../chat/relayed";
 import { runAppCommand } from "../chat/run-app-command";
 import { runCodexCommand } from "../chat/run-codex-command";
-import { chatKey, useChatStore } from "../chat/store";
+import { type CommandCard, chatKey, useChatStore } from "../chat/store";
 import { UiRequestError } from "../cli/handler";
 
-/** The app's commands for a Claude tab that another device may run: those that change the chat. */
+/**
+ * The app's commands for a Claude tab that another device may run: those
+ * that change the chat, and those that tell what only this computer knows
+ * of it (its memory files, rules, hooks, skills, tasks and plugins), their
+ * card's text for an answer.
+ */
 export const CLAUDE_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "btw",
   "plan",
@@ -33,6 +38,15 @@ export const CLAUDE_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "branch",
   "subtask",
   "background",
+  "export",
+  "memory",
+  "permissions",
+  "hooks",
+  "skills",
+  "tasks",
+  "workflows",
+  "plugin",
+  "remote-control",
 ]);
 
 /** Codex's commands the app runs that another device may run. */
@@ -44,6 +58,9 @@ export const CODEX_REMOTE_COMMANDS: ReadonlySet<string> = new Set([
   "goal",
   "rename",
   "fork",
+  "export",
+  "mcp",
+  "skills",
 ]);
 
 /** The commands chat.configure sets instead. */
@@ -62,6 +79,7 @@ export function chatCommandsOf(agent: "claude" | "codex", model: ChatModel): Cha
           ? { runs: "settings" as const, sets: SETTINGS[c.name] }
           : { runs: "command" as const }),
         ...(c.argumentHint ? { args: c.argumentHint } : {}),
+        ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
       }),
     );
   }
@@ -81,6 +99,7 @@ export function chatCommandsOf(agent: "claude" | "codex", model: ChatModel): Cha
       description: c.description ?? "",
       runs: "command" as const,
       ...(c.argumentHint ? { args: c.argumentHint } : {}),
+      ...(c.aliases?.length ? { aliases: [...c.aliases] } : {}),
     }));
   return [...own, ...app];
 }
@@ -104,7 +123,7 @@ export async function runRemoteCommand(
   target: AgentTabController,
   typed: string,
   args: string,
-): Promise<{ message?: string; tabId?: string }> {
+): Promise<{ message?: string; card?: boolean; tabId?: string }> {
   const name = remoteCommandNamed(target.agent, typed);
   if (!name) {
     throw new UiRequestError(
@@ -163,10 +182,35 @@ export async function runRemoteCommand(
   const problem = said.find((toast) => toast.kind !== "info");
   if (problem) throw new UiRequestError(problem.message);
   const card = useChatStore.getState().tabs[key]?.card;
-  const fromCard = card && card.id !== cardBefore ? (card.error ?? card.text) : undefined;
+  const fromCard = card && card.id !== cardBefore ? cardText(card) : undefined;
   const message = fromCard ?? said.at(-1)?.message;
   const opened = Object.keys(useTabsStore.getState().byWorkspace[workspaceId] ?? {}).find(
     (id) => !before.has(id),
   );
-  return { ...(message ? { message } : {}), ...(opened ? { tabId: opened } : {}) };
+  return {
+    ...(message ? { message, card: fromCard !== undefined } : {}),
+    ...(opened ? { tabId: opened } : {}),
+  };
+}
+
+/** Text for a link's label: its brackets would end it. */
+const labelOf = (text: string) => text.replace(/[[\]]/g, "\\$&");
+
+/**
+ * A command's card as another device is told it: its error, or its text,
+ * its files as links to their paths here and its lists, without the
+ * buttons only this computer can press.
+ */
+export function cardText(card: CommandCard): string | undefined {
+  if (card.error) return card.error;
+  const parts: string[] = [];
+  if (card.text) parts.push(card.text);
+  if (card.files?.length) {
+    parts.push(card.files.map((file) => `- [${labelOf(file.label)}](<${file.path}>)`).join("\n"));
+  }
+  for (const section of card.sections ?? []) {
+    const rows = section.rows.map((row) => `- ${row.label}${row.detail ? ` — ${row.detail}` : ""}`);
+    parts.push(`**${section.title}**\n\n${rows.length > 0 ? rows.join("\n") : section.empty}`);
+  }
+  return parts.length > 0 ? parts.join("\n\n") : undefined;
 }

@@ -36,7 +36,7 @@ import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { AgentStrip } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
-import { ChatLinksContext } from "../chat/chat-links";
+import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
 import { CommandCardView } from "../chat/command-card";
 import { Composer, composerHint } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
@@ -675,7 +675,7 @@ function RemoteChatView({
                     toMain={shown !== undefined}
                     onShowMain={() => showAgent(null)}
                     goalBar={goalBar}
-                    {...(claude ? { onPanelPart: askPanel } : {})}
+                    onPanelPart={askPanel}
                   />
                 )}
               </div>
@@ -758,6 +758,8 @@ function RemoteControls({
   onPanelPart?: (part: RemotePanelPart) => void;
 }) {
   const { t } = useTranslation();
+  const links = useChatLinks();
+  const agent = target.kind === "codex" ? "codex" : "claude";
   const { deviceId, workspaceId, tabId } = target;
   const onError = useCallback(
     (message: string) =>
@@ -773,6 +775,15 @@ function RemoteControls({
     filesRefused: t("agentView.remote.filesRefused"),
     onError,
     folders: { root: target.path, cwd: target.cwd ?? target.path },
+    here: {
+      items: () => model.items,
+      showChanges: () => {
+        if ((page.panel?.changedFiles?.length ?? 0) === 0) {
+          showToast({ kind: "info", message: t("agentView.remote.noChanges") });
+        } else onPanelPart?.("changes");
+      },
+      openUrl: (url) => links?.openUrl(url),
+    },
   });
   /** Runs a control; the watch shows what it did, and a refusal is told. */
   const control = async (sent: Promise<IpcResult<unknown>>) => {
@@ -792,7 +803,7 @@ function RemoteControls({
   // /resume's list above the composer, with the words it was given, as a chat here shows it.
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
   const onCommand = (text: string): boolean => {
-    const part = onPanelPart ? remotePanelPartOf(text) : null;
+    const part = onPanelPart ? remotePanelPartOf(text, agent) : null;
     if (part && onPanelPart) {
       onPanelPart(part);
       return true;

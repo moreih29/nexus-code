@@ -766,7 +766,8 @@ export interface CliUiOps {
    */
   "chat.command": {
     args: { workspaceId: string; tabId: string; name: string; args?: string };
-    result: { message?: string; tabId?: string };
+    /** card: the message is its card's, not a toast's. */
+    result: { message?: string; card?: boolean; tabId?: string };
   };
   /**
    * Has a Claude or Codex tab run with another agent profile (by name or id),

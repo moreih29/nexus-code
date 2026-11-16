@@ -1771,6 +1771,7 @@
       "placeholder": "Message {{device}}",
       "failed": "Didn't go through: {{message}}",
       "filesRefused": "That computer's app is too old to take files other than images",
+      "noChanges": "This chat has not changed any files",
       "offline": "{{device}} is offline",
       "disconnected": "Not connected to the server",
       "outdated": "This version can't connect",
