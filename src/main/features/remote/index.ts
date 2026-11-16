@@ -17,6 +17,7 @@ import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
+import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
@@ -183,6 +184,8 @@ export async function registerRemoteChannel(options: {
   themeChanged(): void;
   /** The user's other computers, for the nexus command's --device. */
   cli: CliRemote;
+  /** Reads a file of another computer's workspace, for the previews of quick look over its chats. */
+  peerFiles: PeerFileReader;
   dispose(): void;
 }> {
   const box = await electronSecretBox();
@@ -782,6 +785,22 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    peerFiles: async (peer, absPath, offset, length) => {
+      try {
+        const read = await inRoom().request(peer.deviceId, "files.read", {
+          workspaceId: peer.workspaceId,
+          path: absPath,
+          as: "bytes",
+          offset,
+          length,
+        });
+        if (read.kind !== "bytes") throw new Error("not read as bytes");
+        return { base64: read.data, size: read.size };
+      } catch (error) {
+        if (error instanceof RpcFailure && error.code === RpcErrorCode.NotFound) return "missing";
+        throw error;
+      }
+    },
     cli: {
       inRoom: () => room !== null && roomState.status === "online",
       devices: async () => {

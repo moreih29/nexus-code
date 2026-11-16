@@ -8,6 +8,7 @@ import { ipcCallResult } from "../../ipc/client";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
+import { lookAreaOf } from "../../services/chat/look-area";
 import type {
   AssistantItem,
   ChatModel,
@@ -20,6 +21,7 @@ import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
+import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
   type PeerReach,
   type PeerRead,
@@ -41,6 +43,7 @@ import { GoalBar, type TabGoal } from "../chat/goal-bar";
 import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
 import { PermissionCard } from "../chat/permission-card";
+import { QuickLook, type QuickLookList } from "../chat/quick-look";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
 import { StatusLine } from "../chat/status-line";
@@ -50,7 +53,6 @@ import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
-import { RemoteLook, type RemoteLookList } from "./remote-look";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
@@ -476,14 +478,17 @@ function RemoteChatView({
     [movedThere, t],
   );
 
-  // Its images, files and changes are read from that computer, shown in quick look here.
+  // Its images, files and changes are read from that computer, shown in this app's quick look.
   const loadImage = useMemo(
     () => peerImageLoader({ deviceId, workspaceId, tabId }),
     [deviceId, workspaceId, tabId],
   );
   const files = useMemo(() => peerChatFiles({ deviceId, workspaceId }), [deviceId, workspaceId]);
-  const [look, setLook] = useState<RemoteLookList | null>(null);
-  const links = useRemoteLinks(target, loadImage, setLook);
+  // That computer's workspace, as the previews read it, at its folder there.
+  const peerWorkspace = peerWorkspaceId(deviceId, workspaceId);
+  useEffect(() => setPeerRoot(peerWorkspace, target.path), [peerWorkspace, target.path]);
+  const [look, setLook] = useState<QuickLookList | null>(null);
+  const links = useRemoteLinks(target, { model }, files, setLook);
   // A chat put out of sight takes its quick look with it.
   useEffect(() => {
     if (!visible) setLook(null);
@@ -628,7 +633,7 @@ function RemoteChatView({
                   />
                 )}
                 <MessageList
-                  workspaceId={`remote:${deviceId}`}
+                  workspaceId={peerWorkspace}
                   cwd={target.cwd ?? target.path}
                   rootPath={target.path}
                   history={null}
@@ -713,9 +718,12 @@ function RemoteChatView({
               />
             )}
             {look && (
-              <RemoteLook
+              <QuickLook
+                workspaceId={peerWorkspace}
                 list={look}
-                onStep={(index) => setLook((now) => (now ? { ...now, index } : now))}
+                area={lookAreaOf(rootRef.current)}
+                local={false}
+                onIndex={(index) => setLook({ ...look, index })}
                 onClose={() => setLook(null)}
               />
             )}
@@ -833,7 +841,7 @@ function RemoteControls({
             {model.permissions.length > 0 && !toMain && (
               <PermissionCard
                 requests={model.permissions}
-                workspaceId={`remote:${deviceId}`}
+                workspaceId={peerWorkspaceId(deviceId, workspaceId)}
                 cwd={target.cwd ?? target.path}
                 rootPath={target.path}
                 onAnswer={answer}
@@ -871,7 +879,7 @@ function RemoteControls({
             composer.card && (
               <CommandCardView
                 card={composer.card}
-                workspaceId={`remote:${deviceId}`}
+                workspaceId={peerWorkspaceId(deviceId, workspaceId)}
                 cwd={target.cwd ?? target.path}
                 rootPath={target.path}
                 onClose={composer.closeCard}

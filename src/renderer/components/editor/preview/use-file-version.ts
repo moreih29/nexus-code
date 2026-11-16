@@ -8,11 +8,14 @@
 
 import { useEffect, useState } from "react";
 import { ipcCallResult, ipcListen } from "../../../ipc/client";
+import { peerOf } from "../../../services/remote/peer-workspace";
 
 export function useFileVersion(workspaceId: string, relPath: string): number {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
+    // Another computer's file is shown as it was read: no change of it is heard here.
+    if (peerOf(workspaceId)) return;
     let cancelled = false;
     // `${mtime}|${size}` last observed; null = missing, undefined = no
     // baseline yet (the first stat only records, never bumps).
