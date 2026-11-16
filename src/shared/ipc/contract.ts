@@ -145,6 +145,7 @@ import {
 } from "../types/entry-points";
 import {
   NoteAssetSchema,
+  NoteBlocksAddedSchema,
   NoteChangedSchema,
   NoteContentSchema,
   NotePhotoAddedSchema,
@@ -2350,6 +2351,8 @@ export const ipcContract = {
       changed: listen(NoteChangedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
+      /** An agent put blocks into a note: an editor open on it does too. */
+      blocksAdded: listen(NoteBlocksAddedSchema),
     },
   },
   agentProfiles: {

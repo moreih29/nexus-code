@@ -142,6 +142,7 @@ export const actionHandlers: {
     | "settings.open"
     | LayoutOp
     | `chat.${string}`
+    | `note.${string}`
     | `agentView.${string}`
   >]: CliUiHandler<K>;
 } = {

@@ -200,6 +200,22 @@ export interface CliSettingInfo {
 export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
 export type CliSettingValue = string | number | boolean;
 
+/** The note recorder as nexus note record tells it. */
+export interface CliRecorder {
+  /** idle, starting, recording, pausing, paused or stopping. */
+  readonly phase: string;
+  /** The note it records into, when it records. */
+  readonly workspaceId?: string;
+  readonly noteId?: string;
+  /** How long it has recorded. */
+  readonly elapsedMs?: number;
+  /**
+   * Whether recording can start here: ready, signed-out (no NexusCode
+   * sign-in) or unavailable (the server signed in to has no voice).
+   */
+  readonly voice: "unknown" | "signed-out" | "unavailable" | "ready";
+}
+
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
   | "open"
@@ -221,6 +237,10 @@ export type CliChangeKind =
   | "chatTaskStop"
   | "chatRemoteControlOn"
   | "chatRemoteControlOff"
+  | "noteNew"
+  | "noteWrite"
+  | "noteRecord"
+  | "noteRecordStop"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -1038,6 +1058,24 @@ export interface CliUiOps {
   "task.remove": {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
     result: Record<string, never>;
+  };
+  /** Shows a note to the user: its workspace, and its tab in front. */
+  "note.show": {
+    args: { workspaceId: string; noteId: string; title?: string };
+    result: Record<string, never>;
+  };
+  /**
+   * The note recorder: what it records and whether it can (status); or it
+   * starts recording into a note, the note shown (or goes on with its paused
+   * recording), pauses, goes on, or stops. One note records at a time.
+   */
+  "note.recorder": {
+    args: {
+      action: "status" | "start" | "pause" | "resume" | "stop";
+      workspaceId?: string;
+      noteId?: string;
+    };
+    result: CliRecorder;
   };
   /** The app's settings that nexus settings reads and changes. */
   "settings.list": {

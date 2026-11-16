@@ -4,7 +4,13 @@ import * as path from "node:path";
 import { BrowserWindow, dialog, shell } from "electron";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
-import type { NoteAsset, NoteLocation } from "../../../shared/notes/types";
+import type { DocNode } from "../../../shared/notes/markdown";
+import {
+  imageBlock,
+  type NoteAsset,
+  type NoteContent,
+  type NoteLocation,
+} from "../../../shared/notes/types";
 import type { NoteChanged } from "../../../shared/types/notes";
 import {
   rootPathFromLocation,
@@ -80,7 +86,34 @@ export interface NotesFeature {
   ): Promise<NoteAsset>;
   /** The note a window records into, the one told last; none while nothing records. */
   recording(): NoteRecording | undefined;
+  /** Makes a note, and tells the windows. */
+  create(workspaceId: string, title: string): Promise<NoteContent>;
+  /**
+   * Puts blocks into a note: at its end, or at the end of the part under
+   * the heading `under` names; tells the windows, so an editor open on the
+   * note puts them in its copy too.
+   */
+  append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
+  /**
+   * Writes a file into a note's folder: an image into screens/, which it
+   * shows, anything else into materials/. The block that shows it.
+   */
+  addAsset(
+    workspaceId: string,
+    noteId: string,
+    bytes: Uint8Array,
+    name: string,
+  ): Promise<{ asset: NoteAsset; block: DocNode }>;
 }
+
+/** The images a note shows, by their extension, as the note keeps them. */
+const IMAGE_EXTS: Readonly<Record<string, string>> = {
+  ".png": "png",
+  ".jpg": "jpg",
+  ".jpeg": "jpg",
+  ".gif": "gif",
+  ".webp": "webp",
+};
 
 export function registerNotesChannel(opts: {
   userData: string;
@@ -124,6 +157,39 @@ export function registerNotesChannel(opts: {
     });
     changed({ locationKey: location.key, noteId, change: "saved" });
     return asset;
+  };
+
+  const create: NotesFeature["create"] = async (workspaceId, title) => {
+    const location = locationOf(workspaceId);
+    const note = await store.create(location, title);
+    changed({ locationKey: location.key, noteId: note.id, change: "created" });
+    return note;
+  };
+  const append: NotesFeature["append"] = async (workspaceId, noteId, blocks, under) => {
+    const location = locationOf(workspaceId);
+    await store.appendBlocks(location, noteId, blocks, under);
+    broadcast("notes", "blocksAdded", {
+      locationKey: location.key,
+      noteId,
+      blocks: blocks as unknown as Record<string, unknown>[],
+      ...(under !== undefined ? { under } : {}),
+    });
+    changed({ locationKey: location.key, noteId, change: "saved" });
+  };
+  const addAsset: NotesFeature["addAsset"] = async (workspaceId, noteId, bytes, name) => {
+    const location = locationOf(workspaceId);
+    // A note that is not there gets no file either.
+    await store.read(location, noteId);
+    const ext = IMAGE_EXTS[path.extname(name).toLowerCase()];
+    if (ext) {
+      const asset = await store.addImage(location, noteId, bytes, ext, name);
+      return { asset, block: imageBlock(asset) };
+    }
+    const asset = await store.addFileBytes(location, noteId, bytes, name);
+    return {
+      asset,
+      block: { type: "noteFile", attrs: { src: asset.src, name: asset.name, size: asset.size } },
+    };
   };
 
   register("notes", {
@@ -328,5 +394,5 @@ export function registerNotesChannel(opts: {
     },
   });
 
-  return { store, locationOf, changed, attachPhoto, recording };
+  return { store, locationOf, changed, attachPhoto, recording, create, append, addAsset };
 }

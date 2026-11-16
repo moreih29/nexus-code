@@ -706,6 +706,18 @@ app.whenReady().then(async () => {
         if (!notesFeature) throw new Error("notes are not ready");
         return notesFeature.store.readTranscript(notesFeature.locationOf(workspaceId), noteId);
       },
+      create: (workspaceId, title) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.create(workspaceId, title);
+      },
+      append: (workspaceId, noteId, blocks, under) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.append(workspaceId, noteId, blocks, under);
+      },
+      addAsset: (workspaceId, noteId, bytes, name) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.addAsset(workspaceId, noteId, bytes, name);
+      },
     },
   });
 

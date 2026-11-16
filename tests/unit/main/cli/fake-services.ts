@@ -49,6 +49,7 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import { withBlocks } from "../../../../src/shared/notes/insert";
 import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
@@ -204,6 +205,8 @@ export interface FakeApp {
   browser: FakeBrowser;
   /** Each workspace's notes (by workspace id), as the notes service gives them. */
   notes: Record<string, NoteContent[]>;
+  /** The files put into notes: the note, where it keeps each, and its text. */
+  noteAssets: Array<{ noteId: string; src: string; text: string }>;
   /** Notes' transcripts, by "<workspace id>/<note id>". */
   transcripts: Record<string, TranscriptFile>;
   /** Each workspace's editor area; a test may replace one. */
@@ -496,6 +499,7 @@ export function fakeApp(now = Date.now()): FakeApp {
       return (await peers.answer(deviceId, method, params)) as never;
     },
   };
+  const noteAssets: FakeApp["noteAssets"] = [];
   const uiAnswers: FakeApp["uiAnswers"] = new Map();
   const terminalAsks: FakeApp["terminalAsks"] = new Map();
   const terminalAnswered: FakeApp["terminalAnswered"] = [];
@@ -530,6 +534,7 @@ export function fakeApp(now = Date.now()): FakeApp {
       return { tabId: NEW_TAB } as CliUiOps[K]["result"];
     }
     if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
+    if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
     if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
     if (op === "chat.panel") {
       return {
@@ -780,6 +785,43 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
       transcript: async (workspaceId, noteId) =>
         transcripts[`${workspaceId}/${noteId}`] ?? { version: 1, recordings: [] },
+      create: async (workspaceId, title) => {
+        const id = `nnew${String((notes[workspaceId] ?? []).length).padStart(4, "0")}`;
+        const note = {
+          id,
+          title,
+          createdAt: time.now,
+          updatedAt: time.now,
+          counts: { sketches: 0, files: 0, images: 0, todos: 0, todosDone: 0 },
+          excerpt: "",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          dir: `/data/notes/${workspaceId}/${id}`,
+        };
+        notes[workspaceId] = [note, ...(notes[workspaceId] ?? [])];
+        return note;
+      },
+      append: async (workspaceId, noteId, blocks, under) => {
+        const note = (notes[workspaceId] ?? []).find((n) => n.id === noteId);
+        if (!note) throw new Error(`no note ${noteId}`);
+        const doc = withBlocks(note.doc, blocks, under);
+        if (!doc) throw new Error(`no heading "${under}" in the note`);
+        note.doc = doc;
+      },
+      addAsset: async (workspaceId, noteId, bytes, name) => {
+        if (!(notes[workspaceId] ?? []).some((n) => n.id === noteId)) {
+          throw new Error(`no note ${noteId}`);
+        }
+        const image = /\.(png|jpe?g|gif|webp)$/i.test(name);
+        const src = `${image ? "screens" : "materials"}/${name}`;
+        noteAssets.push({ noteId, src, text: Buffer.from(bytes).toString() });
+        const asset = { src, name, size: bytes.byteLength };
+        return {
+          asset,
+          block: image
+            ? { type: "noteImage", attrs: { src, alt: name } }
+            : { type: "noteFile", attrs: { src, name, size: bytes.byteLength } },
+        };
+      },
     },
     forwards: {
       list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
@@ -829,6 +871,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     chatChoices,
     chatOpenError,
     uiAnswers,
+    noteAssets,
     terminalAsks,
     terminalAnswered,
     closeRefused,

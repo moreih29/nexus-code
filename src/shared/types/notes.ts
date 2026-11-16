@@ -155,3 +155,16 @@ export const NotePhotoAddedSchema = z.object({
   name: z.string(),
 });
 export type NotePhotoAdded = z.infer<typeof NotePhotoAddedSchema>;
+
+/**
+ * Blocks an agent put into a note (nexus note write, add), written into it
+ * already: at its end, or at the end of the part under the heading `under`
+ * names. An editor open on the note puts them in its copy too.
+ */
+export const NoteBlocksAddedSchema = z.object({
+  locationKey: z.string(),
+  noteId: z.string(),
+  blocks: z.array(z.record(z.string(), z.unknown())),
+  under: z.string().optional(),
+});
+export type NoteBlocksAdded = z.infer<typeof NoteBlocksAddedSchema>;

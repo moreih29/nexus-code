@@ -26,6 +26,7 @@ import {
 import { appHandlers } from "./app-actions";
 import { chatHandlers } from "./chat-actions";
 import { layoutHandlers } from "./layout-actions";
+import { noteHandlers } from "./note-actions";
 import { settingsHandlers } from "./settings";
 import { viewHandlers } from "./view-actions";
 
@@ -99,6 +100,7 @@ const handlers: { [K in CliUiOp]: CliUiHandler<K> } = {
   ...appHandlers,
   ...chatHandlers,
   ...layoutHandlers,
+  ...noteHandlers,
   ...settingsHandlers,
   ...viewHandlers,
 };
