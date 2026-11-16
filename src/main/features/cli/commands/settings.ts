@@ -13,15 +13,24 @@ import {
 import type { CliSettingInfo } from "../../../../shared/cli/ui";
 import { CliUsageError, exactArgs } from "../args";
 import { type CliContext, CliError } from "../context";
-import { table } from "../format";
+import { oneLine, table } from "../format";
 import { type CliCommand, output } from "../registry";
 
-async function listSettings(ctx: CliContext): Promise<CliSettingInfo[]> {
-  return (await ctx.services.ui("settings.list", {})).settings;
+/** The settings, or the one `key` names (none when it names none). */
+async function listSettings(ctx: CliContext, key?: string): Promise<CliSettingInfo[]> {
+  return (await ctx.services.ui("settings.list", key === undefined ? {} : { key })).settings;
+}
+
+/** Its value as the list shows it: why it could not be read, when it could not. */
+function shownValue(setting: CliSettingInfo): string {
+  if (setting.unavailable) return `unavailable: ${setting.unavailable}`;
+  return `${oneLine(formatSettingValue(setting.value), VALUE_WIDTH)}${setting.changed ? " *" : ""}`;
 }
 
 /** A list of choices longer than this is left to --json. */
 const TAKES_WIDTH = 40;
+/** A value longer than this is cut in the list; settings get prints it whole. */
+const VALUE_WIDTH = 60;
 
 /** What it takes, as the list shows it. */
 function takes(setting: CliSettingInfo): string {
@@ -39,11 +48,7 @@ const settingsList: CliCommand = {
   async run(ctx, { positionals }) {
     exactArgs(positionals);
     const settings = await listSettings(ctx);
-    const rows = settings.map((s) => [
-      s.key,
-      `${formatSettingValue(s.value)}${s.changed ? " *" : ""}`,
-      takes(s),
-    ]);
+    const rows = settings.map((s) => [s.key, shownValue(s), takes(s)]);
     return output(table(["KEY", "VALUE", "TAKES"], rows), settings);
   },
 };
@@ -54,9 +59,9 @@ const settingsGet: CliCommand = {
   args: "<key>",
   async run(ctx, { positionals }) {
     const [key] = exactArgs(positionals, "key") as [string];
-    const settings = await listSettings(ctx);
-    const setting = settings.find((s) => s.key.toLowerCase() === key.toLowerCase());
+    const [setting] = await listSettings(ctx, key);
     if (!setting) throw new CliError(`no setting "${key}"; nexus settings list shows them`);
+    if (setting.unavailable) throw new CliError(`${setting.key}: ${setting.unavailable}`);
     return output(formatSettingValue(setting.value), setting);
   },
 };
@@ -73,8 +78,9 @@ const settingsSet: CliCommand = {
   args: "<key> <value>",
   details:
     "The value is read as the setting takes it (nexus settings list): on or off, a number in\n" +
-    "its range, one of its choices, or text. It takes effect at once and is kept. Whether\n" +
-    "nexus may change other workspaces, and whether it works at all, are the user's to set.",
+    "its range, one of its choices, or text; a list (voice.terms) whole, comma-separated. It\n" +
+    "takes effect at once and is kept. Whether nexus may change other workspaces, and whether\n" +
+    "it works at all, are the user's to set.",
   async run(ctx, { positionals }) {
     const [key, value] = exactArgs(positionals, "key", "value") as [string, string];
     const { setting } = await ctx.services.ui("settings.set", { key, value });

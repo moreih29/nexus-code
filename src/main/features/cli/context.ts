@@ -91,6 +91,13 @@ export interface CliConsents {
   answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
 }
 
+/** Where a workspace goes in the sidebar: just before or after another, in `group`. */
+export interface WorkspaceMove {
+  readonly beforeId?: string;
+  readonly afterId?: string;
+  readonly group: "pinned" | "unpinned";
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
   /** The consent prompts waiting on the user. */
@@ -108,6 +115,16 @@ export interface CliServices {
     location: WorkspaceLocation,
     name: string | undefined,
   ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
+  /**
+   * Pins or unpins a workspace as the sidebar's pin does (to the end of its
+   * new group); the workspace as it is now.
+   */
+  pinWorkspace(id: string, pinned: boolean): WorkspaceMeta;
+  /**
+   * Moves a workspace in the sidebar, as dragging its row does: next to
+   * another, or at the end of `group` (pinning or unpinning it to go there).
+   */
+  moveWorkspace(id: string, to: WorkspaceMove): WorkspaceMeta;
   /** The workspace and tab the user is looking at, if the app has focus or not. */
   shownTab(): { workspaceId: string; tabId: string } | null;
   /**

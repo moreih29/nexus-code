@@ -7,7 +7,6 @@
  * terminal the command came from. Where it goes is ./placement's call.
  */
 
-import i18next from "i18next";
 import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
@@ -19,16 +18,17 @@ import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
+import { resolvedTaskAgent } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
-import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
+import { sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
 import { existingChatController } from "../chat/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
+import { isPreviewable } from "../editor/preview/previewable";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { saveModel } from "../editor/save/service";
 import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
@@ -36,12 +36,7 @@ import { workingFileOfDiff } from "../editor/tabs/diff-working-file";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import type { EditorInput } from "../editor/types";
 import { runningProgram } from "../terminal/close-confirm";
-import {
-  loadInstalledShells,
-  type ShellEntry,
-  shellEntries,
-  shellNamed,
-} from "../terminal/installed-shells";
+import { loadShellMenu, type ShellEntry, shellNamed } from "../terminal/installed-shells";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
 import { getTerminalController, whenTerminalController } from "../terminal/terminal-registry";
@@ -146,7 +141,11 @@ export const actionHandlers: {
     | `agentView.${string}`
   >]: CliUiHandler<K>;
 } = {
-  "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
+  "editor.open": async ({ workspaceId, filePath, line, column, view, placement }) => {
+    const previewable = isPreviewable(filePath) === "supported";
+    if (view === "preview" && !previewable) {
+      throw new UiRequestError(`${filePath.split(/[\\/]/).pop()} has no preview`);
+    }
     const open = findTabs(
       workspaceId,
       (tab) => tab.type === "editor" && tab.props.filePath === filePath,
@@ -154,6 +153,12 @@ export const actionHandlers: {
     const tabId =
       showOpenTab(workspaceId, open, placement) ??
       openTab(workspaceId, { type: "editor", props: { workspaceId, filePath } }, placement);
+    // As the tab's switch does: this tab alone, the format's default as it was.
+    if (view !== undefined && previewable) {
+      useTabsStore
+        .getState()
+        .setViewMode(workspaceId, tabId, view === "source" ? "raw" : "preview");
+    }
     if (line !== undefined) {
       const at = { lineNumber: line, column: column ?? 1 };
       requestEditorReveal({
@@ -227,7 +232,7 @@ export const actionHandlers: {
   },
 
   "terminal.shells": async () => {
-    const { entries, defaultShell } = await shellMenu();
+    const { entries, defaultShell } = await loadShellMenu();
     return {
       shells: entries.map((entry) => ({
         name: entry.name,
@@ -453,19 +458,9 @@ export const actionHandlers: {
   "consent.settle": async ({ id, answer, by }) => ({ settled: settleCliConsent(id, answer, by) }),
 };
 
-/** The shells "New terminal with" lists, and the one a new terminal runs. */
-async function shellMenu(): Promise<{ entries: ShellEntry[]; defaultShell: ShellChoice }> {
-  const installed = await loadInstalledShells();
-  const { customShells, shell } = useTerminalStore.getState();
-  return {
-    entries: shellEntries(i18next.t, installed, customShells),
-    defaultShell: shell ?? { kind: "detected", id: installed.systemDefault.id },
-  };
-}
-
 /** The shell `name` picks, or an error that lists the names to pick from. */
 async function shellByName(name: string): Promise<ShellEntry> {
-  const { entries } = await shellMenu();
+  const { entries } = await loadShellMenu();
   const entry = shellNamed(entries, name);
   if (entry) return entry;
   const names = entries.map((e) => e.name).join(", ");

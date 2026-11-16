@@ -24,6 +24,7 @@ import {
   CliError,
   type CliRemote,
   type CliServices,
+  type WorkspaceMove,
 } from "../../../../src/main/features/cli/context";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
@@ -54,6 +55,7 @@ import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import { compareWorkspaceOrder } from "../../../../src/shared/workspace-order";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -165,6 +167,8 @@ export interface FakeApp {
   workspaces: WorkspaceMeta[];
   /** What addWorkspace was asked for. */
   added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
+  /** The sidebar's changes asked for: a pin, or a move. */
+  sidebar: Array<{ id: string; patch?: { pinned: boolean }; to?: WorkspaceMove }>;
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
@@ -400,6 +404,22 @@ export function fakeApp(now = Date.now()): FakeApp {
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = [...WORKSPACES];
   const added: FakeApp["added"] = [];
+  const sidebar: FakeApp["sidebar"] = [];
+  /**
+   * Puts `meta` into its group at `at` (the end when absent), numbering the
+   * group's places again, as the sidebar keeps them.
+   */
+  const place = (meta: WorkspaceMeta, at?: (group: WorkspaceMeta[]) => number) => {
+    const group = workspaces
+      .filter((w) => !w.task && w.pinned === meta.pinned && w.id !== meta.id)
+      .sort(compareWorkspaceOrder);
+    group.splice(at ? at(group) : group.length, 0, meta);
+    group.forEach((w, k) => {
+      const i = workspaces.findIndex((other) => other.id === w.id);
+      workspaces[i] = w.pinned ? { ...w, pinnedSortOrder: k + 1 } : { ...w, sortOrder: k + 1 };
+    });
+    return workspaces.find((w) => w.id === meta.id) as WorkspaceMeta;
+  };
   const tabs: FakeApp["tabs"] = Object.fromEntries(
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
@@ -726,6 +746,31 @@ export function fakeApp(now = Date.now()): FakeApp {
       workspaces.push(made);
       return { workspace: made, added: true };
     },
+    pinWorkspace: (id, pinned) => {
+      const patch = { pinned };
+      sidebar.push({ id, patch });
+      const i = workspaces.findIndex((w) => w.id === id);
+      const found = workspaces[i];
+      if (!found) throw new Error(`workspace not found: ${id}`);
+      const meta = { ...found, ...patch };
+      // A pin or unpin puts it at the end of its new group.
+      if (pinned !== found.pinned) return place(meta);
+      workspaces[i] = meta;
+      return meta;
+    },
+    moveWorkspace: (id, to) => {
+      sidebar.push({ id, to });
+      const found = workspaces.find((w) => w.id === id);
+      if (!found) throw new Error(`workspace not found: ${id}`);
+      const meta = { ...found, pinned: to.group === "pinned" };
+      return place(meta, (group) =>
+        to.beforeId !== undefined
+          ? group.findIndex((w) => w.id === to.beforeId)
+          : to.afterId !== undefined
+            ? group.findIndex((w) => w.id === to.afterId) + 1
+            : group.length,
+      );
+    },
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
@@ -843,6 +888,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     services,
     workspaces,
     added,
+    sidebar,
     tabs,
     uiCalls,
     claude,

@@ -987,6 +987,18 @@ export class WorkspaceManager {
 
     // Update in-memory context after the storage transaction commits.
     ctx.setMeta(finalMeta);
+    // A rebalance moved the group's other rows too: list() (nexus, other
+    // devices) gives them in their new order, as the sidebar shows them.
+    for (const row of result.rebalancedRows ?? []) {
+      const other = row.id === id ? undefined : this.contexts.get(row.id);
+      if (other) {
+        other.setMeta({
+          ...other.getMeta(),
+          sortOrder: row.sortOrder,
+          pinnedSortOrder: row.pinnedSortOrder,
+        });
+      }
+    }
 
     // Broadcast outside the transaction so IPC calls never run inside a DB lock.
     if (result.rebalancedRows) {

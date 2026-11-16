@@ -70,6 +70,11 @@ export interface SetupCliFeatureOptions {
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
+    update(id: string, partial: { pinned?: boolean }): WorkspaceMeta;
+    reorder(
+      id: string,
+      opts: { beforeId?: string; afterId?: string; targetGroup: "pinned" | "unpinned" },
+    ): WorkspaceMeta;
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
@@ -231,6 +236,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         added: true,
       };
     },
+    pinWorkspace: (id, pinned) => workspaceManager.update(id, { pinned }),
+    moveWorkspace: (id, { group, ...anchor }) =>
+      workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),

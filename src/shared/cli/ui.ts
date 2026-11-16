@@ -94,6 +94,9 @@ export interface CliPlacement {
   readonly besideTabId?: string;
 }
 
+/** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
+export type CliEditorView = "source" | "preview";
+
 /** How `terminal.input` types its text: as one paste, or as keystrokes. */
 export type CliInputMode = "paste" | "keys";
 
@@ -196,6 +199,8 @@ export interface CliSettingInfo {
   readonly changed: boolean;
   /** One only the user changes, in Settings. */
   readonly readOnly?: boolean;
+  /** Why it could not be read now (as the account's, signed out); `value` is empty then. */
+  readonly unavailable?: string;
 }
 
 export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
@@ -257,6 +262,8 @@ export type CliChangeKind =
   | "worktreeRemove"
   | "worktreeRemoveBranch"
   | "workspaceRemove"
+  | "workspacePin"
+  | "workspaceMove"
   | "permissionAllow"
   | "permissionDeny";
 
@@ -460,13 +467,17 @@ export interface CliUiOps {
     args: { watchId: string };
     result: Record<string, never>;
   };
-  /** Opens a file of the workspace, or shows its tab, at a line if given. */
+  /**
+   * Opens a file of the workspace, or shows its tab, at a line if given;
+   * with `view`, showing its source or its preview, as the tab's switch does.
+   */
   "editor.open": {
     args: {
       workspaceId: string;
       filePath: string;
       line?: number;
       column?: number;
+      view?: CliEditorView;
       placement: CliPlacement;
     };
     result: { tabId: string };
@@ -1152,9 +1163,9 @@ export interface CliUiOps {
     };
     result: CliRecorder;
   };
-  /** The app's settings that nexus settings reads and changes. */
+  /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {
-    args: Record<string, never>;
+    args: { key?: string };
     result: { settings: CliSettingInfo[] };
   };
   /**

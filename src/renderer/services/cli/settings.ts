@@ -17,6 +17,7 @@ import {
 } from "@/state/stores/inactive-panel-dim";
 import { useLanguageStore } from "@/state/stores/language";
 import { useNotificationsStore } from "@/state/stores/notifications";
+import { usePreviewDefaultsStore } from "@/state/stores/preview-defaults";
 import { useTerminalStore } from "@/state/stores/terminal";
 import { useThemeStore } from "@/state/stores/theme";
 import { useUpdatesStore } from "@/state/stores/updates";
@@ -26,6 +27,8 @@ import { type CliSettingShape, parseSettingValue } from "../../../shared/cli/set
 import type { CliSettingInfo, CliSettingValue } from "../../../shared/cli/ui";
 import { DEFAULT_THEME } from "../../../shared/design-tokens";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "../../../shared/i18n";
+import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
+import { MAX_VOICE_TERM_CHARS, MAX_VOICE_TERMS } from "../../../shared/remote/voice";
 import {
   DEFAULT_TASK_AGENT,
   TASK_AGENTS,
@@ -33,17 +36,32 @@ import {
 } from "../../../shared/sessions/task-agent";
 import { type AppState, ThemePreferenceSchema } from "../../../shared/types/app-state";
 import { CHAT_FONT_SIZE, CHAT_FONT_SIZE_MAX, CHAT_FONT_SIZE_MIN } from "../chat/chat-font";
+import { builtInViewMode, PREVIEW_FORMATS } from "../editor/preview/previewable";
+import { loadShellMenu, shellNamed } from "../terminal/installed-shells";
+import { addTerms, splitTerms } from "../voice/terms";
 import { type CliUiHandler, UiRequestError } from "./handler";
+
+/** What a setting is now, and whether that is other than its default. */
+export interface CliSettingNow {
+  value: CliSettingValue;
+  changed: boolean;
+  /** Its choices now, for one whose choices are looked up (the shells). */
+  choices?: readonly string[];
+  /** Why it could not be read, for one kept elsewhere (the account's). */
+  unavailable?: string;
+}
 
 export interface CliSetting extends CliSettingShape {
   readonly key: string;
   readonly summary: string;
-  /** What it is now, and whether that is other than its default. */
-  get(): { value: CliSettingValue; changed: boolean };
+  /** What it is now; looked up, for one that is not in a store. */
+  get(): CliSettingNow | Promise<CliSettingNow>;
   /** Changes it to a value parsed for its shape; absent for one only the user changes. */
-  set?(value: CliSettingValue): void;
+  set?(value: CliSettingValue): void | Promise<void>;
   /** Gives it back its default; absent for one that has none to go back to. */
-  reset?(): void;
+  reset?(): void | Promise<void>;
+  /** Reads what is typed for it in place of parseSettingValue, for one whose values are looked up. */
+  parse?(input: string): Promise<{ value: CliSettingValue } | { error: string }>;
 }
 
 /** Settings whose store the dialog's panel, not the store, saves. */
@@ -69,6 +87,52 @@ const EDITOR_LINE_HEIGHT = 1.4;
 function family(value: CliSettingValue): string | undefined {
   const text = String(value).trim();
   return text === "" ? undefined : text;
+}
+
+/** What a format with a preview opens in: the dialog's Raw and Preview, as nexus open's flags say them. */
+const OPEN_IN = ["source", "preview"] as const;
+
+/** What terminal.shell is when no shell is set: the system's. */
+const SYSTEM_SHELL = "system";
+
+/** The shell a name picks: undefined for the system's, null for none. */
+async function shellNamedNow(name: string): Promise<ShellChoice | undefined | null> {
+  if (name.trim().toLowerCase() === SYSTEM_SHELL) return undefined;
+  const { entries } = await loadShellMenu();
+  return shellNamed(entries, name)?.choice ?? null;
+}
+
+/** How long a list waits on the account's recognition terms, from the server. */
+const VOICE_TERMS_MS = 5_000;
+
+/** Why the account's terms could not be read or saved, as nexus says it. */
+function voiceTermsFailure(kind: string | undefined): string {
+  return kind === "session-expired"
+    ? "not signed in to NexusCode (Settings › Remote)"
+    : "the NexusCode server did not answer";
+}
+
+/** The account's recognition terms, or why they could not be read. */
+async function voiceTerms(): Promise<{ terms: string[] } | { unavailable: string }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<{ unavailable: string }>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ unavailable: voiceTermsFailure(undefined) }),
+      VOICE_TERMS_MS,
+    );
+  });
+  const asked = ipcCallResult("remote", "voiceTerms", undefined).then(
+    (result) =>
+      result.ok ? { terms: result.value } : { unavailable: voiceTermsFailure(result.kind) },
+    () => ({ unavailable: voiceTermsFailure(undefined) }),
+  );
+  return Promise.race([asked, late]).finally(() => clearTimeout(timer));
+}
+
+/** Replaces the account's recognition terms, as the settings' field and chips do. */
+async function saveVoiceTerms(terms: string[]): Promise<void> {
+  const result = await ipcCallResult("remote", "setVoiceTerms", { terms });
+  if (!result.ok) throw new UiRequestError(`voice.terms: ${voiceTermsFailure(result.kind)}`);
 }
 
 export const CLI_SETTINGS: readonly CliSetting[] = [
@@ -179,6 +243,24 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     set: (value) => useEditorFontStore.getState().setLineHeight(Number(value) as 1.0 | 1.2 | 1.4),
     reset: () => useEditorFontStore.getState().setLineHeight(undefined),
   },
+  ...PREVIEW_FORMATS.map(
+    ({ engine, extensions }): CliSetting => ({
+      key: `editor.openIn.${engine}`,
+      summary: `What ${extensions.join(", ")} files open in: their source or their preview`,
+      type: "choice",
+      choices: OPEN_IN,
+      get: () => {
+        const chosen = usePreviewDefaultsStore.getState().byFormat[engine];
+        const mode = chosen ?? builtInViewMode(engine);
+        return { value: mode === "raw" ? "source" : "preview", changed: chosen !== undefined };
+      },
+      set: (value) =>
+        usePreviewDefaultsStore
+          .getState()
+          .setDefault(engine, value === "source" ? "raw" : "preview"),
+      reset: () => usePreviewDefaultsStore.getState().setDefault(engine, undefined),
+    }),
+  ),
   {
     key: "terminal.fontSize",
     summary: "The terminal's font size, in pixels",
@@ -226,6 +308,36 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
     set: (value) =>
       useTerminalStore.getState().setCursorStyle(value as "block" | "underline" | "bar"),
     reset: () => useTerminalStore.getState().setCursorStyle(undefined),
+  },
+  {
+    key: "terminal.shell",
+    summary:
+      'The shell new terminals of local workspaces run: a name or id "nexus terminal shells" lists, or system',
+    type: "choice",
+    get: async () => {
+      const { entries } = await loadShellMenu();
+      const { shell } = useTerminalStore.getState();
+      const chosen = shell && entries.find((e) => sameShellChoice(e.choice, shell));
+      const value =
+        shell === undefined
+          ? SYSTEM_SHELL
+          : (chosen?.name ??
+            `${shell.kind === "detected" ? shell.id : "a removed shell"} (not found)`);
+      return {
+        value,
+        changed: shell !== undefined,
+        choices: [SYSTEM_SHELL, ...entries.map((e) => e.name)],
+      };
+    },
+    parse: async (input) =>
+      (await shellNamedNow(input)) === null
+        ? { error: `no shell is named "${input}"; nexus terminal shells lists them` }
+        : { value: input.trim() },
+    set: async (value) => {
+      const shell = await shellNamedNow(String(value));
+      if (shell !== null) useTerminalStore.getState().setShell(shell);
+    },
+    reset: () => useTerminalStore.getState().setShell(undefined),
   },
   {
     key: "terminal.taskAgent",
@@ -350,6 +462,27 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
       save({ cliAgentContext: true });
     },
   },
+  {
+    key: "voice.terms",
+    summary:
+      "Words voice input should recognize, for all your computers: the whole list, comma-separated",
+    type: "text",
+    get: async () => {
+      const read = await voiceTerms();
+      if ("unavailable" in read) return { value: "", changed: false, ...read };
+      return { value: read.terms.join(", "), changed: read.terms.length > 0 };
+    },
+    parse: async (input) => {
+      const read = addTerms([], input);
+      if (read.status === "too-long") {
+        return { error: `a term is longer than ${MAX_VOICE_TERM_CHARS} characters` };
+      }
+      if (read.status === "too-many") return { error: `more than ${MAX_VOICE_TERMS} terms` };
+      return { value: read.status === "ok" ? read.terms.join(", ") : "" };
+    },
+    set: (value) => saveVoiceTerms(splitTerms(String(value))),
+    reset: () => saveVoiceTerms([]),
+  },
   // What nexus may do is the user's to say: these two are not changed from it.
   {
     key: "agentCli.crossWorkspace",
@@ -373,28 +506,36 @@ export const CLI_SETTINGS: readonly CliSetting[] = [
 ];
 
 /** A setting as main gets it. */
-export function settingInfo(setting: CliSetting): CliSettingInfo {
-  const { value, changed } = setting.get();
+export async function settingInfo(setting: CliSetting): Promise<CliSettingInfo> {
+  const { value, changed, choices = setting.choices, unavailable } = await setting.get();
   return {
     key: setting.key,
     summary: setting.summary,
     type: setting.type,
-    ...(setting.choices ? { choices: setting.choices } : {}),
+    ...(choices ? { choices } : {}),
     ...(setting.min !== undefined ? { min: setting.min } : {}),
     ...(setting.max !== undefined ? { max: setting.max } : {}),
     value,
     changed,
     ...(setting.set ? {} : { readOnly: true }),
+    ...(unavailable ? { unavailable } : {}),
   };
 }
+
+const named = (key: string) => (setting: CliSetting) =>
+  setting.key.toLowerCase() === key.toLowerCase();
 
 export const settingsHandlers: {
   "settings.list": CliUiHandler<"settings.list">;
   "settings.set": CliUiHandler<"settings.set">;
 } = {
-  "settings.list": async () => ({ settings: CLI_SETTINGS.map(settingInfo) }),
+  "settings.list": async ({ key }) => ({
+    settings: await Promise.all(
+      (key === undefined ? CLI_SETTINGS : CLI_SETTINGS.filter(named(key))).map(settingInfo),
+    ),
+  }),
   "settings.set": async ({ key, value }) => {
-    const setting = CLI_SETTINGS.find((s) => s.key.toLowerCase() === key.toLowerCase());
+    const setting = CLI_SETTINGS.find(named(key));
     if (!setting) {
       throw new UiRequestError(`no setting "${key}"; nexus settings list shows them`);
     }
@@ -403,12 +544,12 @@ export const settingsHandlers: {
     }
     if (value === null) {
       if (!setting.reset) throw new UiRequestError(`${setting.key} has no default to go back to`);
-      setting.reset();
+      await setting.reset();
     } else {
-      const parsed = parseSettingValue(setting, value);
+      const parsed = setting.parse ? await setting.parse(value) : parseSettingValue(setting, value);
       if ("error" in parsed) throw new UiRequestError(`${setting.key}: ${parsed.error}`);
-      setting.set(parsed.value);
+      await setting.set(parsed.value);
     }
-    return { setting: settingInfo(setting) };
+    return { setting: await settingInfo(setting) };
   },
 };
