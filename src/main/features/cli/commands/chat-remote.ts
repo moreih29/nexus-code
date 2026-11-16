@@ -155,7 +155,8 @@ export async function sendToPeer(
     selector,
     CHATS,
   );
-  const from = await agentSenderOf(ctx);
+  // The agent there is told whether this one waits to read its answer, or is to be written back to.
+  const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
   const { at } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,

@@ -314,6 +314,13 @@ export const AgentSenderSchema = z.object({
   tabId: z.string().min(1).max(100),
   /** Its tab's title, as the receiver shows the sender. */
   name: z.string().max(200).optional(),
+  /**
+   * With chat.send: whether the sender waits for the answer (chat send
+   * --wait), and so reads what the agent answers in its tab, or sent and
+   * went on, and is to be written back to. Since 0.13.0; an older device
+   * leaves it out, and the agent is told the sender may be waiting.
+   */
+  waits: z.boolean().optional(),
 });
 export type AgentSender = z.infer<typeof AgentSenderSchema>;
 

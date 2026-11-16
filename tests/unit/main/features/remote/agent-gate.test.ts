@@ -265,4 +265,7 @@ test("the sender a chat keeps: who, and on which computer", () => {
     tabId: "bt",
     device,
   });
+  // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
+  expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
+  expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
 });

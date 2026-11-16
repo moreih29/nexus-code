@@ -182,6 +182,7 @@ export function relaySenderOf(
     workspaceId: from.workspaceId,
     tabId: from.tabId,
     device: { id: device.id, name: device.name.slice(0, 200) },
+    ...(typeof from.waits === "boolean" ? { waits: from.waits } : {}),
   };
 }
 
