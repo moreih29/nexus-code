@@ -767,6 +767,19 @@ describe("moving a chat to another profile", () => {
     ]);
   });
 
+  test("one that may stop the turn says so to the app (0.13.0)", async () => {
+    const { serve, asked } = profileServices();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    await serve({
+      from: "d",
+      method: "chat.profile",
+      params: { ...tab, profile: "Work", stop: true },
+    });
+    expect(asked).toEqual([
+      ["chat.profile", { ...tab, profile: "Work", fresh: false, stop: true }],
+    ]);
+  });
+
   test("a profile its agent lacks is a wrong param; a chat busy or asking cannot now", async () => {
     const params = { workspaceId: "w1", tabId: "t1", profile: "Nope" };
     await expect(

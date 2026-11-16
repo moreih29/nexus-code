@@ -773,7 +773,8 @@ export interface CliUiOps {
    * Has a Claude or Codex tab run with another agent profile (by name or id),
    * as its profile chip does: its conversation goes on in that profile, or,
    * `fresh`, a new one starts there. `dryRun` only checks that it can.
-   * Refused while it works or asks the user.
+   * Refused while it works or asks the user, unless `stop`: its turn stops
+   * then, as its chip's choice there stops it.
    */
   "chat.profile": {
     args: {
@@ -782,6 +783,7 @@ export interface CliUiOps {
       profile: string;
       fresh: boolean;
       dryRun?: boolean;
+      stop?: boolean;
     };
     /** The profiles by name: the one it ran with, the one it runs with now. */
     result: { from: string; to: string };

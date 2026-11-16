@@ -340,9 +340,10 @@ export function tabSource(
             now: true,
             withdraw: supportsControl(chat.version ?? chat.model.version, "cancel_async_message"),
             hurry: true,
+            moveNow: true,
           },
         }
-      : {}),
+      : { can: { rewind: false, fork: false, background: false, moveNow: true } }),
     ...(plan?.claude || plan?.codex
       ? {
           plan: {

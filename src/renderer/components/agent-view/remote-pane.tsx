@@ -971,6 +971,7 @@ function RemoteControls({
               <RemoteProfileChip
                 target={chat}
                 busy={model.running || model.permissions.length > 0}
+                moveNow={page.panel?.can?.moveNow === true}
                 conversation={model.items.length > 0}
                 controls
                 compact={compact}

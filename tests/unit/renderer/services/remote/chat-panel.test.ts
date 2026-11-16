@@ -153,10 +153,10 @@ describe("a chat's side panel", () => {
         { after: "m2", profile: "work", at: 9 },
         { after: "gone", profile: "home", at: 10 },
       ],
-      can: { rewind: true, fork: true, background: true },
+      can: { rewind: true, fork: true, background: true, moveNow: true },
     });
     expect(panel.moves).toEqual([{ after: "a1", profile: "work", at: 9 }]);
-    expect(panel.can).toEqual({ rewind: true, fork: true, background: true });
+    expect(panel.can).toEqual({ rewind: true, fork: true, background: true, moveNow: true });
   });
 
   test("the messages held for after the turn, each's text cut short, and its images counted", () => {

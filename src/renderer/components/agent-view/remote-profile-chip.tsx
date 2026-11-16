@@ -2,11 +2,13 @@
  * The profile chip at the end of another computer's chat's usage line, as a
  * chat here has it: the profile it runs with, and the computer's other
  * profiles of its agent to go on in or start a new conversation in
- * (profiles.list, chat.profile). That computer refuses while a turn is under
- * way or a request waits, so the choice waits too.
+ * (profiles.list, chat.profile). While a turn is under way or a request
+ * waits, the choice stops the turn, as a chat's here does; a computer before
+ * 0.13.0 refuses then, so the choice waits there.
  */
 
 import type { TFunction } from "i18next";
+import { Square } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ipcCallResult } from "../../ipc/client";
@@ -34,13 +36,16 @@ interface PeerProfile {
 export function RemoteProfileChip({
   target,
   busy,
+  moveNow,
   conversation,
   controls,
   compact = false,
 }: {
   target: RemoteTarget & { kind: "claude" | "codex" };
-  /** A turn is under way or a request waits: the computer would refuse. */
+  /** A turn is under way or a request waits. */
   busy: boolean;
+  /** The computer moves the chat then, its turn stopping (panel `can.moveNow`); else it refuses. */
+  moveNow: boolean;
   /** The chat has a conversation to go on with in another profile. */
   conversation: boolean;
   /** The computer lets this one control its chats. */
@@ -52,6 +57,7 @@ export function RemoteProfileChip({
   const [others, setOthers] = useState<PeerProfile[] | null>(null);
   const name = target.profile;
   if (!name) return null;
+  const waits = busy && !moveNow;
 
   const load = () => {
     setOthers(null);
@@ -70,6 +76,7 @@ export function RemoteProfileChip({
       tabId: target.tabId,
       profile: profile.id,
       ...(fresh ? { fresh: true } : {}),
+      ...(busy && moveNow ? { stop: true } : {}),
     }).then((result) => {
       if (!result.ok) {
         showToast({ kind: "error", message: result.message });
@@ -138,14 +145,22 @@ export function RemoteProfileChip({
             <span className="pb-0.5 text-app-micro text-muted-foreground">
               {t(conversation ? "chat.profile.continueIn" : "chat.profile.switchTo")}
             </span>
-            {busy && (
+            {waits ? (
               <span
                 className="pb-0.5 text-app-micro text-(--state-warning-fg)"
                 data-testid="remote-profile-busy"
               >
                 {t("agentView.remote.profileBusy")}
               </span>
-            )}
+            ) : busy ? (
+              <span
+                className="flex items-center gap-1 pb-0.5 text-app-micro text-(--state-warning-fg)"
+                data-testid="chat-profile-stops"
+              >
+                <Square className="size-2.5 fill-current" aria-hidden="true" />
+                {t("chat.profile.stops")}
+              </span>
+            ) : null}
             {others.map((other) => (
               <div
                 key={other.id}
@@ -153,7 +168,7 @@ export function RemoteProfileChip({
               >
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={waits}
                   onClick={() => pick(other, false)}
                   className="flex min-w-0 flex-1 items-center gap-1.5 rounded-(--radius-control) px-1 py-0.5 text-left disabled:opacity-40"
                   data-testid="remote-profile-pick"
@@ -164,7 +179,7 @@ export function RemoteProfileChip({
                 {conversation && (
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={waits}
                     onClick={() => pick(other, true)}
                     className="shrink-0 rounded-(--radius-control) px-1.5 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground disabled:opacity-40"
                     data-testid="remote-profile-new"

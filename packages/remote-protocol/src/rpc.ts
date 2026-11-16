@@ -1081,10 +1081,12 @@ export const RPC_METHODS = {
    * (profiles.list, by id or name), as its profile chip does: its
    * conversation goes on there, or, `fresh`, a new one starts there. The
    * profiles' names, the one it ran with and the one it runs with now.
-   * Refused (Unavailable) while it works or waits on the user, or when it
-   * runs with that profile already; a profile its agent does not have is
-   * InvalidParams. Only the user's: an agent does not send it. The
-   * session's `profile` (sessions.list, sessions.watch) follows. From 0.10.0.
+   * Refused (Unavailable) while it works or waits on the user, unless
+   * `stop` (since 0.13.0, when its panel's `can.moveNow`): its turn stops
+   * then, as its chip there does. Refused too when it runs with that
+   * profile already; a profile its agent does not have is InvalidParams.
+   * Only the user's: an agent does not send it. The session's `profile`
+   * (sessions.list, sessions.watch) follows. From 0.10.0.
    */
   "chat.profile": {
     capability: "chat.control",
@@ -1092,6 +1094,7 @@ export const RPC_METHODS = {
       ...TabRef,
       profile: z.string().min(1).max(100),
       fresh: z.boolean().optional(),
+      stop: z.boolean().optional(),
     }),
     result: z.object({ from: z.string(), to: z.string() }),
   },

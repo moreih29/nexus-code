@@ -392,7 +392,8 @@ export const ChatPanelSchema = z.object({
    * What another device can do with the chat now: rewind it to before one
    * of the user's messages (chat.rewind), fork it (chat.fork), send a
    * running command or subagent to the background (chat.background).
-   * Absent before 0.11.0, which serves none of them.
+   * Absent before 0.11.0, which serves none of them; a Codex chat's comes
+   * from 0.13.0.
    */
   can: z
     .object({
@@ -405,6 +406,11 @@ export const ChatPanelSchema = z.object({
       withdraw: z.boolean().optional(),
       /** Have the unread messages read now (chat.hurry). Since 0.12.0. */
       hurry: z.boolean().optional(),
+      /**
+       * Move it to another profile while it works or waits on the user, its
+       * turn stopping (chat.profile `stop`), as its chip there does. Since 0.13.0.
+       */
+      moveNow: z.boolean().optional(),
     })
     .optional(),
   /**

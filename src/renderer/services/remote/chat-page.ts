@@ -58,6 +58,7 @@ export interface ChatSource {
     now?: boolean;
     withdraw?: boolean;
     hurry?: boolean;
+    moveNow?: boolean;
   };
 }
 

@@ -737,11 +737,15 @@ async function addDirPath(
  */
 export async function changeChatProfile(
   services: CliServices,
-  { workspaceId, tabId, profile, fresh }: RpcParams<"chat.profile">,
+  { workspaceId, tabId, profile, fresh, stop }: RpcParams<"chat.profile">,
 ): Promise<RpcResult<"chat.profile">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return services
-    .ui("chat.profile", { workspaceId, tabId, profile, fresh: fresh ?? false }, SETTINGS_TIMEOUT_MS)
+    .ui(
+      "chat.profile",
+      { workspaceId, tabId, profile, fresh: fresh ?? false, ...(stop ? { stop } : {}) },
+      SETTINGS_TIMEOUT_MS,
+    )
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/ has no profile /.test(message))

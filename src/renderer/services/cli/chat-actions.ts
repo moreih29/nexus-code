@@ -766,7 +766,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return runRemoteCommand(workspaceId, tabId, target, name, args?.trim() ?? "");
   },
 
-  "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun }) => {
+  "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun, stop }) => {
     const target = await openedTab(workspaceId, tabId);
     const config = useAgentProfilesStore.getState().config;
     const profileId = profileNamed(target.agent, profile);
@@ -777,7 +777,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       throw new UiRequestError(`it already runs with the profile "${to}"`);
     }
     const { state } = infoOf(workspaceId, tabId, target);
-    if (state === "working" || state === "asking") {
+    // The user's from another device may stop the turn, as the chip's choice here does.
+    if (!stop && (state === "working" || state === "asking")) {
       throw new UiRequestError(
         state === "working"
           ? "it is working; its turn would stop (wait for it: chat wait)"
