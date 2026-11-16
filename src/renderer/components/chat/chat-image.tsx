@@ -19,7 +19,7 @@ export const ImageLoaderContext = createContext<
 >(null);
 
 /** The image with its bytes: at once when it has them, else once fetched; null till then, or when it failed. */
-function useImageBytes(image: ImageBlock | undefined): {
+export function useImageBytes(image: ImageBlock | undefined): {
   image: ImageBlock | null;
   failed: boolean;
 } {

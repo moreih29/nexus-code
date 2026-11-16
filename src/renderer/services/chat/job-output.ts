@@ -3,13 +3,17 @@
  * printed: the end of the file the CLI writes its output to, as a terminal
  * would leave it. Read through the workspace, so an SSH session's job is
  * read on its host; a file outside the workspace is read once the tab
- * grants it, which it does for its jobs' output files.
+ * grants it, which it does for its jobs' output files. Another computer's
+ * chat's (its peer workspace) is read from there (files.read), which
+ * serves its chats' jobs' output files by name.
  */
 
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
+import { peerOf } from "../../../shared/fs/peer-url";
 import { ipcCallResult } from "../../ipc/client";
-import { bytesFromBase64 } from "../editor/encoding/text-encoding";
+import { bytesFromBase64, bytesToBase64 } from "../editor/encoding/text-encoding";
 import { terminalText } from "../editor/preview/notebook";
+import { readPeerPiece } from "../remote/peer-workspace";
 import { lookupPath } from "./file-presence";
 
 /** How much of the file's end is read. */
@@ -58,6 +62,11 @@ export type RangeRead = (
 ) => Promise<{ base64: string; sizeBytes: number } | null>;
 
 const readRange: RangeRead = async (workspaceId, relPath, offset, length) => {
+  const peer = peerOf(workspaceId);
+  if (peer) {
+    const piece = await readPeerPiece(peer, relPath, offset, length).catch(() => null);
+    return piece ? { base64: bytesToBase64(piece.bytes), sizeBytes: piece.size } : null;
+  }
   const read = await ipcCallResult("fs", "readRange", {
     workspaceId,
     relPath,

@@ -104,6 +104,7 @@ import {
   buildOutsideDirUrl,
   buildWorkspaceDirUrl,
 } from "../../../services/editor/preview/workspace-url";
+import { peerOf } from "../../../services/remote/peer-workspace";
 import { useOutsideDirGranted } from "../../../state/stores/outside-grants";
 import { type FindResult, usePreviewFindBar, usePreviewFinder } from "./preview-find";
 
@@ -402,7 +403,8 @@ export function HtmlPreview({
     workspaceId,
     currentFileAbsPath,
     workspaceRootAbsPath,
-    outsideDirGranted,
+    // Another computer serves any file of the workspace's folders, which it keeps them to.
+    outsideDirGranted || peerOf(workspaceId) !== null,
   );
   const scrollKey = `${workspaceId}\0${currentFileAbsPath}`;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);

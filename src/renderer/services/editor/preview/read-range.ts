@@ -5,6 +5,7 @@
 
 import { READ_RANGE_MAX_BYTES } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";
+import { peerOf, readPeerPiece } from "../../remote/peer-workspace";
 import { bytesFromBase64 } from "../encoding/text-encoding";
 
 /** A part of a file, and what the file was when it was read. */
@@ -28,6 +29,12 @@ async function readPiece(
   offset: number,
   length: number,
 ): Promise<FilePart | null> {
+  // Another computer's file, read through the room; it tells no time, so its size stands for one.
+  const peer = peerOf(workspaceId);
+  if (peer) {
+    const piece = await readPeerPiece(peer, relPath, offset, length);
+    return piece ? { bytes: piece.bytes, size: piece.size, mtime: `size:${piece.size}` } : null;
+  }
   const read = await ipcCallResult("fs", "readRange", { workspaceId, relPath, offset, length });
   if (!read.ok || read.value.kind !== "ok") return null;
   return {

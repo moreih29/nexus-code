@@ -203,3 +203,61 @@ describe("the remote panel's voice input", () => {
     ).toContain("load the terms.");
   });
 });
+
+const { VoiceUsageMeters, percentOf, usageResetsAt } = await import(
+  "../../../../../src/renderer/components/settings/panels/remote-voice-group"
+);
+
+describe("the remote panel's voice usage", () => {
+  const usage = {
+    period: "2026-11",
+    usedSeconds: 39 * 60,
+    limitSeconds: 600 * 60,
+    note: { usedSeconds: 50 * 60, limitSeconds: 1200 * 60 },
+  };
+
+  test("shows dictation and note recording apart, each with its share", () => {
+    const html = renderToStaticMarkup(<VoiceUsageMeters usage={usage} />);
+    expect(html).toContain("This month&#x27;s usage");
+    expect(html).toContain("Resets ");
+    expect(html).toContain("Dictation");
+    expect(html).toContain("39 / 600 min · 7%");
+    expect(html).toContain("Note recording");
+    expect(html).toContain("50 / 1200 min · 4%");
+    expect(html).toContain('aria-valuenow="7"');
+    expect(html).toContain('aria-valuenow="4"');
+    expect(html).not.toContain("bg-destructive");
+  });
+
+  test("leaves notes out when the server does not count them, and turns red near the limit", () => {
+    const html = renderToStaticMarkup(
+      <VoiceUsageMeters
+        usage={{ period: "2026-11", usedSeconds: 545 * 60, limitSeconds: 36000 }}
+      />,
+    );
+    expect(html).not.toContain("Note recording");
+    expect(html).toContain("545 / 600 min · 91%");
+    expect(html).toContain("bg-destructive");
+  });
+
+  test("says when it is loading or did not load", () => {
+    expect(renderToStaticMarkup(<VoiceUsageMeters usage={null} />)).toContain("Loading…");
+    const failed = renderToStaticMarkup(<VoiceUsageMeters usage="unavailable" />);
+    expect(failed).toContain("Couldn&#x27;t load the usage.");
+    expect(failed).not.toContain("progressbar");
+  });
+
+  test("counts any use as at least 1%, and no more than 100%", () => {
+    expect(percentOf(0, 36000)).toBe(0);
+    expect(percentOf(10, 36000)).toBe(1);
+    expect(percentOf(39 * 60, 36000)).toBe(7);
+    expect(percentOf(40000, 36000)).toBe(100);
+    expect(percentOf(5, 0)).toBe(100);
+  });
+
+  test("starts over on the next month's first, in UTC", () => {
+    expect(usageResetsAt("2026-11")?.toISOString()).toBe("2026-12-01T00:00:00.000Z");
+    expect(usageResetsAt("2026-12")?.toISOString()).toBe("2027-01-01T00:00:00.000Z");
+    expect(usageResetsAt("soon")).toBeNull();
+  });
+});

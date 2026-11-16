@@ -14,6 +14,7 @@ import {
   useChatStore,
 } from "../../../../../src/renderer/services/chat/store";
 import {
+  cardText,
   chatCommandsOf,
   runRemoteCommand,
 } from "../../../../../src/renderer/services/remote/chat-commands";
@@ -48,6 +49,8 @@ function controller(sent: string[] = []): AgentTabController {
     updateCard: (id: string, patch: Partial<CommandCard>) =>
       card((prev) => (prev?.id === id ? { ...prev, ...patch } : prev)),
     askAside: async (question: string) => `about ${question}`,
+    addedDirectories: () => [],
+    applyFlags: async () => {},
     send: async (text: string) => {
       sent.push(text);
     },
@@ -63,7 +66,7 @@ afterEach(() => {
 });
 
 describe("a chat's commands for another device", () => {
-  test("a Claude tab's own go as messages, the model as a setting, and only the app's that change the chat", () => {
+  test("a Claude tab's own go as messages, the model as a setting, and the app's that run there", () => {
     const model = {
       ...emptyModel(),
       init: {
@@ -83,7 +86,12 @@ describe("a chat's commands for another device", () => {
       runs: "command",
       args: "<question>",
     });
-    for (const shown of ["copy", "export", "diff", "memory", "logout", "exit"]) {
+    expect(commands.find((c) => c.name === "background")).toMatchObject({ aliases: ["bg"] });
+    for (const there of ["export", "memory", "permissions", "hooks", "skills", "tasks"]) {
+      expect(commands.find((c) => c.name === there)).toMatchObject({ runs: "command" });
+    }
+    // What runs on the device that shows the chat (/copy, /diff, /help), or in a terminal here, is not offered.
+    for (const shown of ["copy", "diff", "help", "logout", "exit"]) {
       expect(commands.some((c) => c.name === shown)).toBe(false);
     }
   });
@@ -93,6 +101,39 @@ describe("a chat's commands for another device", () => {
     expect(commands.find((c) => c.name === "effort")).toMatchObject({ sets: "effort" });
     expect(commands.find((c) => c.name === "compact")).toMatchObject({ runs: "command" });
     expect(commands.some((c) => c.name === "logout" || c.name === "copy")).toBe(false);
+    expect(commands.find((c) => c.name === "new")).toMatchObject({ aliases: ["clear"] });
+    expect(commands.find((c) => c.name === "mcp")).toMatchObject({ runs: "command" });
+    // What it tells of the thread there, its card's text for an answer (0.13.0).
+    expect(commands.find((c) => c.name === "status")).toMatchObject({ runs: "command" });
+  });
+});
+
+describe("a command's card, told to another device", () => {
+  test("its text, its files as links and its lists, without buttons", () => {
+    const text = cardText({
+      id: "c1",
+      title: "/memory",
+      text: "Rules",
+      files: [{ path: "/home/me/my repo/CLAUDE.md", label: "project · [x] CLAUDE.md" }],
+      sections: [
+        {
+          title: "Tasks",
+          empty: "None",
+          rows: [{ id: "t", label: "build", detail: "running", actions: [] }],
+        },
+        { title: "Workflows", empty: "None", rows: [] },
+      ],
+    });
+    expect(text).toBe(
+      [
+        "Rules",
+        "- [project · \\[x\\] CLAUDE.md](</home/me/my repo/CLAUDE.md>)",
+        "**Tasks**\n\n- build — running",
+        "**Workflows**\n\nNone",
+      ].join("\n\n"),
+    );
+    expect(cardText({ id: "c2", title: "/x", error: "broke", text: "t" })).toBe("broke");
+    expect(cardText({ id: "c3", title: "/x" })).toBeUndefined();
   });
 });
 
@@ -100,7 +141,14 @@ describe("running one for another device", () => {
   test("its card's answer is what it says", async () => {
     claudeTab();
     const ran = await runRemoteCommand(ws, tabId, controller(), "btw", "the build");
-    expect(ran).toEqual({ message: "about the build" });
+    expect(ran).toEqual({ message: "about the build", card: true });
+  });
+
+  test("a toast's answer is told as one, not as a card", async () => {
+    claudeTab();
+    const ran = await runRemoteCommand(ws, tabId, controller(), "add-dir", "/p/lib");
+    expect(ran.card).toBe(false);
+    expect(ran.message).toContain("/p/lib");
   });
 
   test("what it was given goes to the agent, by its alias too", async () => {

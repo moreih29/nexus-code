@@ -70,8 +70,10 @@ import {
   type LinkClassifyContext,
 } from "../../../services/editor/preview/link-router";
 import { buildWorkspaceUrl } from "../../../services/editor/preview/workspace-url";
+import { peerOf } from "../../../services/remote/peer-workspace";
 import { copyText } from "../../../utils/clipboard";
 import { REMARK_PLUGINS } from "../../../utils/remark-plugins";
+import { useChatLinks } from "../../chat/chat-links";
 import { capPreviewSource, getPreviewTruncatedMessage } from "./constants";
 import { MermaidDiagram } from "./mermaid-diagram";
 
@@ -166,6 +168,7 @@ export function MarkdownPreview({
     }
   }, []);
 
+  const chatLinks = useChatLinks();
   const onLinkClick = useCallback(
     (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
@@ -179,14 +182,16 @@ export function MarkdownPreview({
           window.open(classified.href, "_blank", "noopener,noreferrer");
           return;
         case "internal-file":
-          openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
+          // Another computer's file opens in its chat's quick look, where this one is shown.
+          if (peerOf(workspaceId)) chatLinks?.openFile(classified.absPath);
+          else openOrRevealEditor({ workspaceId, filePath: classified.absPath }, { preview: true });
           return;
         case "blocked":
           log.warn(`blocked link click: ${classified.reason}`);
           return;
       }
     },
-    [linkCtx, scrollToAnchor, workspaceId],
+    [linkCtx, scrollToAnchor, workspaceId, chatLinks],
   );
 
   // ----- View-only interactivity state -------------------------------------

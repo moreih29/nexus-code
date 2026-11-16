@@ -5,6 +5,7 @@
  */
 
 import { create } from "zustand";
+import type { ImageBlock } from "../chat/model";
 import type { ComposerDraft } from "../chat/store";
 
 /** The chat, by the device it runs on and its tab there. */
@@ -20,10 +21,10 @@ const usePeerDrafts = create<{ drafts: Readonly<Record<string, ComposerDraft>> }
   drafts: {},
 }));
 
-/** Puts text in the chat's composer here, after what is typed there. */
-export function putPeerDraft(chat: PeerChat, text: string): void {
+/** Puts text, and its images, in the chat's composer here, after what is typed there. */
+export function putPeerDraft(chat: PeerChat, text: string, images: ImageBlock[] = []): void {
   usePeerDrafts.setState((s) => ({
-    drafts: { ...s.drafts, [keyOf(chat)]: { text, images: [], nonce: Date.now() } },
+    drafts: { ...s.drafts, [keyOf(chat)]: { text, images, nonce: Date.now() } },
   }));
 }
 
@@ -35,6 +36,11 @@ export function clearPeerDraft(chat: PeerChat): void {
     const { [key]: _taken, ...rest } = s.drafts;
     return { drafts: rest };
   });
+}
+
+/** What waits for the chat's composer here now, read once; none when nothing does. */
+export function peerDraftOf(chat: PeerChat): ComposerDraft | undefined {
+  return usePeerDrafts.getState().drafts[keyOf(chat)];
 }
 
 /** What waits for the chat's composer here; none when nothing does. */

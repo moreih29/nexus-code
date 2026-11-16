@@ -1,6 +1,7 @@
 // Quick look's diff of a file the session changed: the file before the
 // session's first change against the file as it is now, read-only. It
-// follows the file as Claude or the editor changes it.
+// follows the file as Claude or the editor changes it; another computer's
+// file is read once, as it is when quick look opens it.
 
 import { useMonaco } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
@@ -11,6 +12,7 @@ import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { isUnder } from "../../services/chat/links";
 import { useSharedModel } from "../../services/editor";
+import { usePeerText } from "../../services/remote/peer-workspace";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
 import { fileErrorMessage } from "../../utils/file-error";
 import { languageIdForPath } from "../editor/language-id-for-path";
@@ -72,6 +74,40 @@ export function LookDiff({
   }
   // A file gone since shows as emptied.
   return <DiffHost monaco={monaco} path={path} before={before ?? ""} now={model ? now : ""} />;
+}
+
+/** LookDiff of another computer's file, read through the room. */
+export function PeerLookDiff({
+  workspaceId,
+  path,
+  before,
+}: {
+  workspaceId: string;
+  path: string;
+  before: string | null;
+}) {
+  const { t } = useTranslation();
+  const monaco = useMonaco();
+  const read = usePeerText(workspaceId, path);
+  if (read?.kind === "binary") {
+    return <EmptyState title={t("editor.binary_file")} tone="status" className="h-full" />;
+  }
+  if (read?.kind === "too_large") {
+    return (
+      <EmptyState
+        title={fileErrorMessage("TOO_LARGE", MAX_READABLE_FILE_SIZE / (1024 * 1024))}
+        tone="status"
+        className="h-full"
+      />
+    );
+  }
+  if (read?.kind === "failed") {
+    return <EmptyState title={fileErrorMessage("OTHER")} tone="status" className="h-full" />;
+  }
+  if (!monaco || read === null) {
+    return <EmptyState title={t("editor.loading_diff")} tone="status" className="h-full" />;
+  }
+  return <DiffHost monaco={monaco} path={path} before={before ?? ""} now={read.text} />;
 }
 
 /** Owns the diff editor and both of its models; neither is the editor's shared one. */

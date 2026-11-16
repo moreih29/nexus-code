@@ -77,7 +77,7 @@ import { Banner, type BannerAction } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
-import { type ChatLinks, ChatLinksContext } from "./chat-links";
+import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
 import { ConfigDialog } from "./config-dialog";
@@ -362,7 +362,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   const latest = useRef({ state, place, rootPath, outside });
   latest.current = { state, place, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
-  const links = useMemo<ChatLinks>(() => {
+  const links = useMemo<LocalChatLinks>(() => {
     const cwd = props.cwd;
     // Wide enough to share with a new group beside it.
     const split = () => latest.current.place === "beside";

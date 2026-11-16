@@ -57,7 +57,9 @@ export function CommandCardView({
               <li key={file.path}>
                 <button
                   type="button"
-                  onClick={() => links?.openFileTab(file.path)}
+                  onClick={() =>
+                    links?.openFileTab ? links.openFileTab(file.path) : links?.openFile(file.path)
+                  }
                   className="flex w-full items-center gap-2 rounded-(--radius-control) px-1 py-1 text-left text-app-ui-sm hover:bg-[var(--state-hover-bg)]"
                   title={file.path}
                 >

@@ -21,7 +21,9 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
   },
 }));
 
-const { ChatController } = await import("../../../../../src/renderer/services/chat/controller");
+const { ChatController, signInPageOf } = await import(
+  "../../../../../src/renderer/services/chat/controller"
+);
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 type Controller = InstanceType<typeof ChatController>;
 
@@ -137,5 +139,27 @@ describe("the side panel's MCP servers", () => {
     jest.advanceTimersByTime(10_000);
     await settle();
     expect(asked().filter((s) => s === "mcp_status")).toHaveLength(1);
+  });
+});
+
+describe("an MCP server's sign-in page", () => {
+  test("comes back to the redirect unless a connector's or one with its own callback", () => {
+    expect(signInPageOf({ authUrl: "https://a.example/auth" })).toEqual({
+      authUrl: "https://a.example/auth",
+      back: true,
+    });
+    expect(signInPageOf({ authUrl: "https://a.example/auth", callbackExpected: false })).toEqual({
+      authUrl: "https://a.example/auth",
+      back: false,
+    });
+    expect(signInPageOf({ authUrl: "https://a.example/auth", callbackPort: 4567 })).toEqual({
+      authUrl: "https://a.example/auth",
+      back: false,
+    });
+  });
+
+  test("is none when signed in already", () => {
+    expect(signInPageOf({})).toEqual({ back: false });
+    expect(signInPageOf(undefined)).toEqual({ back: false });
   });
 });
