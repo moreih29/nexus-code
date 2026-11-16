@@ -42,6 +42,7 @@ const agentContext: CliCommand = {
       "listens on, as nexus port list shows), then snapshot (the page with element refs), click e12,",
       "fill e3 TEXT, press Enter, screenshot, console and eval. The workbench can be arranged",
       "too: nexus layout show/split/resize, tab move/rename/pin, panel show/hide, reveal,",
+      "workspace move/rename/pin (the sidebar's rows),",
       "and nexus view agents|workspaces, view layout/open/split for the agent view's panels;",
       "nexus problems lists the language servers' errors in open files.",
       "The user's notes are the app's (its Notes panel): a note they speak of is one of these,",

@@ -71,6 +71,26 @@ describe("opening files", () => {
     expect(result.exitCode).toBe(1);
     expect(lastCall(app, "editor.open")).toBeUndefined();
   });
+
+  test("open --source or --preview shows that view of the file this once", async () => {
+    const app = fakeApp();
+    const result = await nexus(["open", "index.ts", "--source"], app);
+    expect(result.stdout).toBe("Opened index.ts, its source (tab cccccccc).\n");
+    expect(lastCall(app, "editor.open")).toMatchObject({ view: "source" });
+    await nexus(["open", "index.ts"], app);
+    expect(lastCall(app, "editor.open")).not.toHaveProperty("view");
+  });
+
+  test.each([
+    [["open", "index.ts", "--preview", "--source"], "--preview and --source do not go together"],
+    [["open", "index.ts:3", "--preview"], "a line is in the source; leave out --preview"],
+  ])("open refuses %p", async (argv, message) => {
+    const app = fakeApp();
+    const result = await nexus(argv, app);
+    expect(result.stderr).toContain(message);
+    expect(result.exitCode).toBe(2);
+    expect(lastCall(app, "editor.open")).toBeUndefined();
+  });
 });
 
 describe("show", () => {

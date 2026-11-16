@@ -19,7 +19,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | 명령 | 하는 일 |
 |---|---|
 | `nexus status` | 이 터미널의 위치, 사용자가 보고 있는 화면(에이전트 뷰 · 워크스페이스)과 탭 |
-| `nexus workspace list` · `worktree list` · `workspace current` | 워크스페이스와 워크트리 목록, 이 터미널의 워크스페이스 |
+| `nexus workspace list` · `worktree list` · `workspace current` | 워크스페이스(사이드바 순서)와 워크트리 목록, 이 터미널의 워크스페이스 |
 | `nexus session list` | 모든 워크스페이스의 에이전트 세션(터미널의 Claude Code, Codex, ... 와 앱의 Claude · Codex 탭)과 상태 |
 | `nexus tab list` · `terminal list` | 탭, 터미널과 그 안에서 도는 프로그램 (저장 안 한 편집기는 `(unsaved)`, `--unsaved` 로 그것만) |
 | `nexus terminal read <탭>` | 터미널 화면(스크롤백 포함) 읽기 |
@@ -35,6 +35,7 @@ nexus session list --jsonl   # 목록은 --jsonl 로 한 줄에 하나씩 (grep 
 | 명령 | 하는 일 |
 |---|---|
 | `nexus open src/app.ts:42` | 파일을 그 줄에서 열기 |
+| `nexus open README.md --source` | 미리보기가 있는 파일을 이번만 원본으로 열기 (`--preview` 는 미리보기로) |
 | `nexus diff src/app.ts` | 변경 사항 diff 열기 (`--staged`, `--base REF`) |
 | `nexus show HEAD~1` | 커밋을 탭으로 열기: 메시지와 바뀐 파일 목록 (sha·브랜치·태그. 기본 HEAD) |
 | `nexus terminal new --command "bun dev"` | 새 터미널에서 명령 실행 (기본은 뒤에 열기, `--show` 로 보이기) |
@@ -189,7 +190,8 @@ nexus chat send 1a2b --device "Mac mini" --wait -   # 그 컴퓨터의 탭에 �
 - 읽기(`session list`, `chat read`, `terminal read`, `wait`, `events`)는 언제나 됩니다. 에이전트가 보내거나 바꾸는 일은 그 컴퓨터의 "다른 컴퓨터의 에이전트" 설정(묻기 · 허용 · 거부)을 따릅니다. 묻기면 그 컴퓨터에 확인 창이 뜨고 90초 안에 답이 없으면 거절됩니다. 사람이 자기 셸에서 실행한 명령은 원격 설정의 채팅 · 터미널 조작 스위치를 따릅니다.
 - 받는 쪽 에이전트에게는 보낸 컴퓨터와 탭, 답장할 명령(`nexus chat send ... --device ...`)이 함께 갑니다. 에이전트끼리 주고받은 메시지가 8개를 넘으면 루프로 보고 거절합니다.
 - 종료 코드: 오프라인(`"Mac mini" is offline (last seen 12m ago)`), 이 컴퓨터가 원격에 없음, 구버전, 응답 없음은 3, 그 컴퓨터가 거절하면(`"Mac mini" refused: ...`) 1 입니다. `--json` 이면 `{error, device, ...}` 도 출력합니다.
-- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems` 는 이 컴퓨터에서만 됩니다.
+- `workspace list --device` 는 그 컴퓨터의 워크스페이스 목록입니다. `--workspace` 에 쓸 이름을 여기서 봅니다.
+- 서브에이전트(`agent`), 브라우저, 화면 배치 · 에이전트 뷰, `worktree new`, 포트, `problems`, 워크스페이스 추가 · 이름 · 고정 · 순서는 이 컴퓨터에서만 됩니다. 다른 컴퓨터에 워크스페이스를 추가하는 일은 사용자만 합니다(원격 프로토콜이 에이전트의 요청을 받지 않습니다).
 
 ## 세션의 에이전트 따라가기
 
@@ -217,11 +219,14 @@ codex exec resume <세션 id> "이어서 문서도"            # codex 도 같�
 - 다른 터미널의 세션은 `--tab`(다른 워크스페이스면 `--workspace` 도)으로 고릅니다.
 - 앱을 업데이트하기 전부터 돌던 Claude · Codex 탭의 프로그램은 예전 환경 그대로라, 그 탭이 띄운 실행은 탭의 프로그램이 다시 시작된 뒤부터 보입니다.
 
-## 워크스페이스 추가 · 제거
+## 워크스페이스 추가 · 제거 · 정리
 
 ```bash
 nexus workspace add ../lib --name 라이브러리 --show   # 이 터미널 위치 기준 폴더를 사이드바 끝에 추가
 nexus workspace remove 라이브러리                    # 앱 목록에서 제거(폴더는 그대로)
+nexus workspace rename 라이브러리 lib                # 사이드바 이름 바꾸기 (폴더 이름은 그대로)
+nexus workspace pin lib                             # 사이드바 위쪽에 고정 (workspace unpin 으로 해제)
+nexus workspace move lib --before api               # api 바로 위로 (--after · --top · --bottom)
 ```
 
 - `workspace add` 는 앱의 **워크스페이스 추가** 와 같습니다.
@@ -234,6 +239,11 @@ nexus workspace remove 라이브러리                    # 앱 목록에서 제
   - 저장하지 않은 파일이 있거나, 명령을 실행한 터미널이 그 워크스페이스(또는 그 작업) 안에 있으면 거절합니다.
   - 작업 하나만 지우려면 `worktree remove` 를 씁니다.
   - 항상 다른 워크스페이스라서 아래 "다른 워크스페이스 바꾸기" 설정을 따릅니다.
+- `workspace pin` 은 사이드바의 고정 버튼과 같습니다. 고정한 것들의 맨 아래로 갑니다.
+- `workspace move` 는 사이드바에서 끌어 옮기는 것과 같습니다. `--before` · `--after` 로 다른 묶음(고정 · 고정 안 함)의 워크스페이스 옆에 두면 그 묶음으로 고정되거나 풀립니다. `--top` · `--bottom` 은 지금 묶음 안에서 맨 위 · 맨 아래로 옮깁니다.
+- 작업(워크트리)은 사이드바에서 워크스페이스 아래에 보여서 이름 · 고정 · 순서를 바꾸지 않습니다.
+- `workspace list` 는 사이드바 순서(고정한 것 먼저)이고, 고정한 것에 `pinned` 가 붙습니다.
+- 다른 워크스페이스의 이름 · 고정 · 순서 바꾸기는 "다른 워크스페이스 바꾸기" 설정을 따릅니다.
 
 ## 작업(워크트리) 만들기 · 지우기
 
@@ -385,7 +395,7 @@ nexus view group workspace           # 에이전트 뷰 목록을 워크스페�
 
 ## 다른 워크스페이스 바꾸기
 
-다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, Claude · Codex 탭에 보내거나 멈추거나 설정을 바꾸거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸거나, 작업을 만들고 지우거나, 워크스페이스를 제거하는 일은 **설정 → 에이전트** 의 "다른 워크스페이스 변경" 을 따릅니다.
+다른 워크스페이스에 파일을 열거나, 터미널에 입력하거나, Claude · Codex 탭에 보내거나 멈추거나 설정을 바꾸거나, 탭을 닫거나, 브라우저를 조작하거나, 그룹 배치 · 탭 이름 · 고정을 바꾸거나, 작업을 만들고 지우거나, 워크스페이스를 제거하거나 이름 · 고정 · 순서를 바꾸는 일은 **설정 → 에이전트** 의 "다른 워크스페이스 변경" 을 따릅니다.
 
 - **매번 묻기**(기본): 앱에 확인 창이 뜹니다. **이번만 허용** · **재시작 전까지 허용** · **허용 안 함** 중에서 고릅니다. 90초 안에 답하지 않으면 거절됩니다.
   - **재시작 전까지 허용**은 앱을 다시 켤 때까지 그 워크스페이스에서 그 워크스페이스로 가는 모든 변경에 적용됩니다. 터미널 입력, 명령 실행, 메시지 보내기도 다시 묻지 않습니다.
@@ -403,17 +413,23 @@ nexus settings list                         # 설정 · 현재 값 · 받는 값
 nexus settings get editor.fontSize
 nexus settings set terminal.cursorStyle bar
 nexus settings set editor.fontFamily ""     # 빈 값이면 시스템 글꼴
+nexus settings set editor.openIn.markdown source   # Markdown 을 원본으로 열기
+nexus settings set terminal.shell fish      # 새 터미널의 셸 (system 이면 시스템 기본)
+nexus settings set voice.terms "NexusCode, Claude, 넥서스"   # 음성 인식 단어 (목록 전체)
 nexus settings reset editor.fontSize        # 기본값으로
 nexus settings open agent                   # 설정 창을 그 페이지로 열어 사용자에게 보여주기
 ```
 
 - 설정 창에서 바꾸는 것과 같습니다. 바로 반영되고 저장됩니다.
-- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내를 바꿀 수 있습니다.
+- 테마 · 언어 · 아이콘 · 창 투명도 · 비활성 패널 흐림, 에디터 · 터미널 · 채팅 글꼴, 파일을 여는 보기, 터미널 기본 셸, 커서 모양, 작업 에이전트, 에이전트 탭 기본 보기, 데스크톱 알림, 업데이트 자동 확인, 에이전트 안내, 음성 인식 단어를 바꿀 수 있습니다.
 - 채팅 글꼴(`chat.fontSize` · `chat.fontFamily`)은 Claude · Codex 탭의 글꼴입니다. 크기는 답변 글자 크기(10~24, 기본 14)이고 탭의 다른 글자도 같은 비율로 바뀝니다. 글꼴을 빈 값으로 두면 앱 기본(Pretendard), `system-ui` 면 시스템 글꼴입니다.
 - 켜고 끄는 값은 `on` / `off`, 숫자는 범위 안, 고르는 값은 목록 중 하나입니다.
+- `editor.openIn.<형식>` 은 미리보기가 있는 파일을 처음 열 때의 보기로, `source`(원본) · `preview` 입니다. 형식은 `markdown` · `html` · `svg` · `table`(CSV · TSV) · `json` · `yaml` · `notebook` 입니다. 한 번만 다르게 열려면 `nexus open --source` · `--preview`.
+- `terminal.shell` 은 로컬 워크스페이스의 새 터미널이 여는 셸입니다. `nexus terminal shells` 의 이름이나 id, 또는 `system`(시스템 기본)입니다.
+- `voice.terms` 는 계정의 모든 컴퓨터가 함께 쓰는 음성 인식 단어입니다. 쉼표로 나눈 목록 전체로 바꾸고, 빈 값이나 `reset` 은 비웁니다. 원격에 로그인해 있어야 합니다.
 - 앱 전체 설정이라 묻지 않습니다. 단, "다른 워크스페이스 변경" 과 "nexus 명령 허용" 은 사용자만 설정 창에서 바꿀 수 있습니다.
 - 창 투명도는 명령으로는 0.2 아래로 내릴 수 없습니다(창이 안 보이면 되돌릴 수 없어서).
-- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `agent` · `browser-permissions` · `keybindings` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
+- `settings open` 의 페이지는 `appearance` · `editor` · `language-servers` · `terminal` · `notifications` · `agent` · `browser-permissions` · `keybindings` · `remote` · `about` 입니다. `terminal.cursorStyle` 처럼 설정 키를 주면 그 설정이 있는 페이지가 열립니다. 언어 서버 · 단축키 · 브라우저 권한처럼 사용자만 바꾸는 설정을 보여줄 때 씁니다.
 
 ## 에이전트에게 알려주기
 

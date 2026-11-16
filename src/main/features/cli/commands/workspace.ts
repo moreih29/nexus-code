@@ -1,19 +1,23 @@
 /** nexus status, nexus workspace ... and nexus worktree ... (the app's tasks). */
 import type { CliTaskStart, CliView } from "../../../../shared/cli/ui";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../shared/types/workspace";
+import { compareWorkspaceOrder } from "../../../../shared/workspace-order";
 import { CliUsageError, exactArgs } from "../args";
 import {
   type CliContext,
+  type CliDevice,
   CliError,
   describeLocation,
   mayChange,
   pick,
   resolveWorkspace,
   shortId,
+  type WorkspaceMove,
 } from "../context";
 import { table } from "../format";
 import { absolutePath } from "../paths";
-import { type CliCommand, output } from "../registry";
+import { type CliCommand, type CliOutput, output } from "../registry";
+import { DEVICE_FLAG, deviceFlag, deviceRef, peerSessions, resolveDevice } from "../remote";
 import { senderOf } from "../sender";
 import { chatAgentFlag } from "./chat";
 import { WORKSPACE_FLAG } from "./flags";
@@ -26,6 +30,7 @@ export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
     id: workspace.id,
     name: workspace.name,
     location: workspace.location,
+    pinned: workspace.pinned,
     current: workspace.id === ctx.caller.workspaceId,
     shown: shown?.workspaceId === workspace.id,
     ...(workspace.task
@@ -43,6 +48,7 @@ export function workspaceJson(ctx: CliContext, workspace: WorkspaceMeta) {
 function marks(ctx: CliContext, workspace: WorkspaceMeta): string {
   const shown = ctx.services.shownTab();
   return [
+    workspace.pinned ? "pinned" : "",
     workspace.id === ctx.caller.workspaceId ? "current" : "",
     shown?.workspaceId === workspace.id ? "shown" : "",
   ]
@@ -50,9 +56,9 @@ function marks(ctx: CliContext, workspace: WorkspaceMeta): string {
     .join(",");
 }
 
-/** Workspaces with each one's worktrees right under it. */
+/** Workspaces in the sidebar's order, pinned first, with each one's worktrees right under it. */
 export function orderedWorkspaces(workspaces: readonly WorkspaceMeta[]): WorkspaceMeta[] {
-  const roots = workspaces.filter((w) => !w.task);
+  const roots = workspaces.filter((w) => !w.task).sort(compareWorkspaceOrder);
   const ordered: WorkspaceMeta[] = [];
   for (const root of roots) {
     ordered.push(root, ...workspaces.filter((w) => w.task?.parentId === root.id));
@@ -116,10 +122,30 @@ const status: CliCommand = {
   },
 };
 
+/** workspace list --device: another computer's workspaces, as its sessions.list tells them. */
+async function peerWorkspaceList(ctx: CliContext, device: CliDevice): Promise<CliOutput> {
+  const { workspaces } = await peerSessions(ctx, device);
+  const rows = workspaces.map((w) => [
+    shortId(w.id),
+    w.parentId ? `  ${w.name}` : w.name,
+    w.parentId ? `worktree${w.git?.branch ? `:${w.git.branch}` : ""}` : "workspace",
+    w.pinned ? "pinned" : "",
+    w.path,
+  ]);
+  return output(
+    table(["ID", "NAME", "KIND", "", "PATH"], rows) || `"${device.name}" has no workspaces.`,
+    workspaces.map((w) => ({ ...w, device: deviceRef(device) })),
+  );
+}
+
 const workspaceList: CliCommand = {
   path: ["workspace", "list"],
-  summary: "List the workspaces and their worktrees",
-  async run(ctx) {
+  summary: "List the workspaces and their worktrees, in the sidebar's order",
+  flags: { device: DEVICE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    exactArgs(positionals);
+    const device = await resolveDevice(ctx, deviceFlag(flags));
+    if (device) return peerWorkspaceList(ctx, device);
     const workspaces = orderedWorkspaces(ctx.services.listWorkspaces());
     const rows = workspaces.map((w) => [
       shortId(w.id),
@@ -564,6 +590,129 @@ const workspaceRemove: CliCommand = {
   },
 };
 
+/** A workspace the sidebar has a row for: a worktree is shown under its workspace's. */
+function sidebarWorkspace(ctx: CliContext, selector: string): WorkspaceMeta {
+  const workspace = resolveWorkspace(ctx, selector);
+  const parentId = workspace.task?.parentId;
+  if (parentId !== undefined) {
+    const parent = ctx.services.listWorkspaces().find((w) => w.id === parentId);
+    throw new CliError(
+      `${workspace.name} is a worktree, under ${parent ? parent.name : "its workspace"} in the sidebar`,
+    );
+  }
+  return workspace;
+}
+
+/** The longest name a workspace is given, as another device may give one. */
+const MAX_NAME = 200;
+
+const workspaceRename: CliCommand = {
+  path: ["workspace", "rename"],
+  summary: "Rename a workspace in the sidebar",
+  args: "<workspace> <name...>",
+  details: "Its folder keeps its name.",
+  async run(ctx, { positionals }) {
+    const [selector, ...words] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <workspace>");
+    const name = words.join(" ").trim();
+    if (name === "") throw new CliUsageError("missing <name>");
+    if (name.length > MAX_NAME) throw new CliUsageError(`a name is at most ${MAX_NAME} characters`);
+    const target = sidebarWorkspace(ctx, selector);
+    await mayChange(ctx, target, { kind: "workspaceRename", detail: name });
+    const renamed = ctx.services.updateWorkspace(target.id, { name });
+    return output(
+      `${target.name} (${shortId(target.id)}) is now "${renamed.name}".`,
+      workspaceJson(ctx, renamed),
+    );
+  },
+};
+
+function workspacePinCommand(pinned: boolean): CliCommand {
+  return {
+    path: ["workspace", pinned ? "pin" : "unpin"],
+    summary: pinned
+      ? "Pin a workspace to the top of the sidebar, as its pin does"
+      : "Unpin a workspace",
+    args: "<workspace>",
+    details: pinned
+      ? "It goes last among the pinned ones; nexus workspace move puts it elsewhere."
+      : "It goes last among the workspaces not pinned.",
+    async run(ctx, { positionals }) {
+      const [selector] = exactArgs(positionals, "workspace") as [string];
+      const target = sidebarWorkspace(ctx, selector);
+      if (target.pinned === pinned) {
+        return output(
+          `${target.name} is ${pinned ? "already" : "not"} pinned.`,
+          workspaceJson(ctx, target),
+        );
+      }
+      await mayChange(ctx, target, { kind: "workspacePin" });
+      const changed = ctx.services.updateWorkspace(target.id, { pinned });
+      return output(
+        `${pinned ? "Pinned" : "Unpinned"} ${changed.name} (${shortId(changed.id)}).`,
+        workspaceJson(ctx, changed),
+      );
+    },
+  };
+}
+
+/** What a group of the sidebar is called. */
+const GROUP_NAMES = { pinned: "pinned workspaces", unpinned: "workspaces not pinned" } as const;
+
+const workspaceMove: CliCommand = {
+  path: ["workspace", "move"],
+  summary: "Move a workspace up or down the sidebar, as dragging it does",
+  args: "<workspace>",
+  details:
+    "Give one of the flags. Next to a workspace of the other group, it is pinned or unpinned\n" +
+    "with it; --top and --bottom keep it in its own.",
+  flags: {
+    before: { type: "string", value: "WORKSPACE", description: "Put it just above WORKSPACE" },
+    after: { type: "string", value: "WORKSPACE", description: "Put it just below WORKSPACE" },
+    top: {
+      type: "boolean",
+      description: "Put it first of its group: the pinned ones, or the rest",
+    },
+    bottom: { type: "boolean", description: "Put it last of its group" },
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "workspace") as [string];
+    const before = flags.before as string | undefined;
+    const after = flags.after as string | undefined;
+    const given = [before !== undefined, after !== undefined, flags.top === true, flags.bottom];
+    if (given.filter((g) => g === true).length !== 1) {
+      throw new CliUsageError("give one of --before, --after, --top or --bottom");
+    }
+    const target = sidebarWorkspace(ctx, selector);
+    const own = target.pinned ? "pinned" : "unpinned";
+    let to: WorkspaceMove;
+    let where: string;
+    const next = before ?? after;
+    if (next !== undefined) {
+      const anchor = sidebarWorkspace(ctx, next);
+      if (anchor.id === target.id) throw new CliError("a workspace does not go next to itself");
+      const group = anchor.pinned ? "pinned" : "unpinned";
+      to = before !== undefined ? { beforeId: anchor.id, group } : { afterId: anchor.id, group };
+      where = `${before !== undefined ? "above" : "below"} ${anchor.name}`;
+    } else {
+      const first = orderedWorkspaces(ctx.services.listWorkspaces()).find(
+        (w) => !w.task && w.pinned === target.pinned && w.id !== target.id,
+      );
+      to = flags.top === true && first ? { beforeId: first.id, group: own } : { group: own };
+      where = `${flags.top === true ? "first" : "last"} of the ${GROUP_NAMES[own]}`;
+    }
+    await mayChange(ctx, target, { kind: "workspaceMove" });
+    const moved = ctx.services.moveWorkspace(target.id, to);
+    const flipped =
+      moved.pinned === target.pinned
+        ? ""
+        : moved.pinned
+          ? "; it is pinned now"
+          : "; it is unpinned";
+    return output(`Moved ${moved.name} ${where}${flipped}.`, workspaceJson(ctx, moved));
+  },
+};
+
 export const workspaceCommands: CliCommand[] = [
   status,
   workspaceList,
@@ -571,6 +720,10 @@ export const workspaceCommands: CliCommand[] = [
   workspaceSwitch,
   workspaceAdd,
   workspaceRemove,
+  workspaceRename,
+  workspacePinCommand(true),
+  workspacePinCommand(false),
+  workspaceMove,
   worktreeList,
   worktreeSwitch,
   worktreeNew,
