@@ -655,6 +655,36 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
+  "chat.mcp": async ({ workspaceId, tabId, server, action, redirectUri, callbackUrl }) => {
+    const controller = await claudeTab(workspaceId, tabId, true);
+    const { model, phase } = controller.state;
+    if (phase !== "ready" || model.process !== "running") {
+      throw new UiRequestError("its program is not running");
+    }
+    if (model.mcp && !model.mcp.some((s) => s.name === server)) {
+      throw new UiRequestError(`it has no MCP server "${server}"`);
+    }
+    switch (action) {
+      case "reconnect":
+        await controller.mcpReconnect(server);
+        return {};
+      case "enable":
+      case "disable":
+        await controller.mcpToggle(server, action === "enable");
+        return {};
+      case "signIn":
+        // The page comes back to the asking device's own loopback listener.
+        if (!redirectUri || !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(redirectUri)) {
+          throw new UiRequestError("a sign-in needs a loopback address to come back to");
+        }
+        return controller.mcpSignInFor(server, redirectUri);
+      case "signedIn":
+        if (!callbackUrl) throw new UiRequestError("a sign-in needs the address it came back to");
+        await controller.mcpSignedIn(server, callbackUrl);
+        return {};
+    }
+  },
+
   "chat.remoteControl": async ({ workspaceId, tabId, enabled }) => {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model, phase } = controller.state;

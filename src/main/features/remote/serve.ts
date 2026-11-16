@@ -1005,6 +1005,15 @@ export async function setChatRemoteControl(
   return {};
 }
 
+/** Works a Claude chat's MCP server, as its panel does: the user's, from another device. */
+export async function workChatMcp(
+  services: CliServices,
+  params: RpcParams<"chat.mcp">,
+): Promise<RpcResult<"chat.mcp">> {
+  await tabOf(services, params.workspaceId, params.tabId, ["claude"]);
+  return services.ui("chat.mcp", params, SETTINGS_TIMEOUT_MS).catch(chatFailure);
+}
+
 /** The workspace's conversations of the past that a new chat can go on with. */
 export async function listHistory(
   services: CliServices,
@@ -1332,6 +1341,9 @@ export function serveWith(
         );
       case "chat.remoteControl":
         return setChatRemoteControl(s, request.params as RpcParams<"chat.remoteControl">);
+      case "chat.mcp":
+        // The user's own: the room refuses an agent's, as its params have no `from`.
+        return workChatMcp(s, request.params as RpcParams<"chat.mcp">);
       case "history.list":
         return listHistory(s, request.params as RpcParams<"history.list">);
       case "chat.resume":

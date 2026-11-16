@@ -1405,7 +1405,13 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
 }
 
 /** A small button in a row's words: signing in to a server, opening its page again. */
-function TextButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+export function TextButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"

@@ -2567,6 +2567,11 @@ export const ipcContract = {
           .merge(RPC_METHODS["profiles.list"].params),
         RPC_METHODS["profiles.list"].result,
       ),
+      /** Works an MCP server of another device's chat, as the user. */
+      peerChatMcp: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.mcp"].params),
+        RPC_METHODS["chat.mcp"].result,
+      ),
       /** Has another device's chat run with another profile, as the user. */
       peerChatProfile: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),

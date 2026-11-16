@@ -1008,6 +1008,30 @@ describe("rewinding, forking and more of a Claude chat", () => {
     ]);
   });
 
+  test("its MCP servers are worked as its panel does, a sign-in's page coming back (0.13.0)", async () => {
+    const { serve, asked } = actionServices((op) =>
+      op === "chat.mcp" ? { authUrl: "https://example.com/auth", back: true } : {},
+    );
+    const signIn = {
+      ...tab,
+      server: "notes",
+      action: "signIn" as const,
+      redirectUri: "http://localhost:4567/callback",
+    };
+    expect(await serve({ from: "d", method: "chat.mcp", params: signIn })).toEqual({
+      authUrl: "https://example.com/auth",
+      back: true,
+    });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.mcp",
+        params: { workspaceId: "w2", tabId: "t4", server: "notes", action: "reconnect" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toEqual([["chat.mcp", signIn]]);
+  });
+
   test("only a Claude chat's; NotFound for an item it does not have", async () => {
     const { serve } = actionServices((op) =>
       op === "chat.rewind" ? new Error("no item u9 in that tab") : new Error("a turn is running"),

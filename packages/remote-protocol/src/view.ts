@@ -411,6 +411,8 @@ export const ChatPanelSchema = z.object({
        * turn stopping (chat.profile `stop`), as its chip there does. Since 0.13.0.
        */
       moveNow: z.boolean().optional(),
+      /** Work its MCP servers: sign in, connect again, turn on or off (chat.mcp). Since 0.13.0. */
+      mcp: z.boolean().optional(),
     })
     .optional(),
   /**

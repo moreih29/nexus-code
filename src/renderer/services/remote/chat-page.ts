@@ -59,6 +59,7 @@ export interface ChatSource {
     withdraw?: boolean;
     hurry?: boolean;
     moveNow?: boolean;
+    mcp?: boolean;
   };
 }
 

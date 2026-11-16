@@ -901,6 +901,22 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; toolUseId: string };
     result: Record<string, never>;
   };
+  /**
+   * Works a Claude tab's MCP server as its panel does, for another device:
+   * connects it again, turns it on or off, or signs in with that device's
+   * browser (`signIn` gives the page, `signedIn` finishes it).
+   */
+  "chat.mcp": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      server: string;
+      action: "reconnect" | "enable" | "disable" | "signIn" | "signedIn";
+      redirectUri?: string;
+      callbackUrl?: string;
+    };
+    result: { authUrl?: string; back?: boolean };
+  };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
     args: { workspaceId: string; tabId: string; enabled: boolean };

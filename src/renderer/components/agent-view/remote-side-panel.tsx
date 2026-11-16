@@ -5,7 +5,8 @@
  * They come from the panel its computer tells (chat.watch's `panel`), the
  * subagents' details from the conversation shown. A changed file opens its
  * change, read from that computer. Its MCP servers are shown as they stand
- * there; signing in to one, turning it off or on is that computer's to do.
+ * there, and worked as a chat's here are where that computer lets this one
+ * control its chats (a sign-in in the browser here).
  */
 
 import {
@@ -17,6 +18,7 @@ import {
   ExternalLink,
   GitFork,
   MessageSquare,
+  RefreshCw,
   Square,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -33,6 +35,7 @@ import {
   jobCommand,
 } from "../../services/chat/panel";
 import { formatTokens } from "../../services/chat/usage-line";
+import { usePeerMcp } from "../../services/remote/peer-mcp";
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -53,6 +56,7 @@ import {
   ResultsSection,
   Row,
   Section,
+  TextButton,
   useRevealedRow,
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
@@ -63,7 +67,7 @@ import { peerProfileName } from "./remote-profile-chip";
 import { usageLineOf } from "./remote-usage";
 
 /** The panel's parts a bare command shows: /status, /context, /usage; /diff its changed files. */
-export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes";
+export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes" | "mcp";
 
 /** A part of the panel asked for, each ask its own seq; `id`: the task of the job meant. */
 export interface RemotePanelAsk {
@@ -73,14 +77,14 @@ export interface RemotePanelAsk {
 }
 
 /**
- * The part of the panel a bare /status, /context or /usage shows; null for
+ * The part of the panel a bare /status, /context, /usage or /mcp shows; null for
  * another. A Codex chat has /status only, as its tab here does.
  */
 export function remotePanelPartOf(
   text: string,
   agent: "claude" | "codex" = "claude",
 ): RemotePanelPart | null {
-  const match = /^\/(status|context|usage)\s*$/i.exec(text.trim());
+  const match = /^\/(status|context|usage|mcp)\s*$/i.exec(text.trim());
   const part = match?.[1]?.toLowerCase() as RemotePanelPart | undefined;
   if (!part || (agent === "codex" && part !== "status")) return null;
   return part;
@@ -455,27 +459,83 @@ export function RemoteSidePanel({
           ))
         )}
       </Section>
-      {panel?.mcp && <RemoteMcp servers={panel.mcp} />}
+      {panel?.mcp && (
+        <RemoteMcp
+          target={target}
+          servers={panel.mcp}
+          controls={controls && panel.can?.mcp === true}
+          reveal={asked("mcp")}
+        />
+      )}
     </aside>
   );
 }
 
-/** Its MCP servers as they stand there, as a chat here lists its own. */
-function RemoteMcp({ servers }: { servers: NonNullable<ChatPanel["mcp"]> }) {
+/**
+ * Its MCP servers as they stand there, as a chat here lists its own; worked
+ * as a chat here works them (`controls`): signed in to, connected again,
+ * turned on or off.
+ */
+function RemoteMcp({
+  target,
+  servers,
+  controls,
+  reveal,
+}: {
+  target: RemoteTarget;
+  servers: NonNullable<ChatPanel["mcp"]>;
+  controls: boolean;
+  reveal?: number;
+}) {
   const { t } = useTranslation();
+  const mcp = usePeerMcp(target);
+  const fail = (err: Error) => showToast({ kind: "error", message: err.message });
   return (
-    <Section title={t("chat.panel.mcp.title")} count={servers.length} folded>
+    <Section title={t("chat.panel.mcp.title")} count={servers.length} folded reveal={reveal}>
       {servers.length === 0 ? (
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>
       ) : (
-        servers.map((server) => (
-          <Row key={server.name} title={server.name}>
-            <span className="min-w-0 flex-1 truncate">{server.name}</span>
-            <span className="shrink-0 text-app-micro text-muted-foreground">
-              {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
-            </span>
-          </Row>
-        ))
+        servers.map((server) => {
+          const signingIn = mcp.signIn?.server === server.name;
+          return (
+            <Row
+              key={server.name}
+              title={signingIn ? t("chat.panel.mcp.signing_in_hint") : server.name}
+            >
+              <span className="min-w-0 flex-1 truncate">{server.name}</span>
+              {signingIn ? (
+                <span className="flex shrink-0 items-center gap-1 text-app-micro text-muted-foreground">
+                  {t("chat.panel.mcp.signing_in")}
+                  <TextButton onClick={mcp.reopen}>{t("chat.panel.mcp.reopen")}</TextButton>
+                  <TextButton onClick={mcp.cancel}>{t("chat.panel.mcp.cancel")}</TextButton>
+                </span>
+              ) : controls && server.status === "needs-auth" ? (
+                <TextButton onClick={() => mcp.authenticate(server.name).catch(fail)}>
+                  {t("chat.panel.mcp.sign_in")}
+                </TextButton>
+              ) : (
+                <span className="shrink-0 text-app-micro text-muted-foreground">
+                  {t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
+                </span>
+              )}
+              {controls && server.status !== "disabled" && !signingIn && (
+                <IconButton
+                  label={t("chat.panel.mcp.reconnect")}
+                  onClick={() => mcp.reconnect(server.name).catch(fail)}
+                >
+                  <RefreshCw className="size-3" />
+                </IconButton>
+              )}
+              {controls && (
+                <Switch
+                  checked={server.status !== "disabled"}
+                  onCheckedChange={(enabled) => mcp.toggle(server.name, enabled).catch(fail)}
+                  aria-label={t("chat.panel.mcp.enabled", { name: server.name })}
+                />
+              )}
+            </Row>
+          );
+        })
       )}
     </Section>
   );

@@ -1098,6 +1098,29 @@ export const RPC_METHODS = {
     }),
     result: z.object({ from: z.string(), to: z.string() }),
   },
+  /**
+   * Works one of a Claude chat's MCP servers as its panel there does (its
+   * panel's `can.mcp`): connects it again, or turns it on or off. A
+   * sign-in is the asking device's, its browser's: `signIn` with the
+   * address its sign-in page comes back to on that device (a loopback
+   * one) gives the page to open (`authUrl`; none when signed in already,
+   * connected again then), and when the page comes back there (`back`),
+   * `signedIn` with the address it came back to finishes it. Only the
+   * user's: an agent does not send it. Since 0.13.0.
+   */
+  "chat.mcp": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      server: z.string().min(1).max(200),
+      action: z.enum(["reconnect", "enable", "disable", "signIn", "signedIn"]),
+      /** `signIn`'s: where the sign-in page comes back to on the asking device. */
+      redirectUri: z.string().max(2048).optional(),
+      /** `signedIn`'s: the address the page came back to there. */
+      callbackUrl: z.string().max(16_384).optional(),
+    }),
+    result: z.object({ authUrl: z.string().optional(), back: z.boolean().optional() }),
+  },
   /** Runs one of the app's slash commands (chat.commands' `command` ones), `args` after its name. */
   "chat.command": {
     capability: "chat.control",

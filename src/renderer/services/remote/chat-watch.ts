@@ -341,6 +341,7 @@ export function tabSource(
             withdraw: supportsControl(chat.version ?? chat.model.version, "cancel_async_message"),
             hurry: true,
             moveNow: true,
+            mcp: true,
           },
         }
       : { can: { rewind: false, fork: false, background: false, moveNow: true } }),
