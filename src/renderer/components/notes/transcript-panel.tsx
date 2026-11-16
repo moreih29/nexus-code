@@ -2,7 +2,8 @@
  * A note's transcript, beside its text: each recording with its voices and
  * what they said, a time to a line. While this note records, the words
  * come in as they are said. A voice is named by clicking it (the name goes
- * to every line of it); a line goes into the note as a quote; a recording
+ * to every line of it), and a line moved to another voice by clicking its
+ * speaker; a line goes into the note as a quote; a recording
  * of more than one person is heard again, whole, once it ends. The line
  * between it and the text is dragged to give either more room.
  */
@@ -14,13 +15,14 @@ import { dateTimeFormat } from "@/utils/intl-format";
 import {
   clockOf,
   joinedLines,
+  newSpeakerKey,
   recordingMs,
   speakerName,
   speakersOf,
   type TranscriptLine,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
-import { useRecorderStore } from "../../services/notes/recorder";
+import { moveLine, useRecorderStore } from "../../services/notes/recorder";
 import {
   canSecondPass,
   resumeSecondPasses,
@@ -400,6 +402,16 @@ function RecordingView({
             line={line}
             name={nameOf(line.speaker)}
             color={colorOf(line.speaker)}
+            others={people
+              .filter((p) => p.person !== personOf(line.speaker))
+              .map((p) => ({
+                key: p.keys[0] as string,
+                name: nameOf(p.keys[0] as string),
+                color: colorOf(p.keys[0] as string),
+              }))}
+            onMove={(to) =>
+              moveLine(workspaceId, noteId, recording.id, line, to ?? newSpeakerKey(recording))
+            }
             onQuote={() =>
               onQuote({
                 speaker: nameOf(line.speaker),
@@ -429,11 +441,17 @@ function Line({
   line,
   name,
   color,
+  others,
+  onMove,
   onQuote,
 }: {
   line: TranscriptLine;
   name: string;
   color: string | undefined;
+  /** The recording's other people, a line can be moved to. */
+  others: { key: string; name: string; color: string | undefined }[];
+  /** Moves the line to a voice, or to a new one (null). */
+  onMove: (to: string | null) => void;
   onQuote: () => void;
 }) {
   const { t } = useTranslation("notes");
@@ -445,9 +463,35 @@ function Line({
       <span className="mr-1.5 text-app-micro text-muted-foreground tabular-nums">
         {clockOf(line.startMs)}
       </span>
-      <span className="mr-1.5 font-medium" style={{ color }}>
-        {name}
-      </span>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger>
+          <button
+            type="button"
+            className="mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]"
+            style={{ color }}
+            title={t("transcript.moveLine")}
+            data-testid="transcript-line-speaker"
+          >
+            {name}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {others.map((o) => (
+            <DropdownMenuItem key={o.key} onSelect={() => onMove(o.key)}>
+              <span
+                className="size-1.5 rounded-full"
+                style={{ background: o.color }}
+                aria-hidden="true"
+              />
+              {o.name}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuItem onSelect={() => onMove(null)}>
+            <Plus className="size-3.5" aria-hidden="true" />
+            {t("transcript.newSpeaker")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenuRoot>
       {line.text}
       <button
         type="button"

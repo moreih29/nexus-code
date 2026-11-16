@@ -58,7 +58,8 @@ export async function openMicrophone(): Promise<MediaStream> {
 }
 
 /**
- * Captures `stream` at `sampleRate`, handing each frame to `onFrame`.
+ * Captures `stream` at `sampleRate`, handing each frame to `onFrame`, and
+ * its samples as they are to `onSamples` (a note's voice prints).
  * Stopping it (or failing) stops the stream's tracks too, unless
  * `keepStream`: a note's recording goes on with the stream in a new session.
  */
@@ -66,7 +67,7 @@ export async function startCapture(
   stream: MediaStream,
   sampleRate: number,
   onFrame: (pcm: Uint8Array) => void,
-  options: { keepStream?: boolean } = {},
+  options: { keepStream?: boolean; onSamples?: (samples: Float32Array) => void } = {},
 ): Promise<Capture> {
   const release = () => {
     if (!options.keepStream) for (const track of stream.getTracks()) track.stop();
@@ -90,6 +91,7 @@ export async function startCapture(
       for (const s of samples) sum += s * s;
       level = Math.min(1, Math.sqrt(sum / Math.max(1, samples.length)) * 4);
       onFrame(pcm16Of(samples));
+      options.onSamples?.(samples);
     };
     source.connect(node);
     const opened = context;

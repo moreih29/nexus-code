@@ -2,7 +2,7 @@
 
 [English](#nexuscode-privacy-policy)
 
-시행일: 2026년 11월 14일
+시행일: 2026년 11월 17일
 
 NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 않습니다. 앱은 로그인하지 않고도 쓸 수 있고, 그때는 **설정 → 원격**에서 로그인 방법 목록을 불러올 때 말고는 개발자가 운영하는 서버와 통신하지 않습니다. 이 요청에는 계정이나 기기에 관한 정보가 들어 있지 않습니다. NexusCode 계정으로 로그인해 원격, 음성 입력, 노트 녹음, 모바일 앱을 쓸 때만 아래 [NexusCode 계정](#nexuscode-계정)에 적은 정보가 개발자가 운영하는 서버(이하 "서버")를 거칩니다.
 
@@ -26,7 +26,7 @@ NexusCode는 사용 통계, 분석, 오류 보고를 개발자에게 보내지 �
 - **계정 비밀번호와 종단간 암호화**: 계정 비밀번호는 서버로 보내지 않습니다. 기기들이 함께 쓰는 계정 키는 기기에서 계정 비밀번호로 잠근 뒤 서버에 맡기며, 서버는 이를 열 수 없습니다.
 - **원격**: 기기 사이에 오가는 내용(에이전트 세션, 터미널 화면, 파일, 사진)은 종단간 암호화되어 서버를 거쳐 전달됩니다. 서버는 어느 기기에서 어느 기기로 가는지와 크기, 시각만 알 수 있고, 내용을 열거나 저장하지 않습니다.
 - **음성 입력**: 말하는 동안 소리를 서버를 거쳐 음성 인식 서비스 Soniox로 보내 실시간으로 받아씁니다. 서버는 소리와 받아쓴 글을 저장하지 않고, 쓴 시간만 기록합니다.
-- **노트 녹음**: 녹음하는 동안의 소리는 음성 입력처럼 Soniox로 보내 실시간으로 받아쓰고, 목소리를 구별해 말한 사람별로 나눕니다(누구인지 알아내지는 않습니다). 녹음이 끝난 뒤 더 정확한 글을 얻으려고 녹음 파일을 서버를 거쳐 Soniox로 한 번 더 보낼 수 있습니다. 이 파일은 받아쓴 글이 나오면 바로 지우고, 글은 앱이 가져가면 지우며, 늦어도 파일을 보내고 하루 안에 모두 지웁니다. 서버는 그동안 녹음 길이와 처리 상태만 보관합니다.
+- **노트 녹음**: 녹음하는 동안의 소리는 음성 입력처럼 Soniox로 보내 실시간으로 받아쓰고, 목소리를 구별해 말한 사람별로 나눕니다(누구인지 알아내지는 않습니다). 앱도 컴퓨터에서 목소리를 소리로 구별합니다. 줄마다 목소리 특징(성문)을 컴퓨터 안에서 계산하며, 이 값은 컴퓨터 밖으로 나가지 않고 녹음하는 동안 메모리에만 두며 저장하지 않습니다. 녹음이 끝난 뒤 더 정확한 글을 얻으려고 녹음 파일을 서버를 거쳐 Soniox로 한 번 더 보낼 수 있습니다. 이 파일은 받아쓴 글이 나오면 바로 지우고, 글은 앱이 가져가면 지우며, 늦어도 파일을 보내고 하루 안에 모두 지웁니다. 서버는 그동안 녹음 길이와 처리 상태만 보관합니다.
 - **사용량**: 음성 입력과 노트 녹음에 쓴 시간을 달마다 기록합니다.
 - **모바일 앱**: 사용자가 고른 사진만 읽어서, 종단간 암호화해 컴퓨터로 보냅니다. 카메라와 마이크는 쓰지 않습니다.
 - **운영 기록**: 서버는 Cloudflare에서 돌아갑니다. 요청을 처리한 기록(시각, 경로, 결과, IP 주소 같은 접속 정보)은 오류를 찾고 남용을 막는 데만 쓰며 Cloudflare에 며칠 동안 남습니다. 로그인 시도가 지나치게 많은 곳을 막으려고 접속한 네트워크를 잠시 셉니다.
@@ -67,7 +67,7 @@ Microsoft Store, Apple App Store, Cloudflare, Soniox, GitHub, Google, 그리고 
 
 # NexusCode Privacy Policy
 
-Effective November 14, 2026
+Effective November 17, 2026
 
 NexusCode sends no usage statistics, analytics or error reports to its developer. The app works without signing in, and then it does not talk to any server the developer runs, except to list the ways to sign in when you open **Settings → Remote**; that request carries nothing about you or your device. Only when you sign in to a NexusCode account to use remote, voice input, note recording or the mobile app does the information under [NexusCode account](#nexuscode-account) go through the developer's server (the "server").
 
@@ -91,7 +91,7 @@ What the server handles when you sign in and use account features.
 - **Account password and end-to-end encryption**: your account password is never sent to the server. The account key your devices share is locked with it on your device before the server keeps it, and the server cannot open it.
 - **Remote**: what passes between your devices (agent sessions, terminal screens, files, photos) is end-to-end encrypted and relayed by the server. The server can tell only which device it goes from and to, its size and its time; it cannot read it and does not store it.
 - **Voice input**: while you speak, the sound goes through the server to the speech-to-text service Soniox, which transcribes it as you speak. The server stores neither the sound nor the text, only how long you used it.
-- **Note recording**: while you record, the sound goes to Soniox and is transcribed as voice input is, with voices told apart so the text is split by speaker (it does not identify anyone). After the recording, its file may go once more through the server to Soniox for a more accurate text. The file is deleted as soon as its text is ready, the text once the app has it, and both within a day of the file being sent at the latest. Until then the server keeps only the recording's length and how far its transcription is.
+- **Note recording**: while you record, the sound goes to Soniox and is transcribed as voice input is, with voices told apart so the text is split by speaker (it does not identify anyone). The app also tells the voices apart on your computer by how they sound: it works out a voice print of each line there, which never leaves the computer, is kept in memory only while you record, and is not saved. After the recording, its file may go once more through the server to Soniox for a more accurate text. The file is deleted as soon as its text is ready, the text once the app has it, and both within a day of the file being sent at the latest. Until then the server keeps only the recording's length and how far its transcription is.
 - **Usage**: the time you used voice input and note recording is recorded each month.
 - **Mobile app**: it reads only the photos you choose, and sends them end-to-end encrypted to your computers. It does not use the camera or the microphone.
 - **Operational logs**: the server runs on Cloudflare. Records of the requests it handles (time, path, result and connection details such as your IP address) are used only to find faults and stop abuse, and stay with Cloudflare for a few days. To stop excessive sign-in attempts, the server briefly counts requests from each network.

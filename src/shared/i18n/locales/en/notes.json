@@ -135,6 +135,8 @@
     "nothing": "Nothing was heard.",
     "speaker": "Speaker {{label}}",
     "rename": "Click to name",
+    "moveLine": "Change speaker",
+    "newSpeaker": "New speaker",
     "namePlaceholder": "Name",
     "insert": "Quote in the note",
     "live": "Recording",
