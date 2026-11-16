@@ -18,9 +18,15 @@ import {
 } from "../../state/stores/terminal";
 import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
-import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
+import {
+  type AnsiBufferLike,
+  type AnsiLineLike,
+  type AnsiScreen,
+  bufferAnsi,
+  bufferScreen,
+} from "./buffer-ansi";
 import { clipboardTextOf } from "./osc-clipboard";
-import { createPtyClient } from "./pty-client";
+import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
 import type {
   PtyClient,
   PtyClientOptions,
@@ -71,6 +77,10 @@ interface ParserLike {
     id: { prefix?: string; intermediates?: string; final: string },
     callback: (params: CsiParamsLike) => boolean,
   ) => Disposable;
+  registerEscHandler: (
+    id: { intermediates?: string; final: string },
+    callback: () => boolean,
+  ) => Disposable;
 }
 
 /** The part of xterm's active buffer the controller reads. */
@@ -79,6 +89,10 @@ interface BufferLike extends AnsiBufferLike {
   /** Lines in the buffer, scrollback included. */
   readonly length?: number;
   getLine?(y: number): AnsiLineLike | undefined;
+  /** The cursor's cell, and its row on the screen, whose first row is the buffer's `baseY`th. */
+  readonly cursorX?: number;
+  readonly cursorY?: number;
+  readonly baseY?: number;
 }
 
 interface TerminalLike {
@@ -223,6 +237,8 @@ export function foregroundConfirmsTitle(foregroundName: string): boolean {
 const FOCUS_REPORTING_MODE = 1004;
 /** DECSET 2004, bracketed paste: a program setting up for input, as each does when it starts. */
 const BRACKETED_PASTE_MODE = 2004;
+/** DECTCEM (DECSET 25): the cursor shows; reset, the program hides it. */
+const CURSOR_MODE = 25;
 /**
  * How long after a program asks for focus reports it is told the terminal
  * lacks focus: Codex drops the input that comes while it sets up.
@@ -374,6 +390,9 @@ class XtermTerminalController implements TerminalController {
   private altEnterDisposable: Disposable | null = null;
   private altExitDisposable: Disposable | null = null;
   private focusReportDisposable: Disposable | null = null;
+  /** Whether the program hid the cursor (DECTCEM), as one drawing its own does. */
+  private cursorHidden = false;
+  private cursorDisposables: Disposable[] = [];
   private focusReportTimer: ReturnType<typeof setTimeout> | null = null;
   private selectionWriteTimer: ReturnType<typeof setTimeout> | null = null;
   private oscDisposables: Disposable[] = [];
@@ -394,6 +413,15 @@ class XtermTerminalController implements TerminalController {
   /** Who waits for the program's next output; see nextOutput. */
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
   private readonly outputListeners = new Set<(ended: boolean) => void>();
+  /**
+   * Its shell has started: printed its prompt and gone quiet, or printed
+   * nothing for a while, or was already running; see whenReady.
+   */
+  private ready = false;
+  private readyQuietTimer: ReturnType<typeof setTimeout> | undefined;
+  private readyMaxTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Who waits for it to be ready; see whenReady. */
+  private readonly readyWaiters = new Set<(ready: boolean) => void>();
   /**
    * Focus asked for before xterm existed: applied once it opens, if what
    * asked for it still wants it then.
@@ -442,6 +470,18 @@ class XtermTerminalController implements TerminalController {
     return ansi ? bufferAnsi(buffer, lines) : bufferText(buffer, lines);
   }
 
+  readScreen(lines: number): AnsiScreen {
+    const buffer = this.term?.buffer.active;
+    if (!buffer?.getLine || buffer.length === undefined) return { text: "" };
+    const { cursorX, cursorY, baseY } = buffer;
+    const shown = !this.cursorHidden && cursorX !== undefined && cursorY !== undefined;
+    return bufferScreen(
+      buffer,
+      lines,
+      shown ? { row: (baseY ?? 0) + cursorY, cell: cursorX } : null,
+    );
+  }
+
   /**
    * Resolves true when the program next writes output, other than replayed
    * scrollback, or false after `timeoutMs` without any or once the terminal
@@ -483,6 +523,46 @@ class XtermTerminalController implements TerminalController {
     return true;
   }
 
+  /**
+   * Resolves true once input reaches its shell (see markReady), or false
+   * after `timeoutMs` or once the terminal is gone.
+   */
+  whenReady(timeoutMs: number): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    if (this.ready) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (ready: boolean) => {
+        clearTimeout(timer);
+        this.readyWaiters.delete(done);
+        resolve(ready);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      this.readyWaiters.add(done);
+    });
+  }
+
+  /**
+   * Input reaches its shell from now on. A shell just started takes it
+   * once it has printed its prompt: PowerShell drops what is typed before.
+   * So, as a new terminal's command waits (queueStartupInput), it is ready
+   * once its output goes quiet, or a while after it started if it prints
+   * nothing; at once when there is no shell to wait for.
+   */
+  private markReady(): void {
+    if (this.ready || this.disposed) return;
+    this.ready = true;
+    clearTimeout(this.readyQuietTimer);
+    clearTimeout(this.readyMaxTimer);
+    for (const waiter of [...this.readyWaiters]) waiter(true);
+  }
+
+  /** The shell printed: ready once it has been quiet for a moment. */
+  private noteStartingOutput(): void {
+    if (this.ready) return;
+    clearTimeout(this.readyQuietTimer);
+    this.readyQuietTimer = setTimeout(() => this.markReady(), STARTUP_INPUT_QUIET_MS);
+  }
+
   bracketedPaste(): boolean {
     return this.term?.modes.bracketedPasteMode ?? false;
   }
@@ -490,6 +570,9 @@ class XtermTerminalController implements TerminalController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.readyQuietTimer);
+    clearTimeout(this.readyMaxTimer);
+    for (const waiter of [...this.readyWaiters]) waiter(false);
     for (const waiter of [...this.outputWaiters]) waiter(false);
     for (const listener of [...this.outputListeners]) listener(true);
     this.outputListeners.clear();
@@ -526,6 +609,8 @@ class XtermTerminalController implements TerminalController {
     this.altExitDisposable = null;
     this.focusReportDisposable?.dispose();
     this.focusReportDisposable = null;
+    for (const d of this.cursorDisposables) d.dispose();
+    this.cursorDisposables = [];
     if (this.focusReportTimer !== null) {
       clearTimeout(this.focusReportTimer);
       this.focusReportTimer = null;
@@ -664,7 +749,10 @@ class XtermTerminalController implements TerminalController {
       tabId: this.options.tabId,
       cwd: this.options.cwd,
       shell: this.options.shell,
+      ...(this.options.profile !== undefined ? { profile: this.options.profile } : {}),
       onData: (chunk, replay) => {
+        // Replayed output too: a shell that printed before was at its prompt.
+        this.noteStartingOutput();
         if (!replay) {
           term.write(chunk, () => {
             for (const listener of [...this.outputListeners]) listener(false);
@@ -819,6 +907,28 @@ class XtermTerminalController implements TerminalController {
     // reporting on for the whole session when the shell started, so there the
     // program is told when it sets up for input instead, turning on bracketed
     // paste.
+    // Whether the cursor shows, for another device drawing this terminal: a program that draws
+    // its own (Claude Code, vim) hides it. A reset shows it again. xterm keeps on as it would.
+    this.cursorHidden = false;
+    for (const d of this.cursorDisposables) d.dispose();
+    const cursorShown = (shown: boolean) => (params: CsiParamsLike) => {
+      if (params.includes(CURSOR_MODE)) this.cursorHidden = !shown;
+      return false;
+    };
+    this.cursorDisposables = [
+      term.parser.registerCsiHandler({ prefix: "?", final: "h" }, cursorShown(true)),
+      term.parser.registerCsiHandler({ prefix: "?", final: "l" }, cursorShown(false)),
+      // DECSTR (CSI ! p) and RIS (ESC c).
+      term.parser.registerCsiHandler({ intermediates: "!", final: "p" }, () => {
+        this.cursorHidden = false;
+        return false;
+      }),
+      term.parser.registerEscHandler({ final: "c" }, () => {
+        this.cursorHidden = false;
+        return false;
+      }),
+    ];
+
     this.focusReportDisposable = term.parser.registerCsiHandler(
       { prefix: "?", final: "h" },
       (params) => {
@@ -1054,14 +1164,24 @@ class XtermTerminalController implements TerminalController {
       ptyClient
         .spawn(initialDimensions)
         .then((result) => {
-          if (result) this.noteSpawned(result);
+          // null: the session was already running.
+          if (!result) {
+            this.markReady();
+            return;
+          }
+          this.noteSpawned(result);
+          this.readyMaxTimer = setTimeout(() => this.markReady(), STARTUP_INPUT_MAX_WAIT_MS);
         })
         .catch((error: unknown) => {
+          this.markReady();
           if (!this.disposed) {
             const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
             term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
           }
         });
+    } else {
+      // An ended terminal, not started again: nothing to wait for.
+      this.markReady();
     }
 
     this.resizeObserver = this.deps.createResizeObserver(() => {

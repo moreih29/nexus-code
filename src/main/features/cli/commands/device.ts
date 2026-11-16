@@ -18,9 +18,9 @@ const deviceList: CliCommand = {
   details:
     "The computers signed in to your NexusCode account (Settings › Remote). A command takes\n" +
     "--device with another's id, id prefix or name (an alias given in Settings, or the name\n" +
-    "it signed in with) to read or drive its sessions as it does\n" +
-    "this computer's: session list, chat read/send/wait/new/answer/interrupt/set, tab close,\n" +
-    "terminal read/send/key/wait/new, and events. Reading is always allowed; a change goes as\n" +
+    "it signed in with) to read or drive its sessions as it does this computer's: workspace\n" +
+    "list, session list, chat read/send/wait/new/answer/interrupt/set, tab close, terminal\n" +
+    "read/send/key/wait/new, and events. Reading is always allowed; a change goes as\n" +
     "an agent's, yours at a shell too, which that computer's user allows, asks about or turns\n" +
     "down (AGENTS yes: it takes requests from agents; -: it does not, or it is offline).",
   async run(ctx, { positionals }) {

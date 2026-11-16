@@ -37,9 +37,28 @@ const { listTabs, markCliUiReady, startCliUiListener } = await import(
 );
 const { useTabsStore } = await import("../../../../../src/renderer/state/stores/tabs");
 const { useLayoutStore } = await import("../../../../../src/renderer/state/stores/layout/store");
-const { registerTerminalController } = await import(
+const { registerTerminalController, whenTerminalController } = await import(
   "../../../../../src/renderer/services/terminal/terminal-registry"
 );
+const { useMountedWorkspacesStore } = await import(
+  "../../../../../src/renderer/state/stores/mounted-workspaces"
+);
+
+/** What the renderer answered a request, once it has. */
+async function answerTo(requestId: string, op: string, args: unknown): Promise<unknown> {
+  for (const listener of listeners) listener({ requestId, op, args });
+  for (let i = 0; i < 100; i++) {
+    const answer = calls.find(
+      ([channel, method, body]) =>
+        channel === "cli" &&
+        method === "uiRespond" &&
+        (body as { requestId?: string })?.requestId === requestId,
+    );
+    if (answer) return answer[2];
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`no answer to ${requestId}`);
+}
 
 test("a request is carried out once, however often the app boots", async () => {
   startCliUiListener();
@@ -96,4 +115,91 @@ test("a terminal not started yet, its workspace not opened, says so in the tabs'
     useTabsStore.setState({ byWorkspace: {} });
     useLayoutStore.setState({ byWorkspace: {} });
   }
+});
+
+test("a terminal not started yet is started behind the view, and read once it has", async () => {
+  const ws = "ws-later";
+  const tab = useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
+  startCliUiListener();
+  markCliUiReady();
+  let unregister = () => {};
+  try {
+    const answer = answerTo("r-later", "terminal.read", {
+      workspaceId: ws,
+      tabId: tab.id,
+      lines: 5,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Its workspace's panel mounts, and with it the terminal's view.
+    expect(useMountedWorkspacesStore.getState().ids.has(ws)).toBe(true);
+    unregister = registerTerminalController(tab.id, {
+      readText: () => "ready",
+      whenReady: () => Promise.resolve(true),
+    } as unknown as Parameters<typeof registerTerminalController>[1]);
+    expect(await answer).toMatchObject({
+      requestId: "r-later",
+      ok: true,
+      value: { text: "ready" },
+    });
+  } finally {
+    unregister();
+    useTabsStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("a terminal its view has registered is typed into only once its shell is ready", async () => {
+  const ws = "ws-opening";
+  const tab = useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
+  startCliUiListener();
+  markCliUiReady();
+  const typed: string[] = [];
+  let open = (_ready: boolean) => {};
+  // Its fonts still loading, or its shell not at its prompt: input would be lost.
+  const unregister = registerTerminalController(tab.id, {
+    whenReady: () =>
+      new Promise<boolean>((resolve) => {
+        open = resolve;
+      }),
+    input: (text: string) => {
+      typed.push(text);
+      return true;
+    },
+  } as unknown as Parameters<typeof registerTerminalController>[1]);
+  try {
+    const answer = answerTo("r-opening", "terminal.input", {
+      workspaceId: ws,
+      tabId: tab.id,
+      text: "echo hi",
+      mode: "paste",
+      enter: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(typed).toEqual([]);
+    open(true);
+    expect(await answer).toMatchObject({ requestId: "r-opening", ok: true });
+    expect(typed).toEqual(["echo hi"]);
+  } finally {
+    unregister();
+    useTabsStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("a tab that is not a terminal is not waited for", async () => {
+  const ws = "ws-editor";
+  const tab = useTabsStore
+    .getState()
+    .createTab(ws, { type: "editor", props: { workspaceId: ws, filePath: "/a.ts" } });
+  startCliUiListener();
+  markCliUiReady();
+  try {
+    expect(
+      await answerTo("r-editor", "terminal.read", { workspaceId: ws, tabId: tab.id, lines: 5 }),
+    ).toMatchObject({ ok: false });
+  } finally {
+    useTabsStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("a terminal's view that does not mount in time gives up", async () => {
+  expect(await whenTerminalController("never", 10)).toBeUndefined();
 });

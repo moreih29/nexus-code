@@ -17,6 +17,7 @@ import type { RoomState } from "../../../shared/remote/room";
 import type { RemoteAgentsPolicy } from "../../../shared/types/app-state";
 import { broadcast, register, validateArgs } from "../../infra/ipc-router";
 import type { CliRemote, CliServices } from "../cli/context";
+import type { PeerFileReader } from "../custom-protocols/nexus-workspace";
 import type { FsProvider } from "../fs/bridge/provider";
 import { RemoteAccount, SavedAccountSchema } from "./account";
 import { roomKeyOf } from "./account-key";
@@ -183,6 +184,8 @@ export async function registerRemoteChannel(options: {
   themeChanged(): void;
   /** The user's other computers, for the nexus command's --device. */
   cli: CliRemote;
+  /** Reads a file of another computer's workspace, for the previews of quick look over its chats. */
+  peerFiles: PeerFileReader;
   dispose(): void;
 }> {
   const box = await electronSecretBox();
@@ -571,6 +574,34 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatAnswer.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.answer", params));
       },
+      peerChatRestart: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRestart.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.restart", params));
+      },
+      peerChatOriginal: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatOriginal.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.original", params));
+      },
+      peerChatClose: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatClose.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.close", params));
+      },
+      peerChatCheckSignIn: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatCheckSignIn.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.checkSignIn", params));
+      },
+      peerChatRuns: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRuns.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.runs", params));
+      },
+      peerChatRun: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRun.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.run", params));
+      },
+      peerChatStopRun: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatStopRun.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.stopRun", params));
+      },
       peerChatInterrupt: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatInterrupt.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.interrupt", params));
@@ -587,6 +618,22 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatCommands.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.commands", params));
       },
+      peerChatUploadBegin: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadBegin.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.begin", params));
+      },
+      peerChatUploadChunk: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadChunk.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.chunk", params));
+      },
+      peerChatUploadEnd: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatUploadEnd.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.upload.end", params));
+      },
+      peerChatFileSuggestions: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatFileSuggestions.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.fileSuggestions", params));
+      },
       peerChatCommand: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatCommand.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.command", params));
@@ -602,6 +649,10 @@ export async function registerRemoteChannel(options: {
       peerFilesList: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerFilesList.args, args);
         return askPeer(() => inRoom().request(deviceId, "files.list", params));
+      },
+      peerFilesFind: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerFilesFind.args, args);
+        return askPeer(() => inRoom().request(deviceId, "files.find", params));
       },
       peerFilesRead: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerFilesRead.args, args);
@@ -655,6 +706,14 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
         return askPeer(() => inRoom().request(deviceId, "profiles.list", params));
       },
+      peerChatConfig: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatConfig.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.config", params));
+      },
+      peerChatMcp: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatMcp.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.mcp", params));
+      },
       peerChatProfile: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatProfile.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.profile", params));
@@ -674,6 +733,14 @@ export async function registerRemoteChannel(options: {
       peerTerminalUnwatch: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminalUnwatch.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.unwatch", params));
+      },
+      peerTerminalInput: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalInput.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.input", params));
+      },
+      peerTerminalOpen: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalOpen.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.open", params));
       },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),
@@ -782,6 +849,22 @@ export async function registerRemoteChannel(options: {
     account,
     keys: accountKeys,
     themeChanged: () => room?.announce(),
+    peerFiles: async (peer, absPath, offset, length) => {
+      try {
+        const read = await inRoom().request(peer.deviceId, "files.read", {
+          workspaceId: peer.workspaceId,
+          path: absPath,
+          as: "bytes",
+          offset,
+          length,
+        });
+        if (read.kind !== "bytes") throw new Error("not read as bytes");
+        return { base64: read.data, size: read.size };
+      } catch (error) {
+        if (error instanceof RpcFailure && error.code === RpcErrorCode.NotFound) return "missing";
+        throw error;
+      }
+    },
     cli: {
       inRoom: () => room !== null && roomState.status === "online",
       devices: async () => {

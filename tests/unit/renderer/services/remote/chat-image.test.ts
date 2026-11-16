@@ -55,6 +55,7 @@ function source(): ChatSource {
     chat: {
       ...emptyTabState(),
       model: { ...emptyModel(), items: [user], tools: { tu1: tool } },
+      queue: [{ id: "q1", text: "later", images: [pic("DDDD")] }],
     },
   };
 }
@@ -65,6 +66,12 @@ describe("an image of a chat", () => {
     expect(imageOf(source(), { kind: "tool", toolUseId: "tu1", index: 0 })?.data).toBe("CCCC");
     expect(imageOf(source(), { kind: "user", itemKey: "k1", index: 2 })).toBeNull();
     expect(imageOf(source(), { kind: "tool", toolUseId: "nope", index: 0 })).toBeNull();
+  });
+
+  test("is a held message's by its id and index, none once it went", () => {
+    expect(imageOf(source(), { kind: "held", id: "q1", index: 0 })?.data).toBe("DDDD");
+    expect(imageOf(source(), { kind: "held", id: "q1", index: 1 })).toBeNull();
+    expect(imageOf(source(), { kind: "held", id: "q2", index: 0 })).toBeNull();
   });
 
   test("goes as it is when it fits and is of a type the other device takes", async () => {

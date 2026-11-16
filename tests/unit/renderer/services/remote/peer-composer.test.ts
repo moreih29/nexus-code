@@ -6,6 +6,8 @@ import {
   commandInfosOf,
   commandOf,
   heldQueueOf,
+  helpText,
+  mentionOf,
   modelsOf,
   peerComposerController,
   withSettings,
@@ -94,6 +96,12 @@ describe("the composer of another computer's chat", () => {
       calls.push({ method, args });
       if (method === "peerChatUnqueue") return { ok: true, value: { text: "the whole text" } };
       if (method === "peerChatWithdraw") return { ok: true, value: { withdrawn: true } };
+      if (method === "peerChatImage") {
+        const index = (args.ref as { index: number }).index;
+        return index === 0
+          ? { ok: true, value: { mediaType: "image/png", data: "AAAA", width: 1, height: 1 } }
+          : { ok: false, kind: "invalid", message: "no such image" };
+      }
       return { ok: true, value: {} };
     }) as never;
     const made = peerComposerController({
@@ -110,6 +118,7 @@ describe("the composer of another computer's chat", () => {
         withdraw: true,
         hurry: true,
       }),
+      held: () => [{ id: "q1", text: "the whole", truncated: true, images: 2 }],
       call,
     });
     made.enqueue("later", []);
@@ -117,10 +126,11 @@ describe("the composer of another computer's chat", () => {
     await made.sendNow?.("now");
     await made.readHeldNow?.();
     expect(await made.withdraw?.("u3")).toBe(true);
+    // Its images come back with it, read before it is taken; one not given is left out.
     expect(await made.takeBackQueued?.("q1")).toEqual({
       id: "q1",
       text: "the whole text",
-      images: [],
+      images: [{ mediaType: "image/png", data: "AAAA" }],
     });
     expect(made.removeQueued("q2")).toBeUndefined();
     expect(made.supports("cancel_async_message")).toBe(true);
@@ -129,6 +139,8 @@ describe("the composer of another computer's chat", () => {
       { method: "peerChatSend", args: { ...ref, text: "now", when: "now" } },
       { method: "peerChatHurry", args: ref },
       { method: "peerChatWithdraw", args: { ...ref, itemKey: "u3" } },
+      { method: "peerChatImage", args: { ...ref, ref: { kind: "held", id: "q1", index: 0 } } },
+      { method: "peerChatImage", args: { ...ref, ref: { kind: "held", id: "q1", index: 1 } } },
       { method: "peerChatUnqueue", args: { ...ref, id: "q1" } },
       { method: "peerChatUnqueue", args: { ...ref, id: "q2" } },
     ]);
@@ -148,7 +160,12 @@ describe("the composer of another computer's chat", () => {
     expect(made.readHeldNow).toBeUndefined();
   });
 
-  test("the held messages above the box: one cut short ends in an ellipsis", () => {
+  test("the held messages above the box: one cut short ends in an ellipsis, its images there", () => {
+    const there = (index: number) => ({
+      mediaType: "",
+      data: "",
+      remote: { kind: "held", id: "q2", index },
+    });
     expect(
       heldQueueOf([
         { id: "q1", text: "short" },
@@ -156,7 +173,7 @@ describe("the composer of another computer's chat", () => {
       ]),
     ).toEqual([
       { id: "q1", text: "short", images: [] },
-      { id: "q2", text: "long…", images: [] },
+      { id: "q2", text: "long…", images: [there(0), there(1)] },
     ]);
     expect(heldQueueOf(undefined)).toEqual([]);
   });
@@ -226,7 +243,101 @@ describe("the composer of another computer's chat", () => {
     expect(controller(call, none).made.supports("apply_flag_settings")).toBe(false);
     expect(controller(call, null).made.supports("apply_flag_settings")).toBe(false);
     expect(controller(call).made.supports("cancel_async_message")).toBe(false);
-    expect(controller(call).made.supports("file_suggestions")).toBe(false);
+  });
+
+  test("a file other than an image goes ahead in pieces, and its message carries it", async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push({ method, args });
+      if (method === "peerChatUploadBegin") return { ok: true, value: { uploadId: "u1" } };
+      if (method === "peerChatUploadEnd") return { ok: true, value: { attachmentId: "f1" } };
+      if (method === "peerChatAttach") return { ok: true, value: { attachmentId: "i1" } };
+      return { ok: true, value: {} };
+    }) as never;
+    const { made } = controller(call);
+    expect(made.maxAttachments).toBe(4);
+    const big = new File([new Uint8Array(512 * 1024 + 3).fill(7)], "data.bin", {
+      type: "application/octet-stream",
+    });
+    expect(await made.upload?.(big)).toBe("f1");
+    expect(calls.map((c) => c.method)).toEqual([
+      "peerChatUploadBegin",
+      "peerChatUploadChunk",
+      "peerChatUploadChunk",
+      "peerChatUploadEnd",
+    ]);
+    expect(calls[0]?.args).toEqual({
+      ...ref,
+      name: "data.bin",
+      size: 512 * 1024 + 3,
+      mediaType: "application/octet-stream",
+    });
+    expect(calls.slice(1, 3).map((c) => c.args.offset)).toEqual([0, 512 * 1024]);
+    expect(calls[2]?.args).toMatchObject({ deviceId: "d1", uploadId: "u1" });
+    expect(Buffer.from(String(calls[2]?.args.data), "base64")).toEqual(Buffer.from([7, 7, 7]));
+    calls.length = 0;
+    await made.sendUploaded?.("queue", "see", [{ mediaType: "image/png", data: png() }], ["f1"]);
+    expect(calls.at(-1)).toEqual({
+      method: "peerChatSend",
+      args: { ...ref, text: "see", attachments: ["i1", "f1"], when: "after" },
+    });
+  });
+
+  test("a device before 0.10.0 takes images only, and says so", async () => {
+    const call = (async (_channel: string, method: string) =>
+      method === "peerChatUploadBegin"
+        ? { ok: false, kind: "unsupported", message: "no method" }
+        : { ok: true, value: {} }) as never;
+    const file = new File(["hi"], "a.txt", { type: "text/plain" });
+    await expect(controller(call).made.upload?.(file) ?? Promise.resolve()).rejects.toThrow(
+      "images only",
+    );
+  });
+
+  test("an @ lists what the chat's agent suggests there", async () => {
+    const calls: { method: string; args: Record<string, unknown> }[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push({ method, args });
+      return { ok: true, value: { paths: ["src/", "src/app.ts"] } };
+    }) as never;
+    const { made } = controller(call);
+    expect(made.supports("file_suggestions")).toBe(true);
+    expect(await made.fileSuggestions("app")).toEqual(["src/", "src/app.ts"]);
+    expect(await made.fileSuggestions("")).toEqual(["src/", "src/app.ts"]);
+    expect(calls).toEqual([
+      { method: "peerChatFileSuggestions", args: { ...ref, query: "app" } },
+      { method: "peerChatFileSuggestions", args: { ...ref, query: "" } },
+    ]);
+  });
+
+  test("from a device before 0.13.0, the workspace's files by name, from the chat's folder", async () => {
+    const calls: string[] = [];
+    const call = (async (_channel: string, method: string, args: Record<string, unknown>) => {
+      calls.push(method);
+      if (method === "peerChatFileSuggestions")
+        return { ok: false, kind: "unsupported", message: "no method" };
+      expect(args).toEqual({ deviceId: "d1", workspaceId: "w1", query: "app", limit: 50 });
+      return { ok: true, value: { files: ["pkg/src/app.ts", "docs/app.md"] } };
+    }) as never;
+    const made = peerComposerController({
+      ref,
+      agent: "claude",
+      settings: () => settings,
+      onSettings: () => {},
+      filesRefused: "images only",
+      folders: () => ({ root: "/home/me/repo", cwd: "/home/me/repo/pkg" }),
+      call,
+    });
+    expect(await made.fileSuggestions("app")).toEqual(["src/app.ts", "/home/me/repo/docs/app.md"]);
+    // Asked once: the next @ goes to files.find straight; an empty one lists nothing.
+    expect(await made.fileSuggestions("app")).toHaveLength(2);
+    expect(await made.fileSuggestions(" ")).toEqual([]);
+    expect(calls).toEqual(["peerChatFileSuggestions", "peerFilesFind", "peerFilesFind"]);
+  });
+
+  test("a refused @ lists nothing", async () => {
+    const { call } = recording("peerChatFileSuggestions");
+    expect(await controller(call).made.fileSuggestions("app")).toEqual([]);
   });
 
   test("its model chip lists the chat's models, the one it runs knowing its efforts", () => {
@@ -271,5 +382,53 @@ describe("the composer of another computer's chat", () => {
       description: "Rename",
       argumentHint: "<title>",
     });
+  });
+});
+
+describe("a typed command of another computer's chat", () => {
+  const commands: ChatCommand[] = [
+    { name: "background", description: "Bg", runs: "command", aliases: ["bg"] },
+    { name: "review", description: "Review", runs: "send" },
+  ];
+  test("runs by its alias as by its name", () => {
+    expect(commandOf(commands, "/bg now")).toEqual({
+      kind: "command",
+      name: "background",
+      args: "now",
+    });
+    expect(commandOf(commands, "/review")).toBeNull();
+  });
+
+  test("/help lists the app's commands it runs, there and here", () => {
+    const text = helpText("claude", commands, ["copy"]);
+    expect(text).toContain("- `/background` — Bg");
+    expect(text).toContain("- `/copy` — ");
+    expect(text).not.toContain("/review");
+  });
+});
+
+describe("an @ from a device before 0.13.0", () => {
+  const unix = { root: "/home/me/repo", cwd: "/home/me/repo" };
+  test("names a file of the chat's folder as the workspace's search found it", () => {
+    expect(mentionOf("src/app.ts", unix)).toBe("src/app.ts");
+    expect(mentionOf("src/app.ts", { root: "/home/me/repo/", cwd: "/home/me/repo" })).toBe(
+      "src/app.ts",
+    );
+  });
+
+  test("from a chat in a folder under the workspace's, relative to it, and absolute outside it", () => {
+    const sub = { root: "/home/me/repo", cwd: "/home/me/repo/pkg" };
+    expect(mentionOf("pkg/a.ts", sub)).toBe("a.ts");
+    expect(mentionOf("other/a.ts", sub)).toBe("/home/me/repo/other/a.ts");
+    // A folder whose name only starts with the workspace's is not in it.
+    expect(mentionOf("a.ts", { root: "/home/me/repo", cwd: "/home/me/repo2" })).toBe(
+      "/home/me/repo/a.ts",
+    );
+  });
+
+  test("on Windows, with its separators and its case", () => {
+    const win = { root: "C:\\Users\\me\\repo", cwd: "c:\\users\\me\\repo\\pkg" };
+    expect(mentionOf("pkg/src/a.ts", win)).toBe("src/a.ts");
+    expect(mentionOf("docs/a.md", win)).toBe("C:\\Users\\me\\repo\\docs\\a.md");
   });
 });

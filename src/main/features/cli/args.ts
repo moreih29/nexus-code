@@ -13,9 +13,11 @@ export interface FlagSpec {
   readonly description: string;
   /** A short name for the value in help, such as "N" or "URL". */
   readonly value?: string;
+  /** A string flag that may be given again: its values, in order, as a list. */
+  readonly repeat?: boolean;
 }
 
-export type FlagValues = Record<string, string | number | boolean | undefined>;
+export type FlagValues = Record<string, string | string[] | number | boolean | undefined>;
 
 export interface ParsedArgs {
   readonly positionals: string[];
@@ -89,6 +91,9 @@ export function parseArgs(argv: readonly string[], specs: Record<string, FlagSpe
         throw new CliUsageError(`--${name} takes a number, not "${raw}"`);
       }
       flags[name] = value;
+    } else if (spec.repeat) {
+      const given = flags[name];
+      flags[name] = Array.isArray(given) ? [...given, raw] : [raw];
     } else {
       flags[name] = raw;
     }

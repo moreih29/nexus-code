@@ -179,7 +179,10 @@ export function exitCodeOf(summary: string | undefined): number | undefined {
 }
 
 /** The command a job runs, as the Bash call that started it gave it. */
-export function jobCommand(job: TaskInfo, tools: Record<string, ToolCall>): string | undefined {
+export function jobCommand(
+  job: Pick<TaskInfo, "toolUseId">,
+  tools: Record<string, ToolCall>,
+): string | undefined {
   const tool = job.toolUseId ? tools[job.toolUseId] : undefined;
   return str(rec(tool?.input)?.command);
 }
@@ -833,32 +836,4 @@ export function contextOf(usage: unknown): ContextSummary | null {
   };
 }
 
-export interface UsageLimit {
-  kind: string;
-  /** What a scoped limit covers: a model's name. */
-  scope?: string;
-  percent: number;
-  resetsAt?: string;
-  active: boolean;
-}
-
-/** get_usage's limits, as the server sends them. */
-export function usageLimitsOf(usage: unknown): UsageLimit[] {
-  const limits = rec(rec(usage)?.rate_limits)?.limits;
-  if (!Array.isArray(limits)) return [];
-  return limits.flatMap((raw) => {
-    const limit = rec(raw);
-    const kind = str(limit?.kind);
-    if (!limit || !kind || typeof limit.percent !== "number") return [];
-    const scope = rec(rec(limit.scope)?.model);
-    return [
-      {
-        kind,
-        ...(str(scope?.display_name) ? { scope: str(scope?.display_name) } : {}),
-        percent: limit.percent,
-        resetsAt: str(limit.resets_at),
-        active: limit.is_active === true,
-      },
-    ];
-  });
-}
+export { type UsageLimit, usageLimitsOf } from "./usage-limits";

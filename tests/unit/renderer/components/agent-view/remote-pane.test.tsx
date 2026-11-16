@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 const { usageLineOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-usage"
 );
-const { Unreachable, remoteAnswerOf } = await import(
+const { Unreachable, changesCard, remoteAnswerOf } = await import(
   "../../../../../src/renderer/components/agent-view/remote-pane"
 );
 
@@ -33,6 +33,32 @@ describe("controlling another computer's chat", () => {
     expect(remoteAnswerOf({ kind: "deny-stop" }, request)).toEqual({
       decision: "deny",
       stop: true,
+    });
+  });
+
+  test("a plan's approval takes the mode it goes on in, as the card set it (0.13.0)", () => {
+    const plan = {
+      requestId: "r",
+      toolName: "ExitPlanMode",
+      input: { plan: "x" },
+      suggestions: [],
+    };
+    const setMode = (mode: string) => ({
+      kind: "allow" as const,
+      updatedPermissions: [{ type: "setMode", mode, destination: "session" }],
+    });
+    expect(remoteAnswerOf(setMode("acceptEdits"), plan)).toEqual({
+      decision: "allow",
+      planMode: "acceptEdits",
+    });
+    expect(remoteAnswerOf(setMode("default"), plan)).toEqual({
+      decision: "allow",
+      planMode: "default",
+    });
+    // No other mode, and no other request's.
+    expect(remoteAnswerOf(setMode("bypassPermissions"), plan)).toEqual({ decision: "allow" });
+    expect(remoteAnswerOf(setMode("acceptEdits"), { ...plan, toolName: "Bash" })).toEqual({
+      decision: "allow",
     });
   });
 
@@ -114,5 +140,30 @@ describe("controlling another computer's chat", () => {
       <Unreachable reach="disconnected" device="Work PC" />,
     );
     expect(disconnected).toContain("Not connected to the server.");
+  });
+});
+
+describe("a Codex chat's /diff from another computer", () => {
+  test("its changed files in a card, from its folder, each opening its diff", () => {
+    const opened: string[] = [];
+    const t = ((key: string) => key) as never;
+    const card = changesCard(
+      [
+        { path: "/repo/src/a.ts", added: 3, removed: 1 },
+        { path: "/repo/new.ts", added: 2, removed: 0, created: true },
+        { path: "/elsewhere/b.ts" },
+      ],
+      "/repo",
+      t,
+      (path) => opened.push(path),
+    );
+    const rows = card.sections?.[0]?.rows ?? [];
+    expect(rows.map((row) => [row.label, row.detail])).toEqual([
+      ["src/a.ts", "+3 −1"],
+      ["new.ts", "chat.panel.results.created"],
+      ["/elsewhere/b.ts", "+0 −0"],
+    ]);
+    rows[1]?.actions[0]?.run();
+    expect(opened).toEqual(["/repo/new.ts"]);
   });
 });

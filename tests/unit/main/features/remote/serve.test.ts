@@ -20,10 +20,13 @@ import {
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
 import {
+  chatRun,
+  chatRuns,
   listSessions,
   servesWith,
   serveWith,
   sessionAgents,
+  stopChatRun,
 } from "../../../../../src/main/features/remote/serve";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
@@ -166,6 +169,77 @@ describe("a session's agents, as its row lists them", () => {
     expect(of("t1")?.agents?.map((a) => a.id)).toEqual(["t1-agent"]);
     expect(of("t2")?.agents?.map((a) => a.id)).toEqual(["t2-agent"]);
     expect(of("t4")).not.toHaveProperty("agents");
+  });
+});
+
+describe("serving a chat's claude -p runs", () => {
+  const run = agentRun({
+    id: "r1",
+    kind: "print",
+    prompt: `Summarize the log ${"x".repeat(400)}`,
+    sessionId: "sess-1",
+    toolCount: 2,
+    tools: [
+      { id: "u1", name: "Read", target: "a.log", start: 101, end: 102 },
+      { id: "u2", name: "Bash", target: "wc -l a.log", start: 103 },
+    ],
+    messages: [{ at: 102, text: "Reading the log" }],
+  });
+  const ended = agentRun({
+    id: "r0",
+    kind: "print",
+    program: "codex",
+    start: 50,
+    end: 90,
+    state: "completed",
+    answer: "Done.",
+  });
+  const stops: string[] = [];
+  const s = {
+    ...services(),
+    claudeAgents: {
+      list: (_w: string, tab: string) =>
+        tab === "t1" ? [agentRun({ id: "s1", type: "Explore" }), run, ended] : [],
+      stop: async (_w: string, _t: string, id: string) => {
+        stops.push(id);
+        return id === "r1";
+      },
+    },
+  } as unknown as CliServices;
+
+  test("lists them as their rows show them: the tool now, what they wrote last, not subagents", async () => {
+    const { runs } = await chatRuns(s, { workspaceId: "w1", tabId: "t1" });
+    expect(runs.map((r) => r.id)).toEqual(["r1", "r0"]);
+    expect(runs[0]).toMatchObject({
+      state: "running",
+      toolCount: 2,
+      sessionId: "sess-1",
+      current: "Bash wc -l a.log",
+      last: "Reading the log",
+    });
+    expect(runs[0]?.prompt?.length).toBeLessThanOrEqual(300);
+    expect(runs[0]).not.toHaveProperty("tools");
+    expect(runs[1]).toMatchObject({ program: "codex", end: 90, last: "Done." });
+  });
+
+  test("tells one whole, and none it does not keep", async () => {
+    const { run: whole } = await chatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r1" });
+    expect(whole.tools?.map((t) => t.name)).toEqual(["Read", "Bash"]);
+    expect(whole.messages).toEqual([{ at: 102, text: "Reading the log" }]);
+    expect(whole.prompt).toBe(run.prompt);
+    await expect(chatRun(s, { workspaceId: "w1", tabId: "t1", runId: "s1" })).rejects.toMatchObject(
+      { code: RpcErrorCode.NotFound },
+    );
+  });
+
+  test("stops one, as its pane's button does", async () => {
+    expect(await stopChatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r1" })).toEqual({
+      stopped: true,
+    });
+    expect(await stopChatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r0" })).toEqual({
+      stopped: false,
+    });
+    expect(stops).toEqual(["r1", "r0"]);
   });
 });
 
@@ -390,6 +464,32 @@ describe("serving a chat and a terminal to read", () => {
     })) as { text: string };
     expect(text.length).toBeLessThan(1000 * line.length);
     expect(text.startsWith("\x1b[0;31m")).toBe(true);
+  });
+
+  test("the cursor goes up with the lines cut from a text too long; above them, it is not told", async () => {
+    const line = `\x1b[0;31m${"x".repeat(990)}\x1b[0m`;
+    const all = Array.from({ length: 1000 }, (_, i) => (i === 999 ? "$ ls" : line)).join("\n");
+    const read = async (caret: { line: number; column: number }) => {
+      const { s } = recording(() => ({ text: all, caret }));
+      return (await serveWith(() => s)({
+        from: "d",
+        method: "terminal.read",
+        params: { workspaceId: "w1", tabId: "t2", ansi: true },
+      })) as { text: string; caret?: { line: number; column: number } };
+    };
+    const end = await read({ line: 999, column: 4 });
+    const lines = end.text.split("\n");
+    expect(end.caret).toEqual({ line: lines.length - 1, column: 4 });
+    expect(lines[end.caret?.line ?? -1]).toBe("$ ls");
+    expect((await read({ line: 0, column: 0 })).caret).toBeUndefined();
+    const { s } = recording(() => ({ text: "$ ls", caret: { line: 0, column: 4 } }));
+    expect(
+      await serveWith(() => s)({
+        from: "d",
+        method: "terminal.read",
+        params: { workspaceId: "w1", tabId: "t2", ansi: true },
+      }),
+    ).toEqual({ text: "$ ls", caret: { line: 0, column: 4 } });
   });
 
   test("a tab that is not there, or not of that kind, is not found", async () => {
@@ -767,6 +867,19 @@ describe("moving a chat to another profile", () => {
     ]);
   });
 
+  test("one that may stop the turn says so to the app (0.13.0)", async () => {
+    const { serve, asked } = profileServices();
+    const tab = { workspaceId: "w1", tabId: "t1" };
+    await serve({
+      from: "d",
+      method: "chat.profile",
+      params: { ...tab, profile: "Work", stop: true },
+    });
+    expect(asked).toEqual([
+      ["chat.profile", { ...tab, profile: "Work", fresh: false, stop: true }],
+    ]);
+  });
+
   test("a profile its agent lacks is a wrong param; a chat busy or asking cannot now", async () => {
     const params = { workspaceId: "w1", tabId: "t1", profile: "Nope" };
     await expect(
@@ -992,6 +1105,91 @@ describe("rewinding, forking and more of a Claude chat", () => {
       ["chat.fork", tab],
       ["chat.background", { ...tab, toolUseId: "c1" }],
       ["chat.remoteControl", { ...tab, enabled: true }],
+    ]);
+  });
+
+  test("its MCP servers are worked as its panel does, a sign-in's page coming back (0.13.0)", async () => {
+    const { serve, asked } = actionServices((op) =>
+      op === "chat.mcp" ? { authUrl: "https://example.com/auth", back: true } : {},
+    );
+    const signIn = {
+      ...tab,
+      server: "notes",
+      action: "signIn" as const,
+      redirectUri: "http://localhost:4567/callback",
+    };
+    expect(await serve({ from: "d", method: "chat.mcp", params: signIn })).toEqual({
+      authUrl: "https://example.com/auth",
+      back: true,
+    });
+    await expect(
+      serve({
+        from: "d",
+        method: "chat.mcp",
+        params: { workspaceId: "w2", tabId: "t4", server: "notes", action: "reconnect" },
+      }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toEqual([["chat.mcp", signIn]]);
+  });
+
+  test("its program is started again as its banner does, a Claude or Codex chat's (0.13.0)", async () => {
+    const { serve, asked } = actionServices(() => ({}));
+    await serve({ from: "d", method: "chat.restart", params: tab });
+    expect(asked).toEqual([["chat.restart", tab]]);
+  });
+
+  test("a Codex chat's program is asked again whether it is signed in, as its banner does (0.13.0)", async () => {
+    const codex = { workspaceId: "w2", tabId: "t4" };
+    const { serve, asked } = actionServices(() => ({ signedOut: false }));
+    expect(await serve({ from: "d", method: "chat.checkSignIn", params: codex })).toEqual({
+      signedOut: false,
+    });
+    expect(asked).toEqual([["chat.checkSignIn", codex]]);
+    // A Claude chat has no sign-in to check.
+    await expect(serve({ from: "d", method: "chat.checkSignIn", params: tab })).rejects.toThrow();
+  });
+
+  test("a file the chat changed is told as it was before, where it is kept and fits (0.13.0)", async () => {
+    const path = "/src/app/a.ts";
+    let kept: { found: boolean; before: string | null } = { found: true, before: "was\n" };
+    const { serve, asked } = actionServices(() => kept);
+    expect(await serve({ from: "d", method: "chat.original", params: { ...tab, path } })).toEqual({
+      before: "was\n",
+    });
+    expect(asked).toEqual([["chat.original", { ...tab, path }]]);
+    kept = { found: true, before: null };
+    expect(await serve({ from: "d", method: "chat.original", params: { ...tab, path } })).toEqual({
+      before: null,
+    });
+    kept = { found: false, before: null };
+    await expect(
+      serve({ from: "d", method: "chat.original", params: { ...tab, path } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    kept = { found: true, before: "x".repeat(2 * 1024 * 1024) };
+    await expect(
+      serve({ from: "d", method: "chat.original", params: { ...tab, path } }),
+    ).rejects.toMatchObject({ code: 1003 });
+  });
+
+  test("its Claude Code settings are read and saved as its dialog does them (0.13.0)", async () => {
+    const config = {
+      keys: [{ key: "verbose", group: "other" as const, kind: "boolean" as const, value: false }],
+      models: [],
+    };
+    const { serve, asked } = actionServices((op) => (op === "chat.config" ? { config } : {}));
+    expect(await serve({ from: "d", method: "chat.config", params: tab })).toEqual({ config });
+    const set = { ...tab, set: { changes: { verbose: true } } };
+    await serve({ from: "d", method: "chat.config", params: set });
+    // A Codex chat's defaults, the same way; a terminal has none.
+    const codex = { workspaceId: "w2", tabId: "t4" };
+    await serve({ from: "d", method: "chat.config", params: codex });
+    await expect(
+      serve({ from: "d", method: "chat.config", params: { workspaceId: "w1", tabId: "t2" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toEqual([
+      ["chat.config", tab],
+      ["chat.config", set],
+      ["chat.config", codex],
     ]);
   });
 
@@ -1226,6 +1424,27 @@ describe("serving a chat's slash commands", () => {
     });
     expect(ran).toEqual({ message: "an answer" });
     expect(asked.at(-1)).toEqual(["chat.command", { ...tab, name: "btw", args: "why?" }]);
+  });
+
+  test("an @'s suggestions come from the tab's agent, as many as a frame takes", async () => {
+    const asked: [string, unknown][] = [];
+    const base = services();
+    const s = {
+      ...base,
+      ui: async (op: string, args: { workspaceId: string }) => {
+        if (op === "tabs.list") return base.ui("tabs.list", args);
+        asked.push([op, args]);
+        return { paths: Array.from({ length: 150 }, (_, i) => `f${i}.ts`) };
+      },
+    } as unknown as CliServices;
+    const result = (await serveWith(() => s)({
+      from: "d",
+      method: "chat.fileSuggestions",
+      params: { ...tab, query: "f" },
+    })) as { paths: string[] };
+    expect(result.paths).toHaveLength(100);
+    expect(result.paths[0]).toBe("f0.ts");
+    expect(asked).toEqual([["chat.fileSuggestions", { ...tab, query: "f" }]]);
   });
 
   test("/add-dir adds a folder by its real path, from the workspace's, and not one that opens the disk", async () => {
@@ -1522,6 +1741,24 @@ describe("serving a chat's controls", () => {
     });
     expect(asked).toEqual([
       ["chat.answer", { ...tab, decision: "allow", expect: "r1", always: [0, 2] }],
+      ["chat.answer", { ...tab, decision: "deny", expect: "r2" }],
+    ]);
+  });
+
+  test("a plan's approval goes with the mode it goes on in, and a denial without (0.13.0)", async () => {
+    const { serve, asked } = recording();
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r1", decision: "allow", planMode: "acceptEdits" },
+    });
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r2", decision: "deny", planMode: "default" },
+    });
+    expect(asked).toEqual([
+      ["chat.answer", { ...tab, decision: "allow", expect: "r1", planMode: "acceptEdits" }],
       ["chat.answer", { ...tab, decision: "deny", expect: "r2" }],
     ]);
   });

@@ -54,7 +54,7 @@ import { showToast } from "../ui/toast";
 import { CodexIcon } from "./agent-icons";
 import { AgentStrip } from "./agent-strip";
 import { ChatAgentContext } from "./chat-agent";
-import { type ChatLinks, ChatLinksContext } from "./chat-links";
+import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
 import { CodexConfigDialog } from "./codex-config-dialog";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
@@ -207,7 +207,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const latest = useRef({ state, rootPath, outside });
   latest.current = { state, rootPath, outside };
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's state is read from `latest` when a link is followed
-  const links = useMemo<ChatLinks>(() => {
+  const links = useMemo<LocalChatLinks>(() => {
     const cwd = props.cwd;
     const split = () => (rootRef.current?.clientWidth ?? 0) >= SPLIT_FROM_PX;
     /** Lets the previews read a file outside the workspace the tab grants none of yet. */
@@ -282,7 +282,8 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   const signIn = () => {
     // A browser on this machine cannot reach a sign-in an SSH host waits for.
     const command = isLocal ? "codex login" : "codex login --device-auth";
-    const { tabId: terminal } = openTerminal({ workspaceId, cwd: props.cwd });
+    // In the tab's profile: in another, `codex login` would sign the default folder out.
+    const { tabId: terminal } = openTerminal({ workspaceId, cwd: props.cwd, profile: profileId });
     queueStartupInput(
       workspaceId,
       terminal,

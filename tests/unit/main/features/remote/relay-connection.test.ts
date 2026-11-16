@@ -1,7 +1,9 @@
 /** The relay's socket: a socket that never opened says what it went to was not reached. */
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { OutdatedError, UnreachableError } from "../../../../../src/main/features/remote/errors";
 import {
+  RELAY_PING,
+  RELAY_PONG,
   RelayConnection,
   type RelayStatus,
 } from "../../../../../src/main/features/remote/relay-connection";
@@ -16,8 +18,14 @@ class FakeSocket {
   emit(type: string, event: object = {}) {
     for (const listener of this.listeners.get(type) ?? []) listener(event as never);
   }
-  send() {}
-  close() {}
+  readonly sent: string[] = [];
+  closed = false;
+  send(text: string) {
+    this.sent.push(text);
+  }
+  close() {
+    this.closed = true;
+  }
 }
 
 test("a socket closed before it opened is told as unreachable; one closed after is not", async () => {
@@ -203,4 +211,73 @@ test("a socket that never opened does not try again at once", async () => {
   await Bun.sleep(5);
   expect(sockets).toHaveLength(1);
   relay.stop();
+});
+
+describe("the heartbeat", () => {
+  const heartbeat = { every: 10, wait: 15 };
+  const open = () => {
+    const sockets: FakeSocket[] = [];
+    const frames: unknown[] = [];
+    const statuses: RelayStatus[] = [];
+    const relay = new RelayConnection({
+      url: async () => "wss://nexus.example/relay?ticket=t",
+      onOpen: () => {},
+      onFrame: (frame) => frames.push(frame),
+      onStatus: (status) => statuses.push(status),
+      onSignedOut: () => {},
+      socket: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket as never;
+      },
+      backoff: () => 60_000,
+      heartbeat,
+    });
+    const next = async (count: number) => {
+      for (let i = 0; i < 100 && sockets.length < count; i++) await Bun.sleep(1);
+      return sockets[count - 1];
+    };
+    return { relay, sockets, frames, statuses, next };
+  };
+
+  test("an answered heartbeat keeps the socket, and the answer is no frame", async () => {
+    const { relay, sockets, frames, next } = open();
+    relay.start();
+    const socket = await next(1);
+    socket?.emit("open");
+    for (let beats = 0; beats < 3; beats++) {
+      for (let i = 0; i < 100 && (socket?.sent.length ?? 0) <= beats; i++) await Bun.sleep(1);
+      expect(socket?.sent[beats]).toBe(RELAY_PING);
+      socket?.emit("message", { data: RELAY_PONG });
+    }
+    expect([sockets.length, socket?.closed, frames]).toEqual([1, false, []]);
+    relay.stop();
+  });
+
+  test("one not answered lets the socket go and joins the room again at once", async () => {
+    const { relay, sockets, statuses, next } = open();
+    relay.start();
+    const first = await next(1);
+    first?.emit("open");
+    const second = await next(2);
+    expect(first?.sent).toEqual([RELAY_PING]);
+    expect(first?.closed).toBe(true);
+    expect(second).toBeDefined();
+    expect(statuses).not.toContain("waiting");
+    // Its own close, when it comes at last, is not taken for another loss.
+    first?.emit("close", { code: 1006 });
+    await Bun.sleep(5);
+    expect(sockets).toHaveLength(2);
+    relay.stop();
+  });
+
+  test("none is sent once the socket is let go", async () => {
+    const { relay, next } = open();
+    relay.start();
+    const socket = await next(1);
+    socket?.emit("open");
+    relay.stop();
+    await Bun.sleep(30);
+    expect(socket?.sent).toEqual([]);
+  });
 });

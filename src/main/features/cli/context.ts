@@ -14,8 +14,9 @@ import type {
   CliUiOps,
 } from "../../../shared/cli/ui";
 import type { FsEntryType } from "../../../shared/fs/types";
+import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
-import type { NoteContent, NoteSummary } from "../../../shared/notes/types";
+import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../shared/types/workspace";
 import type { TabActivity } from "./activity";
@@ -90,6 +91,13 @@ export interface CliConsents {
   answer(id: string, answer: "once" | "session" | "deny", by: string): Promise<boolean>;
 }
 
+/** Where a workspace goes in the sidebar: just before or after another, in `group`. */
+export interface WorkspaceMove {
+  readonly beforeId?: string;
+  readonly afterId?: string;
+  readonly group: "pinned" | "unpinned";
+}
+
 /** The app as the commands see it. */
 export interface CliServices {
   /** The consent prompts waiting on the user. */
@@ -107,6 +115,16 @@ export interface CliServices {
     location: WorkspaceLocation,
     name: string | undefined,
   ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
+  /**
+   * Pins or unpins a workspace as the sidebar's pin does (to the end of its
+   * new group); the workspace as it is now.
+   */
+  pinWorkspace(id: string, pinned: boolean): WorkspaceMeta;
+  /**
+   * Moves a workspace in the sidebar, as dragging its row does: next to
+   * another, or at the end of `group` (pinning or unpinning it to go there).
+   */
+  moveWorkspace(id: string, to: WorkspaceMove): WorkspaceMeta;
   /** The workspace and tab the user is looking at, if the app has focus or not. */
   shownTab(): { workspaceId: string; tabId: string } | null;
   /**
@@ -147,6 +165,11 @@ export interface CliServices {
   notify(workspaceId: string, tabId: string, title: string, body: string): boolean;
   /** What is at `relPath` in a workspace; null when nothing is. */
   stat(workspaceId: string, relPath: string): Promise<FsEntryType | null>;
+  /**
+   * A file's bytes, as base64, where a workspace runs (this computer, an SSH
+   * host, WSL), by its absolute path there; null when there is none.
+   */
+  readFile(workspaceId: string, absolutePath: string): Promise<string | null>;
   /**
    * Resolves when a change to another workspace than the caller's may go
    * ahead, as the setting or the user says; a CliError saying why when not.
@@ -189,6 +212,21 @@ export interface CliNotes {
   read(workspaceId: string, noteId: string): Promise<NoteContent>;
   /** Its recordings' words; an empty transcript for a note with none. */
   transcript(workspaceId: string, noteId: string): Promise<TranscriptFile>;
+  /** Makes a note. */
+  create(workspaceId: string, title: string): Promise<NoteContent>;
+  /**
+   * Puts blocks into a note, at its end or at the end of the part under the
+   * heading `under` names (an editor open on it too); fails when there is no
+   * such heading.
+   */
+  append(workspaceId: string, noteId: string, blocks: DocNode[], under?: string): Promise<void>;
+  /** Writes a file into a note's folder (an image where it shows); the block that shows it. */
+  addAsset(
+    workspaceId: string,
+    noteId: string,
+    bytes: Uint8Array,
+    name: string,
+  ): Promise<{ asset: NoteAsset; block: DocNode }>;
 }
 
 /**

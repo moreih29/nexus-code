@@ -5,7 +5,7 @@
 import type { DocNode } from "../../../shared/notes/markdown";
 import type { TranscriptFile } from "../../../shared/notes/transcript";
 import type { NoteAsset, NoteContent, NoteSummary } from "../../../shared/notes/types";
-import type { NoteChanged, NotePhotoAdded } from "../../../shared/types/notes";
+import type { NoteBlocksAdded, NoteChanged, NotePhotoAdded } from "../../../shared/types/notes";
 import { ipcCallResult, ipcListen, unwrapIpcResult } from "../../ipc/client";
 
 const call = async <T>(p: Promise<import("../../ipc/client").IpcResult<T>>): Promise<T> =>
@@ -108,6 +108,9 @@ export const notesApi = {
   /** Another device put a photo at the end of a note (written into it already). */
   onPhotoAdded: (cb: (event: NotePhotoAdded) => void): (() => void) =>
     ipcListen("notes", "photoAdded", cb),
+  /** An agent put blocks into a note (written into it already). */
+  onBlocksAdded: (cb: (event: NoteBlocksAdded) => void): (() => void) =>
+    ipcListen("notes", "blocksAdded", cb),
 };
 
 export function imageExt(mime: string): "png" | "jpg" | "gif" | "webp" | null {

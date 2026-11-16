@@ -147,6 +147,7 @@ export async function sendToPeer(
   selector: string,
   text: string,
   timeoutMs: number | null,
+  now = false,
 ): Promise<CliOutput> {
   const peer = await resolvePeerTab(
     ctx,
@@ -155,11 +156,13 @@ export async function sendToPeer(
     selector,
     CHATS,
   );
-  const from = await agentSenderOf(ctx);
+  // The agent there is told whether this one waits to read its answer, or is to be written back to.
+  const from = { ...(await agentSenderOf(ctx)), waits: timeoutMs !== null };
   const { at } = await askDevice(ctx, device, "chat.send", {
     ...target(peer),
     text,
     from,
+    ...(now ? { when: "now" as const } : {}),
   });
   const sent = `Sent to ${named(peer)}.`;
   const json = { ...targetJson(peer), text };

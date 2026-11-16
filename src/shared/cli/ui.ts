@@ -4,7 +4,12 @@
  * window and the renderer answers with "cli.uiRespond".
  */
 import { z } from "zod";
-import type { ChatCommand, ChatPage } from "../../../packages/remote-protocol/src/rpc";
+import type {
+  ChatCommand,
+  ChatConfig,
+  ChatPage,
+  TerminalCaret,
+} from "../../../packages/remote-protocol/src/rpc";
 import type { ChatPanel, ViewToolCall } from "../../../packages/remote-protocol/src/view";
 import type { RelaySender } from "../chat/relay";
 import type { ChatAgent } from "../sessions/task-agent";
@@ -88,6 +93,9 @@ export interface CliPlacement {
    */
   readonly besideTabId?: string;
 }
+
+/** What an editor tab shows of a file with a preview (Markdown, HTML, ...). */
+export type CliEditorView = "source" | "preview";
 
 /** How `terminal.input` types its text: as one paste, or as keystrokes. */
 export type CliInputMode = "paste" | "keys";
@@ -191,10 +199,28 @@ export interface CliSettingInfo {
   readonly changed: boolean;
   /** One only the user changes, in Settings. */
   readonly readOnly?: boolean;
+  /** Why it could not be read now (as the account's, signed out); `value` is empty then. */
+  readonly unavailable?: string;
 }
 
 export type CliSettingType = "boolean" | "integer" | "number" | "choice" | "text";
 export type CliSettingValue = string | number | boolean;
+
+/** The note recorder as nexus note record tells it. */
+export interface CliRecorder {
+  /** idle, starting, recording, pausing, paused or stopping. */
+  readonly phase: string;
+  /** The note it records into, when it records. */
+  readonly workspaceId?: string;
+  readonly noteId?: string;
+  /** How long it has recorded. */
+  readonly elapsedMs?: number;
+  /**
+   * Whether recording can start here: ready, signed-out (no NexusCode
+   * sign-in) or unavailable (the server signed in to has no voice).
+   */
+  readonly voice: "unknown" | "signed-out" | "unavailable" | "ready";
+}
 
 /** What nexus asks the user's leave for, in a workspace other than its terminal's own. */
 export type CliChangeKind =
@@ -210,6 +236,17 @@ export type CliChangeKind =
   | "chatMode"
   | "chatProfile"
   | "chatProfileNew"
+  | "chatRewind"
+  | "chatRewindFiles"
+  | "chatFork"
+  | "chatBackground"
+  | "chatTaskStop"
+  | "chatRemoteControlOn"
+  | "chatRemoteControlOff"
+  | "noteNew"
+  | "noteWrite"
+  | "noteRecord"
+  | "noteRecordStop"
   | "tabClose"
   | "tabSave"
   | "tabRevert"
@@ -225,6 +262,8 @@ export type CliChangeKind =
   | "worktreeRemove"
   | "worktreeRemoveBranch"
   | "workspaceRemove"
+  | "workspacePin"
+  | "workspaceMove"
   | "permissionAllow"
   | "permissionDeny";
 
@@ -341,7 +380,10 @@ export interface CliChatEntry {
   readonly text: string;
   /** A tool call's id. */
   readonly toolUseId?: string;
-  /** A tool call's: streaming, running, done, error, denied or stopped. */
+  /**
+   * A tool call's: streaming, running, done, error, denied or stopped. A
+   * message sent during a turn that the agent has not read yet: unread.
+   */
   readonly status?: string;
   /** A subagent's tool call: the id of the Agent call it runs under. */
   readonly parentToolUseId?: string;
@@ -408,9 +450,9 @@ export interface CliUiOps {
   };
   /** The text of a terminal: its last `lines` lines, scrollback included. */
   "terminal.read": {
-    /** `ansi`: with the colors and styles as SGR escapes, for another device. */
+    /** `ansi`: with the colors and styles as SGR escapes, and the cursor, for another device. */
     args: { workspaceId: string; tabId: string; lines: number; ansi?: boolean };
-    result: { text: string };
+    result: { text: string; caret?: TerminalCaret };
   };
   /**
    * Starts watching a terminal for another device: its text now, then
@@ -418,20 +460,24 @@ export interface CliUiOps {
    */
   "terminal.watch": {
     args: { workspaceId: string; tabId: string; watchId: string; lines: number; ansi?: boolean };
-    result: { text: string };
+    result: { text: string; caret?: TerminalCaret };
   };
   /** Stops a watch terminal.watch started; nothing when there is none. */
   "terminal.unwatch": {
     args: { watchId: string };
     result: Record<string, never>;
   };
-  /** Opens a file of the workspace, or shows its tab, at a line if given. */
+  /**
+   * Opens a file of the workspace, or shows its tab, at a line if given;
+   * with `view`, showing its source or its preview, as the tab's switch does.
+   */
   "editor.open": {
     args: {
       workspaceId: string;
       filePath: string;
       line?: number;
       column?: number;
+      view?: CliEditorView;
       placement: CliPlacement;
     };
     result: { tabId: string };
@@ -474,6 +520,8 @@ export interface CliUiOps {
       command?: string;
       /** A shell of this machine's, by its name, id or program (see "terminal.shells"). */
       shell?: string;
+      /** An agent profile, by id: the shell runs with what a chat of it runs with. */
+      profile?: string;
       placement: CliPlacement;
     };
     result: { tabId: string };
@@ -706,6 +754,30 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
+   * Starts a Claude or Codex tab's program again, as its ended or failed
+   * banner does, or as the card after /login does while it runs.
+   */
+  "chat.restart": {
+    args: { workspaceId: string; tabId: string };
+    result: Record<string, never>;
+  };
+  /**
+   * Asks a Codex tab's program again whether it is signed in, as its
+   * signed-out banner's "check again" does; whether it still is not.
+   */
+  "chat.checkSignIn": {
+    args: { workspaceId: string; tabId: string };
+    result: { signedOut: boolean };
+  };
+  /**
+   * The files a workspace's Claude and Codex tabs' background jobs write
+   * their output to, absolute: what each tab's side panel reads of them.
+   */
+  "chat.jobOutputs": {
+    args: { workspaceId: string };
+    result: { files: string[] };
+  };
+  /**
    * Sets a Claude or Codex tab's model, effort and permission mode, as its
    * composer's chips do, those given only; tells what it runs with then and
    * what it takes. Its program is started if it was not.
@@ -752,19 +824,29 @@ export interface CliUiOps {
     result: { commands: ChatCommand[] };
   };
   /**
+   * What an @ in a Claude or Codex tab's composer may name for `query`, as
+   * its agent suggests it there; none while its program does not run.
+   */
+  "chat.fileSuggestions": {
+    args: { workspaceId: string; tabId: string; query: string };
+    result: { paths: string[] };
+  };
+  /**
    * Runs one of the app's own commands in a Claude or Codex tab as its
    * composer runs it typed, for the user on another device; what it said,
    * and the tab it opened, when it opened one.
    */
   "chat.command": {
     args: { workspaceId: string; tabId: string; name: string; args?: string };
-    result: { message?: string; tabId?: string };
+    /** card: the message is its card's, not a toast's. */
+    result: { message?: string; card?: boolean; tabId?: string };
   };
   /**
    * Has a Claude or Codex tab run with another agent profile (by name or id),
    * as its profile chip does: its conversation goes on in that profile, or,
    * `fresh`, a new one starts there. `dryRun` only checks that it can.
-   * Refused while it works or asks the user.
+   * Refused while it works or asks the user, unless `stop`: its turn stops
+   * then, as its chip's choice there stops it.
    */
   "chat.profile": {
     args: {
@@ -773,6 +855,7 @@ export interface CliUiOps {
       profile: string;
       fresh: boolean;
       dryRun?: boolean;
+      stop?: boolean;
     };
     /** The profiles by name: the one it ran with, the one it runs with now. */
     result: { from: string; to: string };
@@ -890,6 +973,35 @@ export interface CliUiOps {
     args: { workspaceId: string; tabId: string; toolUseId: string };
     result: Record<string, never>;
   };
+  /**
+   * Works a Claude tab's MCP server as its panel does, for another device:
+   * connects it again, turns it on or off, or signs in with that device's
+   * browser (`signIn` gives the page, `signedIn` finishes it).
+   */
+  "chat.mcp": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      server: string;
+      action: "reconnect" | "enable" | "disable" | "signIn" | "signedIn";
+      redirectUri?: string;
+      callbackUrl?: string;
+    };
+    result: { authUrl?: string; back?: boolean };
+  };
+  /**
+   * A Claude tab's Claude Code settings (/config) for another device, as
+   * its settings dialog has them: what they are now, or (`set`) the
+   * changes saved as the dialog saves them.
+   */
+  "chat.config": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      set?: { changes: Record<string, boolean | string>; effort?: string };
+    };
+    result: { config?: ChatConfig };
+  };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
     args: { workspaceId: string; tabId: string; enabled: boolean };
@@ -902,7 +1014,8 @@ export interface CliUiOps {
   };
   /**
    * An image of a Claude or Codex tab: a user message's, by its item's key,
-   * or a tool result's, by its call's id; at its index there. Made smaller
+   * a tool result's, by its call's id, or a message's held for after the
+   * turn, by its id; at its index there. Made smaller
    * when its base64 would take over `maxChars`, or its longer side over
    * `maxEdge` pixels.
    */
@@ -912,7 +1025,8 @@ export interface CliUiOps {
       tabId: string;
       ref:
         | { kind: "user"; itemKey: string; index: number }
-        | { kind: "tool"; toolUseId: string; index: number };
+        | { kind: "tool"; toolUseId: string; index: number }
+        | { kind: "held"; id: string; index: number };
       maxChars: number;
       maxEdge?: number;
     };
@@ -925,6 +1039,14 @@ export interface CliUiOps {
   "chat.toolCall": {
     args: { workspaceId: string; tabId: string; toolUseId: string; maxText: number };
     result: ViewToolCall;
+  };
+  /**
+   * A file a Claude or Codex tab's session changed as it was before its
+   * first change (null for one it wrote new); `found` false when it is not kept.
+   */
+  "chat.original": {
+    args: { workspaceId: string; tabId: string; path: string };
+    result: { found: boolean; before: string | null };
   };
   /** A tool call of a Claude or Codex tab whole, named by its entry's i or its id. */
   "chat.tool": {
@@ -1007,6 +1129,16 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
+   * The item of a Claude or Codex tab's conversation that an entry is part
+   * of, by the entry's i as chat.read numbers it: the item's key, which
+   * chat.rewind, chat.fork and chat.withdraw take, and its kind.
+   */
+  "chat.entryItem": {
+    args: { workspaceId: string; tabId: string; i: number };
+    /** `text`: a message of the user's, its text. */
+    result: { itemKey: string; kind: string; text?: string };
+  };
+  /**
    * Removes a task, as Delete Task does. Refuses one with unsaved files, and
    * a worktree with changes unless `force`. A `deleteBranch` of "merged"
    * deletes the branch only if git finds it merged.
@@ -1015,9 +1147,27 @@ export interface CliUiOps {
     args: { taskId: string; force: boolean; deleteBranch: boolean | "merged" };
     result: Record<string, never>;
   };
-  /** The app's settings that nexus settings reads and changes. */
+  /** Shows a note to the user: its workspace, and its tab in front. */
+  "note.show": {
+    args: { workspaceId: string; noteId: string; title?: string };
+    result: Record<string, never>;
+  };
+  /**
+   * The note recorder: what it records and whether it can (status); or it
+   * starts recording into a note, the note shown (or goes on with its paused
+   * recording), pauses, goes on, or stops. One note records at a time.
+   */
+  "note.recorder": {
+    args: {
+      action: "status" | "start" | "pause" | "resume" | "stop";
+      workspaceId?: string;
+      noteId?: string;
+    };
+    result: CliRecorder;
+  };
+  /** The app's settings that nexus settings reads and changes; with `key`, that one alone. */
   "settings.list": {
-    args: Record<string, never>;
+    args: { key?: string };
     result: { settings: CliSettingInfo[] };
   };
   /**
@@ -1064,6 +1214,8 @@ export interface CliUiOps {
        * now on, by their index as chat.read words them; the user only.
        */
       always?: number[];
+      /** With allow of a plan: the mode the chat goes on in, as the plan card's approvals set it. */
+      planMode?: "acceptEdits" | "default";
     };
     result: Record<string, never>;
   };

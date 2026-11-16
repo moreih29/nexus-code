@@ -1,10 +1,13 @@
 import type { ShellChoice } from "../../../shared/pty/shell";
+import type { AnsiScreen } from "./buffer-ansi";
 
 export interface TerminalInput {
   workspaceId: string;
   cwd: string;
   /** The shell to open with; absent = the default shell setting. */
   shell?: ShellChoice;
+  /** An agent profile, by id: the shell runs with what a chat of it runs with. */
+  profile?: string;
 }
 
 export interface TerminalTabLocation {
@@ -30,6 +33,7 @@ export interface PtyClientOptions {
   tabId: string;
   cwd: string;
   shell?: ShellChoice;
+  profile?: string;
   /**
    * `replay` marks output the agent sends again to redraw the terminal (after
    * a reattach, or for a session that outlived the app or its window).
@@ -59,6 +63,7 @@ export interface TerminalControllerOptions {
   tabId: string;
   cwd: string;
   shell?: ShellChoice;
+  profile?: string;
   container: HTMLElement;
   autoSpawn?: boolean;
   onExit?: (args: { code: number | null }) => void;
@@ -84,11 +89,24 @@ export interface TerminalController {
    */
   readText: (lines: number, ansi?: boolean) => string;
   /**
+   * The last `lines` lines as readText with `ansi` gives them, and where the
+   * cursor is in them, unless the program hid it.
+   */
+  readScreen: (lines: number) => AnsiScreen;
+  /**
    * Types `text` into the session: as one paste, which an app that turned on
    * bracketed paste takes as a whole, or as keystrokes. False before the
    * terminal has opened.
    */
   input: (text: string, mode: "paste" | "keys") => boolean;
+  /**
+   * True once input reaches its shell: it has opened (after its view
+   * registers it, once its fonts have loaded) and its shell has started,
+   * printing its prompt and going quiet (PowerShell drops what comes
+   * before), or it prints nothing for a while; false after `timeoutMs` if
+   * not, or once it is gone.
+   */
+  whenReady: (timeoutMs: number) => Promise<boolean>;
   /**
    * True once the program next writes output, other than replayed
    * scrollback; false after `timeoutMs` without any, or once the terminal

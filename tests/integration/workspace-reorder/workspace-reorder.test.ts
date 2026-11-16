@@ -429,6 +429,11 @@ describe("rebalance trigger — bulk reordered event + 1024-step redistribution"
     expect(rows.get(uuid(101))!.sortOrder).toBe(1024);
     expect(rows.get(uuid(102))!.sortOrder).toBe(2048);
     expect(rows.get(id3)!.sortOrder).toBe(1536);
+
+    // The manager's own list (nexus, other devices) has them in their new places too.
+    const listed = Object.fromEntries(fixtures.manager.list().map((w) => [w.id, w.sortOrder]));
+    expect(listed[uuid(101)]).toBe(1024);
+    expect(listed[uuid(102)]).toBe(2048);
   });
 });
 

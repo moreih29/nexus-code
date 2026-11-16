@@ -145,6 +145,7 @@ import {
 } from "../types/entry-points";
 import {
   NoteAssetSchema,
+  NoteBlocksAddedSchema,
   NoteChangedSchema,
   NoteContentSchema,
   NotePhotoAddedSchema,
@@ -744,6 +745,12 @@ export const ipcContract = {
            * the remote host's login shell.
            */
           shell: ShellChoiceSchema.optional(),
+          /**
+           * An agent profile, by id: the shell runs with what a chat of it
+           * runs with (its folder's variable, its own variables). One that
+           * is not there fails the spawn: never the default folder instead.
+           */
+          profile: z.string().max(64).optional(),
         }),
         z.object({
           pid: z.number().int(),
@@ -2350,6 +2357,8 @@ export const ipcContract = {
       changed: listen(NoteChangedSchema),
       /** Another device put a photo at the end of a note: an editor open on it does too. */
       photoAdded: listen(NotePhotoAddedSchema),
+      /** An agent put blocks into a note: an editor open on it does too. */
+      blocksAdded: listen(NoteBlocksAddedSchema),
     },
   },
   agentProfiles: {
@@ -2492,6 +2501,45 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.answer"].params),
         RPC_METHODS["chat.answer"].result,
       ),
+      /** Starts another device's chat's program again, as its banner does. */
+      peerChatRestart: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.restart"].params),
+        RPC_METHODS["chat.restart"].result,
+      ),
+      /** A file another device's chat changed as it was before, for its diff. */
+      peerChatOriginal: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.original"].params),
+        RPC_METHODS["chat.original"].result,
+      ),
+      /** Closes another device's chat's tab, its session kept, as /exit does. */
+      peerChatClose: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.close"].params),
+        RPC_METHODS["chat.close"].result,
+      ),
+      /** Asks another device's Codex chat's program again whether it is signed in. */
+      peerChatCheckSignIn: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.checkSignIn"].params),
+        RPC_METHODS["chat.checkSignIn"].result,
+      ),
+      /** The `claude -p` and `codex exec` runs another device's chat's session started. */
+      peerChatRuns: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runs"].params),
+        RPC_METHODS["chat.runs"].result,
+      ),
+      /** One of those runs, with its tools, messages and answer. */
+      peerChatRun: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
+        RPC_METHODS["chat.run"].result,
+      ),
+      /** Stops one of those runs. */
+      peerChatStopRun: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.stopRun"].params),
+        RPC_METHODS["chat.stopRun"].result,
+      ),
       /** Stops another device's chat's turn. */
       peerChatInterrupt: call(
         z
@@ -2520,6 +2568,34 @@ export const ipcContract = {
           .merge(RPC_METHODS["chat.commands"].params),
         RPC_METHODS["chat.commands"].result,
       ),
+      /** Starts sending a file for the next message to another device's chat. */
+      peerChatUploadBegin: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.begin"].params),
+        RPC_METHODS["chat.upload.begin"].result,
+      ),
+      /** The next piece of a file going to another device's chat. */
+      peerChatUploadChunk: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.chunk"].params),
+        RPC_METHODS["chat.upload.chunk"].result,
+      ),
+      /** Ends a file going to another device's chat: its id for the message. */
+      peerChatUploadEnd: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.upload.end"].params),
+        RPC_METHODS["chat.upload.end"].result,
+      ),
+      /** What an @ in another device's chat's composer may name. */
+      peerChatFileSuggestions: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["chat.fileSuggestions"].params),
+        RPC_METHODS["chat.fileSuggestions"].result,
+      ),
       /** Runs one of the app's commands in another device's chat, as the user. */
       peerChatCommand: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.command"].params),
@@ -2539,6 +2615,16 @@ export const ipcContract = {
           .merge(RPC_METHODS["profiles.list"].params),
         RPC_METHODS["profiles.list"].result,
       ),
+      /** Reads or changes the Claude Code settings of another device's chat, as the user. */
+      peerChatConfig: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.config"].params),
+        RPC_METHODS["chat.config"].result,
+      ),
+      /** Works an MCP server of another device's chat, as the user. */
+      peerChatMcp: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.mcp"].params),
+        RPC_METHODS["chat.mcp"].result,
+      ),
       /** Has another device's chat run with another profile, as the user. */
       peerChatProfile: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.profile"].params),
@@ -2553,6 +2639,11 @@ export const ipcContract = {
       peerFilesList: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.list"].params),
         RPC_METHODS["files.list"].result,
+      ),
+      /** Files of another device's workspace by name: an @ in its chat's composer, before 0.13.0. */
+      peerFilesFind: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["files.find"].params),
+        RPC_METHODS["files.find"].result,
       ),
       /** A file of another device's workspace, as its chats name it. */
       peerFilesRead: call(
@@ -2675,6 +2766,20 @@ export const ipcContract = {
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.unwatch"].params),
         RPC_METHODS["terminal.unwatch"].result,
+      ),
+      /** Types into another device's terminal, where it lets this one (terminal.control). */
+      peerTerminalInput: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.input"].params),
+        RPC_METHODS["terminal.input"].result,
+      ),
+      /** Opens a terminal on another device, where it lets this one (terminal.control). */
+      peerTerminalOpen: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.open"].params),
+        RPC_METHODS["terminal.open"].result,
       ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),

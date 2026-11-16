@@ -3,8 +3,9 @@
 // them (sessions.list), asked again every few seconds while the list is
 // shown. A computer folds; the search box finds sessions by their title or
 // last line, as it does this computer's. A terminal with only its shell is
-// out of sight until the user asks for its workspace's terminals or
-// searches for it.
+// out of sight until the user asks for its workspace's terminals, with the
+// chip in its heading, or searches for it; asked for, they hang under the
+// heading from its icon, as the phone shows them.
 
 import {
   ChevronDown,
@@ -15,7 +16,7 @@ import {
   Monitor,
   SquareTerminal,
 } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   RemoteSession,
@@ -75,24 +76,23 @@ export function listedByDefault(session: RemoteSession): boolean {
 }
 
 /**
- * The sessions the list shows: those it shows unasked, a workspace's
- * terminals too when they are asked for there or one is in a panel, and
- * those a search finds. How many it leaves out, by workspace.
+ * The sessions the list shows: those it shows unasked, a terminal in a
+ * panel too, and those a search finds; and by workspace, its terminals with
+ * only their shell, which wait behind its heading's chip (none searched).
  */
 export function listedSessions(
   sessions: readonly RemoteSession[],
   query: string,
-  terminalsIn: (workspaceId: string) => boolean,
   inPanel: (session: RemoteSession) => boolean,
-): { listed: RemoteSession[]; hidden: ReadonlyMap<string, number> } {
-  if (query.trim()) return { listed: sessions.filter((s) => matches(s, query)), hidden: new Map() };
+): { listed: RemoteSession[]; plain: ReadonlyMap<string, RemoteSession[]> } {
+  if (query.trim()) return { listed: sessions.filter((s) => matches(s, query)), plain: new Map() };
   const listed: RemoteSession[] = [];
-  const hidden = new Map<string, number>();
+  const plain = new Map<string, RemoteSession[]>();
   for (const s of sessions) {
-    if (terminalsIn(s.workspaceId) || listedByDefault(s) || inPanel(s)) listed.push(s);
-    else hidden.set(s.workspaceId, (hidden.get(s.workspaceId) ?? 0) + 1);
+    if (listedByDefault(s) || inPanel(s)) listed.push(s);
+    else plain.set(s.workspaceId, [...(plain.get(s.workspaceId) ?? []), s]);
   }
-  return { listed, hidden };
+  return { listed, plain };
 }
 
 function matches(session: RemoteSession, query: string): boolean {
@@ -189,20 +189,11 @@ export function PeerGroup({
   const Chevron = folded ? ChevronRight : ChevronDown;
   const list = sessions?.status === "ready" ? sessions.list : null;
   const root = useAgentViewStore((s) => s.root);
-  const { listed: shownSessions, hidden } = listedSessions(
+  const { listed: shownSessions, plain } = listedSessions(
     list?.sessions ?? [],
     query,
-    (workspaceId) => terminalsIn.has(workspaceId),
     (s) => leafHolding(root, remoteSessionKey({ deviceId: peer.id, ...s })) !== null,
   );
-  // A workspace's terminals with only their shell: what its toggle shows and hides.
-  const plain = new Map<string, number>();
-  for (const s of list?.sessions ?? []) {
-    if (!listedByDefault(s)) plain.set(s.workspaceId, (plain.get(s.workspaceId) ?? 0) + 1);
-  }
-  const toggles = (workspaceId: string) =>
-    !query.trim() &&
-    ((terminalsIn.has(workspaceId) ? plain.get(workspaceId) : hidden.get(workspaceId)) ?? 0) > 0;
   const waiting = list?.sessions.filter((s) => s.state === "needs-you").length ?? 0;
   const workspaces = new Map(list?.workspaces.map((w) => [w.id, w]) ?? []);
   const names = new Map(list?.workspaces.map((w) => [w.id, w.name]) ?? []);
@@ -213,11 +204,37 @@ export function PeerGroup({
     if (list) useRemoteViewStore.getState().refresh(peer.id, list);
   }, [peer.id, list]);
   // In the order the computer lists them: a workspace with sessions shown, or
-  // with only terminals behind its toggle.
+  // with only terminals behind its chip.
   const byWorkspace = new Map<string, RemoteSession[]>();
   for (const s of list?.sessions ?? []) byWorkspace.set(s.workspaceId, []);
   for (const s of shownSessions) byWorkspace.get(s.workspaceId)?.push(s);
-  const groups = [...byWorkspace].filter(([id, rows]) => rows.length > 0 || toggles(id));
+  const groups = [...byWorkspace].filter(
+    ([id, rows]) => rows.length > 0 || (plain.get(id)?.length ?? 0) > 0,
+  );
+  const rowOf = (workspaceId: string, session: RemoteSession) => (
+    <Fragment key={session.tabId}>
+      <RemoteSessionRow
+        session={session}
+        where={panelPlaceOf(root, remoteSessionKey({ deviceId: peer.id, ...session }))}
+        onOpen={() =>
+          open({
+            deviceId: peer.id,
+            deviceName: peer.name,
+            workspaceId,
+            workspaceName: names.get(workspaceId) ?? workspaceId,
+            path: paths.get(workspaceId) ?? "",
+            tabId: session.tabId,
+            kind: session.kind,
+            title: session.title,
+            state: session.state,
+            ...(session.profile ? { profile: session.profile } : {}),
+            ...(session.cwd ? { cwd: session.cwd } : {}),
+          })
+        }
+      />
+      <AgentRows agents={agentRunsOf(session.agents)} selectedId={undefined} className="pl-4" />
+    </Fragment>
+  );
 
   return (
     <div className="flex flex-col" data-testid="remote-peer">
@@ -261,67 +278,36 @@ export function PeerGroup({
               {t("agentView.remote.empty")}
             </p>
           ) : (
-            groups.map(([workspaceId, rows]) => (
-              <div key={workspaceId} className="flex flex-col not-first:mt-1.5">
-                <WorkspaceHeading
-                  name={names.get(workspaceId) ?? workspaceId}
-                  workspace={workspaces.get(workspaceId)}
-                />
-                {rows.map((session) => (
-                  <Fragment key={session.tabId}>
-                    <RemoteSessionRow
-                      session={session}
-                      where={panelPlaceOf(
-                        root,
-                        remoteSessionKey({ deviceId: peer.id, ...session }),
-                      )}
-                      onOpen={() =>
-                        open({
-                          deviceId: peer.id,
-                          deviceName: peer.name,
-                          workspaceId,
-                          workspaceName: names.get(workspaceId) ?? workspaceId,
-                          path: paths.get(workspaceId) ?? "",
-                          tabId: session.tabId,
-                          kind: session.kind,
-                          title: session.title,
-                          state: session.state,
-                          ...(session.profile ? { profile: session.profile } : {}),
-                          ...(session.cwd ? { cwd: session.cwd } : {}),
-                        })
-                      }
+            groups.map(([workspaceId, rows]) => {
+              const terminals = plain.get(workspaceId) ?? [];
+              const unfolded = terminalsIn.has(workspaceId);
+              return (
+                <div key={workspaceId} className="flex flex-col not-first:mt-1.5">
+                  <WorkspaceHeading
+                    name={names.get(workspaceId) ?? workspaceId}
+                    workspace={workspaces.get(workspaceId)}
+                    terminals={
+                      terminals.length > 0
+                        ? {
+                            count: terminals.length,
+                            open: unfolded,
+                            toggle: () => toggleTerminals(workspaceId),
+                          }
+                        : undefined
+                    }
+                  />
+                  {unfolded && terminals.length > 0 && (
+                    <HungTerminals
+                      rows={terminals.map((session) => ({
+                        key: session.tabId,
+                        row: rowOf(workspaceId, session),
+                      }))}
                     />
-                    <AgentRows
-                      agents={agentRunsOf(session.agents)}
-                      selectedId={undefined}
-                      className="pl-4"
-                    />
-                  </Fragment>
-                ))}
-                {toggles(workspaceId) && (
-                  <button
-                    type="button"
-                    aria-expanded={terminalsIn.has(workspaceId)}
-                    onClick={() => toggleTerminals(workspaceId)}
-                    // Lined up with the rows' titles: its icon where theirs is, after the state.
-                    className="flex items-center gap-1.5 rounded-(--radius-control) py-1 pr-2 pl-6.5 text-left text-app-micro text-(--state-selected-indicator) hover:bg-[var(--state-hover-bg)] hover:underline"
-                    data-testid="remote-terminals-toggle"
-                    data-workspace={workspaceId}
-                  >
-                    {terminalsIn.has(workspaceId) ? (
-                      <ChevronUp aria-hidden className="size-3 shrink-0" />
-                    ) : (
-                      <SquareTerminal aria-hidden className="size-3 shrink-0" />
-                    )}
-                    {terminalsIn.has(workspaceId)
-                      ? t("agentView.remote.terminalsHide")
-                      : t("agentView.remote.terminalsShow", {
-                          count: hidden.get(workspaceId) ?? 0,
-                        })}
-                  </button>
-                )}
-              </div>
-            ))
+                  )}
+                  {rows.map((session) => rowOf(workspaceId, session))}
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -329,14 +315,21 @@ export function PeerGroup({
   );
 }
 
-/** A workspace's sessions' heading: a folder, or a task's branch, and how its git stands. */
+/**
+ * A workspace's sessions' heading: a folder, or a task's branch, and how its
+ * git stands; and a chip with how many terminals with only their shell it
+ * has, which shows them under it, or puts them away.
+ */
 function WorkspaceHeading({
   name,
   workspace,
+  terminals,
 }: {
   name: string;
   workspace: RemoteWorkspace | undefined;
+  terminals?: { count: number; open: boolean; toggle(): void };
 }) {
+  const { t } = useTranslation();
   const Icon = workspace?.parentId ? GitBranch : Folder;
   const git = workspace?.git;
   const stands = git
@@ -350,18 +343,82 @@ function WorkspaceHeading({
         .join(" ")
     : "";
   return (
-    <span
+    <div
       className="flex min-w-0 items-center gap-1.5 px-2 pt-1.5 pb-0.5"
       data-testid="remote-workspace"
     >
       <Icon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       <span className="truncate font-semibold text-app-micro text-foreground">{name}</span>
+      {/* How git stands takes what room the name and the chip leave, so the name gives way last. */}
       {stands && (
-        <span className="min-w-0 shrink truncate font-mono text-app-micro text-muted-foreground">
+        <span className="w-0 grow truncate font-mono text-app-micro text-muted-foreground">
           {stands}
         </span>
       )}
-    </span>
+      {terminals && (
+        <button
+          type="button"
+          aria-expanded={terminals.open}
+          onClick={terminals.toggle}
+          title={
+            terminals.open
+              ? t("agentView.remote.terminalsHide")
+              : t("agentView.remote.terminalsShow", { count: terminals.count })
+          }
+          aria-label={
+            terminals.open
+              ? t("agentView.remote.terminalsHide")
+              : t("agentView.remote.terminalsShow", { count: terminals.count })
+          }
+          className="ml-auto flex shrink-0 items-center gap-1 rounded-full border border-border px-1.5 text-app-micro text-(--state-selected-indicator) tabular-nums hover:bg-[var(--state-hover-bg)]"
+          data-testid="remote-terminals-toggle"
+          data-workspace={workspace?.id}
+        >
+          <SquareTerminal aria-hidden className="size-3 shrink-0" />
+          {terminals.count}
+          {terminals.open ? (
+            <ChevronUp aria-hidden className="size-3 shrink-0" />
+          ) : (
+            <ChevronDown aria-hidden className="size-3 shrink-0" />
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A workspace's terminals with only their shell, asked for: right under its
+ * heading, set in past a tree's line that comes down from the heading's icon
+ * and branches to each, so whose they are reads at once.
+ */
+export function HungTerminals({ rows }: { rows: { key: string; row: ReactNode }[] }) {
+  return (
+    <div className="flex flex-col" data-testid="remote-hung-terminals">
+      {rows.map(({ key, row }, i) => {
+        const last = i === rows.length - 1;
+        return (
+          <div key={key} className="relative pl-5">
+            <span
+              aria-hidden
+              className={cn(
+                "pointer-events-none absolute left-3.5 border-border border-l",
+                // The first comes up to the icon, past the heading's space under it.
+                i === 0 ? "-top-1" : "top-0",
+                last ? "bottom-1/2 w-2.5 rounded-bl-sm border-b" : "bottom-0",
+              )}
+            />
+            {!last && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 left-3.5 w-2.5 border-border border-t"
+              />
+            )}
+            {row}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

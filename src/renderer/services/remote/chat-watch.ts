@@ -23,7 +23,8 @@ import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
-import { planUsageKeyFor, usePlanUsageStore } from "../chat/plan-usage";
+import type { ToolCall } from "../chat/model";
+import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
 import { supportsControl } from "../chat/versions";
 import {
@@ -174,8 +175,11 @@ export function changesOf(was: Sent, now: Sent, appends = false): ChatChange | n
     if (before.tools.get(id) !== tool) tools[id] = viewToolOf(tool);
   }
   const tasks: ChatChange["tasks"] = {};
+  let byId: Record<string, ToolCall> | undefined;
   for (const [id, task] of after.tasks) {
-    if (before.tasks.get(id) !== task) tasks[id] = viewTaskOf(task);
+    if (before.tasks.get(id) === task) continue;
+    byId ??= Object.fromEntries(after.tools);
+    tasks[id] = viewTaskOf(task, byId);
   }
   const agentItems: ChatChange["agentItems"] = {};
   for (const [id, list] of after.agents) {
@@ -251,6 +255,8 @@ export function startChatWatch(
     appends?: boolean;
     /** Each time the tab changes, before what changed is sent. */
     onChange?: () => void;
+    /** The plan usage's key of its profile, asked for while it is watched; null once it is gone. */
+    usageKey?: () => string | null;
   } = {},
 ): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
@@ -287,10 +293,13 @@ export function startChatWatch(
   const offTabs = useTabsStore.subscribe(changed);
   // The plan's usage comes apart from the chat: its limits in the panel follow it.
   const offPlan = usePlanUsageStore.subscribe(changed);
+  // Shown on that device: its profile's usage is asked for as a tab shown here asks.
+  const offAfar = options.usageKey ? watchPlanUsageAfar(watchId, options.usageKey) : () => {};
   const stop = () => {
     offChat();
     offTabs();
     offPlan();
+    offAfar();
     if (timer) clearTimeout(timer);
     watches.delete(watchId);
   };
@@ -340,9 +349,12 @@ export function tabSource(
             now: true,
             withdraw: supportsControl(chat.version ?? chat.model.version, "cancel_async_message"),
             hurry: true,
+            moveNow: true,
+            mcp: true,
+            config: true,
           },
         }
-      : {}),
+      : { can: { rewind: false, fork: false, background: false, moveNow: true, config: true } }),
     ...(plan?.claude || plan?.codex
       ? {
           plan: {

@@ -143,9 +143,15 @@ export function CliConsentDialogRoot(): React.JSX.Element {
               ? "agentCli.consent.mode_title"
               : profile
                 ? "agentCli.consent.profile_title"
-                : prompt?.fromDevice
-                  ? "agentCli.consent.remote_title"
-                  : "agentCli.consent.title",
+                : kind === "chatRewind" || kind === "chatRewindFiles"
+                  ? "agentCli.consent.rewind_title"
+                  : kind === "chatRemoteControlOn"
+                    ? "agentCli.consent.remote_control_title"
+                    : kind === "noteRecord"
+                      ? "agentCli.consent.record_title"
+                      : prompt?.fromDevice
+                        ? "agentCli.consent.remote_title"
+                        : "agentCli.consent.title",
         )}
         description={description}
       />

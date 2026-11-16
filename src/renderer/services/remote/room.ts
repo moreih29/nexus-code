@@ -7,6 +7,7 @@ import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { compareVersions } from "../chat/versions";
 
 /** The room, kept up as it changes; null until main answered. */
 export function useRemoteRoom(): RoomState | null {
@@ -49,6 +50,60 @@ export function usePeerControls(deviceId: string): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves ? serves.includes("chat.control") : true;
+}
+
+/**
+ * Whether another device lets this one type into its terminals: it serves
+ * terminal.control, as the user there allowed it (off unless allowed). No
+ * until its hello says.
+ */
+export function usePeerTypes(deviceId: string): boolean {
+  const room = useRemoteRoom();
+  const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
+  return serves?.includes("terminal.control") ?? false;
+}
+
+/** The protocol from which terminal.open runs a terminal with a profile's environment. */
+export const TERMINAL_PROFILE_SCHEMA = "0.13.1";
+
+/**
+ * Whether another device speaks the protocol from `version` on, as its
+ * hello's `schema` says. One before it drops what it does not know, as
+ * terminal.open's `profile`. No until its hello says.
+ */
+export function peerSpeaks(peer: RoomPeer | undefined, version: string): boolean {
+  return peer?.schema !== undefined && compareVersions(peer.schema, version) >= 0;
+}
+
+/**
+ * The id there of the profile a chat runs with, of its agent's profiles its
+ * computer lists: the one by the chat's profile's name, or, where the chat
+ * names none, the agent's only profile (a session names its profile only
+ * where its agent has more than one). Throws where neither tells one: a
+ * name none or two have, or no name while there are more than one (a list
+ * of sessions older than the profiles).
+ */
+export function chatProfileIdThere(
+  name: string | undefined,
+  profiles: readonly { id: string; name: string }[],
+): string {
+  if (name === undefined) {
+    const [only, ...more] = profiles;
+    if (!only || more.length > 0) throw new Error("this chat's profile is not known here");
+    return only.id;
+  }
+  const named = profiles.filter((p) => p.name === name);
+  if (named.length !== 1 || !named[0]) throw new Error(`no one profile "${name}" there`);
+  return named[0].id;
+}
+
+/** Whether another device speaks the protocol from `version` on. */
+export function usePeerSpeaks(deviceId: string, version: string): boolean {
+  const room = useRemoteRoom();
+  return peerSpeaks(
+    room?.peers.find((p) => p.id === deviceId),
+    version,
+  );
 }
 
 /** The devices in the room now that serve their sessions. */

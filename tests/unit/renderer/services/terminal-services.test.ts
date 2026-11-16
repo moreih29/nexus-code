@@ -189,9 +189,12 @@ function makeTerminalControllerDeps(
   // Mutable buffer state — tests switch it with setBufferType("alternate" | "normal") to
   // verify the alternate screen guard. The default is "alternate" so the existing OSC
   // title sync tests pass without extra setup (assuming a TUI scenario).
-  const bufferState: { active: { type: "normal" | "alternate" } } = {
+  const bufferState: { active: { type: "normal" | "alternate" } & Record<string, unknown> } = {
     active: { type: "alternate" },
   };
+  // The handlers of DECSTR (CSI ! p) and RIS (ESC c), which show the cursor again.
+  let capturedSoftReset: (() => boolean) | null = null;
+  let capturedReset: (() => boolean) | null = null;
   // DECSET 2004 and 1004 state the app on the pty asked for; tests flip it.
   const modes = { bracketedPasteMode: false, sendFocusMode: false };
   // The text selected in the terminal; tests set it.
@@ -229,10 +232,16 @@ function makeTerminalControllerDeps(
           id: { prefix?: string; intermediates?: string; final: string },
           cb: (params: ReadonlyArray<number | number[]>) => boolean,
         ) => {
-          // The controller registers two handlers: prefix:"?", final:"l" (exit) /
-          // final:"h" (enter).
+          // The controller registers handlers for prefix:"?", final:"l" (exit) /
+          // final:"h" (enter); xterm.js runs every handler for a sequence, and so does this.
           if (id.prefix === "?" && id.final === "l") {
-            capturedAltExitHandler = cb;
+            const previous = capturedAltExitHandler;
+            capturedAltExitHandler = (params) => {
+              const handled = previous?.(params) ?? false;
+              return cb(params) || handled;
+            };
+          } else if (id.intermediates === "!" && id.final === "p") {
+            capturedSoftReset = () => cb([]);
           } else if (id.prefix === "?" && id.final === "h") {
             // xterm.js runs every handler for a sequence; so does this one.
             const previous = capturedAltEnterHandler;
@@ -241,6 +250,10 @@ function makeTerminalControllerDeps(
               return cb(params) || handled;
             };
           }
+          return { dispose: () => {} };
+        },
+        registerEscHandler: (id: { final: string }, cb: () => boolean) => {
+          if (id.final === "c") capturedReset = cb;
           return { dispose: () => {} };
         },
       },
@@ -328,6 +341,47 @@ function makeTerminalControllerDeps(
     setBufferType(type: "normal" | "alternate"): void {
       bufferState.active.type = type;
     },
+    /** Puts plain rows on the screen, and the cursor at `cursor` of it. */
+    setScreen(rows: string[], cursor: { x: number; y: number }): void {
+      const cols = 20;
+      const zero = () => 0;
+      const cellOf = (chars: string) => ({
+        getWidth: () => 1,
+        getChars: () => chars,
+        isFgDefault: () => true,
+        isFgPalette: () => false,
+        isFgRGB: () => false,
+        getFgColor: zero,
+        isBgDefault: () => true,
+        isBgPalette: () => false,
+        isBgRGB: () => false,
+        getBgColor: zero,
+        isBold: zero,
+        isDim: zero,
+        isItalic: zero,
+        isUnderline: zero,
+        isBlink: zero,
+        isInverse: zero,
+        isInvisible: zero,
+        isStrikethrough: zero,
+        isOverline: zero,
+      });
+      const lineOf = (text: string) => ({
+        isWrapped: false,
+        length: cols,
+        translateToString: (trim?: boolean) => (trim ? text.trimEnd() : text.padEnd(cols)),
+        getCell: (x: number) => (x < cols ? cellOf(text[x] ?? "") : undefined),
+      });
+      Object.assign(bufferState.active, {
+        length: rows.length,
+        getLine: (y: number) => (rows[y] === undefined ? undefined : lineOf(rows[y])),
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+        baseY: 0,
+      });
+    },
+    softReset: () => capturedSoftReset?.(),
+    reset: () => capturedReset?.(),
     setBracketedPaste(on: boolean): void {
       modes.bracketedPasteMode = on;
     },
@@ -345,6 +399,27 @@ describe("services/terminal open and close", () => {
   beforeEach(() => {
     resetStores();
     resetIpc();
+  });
+
+  it("a terminal opened for a profile keeps it, and its shell is spawned in it", async () => {
+    const terminal = openTerminal({ workspaceId: WS, cwd: "/workspace", profile: "codex-ab12" });
+    const tab = useTabsStore.getState().byWorkspace[WS]?.[terminal.tabId];
+    expect(tab?.type === "terminal" ? tab.props.profile : null).toBe("codex-ab12");
+
+    const client = createPtyClient({
+      workspaceId: WS,
+      tabId: terminal.tabId,
+      cwd: "/workspace",
+      profile: "codex-ab12",
+      onData: () => {},
+      onExit: () => {},
+    });
+    await client.spawn({ cols: 80, rows: 24 });
+    expect(ipcCalls.find((call) => call.method === "spawn")?.args).toMatchObject({
+      tabId: terminal.tabId,
+      profile: "codex-ab12",
+    });
+    client.dispose();
   });
 
   it("closeTerminal kills the PTY session and closes the tab transaction", () => {
@@ -781,6 +856,45 @@ describe("services/terminal controller focus", () => {
     controller.dispose();
   });
 
+  it("tells another device where the cursor is, unless the program hid it", async () => {
+    const harness = makeTerminalControllerDeps();
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId: "tab-cursor",
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+      },
+      harness.deps,
+    );
+    await flushTerminalInit();
+    harness.setScreen(["$ git sta", ""], { x: 7, y: 0 });
+    expect(controller.readScreen(50)).toEqual({
+      text: "$ git sta",
+      caret: { line: 0, column: 7 },
+    });
+    const decset = harness.getAltEnterHandler();
+    const decrst = harness.getAltExitHandler();
+    if (!decset || !decrst) throw new Error("no DECSET handlers");
+    // Hidden (DECTCEM reset), as a program drawing its own hides it; xterm goes on as it would.
+    expect(decrst([25])).toBe(false);
+    expect(controller.readScreen(50)).toEqual({ text: "$ git sta" });
+    // Other modes leave it as it is.
+    decset([2004]);
+    expect(controller.readScreen(50).caret).toBeUndefined();
+    decset([25]);
+    expect(controller.readScreen(50).caret).toEqual({ line: 0, column: 7 });
+    // A reset shows it again.
+    decrst([25]);
+    expect(harness.softReset()).toBe(false);
+    expect(controller.readScreen(50).caret).toBeDefined();
+    decrst([25]);
+    expect(harness.reset()).toBe(false);
+    expect(controller.readScreen(50).caret).toBeDefined();
+
+    controller.dispose();
+  });
+
   it("tells a program setting up for input while focus reporting is on, as under ConPTY", async () => {
     const harness = makeTerminalControllerDeps();
     const controller = createTerminalController(
@@ -857,6 +971,95 @@ describe("services/terminal controller focus asked for before xterm opens", () =
     loaded();
     await opened();
     expect(harness.getFocusCalls()).toBe(0);
+    controller.dispose();
+  });
+});
+
+describe("services/terminal controller ready for input", () => {
+  beforeEach(() => resetIpc());
+
+  /**
+   * A controller whose fonts load when `loaded` is called, and whose session
+   * starts as `spawned` says (null: it was already running); with none, an
+   * ended terminal that is not started again.
+   */
+  function terminal(tabId: string, spawned?: { pid: number } | null) {
+    const harness = makeTerminalControllerDeps(() => Promise.resolve(spawned ?? null));
+    let loaded = () => {};
+    harness.deps.waitForTerminalFonts = () =>
+      new Promise<void>((resolve) => {
+        loaded = resolve;
+      });
+    const controller = createTerminalController(
+      {
+        workspaceId: WS,
+        tabId,
+        cwd: "/workspace",
+        container: { clientWidth: 800, clientHeight: 480 } as HTMLElement,
+        ...(spawned === undefined ? { autoSpawn: false } : {}),
+      },
+      harness.deps,
+    );
+    return { harness, controller, loaded: () => loaded() };
+  }
+
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("not before it opens; then at once, with no shell to wait for", async () => {
+    const { controller, loaded } = terminal("tab-ready-ended");
+    expect(controller.input("x", "keys")).toBe(false);
+    const ready = controller.whenReady(1000);
+    loaded();
+    expect(await ready).toBe(true);
+    expect(await controller.whenReady(0)).toBe(true);
+    expect(controller.input("x", "keys")).toBe(true);
+    controller.dispose();
+    expect(await controller.whenReady(1000)).toBe(false);
+  });
+
+  it("tells a wait no once it is gone, or after it", async () => {
+    const gone = terminal("tab-ready-gone");
+    const waiting = gone.controller.whenReady(1000);
+    gone.controller.dispose();
+    expect(await waiting).toBe(false);
+    const slow = terminal("tab-ready-slow");
+    expect(await slow.controller.whenReady(5)).toBe(false);
+    slow.controller.dispose();
+  });
+
+  it("a shell just started: once it has printed its prompt and gone quiet", async () => {
+    const { harness, controller, loaded } = terminal("tab-ready-shell", { pid: 7 });
+    let ready: boolean | undefined;
+    void controller.whenReady(3000).then((answer) => {
+      ready = answer;
+    });
+    loaded();
+    await flushTerminalInit();
+    // Open, but the shell has not printed: PowerShell would drop the input.
+    await pause(20);
+    expect(ready).toBeUndefined();
+    harness.getPtyOptions()?.onData("PS C:\\> ", false);
+    await pause(100);
+    expect(ready).toBeUndefined();
+    await pause(400);
+    expect(ready).toBe(true);
+    controller.dispose();
+  });
+
+  it("a session that comes back with its output replayed: once that has been written", async () => {
+    const { harness, controller, loaded } = terminal("tab-ready-replayed", { pid: 8 });
+    loaded();
+    await flushTerminalInit();
+    harness.getPtyOptions()?.onData("PS C:\\> ", true);
+    expect(await controller.whenReady(1000)).toBe(true);
+    controller.dispose();
+  });
+
+  it("a session already running: at once", async () => {
+    const { controller, loaded } = terminal("tab-ready-running", null);
+    loaded();
+    await flushTerminalInit();
+    expect(await controller.whenReady(0)).toBe(true);
     controller.dispose();
   });
 });

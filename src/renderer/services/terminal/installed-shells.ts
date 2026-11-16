@@ -3,10 +3,11 @@
  * for Settings › Terminal and the tab bar's "New terminal with" menu.
  */
 
-import type { TFunction } from "i18next";
+import i18next, { type TFunction } from "i18next";
 import { useEffect, useState } from "react";
 import type { CustomShell, ShellChoice, ShellInfo } from "../../../shared/pty/shell";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import { useTerminalStore } from "../../state/stores/terminal";
 
 export interface InstalledShells {
   shells: ShellInfo[];
@@ -81,6 +82,22 @@ export function shellEntries(
       args: s.args,
     })),
   ];
+}
+
+/**
+ * The shells to pick from, as the tab bar's "New terminal with" lists them,
+ * and the one a new terminal runs: the one set, else the system's.
+ */
+export async function loadShellMenu(): Promise<{
+  entries: ShellEntry[];
+  defaultShell: ShellChoice;
+}> {
+  const installed = await loadInstalledShells();
+  const { customShells, shell } = useTerminalStore.getState();
+  return {
+    entries: shellEntries(i18next.t, installed, customShells),
+    defaultShell: shell ?? { kind: "detected", id: installed.systemDefault.id },
+  };
 }
 
 /**

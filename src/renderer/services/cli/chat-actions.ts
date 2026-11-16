@@ -33,12 +33,22 @@ import {
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
+import { jobOutputFile, jobsOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
+import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
+import {
+  ConfigRefusal,
+  chatConfigOf,
+  codexConfigOf,
+  codexDefaultsSetOf,
+  configSetOf,
+} from "../remote/chat-config";
 import { fitImage, imageOf } from "../remote/chat-image";
+import { originalOf } from "../remote/chat-original";
 import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
@@ -49,6 +59,7 @@ import {
   type ChatTabExtras,
   chatEntriesOf,
   chatInfoOf,
+  chatItemIndexOf,
   chatToolOf,
   pageEntriesOf,
 } from "./chat-view";
@@ -426,13 +437,27 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       limit,
       (change) => void ipcCallResult("remote", "chatChanged", { watchId, change }),
       () => void ipcCallResult("remote", "chatWatchEnded", { watchId }),
-      { appends: appends === true, onChange: askWhenItCan },
+      {
+        appends: appends === true,
+        onChange: askWhenItCan,
+        usageKey: () => {
+          const props = chatPropsOf(workspaceId, tabId);
+          return props ? planUsageKeyFor(target.agent, workspaceId, props.profileId) : null;
+        },
+      },
     );
   },
 
   "chat.unwatch": async ({ watchId }) => {
     stopChatWatch(watchId);
     return {};
+  },
+
+  "chat.original": async ({ workspaceId, tabId, path }) => {
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    if (!chat) throw new UiRequestError("that tab is gone");
+    const before = originalOf(chat, path);
+    return before === undefined ? { found: false, before: null } : { found: true, before };
   },
 
   "chat.tool": async ({ workspaceId, tabId, ref }) => {
@@ -525,6 +550,60 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
     if (model.running && waiting) await controller.readHeldNow();
     return {};
+  },
+
+  "chat.entryItem": async ({ workspaceId, tabId, i }) => {
+    // Opened as chat.read opens it, so that the entries are counted alike.
+    const { agent } = await openedTab(workspaceId, tabId);
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    const index = chatItemIndexOf(chat, i, extrasOf(workspaceId, tabId, agent));
+    const item =
+      index === null ? undefined : conversationOf(sourceOf(workspaceId, tabId, agent)).items[index];
+    if (!item) throw new UiRequestError(`no message #${i} in that tab`);
+    return {
+      itemKey: item.key,
+      kind: item.kind,
+      ...(item.kind === "user" ? { text: item.text } : {}),
+    };
+  },
+
+  "chat.restart": async ({ workspaceId, tabId }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+    const { phase } = target.controller.state;
+    // As its banner does: an ended program goes on with its session; a failed one opens again.
+    // One that runs starts again on its session, as the card after /login offers.
+    if (phase === "ended" || phase === "ready") await target.controller.restart();
+    else if (phase === "failed" || phase === "not-found") await target.controller.open();
+    else throw new UiRequestError("its program is starting");
+    return {};
+  },
+
+  "chat.checkSignIn": async ({ workspaceId, tabId }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (target?.agent !== "codex") throw new UiRequestError("that tab is not a Codex tab");
+    await target.controller.refreshAccount();
+    // Its answer waits for the next frame to reach the model.
+    target.controller.flushNow();
+    return { signedOut: target.controller.model.signedOut === true };
+  },
+
+  "chat.jobOutputs": async ({ workspaceId }) => {
+    const files = new Set<string>();
+    for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
+      if (tab.type !== "claude" && tab.type !== "codex") continue;
+      const chat = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)];
+      if (!chat) continue;
+      // The call that started a job may be in the history read before the program ran.
+      const { model, history } = chat;
+      for (const job of jobsOf(model)) {
+        const path =
+          jobOutputFile(job, model.tools) ??
+          (history ? jobOutputFile(job, history.tools) : undefined);
+        if (path) files.add(path);
+      }
+    }
+    return { files: [...files] };
   },
 
   "chat.interrupt": async ({ workspaceId, tabId }) => {
@@ -655,6 +734,90 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
+  "chat.mcp": async ({ workspaceId, tabId, server, action, redirectUri, callbackUrl }) => {
+    const controller = await claudeTab(workspaceId, tabId, true);
+    const { model, phase } = controller.state;
+    if (phase !== "ready" || model.process !== "running") {
+      throw new UiRequestError("its program is not running");
+    }
+    if (model.mcp && !model.mcp.some((s) => s.name === server)) {
+      throw new UiRequestError(`it has no MCP server "${server}"`);
+    }
+    switch (action) {
+      case "reconnect":
+        await controller.mcpReconnect(server);
+        return {};
+      case "enable":
+      case "disable":
+        await controller.mcpToggle(server, action === "enable");
+        return {};
+      case "signIn":
+        // The page comes back to the asking device's own loopback listener.
+        if (!redirectUri || !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(redirectUri)) {
+          throw new UiRequestError("a sign-in needs a loopback address to come back to");
+        }
+        return controller.mcpSignInFor(server, redirectUri);
+      case "signedIn":
+        if (!callbackUrl) throw new UiRequestError("a sign-in needs the address it came back to");
+        await controller.mcpSignedIn(server, callbackUrl);
+        return {};
+    }
+  },
+
+  "chat.config": async ({ workspaceId, tabId, set }) => {
+    const target = agentTabController(workspaceId, tabId);
+    if (target?.agent === "codex") {
+      // As its defaults dialog reads and saves them.
+      const codex = target.controller;
+      const read = async () =>
+        codexConfigOf({
+          defaults: await codex.readDefaults(),
+          models: codex.model.init?.models ?? [],
+          ...(codex.model.model ? { running: codex.model.model } : {}),
+        });
+      if (!set) return { config: await read() };
+      let defaults: ReturnType<typeof codexDefaultsSetOf>;
+      try {
+        defaults = codexDefaultsSetOf(set, await read());
+      } catch (err) {
+        if (err instanceof ConfigRefusal) throw new UiRequestError(err.message);
+        throw err;
+      }
+      await codex.saveDefaults(defaults);
+      return {};
+    }
+    const controller = await claudeTab(workspaceId, tabId, true);
+    // As the dialog reads them, the keys last listed or listed now.
+    const read = async () => {
+      const [config, listed] = await Promise.all([
+        controller.readConfig(),
+        controller.savedConfigKeys() ?? controller.listConfigKeys(),
+      ]);
+      const init = controller.state.model.init;
+      return chatConfigOf({
+        ...config,
+        listed,
+        models: init?.models ?? [],
+        outputStyles: init?.outputStyles,
+        effort: controller.supports("update_settings"),
+      });
+    };
+    if (!set) return { config: await read() };
+    // As the dialog's button waits for the turn to end.
+    if (controller.state.model.running) {
+      throw new UiRequestError("it is working: its settings change once its turn ends");
+    }
+    let plan: ReturnType<typeof configSetOf>;
+    try {
+      plan = configSetOf(set, await read());
+    } catch (err) {
+      if (err instanceof ConfigRefusal) throw new UiRequestError(err.message);
+      throw err;
+    }
+    await controller.applyConfig(plan.messages, { model: plan.model, effort: plan.effort });
+    return {};
+  },
+
   "chat.remoteControl": async ({ workspaceId, tabId, enabled }) => {
     const controller = await claudeTab(workspaceId, tabId, true);
     const { model, phase } = controller.state;
@@ -752,12 +915,21 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return { commands: chatCommandsOf(target.agent, chat.model) };
   },
 
+  "chat.fileSuggestions": async ({ workspaceId, tabId, query }) => {
+    // Asked as the user types: a tab whose program does not run has none,
+    // and is not started for them.
+    const target = agentTabController(workspaceId, tabId);
+    if (!target) throw new UiRequestError("that tab is not a Claude or Codex tab");
+    if (!opened(workspaceId, tabId)) return { paths: [] };
+    return { paths: await target.controller.fileSuggestions(query) };
+  },
+
   "chat.command": async ({ workspaceId, tabId, name, args }) => {
     const target = await openedTab(workspaceId, tabId);
     return runRemoteCommand(workspaceId, tabId, target, name, args?.trim() ?? "");
   },
 
-  "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun }) => {
+  "chat.profile": async ({ workspaceId, tabId, profile, fresh, dryRun, stop }) => {
     const target = await openedTab(workspaceId, tabId);
     const config = useAgentProfilesStore.getState().config;
     const profileId = profileNamed(target.agent, profile);
@@ -768,7 +940,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       throw new UiRequestError(`it already runs with the profile "${to}"`);
     }
     const { state } = infoOf(workspaceId, tabId, target);
-    if (state === "working" || state === "asking") {
+    // The user's from another device may stop the turn, as the chip's choice here does.
+    if (!stop && (state === "working" || state === "asking")) {
       throw new UiRequestError(
         state === "working"
           ? "it is working; its turn would stop (wait for it: chat wait)"
@@ -790,12 +963,16 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     updatedInput,
     stop,
     always,
+    planMode,
   }) => {
     const target = await openedTab(workspaceId, tabId);
-    // Main allowed an answer to the request the tab asked then: not to another.
-    const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
-    if (!request) throw new UiRequestError("it no longer asks anything");
-    if (request.requestId !== expect) {
+    // Main allowed an answer to that request, not to another; any of those
+    // it waits on, as the card answers the one it shows (not always the first).
+    const asked =
+      useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions ?? [];
+    if (asked.length === 0) throw new UiRequestError("it no longer asks anything");
+    const request = asked.find((r) => r.requestId === expect);
+    if (!request) {
       throw new UiRequestError("its request changed or was answered; read it again");
     }
     if (decision === "allow" && always && always.length > 0) {
@@ -811,10 +988,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       await target.controller.answerPermission(request, { kind: "allow-always", suggestions });
       return {};
     }
+    if (planMode && request.toolName !== "ExitPlanMode") {
+      throw new UiRequestError("only a plan's approval sets the mode it goes on in");
+    }
     await target.controller.answerPermission(
       request,
       decision === "allow"
-        ? { kind: "allow", ...(updatedInput ? { updatedInput } : {}) }
+        ? {
+            kind: "allow",
+            ...(updatedInput ? { updatedInput } : {}),
+            // As the plan card's approvals do.
+            ...(planMode
+              ? {
+                  updatedPermissions: [{ type: "setMode", mode: planMode, destination: "session" }],
+                }
+              : {}),
+          }
         : { kind: stop ? "deny-stop" : "deny", message: message ?? "" },
     );
     return {};

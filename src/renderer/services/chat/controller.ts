@@ -1204,20 +1204,17 @@ export class ChatController {
     if (this.state.mcpSignIn) this.cancelMcpSignIn();
     const { id, redirectUri } = unwrapIpcResult(await ipcCallResult("chat", "oauthListen", {}));
     try {
-      const body = (await this.request("mcp_authenticate", { serverName, redirectUri })) as
-        | { authUrl?: unknown; callbackExpected?: unknown; callbackPort?: unknown }
-        | undefined;
-      const authUrl = typeof body?.authUrl === "string" ? body.authUrl : undefined;
+      const page = signInPageOf(
+        await this.request("mcp_authenticate", { serverName, redirectUri }),
+      );
+      const authUrl = page.authUrl;
       if (!authUrl) {
         // Signed in already: nothing to open.
         void ipcCallResult("chat", "oauthCancel", { id });
         await this.request("mcp_reconnect", { serverName });
         return;
       }
-      if (body?.callbackExpected === false || typeof body?.callbackPort === "number") {
-        // Nothing comes back here: a claude.ai connector is connected on
-        // claude.ai, and a version that keeps its own callback takes it on
-        // the host it runs on.
+      if (!page.back) {
         void ipcCallResult("chat", "oauthCancel", { id });
         openSignInPage(authUrl);
         return;
@@ -1237,6 +1234,36 @@ export class ChatController {
       this.update((prev) =>
         prev.mcpSignIn?.callbackId === id ? { ...prev, mcpSignIn: undefined } : prev,
       );
+      this.refreshPanel(["mcp"]);
+    }
+  }
+
+  /**
+   * Starts signing in to an MCP server with another device's browser, its
+   * page coming back to `redirectUri` there: the page to open, none when
+   * signed in already (connected again then); `back` when the page comes
+   * back there, the address it came back to then going to mcpSignedIn.
+   */
+  async mcpSignInFor(
+    serverName: string,
+    redirectUri: string,
+  ): Promise<{ authUrl?: string; back: boolean }> {
+    const page = signInPageOf(await this.request("mcp_authenticate", { serverName, redirectUri }));
+    if (page.authUrl) return page;
+    try {
+      await this.request("mcp_reconnect", { serverName });
+    } finally {
+      this.refreshPanel(["mcp"]);
+    }
+    return { back: false };
+  }
+
+  /** Finishes another device's sign-in: the address its page came back to, to Claude Code. */
+  async mcpSignedIn(serverName: string, callbackUrl: string): Promise<void> {
+    try {
+      await this.request("mcp_oauth_callback_url", { serverName, callbackUrl });
+      await this.request("mcp_reconnect", { serverName });
+    } finally {
       this.refreshPanel(["mcp"]);
     }
   }
@@ -1924,6 +1951,24 @@ export function pruneAttachmentsOnce(workspaceId: string, openTabIds: string[]):
 /** Opens an MCP server's sign-in page in the user's browser, as a link in the tab is. */
 function openSignInPage(url: string): void {
   if (/^https?:\/\//i.test(url)) window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/**
+ * The sign-in page mcp_authenticate gives, none when signed in already;
+ * `back` false when nothing comes back to its redirect: a claude.ai
+ * connector is connected on claude.ai, and a version that keeps its own
+ * callback takes it on the host it runs on.
+ */
+export function signInPageOf(body: unknown): { authUrl?: string; back: boolean } {
+  const reply = body as
+    | { authUrl?: unknown; callbackExpected?: unknown; callbackPort?: unknown }
+    | undefined;
+  const authUrl = typeof reply?.authUrl === "string" ? reply.authUrl : undefined;
+  if (!authUrl) return { back: false };
+  return {
+    authUrl,
+    back: !(reply?.callbackExpected === false || typeof reply?.callbackPort === "number"),
+  };
 }
 
 /** The controller of a Claude tab that was shown, if any: its program and requests. */

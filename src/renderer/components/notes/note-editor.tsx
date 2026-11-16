@@ -7,9 +7,10 @@
  */
 import { type Editor, EditorContent, useEditor } from "@tiptap/react";
 import i18next from "i18next";
-import { Bot, FolderOpen, MoreHorizontal, ScrollText, Terminal, Trash2 } from "lucide-react";
+import { Bot, FolderOpen, MoreHorizontal, ScrollText, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { hasBlocksAt, insertionIndex, isEmptyDoc } from "../../../shared/notes/insert";
 import type { DocNode } from "../../../shared/notes/markdown";
 import { hasImage, imageBlock, type NoteContent } from "../../../shared/notes/types";
 import { imageExt, NoteAssetUrls, notesApi } from "../../services/notes/api";
@@ -340,6 +341,32 @@ function LoadedNote({
     });
   }, [note.id, t]);
 
+  // Blocks an agent put into the note (nexus note write, add): written into
+  // it already; put in this copy too, in the same place (once), which saves
+  // them with what is typed here.
+  useEffect(() => {
+    return notesApi.onBlocksAdded((event) => {
+      const e = editorRef.current;
+      if (event.noteId !== note.id || !e || e.isDestroyed) return;
+      const blocks = event.blocks as unknown as DocNode[];
+      const doc = e.getJSON() as DocNode;
+      if (isEmptyDoc(doc) && event.under === undefined) {
+        e.chain()
+          .insertContentAt({ from: 0, to: e.state.doc.content.size }, blocks, {
+            updateSelection: false,
+          })
+          .run();
+        return;
+      }
+      // A heading renamed here since: at the end, rather than nowhere.
+      const index = insertionIndex(doc, event.under) ?? e.state.doc.childCount;
+      if (hasBlocksAt(doc, index, blocks)) return;
+      let pos = 0;
+      for (let i = 0; i < index; i++) pos += e.state.doc.child(i).nodeSize;
+      e.chain().insertContentAt(pos, blocks, { updateSelection: false }).run();
+    });
+  }, [note.id]);
+
   const remove = async () => {
     const ok = await showConfirmDialog({
       title: t("editor.deleteConfirm.title", { title: title.trim() || t("panel.untitled") }),
@@ -469,12 +496,6 @@ function LoadedNote({
                 <FolderOpen className="size-3.5" aria-hidden="true" />
                 {t("editor.reveal")}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={() => void navigator.clipboard.writeText(`nexus note read ${note.id}`)}
-              >
-                <Terminal className="size-3.5" aria-hidden="true" />
-                {t("editor.copyCommand")}
-              </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void remove()}>
                 <Trash2 className="size-3.5" aria-hidden="true" />
                 {t("editor.delete")}
@@ -511,15 +532,6 @@ function LoadedNote({
         )}
       </div>
     </div>
-  );
-}
-
-/** Whether a document has nothing in it (no blocks, or one empty paragraph). */
-function isEmptyDoc(doc: DocNode): boolean {
-  const blocks = doc.content ?? [];
-  return (
-    blocks.length === 0 ||
-    (blocks.length === 1 && blocks[0]?.type === "paragraph" && !blocks[0].content?.length)
   );
 }
 

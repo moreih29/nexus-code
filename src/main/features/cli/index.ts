@@ -13,7 +13,8 @@ import {
   type CliResult,
 } from "../../../shared/cli/protocol";
 import type { CliUiOp, CliUiOps } from "../../../shared/cli/ui";
-import { FsStatSchema } from "../../../shared/fs/types";
+import { FS_READ_ABSOLUTE_BINARY_METHOD } from "../../../shared/fs/protocol";
+import { FileReadBinaryResultSchema, FsStatSchema } from "../../../shared/fs/types";
 import { ipcContract } from "../../../shared/ipc/contract";
 import { ipcOk } from "../../../shared/ipc/result";
 import { createLogger } from "../../../shared/log/main";
@@ -69,6 +70,11 @@ export interface SetupCliFeatureOptions {
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
+    update(id: string, partial: { pinned?: boolean }): WorkspaceMeta;
+    reorder(
+      id: string,
+      opts: { beforeId?: string; afterId?: string; targetGroup: "pinned" | "unpinned" },
+    ): WorkspaceMeta;
     getName(id: string): string | null;
     tryGetAgentChannel(id: string): Promise<AgentChannel | null>;
     activate(id: string): Promise<void>;
@@ -230,6 +236,9 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         added: true,
       };
     },
+    pinWorkspace: (id, pinned) => workspaceManager.update(id, { pinned }),
+    moveWorkspace: (id, { group, ...anchor }) =>
+      workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),
     claudeStatus: (workspaceId, tabId) => options.claudeBroker.get(workspaceId, tabId),
     activity: (workspaceId, tabId) => activity.get(workspaceId, tabId),
@@ -284,6 +293,14 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         if ((error as { code?: unknown }).code === "NOT_FOUND") return null;
         throw error;
       }
+    },
+    readFile: async (workspaceId, absolutePath) => {
+      const channel = await workspaceManager.tryGetAgentChannel(workspaceId);
+      if (!channel) throw new Error("that workspace is not connected");
+      const read = FileReadBinaryResultSchema.parse(
+        await channel.call(FS_READ_ABSOLUTE_BINARY_METHOD, { absolutePath }),
+      );
+      return read.kind === "ok" ? read.base64 : null;
     },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),

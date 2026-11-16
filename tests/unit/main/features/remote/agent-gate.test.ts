@@ -78,6 +78,9 @@ describe("an agent's request from another computer", () => {
     await expect(
       answer("chat.answer", { requestId: "r1", decision: "allow", always: [0] }),
     ).rejects.toMatchObject(refused);
+    await expect(
+      answer("chat.answer", { requestId: "r1", decision: "allow", planMode: "acceptEdits" }),
+    ).rejects.toMatchObject(refused);
     await answer("terminal.answer", { requestId: "a1", decision: "allow" });
     await expect(
       answer("terminal.answer", { requestId: "a1", decision: "allowAlways" }),
@@ -265,4 +268,7 @@ test("the sender a chat keeps: who, and on which computer", () => {
     tabId: "bt",
     device,
   });
+  // Whether it waits to read the answer, as a device of 0.13.0 or later tells it.
+  expect(relaySenderOf({ ...from, waits: false }, device)).toMatchObject({ waits: false });
+  expect(relaySenderOf({ ...from, waits: true }, device)).toMatchObject({ waits: true });
 });

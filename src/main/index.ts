@@ -38,7 +38,10 @@ import {
   PreviewDocuments,
   registerPreviewChannel,
 } from "./features/custom-protocols/nexus-preview";
-import { installNexusWorkspaceProtocol } from "./features/custom-protocols/nexus-workspace";
+import {
+  installNexusWorkspaceProtocol,
+  type PeerFileReader,
+} from "./features/custom-protocols/nexus-workspace";
 import { registerDialogChannel } from "./features/dialog";
 import { registerEntryPointsChannels } from "./features/entry-points/ipc";
 import { AgentFsWatcher } from "./features/fs/bridge/agent-watch";
@@ -186,7 +189,12 @@ let lspHost: LspHostHandle | null = null;
 let agentPtyHost: PtyHostHandle | null = null;
 let chatHost: ChatHost | null = null;
 let agentProfiles: { dispose(): void } | null = null;
-let remote: { themeChanged(): void; cli: CliRemote; dispose(): void } | null = null;
+let remote: {
+  themeChanged(): void;
+  cli: CliRemote;
+  peerFiles: PeerFileReader;
+  dispose(): void;
+} | null = null;
 let notesFeature: NotesFeature | null = null;
 let disposeClaudeFeature: (() => void) | null = null;
 let cliFeature: CliFeature | null = null;
@@ -508,7 +516,8 @@ app.whenReady().then(async () => {
 
   // Install the nexus-workspace:// protocol handler after the workspace
   // manager is initialised so workspace lookups resolve correctly.
-  installNexusWorkspaceProtocol(workspaceManager);
+  // Quick look over another computer's chat reads that computer's files once the remote is up.
+  installNexusWorkspaceProtocol(workspaceManager, () => remote?.peerFiles ?? null);
   installNexusPreviewProtocol(previewDocuments);
 
   gitStatusCoalescer = createStatusCoalescer({ delayMs: GIT_STATUS_COALESCE_DEBOUNCE_MS });
@@ -706,6 +715,18 @@ app.whenReady().then(async () => {
         if (!notesFeature) throw new Error("notes are not ready");
         return notesFeature.store.readTranscript(notesFeature.locationOf(workspaceId), noteId);
       },
+      create: (workspaceId, title) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.create(workspaceId, title);
+      },
+      append: (workspaceId, noteId, blocks, under) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.append(workspaceId, noteId, blocks, under);
+      },
+      addAsset: (workspaceId, noteId, bytes, name) => {
+        if (!notesFeature) throw new Error("notes are not ready");
+        return notesFeature.addAsset(workspaceId, noteId, bytes, name);
+      },
     },
   });
 
@@ -722,6 +743,8 @@ app.whenReady().then(async () => {
     },
     ports: portWatcher,
     forwards,
+    profileEnv: async (workspaceId, profileId) =>
+      (await chatHost?.terminalProfileEnv(workspaceId, profileId)) ?? null,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),

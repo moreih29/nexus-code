@@ -8,6 +8,8 @@
 // table here only names where each is read and how it is grouped. Pure,
 // for the dialog and its tests.
 
+import type { ModelInfo } from "./model";
+
 export type ConfigGroup = "conversation" | "work" | "other";
 
 export type ConfigValue = boolean | string;
@@ -28,6 +30,22 @@ export interface ConfigKey {
   global?: string;
   /** What it is when it is set nowhere; left out when that is not known. */
   fallback?: ConfigValue;
+}
+
+/** The settings as the dialog (/config) shows them. */
+export interface ConfigShown {
+  keys: ConfigKey[];
+  values: Record<string, ConfigValue | undefined>;
+  /** Claude Code's settings now, for the default effort (effortLevel, modelSettings). */
+  effective: Record<string, unknown>;
+  /** The model the session runs, whose saved effort is the one shown. */
+  model?: string;
+  /** Whether a default effort can be saved. */
+  effort: boolean;
+  /** The models the model takes, for their names and effort levels. */
+  models: readonly ModelInfo[];
+  /** The output styles it has, the user's own among them. */
+  outputStyles?: readonly string[];
 }
 
 /**

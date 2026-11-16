@@ -145,7 +145,11 @@ describe("changing another workspace", () => {
     agent stop 8f7b --tab codex | browser open localhost:3000 | browser goto localhost:3000/x
     browser back | browser forward | browser reload | browser click e1 | browser hover e1
     browser drag e1 e2 | browser scroll down | browser fill e1 x | browser type x
-    browser press Enter | browser upload e1 index.ts | browser eval 1`;
+    browser press Enter | browser upload e1 index.ts | browser eval 1
+    chat unsend eeee r7 | chat edit eeee r7 x | chat rewind eeee 0 | chat fork eeee
+    chat background eeee 2 | chat stop-task eeee b1 | chat remote-control eeee on
+    chat command eeee compact | chat resume 5f2a | note new x | note show nmhz00cc
+    note write nmhz00cc hi | note add nmhz00cc index.ts | note record nmhz00cc`;
   const READS = `
     worktree list | tab list | tab show codex | terminal list | terminal read codex
     terminal wait codex --match Working | session list | events | layout show | problems
@@ -155,13 +159,15 @@ describe("changing another workspace", () => {
     agent show 1a2b --tab codex | agent wait 1a2b --tab codex | browser list
     browser snapshot | browser inspect e1 | browser dialog | browser screenshot
     browser console | browser wait --text hi | browser pick | browser network
-    note list | note read nmhz00cc | note path nmhz00cc`;
+    note list | note read nmhz00cc | note path nmhz00cc | chat panel eeee | chat commands eeee
+    chat history`;
   /** What a command may do in "api" without asking: read it, show it, or arrange the window. */
   const LOOKS = new Set(
     `tabs.list tab.show terminal.read chat.state chat.read chat.tool events.read layout.get
     files.reveal problems.list agentView.get agentView.place agentView.remove panels.get
     panels.set page.snapshot page.inspect page.dialog page.screenshot page.console page.waitFor
-    page.pick page.network`.split(/\s+/),
+    page.pick page.network chat.entryItem chat.rewindPreview chat.panel chat.commands
+    chat.history`.split(/\s+/),
   );
 
   test("every command asks before it changes another workspace, and only then", async () => {
@@ -297,6 +303,9 @@ function apiAtWork(): FakeApp {
     run("1a2b63e3-a0e6-4b44-af95-03c2697fe716", { state: "completed", end: app.time.now - 1_000 }),
   ]);
   app.forwarding.forwards[API] = [{ remotePort: 3000, localPort: 3000, active: true }];
+  app.uiAnswers.set("chat.history", {
+    sessions: [{ sessionId: "5f2a-1", title: "Login", at: 0, cwd: "/w/api", profile: "default" }],
+  });
   return app;
 }
 

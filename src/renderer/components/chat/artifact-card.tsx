@@ -7,7 +7,6 @@ import { AppWindow, Check, ExternalLink, Eye, Link } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isAbsoluteOutsidePath } from "../../../shared/fs/outside-url";
-import { ipcCallResult } from "../../ipc/client";
 import {
   type ArtifactPage,
   artifactName,
@@ -15,6 +14,8 @@ import {
   titleOfHtml,
 } from "../../services/chat/artifact";
 import { lookupPath } from "../../services/chat/file-presence";
+import { readWorkspaceRange } from "../../services/editor/preview/read-range";
+import { peerOf } from "../../services/remote/peer-workspace";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
@@ -26,17 +27,13 @@ const HEAD_BYTES = 8 * 1024;
 const TITLE_TRIES = 4;
 const TITLE_RETRY_MS = 700;
 
-/** The bytes of a file from its start, as text; null when it cannot be read. */
+/**
+ * The bytes of a file from its start, as text; null when it cannot be read.
+ * Another computer's file is read through the room, by its path there.
+ */
 async function readHead(workspaceId: string, relPath: string): Promise<string | null> {
-  const read = await ipcCallResult("fs", "readRange", {
-    workspaceId,
-    relPath,
-    offset: 0,
-    length: HEAD_BYTES,
-  }).catch(() => null);
-  if (!read?.ok || read.value.kind !== "ok") return null;
-  const binary = atob(read.value.base64);
-  return new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0)));
+  const part = await readWorkspaceRange(workspaceId, relPath, 0, HEAD_BYTES).catch(() => null);
+  return part ? new TextDecoder().decode(part.bytes) : null;
 }
 
 /**
@@ -50,8 +47,9 @@ export function useArtifactName(page: ArtifactPage, workspaceId: string, rootPat
   useEffect(() => {
     setTitle(null);
     if (!wanted) return;
-    const relPath =
-      lookupPath(page.file, rootPath) ?? (isAbsoluteOutsidePath(page.file) ? page.file : null);
+    const relPath = peerOf(workspaceId)
+      ? page.file
+      : (lookupPath(page.file, rootPath) ?? (isAbsoluteOutsidePath(page.file) ? page.file : null));
     if (relPath === null) return;
     let gone = false;
     let tries = 0;

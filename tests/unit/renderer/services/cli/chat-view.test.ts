@@ -9,6 +9,7 @@ import { type ChatTabState, emptyTabState } from "../../../../../src/renderer/se
 import {
   chatEntriesOf,
   chatInfoOf,
+  chatItemIndexOf,
   chatToolOf,
   pageEntriesOf,
 } from "../../../../../src/renderer/services/cli/chat-view";
@@ -199,6 +200,32 @@ describe("chatEntriesOf", () => {
       "notice",
     ]);
     expect(chatEntriesOf(undefined, { messages: 5 })).toEqual({ entries: [], end: -1 });
+  });
+});
+
+describe("chatItemIndexOf", () => {
+  it("finds the item each entry is part of, and marks a message the agent has not read", () => {
+    const sent = {
+      kind: "user" as const,
+      key: "u2",
+      text: "Also the logout",
+      images: [],
+      state: "sent" as const,
+      queued: true,
+    };
+    const tab = chat({ ...conversation, items: [...(conversation.items ?? []), sent] });
+    // #0 the message, #1–#4 the answer (text, two calls, text), #5 the notice, #6 the new message.
+    expect([0, 1, 3, 4, 5, 6, 7].map((i) => chatItemIndexOf(tab, i))).toEqual([
+      0,
+      1,
+      1,
+      1,
+      2,
+      3,
+      null,
+    ]);
+    const last = chatEntriesOf(tab, { subagents: true }).entries.at(-1);
+    expect(last).toEqual({ i: 6, role: "user", text: "Also the logout", status: "unread" });
   });
 });
 

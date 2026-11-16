@@ -98,6 +98,7 @@ export const SETTINGS_PAGES = [
   "agent",
   "browser-permissions",
   "keybindings",
+  "remote",
   "about",
 ] as const;
 export type SettingsPage = (typeof SETTINGS_PAGES)[number];
@@ -113,6 +114,7 @@ const KEY_PAGES: readonly (readonly [string, SettingsPage])[] = [
   ["notifications.", "notifications"],
   ["updates.", "about"],
   ["agentcli.", "agent"],
+  ["voice.", "remote"],
 ];
 
 /** Other names a page goes by. */

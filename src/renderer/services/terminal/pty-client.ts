@@ -36,6 +36,7 @@ export function spawnSession(
   cwd: string,
   { cols, rows }: TerminalDimensions,
   shell?: ShellChoice,
+  profile?: string,
 ): Promise<SpawnedSession | null> {
   const key = sessionKey(workspaceId, tabId);
   if (liveSessions.has(key)) return Promise.resolve(null);
@@ -50,6 +51,7 @@ export function spawnSession(
     cols,
     rows,
     ...(shell !== undefined ? { shell } : {}),
+    ...(profile !== undefined ? { profile } : {}),
   })
     .then((ipcRes) => {
       const result = unwrapIpcResult(ipcRes);
@@ -205,6 +207,7 @@ export function createPtyClient({
   tabId,
   cwd,
   shell,
+  profile,
   onData,
   onExit,
 }: PtyClientOptions): PtyClient {
@@ -222,7 +225,7 @@ export function createPtyClient({
   });
 
   return {
-    spawn: (dimensions) => spawnSession(workspaceId, tabId, cwd, dimensions, shell),
+    spawn: (dimensions) => spawnSession(workspaceId, tabId, cwd, dimensions, shell, profile),
     write: (data) => writeSession(workspaceId, tabId, data),
     resize: (dimensions) => resizeSession(workspaceId, tabId, dimensions),
     dispose() {

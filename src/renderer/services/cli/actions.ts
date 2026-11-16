@@ -7,28 +7,30 @@
  * terminal the command came from. Where it goes is ./placement's call.
  */
 
-import i18next from "i18next";
 import { askCliConsent, settleCliConsent } from "@/components/cli/consent-dialog";
 import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
 import { holdsUnsavedChanges } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
+import { useAgentProfilesStore } from "@/state/stores/agent-profiles";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useGitStore } from "@/state/stores/git";
 import { useLayoutStore } from "@/state/stores/layout/store";
 import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
-import { resolvedTaskAgent, useTerminalStore } from "@/state/stores/terminal";
+import { resolvedTaskAgent } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
+import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profiles";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
-import { type ShellChoice, sameShellChoice } from "../../../shared/pty/shell";
+import { sameShellChoice } from "../../../shared/pty/shell";
 import { holdsInAgentView, showBesideCaller } from "../agent-view/show";
 import { classifyUrl } from "../browser/url-classifier";
 import { existingChatController } from "../chat/controller";
 import { reloadModelFromDisk } from "../editor/model/cache";
 import { isDirty } from "../editor/model/dirty-tracker";
+import { isPreviewable } from "../editor/preview/previewable";
 import { closeTabWithConfirm } from "../editor/save/close-tab";
 import { saveModel } from "../editor/save/service";
 import { countUnsavedBuffers } from "../editor/save/unsaved-guard";
@@ -36,15 +38,11 @@ import { workingFileOfDiff } from "../editor/tabs/diff-working-file";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
 import type { EditorInput } from "../editor/types";
 import { runningProgram } from "../terminal/close-confirm";
-import {
-  loadInstalledShells,
-  type ShellEntry,
-  shellEntries,
-  shellNamed,
-} from "../terminal/installed-shells";
+import { loadShellMenu, type ShellEntry, shellNamed } from "../terminal/installed-shells";
 import { closeTerminal } from "../terminal/open-terminal";
 import { queueStartupInput } from "../terminal/pty-client";
-import { getTerminalController } from "../terminal/terminal-registry";
+import { getTerminalController, whenTerminalController } from "../terminal/terminal-registry";
+import type { TerminalController } from "../terminal/types";
 import { activateWorkspace, removeTask, startTask, taskStartOf } from "../workspace/tasks";
 import { type CliUiHandler, UiRequestError } from "./handler";
 import type { LayoutOp } from "./layout-actions";
@@ -52,18 +50,42 @@ import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
 export { type CliUiHandler, UiRequestError } from "./handler";
 
+/** Whether this computer has an agent profile of that id. */
+function hasAnyProfile(id: string): boolean {
+  const config = useAgentProfilesStore.getState().config;
+  return PROFILE_AGENTS.some((agent) => hasProfile(config, agent, id));
+}
+
 /**
  * How long Enter waits after pasted text. Sent with the paste, it can reach
  * an agent's prompt inside the same read and be taken as part of the paste.
  */
 const ENTER_DELAY_MS = 120;
 
-function terminalController(tabId: string) {
-  const controller = getTerminalController(tabId);
+/** How long a terminal of a workspace not shown yet has to start behind the view. */
+const TERMINAL_START_MS = 10_000;
+
+/**
+ * A terminal's controller, once input reaches its shell. One whose
+ * workspace has not been opened yet, or just opened by terminal.new, starts
+ * behind the view, and is waited for: its view registers it before it opens,
+ * and its shell takes input once it has printed its prompt (whenReady).
+ */
+export async function startedTerminal(
+  workspaceId: string,
+  tabId: string,
+): Promise<TerminalController> {
+  const until = Date.now() + TERMINAL_START_MS;
+  let controller = getTerminalController(tabId);
   if (!controller) {
-    throw new UiRequestError(
-      "that terminal has not started: its workspace has not been opened since NexusCode started",
-    );
+    if (tabRecord(workspaceId, tabId).type !== "terminal") {
+      throw new UiRequestError("that tab is not a terminal");
+    }
+    useMountedWorkspacesStore.getState().mount(workspaceId);
+    controller = await whenTerminalController(tabId, TERMINAL_START_MS);
+  }
+  if (!controller || !(await controller.whenReady(Math.max(0, until - Date.now())))) {
+    throw new UiRequestError("that terminal did not start");
   }
   return controller;
 }
@@ -123,10 +145,15 @@ export const actionHandlers: {
     | "settings.open"
     | LayoutOp
     | `chat.${string}`
+    | `note.${string}`
     | `agentView.${string}`
   >]: CliUiHandler<K>;
 } = {
-  "editor.open": async ({ workspaceId, filePath, line, column, placement }) => {
+  "editor.open": async ({ workspaceId, filePath, line, column, view, placement }) => {
+    const previewable = isPreviewable(filePath) === "supported";
+    if (view === "preview" && !previewable) {
+      throw new UiRequestError(`${filePath.split(/[\\/]/).pop()} has no preview`);
+    }
     const open = findTabs(
       workspaceId,
       (tab) => tab.type === "editor" && tab.props.filePath === filePath,
@@ -134,6 +161,12 @@ export const actionHandlers: {
     const tabId =
       showOpenTab(workspaceId, open, placement) ??
       openTab(workspaceId, { type: "editor", props: { workspaceId, filePath } }, placement);
+    // As the tab's switch does: this tab alone, the format's default as it was.
+    if (view !== undefined && previewable) {
+      useTabsStore
+        .getState()
+        .setViewMode(workspaceId, tabId, view === "source" ? "raw" : "preview");
+    }
     if (line !== undefined) {
       const at = { lineNumber: line, column: column ?? 1 };
       requestEditorReveal({
@@ -195,9 +228,16 @@ export const actionHandlers: {
     return { tabId, sha, subject };
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, shell, placement }) => {
+  "terminal.open": async ({ workspaceId, cwd, title, command, shell, profile, placement }) => {
     const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
-    const props = { cwd, ...(choice ? { shell: choice } : {}) };
+    if (profile !== undefined && !hasAnyProfile(profile)) {
+      throw new UiRequestError(`no profile "${profile}"`);
+    }
+    const props = {
+      cwd,
+      ...(choice ? { shell: choice } : {}),
+      ...(profile !== undefined ? { profile } : {}),
+    };
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);
@@ -207,7 +247,7 @@ export const actionHandlers: {
   },
 
   "terminal.shells": async () => {
-    const { entries, defaultShell } = await shellMenu();
+    const { entries, defaultShell } = await loadShellMenu();
     return {
       shells: entries.map((entry) => ({
         name: entry.name,
@@ -219,8 +259,8 @@ export const actionHandlers: {
     };
   },
 
-  "terminal.input": async ({ tabId, text, mode, enter }) => {
-    const controller = terminalController(tabId);
+  "terminal.input": async ({ workspaceId, tabId, text, mode, enter }) => {
+    const controller = await startedTerminal(workspaceId, tabId);
     if (text !== "" && !controller.input(text, mode)) {
       throw new UiRequestError("that terminal has not opened yet");
     }
@@ -433,19 +473,9 @@ export const actionHandlers: {
   "consent.settle": async ({ id, answer, by }) => ({ settled: settleCliConsent(id, answer, by) }),
 };
 
-/** The shells "New terminal with" lists, and the one a new terminal runs. */
-async function shellMenu(): Promise<{ entries: ShellEntry[]; defaultShell: ShellChoice }> {
-  const installed = await loadInstalledShells();
-  const { customShells, shell } = useTerminalStore.getState();
-  return {
-    entries: shellEntries(i18next.t, installed, customShells),
-    defaultShell: shell ?? { kind: "detected", id: installed.systemDefault.id },
-  };
-}
-
 /** The shell `name` picks, or an error that lists the names to pick from. */
 async function shellByName(name: string): Promise<ShellEntry> {
-  const { entries } = await shellMenu();
+  const { entries } = await loadShellMenu();
   const entry = shellNamed(entries, name);
   if (entry) return entry;
   const names = entries.map((e) => e.name).join(", ");

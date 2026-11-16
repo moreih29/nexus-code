@@ -118,7 +118,12 @@ describe("another computer's chat's side panel", () => {
             { taskId: "j1", type: "local_bash", description: "dev server", status: "running" },
           ],
           changedFiles: [{ path: "/src/api/a.ts", added: 3, removed: 1 }],
-          context: { usedTokens: 50_000, maxTokens: 200_000 },
+          context: {
+            usedTokens: 50_000,
+            maxTokens: 200_000,
+            categories: [{ name: "System tools", tokens: 12_000 }],
+            freeTokens: 150_000,
+          },
           planLimits: [{ kind: "session", percent: 40 }],
         })}
         model={{ ...emptyModel(), model: "claude-opus-5-5" }}
@@ -133,12 +138,48 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("claude-opus-5-5");
     expect(html).toContain("work");
     expect(html).toContain("25%");
+    // What fills it and what is free, as a chat here's context shows.
+    expect(html).toContain("System tools");
+    expect(html).toContain("12.0k");
+    expect(html).toContain("150.0k tokens left");
     expect(html).toContain("Compact");
     expect(html).toContain("Write the test");
     expect(html).toContain("dev server");
     // Folded, as a chat here's: the files and the usage count on their titles.
     expect(html).toContain("Changed files");
     expect(html).toContain("Usage");
+  });
+
+  test("shows the first few jobs, those running and the newest, and counts the rest", () => {
+    const job = (n: number, status: "running" | "completed") => ({
+      taskId: `j${n}`,
+      type: "local_bash",
+      description: `job number ${n}`,
+      status,
+    });
+    const html = renderToStaticMarkup(
+      <RemoteSidePanel
+        target={target}
+        panel={panel({
+          tasks: [
+            job(1, "running"),
+            job(2, "completed"),
+            job(3, "completed"),
+            job(4, "completed"),
+            job(5, "completed"),
+          ],
+        })}
+        model={emptyModel()}
+        controls
+        onShowAgent={() => {}}
+        onCompact={() => {}}
+        onStopTask={() => {}}
+      />,
+    );
+    // Each once, though a row names its job twice (its text and its title).
+    const shown = [...new Set([...html.matchAll(/job number (\d)/g)].map((match) => match[1]))];
+    expect(shown).toEqual(["1", "5", "4"]);
+    expect(html).toContain("Show 2 more");
   });
 
   test("lets only a computer that allows control be compacted or have its runs stopped", () => {
@@ -179,6 +220,9 @@ describe("another computer's chat's side panel", () => {
     expect(remotePanelPartOf("/context")).toBe("context");
     expect(remotePanelPartOf(" /Usage ")).toBe("usage");
     expect(remotePanelPartOf("/status")).toBe("status");
+    expect(remotePanelPartOf("/mcp")).toBe("mcp");
+    expect(remotePanelPartOf("/mcp", "codex")).toBeNull();
+    expect(remotePanelPartOf("/status", "codex")).toBeNull();
     // With words after it, it goes to the computer as typed.
     expect(remotePanelPartOf("/context more")).toBeNull();
     expect(remotePanelPartOf("/compact")).toBeNull();

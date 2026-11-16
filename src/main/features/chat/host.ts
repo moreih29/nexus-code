@@ -342,6 +342,22 @@ export class ChatHost {
   }
 
   /**
+   * What a terminal opened for a profile runs with in the workspace, as a
+   * chat of it does: its folder's variable and its own variables. Null for
+   * a profile there is not.
+   */
+  async terminalProfileEnv(
+    workspaceId: string,
+    profileId: string,
+  ): Promise<Record<string, string> | null> {
+    const profile = this.options.profile?.(profileId);
+    if (!profile) return null;
+    const channel = await this.options.workspaceManager.getAgentChannel(workspaceId);
+    await channel.ready;
+    return this.profileEnv(channel, profile.agent, profile.id);
+  }
+
+  /**
    * What the agent's program runs with for the profile: its folder, made on
    * the workspace's host and named by its variable, and its own variables.
    * None for the default profile, or one gone.

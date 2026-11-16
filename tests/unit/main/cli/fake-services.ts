@@ -24,11 +24,16 @@ import {
   CliError,
   type CliRemote,
   type CliServices,
+  type WorkspaceMove,
 } from "../../../../src/main/features/cli/context";
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
-import type { AgentRun } from "../../../../src/shared/claude/activity";
+import type {
+  AgentRun,
+  PermissionAnswer,
+  PermissionAsk,
+} from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliAgentView,
@@ -45,10 +50,12 @@ import type {
   CliUiOp,
   CliUiOps,
 } from "../../../../src/shared/cli/ui";
+import { withBlocks } from "../../../../src/shared/notes/insert";
 import type { TranscriptFile } from "../../../../src/shared/notes/transcript";
 import type { NoteContent } from "../../../../src/shared/notes/types";
 import type { ListeningPort, PortForward } from "../../../../src/shared/pty/ports";
 import type { WorkspaceLocation, WorkspaceMeta } from "../../../../src/shared/types/workspace";
+import { compareWorkspaceOrder } from "../../../../src/shared/workspace-order";
 
 export const APP = "11111111-1111-4111-8111-111111111111";
 export const API = "22222222-2222-4222-8222-222222222222";
@@ -146,6 +153,9 @@ const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = 
 };
 
 /** What is on disk, by workspace and path from its root. */
+/** The files readFile reads, by absolute path, with their text. */
+export const READABLE: Record<string, string> = {};
+
 const FILES: Record<string, Record<string, "file" | "dir">> = {
   [APP]: { "index.ts": "file", src: "dir", "src/login.ts": "file" },
   [API]: { "main.go": "file" },
@@ -157,6 +167,8 @@ export interface FakeApp {
   workspaces: WorkspaceMeta[];
   /** What addWorkspace was asked for. */
   added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
+  /** The sidebar's changes asked for: a pin, or a move. */
+  sidebar: Array<{ id: string; patch?: { pinned: boolean }; to?: WorkspaceMove }>;
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
@@ -197,6 +209,8 @@ export interface FakeApp {
   browser: FakeBrowser;
   /** Each workspace's notes (by workspace id), as the notes service gives them. */
   notes: Record<string, NoteContent[]>;
+  /** The files put into notes: the note, where it keeps each, and its text. */
+  noteAssets: Array<{ noteId: string; src: string; text: string }>;
   /** Notes' transcripts, by "<workspace id>/<note id>". */
   transcripts: Record<string, TranscriptFile>;
   /** Each workspace's editor area; a test may replace one. */
@@ -229,6 +243,15 @@ export interface FakeApp {
   chatChoices: Map<string, CliChatChoices>;
   /** What chat.open answers it could not set; it sets everything when absent. */
   chatOpenError: { message?: string };
+  /**
+   * What a renderer op answers, by its name, ahead of everything else: a
+   * value, or a function of its args (which may throw).
+   */
+  uiAnswers: Map<string, unknown | ((args: unknown) => unknown)>;
+  /** The requests each terminal's Claude Code holds, by tab id. */
+  terminalAsks: Map<string, PermissionAsk[]>;
+  /** The terminal requests answered: tab id, request id, answer. */
+  terminalAnswered: Array<{ tabId: string; askId: string; answer: PermissionAnswer }>;
   /** Why tab.close leaves a tab open, by tab id; it closes the others. */
   closeRefused: Map<string, string>;
 }
@@ -381,6 +404,22 @@ export function fakeApp(now = Date.now()): FakeApp {
   const screens = new Map([[CODEX_TAB, "› Summarize the API\n\n• Working (12s)"]]);
   const workspaces = [...WORKSPACES];
   const added: FakeApp["added"] = [];
+  const sidebar: FakeApp["sidebar"] = [];
+  /**
+   * Puts `meta` into its group at `at` (the end when absent), numbering the
+   * group's places again, as the sidebar keeps them.
+   */
+  const place = (meta: WorkspaceMeta, at?: (group: WorkspaceMeta[]) => number) => {
+    const group = workspaces
+      .filter((w) => !w.task && w.pinned === meta.pinned && w.id !== meta.id)
+      .sort(compareWorkspaceOrder);
+    group.splice(at ? at(group) : group.length, 0, meta);
+    group.forEach((w, k) => {
+      const i = workspaces.findIndex((other) => other.id === w.id);
+      workspaces[i] = w.pinned ? { ...w, pinnedSortOrder: k + 1 } : { ...w, sortOrder: k + 1 };
+    });
+    return workspaces.find((w) => w.id === meta.id) as WorkspaceMeta;
+  };
   const tabs: FakeApp["tabs"] = Object.fromEntries(
     Object.entries(TABS).map(([id, list]) => [id, list.map((t) => ({ ...t }))]),
   );
@@ -480,8 +519,53 @@ export function fakeApp(now = Date.now()): FakeApp {
       return (await peers.answer(deviceId, method, params)) as never;
     },
   };
+  const noteAssets: FakeApp["noteAssets"] = [];
+  const uiAnswers: FakeApp["uiAnswers"] = new Map();
+  const terminalAsks: FakeApp["terminalAsks"] = new Map();
+  const terminalAnswered: FakeApp["terminalAnswered"] = [];
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
+    if (uiAnswers.has(op)) {
+      const answer = uiAnswers.get(op);
+      return (typeof answer === "function" ? answer(args) : answer) as CliUiOps[K]["result"];
+    }
+    // Each entry is an item of its own, keyed k<i>.
+    if (op === "chat.entryItem") {
+      const { tabId, i } = args as CliUiOps["chat.entryItem"]["args"];
+      const entry = chats.get(tabId)?.entries.find((e) => e.i === i);
+      if (!entry) throw new CliError(`no message #${i} in that tab`);
+      const kind =
+        entry.role === "user" ? "user" : entry.role === "notice" ? "notice" : "assistant";
+      return {
+        itemKey: `k${i}`,
+        kind,
+        ...(kind === "user" ? { text: entry.text } : {}),
+      } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.rewindPreview") {
+      return {
+        canRewind: true,
+        filesChanged: [],
+        insertions: 0,
+        deletions: 0,
+      } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.fork" || op === "chat.resume") {
+      return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
+    if (op === "note.recorder") return { phase: "idle", voice: "ready" } as CliUiOps[K]["result"];
+    if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
+    if (op === "chat.panel") {
+      return {
+        todos: [],
+        tasks: [],
+        agents: [],
+        changedFiles: [],
+        context: null,
+        goal: null,
+      } as CliUiOps[K]["result"];
+    }
     // Another device's chat page, its user messages and the agent's text told as chat read tells them.
     if (op === "chat.pageEntries") {
       const { page } = args as CliUiOps["chat.pageEntries"]["args"];
@@ -662,11 +746,45 @@ export function fakeApp(now = Date.now()): FakeApp {
       workspaces.push(made);
       return { workspace: made, added: true };
     },
+    pinWorkspace: (id, pinned) => {
+      const patch = { pinned };
+      sidebar.push({ id, patch });
+      const i = workspaces.findIndex((w) => w.id === id);
+      const found = workspaces[i];
+      if (!found) throw new Error(`workspace not found: ${id}`);
+      const meta = { ...found, ...patch };
+      // A pin or unpin puts it at the end of its new group.
+      if (pinned !== found.pinned) return place(meta);
+      workspaces[i] = meta;
+      return meta;
+    },
+    moveWorkspace: (id, to) => {
+      sidebar.push({ id, to });
+      const found = workspaces.find((w) => w.id === id);
+      if (!found) throw new Error(`workspace not found: ${id}`);
+      const meta = { ...found, pinned: to.group === "pinned" };
+      return place(meta, (group) =>
+        to.beforeId !== undefined
+          ? group.findIndex((w) => w.id === to.beforeId)
+          : to.afterId !== undefined
+            ? group.findIndex((w) => w.id === to.afterId) + 1
+            : group.length,
+      );
+    },
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
-    claudeAsks: () => [],
-    answerClaudeAsk: async () => false,
+    claudeAsks: (_workspaceId, tabId) => terminalAsks.get(tabId) ?? [],
+    answerClaudeAsk: async (_workspaceId, tabId, askId, answer) => {
+      const asks = terminalAsks.get(tabId) ?? [];
+      if (!asks.some((ask) => ask.id === askId)) return false;
+      terminalAnswered.push({ tabId, askId, answer });
+      terminalAsks.set(
+        tabId,
+        asks.filter((ask) => ask.id !== askId),
+      );
+      return true;
+    },
     consents: { list: () => [], answer: async () => false },
     remote,
     claudeAgents: {
@@ -680,6 +798,10 @@ export function fakeApp(now = Date.now()): FakeApp {
     ui,
     notify: () => true,
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
+    readFile: async (_workspaceId, absolutePath) => {
+      const text = READABLE[absolutePath];
+      return text === undefined ? null : Buffer.from(text).toString("base64");
+    },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
     agentContextEnabled: () => settings.agentContext,
@@ -708,6 +830,43 @@ export function fakeApp(now = Date.now()): FakeApp {
       },
       transcript: async (workspaceId, noteId) =>
         transcripts[`${workspaceId}/${noteId}`] ?? { version: 1, recordings: [] },
+      create: async (workspaceId, title) => {
+        const id = `nnew${String((notes[workspaceId] ?? []).length).padStart(4, "0")}`;
+        const note = {
+          id,
+          title,
+          createdAt: time.now,
+          updatedAt: time.now,
+          counts: { sketches: 0, files: 0, images: 0, todos: 0, todosDone: 0 },
+          excerpt: "",
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          dir: `/data/notes/${workspaceId}/${id}`,
+        };
+        notes[workspaceId] = [note, ...(notes[workspaceId] ?? [])];
+        return note;
+      },
+      append: async (workspaceId, noteId, blocks, under) => {
+        const note = (notes[workspaceId] ?? []).find((n) => n.id === noteId);
+        if (!note) throw new Error(`no note ${noteId}`);
+        const doc = withBlocks(note.doc, blocks, under);
+        if (!doc) throw new Error(`no heading "${under}" in the note`);
+        note.doc = doc;
+      },
+      addAsset: async (workspaceId, noteId, bytes, name) => {
+        if (!(notes[workspaceId] ?? []).some((n) => n.id === noteId)) {
+          throw new Error(`no note ${noteId}`);
+        }
+        const image = /\.(png|jpe?g|gif|webp)$/i.test(name);
+        const src = `${image ? "screens" : "materials"}/${name}`;
+        noteAssets.push({ noteId, src, text: Buffer.from(bytes).toString() });
+        const asset = { src, name, size: bytes.byteLength };
+        return {
+          asset,
+          block: image
+            ? { type: "noteImage", attrs: { src, alt: name } }
+            : { type: "noteFile", attrs: { src, name, size: bytes.byteLength } },
+        };
+      },
     },
     forwards: {
       list: (workspaceId) => forwarding.forwards[workspaceId] ?? [],
@@ -729,6 +888,7 @@ export function fakeApp(now = Date.now()): FakeApp {
     services,
     workspaces,
     added,
+    sidebar,
     tabs,
     uiCalls,
     claude,
@@ -756,6 +916,10 @@ export function fakeApp(now = Date.now()): FakeApp {
     chatAnswered,
     chatChoices,
     chatOpenError,
+    uiAnswers,
+    noteAssets,
+    terminalAsks,
+    terminalAnswered,
     closeRefused,
   };
 }

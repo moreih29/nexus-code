@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import type { SessionState } from "../../../../packages/remote-protocol/src/rpc";
 import { openKey, remoteSessionKey } from "../../services/agent-view/layout";
+import { requestTabFocus } from "../../services/tab-focus";
 import { useAgentViewStore } from "./agent-view";
 
 /** A session of another computer, with the names to tell it by. */
@@ -48,7 +49,8 @@ interface RemoteViewState {
   targets: ReadonlyMap<string, RemoteTarget>;
   /**
    * Shows a session as a tab of the agent view: in front of the panel
-   * holding it, else added to `leafId` (the active panel by default).
+   * holding it, else added to `leafId` (the active panel by default), with
+   * the keyboard, as a chat of this computer's opens.
    */
   open(target: RemoteTarget, leafId?: string): void;
   /** Takes up a computer's newer names and titles for the tabs of its sessions. */
@@ -66,6 +68,7 @@ export const useRemoteViewStore = create<RemoteViewState>((set, get) => ({
     const view = useAgentViewStore.getState();
     view.setMode("agents");
     view.update((layout) => openKey(layout, key, leafId));
+    requestTabFocus(key);
   },
 
   refresh(deviceId, listed) {

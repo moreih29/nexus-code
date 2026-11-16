@@ -27,7 +27,7 @@ export const RelaySenderSchema = z.object({
   /**
    * Whether the sender waits for the answer (chat send --wait), and so reads
    * what the agent answers in its tab; false when it sent and went on, and
-   * left out when that is not known (chat new, another computer).
+   * left out when that is not known (chat new, another computer before 0.13.0).
    */
   waits: z.boolean().optional(),
 });

@@ -104,6 +104,24 @@ export interface ComposerController {
   interrupt(): Promise<unknown>;
   clearDraft(): void;
   attach(name: string, data: string): Promise<string>;
+  /**
+   * Sends an attached file ahead to where the program runs (another
+   * computer's chat): the id the message carries it by, in place of a path
+   * it mentions. Left out where `attach` writes it.
+   */
+  upload?(file: File): Promise<string>;
+  /**
+   * Sends a message whose files went ahead (`uploads`, the ids `upload`
+   * gave), as send, sendNow or enqueue sends one without: where `upload` is.
+   */
+  sendUploaded?(
+    how: "send" | "now" | "queue",
+    text: string,
+    images: ImageBlock[],
+    uploads: readonly string[],
+  ): Promise<void>;
+  /** The most images and files one message carries; any number when left out. */
+  readonly maxAttachments?: number;
   fileSuggestions(query: string): Promise<string[]>;
   /** Whether the program answers a request the composer makes (Claude Code's names). */
   supports(subtype: string): boolean;
@@ -390,9 +408,16 @@ export function Composer({
     setFiles([]);
   };
 
-  /** The message with its attached files' mentions after the text. */
-  const withAttachments = async (body: string): Promise<string> => {
-    if (files.length === 0) return body;
+  /**
+   * The message with its attached files' mentions after the text, or with
+   * the ids they went ahead by where the controller uploads them.
+   */
+  const withAttachments = async (body: string): Promise<{ message: string; uploads: string[] }> => {
+    if (files.length === 0) return { message: body, uploads: [] };
+    const upload = controller.upload?.bind(controller);
+    if (upload) {
+      return { message: body, uploads: await Promise.all(files.map((a) => upload(a.file))) };
+    }
     const paths = await Promise.all(
       files.map(
         async (attachment) =>
@@ -401,7 +426,7 @@ export function Composer({
       ),
     );
     const mentions = paths.map(fileMention).join(" ");
-    return body.trim() ? `${body}\n\n${mentions}` : mentions;
+    return { message: body.trim() ? `${body}\n\n${mentions}` : mentions, uploads: [] };
   };
 
   /**
@@ -419,17 +444,27 @@ export function Composer({
       clear();
       return;
     }
+    const max = controller.maxAttachments;
+    if (max !== undefined && images.length + files.length > max) {
+      showToast({ kind: "warning", message: t("chat.composer.too_many_attachments", { max }) });
+      return;
+    }
     let message: string;
+    let uploads: string[];
     setSending(true);
     try {
-      message = await withAttachments(body);
+      ({ message, uploads } = await withAttachments(body));
     } catch (err) {
       showError(err as Error);
       return;
     } finally {
       setSending(false);
     }
-    if (how === "queue" && running) controller.enqueue(message, images);
+    const sendUploaded = controller.sendUploaded?.bind(controller);
+    if (uploads.length > 0 && sendUploaded) {
+      const as = how === "queue" && running ? "queue" : how === "now" && running ? "now" : "send";
+      void sendUploaded(as, message, images, uploads).catch((err: Error) => showError(err));
+    } else if (how === "queue" && running) controller.enqueue(message, images);
     else if (how === "now" && running && controller.sendNow) {
       void controller.sendNow(message, images).catch((err: Error) => showError(err));
     } else void controller.send(message, images).catch((err: Error) => showError(err));

@@ -622,6 +622,34 @@ describe("chat panel", () => {
       { kind: "session", percent: 15, resetsAt: "2026-11-05T19:20:00Z", active: false },
       { kind: "weekly_scoped", scope: "Fable", percent: 0, active: false },
     ]);
+    // The usage endpoint failed: Claude Code tells the windows of the API's
+    // last response headers, with at most a model's own week in the list.
+    expect(
+      usageLimitsOf({
+        rate_limits: {
+          five_hour: { utilization: 5, resets_at: "2026-11-16T05:20:00.000Z" },
+          seven_day: { utilization: 78, resets_at: "2026-11-19T14:00:00.000Z" },
+          limits: [
+            {
+              kind: "weekly_scoped",
+              percent: 3,
+              resets_at: "2026-11-19T14:00:00.000Z",
+              scope: { model: { display_name: "Fable" } },
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      { kind: "session", percent: 5, resetsAt: "2026-11-16T05:20:00.000Z", active: false },
+      { kind: "weekly_all", percent: 78, resetsAt: "2026-11-19T14:00:00.000Z", active: false },
+      {
+        kind: "weekly_scoped",
+        scope: "Fable",
+        percent: 3,
+        resetsAt: "2026-11-19T14:00:00.000Z",
+        active: false,
+      },
+    ]);
   });
 });
 

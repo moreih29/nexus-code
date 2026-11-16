@@ -115,6 +115,18 @@ interface MessageListProps {
   moves?: readonly ShownMove[];
   /** The messages other agents sent through the nexus command: shown as received. */
   relayed?: readonly RelayedMessage[];
+  /**
+   * Messages before the first of the conversation's that are not here yet
+   * (another computer's chat, read a page at a time): asked for as the
+   * rendered ones are, once those all show.
+   */
+  older?: OlderMessages;
+}
+
+export interface OlderMessages {
+  count: number;
+  loading: boolean;
+  load(): void;
 }
 
 /**
@@ -206,6 +218,7 @@ export function MessageList({
   reveal,
   moves,
   relayed,
+  older,
 }: MessageListProps) {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -385,12 +398,22 @@ export function MessageList({
     frame = requestAnimationFrame(look);
     return () => cancelAnimationFrame(frame);
   }, [shownCall]);
+  // Those not here yet are read in when all the rendered ones show.
+  const unread = older?.count ?? 0;
   const showEarlier = useCallback(() => {
     const el = scrollRef.current;
     if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
     stuck.current = false;
-    setMore((m) => m + WINDOW_ITEMS);
-  }, []);
+    if (start > 0) setMore((m) => m + WINDOW_ITEMS);
+    else older?.load();
+  }, [start, older]);
+  // Messages read in before the first ones render at once.
+  const wasUnread = useRef(unread);
+  useLayoutEffect(() => {
+    const read = wasUnread.current - unread;
+    wasUnread.current = unread;
+    if (read > 0) setMore((m) => m + read);
+  }, [unread]);
   // The messages put above keep the view on what it showed.
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -437,13 +460,14 @@ export function MessageList({
           )}
         >
           {nothing && empty}
-          {start > 0 && (
+          {start + unread > 0 && (
             <button
               type="button"
               onClick={showEarlier}
-              className="self-center rounded-(--radius-control) border border-border px-3 py-1 text-app-micro text-muted-foreground hover:text-foreground"
+              disabled={start === 0 && older?.loading}
+              className="self-center rounded-(--radius-control) border border-border px-3 py-1 text-app-micro text-muted-foreground hover:text-foreground disabled:opacity-40"
             >
-              {t("chat.show_earlier", { count: start })}
+              {t("chat.show_earlier", { count: start + unread })}
             </button>
           )}
           {historyItems.slice(Math.min(start, historyItems.length)).map((item) => (

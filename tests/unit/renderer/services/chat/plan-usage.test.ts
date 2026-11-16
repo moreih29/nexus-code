@@ -15,6 +15,7 @@ import {
   UNAVAILABLE_MS,
   usePlanUsageStore,
   wantPlanUsage,
+  watchPlanUsageAfar,
 } from "../../../../../src/renderer/services/chat/plan-usage";
 import type { WorkspaceLocation } from "../../../../../src/shared/types/workspace";
 
@@ -123,6 +124,20 @@ describe("asking for a profile's usage", () => {
     now += FORCED_GAP_MS;
     await wantPlanUsage(KEY, { force: true });
     expect(tab.asks).toBe(6);
+  });
+
+  test("the windows Claude Code tells from the headers, its usage endpoint failing, are an answer", async () => {
+    const headers = {
+      rate_limits: {
+        five_hour: { utilization: 5, resets_at: "2026-11-16T05:20:00.000Z" },
+        seven_day: { utilization: 78, resets_at: "2026-11-19T14:00:00.000Z" },
+      },
+    };
+    source(() => Promise.resolve(headers));
+    await wantPlanUsage(KEY);
+    expect(entry()?.failures).toBe(0);
+    expect(entry()?.claude).toEqual(headers);
+    expect(entry()?.nextAt).toBe(now + FRESH_MS);
   });
 
   test("an answer that comes back after failures starts the waits over", async () => {
@@ -325,6 +340,39 @@ describe("every minute", () => {
       page.dispatchEvent(new Event("visibilitychange"));
       await settle();
       expect(tab.asks).toBe(1);
+    } finally {
+      resetPlanUsage(() => now);
+      if (real) Object.defineProperty(globalThis, "document", real);
+      else delete (globalThis as { document?: unknown }).document;
+    }
+  });
+
+  test("a chat another device watches is asked for as it starts, and each minute, the window hidden", async () => {
+    const real = Object.getOwnPropertyDescriptor(globalThis, "document");
+    const page = Object.assign(new EventTarget(), { visibilityState: "hidden" });
+    Object.defineProperty(globalThis, "document", { value: page, configurable: true });
+    try {
+      resetPlanUsage(() => now);
+      const watched = source(() => Promise.resolve(LIMITS));
+      const other = source(() => Promise.resolve(LIMITS), { key: "claude|local|work" });
+      const stop = watchPlanUsageAfar("w1", () => KEY);
+      await settle();
+      expect(watched.asks).toBe(1);
+      now += POLL_MS;
+      pollPlanUsage();
+      await settle();
+      expect(watched.asks).toBe(2);
+      // Only the profile watched.
+      expect(other.asks).toBe(0);
+      stop();
+      now += POLL_MS;
+      pollPlanUsage();
+      await settle();
+      expect(watched.asks).toBe(2);
+      // Its tab gone, nothing.
+      watchPlanUsageAfar("w2", () => null);
+      await settle();
+      expect(watched.asks + other.asks).toBe(2);
     } finally {
       resetPlanUsage(() => now);
       if (real) Object.defineProperty(globalThis, "document", real);

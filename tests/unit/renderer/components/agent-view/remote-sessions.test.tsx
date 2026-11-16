@@ -4,6 +4,7 @@ import type { RemoteSession } from "../../../../../packages/remote-protocol/src/
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
 const {
+  HungTerminals,
   OfflinePeer,
   PeerGroup,
   RemoteSessionRow,
@@ -177,32 +178,31 @@ describe("the agent view's other computers", () => {
     expect(listedByDefault(terminal({ agent: "claude", state: "ended" }))).toBe(false);
   });
 
-  test("lists a workspace's terminals when asked there, when one is in a panel, or when a search finds one", () => {
+  test("leaves a workspace's terminals with only their shell to its chip, unless in a panel or found", () => {
     const plain = session({ tabId: "t9", kind: "terminal", title: "dev server" });
     const other = session({ tabId: "t8", workspaceId: "w2", kind: "terminal", title: "logs" });
     const chat = session({ tabId: "t1" });
     const none = () => false;
     const all = [chat, plain, other];
-    expect(listedSessions(all, "", none, none)).toEqual({
+    expect(listedSessions(all, "", none)).toEqual({
       listed: [chat],
-      hidden: new Map([
-        ["w1", 1],
-        ["w2", 1],
+      plain: new Map([
+        ["w1", [plain]],
+        ["w2", [other]],
       ]),
     });
-    // Asked for in one workspace: the other's stay out of sight.
-    expect(listedSessions(all, "", (w) => w === "w1", none)).toEqual({
+    // One in a panel is listed with the others, and its chip no longer counts it.
+    expect(listedSessions(all, "", (s) => s.tabId === "t9")).toEqual({
       listed: [chat, plain],
-      hidden: new Map([["w2", 1]]),
+      plain: new Map([["w2", [other]]]),
     });
-    expect(listedSessions(all, "", none, (s) => s.tabId === "t9").listed).toEqual([chat, plain]);
-    expect(listedSessions(all, "server", none, none)).toEqual({
+    expect(listedSessions(all, "server", none)).toEqual({
       listed: [plain],
-      hidden: new Map(),
+      plain: new Map(),
     });
   });
 
-  test("each workspace has its own toggle for its terminals, one with only terminals too", () => {
+  test("each workspace has its own chip for its terminals in its heading, one with only terminals too", () => {
     const html = renderToStaticMarkup(
       <PeerGroup
         peer={peer}
@@ -221,14 +221,66 @@ describe("the agent view's other computers", () => {
     expect(html.match(/data-testid="remote-terminals-toggle"/g)?.length).toBe(2);
     expect(html).toContain('data-workspace="w1"');
     expect(html).toContain('data-workspace="w2"');
-    expect(html).toContain("Show 1 terminal");
-    expect(html).toContain("Show 2 terminals");
-    // The workspace with only terminals is named, for its toggle.
+    expect(html).toContain('aria-label="Show 1 terminal"');
+    expect(html).toContain('aria-label="Show 2 terminals"');
+    // The workspace with only terminals is named, for its chip.
     expect(html).toContain(">web<");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain(">logs<");
-    // Its toggle comes under its own sessions, not the computer's last.
-    expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf(">web<"));
+    // Each chip is in its own workspace's heading, before that workspace's rows.
+    const headings = html.split('data-testid="remote-workspace"').slice(1);
+    expect(headings[0]?.split("</div>")[0]).toContain("Show 1 terminal");
+    expect(html.indexOf("Show 1 terminal")).toBeLessThan(html.indexOf("Fix the build"));
+    expect(headings[1]?.split("</div>")[0]).toContain("Show 2 terminals");
+  });
+
+  test("a workspace's terminals chip reads as a link: a terminal, how many, and which way it goes", () => {
+    const html = renderToStaticMarkup(
+      <PeerGroup
+        peer={peer}
+        query=""
+        sessions={{
+          status: "ready",
+          list: list([
+            session({ tabId: "t1", title: "Fix the build" }),
+            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
+          ]),
+        }}
+      />,
+    );
+    const chip = html.slice(
+      html.indexOf("<button", html.indexOf('data-testid="remote-workspace"')),
+    );
+    const end = chip.indexOf("</button>");
+    expect(chip.slice(0, end)).toContain("text-(--state-selected-indicator)");
+    expect(chip.slice(0, end)).toContain("rounded-full");
+    expect(chip.slice(0, end)).toContain('aria-expanded="false"');
+    expect(chip.slice(0, end)).toContain("lucide-square-terminal");
+    expect(chip.slice(0, end)).toContain(">1<");
+    expect(chip.slice(0, end)).toContain("lucide-chevron-down");
+  });
+
+  test("terminals asked for hang from the heading's icon: set in, a line down to each", () => {
+    const html = renderToStaticMarkup(
+      <HungTerminals
+        rows={[
+          { key: "t1", row: <span>dev server</span> },
+          { key: "t2", row: <span>zsh</span> },
+        ]}
+      />,
+    );
+    const rows = html.split('class="relative pl-5"').slice(1);
+    expect(rows).toHaveLength(2);
+    // The first reaches up to the icon; it goes on down and branches off to its row.
+    expect(rows[0]).toContain("-top-1");
+    expect(rows[0]).toContain("bottom-0");
+    expect(rows[0]).toContain("top-1/2");
+    expect(rows[0]).toContain("dev server");
+    // The last turns to its row and ends there.
+    expect(rows[1]).toContain("top-0");
+    expect(rows[1]).toContain("bottom-1/2");
+    expect(rows[1]).toContain("border-b");
+    expect(rows[1]).toContain("zsh");
   });
 
   test("heads a workspace as its group's title: a folder, or a task's branch and how it stands", () => {
@@ -263,26 +315,6 @@ describe("the agent view's other computers", () => {
     expect(headings[0]).toContain("font-semibold");
     expect(headings[1]).toContain("lucide-git-branch");
     expect(headings[1]).toContain("fix/login ↑2 ●");
-  });
-
-  test("a workspace's terminals toggle reads as a link, lined up with the rows' titles", () => {
-    const html = renderToStaticMarkup(
-      <PeerGroup
-        peer={peer}
-        query=""
-        sessions={{
-          status: "ready",
-          list: list([
-            session({ tabId: "t1", title: "Fix the build" }),
-            session({ tabId: "t2", kind: "terminal", title: "dev server" }),
-          ]),
-        }}
-      />,
-    );
-    const toggle = html.slice(html.indexOf('data-testid="remote-terminals-toggle"') - 400);
-    expect(toggle).toContain("text-(--state-selected-indicator)");
-    expect(toggle).toContain("pl-6.5");
-    expect(toggle).toContain("lucide-square-terminal");
   });
 
   test("finds sessions by their title or last line", () => {

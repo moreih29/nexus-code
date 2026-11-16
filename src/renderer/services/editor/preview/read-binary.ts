@@ -5,6 +5,7 @@
 
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
 import { ipcCallResult } from "../../../ipc/client";
+import { peerOf, readPeerBinary } from "../../remote/peer-workspace";
 import { bytesFromBase64 } from "../encoding/text-encoding";
 
 export type BinaryRead =
@@ -18,6 +19,9 @@ export async function readWorkspaceBinary(
   workspaceId: string,
   relPath: string,
 ): Promise<BinaryRead> {
+  // Another computer's file, read through the room.
+  const peer = peerOf(workspaceId);
+  if (peer) return readPeerBinary(peer, relPath);
   const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath });
   if (stat.ok && stat.value.size > MAX_READABLE_FILE_SIZE) return { kind: "too_large" };
   const read = await ipcCallResult("fs", "readBinary", { workspaceId, relPath });

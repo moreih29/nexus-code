@@ -31,7 +31,7 @@ import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
-import type { TaskInfo, ToolCall } from "../../services/chat/model";
+import type { ChatItem, TaskInfo, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
   agentsOf,
@@ -110,52 +110,14 @@ export function SidePanel({
   );
   const agents = useMemo(() => [...agentsOf(model), ...runs], [model, runs]);
   const jobs = useMemo(() => jobsOf(model), [model]);
+  const listed = useMemo(() => newestJobsFirst(jobs), [jobs]);
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
-  // A file is listed once it is found to be one.
-  const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
-  const filePaths = useMemo(() => {
-    const paths = new Map<string, string>();
-    for (const result of named) {
-      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
-      if (path) paths.set(result.target, path);
-    }
-    return paths;
-  }, [named, cwd]);
-  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
-  // A file named before the agent made it is found once a tool of its is done.
-  const toolsDone = useMemo(
-    () =>
-      Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
-    [tools],
-  );
-  const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
-  const results = useMemo(
-    () =>
-      distinctResults(
-        named.filter((result) => {
-          if (result.kind !== "file") return true;
-          const path = filePaths.get(result.target);
-          return path !== undefined && found.has(path);
-        }),
-        cwd,
-      ),
-    [named, filePaths, found, cwd],
-  );
-  // The pages it published to claude.ai, newest first, as what it made; a
-  // reply's link to one is that page.
-  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
-  const made = useMemo(() => {
-    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
-    return results.filter((result) => !(result.kind === "url" && pages.has(result.target)));
-  }, [artifacts, results]);
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useNow(anyRunning);
 
   const links = useChatLinks();
-  const open = (target: string, kind: ResultEntry["kind"]) =>
-    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
   // A version without stop_task keeps the button, saying which version has it.
   const stopNote = controller.supports("stop_task")
     ? undefined
@@ -204,22 +166,30 @@ export function SidePanel({
           count={jobs.length}
           opened={revealSeq(state, "jobs")}
         >
-          {jobs.map((job) => (
-            <JobEntry
-              key={job.taskId}
-              job={job}
-              reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
-              onRevealed={(seq) => takeReveal(controller.key, seq)}
-              tools={tools}
-              now={now}
-              workspaceId={workspaceId}
-              rootPath={rootPath}
-              onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
-              stopNote={stopNote}
-              onShowCall={onShowCall}
-              onOpenFile={(path) => links?.openFile(path)}
-            />
-          ))}
+          <FirstFew
+            opened={
+              listed.findIndex((job) => job.taskId === state.reveal?.id) >= FIRST_FEW
+                ? revealSeq(state, "jobs")
+                : undefined
+            }
+          >
+            {listed.map((job) => (
+              <JobEntry
+                key={job.taskId}
+                job={job}
+                reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
+                onRevealed={(seq) => takeReveal(controller.key, seq)}
+                tools={tools}
+                now={now}
+                workspaceId={workspaceId}
+                rootPath={rootPath}
+                onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
+                stopNote={stopNote}
+                onShowCall={onShowCall}
+                onOpenFile={(path) => links?.openFile(path)}
+              />
+            ))}
+          </FirstFew>
         </Section>
       )}
       {todos.length > 0 && (
@@ -248,27 +218,13 @@ export function SidePanel({
           ))}
         </Section>
       )}
-      {made.length + artifacts.length > 0 && (
-        <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
-          {artifacts.map((page) => (
-            <ArtifactRow
-              key={page.url ?? page.file}
-              page={page}
-              workspaceId={workspaceId}
-              rootPath={rootPath}
-            />
-          ))}
-          {made.map((result) => (
-            <ResultRow
-              key={result.target}
-              result={result}
-              cwd={cwd}
-              workspaceId={workspaceId}
-              onOpen={() => open(result.target, result.kind)}
-            />
-          ))}
-        </Section>
-      )}
+      <ResultsSection
+        items={items}
+        tools={tools}
+        cwd={cwd}
+        workspaceId={workspaceId}
+        rootPath={rootPath}
+      />
       {changed.length > 0 && (
         <Section title={t("chat.panel.changed.title")} count={changed.length} folded>
           {changed.map((file) => (
@@ -298,6 +254,96 @@ export function shortPath(path: string, cwd: string): string {
   const base = slashWindowsPath(cwd).replace(/\/$/, "");
   const file = slashWindowsPath(path);
   return file.startsWith(`${base}/`) ? file.slice(base.length + 1) : path;
+}
+
+/**
+ * What the chat made, newest first: the pages it published to claude.ai,
+ * the files it named once they are found to be files, and the addresses it
+ * gave. Another computer's chat finds its files there (ChatFilesContext).
+ */
+export function ResultsSection({
+  items,
+  tools,
+  cwd,
+  workspaceId,
+  rootPath,
+}: {
+  items: ChatItem[];
+  tools: Record<string, ToolCall>;
+  cwd: string;
+  workspaceId: string;
+  rootPath: string;
+}) {
+  const { t } = useTranslation();
+  // A file is listed once it is found to be one.
+  const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
+  const filePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const result of named) {
+      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+      if (path) paths.set(result.target, path);
+    }
+    return paths;
+  }, [named, cwd]);
+  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
+  // A file named before the agent made it is found once a tool of its is done.
+  const toolsDone = useMemo(
+    () =>
+      Object.values(tools).filter((t) => t.status !== "running" && t.status !== "streaming").length,
+    [tools],
+  );
+  const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
+  const results = useMemo(
+    () =>
+      distinctResults(
+        named.filter((result) => {
+          if (result.kind !== "file") return true;
+          const path = filePaths.get(result.target);
+          return path !== undefined && found.has(path);
+        }),
+        cwd,
+      ),
+    [named, filePaths, found, cwd],
+  );
+  // The pages it published to claude.ai, newest first, as what it made; a
+  // reply's link to one is that page.
+  const artifacts = useMemo(() => artifactsOf(tools, cwd).reverse(), [tools, cwd]);
+  const made = useMemo(() => {
+    const pages = new Set(artifacts.flatMap((page) => (page.url ? [page.url] : [])));
+    // Newest first, as the pages: the first few show.
+    return results
+      .filter((result) => !(result.kind === "url" && pages.has(result.target)))
+      .reverse();
+  }, [artifacts, results]);
+  const links = useChatLinks();
+  const open = (target: string, kind: ResultEntry["kind"]) =>
+    kind === "file" ? links?.openFile(target) : links?.openUrl(target);
+  if (made.length + artifacts.length === 0) return null;
+  return (
+    <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
+      <FirstFew>
+        {[
+          ...artifacts.map((page) => (
+            <ArtifactRow
+              key={page.url ?? page.file}
+              page={page}
+              workspaceId={workspaceId}
+              rootPath={rootPath}
+            />
+          )),
+          ...made.map((result) => (
+            <ResultRow
+              key={result.target}
+              result={result}
+              cwd={cwd}
+              workspaceId={workspaceId}
+              onOpen={() => open(result.target, result.kind)}
+            />
+          )),
+        ]}
+      </FirstFew>
+    </Section>
+  );
 }
 
 /** How long a section a bare command opened keeps itself at the top as it fills. */
@@ -330,9 +376,88 @@ function scrollIntoPanel(el: HTMLElement): void {
   }
 }
 
+/**
+ * A row the conversation asked for (a job its end names): it opens, comes
+ * into view and is lit for a moment, which tells which of the rows was meant.
+ * Each ask (`reveal`, its seq) once.
+ */
+export function useRevealedRow(
+  reveal: number | undefined,
+  open: () => void,
+  onRevealed?: (seq: number) => void,
+): { ref: React.RefObject<HTMLDivElement | null>; lit: boolean } {
+  const ref = useRef<HTMLDivElement>(null);
+  const [lit, setLit] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callbacks change
+  useEffect(() => {
+    if (reveal === undefined) return;
+    open();
+    setLit(reveal);
+    onRevealed?.(reveal);
+  }, [reveal]);
+  useEffect(() => {
+    const el = ref.current;
+    if (lit === null || !el) return;
+    scrollIntoPanel(el);
+    // What it shows opened comes a moment later and makes it taller: it follows for a while.
+    const observer = new ResizeObserver(() => scrollIntoPanel(el));
+    observer.observe(el);
+    const timer = setTimeout(() => {
+      observer.disconnect();
+      setLit(null);
+    }, REVEAL_FOLLOW_MS);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [lit]);
+  return { ref, lit: lit !== null };
+}
+
 /** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
+}
+
+/** How many rows of a long list (the jobs, the results) show before the rest is asked for. */
+export const FIRST_FEW = 3;
+
+/** Jobs as a list shows them: those running, then the newest. */
+export function newestJobsFirst<T extends { status: string }>(jobs: readonly T[]): T[] {
+  const newest = [...jobs].reverse();
+  return [
+    ...newest.filter((job) => job.status === "running"),
+    ...newest.filter((job) => job.status !== "running"),
+  ];
+}
+
+/**
+ * The first few rows of a list, the rest behind a button that counts them.
+ * `opened`, set when a row among the rest was asked for, shows them all.
+ */
+export function FirstFew({ opened, children }: { opened?: number; children: React.ReactNode[] }) {
+  const { t } = useTranslation();
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    if (opened !== undefined) setAll(true);
+  }, [opened]);
+  const rest = children.length - FIRST_FEW;
+  return (
+    <>
+      {all || rest <= 0 ? children : children.slice(0, FIRST_FEW)}
+      {rest > 0 && (
+        <button
+          type="button"
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          className="self-start rounded-(--radius-control) px-1 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+          data-testid="panel-first-few"
+        >
+          {all ? t("chat.panel.less") : t("chat.panel.more", { count: rest })}
+        </button>
+      )}
+    </>
+  );
 }
 
 export function Section({
@@ -679,7 +804,7 @@ const OUTPUT_TRIES = 5;
  * The end of a job's output file, read again each second while `live`.
  * Undefined until first read; null when it cannot be read.
  */
-function useJobOutput(
+export function useJobOutput(
   workspaceId: string,
   rootPath: string,
   path: string | undefined,
@@ -756,38 +881,13 @@ function JobEntry({
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const running = job.status === "running";
-  const ref = useRef<HTMLDivElement>(null);
-  // The ask the row is lit for, for a moment: which of the jobs was meant.
-  const [lit, setLit] = useState<number | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
-  useEffect(() => {
-    if (reveal === undefined) return;
-    setOpen(true);
-    setLit(reveal);
-    onRevealed?.(reveal);
-  }, [reveal]);
-  useEffect(() => {
-    const el = ref.current;
-    if (lit === null || !el) return;
-    scrollIntoPanel(el);
-    // Its output comes a moment later and makes it taller: it follows for a while.
-    const observer = new ResizeObserver(() => scrollIntoPanel(el));
-    observer.observe(el);
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      setLit(null);
-    }, REVEAL_FOLLOW_MS);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [lit]);
+  const { ref, lit } = useRevealedRow(reveal, () => setOpen(true), onRevealed);
   return (
     <div
       ref={ref}
       className={cn(
         "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
-        lit !== null && "bg-[var(--state-hover-bg)]",
+        lit && "bg-[var(--state-hover-bg)]",
       )}
       data-testid="chat-job"
     >
@@ -832,6 +932,48 @@ function JobEntry({
   );
 }
 
+/**
+ * The end of a job's output, following its end as it comes unless scrolled
+ * up from it; or why there is none to show.
+ */
+export function JobOutputView({ output }: { output: JobOutput | null | undefined }) {
+  const { t } = useTranslation();
+  const outRef = useRef<HTMLPreElement>(null);
+  const atEnd = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: to its end each time the output changes
+  useLayoutEffect(() => {
+    const el = outRef.current;
+    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+  }, [output]);
+  return output && output.lines.length > 0 ? (
+    <pre
+      ref={outRef}
+      onScroll={(event) => {
+        const el = event.currentTarget;
+        atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+      }}
+      className="app-scrollbar m-0 max-h-48 overflow-auto px-2 py-1.5 font-mono leading-4 whitespace-pre"
+      data-testid="chat-job-output"
+    >
+      {output.cut && (
+        <span className="text-muted-foreground select-none">
+          {t("chat.panel.jobs.earlier")}
+          {"\n"}
+        </span>
+      )}
+      {output.lines.join("\n")}
+    </pre>
+  ) : (
+    <div className="px-2 py-1.5 text-muted-foreground">
+      {output === undefined
+        ? t("chat.panel.jobs.reading")
+        : output === null
+          ? t("chat.panel.jobs.unreadable")
+          : t("chat.panel.jobs.no_output")}
+    </div>
+  );
+}
+
 function JobDetail({
   job,
   tools,
@@ -853,14 +995,6 @@ function JobDetail({
   const outputFile = jobOutputFile(job, tools);
   const output = useJobOutput(workspaceId, rootPath, outputFile, running);
   const exitCode = exitCodeOf(job.summary);
-  // The output follows its end, unless scrolled up from it.
-  const outRef = useRef<HTMLPreElement>(null);
-  const atEnd = useRef(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: to its end each time the output changes
-  useLayoutEffect(() => {
-    const el = outRef.current;
-    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
-  }, [output]);
   const toolUseId = job.toolUseId;
   return (
     <div
@@ -877,33 +1011,7 @@ function JobDetail({
             <Highlighted code={command} language="bash" />
           </div>
         )}
-        {output && output.lines.length > 0 ? (
-          <pre
-            ref={outRef}
-            onScroll={(event) => {
-              const el = event.currentTarget;
-              atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
-            }}
-            className="app-scrollbar m-0 max-h-48 overflow-auto px-2 py-1.5 font-mono leading-4 whitespace-pre"
-            data-testid="chat-job-output"
-          >
-            {output.cut && (
-              <span className="text-muted-foreground select-none">
-                {t("chat.panel.jobs.earlier")}
-                {"\n"}
-              </span>
-            )}
-            {output.lines.join("\n")}
-          </pre>
-        ) : (
-          <div className="px-2 py-1.5 text-muted-foreground">
-            {output === undefined
-              ? t("chat.panel.jobs.reading")
-              : output === null
-                ? t("chat.panel.jobs.unreadable")
-                : t("chat.panel.jobs.no_output")}
-          </div>
-        )}
+        <JobOutputView output={output} />
       </div>
       <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
         {running ? (
@@ -946,7 +1054,7 @@ function JobDetail({
   );
 }
 
-function JobButton({
+export function JobButton({
   onClick,
   title,
   children,
@@ -1305,7 +1413,13 @@ function McpSection({ controller, state }: { controller: ChatController; state: 
 }
 
 /** A small button in a row's words: signing in to a server, opening its page again. */
-function TextButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+export function TextButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"

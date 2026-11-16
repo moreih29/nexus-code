@@ -51,7 +51,7 @@ export class TerminalWatches {
     const watchId = randomUUID();
     // Known before the text comes back: a change may come first.
     this.watches.set(watchId, { from, rev: 0 });
-    const { text } = await services
+    const { text, caret } = await services
       .ui("terminal.watch", {
         workspaceId,
         tabId,
@@ -63,7 +63,7 @@ export class TerminalWatches {
         this.watches.delete(watchId);
         return unavailable(error);
       });
-    const result = { text, watchId };
+    const result = { text, watchId, ...(caret ? { caret } : {}) };
     if (fitsAsResult(result)) return result;
     await this.end(watchId);
     throw new RpcFailure(RpcErrorCode.Unavailable, "the terminal's text is too large to send");

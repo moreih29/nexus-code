@@ -187,12 +187,68 @@ describe("a chat's page for another device", () => {
       }),
     );
     expect(ChatPageSchema.safeParse(page).success).toBe(true);
-    expect(page.status.turn).toEqual({ startedAt: 1, outputTokens: 12 });
+    expect(page.status.turn).toEqual({ startedAt: 1, outputTokens: 12, thinkingTokens: 3 });
     expect(page.status.streaming?.blocks.map((b) => b.type)).toEqual(["text", "tool_use"]);
     expect(Object.keys(page.tools)).toEqual(["t9"]);
     expect(page.status.permissions[0]).not.toHaveProperty("suggestions");
     expect(Object.keys(page.tasks)).toEqual(["k1"]);
     expect(page.tasks.k1).not.toHaveProperty("prompt");
+  });
+});
+
+describe("a turn stopping, or trying the API again (0.13.0)", () => {
+  test("is told, and drawn as this app's chat draws it", () => {
+    const page = chatPageOf(
+      source({
+        running: true,
+        interrupting: true,
+        process: "running",
+        turn: {
+          startedAt: 1,
+          outputTokens: 0,
+          thinkingTokens: 0,
+          retry: { attempt: 2, maxRetries: 10, delayMs: 4000 },
+        },
+      }),
+    );
+    expect(ChatPageSchema.safeParse(page).success).toBe(true);
+    expect(page.status.interrupting).toBe(true);
+    expect(page.status.turn).toEqual({
+      startedAt: 1,
+      outputTokens: 0,
+      retry: { attempt: 2, maxRetries: 10, delayMs: 4000 },
+    });
+    const model = modelOfPage(page);
+    expect(model.interrupting).toBe(true);
+    expect(model.turn?.retry).toEqual({ attempt: 2, maxRetries: 10, delayMs: 4000 });
+    // Neither, when the turn goes on.
+    const going = chatPageOf(source({ running: true, process: "running" }));
+    expect(going.status).not.toHaveProperty("interrupting");
+    expect(modelOfPage(going).interrupting).toBeUndefined();
+  });
+});
+
+describe("where its tab stands with its program (0.13.0)", () => {
+  test("its phase, why it failed, its version and how its program exited", () => {
+    const base = source({
+      process: "exited",
+      version: "2.1.0",
+      exit: { code: 1, stderrTail: `${"x".repeat(9000)}boom` },
+    });
+    const page = chatPageOf({ ...base, chat: { ...base.chat, phase: "ended", error: "gone" } });
+    expect(ChatPageSchema.safeParse(page).success).toBe(true);
+    expect(page.status).toMatchObject({ phase: "ended", error: "gone", version: "2.1.0" });
+    expect(page.status.exit?.code).toBe(1);
+    // The end of what it wrote, as much as a banner's details take.
+    expect(page.status.exit?.stderrTail?.endsWith("boom")).toBe(true);
+    expect(page.status.exit?.stderrTail?.length).toBe(8 * 1024);
+  });
+
+  test("a Codex program that needs a sign-in says so; one signed in says nothing", () => {
+    const out = chatPageOf(source({ process: "running", signedOut: true } as Partial<ChatModel>));
+    expect(ChatPageSchema.safeParse(out).success).toBe(true);
+    expect(out.status.signedOut).toBe(true);
+    expect(chatPageOf(source({ process: "running" })).status).not.toHaveProperty("signedOut");
   });
 });
 
@@ -240,7 +296,7 @@ describe("a page drawn as this app's chat", () => {
     expect(model.items.map((i) => i.key)).toEqual(["a", "b", "n"]);
     expect(model.tools.t1).toMatchObject({ id: "t1", input: { command: "ls" }, status: "done" });
     expect(model.tools.t1?.result?.text).toBe("ok");
-    expect(model.turn).toEqual({ startedAt: 5, outputTokens: 9, thinkingTokens: 0 });
+    expect(model.turn).toEqual({ startedAt: 5, outputTokens: 9, thinkingTokens: 2 });
     expect(model.streaming?.blocks[0]?.text).toBe("Hel");
     expect(model.permissions[0]).toMatchObject({ requestId: "r", suggestions: [] });
     expect(model.running).toBe(true);

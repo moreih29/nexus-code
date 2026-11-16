@@ -126,6 +126,7 @@ describe("chat send --device", () => {
           workspaceId: APP,
           tabId: CLAUDE_TAB,
           name: expect.any(String),
+          waits: true,
         },
       },
     ]);
@@ -147,7 +148,29 @@ describe("chat send --device", () => {
       device: { id: MINI, name: "Mac mini" },
       text: "hi",
     });
-    expect(asked(app, "chat.send")[0]).toMatchObject({ from: FROM_SHELL });
+    // Sent without --wait: the agent there is told to write back.
+    expect(asked(app, "chat.send")[0]).toMatchObject({ from: { ...FROM_SHELL, waits: false } });
+  });
+
+  test("--now goes into the turn there; --after is refused before anything is asked", async () => {
+    const app = withPeer({ "chat.send": () => ({ at: NOW }) });
+    const now = await nexus(app, ["chat", "send", "Review", "--device", "Mac mini", "--now", "hi"]);
+    expect(now.exitCode).toBe(0);
+    expect(asked(app, "chat.send")).toEqual([expect.objectContaining({ text: "hi", when: "now" })]);
+    // That computer holds no agent's message for after the turn (it refuses chat.send `after`).
+    const after = await nexus(app, [
+      "chat",
+      "send",
+      "Review",
+      "--device",
+      "Mac mini",
+      "--after",
+      "x",
+    ]);
+    expect(after.exitCode).toBe(2);
+    expect(after.stderr).toContain("--after goes to this computer's tabs");
+    expect(asked(app, "chat.send")).toHaveLength(1);
+    expect(asked(app, "sessions.list")).toHaveLength(1);
   });
 
   test("a tab is found among the computer's, in --workspace when given; . is this computer's", async () => {

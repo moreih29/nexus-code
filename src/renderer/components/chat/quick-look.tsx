@@ -7,7 +7,9 @@
 // closes, as does clicking around it or going elsewhere.
 // A file the session changed shows as a diff, and can be reverted. Images
 // with no file, as a tool or the user gave them, show the same way from
-// their data.
+// their data. Over another computer's chat it shows that computer's files,
+// read through the room (services/remote/peer-workspace): the same viewers,
+// read only, with nothing that opens or changes the file here.
 
 import Editor from "@monaco-editor/react";
 import {
@@ -27,6 +29,7 @@ import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../shared/fs/defaults";
+import { FS_ERROR } from "../../../shared/fs/errors";
 import { useMonacoThemeName } from "../../hooks/use-monaco-theme-name";
 import { ipcCallResult } from "../../ipc/client";
 import { copyImage, workspaceImageSrc } from "../../services/chat/copy-image";
@@ -46,6 +49,7 @@ import {
   type ViewMode,
 } from "../../services/editor/preview/previewable";
 import { isSpreadsheetFile } from "../../services/editor/preview/spreadsheet";
+import { peerOf, peerRoot, usePeerText } from "../../services/remote/peer-workspace";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { usePreviewDefaultsStore } from "../../state/stores/preview-defaults";
 import { useWorkspacesStore } from "../../state/stores/workspaces";
@@ -68,8 +72,9 @@ import { MediaEditorView } from "../workspace/content/media-editor-view";
 import { PdfEditorView } from "../workspace/content/pdf-editor-view";
 import { PptxEditorView } from "../workspace/content/pptx-editor-view";
 import { SpreadsheetEditorView } from "../workspace/content/spreadsheet-editor-view";
+import { useImageBytes } from "./chat-image";
 import { FileKindIcon } from "./file-kind-icon";
-import { LookDiff } from "./look-diff";
+import { LookDiff, PeerLookDiff } from "./look-diff";
 
 export interface QuickLookList {
   /** Absolute paths, or keys of `images`: the conversation's images, or the one file opened. */
@@ -100,8 +105,8 @@ interface QuickLookProps {
   area: HTMLElement | null;
   onIndex: (index: number) => void;
   onClose: () => void;
-  /** Opens the file as a tab of its own, at the line a link named in it. */
-  onOpenTab: (path: string, at?: LineAt) => void;
+  /** Opens the file as a tab of its own, at the line a link named in it; none for another computer's. */
+  onOpenTab?: (path: string, at?: LineAt) => void;
   /** Whether the workspace is on this machine, where Finder can show a file. */
   local: boolean;
   /** Puts a changed file in the workspace back as it was before the session. */
@@ -132,12 +137,11 @@ export function QuickLook({
   const changed = before !== undefined;
   const line = list.at?.path === path ? list.at : undefined;
   const image = list.images?.[path];
+  // Another computer's image comes without its bytes, which are fetched.
+  const shownImage = useImageBytes(image);
   const name = image ? t("chat.look.image", { number: index + 1 }) : baseName(path);
-  const root = useWorkspacesStore((s) => {
-    const location = s.workspaces.find((w) => w.id === workspaceId)?.location;
-    if (!location) return "";
-    return location.kind === "local" ? location.rootPath : location.remotePath;
-  });
+  const root = useLookRoot(workspaceId);
+  const peer = peerOf(workspaceId) !== null;
 
   const viewDefaults = usePreviewDefaultsStore((s) => s.byFormat);
   const support = isPreviewable(path);
@@ -291,12 +295,12 @@ export function QuickLook({
             disabledReason={support === "mdx-disabled" ? t("editor.mdx_disabled") : undefined}
           />
         )}
-        {shownAsImage && (image || isUnder(path, root)) && (
+        {shownAsImage && (image ? shownImage.image : peer || isUnder(path, root)) && (
           <IconButton
             label={t("chat.look.copy_image")}
             onClick={() => {
               const src = image
-                ? Promise.resolve(imageSrc(image))
+                ? Promise.resolve(shownImage.image ? imageSrc(shownImage.image) : null)
                 : workspaceImageSrc(workspaceId, relPath(path, root));
               void src
                 .then((data) => {
@@ -327,7 +331,7 @@ export function QuickLook({
             <FolderOpen className="size-3.5" />
           </IconButton>
         )}
-        {!image && (
+        {!image && onOpenTab && (
           <IconButton
             label={t("chat.look.open_tab")}
             onClick={() => onOpenTab(path, line)}
@@ -342,11 +346,34 @@ export function QuickLook({
       </div>
       <div className="group/body relative min-h-0 flex-1">
         {image ? (
-          <div key={path} className="flex h-full">
-            <ZoomableImage src={imageSrc(image)} alt={name} onNaturalSize={sized(path)} fill />
-          </div>
+          shownImage.image ? (
+            <div key={path} className="flex h-full">
+              <ZoomableImage
+                src={imageSrc(shownImage.image)}
+                alt={name}
+                onNaturalSize={sized(path)}
+                fill
+              />
+            </div>
+          ) : (
+            <EmptyState
+              key={path}
+              title={shownImage.failed ? t("chat.look.copy_image_unread") : t("editor.loading")}
+              tone="status"
+              className="h-full"
+            />
+          )
         ) : showDiff ? (
-          <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
+          peer ? (
+            <PeerLookDiff
+              key={path}
+              workspaceId={workspaceId}
+              path={path}
+              before={before ?? null}
+            />
+          ) : (
+            <LookDiff key={path} workspaceId={workspaceId} path={path} before={before ?? null} />
+          )
         ) : (
           <LookBody
             key={path}
@@ -421,6 +448,19 @@ function StepButton({
   );
 }
 
+/**
+ * The folder of the workspace quick look reads from: a workspace here's,
+ * or, for another computer's, the folder there its chat's pane told.
+ */
+export function useLookRoot(workspaceId: string): string {
+  const here = useWorkspacesStore((s) => {
+    const location = s.workspaces.find((w) => w.id === workspaceId)?.location;
+    if (!location) return "";
+    return location.kind === "local" ? location.rootPath : location.remotePath;
+  });
+  return peerOf(workspaceId) ? peerRoot(workspaceId) : here;
+}
+
 /** Whether a file is shown as text: everything the binary viewers do not take. */
 function isText(path: string): boolean {
   return !(
@@ -464,8 +504,91 @@ function LookBody({
   }
   if (isDocxFile(path)) return <DocxEditorView filePath={path} workspaceId={workspaceId} />;
   if (isPresentationFile(path)) return <PptxEditorView filePath={path} workspaceId={workspaceId} />;
+  if (peerOf(workspaceId)) {
+    return <PeerLookText workspaceId={workspaceId} path={path} preview={preview} line={line} />;
+  }
   return <LookText workspaceId={workspaceId} path={path} preview={preview} line={line} />;
 }
+
+/**
+ * A text file of another computer's, previewed or as read-only source, as
+ * LookText shows one here: read once, as it was then.
+ */
+function PeerLookText({
+  workspaceId,
+  path,
+  preview,
+  line,
+}: {
+  workspaceId: string;
+  path: string;
+  preview: boolean;
+  line?: number;
+}) {
+  const { t } = useTranslation();
+  const root = useLookRoot(workspaceId);
+  const read = usePeerText(workspaceId, path);
+  if (read === null)
+    return <EmptyState title={t("editor.loading")} tone="status" className="h-full" />;
+  if (read.kind === "binary") {
+    return <EmptyState title={t("editor.binary_file")} tone="status" className="h-full" />;
+  }
+  if (read.kind !== "text") {
+    return (
+      <EmptyState
+        title={fileErrorMessage(
+          read.kind === "too_large" ? FS_ERROR.TOO_LARGE : "OTHER",
+          MAX_READABLE_FILE_SIZE / (1024 * 1024),
+        )}
+        tone="status"
+        className="h-full"
+      />
+    );
+  }
+  if (preview) {
+    return (
+      <PreviewFindScope className="h-full">
+        <PreviewPane
+          filePath={path}
+          workspaceId={workspaceId}
+          workspaceRootAbsPath={root}
+          source={read.text}
+        />
+      </PreviewFindScope>
+    );
+  }
+  return <PeerSource path={path} text={read.text} line={line} />;
+}
+
+/** Another computer's file's source in a read-only editor of its own model, a line marked when given. */
+function PeerSource({ path, text, line }: { path: string; text: string; line?: number }) {
+  const theme = useMonacoThemeName();
+  const [id] = useState(() => ++nextPeerSource);
+  return (
+    <Editor
+      height="100%"
+      path={`nexus-peer-look:///${id}/${path.replace(/\\/g, "/")}`}
+      value={text}
+      theme={theme}
+      options={sourceOptions}
+      onMount={(editor) => {
+        const shown = editor.getModel();
+        if (line && shown && line <= shown.getLineCount()) {
+          editor.setSelection({
+            startLineNumber: line,
+            startColumn: 1,
+            endLineNumber: line,
+            endColumn: shown.getLineMaxColumn(line),
+          });
+          editor.revealLineInCenter(line);
+        }
+      }}
+    />
+  );
+}
+
+/** Numbers the sources of other computers' files, so each one's model gets its own URI. */
+let nextPeerSource = 0;
 
 /**
  * A text file, previewed or as read-only source. One under the workspace
