@@ -211,6 +211,17 @@ function ViewOnly({
   );
 }
 
+/** The mode a plan's approval sets (its setMode), of those another device's plan takes. */
+function planModeOf(
+  updates: readonly unknown[] | undefined,
+): "acceptEdits" | "default" | undefined {
+  for (const update of updates ?? []) {
+    const { type, mode } = (update ?? {}) as { type?: unknown; mode?: unknown };
+    if (type === "setMode" && (mode === "acceptEdits" || mode === "default")) return mode;
+  }
+  return undefined;
+}
+
 /**
  * The protocol's answer for the card's. An always-allow keeps the request's
  * suggestions it picked, by their index in the serving computer's list: all
@@ -225,13 +236,19 @@ export function remoteAnswerOf(
   updatedInput?: Record<string, unknown>;
   stop?: boolean;
   always?: number[];
+  planMode?: "acceptEdits" | "default";
 } {
   switch (answer.kind) {
-    case "allow":
+    case "allow": {
+      // A plan's approval: the mode it goes on in, as the card set it.
+      const planMode =
+        request.toolName === "ExitPlanMode" ? planModeOf(answer.updatedPermissions) : undefined;
       return {
         decision: "allow",
         ...(answer.updatedInput ? { updatedInput: answer.updatedInput } : {}),
+        ...(planMode ? { planMode } : {}),
       };
+    }
     case "allow-always": {
       const always = (answer.suggestions ?? request.suggestions).flatMap((raw) => {
         const index = (raw as { index?: unknown } | null)?.index;

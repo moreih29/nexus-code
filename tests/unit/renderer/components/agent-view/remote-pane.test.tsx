@@ -36,6 +36,32 @@ describe("controlling another computer's chat", () => {
     });
   });
 
+  test("a plan's approval takes the mode it goes on in, as the card set it (0.13.0)", () => {
+    const plan = {
+      requestId: "r",
+      toolName: "ExitPlanMode",
+      input: { plan: "x" },
+      suggestions: [],
+    };
+    const setMode = (mode: string) => ({
+      kind: "allow" as const,
+      updatedPermissions: [{ type: "setMode", mode, destination: "session" }],
+    });
+    expect(remoteAnswerOf(setMode("acceptEdits"), plan)).toEqual({
+      decision: "allow",
+      planMode: "acceptEdits",
+    });
+    expect(remoteAnswerOf(setMode("default"), plan)).toEqual({
+      decision: "allow",
+      planMode: "default",
+    });
+    // No other mode, and no other request's.
+    expect(remoteAnswerOf(setMode("bypassPermissions"), plan)).toEqual({ decision: "allow" });
+    expect(remoteAnswerOf(setMode("acceptEdits"), { ...plan, toolName: "Bash" })).toEqual({
+      decision: "allow",
+    });
+  });
+
   test("an always-allow keeps the suggestions it picked by their index there, or all of them", () => {
     const request = {
       requestId: "r",

@@ -565,6 +565,7 @@ export async function answerChat(
     updatedInput,
     stop,
     always,
+    planMode,
   }: RpcParams<"chat.answer">,
 ): Promise<RpcResult<"chat.answer">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
@@ -578,6 +579,7 @@ export async function answerChat(
       ...(updatedInput ? { updatedInput } : {}),
       ...(stop ? { stop } : {}),
       ...(decision === "allow" && always?.length ? { always } : {}),
+      ...(decision === "allow" && planMode ? { planMode } : {}),
     })
     .catch(unavailable);
   return {};

@@ -1628,6 +1628,24 @@ describe("serving a chat's controls", () => {
     ]);
   });
 
+  test("a plan's approval goes with the mode it goes on in, and a denial without (0.13.0)", async () => {
+    const { serve, asked } = recording();
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r1", decision: "allow", planMode: "acceptEdits" },
+    });
+    await serve({
+      from: "d",
+      method: "chat.answer",
+      params: { ...tab, requestId: "r2", decision: "deny", planMode: "default" },
+    });
+    expect(asked).toEqual([
+      ["chat.answer", { ...tab, decision: "allow", expect: "r1", planMode: "acceptEdits" }],
+      ["chat.answer", { ...tab, decision: "deny", expect: "r2" }],
+    ]);
+  });
+
   test("opens a chat in the workspace's folder, behind what this computer shows", async () => {
     const { serve, asked } = recording();
     const opened = await serve({

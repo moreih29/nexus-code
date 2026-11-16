@@ -78,6 +78,9 @@ describe("an agent's request from another computer", () => {
     await expect(
       answer("chat.answer", { requestId: "r1", decision: "allow", always: [0] }),
     ).rejects.toMatchObject(refused);
+    await expect(
+      answer("chat.answer", { requestId: "r1", decision: "allow", planMode: "acceptEdits" }),
+    ).rejects.toMatchObject(refused);
     await answer("terminal.answer", { requestId: "a1", decision: "allow" });
     await expect(
       answer("terminal.answer", { requestId: "a1", decision: "allowAlways" }),

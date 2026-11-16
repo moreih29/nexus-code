@@ -1110,6 +1110,13 @@ export const RPC_METHODS = {
        * ("always allow"). Refused from an agent (`from`), as allowAlways is.
        */
       always: z.array(z.number().int().nonnegative()).optional(),
+      /**
+       * With allow of a plan (ExitPlanMode): the permission mode the chat
+       * goes on in, as the plan card's approvals set it (edits allowed, or
+       * each asked). Refused from an agent (`from`), as `always` is. Since
+       * 0.13.0.
+       */
+      planMode: z.enum(["acceptEdits", "default"]).optional(),
       from: AgentSenderSchema.optional(),
     }),
     result: Ok,

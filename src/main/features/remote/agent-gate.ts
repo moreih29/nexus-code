@@ -158,12 +158,14 @@ export class AgentGate {
  * An agent answers a permission request only as it was asked, and once:
  * the consent prompt shows the request as it came, so a changed one
  * (updatedInput) would run what the user never saw, and a rule kept for
- * good (always, allowAlways) would outlast the one answer they allowed.
+ * good (always, allowAlways) or a mode (a plan's planMode) would outlast
+ * the one answer they allowed.
  */
 function refuseBeyondAsked({ method, params }: AgentRequest): void {
   const changed =
     method === "chat.answer" &&
     (params.updatedInput !== undefined ||
+      params.planMode !== undefined ||
       (Array.isArray(params.always) && params.always.length > 0));
   if (changed || (method === "terminal.answer" && params.decision === "allowAlways")) {
     throw forbidden("an agent may answer a request only as it was asked, and only once");

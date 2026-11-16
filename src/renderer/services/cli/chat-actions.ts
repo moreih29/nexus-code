@@ -864,6 +864,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     updatedInput,
     stop,
     always,
+    planMode,
   }) => {
     const target = await openedTab(workspaceId, tabId);
     // Main allowed an answer to that request, not to another; any of those
@@ -888,10 +889,22 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       await target.controller.answerPermission(request, { kind: "allow-always", suggestions });
       return {};
     }
+    if (planMode && request.toolName !== "ExitPlanMode") {
+      throw new UiRequestError("only a plan's approval sets the mode it goes on in");
+    }
     await target.controller.answerPermission(
       request,
       decision === "allow"
-        ? { kind: "allow", ...(updatedInput ? { updatedInput } : {}) }
+        ? {
+            kind: "allow",
+            ...(updatedInput ? { updatedInput } : {}),
+            // As the plan card's approvals do.
+            ...(planMode
+              ? {
+                  updatedPermissions: [{ type: "setMode", mode: planMode, destination: "session" }],
+                }
+              : {}),
+          }
         : { kind: stop ? "deny-stop" : "deny", message: message ?? "" },
     );
     return {};

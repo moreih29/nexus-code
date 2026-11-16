@@ -1109,6 +1109,8 @@ export interface CliUiOps {
        * now on, by their index as chat.read words them; the user only.
        */
       always?: number[];
+      /** With allow of a plan: the mode the chat goes on in, as the plan card's approvals set it. */
+      planMode?: "acceptEdits" | "default";
     };
     result: Record<string, never>;
   };
