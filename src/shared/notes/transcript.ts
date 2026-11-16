@@ -106,8 +106,13 @@ export function recordingMs(recording: Pick<TranscriptRecording, "takes" | "line
 /**
  * The names for a second pass's voices: each takes the name of the voice
  * (as the live session had them) it shares the most time with, if that one
- * had a name. Two new voices may take one name; that is one person heard
- * as two.
+ * had a name. A live voice's name goes to one new voice only, the one that
+ * shares the most time with it: when the pass hears two voices where the
+ * live session heard one, the other stays unnamed, a person of its own,
+ * for the user to name (giving it the same name joins it back). Named
+ * after the live session's voice, it would be one person with no way to
+ * tell them apart. Two live voices given one name still give it to their
+ * new voices alike: the user said they are one person.
  */
 export function carryNames(
   live: readonly TranscriptLine[],
@@ -124,7 +129,9 @@ export function carryNames(
       overlap.set(n.speaker, byLive);
     }
   }
-  const out: Record<string, string> = {};
+  // Each new voice's live voice, and the new voice that shares the most with each live one.
+  const heir = new Map<string, { speaker: string; ms: number }>();
+  const liveOf = new Map<string, string>();
   for (const [speaker, byLive] of overlap) {
     let best = "";
     let most = 0;
@@ -134,8 +141,14 @@ export function carryNames(
         best = liveSpeaker;
       }
     }
+    liveOf.set(speaker, best);
+    const held = heir.get(best);
+    if (!held || most > held.ms) heir.set(best, { speaker, ms: most });
+  }
+  const out: Record<string, string> = {};
+  for (const [speaker, best] of liveOf) {
     const name = names[best]?.trim();
-    if (name) out[speaker] = name;
+    if (name && heir.get(best)?.speaker === speaker) out[speaker] = name;
   }
   return out;
 }
