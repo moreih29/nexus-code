@@ -83,6 +83,46 @@ describe("a chat's side panel", () => {
     expect(panel).toMatchObject({ tasks: [], agents: [] });
   });
 
+  test("a background run tells where its output is written: as its end said, or its start", () => {
+    const bash = call(
+      "bash",
+      "Bash",
+      { command: "make", run_in_background: true },
+      {
+        result: {
+          text: "Command running in background with ID: b2. Output is being written to: /tmp/c/b2.output.",
+          isError: false,
+          images: [],
+        },
+      },
+    );
+    const panel = chatPanelOf(
+      source({
+        tools: { bash },
+        tasks: {
+          b1: {
+            taskId: "b1",
+            type: "local_bash",
+            description: "ended",
+            status: "completed",
+            outputFile: "/tmp/c/b1.output",
+          },
+          b2: {
+            taskId: "b2",
+            type: "local_bash",
+            description: "running",
+            status: "running",
+            toolUseId: "bash",
+          },
+        },
+      }),
+    );
+    expect(panel.tasks.map((t) => [t.taskId, t.outputFile])).toEqual([
+      ["b1", "/tmp/c/b1.output"],
+      ["b2", "/tmp/c/b2.output"],
+    ]);
+  });
+
   test("a file the chat made is told as made", () => {
     const write = call(
       "write",

@@ -716,6 +716,14 @@ export interface CliUiOps {
     result: Record<string, never>;
   };
   /**
+   * The files a workspace's Claude and Codex tabs' background jobs write
+   * their output to, absolute: what each tab's side panel reads of them.
+   */
+  "chat.jobOutputs": {
+    args: { workspaceId: string };
+    result: { files: string[] };
+  };
+  /**
    * Sets a Claude or Codex tab's model, effort and permission mode, as its
    * composer's chips do, those given only; tells what it runs with then and
    * what it takes. Its program is started if it was not.

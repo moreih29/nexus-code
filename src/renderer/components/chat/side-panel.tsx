@@ -804,7 +804,7 @@ const OUTPUT_TRIES = 5;
  * The end of a job's output file, read again each second while `live`.
  * Undefined until first read; null when it cannot be read.
  */
-function useJobOutput(
+export function useJobOutput(
   workspaceId: string,
   rootPath: string,
   path: string | undefined,
@@ -932,6 +932,48 @@ function JobEntry({
   );
 }
 
+/**
+ * The end of a job's output, following its end as it comes unless scrolled
+ * up from it; or why there is none to show.
+ */
+export function JobOutputView({ output }: { output: JobOutput | null | undefined }) {
+  const { t } = useTranslation();
+  const outRef = useRef<HTMLPreElement>(null);
+  const atEnd = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: to its end each time the output changes
+  useLayoutEffect(() => {
+    const el = outRef.current;
+    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
+  }, [output]);
+  return output && output.lines.length > 0 ? (
+    <pre
+      ref={outRef}
+      onScroll={(event) => {
+        const el = event.currentTarget;
+        atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+      }}
+      className="app-scrollbar m-0 max-h-48 overflow-auto px-2 py-1.5 font-mono leading-4 whitespace-pre"
+      data-testid="chat-job-output"
+    >
+      {output.cut && (
+        <span className="text-muted-foreground select-none">
+          {t("chat.panel.jobs.earlier")}
+          {"\n"}
+        </span>
+      )}
+      {output.lines.join("\n")}
+    </pre>
+  ) : (
+    <div className="px-2 py-1.5 text-muted-foreground">
+      {output === undefined
+        ? t("chat.panel.jobs.reading")
+        : output === null
+          ? t("chat.panel.jobs.unreadable")
+          : t("chat.panel.jobs.no_output")}
+    </div>
+  );
+}
+
 function JobDetail({
   job,
   tools,
@@ -953,14 +995,6 @@ function JobDetail({
   const outputFile = jobOutputFile(job, tools);
   const output = useJobOutput(workspaceId, rootPath, outputFile, running);
   const exitCode = exitCodeOf(job.summary);
-  // The output follows its end, unless scrolled up from it.
-  const outRef = useRef<HTMLPreElement>(null);
-  const atEnd = useRef(true);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: to its end each time the output changes
-  useLayoutEffect(() => {
-    const el = outRef.current;
-    if (el && atEnd.current) el.scrollTop = el.scrollHeight;
-  }, [output]);
   const toolUseId = job.toolUseId;
   return (
     <div
@@ -977,33 +1011,7 @@ function JobDetail({
             <Highlighted code={command} language="bash" />
           </div>
         )}
-        {output && output.lines.length > 0 ? (
-          <pre
-            ref={outRef}
-            onScroll={(event) => {
-              const el = event.currentTarget;
-              atEnd.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
-            }}
-            className="app-scrollbar m-0 max-h-48 overflow-auto px-2 py-1.5 font-mono leading-4 whitespace-pre"
-            data-testid="chat-job-output"
-          >
-            {output.cut && (
-              <span className="text-muted-foreground select-none">
-                {t("chat.panel.jobs.earlier")}
-                {"\n"}
-              </span>
-            )}
-            {output.lines.join("\n")}
-          </pre>
-        ) : (
-          <div className="px-2 py-1.5 text-muted-foreground">
-            {output === undefined
-              ? t("chat.panel.jobs.reading")
-              : output === null
-                ? t("chat.panel.jobs.unreadable")
-                : t("chat.panel.jobs.no_output")}
-          </div>
-        )}
+        <JobOutputView output={output} />
       </div>
       <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
         {running ? (

@@ -16,6 +16,7 @@ import {
   CircleCheck,
   CircleDot,
   ExternalLink,
+  FileText,
   GitFork,
   MessageSquare,
   RefreshCw,
@@ -39,6 +40,7 @@ import { usePeerMcp } from "../../services/remote/peer-mcp";
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
+import { formatBytes } from "../../utils/format-bytes";
 import { StatusDot } from "../chat/agent-strip";
 import { useChatLinks } from "../chat/chat-links";
 import { Highlighted } from "../chat/code-highlight";
@@ -51,12 +53,14 @@ import {
   FirstFew,
   formatCost,
   JobButton,
+  JobOutputView,
   Meter,
   newestJobsFirst,
   ResultsSection,
   Row,
   Section,
   TextButton,
+  useJobOutput,
   useRevealedRow,
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
@@ -354,6 +358,9 @@ export function RemoteSidePanel({
                 job={job}
                 tools={model.tools}
                 now={now}
+                workspaceId={peerWorkspaceId(target.deviceId, target.workspaceId)}
+                rootPath={target.path}
+                onOpenFile={links?.openFile}
                 reveal={
                   reveal?.part === "jobs" && reveal.id === job.taskId ? reveal.seq : undefined
                 }
@@ -543,33 +550,38 @@ function RemoteMcp({
 
 /**
  * A background run, as a chat here lists one: what it is, how long; opened,
- * the command it runs, what it said last, how it ended, and its call. Its
- * output is in a file on that computer, which this one does not read.
+ * the command it runs, the end of its output (as it comes, while it runs),
+ * how it ended, and its call and its output file a click away. The output
+ * is read from that computer, which tells where it is from 0.13.0; before,
+ * what the run said last stands for it.
  */
 function RemoteJob({
   job,
   tools,
   now,
   reveal,
+  workspaceId,
+  rootPath,
   onStop,
   onShowCall,
+  onOpenFile,
 }: {
   job: ChatPanel["tasks"][number];
   tools: Record<string, ToolCall>;
   now: number;
   /** Set when the conversation asked for this job: it opens and comes into view. */
   reveal?: number | undefined;
+  /** Its workspace as previews here read it (a peer workspace), and its folder there. */
+  workspaceId: string;
+  rootPath: string;
   onStop?: (() => void) | undefined;
   onShowCall?: (toolUseId: string) => void;
+  onOpenFile?: ((path: string) => void) | undefined;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const { ref, lit } = useRevealedRow(reveal, () => setOpen(true));
   const running = job.status === "running";
-  const command = jobCommand(job, tools);
-  const said = running ? job.activity || job.summary : job.summary || job.activity;
-  const exitCode = exitCodeOf(job.summary);
-  const toolUseId = job.toolUseId;
   return (
     <div
       ref={ref}
@@ -603,52 +615,105 @@ function RemoteJob({
         )}
       </Row>
       {open && (
-        <div
-          className="mt-0.5 mb-1 ml-4 flex flex-col gap-1.5 border-l border-border pl-2 text-app-micro"
-          data-testid="remote-job-detail"
-        >
-          {(command || said) && (
-            <div className="overflow-hidden rounded-(--radius-control) border border-border">
-              {command && (
-                <div
-                  className={cn(
-                    "code-hl line-clamp-3 bg-[var(--state-hover-bg)] px-2 py-1 font-mono whitespace-pre-wrap break-all",
-                    said && "border-b border-border",
-                  )}
-                  title={command}
-                >
-                  <span className="text-[var(--state-success-fg)] select-none">$ </span>
-                  <Highlighted code={command} language="bash" />
-                </div>
+        <RemoteJobDetail
+          job={job}
+          tools={tools}
+          workspaceId={workspaceId}
+          rootPath={rootPath}
+          onShowCall={onShowCall}
+          onOpenFile={onOpenFile}
+        />
+      )}
+    </div>
+  );
+}
+
+function RemoteJobDetail({
+  job,
+  tools,
+  workspaceId,
+  rootPath,
+  onShowCall,
+  onOpenFile,
+}: {
+  job: ChatPanel["tasks"][number];
+  tools: Record<string, ToolCall>;
+  workspaceId: string;
+  rootPath: string;
+  onShowCall?: ((toolUseId: string) => void) | undefined;
+  onOpenFile?: ((path: string) => void) | undefined;
+}) {
+  const { t } = useTranslation();
+  const running = job.status === "running";
+  const command = jobCommand(job, tools);
+  const outputFile = job.outputFile;
+  const output = useJobOutput(workspaceId, rootPath, outputFile, running);
+  const said = running ? job.activity || job.summary : job.summary || job.activity;
+  const exitCode = exitCodeOf(job.summary);
+  const toolUseId = job.toolUseId;
+  const below = outputFile !== undefined || Boolean(said);
+  return (
+    <div
+      className="mt-0.5 mb-1 ml-4 flex flex-col gap-1.5 border-l border-border pl-2 text-app-micro"
+      data-testid="remote-job-detail"
+    >
+      {(command || below) && (
+        <div className="overflow-hidden rounded-(--radius-control) border border-border">
+          {command && (
+            <div
+              className={cn(
+                "code-hl line-clamp-3 bg-[var(--state-hover-bg)] px-2 py-1 font-mono whitespace-pre-wrap break-all",
+                below && "border-b border-border",
               )}
-              {said && (
-                <div className="line-clamp-6 px-2 py-1.5 whitespace-pre-wrap break-words">
-                  {said}
-                </div>
-              )}
+              title={command}
+            >
+              <span className="text-[var(--state-success-fg)] select-none">$ </span>
+              <Highlighted code={command} language="bash" />
             </div>
           )}
-          <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
-            {running ? (
-              <span className="flex items-center gap-1 text-[var(--state-success-fg)]">
-                <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
-                {t("chat.panel.jobs.live")}
-              </span>
-            ) : exitCode !== undefined ? (
-              <span className={cn(exitCode !== 0 && "text-[var(--state-error-fg)]")}>
-                {t("chat.panel.jobs.exit_code", { code: exitCode })}
-              </span>
-            ) : (
-              <span className="truncate font-mono">{job.type}</span>
-            )}
-          </div>
+          {outputFile !== undefined ? (
+            <JobOutputView output={output} />
+          ) : (
+            said && (
+              <div className="line-clamp-6 px-2 py-1.5 whitespace-pre-wrap break-words">{said}</div>
+            )
+          )}
+        </div>
+      )}
+      <div className="flex min-h-4 items-center gap-1.5 text-muted-foreground">
+        {running ? (
+          <span className="flex items-center gap-1 text-[var(--state-success-fg)]">
+            <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
+            {t("chat.panel.jobs.live")}
+          </span>
+        ) : exitCode !== undefined ? (
+          <span className={cn(exitCode !== 0 && "text-[var(--state-error-fg)]")}>
+            {t("chat.panel.jobs.exit_code", { code: exitCode })}
+          </span>
+        ) : outputFile !== undefined && job.summary ? (
+          <span className="min-w-0 truncate" title={job.summary}>
+            {job.summary}
+          </span>
+        ) : (
+          <span className="truncate font-mono">{job.type}</span>
+        )}
+        {output && output.sizeBytes > 0 && (
+          <span className="ml-auto shrink-0 tabular-nums">{formatBytes(output.sizeBytes)}</span>
+        )}
+      </div>
+      {((toolUseId && onShowCall) || (outputFile && onOpenFile)) && (
+        <div className="flex flex-wrap gap-1">
           {toolUseId && onShowCall && (
-            <div className="flex flex-wrap gap-1">
-              <JobButton onClick={() => onShowCall(toolUseId)}>
-                <MessageSquare className="size-3" />
-                {t("chat.panel.jobs.show_call")}
-              </JobButton>
-            </div>
+            <JobButton onClick={() => onShowCall(toolUseId)}>
+              <MessageSquare className="size-3" />
+              {t("chat.panel.jobs.show_call")}
+            </JobButton>
+          )}
+          {outputFile && onOpenFile && (
+            <JobButton onClick={() => onOpenFile(outputFile)} title={outputFile}>
+              <FileText className="size-3" />
+              {t("chat.panel.jobs.output_file")}
+            </JobButton>
           )}
         </div>
       )}

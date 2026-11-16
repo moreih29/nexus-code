@@ -33,6 +33,7 @@ import {
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
+import { jobOutputFile, jobsOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -545,6 +546,24 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     else if (phase === "failed" || phase === "not-found") await target.controller.open();
     else throw new UiRequestError("its program has not ended");
     return {};
+  },
+
+  "chat.jobOutputs": async ({ workspaceId }) => {
+    const files = new Set<string>();
+    for (const tab of Object.values(useTabsStore.getState().byWorkspace[workspaceId] ?? {})) {
+      if (tab.type !== "claude" && tab.type !== "codex") continue;
+      const chat = useChatStore.getState().tabs[chatKey(workspaceId, tab.id)];
+      if (!chat) continue;
+      // The call that started a job may be in the history read before the program ran.
+      const { model, history } = chat;
+      for (const job of jobsOf(model)) {
+        const path =
+          jobOutputFile(job, model.tools) ??
+          (history ? jobOutputFile(job, history.tools) : undefined);
+        if (path) files.add(path);
+      }
+    }
+    return { files: [...files] };
   },
 
   "chat.interrupt": async ({ workspaceId, tabId }) => {

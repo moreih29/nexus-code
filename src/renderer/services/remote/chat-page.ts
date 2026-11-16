@@ -30,6 +30,7 @@ import type {
   TaskInfo,
   ToolCall,
 } from "../chat/model";
+import { jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
@@ -39,6 +40,9 @@ export const DEFAULT_READ_ITEMS = 200;
 
 /** The most of a failure's text, or of a program's stderr, a status tells: its banner's details. */
 const MAX_STATUS_TEXT = 8 * 1024;
+
+/** The longest path a job's output file is told by (ViewTask.outputFile). */
+const MAX_OUTPUT_PATH = 4096;
 
 export interface ChatSource {
   agent: ChatAgent;
@@ -175,7 +179,9 @@ function viewPermissionOf(request: PermissionRequest): ViewPermission {
   };
 }
 
-export function viewTaskOf(task: TaskInfo): ViewTask {
+/** A task as the protocol tells it; `tools` give the call that started it, for its output file. */
+export function viewTaskOf(task: TaskInfo, tools: Record<string, ToolCall> = {}): ViewTask {
+  const outputFile = jobOutputFile(task, tools);
   return {
     taskId: task.taskId,
     type: task.type,
@@ -186,6 +192,7 @@ export function viewTaskOf(task: TaskInfo): ViewTask {
     ...(task.endedAt !== undefined ? { endedAt: task.endedAt } : {}),
     ...(task.summary ? { summary: task.summary } : {}),
     ...(task.activity ? { activity: task.activity } : {}),
+    ...(outputFile && outputFile.length <= MAX_OUTPUT_PATH ? { outputFile } : {}),
   };
 }
 
@@ -331,7 +338,8 @@ export function chatPageOf(
   source: ChatSource,
   { before, limit }: { before?: number; limit?: number } = {},
 ): ChatPage {
-  const total = conversationOf(source).items.length;
+  const conversation = conversationOf(source);
+  const total = conversation.items.length;
   const end = Math.min(before ?? total, total);
   const count = Math.min(limit ?? DEFAULT_READ_ITEMS, MAX_READ_ITEMS);
   const window = chatWindowOf(source, Math.max(0, end - count), end);
@@ -341,7 +349,9 @@ export function chatPageOf(
     total: window.total,
     items: window.items.map(viewItemOf),
     tools: Object.fromEntries([...window.tools].map(([id, tool]) => [id, viewToolOf(tool)])),
-    tasks: Object.fromEntries([...window.tasks].map(([id, task]) => [id, viewTaskOf(task)])),
+    tasks: Object.fromEntries(
+      [...window.tasks].map(([id, task]) => [id, viewTaskOf(task, conversation.tools)]),
+    ),
     agentItems: Object.fromEntries(
       [...window.agents].map(([id, items]) => [id, items.map(viewAssistantOf)]),
     ),

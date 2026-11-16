@@ -1236,6 +1236,11 @@ export function serveWith(
               .ui("workspace.folders", { workspaceId: id })
               .then((r) => r.folders)
               .catch(() => []),
+          outputs: (id) =>
+            s
+              .ui("chat.jobOutputs", { workspaceId: id })
+              .then((r) => r.files)
+              .catch(() => []),
         };
         return request.method === "files.list"
           ? listFiles(files, workspace.rootPath, request.params as RpcParams<"files.list">)

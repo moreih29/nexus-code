@@ -23,6 +23,7 @@ import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
+import type { ToolCall } from "../chat/model";
 import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
 import { supportsControl } from "../chat/versions";
@@ -174,8 +175,11 @@ export function changesOf(was: Sent, now: Sent, appends = false): ChatChange | n
     if (before.tools.get(id) !== tool) tools[id] = viewToolOf(tool);
   }
   const tasks: ChatChange["tasks"] = {};
+  let byId: Record<string, ToolCall> | undefined;
   for (const [id, task] of after.tasks) {
-    if (before.tasks.get(id) !== task) tasks[id] = viewTaskOf(task);
+    if (before.tasks.get(id) === task) continue;
+    byId ??= Object.fromEntries(after.tools);
+    tasks[id] = viewTaskOf(task, byId);
   }
   const agentItems: ChatChange["agentItems"] = {};
   for (const [id, list] of after.agents) {

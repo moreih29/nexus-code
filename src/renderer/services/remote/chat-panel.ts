@@ -157,7 +157,7 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   const moves = movesOf(source, items);
   return {
     todos: todosOf(tools).map(({ content, status }) => ({ content, status })),
-    tasks: jobsOf(model).map(viewTaskOf),
+    tasks: jobsOf(model).map((job) => viewTaskOf(job, tools)),
     agents: agentsOf(model).map((agent) => ({
       toolUseId: agent.toolUseId,
       description: agent.description,

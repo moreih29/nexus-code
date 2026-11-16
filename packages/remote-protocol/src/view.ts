@@ -195,6 +195,12 @@ export const ViewTaskSchema = z.object({
   endedAt: z.number().optional(),
   summary: z.string().optional(),
   activity: z.string().optional(),
+  /**
+   * The file its program writes a background run's output to, on that
+   * computer, as its chat there tells it: files.read reads it by this
+   * path, though it is outside the workspace's folders. Since 0.13.0.
+   */
+  outputFile: z.string().max(4096).optional(),
 });
 export type ViewTask = z.infer<typeof ViewTaskSchema>;
 
