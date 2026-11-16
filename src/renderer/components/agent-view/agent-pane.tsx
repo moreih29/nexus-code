@@ -69,8 +69,12 @@ function update(change: (layout: AgentLayout) => AgentLayout): void {
   useAgentViewStore.getState().update(change);
 }
 
-/** Puts the keyboard in the agent `key` names. */
+/** Puts the keyboard in the agent `key` names: another computer's chat by its key. */
 function focusKey(key: string): void {
+  if (isRemoteKey(key)) {
+    requestTabFocus(key);
+    return;
+  }
   const session = parseSessionKey(key);
   if (session) requestTabFocus(session.tabId);
 }

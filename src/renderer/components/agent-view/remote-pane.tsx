@@ -5,6 +5,7 @@ import type { ViewGoal } from "../../../../packages/remote-protocol/src/view";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
+import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
@@ -30,6 +31,7 @@ import {
   usePeerReach,
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
+import { registerTabFocusTarget } from "../../services/tab-focus";
 import { useChatFontStyle } from "../../state/stores/chat-font";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
@@ -43,7 +45,7 @@ import { Composer, composerHint } from "../chat/composer";
 import { GoalBar, type TabGoal } from "../chat/goal-bar";
 import { type MessageActions, MessageList, type ShownMove } from "../chat/message-list";
 import { type PanelPlace, placeFor, readPanelPref, writePanelPref } from "../chat/panel-place";
-import { PermissionCard } from "../chat/permission-card";
+import { focusChatTab, PermissionCard } from "../chat/permission-card";
 import { QuickLook, type QuickLookList } from "../chat/quick-look";
 import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
@@ -333,6 +335,12 @@ function RemoteChatView({
   const fontStyle = useChatFontStyle();
   const claude = target.kind !== "codex";
   const rootRef = useRef<HTMLDivElement>(null);
+  // Opened or picked, it takes the keyboard as a chat here does: its permission card, or its box.
+  const focusKey = remoteSessionKey(target);
+  useEffect(
+    () => registerTabFocusTarget(focusKey, () => focusChatTab(rootRef.current)),
+    [focusKey],
+  );
   const [place, setPlace] = useState<PanelPlace>("beside");
   useLayoutEffect(() => {
     const el = rootRef.current;
