@@ -104,51 +104,60 @@ export function recordingMs(recording: Pick<TranscriptRecording, "takes" | "line
 }
 
 /**
- * The names for a second pass's voices: each takes the name of the voice
+ * The names for a second pass's voices: each takes the name of the person
  * (as the live session had them) it shares the most time with, if that one
- * had a name. A live voice's name goes to one new voice only, the one that
- * shares the most time with it: when the pass hears two voices where the
- * live session heard one, the other stays unnamed, a person of its own,
- * for the user to name (giving it the same name joins it back). Named
- * after the live session's voice, it would be one person with no way to
- * tell them apart. Two live voices given one name still give it to their
- * new voices alike: the user said they are one person.
+ * had a name. Live voices given one name are one person, the user said, and
+ * an unnamed live voice is one of its own. A person's name goes to one new
+ * voice only, the one that shares the most time with them: when the pass
+ * hears two voices where the live session heard one, the other stays
+ * unnamed, a person of its own, for the user to name (giving it the same
+ * name joins it back). Named after the live person, it would be one person
+ * with no way to tell them apart. That holds when the live session mixed
+ * people up and the user gave its voices their names as they went: the
+ * voices the pass tells apart do not go back to one name.
  */
 export function carryNames(
   live: readonly TranscriptLine[],
   names: Readonly<Record<string, string>>,
   next: readonly TranscriptLine[],
 ): Record<string, string> {
+  // A live voice's person: its name, or the voice itself when it has none.
+  const personOf = (speaker: string) => {
+    const name = names[speaker]?.trim();
+    return name ? `name:${name}` : `voice:${speaker}`;
+  };
   const overlap = new Map<string, Map<string, number>>();
   for (const n of next) {
     for (const l of live) {
       const shared = Math.min(n.endMs, l.endMs) - Math.max(n.startMs, l.startMs);
       if (shared <= 0) continue;
-      const byLive = overlap.get(n.speaker) ?? new Map<string, number>();
-      byLive.set(l.speaker, (byLive.get(l.speaker) ?? 0) + shared);
-      overlap.set(n.speaker, byLive);
+      const person = personOf(l.speaker);
+      const byPerson = overlap.get(n.speaker) ?? new Map<string, number>();
+      byPerson.set(person, (byPerson.get(person) ?? 0) + shared);
+      overlap.set(n.speaker, byPerson);
     }
   }
-  // Each new voice's live voice, and the new voice that shares the most with each live one.
+  // Each new voice's live person, and the new voice that shares the most with each person.
   const heir = new Map<string, { speaker: string; ms: number }>();
-  const liveOf = new Map<string, string>();
-  for (const [speaker, byLive] of overlap) {
+  const personOfNew = new Map<string, string>();
+  for (const [speaker, byPerson] of overlap) {
     let best = "";
     let most = 0;
-    for (const [liveSpeaker, ms] of byLive) {
+    for (const [person, ms] of byPerson) {
       if (ms > most) {
         most = ms;
-        best = liveSpeaker;
+        best = person;
       }
     }
-    liveOf.set(speaker, best);
+    personOfNew.set(speaker, best);
     const held = heir.get(best);
     if (!held || most > held.ms) heir.set(best, { speaker, ms: most });
   }
   const out: Record<string, string> = {};
-  for (const [speaker, best] of liveOf) {
-    const name = names[best]?.trim();
-    if (name && heir.get(best)?.speaker === speaker) out[speaker] = name;
+  for (const [speaker, person] of personOfNew) {
+    if (person.startsWith("name:") && heir.get(person)?.speaker === speaker) {
+      out[speaker] = person.slice("name:".length);
+    }
   }
   return out;
 }
