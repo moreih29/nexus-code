@@ -801,10 +801,13 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     always,
   }) => {
     const target = await openedTab(workspaceId, tabId);
-    // Main allowed an answer to the request the tab asked then: not to another.
-    const request = useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions[0];
-    if (!request) throw new UiRequestError("it no longer asks anything");
-    if (request.requestId !== expect) {
+    // Main allowed an answer to that request, not to another; any of those
+    // it waits on, as the card answers the one it shows (not always the first).
+    const asked =
+      useChatStore.getState().tabs[chatKey(workspaceId, tabId)]?.model.permissions ?? [];
+    if (asked.length === 0) throw new UiRequestError("it no longer asks anything");
+    const request = asked.find((r) => r.requestId === expect);
+    if (!request) {
       throw new UiRequestError("its request changed or was answered; read it again");
     }
     if (decision === "allow" && always && always.length > 0) {
