@@ -952,7 +952,8 @@ export interface CliUiOps {
   };
   /**
    * An image of a Claude or Codex tab: a user message's, by its item's key,
-   * or a tool result's, by its call's id; at its index there. Made smaller
+   * a tool result's, by its call's id, or a message's held for after the
+   * turn, by its id; at its index there. Made smaller
    * when its base64 would take over `maxChars`, or its longer side over
    * `maxEdge` pixels.
    */
@@ -962,7 +963,8 @@ export interface CliUiOps {
       tabId: string;
       ref:
         | { kind: "user"; itemKey: string; index: number }
-        | { kind: "tool"; toolUseId: string; index: number };
+        | { kind: "tool"; toolUseId: string; index: number }
+        | { kind: "held"; id: string; index: number };
       maxChars: number;
       maxEdge?: number;
     };

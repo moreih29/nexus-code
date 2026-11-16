@@ -96,6 +96,12 @@ describe("the composer of another computer's chat", () => {
       calls.push({ method, args });
       if (method === "peerChatUnqueue") return { ok: true, value: { text: "the whole text" } };
       if (method === "peerChatWithdraw") return { ok: true, value: { withdrawn: true } };
+      if (method === "peerChatImage") {
+        const index = (args.ref as { index: number }).index;
+        return index === 0
+          ? { ok: true, value: { mediaType: "image/png", data: "AAAA", width: 1, height: 1 } }
+          : { ok: false, kind: "invalid", message: "no such image" };
+      }
       return { ok: true, value: {} };
     }) as never;
     const made = peerComposerController({
@@ -112,6 +118,7 @@ describe("the composer of another computer's chat", () => {
         withdraw: true,
         hurry: true,
       }),
+      held: () => [{ id: "q1", text: "the whole", truncated: true, images: 2 }],
       call,
     });
     made.enqueue("later", []);
@@ -119,10 +126,11 @@ describe("the composer of another computer's chat", () => {
     await made.sendNow?.("now");
     await made.readHeldNow?.();
     expect(await made.withdraw?.("u3")).toBe(true);
+    // Its images come back with it, read before it is taken; one not given is left out.
     expect(await made.takeBackQueued?.("q1")).toEqual({
       id: "q1",
       text: "the whole text",
-      images: [],
+      images: [{ mediaType: "image/png", data: "AAAA" }],
     });
     expect(made.removeQueued("q2")).toBeUndefined();
     expect(made.supports("cancel_async_message")).toBe(true);
@@ -131,6 +139,8 @@ describe("the composer of another computer's chat", () => {
       { method: "peerChatSend", args: { ...ref, text: "now", when: "now" } },
       { method: "peerChatHurry", args: ref },
       { method: "peerChatWithdraw", args: { ...ref, itemKey: "u3" } },
+      { method: "peerChatImage", args: { ...ref, ref: { kind: "held", id: "q1", index: 0 } } },
+      { method: "peerChatImage", args: { ...ref, ref: { kind: "held", id: "q1", index: 1 } } },
       { method: "peerChatUnqueue", args: { ...ref, id: "q1" } },
       { method: "peerChatUnqueue", args: { ...ref, id: "q2" } },
     ]);
@@ -150,7 +160,12 @@ describe("the composer of another computer's chat", () => {
     expect(made.readHeldNow).toBeUndefined();
   });
 
-  test("the held messages above the box: one cut short ends in an ellipsis", () => {
+  test("the held messages above the box: one cut short ends in an ellipsis, its images there", () => {
+    const there = (index: number) => ({
+      mediaType: "",
+      data: "",
+      remote: { kind: "held", id: "q2", index },
+    });
     expect(
       heldQueueOf([
         { id: "q1", text: "short" },
@@ -158,7 +173,7 @@ describe("the composer of another computer's chat", () => {
       ]),
     ).toEqual([
       { id: "q1", text: "short", images: [] },
-      { id: "q2", text: "long…", images: [] },
+      { id: "q2", text: "long…", images: [there(0), there(1)] },
     ]);
     expect(heldQueueOf(undefined)).toEqual([]);
   });

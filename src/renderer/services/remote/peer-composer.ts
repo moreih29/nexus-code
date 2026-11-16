@@ -4,9 +4,10 @@
 // chat.commands, chat.command), and an image goes ahead with chat.attach.
 // From 0.12.0 a message goes when its keys say (chat.send `when`), the
 // messages held for after the turn are that device's (panel.held,
-// chat.unqueue), and an unread one is taken back (chat.withdraw) or
-// hurried (chat.hurry). From 0.13.0 an @ lists what the chat's agent
-// suggests (chat.fileSuggestions); before, the workspace's files by name
+// chat.unqueue, their images read back with chat.image from 0.13.0), and
+// an unread one is taken back (chat.withdraw) or hurried (chat.hurry).
+// From 0.13.0 an @ lists what the chat's agent suggests
+// (chat.fileSuggestions); before, the workspace's files by name
 // (files.find). A file other than an image goes ahead with chat.upload
 // (0.10.0), and the chat's device puts its path after the message.
 
@@ -83,6 +84,8 @@ export interface PeerComposerDeps {
   onRevealed?: (seq: number) => void;
   /** What the chat's device lets do with it now (panel.can); none before 0.11.0. */
   can?: () => ChatPanel["can"];
+  /** The messages the chat's device holds for after the turn (panel.held). */
+  held?: () => ChatPanel["held"];
   /** Its workspace's folder and its own there, for an @ from a device before 0.13.0. */
   folders?: () => PeerFolders | undefined;
   call?: typeof ipcCallResult;
@@ -235,8 +238,11 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       return undefined;
     },
     takeBackQueued: async (id): Promise<QueuedMessage> => {
+      // Its images read first: once it is taken back, that device has them no more.
+      const count = deps.held?.()?.find((item) => item.id === id)?.images ?? 0;
+      const images = await heldImagesOf(call, ref, id, count);
       const { text } = await answerOf(call("remote", "peerChatUnqueue", { ...ref, id }));
-      return { id, text, images: [] };
+      return { id, text, images };
     },
     interrupt: () => answerOf(call("remote", "peerChatInterrupt", ref)),
     clearDraft: () => clearPeerDraft(ref),
@@ -273,14 +279,40 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
 /**
  * The messages the chat's device holds for after the turn, as the queue
  * above the box shows them: a text cut short ends in an ellipsis, and its
- * images stay there (taking one back gives its whole text, not them).
+ * images stay there until one is taken back (chat.image's held refs).
  */
 export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
   return (held ?? []).map((item) => ({
     id: item.id,
     text: item.truncated ? `${item.text}…` : item.text,
-    images: [],
+    images: Array.from({ length: item.images ?? 0 }, (_, index) => ({
+      mediaType: "",
+      data: "",
+      remote: { kind: "held" as const, id: item.id, index },
+    })),
   }));
+}
+
+/**
+ * A held message's images, read whole from the chat's device for the box
+ * here; one it cannot give (a device before 0.13.0) is left out.
+ */
+export async function heldImagesOf(
+  call: typeof ipcCallResult,
+  ref: PeerChatRef,
+  id: string,
+  count: number,
+): Promise<ImageBlock[]> {
+  const read = await Promise.all(
+    Array.from({ length: count }, async (_, index): Promise<ImageBlock | null> => {
+      const result = await call("remote", "peerChatImage", {
+        ...ref,
+        ref: { kind: "held", id, index },
+      });
+      return result.ok ? { mediaType: result.value.mediaType, data: result.value.data } : null;
+    }),
+  );
+  return read.filter((image): image is ImageBlock => image !== null);
 }
 
 /** The models the chip offers: the chat's, its own one knowing its effort levels. */
@@ -457,13 +489,15 @@ export function usePeerComposer({
     settings: ChatSettings | null;
     onError: (message: string) => void;
     can: ChatPanel["can"];
+    queued: ChatPanel["held"];
     folders: PeerFolders | undefined;
     here: HereCommandDeps | undefined;
     onOpened: ((tabId: string, draft?: string) => void) | undefined;
-  }>({ settings: null, onError, can: undefined, folders, here, onOpened });
+  }>({ settings: null, onError, can: undefined, queued: undefined, folders, here, onOpened });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
+  held.queued = panel?.held;
   held.folders = folders;
   held.here = here;
   held.onOpened = onOpened;
@@ -478,6 +512,7 @@ export function usePeerComposer({
         onError: (message) => held.onError(message),
         onRevealed: (seq) => setReveal((now) => (now?.seq === seq ? undefined : now)),
         can: () => held.can,
+        held: () => held.queued,
         folders: () => held.folders,
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],

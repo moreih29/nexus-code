@@ -909,7 +909,8 @@ export const RPC_METHODS = {
   },
   /**
    * An image of the chat, made small enough for a frame: a user message's
-   * (by its item's key and the image's index) or a tool result's. With
+   * (by its item's key and the image's index), a tool result's, or (since
+   * 0.13.0) a message's held for after the turn (panel.held, by its id). With
    * `maxEdge`, drawn smaller (as a JPEG) till its longer side is at most
    * that many pixels, for a thumbnail; one already that small goes as it is.
    */
@@ -928,6 +929,11 @@ export const RPC_METHODS = {
         z.object({
           kind: z.literal("tool"),
           toolUseId: z.string(),
+          index: z.number().int().nonnegative(),
+        }),
+        z.object({
+          kind: z.literal("held"),
+          id: z.string(),
           index: z.number().int().nonnegative(),
         }),
       ]),
