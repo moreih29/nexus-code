@@ -506,7 +506,13 @@ function RemoteChatView({
     [deviceId, workspaceId, tabId],
   );
   const forkFrom = useRef<(itemKey?: string) => void>(() => undefined);
-  forkFrom.current = (itemKey) => void forkPeerChat(target, itemKey);
+  forkFrom.current = (itemKey) => {
+    // A message of the user's comes back with its images.
+    const from = itemKey
+      ? model.items.find((i) => i.kind === "user" && (i.uuid ?? i.key) === itemKey)
+      : undefined;
+    void forkPeerChat(target, itemKey, from?.kind === "user" ? from.images : undefined);
+  };
   const canRewind = can?.rewind === true;
   const canFork = can?.fork === true;
   const canBackground = can?.background === true;
