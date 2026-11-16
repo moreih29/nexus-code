@@ -2497,6 +2497,21 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.restart"].params),
         RPC_METHODS["chat.restart"].result,
       ),
+      /** The `claude -p` and `codex exec` runs another device's chat's session started. */
+      peerChatRuns: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.runs"].params),
+        RPC_METHODS["chat.runs"].result,
+      ),
+      /** One of those runs, with its tools, messages and answer. */
+      peerChatRun: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.run"].params),
+        RPC_METHODS["chat.run"].result,
+      ),
+      /** Stops one of those runs. */
+      peerChatStopRun: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.stopRun"].params),
+        RPC_METHODS["chat.stopRun"].result,
+      ),
       /** Stops another device's chat's turn. */
       peerChatInterrupt: call(
         z

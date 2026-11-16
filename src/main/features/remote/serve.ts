@@ -8,8 +8,11 @@ import { posix, win32 } from "node:path";
 import {
   type AgentSender,
   type Capability,
+  type ChatRun,
   MAX_AGENT_DESCRIPTION,
+  MAX_CHAT_RUNS,
   MAX_FILE_SUGGESTIONS,
+  MAX_RUN_TEXT,
   MAX_SESSION_AGENTS,
   type RemoteSession,
   type RemoteSessionAgent,
@@ -945,6 +948,114 @@ export async function chatPanel(
   return { ...panel, changedFiles };
 }
 
+/** Text cut to `max` characters, an ellipsis where it was cut. */
+function cut(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** What a run's row and its pane both tell of it. */
+function runFactsOf(run: AgentRun): ChatRun {
+  return {
+    id: run.id,
+    ...(run.program ? { program: run.program } : {}),
+    ...(run.endpoint ? { endpoint: cut(run.endpoint, 200) } : {}),
+    ...(run.model ? { model: cut(run.model, 200) } : {}),
+    ...(run.description ? { description: oneLine(run.description, MAX_AGENT_DESCRIPTION) } : {}),
+    start: run.start,
+    ...(run.end !== undefined ? { end: run.end } : {}),
+    state: run.state,
+    toolCount: Math.max(0, run.toolCount),
+    failedCount: Math.max(0, run.failedCount),
+    ...(run.toolsTold ? { toolsTold: true } : {}),
+    ...(run.exitCode !== undefined ? { exitCode: run.exitCode } : {}),
+    ...(run.sessionId ? { sessionId: cut(run.sessionId, 200) } : {}),
+  };
+}
+
+/** How long a run row's prompt, tool and last words are. */
+const RUN_ROW_TEXT = 300;
+
+/**
+ * A `claude -p` or `codex exec` run as the chat's agents list it: what it
+ * is, how it stands, the tool it runs now and what it wrote last.
+ */
+export function runRowOf(run: AgentRun): ChatRun {
+  const tool = [...run.tools].reverse().find((t) => t.end === undefined && !t.background);
+  const last = run.answer ?? run.messages?.at(-1)?.text;
+  return {
+    ...runFactsOf(run),
+    ...(run.prompt ? { prompt: cut(run.prompt, RUN_ROW_TEXT) } : {}),
+    ...(tool ? { current: cut(tool.target ? `${tool.name} ${tool.target}` : tool.name, 200) } : {}),
+    ...(last ? { last: cut(last, RUN_ROW_TEXT) } : {}),
+  };
+}
+
+/** A run as its pane shows it: its tools, messages and answer too, fewer messages where they would not fit. */
+export function runDetailOf(run: AgentRun): ChatRun {
+  const detail = (messages: NonNullable<AgentRun["messages"]> | undefined): ChatRun => ({
+    ...runFactsOf(run),
+    ...(run.prompt ? { prompt: cut(run.prompt, MAX_RUN_TEXT) } : {}),
+    tools: run.tools.slice(-30).map((tool) => ({
+      id: cut(tool.id, 200),
+      name: cut(tool.name, 200),
+      ...(tool.target ? { target: cut(tool.target, 2000) } : {}),
+      ...(tool.note ? { note: cut(tool.note, 2000) } : {}),
+      start: tool.start,
+      ...(tool.end !== undefined ? { end: tool.end } : {}),
+      ...(tool.failed ? { failed: true } : {}),
+      ...(tool.error ? { error: cut(tool.error, 2000) } : {}),
+      ...(tool.background ? { background: true } : {}),
+      ...(tool.denied ? { denied: true } : {}),
+    })),
+    ...(messages
+      ? { messages: messages.map((m) => ({ at: m.at, text: cut(m.text, MAX_RUN_TEXT) })) }
+      : {}),
+    ...(run.answer ? { answer: cut(run.answer, MAX_RUN_TEXT) } : {}),
+  });
+  let messages = run.messages?.slice(-20);
+  let shown = detail(messages);
+  while (messages && messages.length > 0 && !fitsAsResult({ run: shown })) {
+    messages = messages.slice(Math.ceil(messages.length / 2));
+    shown = detail(messages);
+  }
+  return shown;
+}
+
+/** The `claude -p` and `codex exec` runs of the chat's session, as its agents list them. */
+export async function chatRuns(
+  services: CliServices,
+  { workspaceId, tabId }: RpcParams<"chat.runs">,
+): Promise<RpcResult<"chat.runs">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const runs = services.claudeAgents
+    .list(workspaceId, tabId)
+    .filter((agent) => agent.kind === "print")
+    .slice(0, MAX_CHAT_RUNS);
+  return { runs: runs.map(runRowOf) };
+}
+
+/** One of the chat's runs, as its pane shows it. */
+export async function chatRun(
+  services: CliServices,
+  { workspaceId, tabId, runId }: RpcParams<"chat.run">,
+): Promise<RpcResult<"chat.run">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  const run = services.claudeAgents
+    .list(workspaceId, tabId)
+    .find((agent) => agent.kind === "print" && agent.id === runId);
+  if (!run) throw new RpcFailure(RpcErrorCode.NotFound, `no run ${runId}: it is not kept`);
+  return { run: runDetailOf(run) };
+}
+
+/** Stops one of the chat's runs, as its pane's stop button does. */
+export async function stopChatRun(
+  services: CliServices,
+  { workspaceId, tabId, runId }: RpcParams<"chat.stopRun">,
+): Promise<RpcResult<"chat.stopRun">> {
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
+  return { stopped: await services.claudeAgents.stop(workspaceId, tabId, runId) };
+}
+
 /** Stops one of the chat's tasks, as its panel's stop button does. */
 export async function stopChatTask(
   services: CliServices,
@@ -1353,6 +1464,12 @@ export function serveWith(
         return chatPanel(s, request.params as RpcParams<"chat.panel">);
       case "chat.stopTask":
         return stopChatTask(s, request.params as RpcParams<"chat.stopTask">);
+      case "chat.runs":
+        return chatRuns(s, request.params as RpcParams<"chat.runs">);
+      case "chat.run":
+        return chatRun(s, request.params as RpcParams<"chat.run">);
+      case "chat.stopRun":
+        return stopChatRun(s, request.params as RpcParams<"chat.stopRun">);
       case "chat.rewindPreview":
         return previewChatRewind(s, request.params as RpcParams<"chat.rewindPreview">);
       case "chat.rewind":

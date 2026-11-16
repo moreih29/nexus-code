@@ -136,6 +136,71 @@ export const MAX_SESSION_AGENTS = 8;
 /** Longest an agent's description is, in characters. */
 export const MAX_AGENT_DESCRIPTION = 120;
 
+/** Most `claude -p` and `codex exec` runs chat.runs tells. */
+export const MAX_CHAT_RUNS = 20;
+/** Longest a run's prompt, answer or message is told, in characters. */
+export const MAX_RUN_TEXT = 16_000;
+
+const RunStateSchema = z.enum(["running", "permissionPending", "completed", "stopped", "failed"]);
+
+/**
+ * A `claude -p` or `codex exec` run a chat's session started, as the
+ * serving app recorded it and its chat shows it beside its subagents: as
+ * chat.runs lists it, what its row shows; chat.run tells its tools,
+ * messages and answer too.
+ */
+export const ChatRunSchema = z.object({
+  id: z.string().max(200),
+  /** "codex" for a `codex exec` run; absent for `claude -p`. */
+  program: z.enum(["claude", "codex"]).optional(),
+  /** Where its model is served when not by its program's own API: the gateway's host. */
+  endpoint: z.string().max(200).optional(),
+  model: z.string().max(200).optional(),
+  description: z.string().max(MAX_AGENT_DESCRIPTION).optional(),
+  /** What it was asked: its start, as chat.runs tells it; all of it (to MAX_RUN_TEXT) from chat.run. */
+  prompt: z.string().max(MAX_RUN_TEXT).optional(),
+  start: z.number(),
+  end: z.number().optional(),
+  state: RunStateSchema,
+  toolCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  /** Whether its tools are told (its output is a stream of events). */
+  toolsTold: z.boolean().optional(),
+  exitCode: z.number().int().optional(),
+  /** Its session's id, which chat.resume goes on with in a tab of its own. */
+  sessionId: z.string().max(200).optional(),
+  /** The tool it runs now, as "Bash npm test"; from chat.runs. */
+  current: z.string().max(200).optional(),
+  /** What it wrote last: its answer once it ended; its start, from chat.runs. */
+  last: z.string().max(MAX_RUN_TEXT).optional(),
+  /** Its latest tools, oldest first; from chat.run. */
+  tools: z
+    .array(
+      z.object({
+        id: z.string().max(200),
+        name: z.string().max(200),
+        target: z.string().max(2000).optional(),
+        note: z.string().max(2000).optional(),
+        start: z.number(),
+        end: z.number().optional(),
+        failed: z.boolean().optional(),
+        error: z.string().max(2000).optional(),
+        background: z.boolean().optional(),
+        denied: z.boolean().optional(),
+      }),
+    )
+    .max(30)
+    .optional(),
+  /** Its latest messages, oldest first; from chat.run. */
+  messages: z
+    .array(z.object({ at: z.number(), text: z.string().max(MAX_RUN_TEXT) }))
+    .max(20)
+    .optional(),
+  /** Its answer, once it ended; from chat.run. */
+  answer: z.string().max(MAX_RUN_TEXT).optional(),
+});
+export type ChatRun = z.infer<typeof ChatRunSchema>;
+
 /**
  * An agent a session runs beside its turn, as the serving app's agent list
  * shows it under the session's row: a subagent of its Claude Code, or a
@@ -1250,6 +1315,31 @@ export const RPC_METHODS = {
     capability: "chat.control",
     params: z.object({ ...TabRef, taskId: z.string() }),
     result: Ok,
+  },
+  /**
+   * The `claude -p` and `codex exec` runs the chat's session started, as
+   * its chat shows them among its agents: running ones, then those that
+   * ended, latest first, at most MAX_CHAT_RUNS. Since 0.13.0.
+   */
+  "chat.runs": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef }),
+    result: z.object({ runs: z.array(ChatRunSchema).max(MAX_CHAT_RUNS) }),
+  },
+  /** One of the chat's runs, with its tools, messages and answer; NotFound once it is not kept. Since 0.13.0. */
+  "chat.run": {
+    capability: "chat.read",
+    params: z.object({ ...TabRef, runId: z.string().max(200) }),
+    result: z.object({ run: ChatRunSchema }),
+  },
+  /**
+   * Stops one of the chat's running runs, as its pane's stop button does:
+   * `stopped` false when it no longer could be. Since 0.13.0.
+   */
+  "chat.stopRun": {
+    capability: "chat.control",
+    params: z.object({ ...TabRef, runId: z.string().max(200) }),
+    result: z.object({ stopped: z.boolean() }),
   },
   "chat.rename": {
     capability: "chat.control",

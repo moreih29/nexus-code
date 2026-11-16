@@ -31,6 +31,7 @@ import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
 import { putPeerDraft } from "../../services/remote/peer-drafts";
+import { peerRunRows, usePeerRuns } from "../../services/remote/peer-runs";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
@@ -75,6 +76,7 @@ import { RemoteConfigDialog } from "./remote-config-dialog";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { RemotePhaseBanner } from "./remote-phase-banner";
+import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import {
   type RemotePanelAsk,
@@ -450,8 +452,14 @@ function RemoteChatView({
     }
   }, [panelAsk?.seq]);
 
-  // The pane shows main or one subagent's transcript; input always goes to main.
-  const agents = useMemo(() => remoteAgentsOf(page.panel, model), [page.panel, model]);
+  // The pane shows main or one subagent's transcript, or a `claude -p` run
+  // its session started; input always goes to main.
+  const runs = usePeerRuns({ deviceId, workspaceId, tabId }, visible && reach === "online");
+  const runRows = useMemo(() => peerRunRows(runs), [runs]);
+  const agents = useMemo(
+    () => [...remoteAgentsOf(page.panel, model), ...runRows],
+    [page.panel, model, runRows],
+  );
   const [shownId, setShownId] = useState<string | null>(null);
   const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
   useEffect(() => {
@@ -648,11 +656,13 @@ function RemoteChatView({
       target={target}
       panel={page.panel}
       model={model}
+      runs={runRows}
       controls={reachable}
       onShowAgent={showAgent}
       onShowCall={showCall}
       onCompact={() => told(ipcCallResult("remote", "peerChatSend", { ...ref, text: "/compact" }))}
       onStopTask={(taskId) => told(ipcCallResult("remote", "peerChatStopTask", { ...ref, taskId }))}
+      onStopRun={(runId) => told(ipcCallResult("remote", "peerChatStopRun", { ...ref, runId }))}
       {...(reachable && page.panel?.remoteControl
         ? {
             onRemoteControl: (enabled: boolean) =>
@@ -719,37 +729,46 @@ function RemoteChatView({
                     {...(claude ? { panel: { open: panelOpen, onToggle: togglePanel } } : {})}
                   />
                 )}
-                <MessageList
-                  workspaceId={peerWorkspace}
-                  cwd={target.cwd ?? target.path}
-                  rootPath={target.path}
-                  history={null}
-                  model={model}
-                  actions={shown ? undefined : actions}
-                  items={shown ? agentTranscript(model, shown) : undefined}
-                  reveal={shown ? null : callAsk}
-                  {...(moves ? { moves } : {})}
-                  {...(older && !shown ? { older } : {})}
-                  empty={
-                    <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
-                      {claude ? (
-                        <ClaudeIcon className="size-8" />
-                      ) : (
-                        <CodexIcon className="size-8" />
-                      )}
-                      <div className="text-app-body">
-                        {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                {shown?.run ? (
+                  <RemotePrintRunPane
+                    target={target}
+                    row={shown.run}
+                    visible={visible}
+                    controls={reachable}
+                  />
+                ) : (
+                  <MessageList
+                    workspaceId={peerWorkspace}
+                    cwd={target.cwd ?? target.path}
+                    rootPath={target.path}
+                    history={null}
+                    model={model}
+                    actions={shown ? undefined : actions}
+                    items={shown ? agentTranscript(model, shown) : undefined}
+                    reveal={shown ? null : callAsk}
+                    {...(moves ? { moves } : {})}
+                    {...(older && !shown ? { older } : {})}
+                    empty={
+                      <div className="my-auto flex flex-col items-center gap-2 py-4 text-center text-muted-foreground">
+                        {claude ? (
+                          <ClaudeIcon className="size-8" />
+                        ) : (
+                          <CodexIcon className="size-8" />
+                        )}
+                        <div className="text-app-body">
+                          {t(claude ? "chat.empty.title" : "chat.codex.empty")}
+                        </div>
+                        <div
+                          className="max-w-full truncate font-mono text-app-micro"
+                          title={target.cwd ?? target.path}
+                        >
+                          {target.cwd ?? target.path}
+                        </div>
+                        {reachable && <RemoteSessionList target={target} />}
                       </div>
-                      <div
-                        className="max-w-full truncate font-mono text-app-micro"
-                        title={target.cwd ?? target.path}
-                      >
-                        {target.cwd ?? target.path}
-                      </div>
-                      {reachable && <RemoteSessionList target={target} />}
-                    </div>
-                  }
-                />
+                    }
+                  />
+                )}
                 {reach !== "online" ? (
                   <Unreachable reach={reach} device={target.deviceName} goalBar={goalBar} />
                 ) : !controls ? (

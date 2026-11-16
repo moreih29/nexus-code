@@ -20,10 +20,13 @@ import {
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
 import {
+  chatRun,
+  chatRuns,
   listSessions,
   servesWith,
   serveWith,
   sessionAgents,
+  stopChatRun,
 } from "../../../../../src/main/features/remote/serve";
 import type { AgentRun } from "../../../../../src/shared/claude/activity";
 
@@ -166,6 +169,77 @@ describe("a session's agents, as its row lists them", () => {
     expect(of("t1")?.agents?.map((a) => a.id)).toEqual(["t1-agent"]);
     expect(of("t2")?.agents?.map((a) => a.id)).toEqual(["t2-agent"]);
     expect(of("t4")).not.toHaveProperty("agents");
+  });
+});
+
+describe("serving a chat's claude -p runs", () => {
+  const run = agentRun({
+    id: "r1",
+    kind: "print",
+    prompt: `Summarize the log ${"x".repeat(400)}`,
+    sessionId: "sess-1",
+    toolCount: 2,
+    tools: [
+      { id: "u1", name: "Read", target: "a.log", start: 101, end: 102 },
+      { id: "u2", name: "Bash", target: "wc -l a.log", start: 103 },
+    ],
+    messages: [{ at: 102, text: "Reading the log" }],
+  });
+  const ended = agentRun({
+    id: "r0",
+    kind: "print",
+    program: "codex",
+    start: 50,
+    end: 90,
+    state: "completed",
+    answer: "Done.",
+  });
+  const stops: string[] = [];
+  const s = {
+    ...services(),
+    claudeAgents: {
+      list: (_w: string, tab: string) =>
+        tab === "t1" ? [agentRun({ id: "s1", type: "Explore" }), run, ended] : [],
+      stop: async (_w: string, _t: string, id: string) => {
+        stops.push(id);
+        return id === "r1";
+      },
+    },
+  } as unknown as CliServices;
+
+  test("lists them as their rows show them: the tool now, what they wrote last, not subagents", async () => {
+    const { runs } = await chatRuns(s, { workspaceId: "w1", tabId: "t1" });
+    expect(runs.map((r) => r.id)).toEqual(["r1", "r0"]);
+    expect(runs[0]).toMatchObject({
+      state: "running",
+      toolCount: 2,
+      sessionId: "sess-1",
+      current: "Bash wc -l a.log",
+      last: "Reading the log",
+    });
+    expect(runs[0]?.prompt?.length).toBeLessThanOrEqual(300);
+    expect(runs[0]).not.toHaveProperty("tools");
+    expect(runs[1]).toMatchObject({ program: "codex", end: 90, last: "Done." });
+  });
+
+  test("tells one whole, and none it does not keep", async () => {
+    const { run: whole } = await chatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r1" });
+    expect(whole.tools?.map((t) => t.name)).toEqual(["Read", "Bash"]);
+    expect(whole.messages).toEqual([{ at: 102, text: "Reading the log" }]);
+    expect(whole.prompt).toBe(run.prompt);
+    await expect(chatRun(s, { workspaceId: "w1", tabId: "t1", runId: "s1" })).rejects.toMatchObject(
+      { code: RpcErrorCode.NotFound },
+    );
+  });
+
+  test("stops one, as its pane's button does", async () => {
+    expect(await stopChatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r1" })).toEqual({
+      stopped: true,
+    });
+    expect(await stopChatRun(s, { workspaceId: "w1", tabId: "t1", runId: "r0" })).toEqual({
+      stopped: false,
+    });
+    expect(stops).toEqual(["r1", "r0"]);
   });
 });
 

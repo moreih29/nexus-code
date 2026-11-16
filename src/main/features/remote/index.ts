@@ -578,6 +578,18 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatRestart.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.restart", params));
       },
+      peerChatRuns: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRuns.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.runs", params));
+      },
+      peerChatRun: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRun.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.run", params));
+      },
+      peerChatStopRun: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatStopRun.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.stopRun", params));
+      },
       peerChatInterrupt: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatInterrupt.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.interrupt", params));

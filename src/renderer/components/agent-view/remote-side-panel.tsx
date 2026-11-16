@@ -25,6 +25,7 @@ import {
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
+import type { AgentRun } from "../../../shared/claude/activity";
 import { useNow } from "../../hooks/use-now";
 import type { ChatModel, ToolCall } from "../../services/chat/model";
 import {
@@ -124,11 +125,13 @@ export function RemoteSidePanel({
   target,
   panel,
   model,
+  runs = [],
   controls,
   onShowAgent,
   onShowCall,
   onCompact,
   onStopTask,
+  onStopRun,
   onRemoteControl,
   onForkSession,
   reveal,
@@ -138,6 +141,8 @@ export function RemoteSidePanel({
   /** What the computer tells of the chat's panel; none before it said. */
   panel: ChatPanel | undefined;
   model: ChatModel;
+  /** The `claude -p` and `codex exec` runs its session started, listed after its subagents. */
+  runs?: readonly AgentRow[];
   /** The computer lets this one control its chats: stop a run, compact. */
   controls: boolean;
   onShowAgent: (toolUseId: string) => void;
@@ -145,6 +150,7 @@ export function RemoteSidePanel({
   onShowCall?: (toolUseId: string) => void;
   onCompact: () => void;
   onStopTask: (taskId: string) => void;
+  onStopRun?: (runId: string) => void;
   /** Turns its Remote Control on or off there, where it may. */
   onRemoteControl?: (enabled: boolean) => Promise<void>;
   /** Forks its whole session into a new tab there, where it may. */
@@ -158,7 +164,7 @@ export function RemoteSidePanel({
 }) {
   const { t, i18n } = useTranslation();
   const links = useChatLinks();
-  const agents = useMemo(() => remoteAgentsOf(panel, model), [panel, model]);
+  const agents = useMemo(() => [...remoteAgentsOf(panel, model), ...runs], [panel, model, runs]);
   const jobs = panel?.tasks ?? [];
   const todos = panel?.todos ?? [];
   const changed = panel?.changedFiles ?? [];
@@ -350,9 +356,13 @@ export function RemoteSidePanel({
                 now={now}
                 onOpen={() => onShowAgent(agent.toolUseId)}
                 onStop={
-                  controls && agent.status === "running" && taskId
-                    ? () => onStopTask(taskId)
-                    : undefined
+                  !controls || agent.status !== "running"
+                    ? undefined
+                    : agent.run
+                      ? onStopRun && (() => onStopRun((agent.run as AgentRun).id))
+                      : taskId
+                        ? () => onStopTask(taskId)
+                        : undefined
                 }
               />
             );
