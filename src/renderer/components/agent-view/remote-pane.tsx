@@ -20,6 +20,7 @@ import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
+import { putPeerDraft } from "../../services/remote/peer-drafts";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
@@ -30,7 +31,7 @@ import {
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
 import { useChatFontStyle } from "../../state/stores/chat-font";
-import type { RemoteTarget } from "../../state/stores/remote-view";
+import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { AgentStrip } from "../chat/agent-strip";
@@ -783,6 +784,11 @@ function RemoteControls({
         } else onPanelPart?.("changes");
       },
       openUrl: (url) => links?.openUrl(url),
+    },
+    // The tab /fork or /branch opened there shows, as a fork from a message's does.
+    onOpened: (opened, draft) => {
+      if (draft) putPeerDraft({ deviceId, workspaceId, tabId: opened }, draft);
+      useRemoteViewStore.getState().open({ ...target, tabId: opened, state: "idle" });
     },
   });
   /** Runs a control; the watch shows what it did, and a refusal is told. */

@@ -398,6 +398,7 @@ export function usePeerComposer({
   onError,
   folders,
   here,
+  onOpened,
 }: {
   ref: PeerChatRef;
   agent: "claude" | "codex";
@@ -412,6 +413,11 @@ export function usePeerComposer({
   onError: (message: string) => void;
   /** What the app's commands that run here for the chat need (/copy, /diff, /help…). */
   here?: HereCommandDeps;
+  /**
+   * A command opened a tab there (/fork, /branch): its id, and what goes in
+   * its box (/fork's prompt), for the pane to show it as a chat here does.
+   */
+  onOpened?: (tabId: string, draft?: string) => void;
 }): PeerComposer {
   const { deviceId, workspaceId, tabId } = ref;
   const [settings, setSettings] = useState<ChatSettings | null>(null);
@@ -453,12 +459,14 @@ export function usePeerComposer({
     can: ChatPanel["can"];
     folders: PeerFolders | undefined;
     here: HereCommandDeps | undefined;
-  }>({ settings: null, onError, can: undefined, folders, here });
+    onOpened: ((tabId: string, draft?: string) => void) | undefined;
+  }>({ settings: null, onError, can: undefined, folders, here, onOpened });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
   held.folders = folders;
   held.here = here;
+  held.onOpened = onOpened;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -553,6 +561,9 @@ export function usePeerComposer({
         ).then(
           (said) => {
             clearTimeout(timer);
+            if (said.tabId) {
+              held.onOpened?.(said.tabId, found.name === "fork" ? found.args : undefined);
+            }
             const message = said.message;
             // As its tab shows it there, from 0.13.0; before, by how long and how fast it is.
             if (message && (said.card ?? answerInCard(message, waited))) {
