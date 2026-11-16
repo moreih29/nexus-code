@@ -59,7 +59,10 @@ describe("a chat's side panel", () => {
         tools,
         costUsd: 0.42,
         contextUsage: {
-          categories: [{ name: "Messages", tokens: 1200, kind: "used" }],
+          categories: [
+            { name: "Messages", tokens: 1200, kind: "used" },
+            { name: "Free space", tokens: 198_800, kind: "free" },
+          ],
           totalTokens: 1200,
           maxTokens: 200_000,
         },
@@ -71,7 +74,12 @@ describe("a chat's side panel", () => {
       { content: "fix", status: "in_progress" },
     ]);
     expect(panel.changedFiles).toEqual([{ path: "/p/a.ts", added: 1, removed: 2 }]);
-    expect(panel.context).toEqual({ usedTokens: 1200, maxTokens: 200_000 });
+    expect(panel.context).toEqual({
+      usedTokens: 1200,
+      maxTokens: 200_000,
+      categories: [{ name: "Messages", tokens: 1200 }],
+      freeTokens: 198_800,
+    });
     expect(panel.costUsd).toBe(0.42);
     expect(panel.goal).toEqual({
       condition: "tests pass",

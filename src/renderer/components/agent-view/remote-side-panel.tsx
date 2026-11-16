@@ -307,7 +307,17 @@ export function RemoteSidePanel({
                 used: formatTokens(context.usedTokens),
                 max: formatTokens(context.maxTokens),
               })}
+              {context.freeTokens !== undefined &&
+                ` · ${t("chat.panel.context.free", { count: formatTokens(context.freeTokens) })}`}
             </div>
+            {context.categories?.map((category) => (
+              <Row key={category.name} className="text-app-micro">
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                  {category.name}
+                </span>
+                <span className="tabular-nums">{formatTokens(category.tokens)}</span>
+              </Row>
+            ))}
           </>
         )}
         {controls && (

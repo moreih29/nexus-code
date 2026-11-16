@@ -118,7 +118,12 @@ describe("another computer's chat's side panel", () => {
             { taskId: "j1", type: "local_bash", description: "dev server", status: "running" },
           ],
           changedFiles: [{ path: "/src/api/a.ts", added: 3, removed: 1 }],
-          context: { usedTokens: 50_000, maxTokens: 200_000 },
+          context: {
+            usedTokens: 50_000,
+            maxTokens: 200_000,
+            categories: [{ name: "System tools", tokens: 12_000 }],
+            freeTokens: 150_000,
+          },
           planLimits: [{ kind: "session", percent: 40 }],
         })}
         model={{ ...emptyModel(), model: "claude-opus-5-5" }}
@@ -133,6 +138,10 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("claude-opus-5-5");
     expect(html).toContain("work");
     expect(html).toContain("25%");
+    // What fills it and what is free, as a chat here's context shows.
+    expect(html).toContain("System tools");
+    expect(html).toContain("12.0k");
+    expect(html).toContain("150.0k tokens left");
     expect(html).toContain("Compact");
     expect(html).toContain("Write the test");
     expect(html).toContain("dev server");

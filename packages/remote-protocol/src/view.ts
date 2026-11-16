@@ -367,6 +367,16 @@ export const ChatPanelSchema = z.object({
     .object({
       usedTokens: z.number().int().nonnegative(),
       maxTokens: z.number().int().positive(),
+      /**
+       * What fills it, by kind (the system prompt, tools, messages), as a
+       * Claude chat's program tells it. Since 0.13.0.
+       */
+      categories: z
+        .array(z.object({ name: z.string().max(200), tokens: z.number().int().nonnegative() }))
+        .max(50)
+        .optional(),
+      /** How many of its tokens are free, as a Claude chat's program tells it. Since 0.13.0. */
+      freeTokens: z.number().int().nonnegative().optional(),
     })
     .nullable(),
   /** What the conversation cost so far, in US dollars, when the program tells it. */

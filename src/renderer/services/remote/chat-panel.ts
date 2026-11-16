@@ -31,10 +31,24 @@ function contextOfModel(source: ChatSource): ChatPanel["context"] {
       : null;
   }
   const summary = contextOf(model.contextUsage);
-  return summary && summary.maxTokens > 0
-    ? { usedTokens: summary.totalTokens, maxTokens: summary.maxTokens }
-    : null;
+  if (!summary || summary.maxTokens <= 0) return null;
+  const tokens = (n: number) => Math.max(0, Math.round(n));
+  return {
+    usedTokens: summary.totalTokens,
+    maxTokens: summary.maxTokens,
+    ...(summary.used.length > 0
+      ? {
+          categories: summary.used
+            .slice(0, MAX_CONTEXT_CATEGORIES)
+            .map(({ name, tokens: n }) => ({ name: name.slice(0, 200), tokens: tokens(n) })),
+        }
+      : {}),
+    ...(summary.free !== undefined ? { freeTokens: tokens(summary.free) } : {}),
+  };
 }
+
+/** The most kinds of what fills the context a panel tells. */
+const MAX_CONTEXT_CATEGORIES = 50;
 
 /**
  * The plan's usage limits as the composer's line shows them, the session's
