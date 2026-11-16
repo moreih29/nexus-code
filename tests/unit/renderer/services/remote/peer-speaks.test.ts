@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RoomPeer } from "../../../../../src/shared/remote/room";
 
-const { peerSpeaks, TERMINAL_PROFILE_SCHEMA } = await import(
+const { chatProfileIdThere, peerSpeaks, TERMINAL_PROFILE_SCHEMA } = await import(
   "../../../../../src/renderer/services/remote/room"
 );
 
@@ -31,5 +31,28 @@ describe("a peer's protocol version", () => {
     expect(peerSpeaks(peer("0.9.9"), TERMINAL_PROFILE_SCHEMA)).toBe(false);
     expect(peerSpeaks(peer(), TERMINAL_PROFILE_SCHEMA)).toBe(false);
     expect(peerSpeaks(undefined, TERMINAL_PROFILE_SCHEMA)).toBe(false);
+  });
+});
+
+describe("the profile there a chat runs with", () => {
+  const one = [{ id: "codex-default", name: "default" }];
+  const two = [...one, { id: "codex-ab12", name: "Work" }];
+
+  test("by the chat's profile's name", () => {
+    expect(chatProfileIdThere("Work", two)).toBe("codex-ab12");
+    expect(chatProfileIdThere("default", two)).toBe("codex-default");
+  });
+
+  test("with no name, the agent's only profile: a session names one only where there are more", () => {
+    expect(chatProfileIdThere(undefined, one)).toBe("codex-default");
+  });
+
+  test("never a guess: no name with more than one, or a name none or two have", () => {
+    expect(() => chatProfileIdThere(undefined, two)).toThrow("not known here");
+    expect(() => chatProfileIdThere(undefined, [])).toThrow("not known here");
+    expect(() => chatProfileIdThere("Gone", two)).toThrow(/no one profile "Gone"/);
+    expect(() => chatProfileIdThere("Work", [...two, { id: "codex-cd34", name: "Work" }])).toThrow(
+      /no one profile "Work"/,
+    );
   });
 });

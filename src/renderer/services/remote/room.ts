@@ -75,6 +75,28 @@ export function peerSpeaks(peer: RoomPeer | undefined, version: string): boolean
   return peer?.schema !== undefined && compareVersions(peer.schema, version) >= 0;
 }
 
+/**
+ * The id there of the profile a chat runs with, of its agent's profiles its
+ * computer lists: the one by the chat's profile's name, or, where the chat
+ * names none, the agent's only profile (a session names its profile only
+ * where its agent has more than one). Throws where neither tells one: a
+ * name none or two have, or no name while there are more than one (a list
+ * of sessions older than the profiles).
+ */
+export function chatProfileIdThere(
+  name: string | undefined,
+  profiles: readonly { id: string; name: string }[],
+): string {
+  if (name === undefined) {
+    const [only, ...more] = profiles;
+    if (!only || more.length > 0) throw new Error("this chat's profile is not known here");
+    return only.id;
+  }
+  const named = profiles.filter((p) => p.name === name);
+  if (named.length !== 1 || !named[0]) throw new Error(`no one profile "${name}" there`);
+  return named[0].id;
+}
+
 /** Whether another device speaks the protocol from `version` on. */
 export function usePeerSpeaks(deviceId: string, version: string): boolean {
   const room = useRemoteRoom();

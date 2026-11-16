@@ -40,6 +40,7 @@ import { peerRunRows, usePeerRuns } from "../../services/remote/peer-runs";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
+  chatProfileIdThere,
   type PeerReach,
   type PeerRead,
   TERMINAL_PROFILE_SCHEMA,
@@ -137,12 +138,13 @@ export function changesCard(
 }
 
 /**
- * The id there of the profile the chat runs with: the one profile of its
- * agent its computer lists by the chat's profile's name.
+ * The id there of the profile the chat runs with, of its agent's profiles
+ * its computer lists: by the chat's profile's name, or the only one where
+ * the chat names none (a session names its profile only where there are
+ * more than one).
  */
 async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
-  const name = target.profile;
-  if (!name || (target.kind !== "claude" && target.kind !== "codex")) {
+  if (target.kind !== "claude" && target.kind !== "codex") {
     throw new Error("this chat's profile is not known here");
   }
   const result = await ipcCallResult("remote", "peerProfiles", {
@@ -150,9 +152,7 @@ async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
     agent: target.kind,
   });
   if (!result.ok) throw new Error(result.message);
-  const named = result.value.profiles.filter((p) => p.name === name);
-  if (named.length !== 1 || !named[0]) throw new Error(`no one profile "${name}" there`);
-  return named[0].id;
+  return chatProfileIdThere(target.profile || undefined, result.value.profiles);
 }
 
 /**
@@ -162,7 +162,7 @@ async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
  * its program runs (a sign-in there is the profile's, not the default
  * folder's).
  */
-function runInPeerTerminal(target: RemoteTarget, command: string): void {
+export function runInPeerTerminal(target: RemoteTarget, command: string): void {
   // A folder outside its workspace is not one a terminal there opens in.
   const folder =
     target.cwd && target.cwd !== target.path && isUnder(target.cwd, target.path)
