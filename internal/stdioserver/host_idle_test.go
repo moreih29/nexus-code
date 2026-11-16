@@ -47,6 +47,11 @@ func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
 }
 
 // Watchdog must NOT fire while inbound lines keep resetting lastInbound.
+//
+// The window runs three limits, so a watchdog that ignored the traffic would
+// fire in it. The limit is many times the stamping interval so that a busy CI
+// runner stalling this goroutine for a while does not read as client silence:
+// a 60ms limit with 20ms stamps failed on macOS runners.
 func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
 	host := newTestHost()
 	exited := make(chan int, 1)
@@ -57,10 +62,11 @@ func TestIdleWatchdogStaysAliveWithTraffic(t *testing.T) {
 		}
 	}
 
-	host.StartIdleWatchdog(60 * time.Millisecond)
+	const limit = 400 * time.Millisecond
+	host.StartIdleWatchdog(limit)
 
-	stop := time.After(240 * time.Millisecond)
-	tick := time.NewTicker(20 * time.Millisecond)
+	stop := time.After(3 * limit)
+	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
