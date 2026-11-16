@@ -224,7 +224,6 @@ codex exec resume <세션 id> "이어서 문서도"            # codex 도 같�
 ```bash
 nexus workspace add ../lib --name 라이브러리 --show   # 이 터미널 위치 기준 폴더를 사이드바 끝에 추가
 nexus workspace remove 라이브러리                    # 앱 목록에서 제거(폴더는 그대로)
-nexus workspace rename 라이브러리 lib                # 사이드바 이름 바꾸기 (폴더 이름은 그대로)
 nexus workspace pin lib                             # 사이드바 위쪽에 고정 (workspace unpin 으로 해제)
 nexus workspace move lib --before api               # api 바로 위로 (--after · --top · --bottom)
 ```

@@ -1,5 +1,5 @@
 /**
- * nexus workspace rename, pin, unpin and move: the sidebar's rows changed
+ * nexus workspace pin, unpin and move: the sidebar's rows changed
  * from a terminal, another workspace's with the user's leave; and workspace
  * list, in the sidebar's order, here or on another computer.
  */
@@ -28,31 +28,6 @@ async function sidebar(app: FakeApp): Promise<string[]> {
     .filter((w: { worktree?: unknown }) => !w.worktree)
     .map((w: { name: string; pinned: boolean }) => `${w.name}${w.pinned ? " (pinned)" : ""}`);
 }
-
-describe("workspace rename", () => {
-  test("renames this terminal's own workspace without asking", async () => {
-    const app = fakeApp();
-    const result = await nexus(app, ["workspace", "rename", ".", "my", "app"]);
-    expect(result.stdout).toBe('app (11111111) is now "my app".\n');
-    expect(app.sidebar).toEqual([{ id: APP, patch: { name: "my app" } }]);
-    expect(app.asked).toEqual([]);
-  });
-
-  test("asks before renaming another, and leaves a worktree alone", async () => {
-    const app = fakeApp();
-    app.answers.push("once");
-    await nexus(app, ["workspace", "rename", "api", "backend"]);
-    expect(app.asked[0]).toMatchObject({
-      toWorkspaceId: API,
-      change: { kind: "workspaceRename", detail: "backend" },
-    });
-    expect(app.workspaces.find((w) => w.id === API)?.name).toBe("backend");
-    const worktree = await nexus(app, ["workspace", "rename", "fix-login", "x"]);
-    expect(worktree.stderr).toBe("nexus: fix-login is a worktree, under app in the sidebar\n");
-    const nameless = await nexus(app, ["workspace", "rename", "api", " "]);
-    expect(nameless.exitCode).toBe(2);
-  });
-});
 
 describe("workspace pin and unpin", () => {
   test("pins another workspace with leave, to the top of the list", async () => {

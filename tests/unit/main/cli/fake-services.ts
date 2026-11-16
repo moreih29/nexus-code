@@ -167,8 +167,8 @@ export interface FakeApp {
   workspaces: WorkspaceMeta[];
   /** What addWorkspace was asked for. */
   added: Array<{ location: WorkspaceLocation; name: string | undefined }>;
-  /** The sidebar's changes asked for: a rename or a pin, or a move. */
-  sidebar: Array<{ id: string; patch?: { name?: string; pinned?: boolean }; to?: WorkspaceMove }>;
+  /** The sidebar's changes asked for: a pin, or a move. */
+  sidebar: Array<{ id: string; patch?: { pinned: boolean }; to?: WorkspaceMove }>;
   /** This app's tabs, by workspace; a test may add or change them. */
   tabs: Record<string, CliTabInfo[]>;
   uiCalls: Array<{ op: string; args: unknown }>;
@@ -746,14 +746,15 @@ export function fakeApp(now = Date.now()): FakeApp {
       workspaces.push(made);
       return { workspace: made, added: true };
     },
-    updateWorkspace: (id, patch) => {
+    pinWorkspace: (id, pinned) => {
+      const patch = { pinned };
       sidebar.push({ id, patch });
       const i = workspaces.findIndex((w) => w.id === id);
       const found = workspaces[i];
       if (!found) throw new Error(`workspace not found: ${id}`);
       const meta = { ...found, ...patch };
       // A pin or unpin puts it at the end of its new group.
-      if (patch.pinned !== undefined && patch.pinned !== found.pinned) return place(meta);
+      if (pinned !== found.pinned) return place(meta);
       workspaces[i] = meta;
       return meta;
     },

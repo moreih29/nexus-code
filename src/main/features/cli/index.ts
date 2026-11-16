@@ -70,7 +70,7 @@ export interface SetupCliFeatureOptions {
   workspaceManager: {
     list(): WorkspaceMeta[];
     create(opts: { location: WorkspaceLocation; name?: string }): WorkspaceMeta;
-    update(id: string, partial: { name?: string; pinned?: boolean }): WorkspaceMeta;
+    update(id: string, partial: { pinned?: boolean }): WorkspaceMeta;
     reorder(
       id: string,
       opts: { beforeId?: string; afterId?: string; targetGroup: "pinned" | "unpinned" },
@@ -236,7 +236,7 @@ export function setupCliFeature(options: SetupCliFeatureOptions): CliFeature {
         added: true,
       };
     },
-    updateWorkspace: (id, patch) => workspaceManager.update(id, patch),
+    pinWorkspace: (id, pinned) => workspaceManager.update(id, { pinned }),
     moveWorkspace: (id, { group, ...anchor }) =>
       workspaceManager.reorder(id, { ...anchor, targetGroup: group }),
     shownTab: () => options.activeContext.get(),

@@ -116,10 +116,10 @@ export interface CliServices {
     name: string | undefined,
   ): Promise<{ workspace: WorkspaceMeta; added: boolean }>;
   /**
-   * Renames a workspace, or pins or unpins it as the sidebar's pin does (to
-   * the end of its new group); the workspace as it is now.
+   * Pins or unpins a workspace as the sidebar's pin does (to the end of its
+   * new group); the workspace as it is now.
    */
-  updateWorkspace(id: string, patch: { name?: string; pinned?: boolean }): WorkspaceMeta;
+  pinWorkspace(id: string, pinned: boolean): WorkspaceMeta;
   /**
    * Moves a workspace in the sidebar, as dragging its row does: next to
    * another, or at the end of `group` (pinning or unpinning it to go there).

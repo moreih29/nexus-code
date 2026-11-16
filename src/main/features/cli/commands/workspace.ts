@@ -603,30 +603,6 @@ function sidebarWorkspace(ctx: CliContext, selector: string): WorkspaceMeta {
   return workspace;
 }
 
-/** The longest name a workspace is given, as another device may give one. */
-const MAX_NAME = 200;
-
-const workspaceRename: CliCommand = {
-  path: ["workspace", "rename"],
-  summary: "Rename a workspace in the sidebar",
-  args: "<workspace> <name...>",
-  details: "Its folder keeps its name.",
-  async run(ctx, { positionals }) {
-    const [selector, ...words] = positionals;
-    if (selector === undefined) throw new CliUsageError("missing <workspace>");
-    const name = words.join(" ").trim();
-    if (name === "") throw new CliUsageError("missing <name>");
-    if (name.length > MAX_NAME) throw new CliUsageError(`a name is at most ${MAX_NAME} characters`);
-    const target = sidebarWorkspace(ctx, selector);
-    await mayChange(ctx, target, { kind: "workspaceRename", detail: name });
-    const renamed = ctx.services.updateWorkspace(target.id, { name });
-    return output(
-      `${target.name} (${shortId(target.id)}) is now "${renamed.name}".`,
-      workspaceJson(ctx, renamed),
-    );
-  },
-};
-
 function workspacePinCommand(pinned: boolean): CliCommand {
   return {
     path: ["workspace", pinned ? "pin" : "unpin"],
@@ -647,7 +623,7 @@ function workspacePinCommand(pinned: boolean): CliCommand {
         );
       }
       await mayChange(ctx, target, { kind: "workspacePin" });
-      const changed = ctx.services.updateWorkspace(target.id, { pinned });
+      const changed = ctx.services.pinWorkspace(target.id, pinned);
       return output(
         `${pinned ? "Pinned" : "Unpinned"} ${changed.name} (${shortId(changed.id)}).`,
         workspaceJson(ctx, changed),
@@ -720,7 +696,6 @@ export const workspaceCommands: CliCommand[] = [
   workspaceSwitch,
   workspaceAdd,
   workspaceRemove,
-  workspaceRename,
   workspacePinCommand(true),
   workspacePinCommand(false),
   workspaceMove,
