@@ -28,7 +28,11 @@ import {
 import { listedAt } from "../../../../src/main/features/cli/listed";
 import { StartedAgents } from "../../../../src/main/features/cli/started-agents";
 import { WaitRegistry } from "../../../../src/main/features/cli/waits";
-import type { AgentRun } from "../../../../src/shared/claude/activity";
+import type {
+  AgentRun,
+  PermissionAnswer,
+  PermissionAsk,
+} from "../../../../src/shared/claude/activity";
 import type { ClaudeStatus } from "../../../../src/shared/claude/status";
 import type {
   CliAgentView,
@@ -146,6 +150,9 @@ const LAYOUTS: Record<string, { root: CliLayoutNode; activeGroupId: string }> = 
 };
 
 /** What is on disk, by workspace and path from its root. */
+/** The files readFile reads, by absolute path, with their text. */
+export const READABLE: Record<string, string> = {};
+
 const FILES: Record<string, Record<string, "file" | "dir">> = {
   [APP]: { "index.ts": "file", src: "dir", "src/login.ts": "file" },
   [API]: { "main.go": "file" },
@@ -229,6 +236,15 @@ export interface FakeApp {
   chatChoices: Map<string, CliChatChoices>;
   /** What chat.open answers it could not set; it sets everything when absent. */
   chatOpenError: { message?: string };
+  /**
+   * What a renderer op answers, by its name, ahead of everything else: a
+   * value, or a function of its args (which may throw).
+   */
+  uiAnswers: Map<string, unknown | ((args: unknown) => unknown)>;
+  /** The requests each terminal's Claude Code holds, by tab id. */
+  terminalAsks: Map<string, PermissionAsk[]>;
+  /** The terminal requests answered: tab id, request id, answer. */
+  terminalAnswered: Array<{ tabId: string; askId: string; answer: PermissionAnswer }>;
   /** Why tab.close leaves a tab open, by tab id; it closes the others. */
   closeRefused: Map<string, string>;
 }
@@ -480,8 +496,51 @@ export function fakeApp(now = Date.now()): FakeApp {
       return (await peers.answer(deviceId, method, params)) as never;
     },
   };
+  const uiAnswers: FakeApp["uiAnswers"] = new Map();
+  const terminalAsks: FakeApp["terminalAsks"] = new Map();
+  const terminalAnswered: FakeApp["terminalAnswered"] = [];
   const ui = async <K extends CliUiOp>(op: K, args: CliUiOps[K]["args"]) => {
     uiCalls.push({ op, args });
+    if (uiAnswers.has(op)) {
+      const answer = uiAnswers.get(op);
+      return (typeof answer === "function" ? answer(args) : answer) as CliUiOps[K]["result"];
+    }
+    // Each entry is an item of its own, keyed k<i>.
+    if (op === "chat.entryItem") {
+      const { tabId, i } = args as CliUiOps["chat.entryItem"]["args"];
+      const entry = chats.get(tabId)?.entries.find((e) => e.i === i);
+      if (!entry) throw new CliError(`no message #${i} in that tab`);
+      const kind =
+        entry.role === "user" ? "user" : entry.role === "notice" ? "notice" : "assistant";
+      return {
+        itemKey: `k${i}`,
+        kind,
+        ...(kind === "user" ? { text: entry.text } : {}),
+      } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.rewindPreview") {
+      return {
+        canRewind: true,
+        filesChanged: [],
+        insertions: 0,
+        deletions: 0,
+      } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.fork" || op === "chat.resume") {
+      return { tabId: NEW_TAB } as CliUiOps[K]["result"];
+    }
+    if (op === "chat.history") return { sessions: [] } as CliUiOps[K]["result"];
+    if (op === "chat.commands") return { commands: [] } as CliUiOps[K]["result"];
+    if (op === "chat.panel") {
+      return {
+        todos: [],
+        tasks: [],
+        agents: [],
+        changedFiles: [],
+        context: null,
+        goal: null,
+      } as CliUiOps[K]["result"];
+    }
     // Another device's chat page, its user messages and the agent's text told as chat read tells them.
     if (op === "chat.pageEntries") {
       const { page } = args as CliUiOps["chat.pageEntries"]["args"];
@@ -665,8 +724,17 @@ export function fakeApp(now = Date.now()): FakeApp {
     shownTab: () => ({ workspaceId: APP, tabId: SHELL_TAB }),
     claudeStatus: (ws, t) => claude.get(`${ws}:${t}`) ?? null,
     activity: (ws, t) => activity.get(`${ws}:${t}`) ?? null,
-    claudeAsks: () => [],
-    answerClaudeAsk: async () => false,
+    claudeAsks: (_workspaceId, tabId) => terminalAsks.get(tabId) ?? [],
+    answerClaudeAsk: async (_workspaceId, tabId, askId, answer) => {
+      const asks = terminalAsks.get(tabId) ?? [];
+      if (!asks.some((ask) => ask.id === askId)) return false;
+      terminalAnswered.push({ tabId, askId, answer });
+      terminalAsks.set(
+        tabId,
+        asks.filter((ask) => ask.id !== askId),
+      );
+      return true;
+    },
     consents: { list: () => [], answer: async () => false },
     remote,
     claudeAgents: {
@@ -680,6 +748,10 @@ export function fakeApp(now = Date.now()): FakeApp {
     ui,
     notify: () => true,
     stat: async (workspaceId, relPath) => FILES[workspaceId]?.[relPath] ?? null,
+    readFile: async (_workspaceId, absolutePath) => {
+      const text = READABLE[absolutePath];
+      return text === undefined ? null : Buffer.from(text).toString("base64");
+    },
     allowChange: (request) => consent.check(request),
     askUser: (request) => consent.ask(request),
     agentContextEnabled: () => settings.agentContext,
@@ -756,6 +828,9 @@ export function fakeApp(now = Date.now()): FakeApp {
     chatAnswered,
     chatChoices,
     chatOpenError,
+    uiAnswers,
+    terminalAsks,
+    terminalAnswered,
     closeRefused,
   };
 }

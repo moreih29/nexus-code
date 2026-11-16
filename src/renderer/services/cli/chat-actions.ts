@@ -49,6 +49,7 @@ import {
   type ChatTabExtras,
   chatEntriesOf,
   chatInfoOf,
+  chatItemIndexOf,
   chatToolOf,
   pageEntriesOf,
 } from "./chat-view";
@@ -525,6 +526,21 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     const waiting = model.items.some((item) => item.kind === "user" && item.state === "sent");
     if (model.running && waiting) await controller.readHeldNow();
     return {};
+  },
+
+  "chat.entryItem": async ({ workspaceId, tabId, i }) => {
+    // Opened as chat.read opens it, so that the entries are counted alike.
+    const { agent } = await openedTab(workspaceId, tabId);
+    const chat = useChatStore.getState().tabs[chatKey(workspaceId, tabId)];
+    const index = chatItemIndexOf(chat, i, extrasOf(workspaceId, tabId, agent));
+    const item =
+      index === null ? undefined : conversationOf(sourceOf(workspaceId, tabId, agent)).items[index];
+    if (!item) throw new UiRequestError(`no message #${i} in that tab`);
+    return {
+      itemKey: item.key,
+      kind: item.kind,
+      ...(item.kind === "user" ? { text: item.text } : {}),
+    };
   },
 
   "chat.interrupt": async ({ workspaceId, tabId }) => {

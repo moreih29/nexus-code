@@ -148,6 +148,11 @@ export interface CliServices {
   /** What is at `relPath` in a workspace; null when nothing is. */
   stat(workspaceId: string, relPath: string): Promise<FsEntryType | null>;
   /**
+   * A file's bytes, as base64, where a workspace runs (this computer, an SSH
+   * host, WSL), by its absolute path there; null when there is none.
+   */
+  readFile(workspaceId: string, absolutePath: string): Promise<string | null>;
+  /**
    * Resolves when a change to another workspace than the caller's may go
    * ahead, as the setting or the user says; a CliError saying why when not.
    */

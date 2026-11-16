@@ -1,0 +1,684 @@
+/**
+ * nexus chat ...: what else a Claude or Codex tab's own buttons do, for an
+ * agent: its side panel read; a message held for after the turn, or sent
+ * and not read yet, taken back or changed; the conversation rewound or
+ * forked; a running call sent to the background, a task stopped; Remote
+ * Control turned; the slash commands another device may run; and the
+ * conversations of the past listed and gone on with.
+ */
+import type { ChatCommand, ChatPanel } from "../../../../../packages/remote-protocol/src";
+import type { CliPastSession, CliTabInfo } from "../../../../shared/cli/ui";
+import type { ChatAgent } from "../../../../shared/sessions/task-agent";
+import type { WorkspaceMeta } from "../../../../shared/types/workspace";
+import { CliUsageError, exactArgs, type ParsedArgs } from "../args";
+import { type CliContext, CliError, mayChange, resolveWorkspace, shortId } from "../context";
+import { ago, oneLine } from "../format";
+import { type CliCommand, output } from "../registry";
+import { senderOf } from "../sender";
+import { chatAgentFlag, resolveChat, SEND_TIMEOUT_MS } from "./chat";
+import { AGENT_NAMES } from "./chat-text";
+import { WORKSPACE_FLAG } from "./flags";
+
+/** A tab of a workspace, and how a request names it. */
+interface ChatTarget {
+  readonly workspace: WorkspaceMeta;
+  readonly tab: CliTabInfo;
+  readonly ref: { readonly workspaceId: string; readonly tabId: string };
+}
+
+async function chatTarget(
+  ctx: CliContext,
+  flags: ParsedArgs["flags"],
+  selector: string,
+): Promise<ChatTarget> {
+  const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+  const tab = await resolveChat(ctx, workspace, selector);
+  return { workspace, tab, ref: { workspaceId: workspace.id, tabId: tab.id } };
+}
+
+/** A tab other than the caller's own, for a change to it. */
+async function otherChat(
+  ctx: CliContext,
+  flags: ParsedArgs["flags"],
+  selector: string,
+): Promise<ChatTarget> {
+  const target = await chatTarget(ctx, flags, selector);
+  if (target.tab.id === ctx.caller.tabId) {
+    throw new CliError("that is this tab; nexus changes only other tabs");
+  }
+  return target;
+}
+
+function claudeOnly({ tab }: ChatTarget, what: string): void {
+  if (tab.type !== "claude") throw new CliError(`only a Claude tab can ${what}`);
+}
+
+/** A message's place as chat read shows it (#12), given with or without its #. */
+function placeArg(text: string, what = "message"): number {
+  const match = /^#?(\d+)$/.exec(text.trim());
+  if (!match) {
+    throw new CliUsageError(
+      `<${what}> is the number chat read shows by it, not "${text}" (a shell drops a # and what follows)`,
+    );
+  }
+  return Number(match[1]);
+}
+
+function named({ tab }: ChatTarget): string {
+  return `${tab.title} (${shortId(tab.id)})`;
+}
+
+/** How far off `at` is: "3m ago", "2d ago", or "in 4h". */
+function when(at: number, now: number): string {
+  const ahead = at > now;
+  const hours = Math.abs(now - at) / 3_600_000;
+  if (hours < 48) {
+    if (!ahead) return ago(at, now);
+    const minutes = Math.round((at - now) / 60_000);
+    return minutes < 60 ? `in ${minutes}m` : `in ${Math.round(minutes / 60)}h`;
+  }
+  const days = Math.round(hours / 24);
+  return ahead ? `in ${days}d` : `${days}d ago`;
+}
+
+const TODO_MARKS: Readonly<Record<string, string>> = {
+  completed: "[x]",
+  in_progress: "[>]",
+};
+
+/** A side panel as chat panel prints it: what it shows, a part to a block, empty parts left out. */
+export function panelText(title: string, panel: ChatPanel, now: number): string {
+  const blocks: string[] = [];
+  const block = (head: string, lines: readonly string[]) => {
+    if (lines.length > 0) blocks.push([head, ...lines.map((l) => `  ${l}`)].join("\n"));
+  };
+  if (panel.goal) blocks.push(`Goal, ${panel.goal.status}: ${oneLine(panel.goal.condition, 300)}`);
+  block(
+    "To-dos:",
+    panel.todos.map((todo) => `${TODO_MARKS[todo.status] ?? "[ ]"} ${oneLine(todo.content, 200)}`),
+  );
+  block(
+    "Tasks (chat stop-task <tab> <id>):",
+    panel.tasks.map((task) => {
+      const doing = task.activity ? ` · ${oneLine(task.activity, 80)}` : "";
+      return `${task.taskId}  ${task.status}  ${oneLine(task.description, 120)}${doing}`;
+    }),
+  );
+  block(
+    "Subagents:",
+    panel.agents.map((agent) => `${agent.status}  ${oneLine(agent.description, 120)}`),
+  );
+  block(
+    "Changed files:",
+    panel.changedFiles.map((file) => {
+      const counts = [
+        file.added !== undefined ? `+${file.added}` : "",
+        file.removed !== undefined ? `-${file.removed}` : "",
+      ].filter(Boolean);
+      return counts.length > 0 ? `${file.path}  ${counts.join(" ")}` : file.path;
+    }),
+  );
+  const usage: string[] = [];
+  if (panel.context) {
+    const { usedTokens, maxTokens } = panel.context;
+    const percent = Math.round((usedTokens / maxTokens) * 100);
+    usage.push(
+      `Context: ${usedTokens.toLocaleString("en-US")} of ${maxTokens.toLocaleString("en-US")} tokens (${percent}%)`,
+    );
+  }
+  if (panel.costUsd !== undefined) usage.push(`Cost: $${panel.costUsd.toFixed(2)}`);
+  if (panel.planLimits && panel.planLimits.length > 0) {
+    const limits = panel.planLimits.map((meter) => {
+      const name = meter.scope ? `${meter.kind} (${meter.scope})` : meter.kind;
+      const resets = meter.resetsAt !== undefined ? `, resets ${when(meter.resetsAt, now)}` : "";
+      return `${name} ${Math.round(meter.percent)}%${resets}`;
+    });
+    usage.push(`Plan limits: ${limits.join("; ")}`);
+  }
+  if (panel.rateLimit) {
+    const resets =
+      panel.rateLimit.resetsAt !== undefined
+        ? `, resets ${when(panel.rateLimit.resetsAt, now)}`
+        : "";
+    usage.push(`Rate limit: ${panel.rateLimit.status}${resets}`);
+  }
+  if (usage.length > 0) blocks.push(usage.join("\n"));
+  if (panel.mcp && panel.mcp.length > 0) {
+    blocks.push(
+      `MCP: ${panel.mcp.map((server) => `${server.name} (${server.status})`).join(", ")}`,
+    );
+  }
+  if (panel.remoteControl?.available) {
+    const { enabled, url } = panel.remoteControl;
+    blocks.push(`Remote Control: ${enabled ? `on${url ? ` (${url})` : ""}` : "off"}`);
+  }
+  block(
+    "Held for after the turn (chat unsend / chat edit <tab> <id>):",
+    (panel.held ?? []).map((held) => {
+      const carries = [
+        held.images ? `${held.images} image${held.images === 1 ? "" : "s"}` : "",
+        held.files ? `${held.files} file${held.files === 1 ? "" : "s"}` : "",
+      ].filter(Boolean);
+      const extra = carries.length > 0 ? ` [${carries.join(", ")}]` : "";
+      return `${held.id}  ${oneLine(held.text, 200)}${extra}`;
+    }),
+  );
+  return blocks.length > 0 ? `${title}\n\n${blocks.join("\n\n")}` : `${title}: its panel is empty.`;
+}
+
+/** The panel without the account its program is signed in with: not the agent's to read. */
+function withoutAccount(panel: ChatPanel): ChatPanel {
+  if (!panel.session?.account) return panel;
+  const { account: _, ...session } = panel.session;
+  return { ...panel, session };
+}
+
+const chatPanel: CliCommand = {
+  path: ["chat", "panel"],
+  summary: "Print what a Claude or Codex tab's side panel shows",
+  args: "<tab>",
+  details:
+    "Its goal, to-dos, tasks (background runs, by the id chat stop-task takes), subagents,\n" +
+    "changed files, context window, cost, plan limits, MCP servers, Remote Control, and the\n" +
+    "messages held for after the turn (by the id chat unsend and chat edit take).",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const target = await chatTarget(ctx, flags, selector);
+    const panel = withoutAccount(await ctx.services.ui("chat.panel", target.ref));
+    return output(panelText(named(target), panel, ctx.services.clock.now()), {
+      ...target.ref,
+      ...panel,
+    });
+  },
+};
+
+const chatUnsend: CliCommand = {
+  path: ["chat", "unsend"],
+  summary: "Take back a message a Claude or Codex tab holds for after its turn, or has not read",
+  args: "<tab> <message>",
+  details:
+    "<message> is a held message's id (chat send --after prints it, chat panel lists them):\n" +
+    "it is taken back whole and its text printed. Or the number chat read shows by a message\n" +
+    "sent during a Claude tab's turn that it marks unread: taken back while Claude has not\n" +
+    "read it.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, message] = exactArgs(positionals, "tab", "message") as [string, string];
+    const target = await otherChat(ctx, flags, selector);
+    await mayChange(ctx, target.workspace, { kind: "chatInput", detail: target.tab.title });
+    if (!/^#?\d+$/.test(message)) {
+      const { text } = await ctx.services.ui("chat.unqueue", { ...target.ref, id: message });
+      return output(`Took back the held message from ${named(target)}:\n${text}`, {
+        ...target.ref,
+        id: message,
+        text,
+      });
+    }
+    claudeOnly(target, "take back a message it has not read");
+    const i = placeArg(message);
+    const item = await ctx.services.ui("chat.entryItem", { ...target.ref, i });
+    if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
+    const { withdrawn } = await ctx.services.ui("chat.withdraw", {
+      ...target.ref,
+      itemKey: item.itemKey,
+    });
+    if (!withdrawn) {
+      return output(
+        `#${i} was read already; it stays.`,
+        { ...target.ref, i, withdrawn },
+        { exitCode: 1 },
+      );
+    }
+    return output(`Took back #${i} from ${named(target)}.`, {
+      ...target.ref,
+      i,
+      withdrawn,
+      ...(item.text !== undefined ? { text: item.text } : {}),
+    });
+  },
+};
+
+/** The text a command takes in its words, or from standard input for a lone "-". */
+function textOf(ctx: CliContext, words: readonly string[]): string {
+  const fromStdin = words.length === 1 && words[0] === "-";
+  return (fromStdin ? (ctx.invocation.stdin ?? "").replace(/\r?\n$/, "") : words.join(" ")).trim();
+}
+
+const chatEdit: CliCommand = {
+  path: ["chat", "edit"],
+  summary: "Change the text of a message a Claude or Codex tab holds for after its turn",
+  args: "<tab> <id> <text...>",
+  details:
+    'Its images and files stay. <id> as chat send --after prints it, or chat panel lists it. "-"\n' +
+    "reads the text from standard input.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, id, ...words] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <tab>");
+    if (id === undefined) throw new CliUsageError("missing <id>");
+    const text = textOf(ctx, words);
+    if (text === "") throw new CliUsageError("missing <text>");
+    const target = await otherChat(ctx, flags, selector);
+    await mayChange(ctx, target.workspace, {
+      kind: "chatInput",
+      detail: target.tab.title,
+      body: text,
+    });
+    await ctx.services.ui("chat.editHeld", { ...target.ref, id, text });
+    return output(`Changed the held message ${id} of ${named(target)}.`, {
+      ...target.ref,
+      id,
+      text,
+    });
+  },
+};
+
+const chatRewind: CliCommand = {
+  path: ["chat", "rewind"],
+  summary: "Rewind a Claude tab to before one of the messages sent to it",
+  args: "<tab> <message>",
+  details:
+    "As its rewind button does: the conversation goes back to before the message (the number\n" +
+    "chat read shows by it), and with --files the files Claude changed since go back too.\n" +
+    "--preview only prints what --files would undo. The user allows it; not during a turn.",
+  flags: {
+    files: { type: "boolean", description: "Undo Claude's changes to the files since, too" },
+    preview: { type: "boolean", description: "Only print what would be undone in the files" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [selector, message] = exactArgs(positionals, "tab", "message") as [string, string];
+    const i = placeArg(message);
+    const target = await (flags.preview === true ? chatTarget : otherChat)(ctx, flags, selector);
+    claudeOnly(target, "rewind");
+    const item = await ctx.services.ui("chat.entryItem", { ...target.ref, i });
+    if (item.kind !== "user") throw new CliError(`#${i} is not a message sent to it`);
+    const preview = await ctx.services.ui("chat.rewindPreview", {
+      ...target.ref,
+      itemKey: item.itemKey,
+    });
+    const files =
+      preview.filesChanged.length === 0
+        ? "no file changes to undo"
+        : `${preview.filesChanged.length} file${preview.filesChanged.length === 1 ? "" : "s"} (+${preview.insertions} -${preview.deletions}):\n${preview.filesChanged.map((f) => `  ${f}`).join("\n")}`;
+    if (flags.preview === true) {
+      const why = preview.canRewind ? "" : `\nIts files cannot be rewound: ${preview.error ?? ""}`;
+      return output(`Rewinding to before #${i} with --files undoes ${files}${why}`, {
+        ...target.ref,
+        i,
+        ...preview,
+      });
+    }
+    const withFiles = flags.files === true;
+    if (withFiles && !preview.canRewind) {
+      throw new CliError(`its files cannot be rewound${preview.error ? `: ${preview.error}` : ""}`);
+    }
+    await ctx.services.askUser({
+      fromWorkspaceId: ctx.caller.workspaceId,
+      fromTabId: ctx.caller.tabId,
+      toWorkspaceId: target.workspace.id,
+      change: {
+        kind: withFiles ? "chatRewindFiles" : "chatRewind",
+        detail: `"${target.tab.title}" (#${i})`,
+        body: [item.text ?? "", withFiles ? files : ""].filter(Boolean).join("\n\n"),
+      },
+    });
+    await ctx.services.ui(
+      "chat.rewind",
+      { ...target.ref, itemKey: item.itemKey, files: withFiles },
+      SEND_TIMEOUT_MS,
+    );
+    const undone = withFiles ? ` and undid ${files}` : "";
+    return output(`Rewound ${named(target)} to before #${i}${undone}.`, {
+      ...target.ref,
+      i,
+      files: withFiles,
+      ...(item.text !== undefined ? { text: item.text } : {}),
+    });
+  },
+};
+
+const chatFork: CliCommand = {
+  path: ["chat", "fork"],
+  summary: "Fork a Claude tab's conversation into a new tab",
+  args: "<tab> [message]",
+  details:
+    "As its fork buttons do, the new tab opening behind what the window shows: with no\n" +
+    "<message>, all of the conversation; from an answer (the number chat read shows by it), up\n" +
+    "to it; from a message sent to it, what came before it, the message printed to send again.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    if (positionals.length > 2) throw new CliUsageError("too many arguments");
+    const [selector, message] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <tab>");
+    const target = await chatTarget(ctx, flags, selector);
+    claudeOnly(target, "fork");
+    await mayChange(ctx, target.workspace, { kind: "chatFork", detail: target.tab.title });
+    const itemKey =
+      message === undefined
+        ? undefined
+        : (await ctx.services.ui("chat.entryItem", { ...target.ref, i: placeArg(message) }))
+            .itemKey;
+    const { tabId, draft } = await ctx.services.ui(
+      "chat.fork",
+      { ...target.ref, ...(itemKey ? { itemKey } : {}) },
+      SEND_TIMEOUT_MS,
+    );
+    const reach =
+      target.workspace.id === ctx.caller.workspaceId
+        ? ""
+        : ` --workspace ${shortId(target.workspace.id)}`;
+    const resend = draft
+      ? `\nIts message was not sent; to send it:\n  nexus chat send ${shortId(tabId)}${reach} -  (the text below on standard input)\n${draft}`
+      : "";
+    return output(`Forked ${named(target)} into tab ${shortId(tabId)}.${resend}`, {
+      tabId,
+      workspaceId: target.workspace.id,
+      from: target.tab.id,
+      ...(draft ? { draft } : {}),
+    });
+  },
+};
+
+const chatBackground: CliCommand = {
+  path: ["chat", "background"],
+  summary: "Send a Claude tab's running command or subagent to the background",
+  args: "<tab> <call>",
+  details:
+    "As its call's background button does: the turn goes on while it runs, as a task chat\n" +
+    "panel lists. <call> is the number chat read shows by the call, or the call's id.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, call] = exactArgs(positionals, "tab", "call") as [string, string];
+    const target = await otherChat(ctx, flags, selector);
+    claudeOnly(target, "send a call to the background");
+    const tool = await ctx.services.ui("chat.tool", { ...target.ref, ref: call.replace(/^#/, "") });
+    await mayChange(ctx, target.workspace, {
+      kind: "chatBackground",
+      detail: `${tool.name} (${target.tab.title})`,
+    });
+    await ctx.services.ui("chat.background", { ...target.ref, toolUseId: tool.toolUseId });
+    return output(`Sent ${tool.name} (#${tool.i}) of ${named(target)} to the background.`, {
+      ...target.ref,
+      i: tool.i,
+      toolUseId: tool.toolUseId,
+    });
+  },
+};
+
+const chatStopTask: CliCommand = {
+  path: ["chat", "stop-task"],
+  summary: "Stop one of a Claude tab's tasks (a background run)",
+  args: "<tab> <task>",
+  details: "As the stop button by it in its panel does; <task> is its id, as chat panel lists it.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, taskId] = exactArgs(positionals, "tab", "task") as [string, string];
+    const target = await otherChat(ctx, flags, selector);
+    claudeOnly(target, "stop a task");
+    await mayChange(ctx, target.workspace, {
+      kind: "chatTaskStop",
+      detail: `${taskId} (${target.tab.title})`,
+    });
+    await ctx.services.ui("chat.stopTask", { ...target.ref, taskId });
+    return output(`Stopped the task ${taskId} of ${named(target)}.`, { ...target.ref, taskId });
+  },
+};
+
+const chatRemoteControl: CliCommand = {
+  path: ["chat", "remote-control"],
+  summary: "Turn a Claude tab's Remote Control on or off",
+  args: "<tab> <on|off>",
+  details:
+    "As the switch in its panel does: with it on, the session can be driven from claude.ai\n" +
+    "and the Claude app, at the address printed. The user allows turning it on.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, turn] = exactArgs(positionals, "tab", "on|off") as [string, string];
+    if (turn !== "on" && turn !== "off") throw new CliUsageError('it is "on" or "off"');
+    const target = await otherChat(ctx, flags, selector);
+    claudeOnly(target, "have Remote Control");
+    const enabled = turn === "on";
+    const change = {
+      kind: enabled ? ("chatRemoteControlOn" as const) : ("chatRemoteControlOff" as const),
+      detail: target.tab.title,
+    };
+    // Turned on, the session can be driven from outside the app: the user's to allow.
+    if (enabled) {
+      await ctx.services.askUser({
+        fromWorkspaceId: ctx.caller.workspaceId,
+        fromTabId: ctx.caller.tabId,
+        toWorkspaceId: target.workspace.id,
+        change,
+      });
+    } else {
+      await mayChange(ctx, target.workspace, change);
+    }
+    await ctx.services.ui("chat.remoteControl", { ...target.ref, enabled }, SEND_TIMEOUT_MS);
+    const url = enabled
+      ? (await ctx.services.ui("chat.panel", target.ref).catch(() => null))?.remoteControl?.url
+      : undefined;
+    return output(`Turned Remote Control ${turn} for ${named(target)}${url ? `: ${url}` : ""}.`, {
+      ...target.ref,
+      enabled,
+      ...(url ? { url } : {}),
+    });
+  },
+};
+
+const RUNS: Readonly<Record<ChatCommand["runs"], string>> = {
+  command: "chat command",
+  send: "chat send",
+  settings: "chat set",
+};
+
+const chatCommandsList: CliCommand = {
+  path: ["chat", "commands"],
+  summary: "List the slash commands nexus can run in a Claude or Codex tab",
+  args: "<tab>",
+  details:
+    "The agent's own, which go to it as a message; the app's own that change the\n" +
+    "conversation; the model and effort, which chat set sets. chat command runs the first two.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector] = exactArgs(positionals, "tab") as [string];
+    const target = await chatTarget(ctx, flags, selector);
+    const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
+    const lines = commands.map((command) => {
+      const args = command.args ? ` ${command.args}` : "";
+      return `/${command.name}${args}  ${oneLine(command.description, 100)}  (${RUNS[command.runs]})`;
+    });
+    return output(lines.length > 0 ? lines.join("\n") : `${named(target)} has no commands.`, {
+      ...target.ref,
+      commands,
+    });
+  },
+};
+
+const chatCommandRun: CliCommand = {
+  path: ["chat", "command"],
+  summary: "Run a slash command in a Claude or Codex tab",
+  args: "<tab> <command> [args...]",
+  details:
+    "As its composer runs it typed: <command> as chat commands lists it, with or without\n" +
+    "its /. The agent's own go to it as a message; the app's own print what they said, and\n" +
+    "the tab they opened. The model and effort are chat set's.",
+  flags: { workspace: WORKSPACE_FLAG },
+  async run(ctx, { positionals, flags }) {
+    const [selector, typed, ...words] = positionals;
+    if (selector === undefined) throw new CliUsageError("missing <tab>");
+    if (typed === undefined) throw new CliUsageError("missing <command>");
+    const name = typed.replace(/^\//, "");
+    const args = words.join(" ").trim();
+    const target = await otherChat(ctx, flags, selector);
+    const text = `/${name}${args ? ` ${args}` : ""}`;
+    // Asked first: listing its commands starts a tab's program that is not running.
+    await mayChange(ctx, target.workspace, {
+      kind: "chatInput",
+      detail: target.tab.title,
+      body: text,
+    });
+    const { commands } = await ctx.services.ui("chat.commands", target.ref, SEND_TIMEOUT_MS);
+    const command = commands.find((c) => c.name === name);
+    if (!command) {
+      throw new CliError(`${target.tab.title} has no command /${name}; chat commands lists them`);
+    }
+    if (command.runs === "settings") {
+      throw new CliError(`/${name} is set with chat set --${command.sets ?? name}`);
+    }
+    if (command.runs === "send") {
+      const from = await senderOf(ctx);
+      await ctx.services.ui(
+        "chat.send",
+        { ...target.ref, text, ...(from ? { from: { ...from, waits: false } } : {}) },
+        SEND_TIMEOUT_MS,
+      );
+      return output(`Sent ${text} to ${named(target)}.`, { ...target.ref, command: name, text });
+    }
+    const { message, tabId } = await ctx.services.ui(
+      "chat.command",
+      { ...target.ref, name, ...(args ? { args } : {}) },
+      SEND_TIMEOUT_MS,
+    );
+    const lines = [
+      `Ran ${text} in ${named(target)}.`,
+      ...(message ? [message] : []),
+      ...(tabId ? [`It opened tab ${shortId(tabId)}.`] : []),
+    ];
+    return output(lines.join("\n"), {
+      ...target.ref,
+      command: name,
+      ...(message ? { message } : {}),
+      ...(tabId ? { opened: tabId } : {}),
+    });
+  },
+};
+
+const AGENT_FLAG = {
+  type: "string",
+  value: "AGENT",
+  description: "claude (default) or codex",
+} as const;
+
+function pastLine(session: CliPastSession, now: number): string {
+  const title = oneLine(session.title || session.firstPrompt || "(untitled)", 80);
+  const about = [
+    when(session.at, now),
+    session.profile !== "default" ? `profile ${session.profile}` : "",
+    session.gitBranch ? `on ${session.gitBranch}` : "",
+    session.tabId ? `open in ${shortId(session.tabId)}` : "",
+  ].filter(Boolean);
+  return `${session.sessionId}  ${title}  (${about.join(", ")})`;
+}
+
+const chatHistory: CliCommand = {
+  path: ["chat", "history"],
+  summary: "List the past Claude or Codex conversations of a workspace's folder",
+  args: "[words...]",
+  details:
+    "Newest first, as a new tab's list of past conversations shows them: those whose title or\n" +
+    "first prompt has every word given. chat resume goes on with one.",
+  flags: {
+    agent: AGENT_FLAG,
+    limit: { type: "number", value: "N", description: "At most N (default 20)" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const agent = chatAgentFlag(flags.agent, "claude");
+    const limit = (flags.limit as number | undefined) ?? 20;
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new CliUsageError("--limit takes a positive whole number");
+    }
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const query = positionals.join(" ").trim();
+    const { sessions } = await ctx.services.ui("chat.history", {
+      workspaceId: workspace.id,
+      agent,
+      ...(query ? { query } : {}),
+      limit,
+    });
+    const now = ctx.services.clock.now();
+    const text =
+      sessions.length === 0
+        ? `No past ${AGENT_NAMES[agent]} conversations${query ? ` with "${query}"` : ""} in ${workspace.name}.`
+        : sessions.map((s) => pastLine(s, now)).join("\n");
+    return output(text, { workspaceId: workspace.id, agent, sessions }, { records: sessions });
+  },
+};
+
+/** The past conversation an id or the start of one names. */
+async function pastSession(
+  ctx: CliContext,
+  workspace: WorkspaceMeta,
+  agent: ChatAgent,
+  id: string,
+): Promise<CliPastSession> {
+  const { sessions } = await ctx.services.ui("chat.history", { workspaceId: workspace.id, agent });
+  const exact = sessions.find((s) => s.sessionId === id);
+  if (exact) return exact;
+  const found = sessions.filter((s) => s.sessionId.startsWith(id));
+  if (found.length === 1) return found[0] as CliPastSession;
+  throw new CliError(
+    found.length === 0
+      ? `no past ${AGENT_NAMES[agent]} conversation ${id} in ${workspace.name}; chat history lists them`
+      : `${found.length} past conversations start with ${id}; give more of it`,
+  );
+}
+
+const chatResume: CliCommand = {
+  path: ["chat", "resume"],
+  summary: "Go on with a past Claude or Codex conversation",
+  args: "<session>",
+  details:
+    "In a new tab behind what the window shows, or in --tab, one of the agent's with no\n" +
+    "conversation yet; the tab that has it open already, if one does. <session> is its id, as\n" +
+    "chat history lists it, or its start.",
+  flags: {
+    agent: AGENT_FLAG,
+    tab: { type: "string", value: "TAB", description: "Go on with it in this empty tab" },
+    workspace: WORKSPACE_FLAG,
+  },
+  async run(ctx, { positionals, flags }) {
+    const [id] = exactArgs(positionals, "session") as [string];
+    const agent = chatAgentFlag(flags.agent, "claude");
+    const workspace = resolveWorkspace(ctx, flags.workspace as string | undefined);
+    const session = await pastSession(ctx, workspace, agent, id);
+    const into =
+      typeof flags.tab === "string" ? await resolveChat(ctx, workspace, flags.tab) : undefined;
+    if (into?.id === ctx.caller.tabId) throw new CliError("that is this tab");
+    await mayChange(ctx, workspace, { kind: "chatNew", detail: AGENT_NAMES[agent] });
+    const { tabId } = await ctx.services.ui(
+      "chat.resume",
+      {
+        workspaceId: workspace.id,
+        agent,
+        sessionId: session.sessionId,
+        ...(into ? { tabId: into.id } : {}),
+      },
+      SEND_TIMEOUT_MS,
+    );
+    const title = oneLine(session.title || session.firstPrompt || session.sessionId, 80);
+    return output(`Went on with "${title}" in tab ${shortId(tabId)}.`, {
+      tabId,
+      workspaceId: workspace.id,
+      agent,
+      sessionId: session.sessionId,
+    });
+  },
+};
+
+export const chatControlCommands: CliCommand[] = [
+  chatPanel,
+  chatUnsend,
+  chatEdit,
+  chatRewind,
+  chatFork,
+  chatBackground,
+  chatStopTask,
+  chatRemoteControl,
+  chatCommandsList,
+  chatCommandRun,
+  chatHistory,
+  chatResume,
+];

@@ -18,7 +18,7 @@ import type { ChatAgent } from "../../../shared/sessions/task-agent";
 import { lastAnswer } from "../agent-sessions/codex-state";
 import { chatRowFacts, inputTarget } from "../agent-sessions/rows";
 import { shownGoalOf } from "../chat/goal";
-import { type ChatItem, type ChatModel, opensTurn, type ToolCall } from "../chat/model";
+import { type ChatItem, type ChatModel, isWaiting, opensTurn, type ToolCall } from "../chat/model";
 import { followsMessage } from "../chat/profile-moves";
 import { relaySenderText, withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
@@ -164,7 +164,9 @@ function entriesOfItem(item: ChatItem, tools: ChatModel["tools"]): Entry[] {
     case "user": {
       const images = item.images.length;
       const attached = images === 0 ? "" : ` [${images} image${images === 1 ? "" : "s"}]`;
-      return [{ role: "user", text: `${item.text.trim()}${attached}` }];
+      // Sent during a turn and not read yet: it can still be taken back (chat unsend).
+      const unread = isWaiting(item) ? { status: "unread" } : {};
+      return [{ role: "user", text: `${item.text.trim()}${attached}`, ...unread }];
     }
     case "assistant": {
       const entries: Entry[] = [];
@@ -232,6 +234,8 @@ function allEntries(
 ): {
   entries: CliChatEntry[];
   tools: ChatModel["tools"];
+  /** Each entry's item, by its index in the conversation's items. */
+  itemOf: number[];
 } {
   const { history, model } = chat;
   const items = withRelayed(
@@ -245,11 +249,12 @@ function allEntries(
     const item = items.findLast((i) => followsMessage(i, move.after));
     if (item) movesAfter.set(item, [...(movesAfter.get(item) ?? []), move.profile]);
   }
+  const itemOf: number[] = [];
   const entries = items
-    .flatMap((item): Entry[] => {
+    .flatMap((item, index): Entry[] => {
       const own = entriesOfItem(item, tools);
       const moved = movesAfter.get(item) ?? [];
-      return [
+      const its = [
         ...own,
         ...moved.map(
           (profile): Entry => ({
@@ -258,9 +263,25 @@ function allEntries(
           }),
         ),
       ];
+      itemOf.push(...its.map(() => index));
+      return its;
     })
     .map((entry, i) => ({ i, ...entry }));
-  return { entries, tools };
+  return { entries, tools, itemOf };
+}
+
+/**
+ * The index, among the conversation's items, of the item an entry (by its
+ * i, as a read with the same `extras` counts it) is part of; null when
+ * there is no such entry.
+ */
+export function chatItemIndexOf(
+  chat: ChatTabState | undefined,
+  i: number,
+  extras: ChatTabExtras = {},
+): number | null {
+  if (!chat) return null;
+  return allEntries(chat, extras).itemOf[i] ?? null;
 }
 
 export interface ChatEntriesQuery extends ChatTabExtras {
