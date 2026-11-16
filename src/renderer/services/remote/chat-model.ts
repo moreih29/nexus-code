@@ -236,3 +236,39 @@ function statusOf(was: ChatPage["status"], update: ChatUpdate): ChatPage["status
   }
   return { ...status, streaming: { ...streaming, blocks } };
 }
+
+/**
+ * The page with the items read before it (chat.read with `before`) put in
+ * front; the page as it is when they do not end where it starts (it moved
+ * while they were read). Pure.
+ */
+export function withEarlier<P extends ChatPage>(page: P, earlier: ChatPage): P {
+  if (earlier.start + earlier.items.length !== page.start) return page;
+  return {
+    ...page,
+    start: earlier.start,
+    items: [...earlier.items, ...page.items],
+    tools: { ...earlier.tools, ...page.tools },
+    tasks: { ...earlier.tasks, ...page.tasks },
+    agentItems: { ...earlier.agentItems, ...page.agentItems },
+  };
+}
+
+/**
+ * A chat watched again with the items the old page had before the new
+ * one's start kept in front: a watch starts with the last items only, and
+ * what was shown (or read back) stays shown. Only where the two agree: the
+ * old page reaches the new one's start and has the same item there; else
+ * the new page as it is. Pure.
+ */
+export function keepEarlier<P extends ChatPage>(old: ChatPage, fresh: P): P {
+  if (old.start >= fresh.start) return fresh;
+  const at = fresh.start - old.start;
+  const first = fresh.items[0];
+  if (at > old.items.length) return fresh;
+  // The old page has the new one's first item where it starts, or ends there.
+  const there = old.items[at];
+  const agrees = first ? there === undefined || there.key === first.key : at === old.items.length;
+  if (!agrees) return fresh;
+  return withEarlier(fresh, { ...old, items: old.items.slice(0, at) });
+}

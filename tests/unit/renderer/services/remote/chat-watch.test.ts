@@ -14,7 +14,11 @@ import type {
 } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { applyUpdate } from "../../../../../src/renderer/services/remote/chat-model";
+import {
+  applyUpdate,
+  keepEarlier,
+  withEarlier,
+} from "../../../../../src/renderer/services/remote/chat-model";
 import { chatPageOf } from "../../../../../src/renderer/services/remote/chat-page";
 import {
   appendsOf,
@@ -381,6 +385,68 @@ describe("putting an update in a page", () => {
     expect(
       grow({ status: { ...rest, streaming: null }, streamAppends: [{ block: 0, text: "x" }] }),
     ).toBeNull();
+  });
+});
+
+describe("a watched chat's earlier items", () => {
+  const notes = (from: number, to: number): ViewItem[] =>
+    Array.from({ length: to - from }, (_, i) => ({
+      kind: "notice",
+      key: `n${from + i}`,
+      code: "x",
+    }));
+  const base = chatPageOf(source({}));
+  const pageOf = (start: number, total: number, items = notes(start, total)): ChatPage => ({
+    ...base,
+    start,
+    total,
+    items,
+  });
+  const keys = (page: ChatPage) => page.items.map((item) => item.key);
+
+  test("a page read before the shown ones goes in front, with its calls", () => {
+    const shown = pageOf(10, 14);
+    const earlier = {
+      ...pageOf(6, 14, notes(6, 10)),
+      tools: { t: { id: "t", name: "Read", input: {}, status: "done" } },
+    } as ChatPage;
+    const next = withEarlier(shown, earlier);
+    expect([next.start, next.total]).toEqual([6, 14]);
+    expect(keys(next)).toEqual(["n6", "n7", "n8", "n9", "n10", "n11", "n12", "n13"]);
+    expect(Object.keys(next.tools)).toEqual(["t"]);
+  });
+
+  test("one that does not end where the shown ones start is left out", () => {
+    const shown = pageOf(10, 14);
+    expect(withEarlier(shown, pageOf(4, 14, notes(4, 8)))).toBe(shown);
+  });
+
+  test("watched again, the items shown before its last ones stay in front", () => {
+    // Shown from the start; the watch again gives the last four of a longer chat.
+    const old = pageOf(0, 12);
+    const fresh = { ...pageOf(10, 14), panel: { jobs: [] } };
+    const next = keepEarlier(old, fresh);
+    expect([next.start, next.total]).toEqual([0, 14]);
+    expect(keys(next)).toEqual(keys(pageOf(0, 14)));
+    expect(next.panel).toBe(fresh.panel);
+  });
+
+  test("and those of an old page that ends where the new one starts", () => {
+    expect(keys(keepEarlier(pageOf(0, 10), pageOf(10, 13)))).toEqual(keys(pageOf(0, 13)));
+  });
+
+  test("watched again, a page that does not meet or agree with the old one stands alone", () => {
+    const fresh = pageOf(10, 14);
+    // A gap between them.
+    expect(keepEarlier(pageOf(0, 8), fresh)).toBe(fresh);
+    // Another item where the new one starts: the chat was rewound and went on.
+    const changed = pageOf(10, 14, [{ kind: "notice", key: "other", code: "x" }, ...notes(11, 14)]);
+    expect(keepEarlier(pageOf(0, 12), changed)).toBe(changed);
+    // The old page starts no earlier.
+    expect(keepEarlier(pageOf(10, 12), fresh)).toBe(fresh);
+    // An empty new page short of the old one's end.
+    const empty = pageOf(5, 5, []);
+    expect(keepEarlier(pageOf(0, 8), empty)).toBe(empty);
   });
 });
 
