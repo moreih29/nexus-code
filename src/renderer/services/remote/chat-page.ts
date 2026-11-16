@@ -195,12 +195,15 @@ export function chatStatusOf({ agent, title, chat }: ChatSource): ChatStatus {
     ...(model.effort ? { effort: model.effort } : {}),
     ...(model.permissionMode ? { permissionMode: model.permissionMode } : {}),
     running: model.running,
+    ...(model.interrupting ? { interrupting: true } : {}),
     process: model.process,
     turn: model.turn
       ? {
           ...(model.turn.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
           outputTokens: model.turn.outputTokens,
+          ...(model.turn.thinkingTokens ? { thinkingTokens: model.turn.thinkingTokens } : {}),
           ...(model.turn.status ? { status: model.turn.status } : {}),
+          ...(model.turn.retry ? { retry: { ...model.turn.retry } } : {}),
         }
       : null,
     streaming: model.streaming

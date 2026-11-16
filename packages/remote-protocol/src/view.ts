@@ -221,13 +221,28 @@ export const ChatStatusSchema = z.object({
   permissionMode: z.string().optional(),
   /** A turn is under way. */
   running: z.boolean(),
+  /** The turn was told to stop and has not yet (its stop button pressed). Since 0.13.0. */
+  interrupting: z.boolean().optional(),
   process: z.enum(["none", "running", "exited"]),
   turn: z
     .object({
       startedAt: z.number().optional(),
       outputTokens: z.number(),
+      /** The thinking it has done, as its program estimates it. Since 0.13.0. */
+      thinkingTokens: z.number().optional(),
       /** requesting, compacting… */
       status: z.string().optional(),
+      /**
+       * The API failed and the program tries again: the try it is on, of
+       * how many, after how long a wait. Since 0.13.0.
+       */
+      retry: z
+        .object({
+          attempt: z.number(),
+          maxRetries: z.number().optional(),
+          delayMs: z.number().optional(),
+        })
+        .optional(),
     })
     .nullable(),
   streaming: ViewStreamingSchema.nullable(),
