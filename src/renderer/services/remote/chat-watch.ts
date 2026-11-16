@@ -23,7 +23,7 @@ import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
-import { planUsageKeyFor, usePlanUsageStore } from "../chat/plan-usage";
+import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
 import { supportsControl } from "../chat/versions";
 import {
@@ -251,6 +251,8 @@ export function startChatWatch(
     appends?: boolean;
     /** Each time the tab changes, before what changed is sent. */
     onChange?: () => void;
+    /** The plan usage's key of its profile, asked for while it is watched; null once it is gone. */
+    usageKey?: () => string | null;
   } = {},
 ): ChatPage & { panel: ChatPanel } {
   stopChatWatch(watchId);
@@ -287,10 +289,13 @@ export function startChatWatch(
   const offTabs = useTabsStore.subscribe(changed);
   // The plan's usage comes apart from the chat: its limits in the panel follow it.
   const offPlan = usePlanUsageStore.subscribe(changed);
+  // Shown on that device: its profile's usage is asked for as a tab shown here asks.
+  const offAfar = options.usageKey ? watchPlanUsageAfar(watchId, options.usageKey) : () => {};
   const stop = () => {
     offChat();
     offTabs();
     offPlan();
+    offAfar();
     if (timer) clearTimeout(timer);
     watches.delete(watchId);
   };

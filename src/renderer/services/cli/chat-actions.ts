@@ -34,6 +34,7 @@ import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
 import { scopesOf } from "../chat/permission-scopes";
+import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
@@ -427,7 +428,14 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       limit,
       (change) => void ipcCallResult("remote", "chatChanged", { watchId, change }),
       () => void ipcCallResult("remote", "chatWatchEnded", { watchId }),
-      { appends: appends === true, onChange: askWhenItCan },
+      {
+        appends: appends === true,
+        onChange: askWhenItCan,
+        usageKey: () => {
+          const props = chatPropsOf(workspaceId, tabId);
+          return props ? planUsageKeyFor(target.agent, workspaceId, props.profileId) : null;
+        },
+      },
     );
   },
 
