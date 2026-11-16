@@ -90,6 +90,23 @@ describe("typing", () => {
     ]);
   });
 
+  test("keeps typed text and a paste apart, each as it came", async () => {
+    const { t, sent, settle } = typing();
+    t.type({ text: "a", typed: true });
+    t.type({ text: "b", typed: true });
+    t.type({ text: "c", typed: true });
+    t.type({ text: "pasted" });
+    t.type({ text: "d", typed: true });
+    t.type({ keys: ["enter"] });
+    for (let i = 0; i < 4; i++) await settle();
+    expect(sent).toEqual([
+      { text: "a", typed: true },
+      { text: "bc", typed: true },
+      { text: "pasted" },
+      { text: "d", typed: true, keys: ["enter"] },
+    ]);
+  });
+
   test("drops what waited when a send fails, and tells it", async () => {
     const { t, sent, errors, settle, failNext } = typing();
     t.type({ text: "a" });

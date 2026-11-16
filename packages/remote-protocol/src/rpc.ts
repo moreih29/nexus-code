@@ -1370,8 +1370,11 @@ export const RPC_METHODS = {
   },
   /**
    * Types into a terminal: `text` as pasted, then `keys` by name
-   * (TERMINAL_KEYS), then Enter when `enter`. Sent by an agent (`from`), the receiving device counts it
-   * as that agent's.
+   * (TERMINAL_KEYS), then Enter when `enter`. With `typed` (since 0.13.0),
+   * the text goes in as keystrokes, as the user typed it, not as a paste:
+   * a program that turned on bracketed paste takes a paste as text, where
+   * typed keys are its commands (vim's j, a menu's choice). Sent by an
+   * agent (`from`), the receiving device counts it as that agent's.
    */
   "terminal.input": {
     capability: "terminal.control",
@@ -1381,6 +1384,7 @@ export const RPC_METHODS = {
         .string()
         .max(64 * 1024)
         .optional(),
+      typed: z.boolean().optional(),
       keys: z.array(TerminalKeySchema).max(64).optional(),
       enter: z.boolean().optional(),
       from: AgentSenderSchema.optional(),
