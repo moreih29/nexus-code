@@ -21,7 +21,7 @@ import svgr from "vite-plugin-svgr";
 // They are listed in build.rollupOptions.external so Vite emits require()
 // calls that resolve against the installed node_modules at runtime.
 
-const NATIVE_EXTERNALS = ["node-pty", "better-sqlite3"];
+const NATIVE_EXTERNALS = ["node-pty", "better-sqlite3", "onnxruntime-node"];
 
 // ---------------------------------------------------------------------------
 // Channel-aware build-time constants.
@@ -328,6 +328,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/main/index.ts"),
+          // The voice print model's utility process (src/main/features/voice-print).
+          "voice-print-host": resolve(__dirname, "src/main/features/voice-print/host.ts"),
         },
         external: NATIVE_EXTERNALS,
       },

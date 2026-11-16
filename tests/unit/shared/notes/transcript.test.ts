@@ -3,6 +3,8 @@ import {
   carryNames,
   clockOf,
   joinedLines,
+  movedLines,
+  newSpeakerKey,
   peopleIn,
   recordingMs,
   speakerKey,
@@ -79,13 +81,25 @@ describe("a note's transcript", () => {
     const live = [line("1", 0, 9000, "a"), line("2", 9000, 12000, "b")];
     const next = [line("A", 0, 6000, "a"), line("C", 6000, 9000, "x"), line("B", 9000, 12000, "b")];
     expect(carryNames(live, { "1": "지현", "2": "민수" }, next)).toEqual({ A: "지현", B: "민수" });
-    // Two live voices the user named alike are one person: both their new voices take it.
+  });
+
+  test("live voices the user named alike are one person, whose name goes to one new voice", () => {
+    // Heard live as two voices the user named as one person; the pass tells two people apart.
     const twice = [line("1", 0, 5000, "a"), line("2", 5000, 9000, "b")];
     const split = [line("A", 0, 5000, "a"), line("B", 5000, 9000, "b")];
-    expect(carryNames(twice, { "1": "지현", "2": "지현" }, split)).toEqual({
-      A: "지현",
-      B: "지현",
-    });
+    expect(carryNames(twice, { "1": "지현", "2": "지현" }, split)).toEqual({ A: "지현" });
+    // The live session mixed people up, and the user named its voices as they went: the pass's
+    // two voices do not go back to one name; the one sharing the most with 지현 takes it.
+    const mixed = [
+      line("1", 0, 4000, "a"),
+      line("2", 4000, 6000, "b"),
+      line("3", 6000, 12000, "c"),
+    ];
+    const heard = [line("A", 0, 4000, "a"), line("B", 4000, 12000, "b")];
+    const names = { "1": "지현", "2": "민수", "3": "지현" };
+    expect(carryNames(mixed, names, heard)).toEqual({ B: "지현" });
+    // Heard again as one voice, it shares the most with 지현, across their live voices.
+    expect(carryNames(mixed, names, [line("A", 0, 12000, "a")])).toEqual({ A: "지현" });
   });
 
   test("a take's second pass replaces its lines, moved to the take's place, and keeps the others", () => {
@@ -114,6 +128,58 @@ describe("a note's transcript", () => {
     ]);
     expect(second.lines.at(-1)).toEqual(line("2.1", 10_900, 13_100, "네"));
     expect(second.speakers).toEqual({ "2.1": "민수", "3": "지현" });
+  });
+
+  test("a recording told apart by voice print keeps its voices through the second pass", () => {
+    const r = recording({
+      voicePrint: true,
+      takes: [
+        { file: "recordings/rmhz00cc0abcd-1.webm", offsetMs: 0, seconds: 10, pass: "pending" },
+        { file: "recordings/rmhz00cc0abcd-2.webm", offsetMs: 10_000, seconds: 10, pass: "pending" },
+      ],
+      speakers: { "1": "지현", "2": "민수" },
+      lines: [
+        line("1", 0, 3000, "안녕 하세요"),
+        { ...line("2", 3200, 6000, "반가 워요"), pinned: true },
+        line("3", 6500, 9000, "네 그래요"),
+        line("1", 11_000, 13_000, "다음"),
+      ],
+    });
+    // The pass hears one voice where there were three, under labels of its own.
+    const next = withSecondPass(r, 0, [
+      { speaker: "1", startMs: 0, endMs: 3100, text: "안녕하세요" },
+      { speaker: "1", startMs: 3100, endMs: 6100, text: "반가워요" },
+      { speaker: "1", startMs: 6400, endMs: 9100, text: "네, 그래요" },
+    ]);
+    expect(next.lines).toEqual([
+      line("1", 0, 3100, "안녕하세요"),
+      { ...line("2", 3100, 6100, "반가워요"), pinned: true },
+      line("3", 6400, 9100, "네, 그래요"),
+      line("1", 11_000, 13_000, "다음"),
+    ]);
+    expect(next.speakers).toEqual({ "1": "지현", "2": "민수" });
+    // The second take's lines are the ones after its start, whatever their keys.
+    const second = withSecondPass(next, 1, [
+      { speaker: "2", startMs: 900, endMs: 3100, text: "다음에" },
+    ]);
+    expect(second.lines.at(-1)).toEqual(line("1", 10_900, 13_100, "다음에"));
+    expect(second.lines).toHaveLength(4);
+  });
+
+  test("moves a shown line's lines to another voice, and keeps them there", () => {
+    const r = recording({
+      speakers: { "1": "지현" },
+      lines: [line("1", 0, 1000, "가"), line("1", 1500, 2500, "나"), line("1", 9000, 9500, "다")],
+    });
+    const [shown] = joinedLines(r.lines);
+    const moved = movedLines(r, shown as TranscriptRecording["lines"][number], "2");
+    expect(moved.lines).toEqual([
+      { ...line("2", 0, 1000, "가"), pinned: true },
+      { ...line("2", 1500, 2500, "나"), pinned: true },
+      line("1", 9000, 9500, "다"),
+    ]);
+    expect(newSpeakerKey(moved)).toBe("3");
+    expect(newSpeakerKey(recording({ speakers: { "1": "지현" } }))).toBe("2");
   });
 
   test("runs a voice's adjacent lines together, with a space except between CJK characters", () => {

@@ -247,6 +247,11 @@ jobs:
       - name: Build renderer (electron-vite)
         run: bun run build
 
+      - name: Fetch the voice print model
+        # The full-precision model, which electron-builder.yml packs for
+        # Windows and Linux (the Mac's is in the repository).
+        run: bun run scripts/voice-print-model.ts
+
       - name: Package with electron-builder
         run: >
           bun x electron-builder
@@ -293,6 +298,11 @@ jobs:
 
       - name: Build renderer (electron-vite)
         run: bun run build
+
+      - name: Fetch the voice print model
+        # The full-precision model, which electron-builder.yml packs for
+        # Windows and Linux (the Mac's is in the repository).
+        run: bun run scripts/voice-print-model.ts
 
       - name: Package with electron-builder
         run: >

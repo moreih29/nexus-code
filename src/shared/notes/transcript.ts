@@ -9,7 +9,9 @@
  * Each take is a file of its own, and a server labels the voices it hears
  * anew in each session, so a voice's key carries its take ("1" in the first
  * take, "2.1" in the second); the names the user gives are by key, and
- * giving two keys one name makes them one person.
+ * giving two keys one name makes them one person. A recording the app told
+ * its voices apart in by voice print (voices.ts) keys them for the whole
+ * recording instead ("1", "2", … across its takes).
  *
  * Pure: no IO here.
  */
@@ -29,6 +31,8 @@ export const TranscriptLineSchema = z.object({
   startMs: z.number().nonnegative(),
   endMs: z.number().nonnegative(),
   text: z.string(),
+  /** The user moved the line to its voice: it stays there. */
+  pinned: z.boolean().optional(),
 });
 export type TranscriptLine = z.infer<typeof TranscriptLineSchema>;
 
@@ -63,6 +67,8 @@ export const TranscriptRecordingSchema = z.object({
   lines: z.array(TranscriptLineSchema),
   /** The audio was deleted (the text stays). */
   audioRemoved: z.boolean().optional(),
+  /** Its voices were told apart by voice print: keyed for the whole recording. */
+  voicePrint: z.boolean().optional(),
 });
 export type TranscriptRecording = z.infer<typeof TranscriptRecordingSchema>;
 
@@ -104,51 +110,60 @@ export function recordingMs(recording: Pick<TranscriptRecording, "takes" | "line
 }
 
 /**
- * The names for a second pass's voices: each takes the name of the voice
+ * The names for a second pass's voices: each takes the name of the person
  * (as the live session had them) it shares the most time with, if that one
- * had a name. A live voice's name goes to one new voice only, the one that
- * shares the most time with it: when the pass hears two voices where the
- * live session heard one, the other stays unnamed, a person of its own,
- * for the user to name (giving it the same name joins it back). Named
- * after the live session's voice, it would be one person with no way to
- * tell them apart. Two live voices given one name still give it to their
- * new voices alike: the user said they are one person.
+ * had a name. Live voices given one name are one person, the user said, and
+ * an unnamed live voice is one of its own. A person's name goes to one new
+ * voice only, the one that shares the most time with them: when the pass
+ * hears two voices where the live session heard one, the other stays
+ * unnamed, a person of its own, for the user to name (giving it the same
+ * name joins it back). Named after the live person, it would be one person
+ * with no way to tell them apart. That holds when the live session mixed
+ * people up and the user gave its voices their names as they went: the
+ * voices the pass tells apart do not go back to one name.
  */
 export function carryNames(
   live: readonly TranscriptLine[],
   names: Readonly<Record<string, string>>,
   next: readonly TranscriptLine[],
 ): Record<string, string> {
+  // A live voice's person: its name, or the voice itself when it has none.
+  const personOf = (speaker: string) => {
+    const name = names[speaker]?.trim();
+    return name ? `name:${name}` : `voice:${speaker}`;
+  };
   const overlap = new Map<string, Map<string, number>>();
   for (const n of next) {
     for (const l of live) {
       const shared = Math.min(n.endMs, l.endMs) - Math.max(n.startMs, l.startMs);
       if (shared <= 0) continue;
-      const byLive = overlap.get(n.speaker) ?? new Map<string, number>();
-      byLive.set(l.speaker, (byLive.get(l.speaker) ?? 0) + shared);
-      overlap.set(n.speaker, byLive);
+      const person = personOf(l.speaker);
+      const byPerson = overlap.get(n.speaker) ?? new Map<string, number>();
+      byPerson.set(person, (byPerson.get(person) ?? 0) + shared);
+      overlap.set(n.speaker, byPerson);
     }
   }
-  // Each new voice's live voice, and the new voice that shares the most with each live one.
+  // Each new voice's live person, and the new voice that shares the most with each person.
   const heir = new Map<string, { speaker: string; ms: number }>();
-  const liveOf = new Map<string, string>();
-  for (const [speaker, byLive] of overlap) {
+  const personOfNew = new Map<string, string>();
+  for (const [speaker, byPerson] of overlap) {
     let best = "";
     let most = 0;
-    for (const [liveSpeaker, ms] of byLive) {
+    for (const [person, ms] of byPerson) {
       if (ms > most) {
         most = ms;
-        best = liveSpeaker;
+        best = person;
       }
     }
-    liveOf.set(speaker, best);
+    personOfNew.set(speaker, best);
     const held = heir.get(best);
     if (!held || most > held.ms) heir.set(best, { speaker, ms: most });
   }
   const out: Record<string, string> = {};
-  for (const [speaker, best] of liveOf) {
-    const name = names[best]?.trim();
-    if (name && heir.get(best)?.speaker === speaker) out[speaker] = name;
+  for (const [speaker, person] of personOfNew) {
+    if (person.startsWith("name:") && heir.get(person)?.speaker === speaker) {
+      out[speaker] = person.slice("name:".length);
+    }
   }
   return out;
 }
@@ -156,7 +171,10 @@ export function carryNames(
 /**
  * A take's lines replaced by its second pass: the take's own lines go, the
  * pass's come in (moved to the take's place in the recording, their voices
- * keyed by the take), and names carry over by time.
+ * keyed by the take), and names carry over by time. A recording told apart
+ * by voice print keeps its voices instead: each new line takes the voice of
+ * the lines it shares the most time with, since the server's labels mix
+ * people up.
  */
 export function withSecondPass(
   recording: TranscriptRecording,
@@ -165,6 +183,7 @@ export function withSecondPass(
 ): TranscriptRecording {
   const t = recording.takes[take];
   if (!t) return recording;
+  if (recording.voicePrint) return withSecondPassByVoice(recording, take, segments);
   const inTake = (key: string) =>
     take === 0 ? !key.includes(".") : key.startsWith(`${take + 1}.`);
   const old = recording.lines.filter((l) => inTake(l.speaker));
@@ -188,6 +207,98 @@ export function withSecondPass(
     speakers,
     lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs),
   };
+}
+
+function withSecondPassByVoice(
+  recording: TranscriptRecording,
+  take: number,
+  segments: readonly TranscriptLine[],
+): TranscriptRecording {
+  const t = recording.takes[take] as TranscriptTake;
+  const until = recording.takes[take + 1]?.offsetMs ?? Number.POSITIVE_INFINITY;
+  const inTake = (l: TranscriptLine) => l.startMs >= t.offsetMs && l.startMs < until;
+  const old = recording.lines.filter(inTake);
+  const rest = recording.lines.filter((l) => !inTake(l));
+  // A take the live session heard nothing in: the pass's labels, as new voices.
+  const taken = new Set(recording.lines.map((l) => l.speaker));
+  const byLabel = new Map<string, string>();
+  const keyOfLabel = (label: string) => {
+    let key = byLabel.get(label);
+    if (!key) {
+      let n = 1;
+      while (taken.has(String(n))) n++;
+      key = String(n);
+      taken.add(key);
+      byLabel.set(label, key);
+    }
+    return key;
+  };
+  const fresh = segments
+    .filter((s) => s.text.trim())
+    .map((s): TranscriptLine => {
+      const startMs = t.offsetMs + s.startMs;
+      const endMs = t.offsetMs + s.endMs;
+      const shared = new Map<string, number>();
+      let pinned = false;
+      let near: TranscriptLine | null = null;
+      for (const l of old) {
+        const ms = Math.min(endMs, l.endMs) - Math.max(startMs, l.startMs);
+        if (ms > 0) shared.set(l.speaker, (shared.get(l.speaker) ?? 0) + ms);
+        const gap = Math.abs((l.startMs + l.endMs) / 2 - (startMs + endMs) / 2);
+        if (!near || gap < Math.abs((near.startMs + near.endMs) / 2 - (startMs + endMs) / 2))
+          near = l;
+      }
+      let speaker = "";
+      let most = 0;
+      for (const [key, ms] of shared) {
+        if (ms > most) {
+          most = ms;
+          speaker = key;
+        }
+      }
+      speaker ||= near?.speaker ?? keyOfLabel(s.speaker);
+      // A line the user moved stays moved: the new lines over it go with it.
+      for (const l of old) {
+        if (
+          l.pinned &&
+          l.speaker === speaker &&
+          Math.min(endMs, l.endMs) > Math.max(startMs, l.startMs)
+        )
+          pinned = true;
+      }
+      return { speaker, startMs, endMs, text: s.text.trim(), ...(pinned ? { pinned } : {}) };
+    });
+  return { ...recording, lines: [...rest, ...fresh].sort((a, b) => a.startMs - b.startMs) };
+}
+
+/**
+ * The lines a shown line joined (joinedLines) moved to voice `to`, and kept
+ * there: those of its voice from its start to its end.
+ */
+export function movedLines(
+  recording: TranscriptRecording,
+  shown: Pick<TranscriptLine, "speaker" | "startMs" | "endMs">,
+  to: string,
+): TranscriptRecording {
+  let changed = false;
+  const lines = recording.lines.map((l) => {
+    if (l.speaker !== shown.speaker || l.startMs < shown.startMs || l.startMs > shown.endMs)
+      return l;
+    changed = true;
+    return { ...l, speaker: to, pinned: true };
+  });
+  return changed ? { ...recording, lines } : recording;
+}
+
+/** A key for a new voice of the recording: the next number not taken. */
+export function newSpeakerKey(recording: Pick<TranscriptRecording, "lines" | "speakers">): string {
+  const taken = new Set([
+    ...recording.lines.map((l) => l.speaker),
+    ...Object.keys(recording.speakers),
+  ]);
+  let n = 1;
+  while (taken.has(String(n))) n++;
+  return String(n);
 }
 
 /** "3:07", or "1:03:07" past an hour. */

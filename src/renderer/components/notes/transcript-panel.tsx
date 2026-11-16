@@ -2,7 +2,8 @@
  * A note's transcript, beside its text: each recording with its voices and
  * what they said, a time to a line. While this note records, the words
  * come in as they are said. A voice is named by clicking it (the name goes
- * to every line of it); a line goes into the note as a quote; a recording
+ * to every line of it), and a line moved to another voice by clicking its
+ * speaker; a line goes into the note as a quote; a recording
  * of more than one person is heard again, whole, once it ends. The line
  * between it and the text is dragged to give either more room.
  */
@@ -14,13 +15,14 @@ import { dateTimeFormat } from "@/utils/intl-format";
 import {
   clockOf,
   joinedLines,
+  newSpeakerKey,
   recordingMs,
   speakerName,
   speakersOf,
   type TranscriptLine,
   type TranscriptRecording,
 } from "../../../shared/notes/transcript";
-import { useRecorderStore } from "../../services/notes/recorder";
+import { moveLine, useRecorderStore } from "../../services/notes/recorder";
 import {
   canSecondPass,
   resumeSecondPasses,
@@ -54,6 +56,9 @@ import { KEYBOARD_NUDGE_PX } from "../ui/resize-handle";
 import { useDragHandle } from "../ui/use-drag-handle";
 
 /** A voice's color, by the order it first spoke. */
+/** Voice keys in order: numbers as numbers ("2" before "10"). */
+const byKey = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
+
 const SPEAKER_COLORS = [
   "var(--state-info-fg)",
   "var(--state-success-fg)",
@@ -290,14 +295,22 @@ function RecordingView({
   const refining = useSecondPassStore((s) => Boolean(s.running[recording.id]));
   const voices = speakersOf(recording);
   if (partial && !voices.includes(partial.speaker)) voices.push(partial.speaker);
-  // Voices given one name are one person: one chip, one color.
+  // Voices given one name are one person: one chip, one color. People go in their voices'
+  // order, not the order they first spoke in, so moving a line doesn't reorder or recolor them.
   const personOf = (key: string) => recording.speakers[key]?.trim() || `#${key}`;
-  const people = [...new Set(voices.map(personOf))].map((person) => ({
-    person,
-    keys: voices.filter((k) => personOf(k) === person),
-  }));
-  const colorOf = (key: string) =>
-    SPEAKER_COLORS[people.findIndex((p) => p.person === personOf(key)) % SPEAKER_COLORS.length];
+  const people = [...new Set(voices.map(personOf))]
+    .map((person) => ({
+      person,
+      keys: voices.filter((k) => personOf(k) === person).sort(byKey),
+    }))
+    .sort((a, b) => byKey(a.keys[0] as string, b.keys[0] as string));
+  // Numbered voices (a voice print recording's) keep their number's color, whoever else comes or goes.
+  const numbered = voices.every((k) => /^[1-9]\d*$/.test(k));
+  const colorOf = (key: string) => {
+    const index = people.findIndex((p) => p.person === personOf(key));
+    const n = numbered ? Number(people[index]?.keys[0]) - 1 : index;
+    return SPEAKER_COLORS[n % SPEAKER_COLORS.length];
+  };
   const unnamed = (key: string) => t("transcript.speaker", { label: key });
   const nameOf = (key: string) => speakerName(recording, key, unnamed);
   const lines = joinedLines(recording.lines);
@@ -400,6 +413,16 @@ function RecordingView({
             line={line}
             name={nameOf(line.speaker)}
             color={colorOf(line.speaker)}
+            others={people
+              .filter((p) => p.person !== personOf(line.speaker))
+              .map((p) => ({
+                key: p.keys[0] as string,
+                name: nameOf(p.keys[0] as string),
+                color: colorOf(p.keys[0] as string),
+              }))}
+            onMove={(to) =>
+              moveLine(workspaceId, noteId, recording.id, line, to ?? newSpeakerKey(recording))
+            }
             onQuote={() =>
               onQuote({
                 speaker: nameOf(line.speaker),
@@ -429,11 +452,17 @@ function Line({
   line,
   name,
   color,
+  others,
+  onMove,
   onQuote,
 }: {
   line: TranscriptLine;
   name: string;
   color: string | undefined;
+  /** The recording's other people, a line can be moved to. */
+  others: { key: string; name: string; color: string | undefined }[];
+  /** Moves the line to a voice, or to a new one (null). */
+  onMove: (to: string | null) => void;
   onQuote: () => void;
 }) {
   const { t } = useTranslation("notes");
@@ -445,9 +474,39 @@ function Line({
       <span className="mr-1.5 text-app-micro text-muted-foreground tabular-nums">
         {clockOf(line.startMs)}
       </span>
-      <span className="mr-1.5 font-medium" style={{ color }}>
-        {name}
-      </span>
+      <DropdownMenuRoot>
+        <DropdownMenuTrigger>
+          <button
+            type="button"
+            className="mr-1.5 rounded-(--radius-control) font-medium hover:bg-[var(--state-hover-bg)]"
+            style={{ color }}
+            title={t("transcript.moveLine")}
+            data-testid="transcript-line-speaker"
+          >
+            {name}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {others.map((o) => (
+            <DropdownMenuItem
+              key={o.key}
+              className="justify-start gap-2"
+              onSelect={() => onMove(o.key)}
+            >
+              <span
+                className="size-1.5 rounded-full"
+                style={{ background: o.color }}
+                aria-hidden="true"
+              />
+              {o.name}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuItem className="justify-start gap-2" onSelect={() => onMove(null)}>
+            <Plus className="size-3.5" aria-hidden="true" />
+            {t("transcript.newSpeaker")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenuRoot>
       {line.text}
       <button
         type="button"
