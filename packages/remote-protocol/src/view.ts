@@ -317,6 +317,8 @@ export const ChatPanelSchema = z.object({
       path: z.string(),
       added: z.number().int().nonnegative().optional(),
       removed: z.number().int().nonnegative().optional(),
+      /** The chat made it: its first change wrote it new. Since 0.13.0. */
+      created: z.boolean().optional(),
     }),
   ),
   /** The context window: tokens in it, and how many it takes; null before the program said. */

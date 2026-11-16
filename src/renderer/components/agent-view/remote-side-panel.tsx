@@ -28,6 +28,7 @@ import {
   type AgentRow,
   type AgentStatus,
   agentsOf,
+  changedFilesOf,
   exitCodeOf,
   jobCommand,
 } from "../../services/chat/panel";
@@ -153,6 +154,11 @@ export function RemoteSidePanel({
   const jobs = panel?.tasks ?? [];
   const todos = panel?.todos ?? [];
   const changed = panel?.changedFiles ?? [];
+  // A computer before 0.13.0 tells no file it made: the calls read here may.
+  const madeHere = useMemo(
+    () => new Set(changedFilesOf(model.tools).flatMap((f) => (f.created ? [f.path] : []))),
+    [model.tools],
+  );
   const anyRunning =
     agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
   const now = useNow(anyRunning);
@@ -402,7 +408,7 @@ export function RemoteSidePanel({
                 path: file.path,
                 added: file.added ?? 0,
                 removed: file.removed ?? 0,
-                created: false,
+                created: file.created ?? madeHere.has(file.path),
                 toolUseIds: [],
               }}
               cwd={target.cwd ?? target.path}

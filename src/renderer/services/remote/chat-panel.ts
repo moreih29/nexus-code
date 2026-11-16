@@ -165,10 +165,11 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
       ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
       ...(agent.endedAt !== undefined ? { endedAt: agent.endedAt } : {}),
     })),
-    changedFiles: changedFilesOf(tools).map(({ path, added, removed }) => ({
+    changedFiles: changedFilesOf(tools).map(({ path, added, removed, created }) => ({
       path,
       added,
       removed,
+      ...(created ? { created } : {}),
     })),
     context: contextOfModel(source),
     ...(model.costUsd !== undefined ? { costUsd: model.costUsd } : {}),

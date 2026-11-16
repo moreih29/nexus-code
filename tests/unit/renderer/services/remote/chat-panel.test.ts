@@ -83,6 +83,20 @@ describe("a chat's side panel", () => {
     expect(panel).toMatchObject({ tasks: [], agents: [] });
   });
 
+  test("a file the chat made is told as made", () => {
+    const write = call(
+      "write",
+      "Write",
+      { file_path: "/p/new.ts", content: "x\ny" },
+      { result: { text: "", isError: false, images: [], structured: { type: "create" } } },
+    );
+    const panel = chatPanelOf(source({ tools: { ...tools, write } }));
+    expect(panel.changedFiles).toEqual([
+      { path: "/p/a.ts", added: 1, removed: 2 },
+      { path: "/p/new.ts", added: 2, removed: 0, created: true },
+    ]);
+  });
+
   test("an ended goal's checks, the last that ended it too", () => {
     const panel = chatPanelOf(
       source({
