@@ -195,6 +195,12 @@ export const ViewTaskSchema = z.object({
   endedAt: z.number().optional(),
   summary: z.string().optional(),
   activity: z.string().optional(),
+  /**
+   * The file its program writes a background run's output to, on that
+   * computer, as its chat there tells it: files.read reads it by this
+   * path, though it is outside the workspace's folders. Since 0.13.0.
+   */
+  outputFile: z.string().max(4096).optional(),
 });
 export type ViewTask = z.infer<typeof ViewTaskSchema>;
 
@@ -221,13 +227,53 @@ export const ChatStatusSchema = z.object({
   permissionMode: z.string().optional(),
   /** A turn is under way. */
   running: z.boolean(),
+  /** The turn was told to stop and has not yet (its stop button pressed). Since 0.13.0. */
+  interrupting: z.boolean().optional(),
   process: z.enum(["none", "running", "exited"]),
+  /**
+   * Where its tab there stands with its program, as its banners tell it:
+   * starting, ready, held (waiting to start), ended (it exited; chat.restart
+   * starts it again), not-found (its session is gone) or failed (`error`
+   * says why; "old-version" for a program too old, `version` it); idle
+   * before it opens. Since 0.13.0.
+   */
+  phase: z.string().optional(),
+  /** Why it failed, or what was not found. Since 0.13.0. */
+  error: z.string().optional(),
+  /** Its program's version, as it told it. Since 0.13.0. */
+  version: z.string().optional(),
+  /**
+   * Its program needs a sign-in before a turn can run (a Codex chat's):
+   * signed in there, chat.checkSignIn asks it again. Since 0.13.0.
+   */
+  signedOut: z.boolean().optional(),
+  /** How its program last exited: its code or signal, and the end of what it wrote to stderr. Since 0.13.0. */
+  exit: z
+    .object({
+      code: z.number().nullable(),
+      signal: z.string().optional(),
+      stderrTail: z.string().optional(),
+    })
+    .optional(),
   turn: z
     .object({
       startedAt: z.number().optional(),
       outputTokens: z.number(),
+      /** The thinking it has done, as its program estimates it. Since 0.13.0. */
+      thinkingTokens: z.number().optional(),
       /** requesting, compacting… */
       status: z.string().optional(),
+      /**
+       * The API failed and the program tries again: the try it is on, of
+       * how many, after how long a wait. Since 0.13.0.
+       */
+      retry: z
+        .object({
+          attempt: z.number(),
+          maxRetries: z.number().optional(),
+          delayMs: z.number().optional(),
+        })
+        .optional(),
     })
     .nullable(),
   streaming: ViewStreamingSchema.nullable(),
@@ -273,6 +319,8 @@ export const ViewGoalSchema = z.object({
   /** Once it ended: how long it took, and when. Since 0.11.0. */
   durationMs: z.number().nonnegative().optional(),
   endedAt: z.number().optional(),
+  /** Once a Claude goal ended: the checks it took, the last that ended it too. Since 0.13.0. */
+  iterations: z.number().int().nonnegative().optional(),
 });
 export type ViewGoal = z.infer<typeof ViewGoalSchema>;
 
@@ -315,6 +363,8 @@ export const ChatPanelSchema = z.object({
       path: z.string(),
       added: z.number().int().nonnegative().optional(),
       removed: z.number().int().nonnegative().optional(),
+      /** The chat made it: its first change wrote it new. Since 0.13.0. */
+      created: z.boolean().optional(),
     }),
   ),
   /** The context window: tokens in it, and how many it takes; null before the program said. */
@@ -322,6 +372,16 @@ export const ChatPanelSchema = z.object({
     .object({
       usedTokens: z.number().int().nonnegative(),
       maxTokens: z.number().int().positive(),
+      /**
+       * What fills it, by kind (the system prompt, tools, messages), as a
+       * Claude chat's program tells it. Since 0.13.0.
+       */
+      categories: z
+        .array(z.object({ name: z.string().max(200), tokens: z.number().int().nonnegative() }))
+        .max(50)
+        .optional(),
+      /** How many of its tokens are free, as a Claude chat's program tells it. Since 0.13.0. */
+      freeTokens: z.number().int().nonnegative().optional(),
     })
     .nullable(),
   /** What the conversation cost so far, in US dollars, when the program tells it. */
@@ -388,7 +448,8 @@ export const ChatPanelSchema = z.object({
    * What another device can do with the chat now: rewind it to before one
    * of the user's messages (chat.rewind), fork it (chat.fork), send a
    * running command or subagent to the background (chat.background).
-   * Absent before 0.11.0, which serves none of them.
+   * Absent before 0.11.0, which serves none of them; a Codex chat's comes
+   * from 0.13.0.
    */
   can: z
     .object({
@@ -401,6 +462,15 @@ export const ChatPanelSchema = z.object({
       withdraw: z.boolean().optional(),
       /** Have the unread messages read now (chat.hurry). Since 0.12.0. */
       hurry: z.boolean().optional(),
+      /**
+       * Move it to another profile while it works or waits on the user, its
+       * turn stopping (chat.profile `stop`), as its chip there does. Since 0.13.0.
+       */
+      moveNow: z.boolean().optional(),
+      /** Work its MCP servers: sign in, connect again, turn on or off (chat.mcp). Since 0.13.0. */
+      mcp: z.boolean().optional(),
+      /** Read and change its Claude Code settings, or a Codex chat's defaults (chat.config). Since 0.13.0. */
+      config: z.boolean().optional(),
     })
     .optional(),
   /**

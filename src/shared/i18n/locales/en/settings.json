@@ -797,8 +797,11 @@
     },
     "voice": {
       "title": "Voice input",
-      "usage": "This month",
-      "usageOf": "{{used}} of {{limit}} minutes used",
+      "usage": "This month's usage",
+      "usageResets": "Resets {{date}}",
+      "usageOf": "{{used}} / {{limit}} min · {{percent}}%",
+      "dictation": "Dictation",
+      "noteRecording": "Note recording",
       "usageLoading": "Loading…",
       "usageUnavailable": "Couldn't load the usage.",
       "language": "Language",

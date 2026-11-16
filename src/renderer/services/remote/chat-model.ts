@@ -153,13 +153,15 @@ export function modelOfPage(page: ChatPage, source?: PageSource): ChatModel {
     ...(status.effort ? { effort: status.effort } : {}),
     ...(status.permissionMode ? { permissionMode: status.permissionMode } : {}),
     running: status.running,
+    ...(status.interrupting ? { interrupting: true } : {}),
     process: status.process,
     turn: status.turn
       ? {
           ...(status.turn.startedAt !== undefined ? { startedAt: status.turn.startedAt } : {}),
           outputTokens: status.turn.outputTokens,
-          thinkingTokens: 0,
+          thinkingTokens: status.turn.thinkingTokens ?? 0,
           ...(status.turn.status ? { status: status.turn.status } : {}),
+          ...(status.turn.retry ? { retry: status.turn.retry } : {}),
         }
       : null,
     tasks: page.tasks as Record<string, TaskInfo>,

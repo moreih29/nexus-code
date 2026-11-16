@@ -52,3 +52,24 @@ describe("buildWorkspaceDirUrl — base href for relative resource resolution", 
     );
   });
 });
+
+describe("another computer's workspace", () => {
+  test("serves its files by their paths there, under the folder its chat's pane told", async () => {
+    const { peerWorkspaceId, setPeerRoot } = await import(
+      "../../../../../../src/renderer/services/remote/peer-workspace"
+    );
+    const { buildOutsideUrl } = await import(
+      "../../../../../../src/renderer/services/editor/preview/workspace-url"
+    );
+    const id = peerWorkspaceId("dev-1", "ws-1");
+    const untell = setPeerRoot(id, "C:\\Users\\me\\site");
+    expect(buildWorkspaceUrl(id, "img/a.png")).toBe(
+      "nexus-workspace://peer/dev-1/ws-1/C%3A/Users/me/site/img/a.png",
+    );
+    expect(buildWorkspaceDirUrl(id, "pages")).toBe(
+      "nexus-workspace://peer/dev-1/ws-1/C%3A/Users/me/site/pages/",
+    );
+    expect(buildOutsideUrl(id, "/tmp/x.png")).toBe("nexus-workspace://peer/dev-1/ws-1/tmp/x.png");
+    untell();
+  });
+});

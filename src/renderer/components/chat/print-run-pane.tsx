@@ -30,6 +30,8 @@ export function PrintRunPane({
   rootPath,
   run,
   visible,
+  stopRun,
+  openInTab: openThere,
 }: {
   workspaceId: string;
   tabId: string;
@@ -38,15 +40,25 @@ export function PrintRunPane({
   rootPath: string;
   run: AgentRun;
   visible: boolean;
+  /**
+   * Stops the run, true when it did: the app's own by default (another
+   * computer's chat's goes through the room); null where it may not be.
+   */
+  stopRun?: (() => Promise<boolean>) | null;
+  /** Goes on with its ended session in a tab of its own: here by default; null where it may not. */
+  openInTab?: ((sessionId: string) => void) | null;
 }) {
   const { t } = useTranslation();
   const running = run.end === undefined;
   const now = useNow(visible && running);
   const [stopFailed, setStopFailed] = useState(false);
-  const stop = () => {
-    setStopFailed(false);
-    void stopPrintRun(workspaceId, tabId, run.id).then((stopped) => setStopFailed(!stopped));
-  };
+  const stopper = stopRun === undefined ? () => stopPrintRun(workspaceId, tabId, run.id) : stopRun;
+  const stop = stopper
+    ? () => {
+        setStopFailed(false);
+        void stopper().then((stopped) => setStopFailed(!stopped));
+      }
+    : null;
   const { sessionId } = run;
   const codex = run.program === "codex";
   const kind = [
@@ -58,10 +70,13 @@ export function PrintRunPane({
   ].filter((part): part is string => part !== undefined);
   // A Codex tab goes on with a `codex exec` run's thread, as a Claude tab
   // goes on with a copy of a `claude -p` run's session.
-  const openInTab = (id: string) =>
-    codex
-      ? openCodexTab(workspaceId, { cwd, threadId: id })
-      : openClaudeTab(workspaceId, { cwd, sessionId: id });
+  const openInTab =
+    openThere === undefined
+      ? (id: string) =>
+          codex
+            ? openCodexTab(workspaceId, { cwd, threadId: id })
+            : openClaudeTab(workspaceId, { cwd, sessionId: id })
+      : openThere;
   return (
     <div
       className="app-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4"
@@ -80,21 +95,20 @@ export function PrintRunPane({
             <span className={agentStateColor(run.state)}>{agentStateLabel(run.state)}</span>
             <AgentDuration agent={run} className="text-app-ui-sm" />
           </span>
-          {running ? (
-            <RunStopButton onClick={stop} />
-          ) : (
-            sessionId !== undefined && (
-              <Button
-                size="icon-sm"
-                variant="outline"
-                title={t("chat.run.open_in_tab")}
-                aria-label={t("chat.run.open_in_tab")}
-                onClick={() => openInTab(sessionId)}
-              >
-                <SquareArrowOutUpRight aria-hidden className="size-3.5" />
-              </Button>
-            )
-          )}
+          {running
+            ? stop && <RunStopButton onClick={stop} />
+            : sessionId !== undefined &&
+              openInTab && (
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  title={t("chat.run.open_in_tab")}
+                  aria-label={t("chat.run.open_in_tab")}
+                  onClick={() => openInTab(sessionId)}
+                >
+                  <SquareArrowOutUpRight aria-hidden className="size-3.5" />
+                </Button>
+              )}
         </div>
       </header>
       {stopFailed && (

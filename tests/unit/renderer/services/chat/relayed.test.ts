@@ -105,6 +105,20 @@ describe("the line the agent reads", () => {
         device,
       }),
     ).toEndWith("nexus terminal send t --workspace w --device 3f2a91c0 -");
+    // One that sent and went on is written back to, by the command.
+    expect(
+      relayHeader({
+        ...TAB,
+        workspaceId: "5e6f7a8b-bbbb",
+        tabId: "1a2b3c4d-cccc",
+        device,
+        waits: false,
+      }),
+    ).toBe(
+      '[nexus] The "Plan the refactor" tab (Claude) on the computer "MacBook" sent this, not the user. ' +
+        "It is not waiting for an answer here; to answer it: " +
+        "nexus chat send 1a2b3c4d --workspace 5e6f7a8b --device 3f2a91c0 -",
+    );
     const text = relayedText({ ...TAB, device }, "Hi.");
     expect(withoutRelayHeader(text)).toBe("Hi.");
   });

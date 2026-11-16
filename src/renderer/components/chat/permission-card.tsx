@@ -131,7 +131,9 @@ interface FormProps {
 
 /** The chat tab `el` is in; none in the agent list's detail panel. */
 function chatTabOf(el: Element): Element | null {
-  return el.closest('[data-testid="claude-tab"], [data-testid="codex-tab"]');
+  return el.closest(
+    '[data-testid="claude-tab"], [data-testid="codex-tab"], [data-testid="remote-chat"]',
+  );
 }
 
 /** A text field with nothing in it: the user is not typing there. */

@@ -27,6 +27,17 @@ describe("another computer's chat's goal", () => {
     expect(met.key).toBe(goal.key);
   });
 
+  test("from 0.13.0, an ended Claude goal's checks as Claude Code counts them, the last too", () => {
+    const met = remoteGoalView(
+      { condition: "Say ok", status: "met", checks: 0, iterations: 1, reason: "It did" },
+      "claude",
+    );
+    expect(met.iterations).toBe(1);
+    expect(
+      remoteGoalView({ condition: "x", status: "met", checks: 0, iterations: 1 }, "codex"),
+    ).not.toHaveProperty("iterations");
+  });
+
   test("a Codex goal pauses and goes on, and has no time to tell", () => {
     const paused = remoteGoalView({ condition: "Ship it", status: "paused", checks: 0 }, "codex");
     expect(paused).toMatchObject({ agent: "codex", status: "paused", ended: false });

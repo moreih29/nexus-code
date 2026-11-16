@@ -83,10 +83,26 @@ export function usePastSessions(
   return listed;
 }
 
-/** Goes on with one of them in this chat on that computer, and shows its tab here. */
-export function useResumePast(target: RemoteTarget): (sessionId: string, title: string) => void {
+/** That computer's profile's name a session's profile id names; none for its default. */
+function profileNameOf(profileId: string | undefined): string | undefined {
+  return profileId?.startsWith("remote:") ? profileId.slice("remote:".length) : undefined;
+}
+
+/**
+ * Goes on with one of them in this chat on that computer, in the profile
+ * that keeps it, and shows its tab here. What went wrong goes to `fail`,
+ * a toast unless given.
+ */
+export function useResumePast(
+  target: RemoteTarget,
+): (
+  sessionId: string,
+  title: string,
+  profileId?: string,
+  fail?: (message: string) => void,
+) => void {
   const { t } = useTranslation();
-  return (sessionId, title) => {
+  return (sessionId, title, profileId, fail) => {
     void ipcCallResult("remote", "peerChatResume", {
       deviceId: target.deviceId,
       workspaceId: target.workspaceId,
@@ -95,14 +111,20 @@ export function useResumePast(target: RemoteTarget): (sessionId: string, title: 
       tabId: target.tabId,
     }).then((result) => {
       if (!result.ok) {
-        showToast({
-          kind: "error",
-          message: t("chat.sessions.resume_failed", { message: result.message }),
-        });
+        if (fail) fail(result.message);
+        else {
+          showToast({
+            kind: "error",
+            message: t("chat.sessions.resume_failed", { message: result.message }),
+          });
+        }
         return;
       }
+      const { profile: _was, ...rest } = target;
+      const profile = profileId === undefined ? target.profile : profileNameOf(profileId);
       useRemoteViewStore.getState().open({
-        ...target,
+        ...rest,
+        ...(profile ? { profile } : {}),
         tabId: result.value.tabId,
         title,
         state: "idle",
@@ -125,8 +147,11 @@ export function RemoteSessionList({
   /** The chat's own session, left out. */
   exceptSessionId?: string;
 }) {
+  const { t } = useTranslation();
   const listed = usePastSessions(target);
   const resume = useResumePast(target);
+  // Under the empty conversation a failure shows there, as a chat here's; from /resume, as a toast.
+  const [failed, setFailed] = useState<string | null>(null);
   const agent: ChatAgent = target.kind === "codex" ? "codex" : "claude";
   const profiles = useMemo(
     () => profilesOf(listed ?? [], target.profile, agent),
@@ -139,26 +164,34 @@ export function RemoteSessionList({
     [listed],
   );
   return (
-    <SessionPicker
-      agent={agent}
-      listed={listed}
-      openIn={openIn}
-      onShowTab={(tabId, session) => {
-        // Another tab: its folder and state come with that computer's next list.
-        const { cwd: _cwd, state: _state, ...where } = target;
-        useRemoteViewStore.getState().open({ ...where, tabId, title: session.title });
-      }}
-      workspaceId={`remote:${target.deviceId}`}
-      tabId={target.tabId}
-      profileId={profileIdOf(target.profile, agent)}
-      profiles={profiles}
-      onResume={(sessionId, _profile, title) => {
-        onClose?.();
-        resume(sessionId, title);
-      }}
-      {...(query !== undefined ? { query } : {})}
-      {...(onClose ? { onClose } : {})}
-      {...(exceptSessionId ? { exceptSessionId } : {})}
-    />
+    <>
+      {failed && !onClose && (
+        <div className="text-app-ui-sm text-[var(--state-error-fg)]">
+          {t("chat.sessions.resume_failed", { message: failed })}
+        </div>
+      )}
+      <SessionPicker
+        agent={agent}
+        listed={listed}
+        openIn={openIn}
+        onShowTab={(tabId, session) => {
+          // Another tab: its folder and state come with that computer's next list.
+          const { cwd: _cwd, state: _state, ...where } = target;
+          useRemoteViewStore.getState().open({ ...where, tabId, title: session.title });
+        }}
+        workspaceId={`remote:${target.deviceId}`}
+        tabId={target.tabId}
+        profileId={profileIdOf(target.profile, agent)}
+        profiles={profiles}
+        onResume={(sessionId, profileId, title) => {
+          setFailed(null);
+          onClose?.();
+          resume(sessionId, title, profileId, onClose ? undefined : setFailed);
+        }}
+        {...(query !== undefined ? { query } : {})}
+        {...(onClose ? { onClose } : {})}
+        {...(exceptSessionId ? { exceptSessionId } : {})}
+      />
+    </>
   );
 }
