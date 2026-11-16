@@ -15,6 +15,7 @@ import { useNow } from "../../hooks/use-now";
 import { ipcCallResult } from "../../ipc/client";
 import { remoteSessionKey } from "../../services/agent-view/layout";
 import { ChatFilesContext } from "../../services/chat/chat-files";
+import { configCommandOf } from "../../services/chat/claude-config";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import type { GoalView } from "../../services/chat/goal";
 import { lookAreaOf } from "../../services/chat/look-area";
@@ -71,6 +72,7 @@ import { UsageLineView } from "../chat/usage-line";
 import { Banner } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
+import { RemoteConfigDialog } from "./remote-config-dialog";
 import { peerChatFiles, peerImageLoader, useRemoteLinks } from "./remote-links";
 import { RemoteSessionList } from "./remote-past-sessions";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
@@ -869,7 +871,15 @@ function RemoteControls({
     );
   // /resume's list above the composer, with the words it was given, as a chat here shows it.
   const [resumeQuery, setResumeQuery] = useState<string | null>(null);
+  // Its Claude Code settings (/config), and the one a command opened them at, as a chat here has them.
+  const [config, setConfig] = useState<{ focus?: string } | null>(null);
   const onCommand = (text: string): boolean => {
+    const opened =
+      agent === "claude" && page.panel?.can?.config === true ? configCommandOf(text) : null;
+    if (opened) {
+      setConfig(opened);
+      return true;
+    }
     const part = onPanelPart ? remotePanelPartOf(text, agent) : null;
     if (part && onPanelPart) {
       onPanelPart(part);
@@ -983,6 +993,15 @@ function RemoteControls({
           />
         }
       />
+      {agent === "claude" && (
+        <RemoteConfigDialog
+          chat={{ deviceId, workspaceId, tabId }}
+          running={model.running}
+          open={config !== null}
+          focus={config?.focus}
+          onClose={() => setConfig(null)}
+        />
+      )}
     </>
   );
 }

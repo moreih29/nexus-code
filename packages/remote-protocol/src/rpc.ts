@@ -484,6 +484,47 @@ export const ChatCommandSchema = z.object({
 });
 export type ChatCommand = z.infer<typeof ChatCommandSchema>;
 
+/** A value of a Claude Code setting (/config): on or off, a choice, or text. */
+const ConfigValueSchema = z.union([z.boolean(), z.string().max(1000)]);
+
+/**
+ * A Claude chat's Claude Code settings (/config), as its settings dialog
+ * shows them: each key in the dialog's order, its group, what it takes and
+ * what it is now (none when no setting says); the models the model takes
+ * and the output styles; the model the session runs; and the default
+ * effort the settings give each model (`efforts`, by its id; `level` the
+ * one for any), none when that program cannot save one. Since 0.13.0.
+ */
+export const ChatConfigSchema = z.object({
+  keys: z
+    .array(
+      z.object({
+        key: z.string(),
+        group: z.enum(["conversation", "work", "other"]),
+        kind: z.enum(["boolean", "choice", "text"]),
+        options: z.array(z.string()).optional(),
+        value: ConfigValueSchema.optional(),
+      }),
+    )
+    .max(200),
+  model: z.string().optional(),
+  models: z
+    .array(
+      z.object({
+        value: z.string(),
+        displayName: z.string().optional(),
+        resolvedModel: z.string().optional(),
+        supportedEffortLevels: z.array(z.string()).optional(),
+      }),
+    )
+    .max(100),
+  outputStyles: z.array(z.string()).max(100).optional(),
+  efforts: z
+    .object({ level: z.string().optional(), byModel: z.record(z.string(), z.string()) })
+    .optional(),
+});
+export type ChatConfig = z.infer<typeof ChatConfigSchema>;
+
 /** A chat of the past that can be resumed: Claude Code's sessions, Codex's threads. */
 export const PastSessionSchema = z.object({
   sessionId: z.string(),
@@ -1115,6 +1156,27 @@ export const RPC_METHODS = {
       stop: z.boolean().optional(),
     }),
     result: z.object({ from: z.string(), to: z.string() }),
+  },
+  /**
+   * A Claude chat's Claude Code settings (/config), as its settings dialog
+   * there has them: without `set`, what they are now (`config`); with it,
+   * the changes saved as that dialog saves them (/config messages), and a
+   * new default effort for the model the session then runs. Not while the
+   * chat is working. Only the user's: an agent does not send it. Since
+   * 0.13.0.
+   */
+  "chat.config": {
+    capability: "chat.control",
+    params: z.object({
+      ...TabRef,
+      set: z
+        .object({
+          changes: z.record(z.string().max(100), ConfigValueSchema),
+          effort: z.string().max(50).optional(),
+        })
+        .optional(),
+    }),
+    result: z.object({ config: ChatConfigSchema.optional() }),
   },
   /**
    * Works one of a Claude chat's MCP servers as its panel there does (its

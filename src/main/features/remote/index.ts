@@ -678,6 +678,10 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerProfiles.args, args);
         return askPeer(() => inRoom().request(deviceId, "profiles.list", params));
       },
+      peerChatConfig: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatConfig.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.config", params));
+      },
       peerChatMcp: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatMcp.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.mcp", params));

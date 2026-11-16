@@ -1,18 +1,21 @@
 // Claude Code's own settings (/config), as a dialog: what they are now,
 // read from get_settings and the global config file, and the changes sent
-// back as /config messages, which Claude Code saves where its panel would.
+// back as /config messages, which Claude Code saves where its panel would;
+// for a tab here, or (its source) for another computer's chat, whose app
+// reads and saves them so.
 // They are the defaults a new conversation starts with: the model and the
 // effort here too, where the composer's chips set only their tab's (the
 // tab the dialog is opened in takes the new ones, as the CLI's session
 // does).
 
 import { ChevronRight } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   CONFIG_KEYS,
   type ConfigGroup,
   type ConfigKey,
+  type ConfigShown,
   type ConfigValue,
   changesOf,
   choicesOf,
@@ -35,22 +38,76 @@ import { DialogHeader } from "../ui/dialog-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { showToast } from "../ui/toast";
 
-type Loaded =
-  | "loading"
-  | { failed: string }
-  | {
-      keys: ConfigKey[];
-      values: Record<string, ConfigValue | undefined>;
-      effective: Record<string, unknown>;
-      /** The model the session runs, whose saved effort is the one shown. */
-      model?: string;
-    };
+/**
+ * Where the dialog's settings come from and go to: a tab's program here,
+ * or another computer's chat.
+ */
+export interface ConfigSource {
+  /**
+   * Reads them, showing them as they come (again when a newer list of
+   * keys comes); the function it gives stops showing them.
+   */
+  load(show: (shown: ConfigShown) => void, fail: (message: string) => void): () => void;
+  /** Saves the changes, and the default effort for the model the session then runs. */
+  apply(
+    changes: Readonly<Record<string, ConfigValue>>,
+    keys: readonly ConfigKey[],
+    after: { model?: string; effort?: string },
+  ): Promise<void>;
+}
+
+/** A tab's own settings, read from its program and its host's config file. */
+export function controllerConfigSource(controller: ChatController): ConfigSource {
+  return {
+    load(show, fail) {
+      let live = true;
+      // The keys are shown as last listed (or as the app knows them) without
+      // waiting for the CLI's list, which takes a second or two and comes
+      // later only when it differs, as after an update of Claude Code.
+      let listed = controller.savedConfigKeys();
+      let read: Awaited<ReturnType<ChatController["readConfig"]>> | null = null;
+      const shown = () => {
+        if (!live || !read) return;
+        const { effective, global, model } = read;
+        const keys = configKeysOf(listed);
+        show({
+          keys,
+          values: configValues(effective, global, keys),
+          effective,
+          model,
+          effort: controller.supports("update_settings"),
+          models: controller.state.model.init?.models ?? [],
+          outputStyles: controller.state.model.init?.outputStyles,
+        });
+      };
+      controller.readConfig().then(
+        (config) => {
+          read = config;
+          shown();
+        },
+        (err: Error) => live && fail(err.message),
+      );
+      void controller.listConfigKeys().then((keys) => {
+        if (!keys || JSON.stringify(keys) === JSON.stringify(listed)) return;
+        listed = keys;
+        shown();
+      });
+      return () => {
+        live = false;
+      };
+    },
+    apply: (changes, keys, after) => controller.applyConfig(configMessages(changes, keys), after),
+  };
+}
+
+type Loaded = "loading" | { failed: string } | ConfigShown;
 
 /** The draft's key for the default effort, which is no /config key. */
 const EFFORT = "effortDefault";
 
 const GROUPS: readonly ConfigGroup[] = ["conversation", "work", "other"];
 
+/** A tab's own settings dialog. */
 export function ConfigDialog({
   controller,
   state,
@@ -65,6 +122,33 @@ export function ConfigDialog({
   focus?: string;
   onClose: () => void;
 }) {
+  const source = useMemo(() => controllerConfigSource(controller), [controller]);
+  return (
+    <ConfigDialogView
+      source={source}
+      running={state.model.running}
+      open={open}
+      focus={focus}
+      onClose={onClose}
+    />
+  );
+}
+
+export function ConfigDialogView({
+  source,
+  running,
+  open,
+  focus,
+  onClose,
+}: {
+  source: ConfigSource;
+  /** Whether the chat is in a turn, which the changes wait out. */
+  running: boolean;
+  open: boolean;
+  /** The key a command opened the dialog at (/output-style, /autocompact). */
+  focus?: string;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
   const [loaded, setLoaded] = useState<Loaded>("loading");
   const [draft, setDraft] = useState<Record<string, ConfigValue>>({});
@@ -74,41 +158,14 @@ export function ConfigDialog({
 
   useEffect(() => {
     if (!open) return;
-    let live = true;
     setLoaded("loading");
     setDraft({});
     setBusy(false);
     setOtherOpen(CONFIG_KEYS.find((k) => k.key === focus)?.group === "other");
-    // The keys are shown as last listed (or as the app knows them) without
-    // waiting for the CLI's list, which takes a second or two and comes
-    // later only when it differs, as after an update of Claude Code.
-    let listed = controller.savedConfigKeys();
-    let read: Awaited<ReturnType<ChatController["readConfig"]>> | null = null;
-    const show = () => {
-      if (!live || !read) return;
-      const { effective, global, model } = read;
-      const keys = configKeysOf(listed);
-      setLoaded({ keys, values: configValues(effective, global, keys), effective, model });
-    };
-    controller.readConfig().then(
-      (config) => {
-        read = config;
-        show();
-      },
-      (err: Error) => live && setLoaded({ failed: err.message }),
-    );
-    void controller.listConfigKeys().then((keys) => {
-      if (!keys || JSON.stringify(keys) === JSON.stringify(listed)) return;
-      listed = keys;
-      show();
-    });
-    return () => {
-      live = false;
-    };
-  }, [controller, open, focus]);
+    return source.load(setLoaded, (failed) => setLoaded({ failed }));
+  }, [source, open, focus]);
 
   const values = typeof loaded === "object" && "values" in loaded ? loaded.values : null;
-  const models = state.model.init?.models ?? [];
 
   // The key the command named, in view and with the keyboard: once, when
   // the rows first show, and not again when the CLI's list comes.
@@ -126,6 +183,8 @@ export function ConfigDialog({
     ? changesOf(Object.fromEntries(Object.entries(draftKeys).filter(([k]) => k in values)), values)
     : {};
   const ready = typeof loaded === "object" && "keys" in loaded ? loaded : null;
+  const models = ready?.models ?? [];
+  const outputStyles = ready?.outputStyles;
   const effortModel = ready
     ? effortModelOf(
         typeof changes.model === "string" ? changes.model : undefined,
@@ -133,7 +192,7 @@ export function ConfigDialog({
         models,
       )
     : undefined;
-  const effortLevels = controller.supports("update_settings")
+  const effortLevels = ready?.effort
     ? defaultEffortLevels(effortModel?.info?.supportedEffortLevels)
     : [];
   const effortNow =
@@ -141,13 +200,12 @@ export function ConfigDialog({
   const effortChange =
     typeof draftEffort === "string" && draftEffort !== effortNow ? draftEffort : undefined;
   const changed = Object.keys(changes).length + (effortChange ? 1 : 0);
-  const running = state.model.running;
 
   const apply = async () => {
     if (!ready) return;
     setBusy(true);
     try {
-      await controller.applyConfig(configMessages(changes, ready.keys), {
+      await source.apply(changes, ready.keys, {
         model: typeof changes.model === "string" ? changes.model : undefined,
         effort: effortChange,
       });
@@ -237,7 +295,7 @@ export function ConfigDialog({
                               current={loaded.values[key.key]}
                               value={key.key in draft ? draft[key.key] : loaded.values[key.key]}
                               dirty={key.key in changes}
-                              outputStyles={state.model.init?.outputStyles}
+                              outputStyles={outputStyles}
                               models={models}
                               onChange={(value) => set(key.key, value)}
                               onReset={() => reset(key.key)}

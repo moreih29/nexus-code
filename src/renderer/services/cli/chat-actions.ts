@@ -38,6 +38,7 @@ import { sameProfile } from "../chat/profile-moves";
 import { chatKey, useChatStore } from "../chat/store";
 import { firstVersionOf } from "../chat/versions";
 import { chatCommandsOf, runRemoteCommand } from "../remote/chat-commands";
+import { ConfigRefusal, chatConfigOf, configSetOf } from "../remote/chat-config";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
@@ -683,6 +684,39 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         await controller.mcpSignedIn(server, callbackUrl);
         return {};
     }
+  },
+
+  "chat.config": async ({ workspaceId, tabId, set }) => {
+    const controller = await claudeTab(workspaceId, tabId, true);
+    // As the dialog reads them, the keys last listed or listed now.
+    const read = async () => {
+      const [config, listed] = await Promise.all([
+        controller.readConfig(),
+        controller.savedConfigKeys() ?? controller.listConfigKeys(),
+      ]);
+      const init = controller.state.model.init;
+      return chatConfigOf({
+        ...config,
+        listed,
+        models: init?.models ?? [],
+        outputStyles: init?.outputStyles,
+        effort: controller.supports("update_settings"),
+      });
+    };
+    if (!set) return { config: await read() };
+    // As the dialog's button waits for the turn to end.
+    if (controller.state.model.running) {
+      throw new UiRequestError("it is working: its settings change once its turn ends");
+    }
+    let plan: ReturnType<typeof configSetOf>;
+    try {
+      plan = configSetOf(set, await read());
+    } catch (err) {
+      if (err instanceof ConfigRefusal) throw new UiRequestError(err.message);
+      throw err;
+    }
+    await controller.applyConfig(plan.messages, { model: plan.model, effort: plan.effort });
+    return {};
   },
 
   "chat.remoteControl": async ({ workspaceId, tabId, enabled }) => {

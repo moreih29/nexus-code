@@ -342,6 +342,7 @@ export function tabSource(
             hurry: true,
             moveNow: true,
             mcp: true,
+            config: true,
           },
         }
       : { can: { rewind: false, fork: false, background: false, moveNow: true } }),

@@ -1058,6 +1058,24 @@ describe("rewinding, forking and more of a Claude chat", () => {
     expect(asked).toEqual([["chat.mcp", signIn]]);
   });
 
+  test("its Claude Code settings are read and saved as its dialog does them (0.13.0)", async () => {
+    const config = {
+      keys: [{ key: "verbose", group: "other" as const, kind: "boolean" as const, value: false }],
+      models: [],
+    };
+    const { serve, asked } = actionServices((op) => (op === "chat.config" ? { config } : {}));
+    expect(await serve({ from: "d", method: "chat.config", params: tab })).toEqual({ config });
+    const set = { ...tab, set: { changes: { verbose: true } } };
+    await serve({ from: "d", method: "chat.config", params: set });
+    await expect(
+      serve({ from: "d", method: "chat.config", params: { workspaceId: "w2", tabId: "t4" } }),
+    ).rejects.toMatchObject({ code: 1001 });
+    expect(asked).toEqual([
+      ["chat.config", tab],
+      ["chat.config", set],
+    ]);
+  });
+
   test("only a Claude chat's; NotFound for an item it does not have", async () => {
     const { serve } = actionServices((op) =>
       op === "chat.rewind" ? new Error("no item u9 in that tab") : new Error("a turn is running"),

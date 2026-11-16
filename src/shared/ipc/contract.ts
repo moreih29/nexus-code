@@ -2567,6 +2567,11 @@ export const ipcContract = {
           .merge(RPC_METHODS["profiles.list"].params),
         RPC_METHODS["profiles.list"].result,
       ),
+      /** Reads or changes the Claude Code settings of another device's chat, as the user. */
+      peerChatConfig: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.config"].params),
+        RPC_METHODS["chat.config"].result,
+      ),
       /** Works an MCP server of another device's chat, as the user. */
       peerChatMcp: call(
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.mcp"].params),

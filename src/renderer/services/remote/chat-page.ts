@@ -60,6 +60,7 @@ export interface ChatSource {
     hurry?: boolean;
     moveNow?: boolean;
     mcp?: boolean;
+    config?: boolean;
   };
 }
 

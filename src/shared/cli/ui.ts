@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type {
   ChatCommand,
+  ChatConfig,
   ChatPage,
   TerminalCaret,
 } from "../../../packages/remote-protocol/src/rpc";
@@ -920,6 +921,19 @@ export interface CliUiOps {
       callbackUrl?: string;
     };
     result: { authUrl?: string; back?: boolean };
+  };
+  /**
+   * A Claude tab's Claude Code settings (/config) for another device, as
+   * its settings dialog has them: what they are now, or (`set`) the
+   * changes saved as the dialog saves them.
+   */
+  "chat.config": {
+    args: {
+      workspaceId: string;
+      tabId: string;
+      set?: { changes: Record<string, boolean | string>; effort?: string };
+    };
+    result: { config?: ChatConfig };
   };
   /** Turns a Claude tab's Remote Control on or off, as its panel's switch does. */
   "chat.remoteControl": {
