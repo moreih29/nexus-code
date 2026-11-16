@@ -1,8 +1,9 @@
 // src/renderer/components/settings/panels/remote-voice-group.tsx
 //
 // Voice input, on the Remote page: how much of the month's minutes the
-// account has used (GET /voice/usage), the language it listens for, the
-// app's or detected as the user speaks ("multi"), the account's recognition
+// account has used (GET /voice/usage), dictation's and notes' recordings'
+// each against its own limit; the language it listens for, the app's or
+// detected as the user speaks ("multi"), the account's recognition
 // terms (GET/PUT /voice/terms, shared by all its devices), and whether this
 // computer sends the account's computer and workspace names along.
 
@@ -16,6 +17,7 @@ import { ipcCallResult } from "../../../ipc/client";
 import { addTerms, pastedTerms, removeTerm } from "../../../services/voice/terms";
 import { useLanguageStore } from "../../../state/stores/language";
 import { useVoiceStore, type VoiceLanguagePreference } from "../../../state/stores/voice";
+import { dateTimeFormat } from "../../../utils/intl-format";
 import { IconButton } from "../../ui/icon-button";
 import { SettingsGroup, SettingsRow, SettingsSection, SettingsSwitch } from "../section";
 import { SegmentedControl } from "../segmented-control";
@@ -34,40 +36,104 @@ export function minutesOf(seconds: number): number {
   return Math.ceil(seconds / 60);
 }
 
-export function VoiceUsageRow({ usage }: { usage: VoiceUsage | "unavailable" | null }) {
+/** The share of a limit used, in whole percent: 1 once anything is, at most 100. */
+export function percentOf(usedSeconds: number, limitSeconds: number): number {
+  if (limitSeconds <= 0) return usedSeconds > 0 ? 100 : 0;
+  const percent = Math.round((usedSeconds / limitSeconds) * 100);
+  return Math.min(100, usedSeconds > 0 ? Math.max(1, percent) : percent);
+}
+
+/** When the month's usage starts over: the next month's first, in UTC, as the server counts. */
+export function usageResetsAt(period: string): Date | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(period);
+  if (!match) return null;
+  // The month as written is the next one's index: Date.UTC counts from 0.
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]), 1));
+}
+
+/** At this share the meter turns red: the limit is near. */
+const NEAR_LIMIT = 90;
+
+function UsageMeter({
+  label,
+  usedSeconds,
+  limitSeconds,
+}: {
+  label: string;
+  usedSeconds: number;
+  limitSeconds: number;
+}) {
   const { t } = useTranslation("settings");
-  const ready = usage && usage !== "unavailable" ? usage : null;
-  const share = ready && ready.limitSeconds > 0 ? ready.usedSeconds / ready.limitSeconds : 0;
+  const percent = percentOf(usedSeconds, limitSeconds);
+  const near = percent >= NEAR_LIMIT;
   return (
-    <SettingsRow
-      label={t("remote.voice.usage")}
-      description={
-        ready
-          ? t("remote.voice.usageOf", {
-              used: minutesOf(ready.usedSeconds),
-              limit: Math.floor(ready.limitSeconds / 60),
-            })
-          : usage === "unavailable"
-            ? t("remote.voice.usageUnavailable")
-            : t("remote.voice.usageLoading")
-      }
-    >
-      {ready && (
-        <div
-          role="progressbar"
-          aria-label={t("remote.voice.usage")}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.min(100, Math.round(share * 100))}
-          className="h-1.5 w-32 overflow-hidden rounded-full bg-border"
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-4 text-app-ui-sm">
+        <span className="truncate text-foreground">{label}</span>
+        <span
+          className={cn(
+            "shrink-0 tabular-nums",
+            near ? "text-destructive" : "text-muted-foreground",
+          )}
         >
-          <div
-            className={share >= 1 ? "h-full bg-destructive" : "h-full bg-primary"}
-            style={{ width: `${Math.min(100, Math.round(share * 100))}%` }}
-          />
-        </div>
+          {t("remote.voice.usageOf", {
+            used: minutesOf(usedSeconds),
+            limit: Math.floor(limitSeconds / 60),
+            percent,
+          })}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        className="h-1.5 overflow-hidden rounded-full bg-border"
+      >
+        <div
+          className={cn("h-full rounded-full", near ? "bg-destructive" : "bg-primary")}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** The month's usage: dictation's, and notes' recordings' when the server counts them. */
+export function VoiceUsageMeters({ usage }: { usage: VoiceUsage | "unavailable" | null }) {
+  const { t, i18n } = useTranslation("settings");
+  const ready = usage && usage !== "unavailable" ? usage : null;
+  const resets = ready ? usageResetsAt(ready.period) : null;
+  const aside = ready
+    ? resets &&
+      t("remote.voice.usageResets", {
+        date: dateTimeFormat(i18n.language, { month: "long", day: "numeric" }).format(resets),
+      })
+    : usage === "unavailable"
+      ? t("remote.voice.usageUnavailable")
+      : t("remote.voice.usageLoading");
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-4">
+        <span className="truncate text-app-body text-foreground">{t("remote.voice.usage")}</span>
+        {aside && <span className="shrink-0 text-app-ui-sm text-muted-foreground">{aside}</span>}
+      </div>
+      {ready && (
+        <UsageMeter
+          label={t("remote.voice.dictation")}
+          usedSeconds={ready.usedSeconds}
+          limitSeconds={ready.limitSeconds}
+        />
       )}
-    </SettingsRow>
+      {ready?.note && (
+        <UsageMeter
+          label={t("remote.voice.noteRecording")}
+          usedSeconds={ready.note.usedSeconds}
+          limitSeconds={ready.note.limitSeconds}
+        />
+      )}
+    </div>
   );
 }
 
@@ -253,7 +319,7 @@ export function VoiceGroup() {
   };
   return (
     <SettingsGroup title={t("remote.voice.title")}>
-      <VoiceUsageRow usage={usage} />
+      <VoiceUsageMeters usage={usage} />
       <SettingsRow label={t("remote.voice.language")}>
         <SegmentedControl
           options={[
