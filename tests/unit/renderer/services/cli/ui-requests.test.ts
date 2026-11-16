@@ -134,12 +134,50 @@ test("a terminal not started yet is started behind the view, and read once it ha
     expect(useMountedWorkspacesStore.getState().ids.has(ws)).toBe(true);
     unregister = registerTerminalController(tab.id, {
       readText: () => "ready",
+      whenReady: () => Promise.resolve(true),
     } as unknown as Parameters<typeof registerTerminalController>[1]);
     expect(await answer).toMatchObject({
       requestId: "r-later",
       ok: true,
       value: { text: "ready" },
     });
+  } finally {
+    unregister();
+    useTabsStore.setState({ byWorkspace: {} });
+  }
+});
+
+test("a terminal its view has registered is typed into only once its shell is ready", async () => {
+  const ws = "ws-opening";
+  const tab = useTabsStore.getState().createTab(ws, { type: "terminal", props: { cwd: "/" } });
+  startCliUiListener();
+  markCliUiReady();
+  const typed: string[] = [];
+  let open = (_ready: boolean) => {};
+  // Its fonts still loading, or its shell not at its prompt: input would be lost.
+  const unregister = registerTerminalController(tab.id, {
+    whenReady: () =>
+      new Promise<boolean>((resolve) => {
+        open = resolve;
+      }),
+    input: (text: string) => {
+      typed.push(text);
+      return true;
+    },
+  } as unknown as Parameters<typeof registerTerminalController>[1]);
+  try {
+    const answer = answerTo("r-opening", "terminal.input", {
+      workspaceId: ws,
+      tabId: tab.id,
+      text: "echo hi",
+      mode: "paste",
+      enter: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(typed).toEqual([]);
+    open(true);
+    expect(await answer).toMatchObject({ requestId: "r-opening", ok: true });
+    expect(typed).toEqual(["echo hi"]);
   } finally {
     unregister();
     useTabsStore.setState({ byWorkspace: {} });

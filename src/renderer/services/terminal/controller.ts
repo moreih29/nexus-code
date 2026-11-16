@@ -20,7 +20,7 @@ import { copyTextViaIpc } from "../../utils/clipboard";
 import { isWindows } from "../../utils/platform";
 import { type AnsiBufferLike, type AnsiLineLike, bufferAnsi } from "./buffer-ansi";
 import { clipboardTextOf } from "./osc-clipboard";
-import { createPtyClient } from "./pty-client";
+import { createPtyClient, STARTUP_INPUT_MAX_WAIT_MS, STARTUP_INPUT_QUIET_MS } from "./pty-client";
 import type {
   PtyClient,
   PtyClientOptions,
@@ -395,6 +395,15 @@ class XtermTerminalController implements TerminalController {
   private readonly outputWaiters = new Set<(shown: boolean) => void>();
   private readonly outputListeners = new Set<(ended: boolean) => void>();
   /**
+   * Its shell has started: printed its prompt and gone quiet, or printed
+   * nothing for a while, or was already running; see whenReady.
+   */
+  private ready = false;
+  private readyQuietTimer: ReturnType<typeof setTimeout> | undefined;
+  private readyMaxTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Who waits for it to be ready; see whenReady. */
+  private readonly readyWaiters = new Set<(ready: boolean) => void>();
+  /**
    * Focus asked for before xterm existed: applied once it opens, if what
    * asked for it still wants it then.
    */
@@ -483,6 +492,46 @@ class XtermTerminalController implements TerminalController {
     return true;
   }
 
+  /**
+   * Resolves true once input reaches its shell (see markReady), or false
+   * after `timeoutMs` or once the terminal is gone.
+   */
+  whenReady(timeoutMs: number): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(false);
+    if (this.ready) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = (ready: boolean) => {
+        clearTimeout(timer);
+        this.readyWaiters.delete(done);
+        resolve(ready);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      this.readyWaiters.add(done);
+    });
+  }
+
+  /**
+   * Input reaches its shell from now on. A shell just started takes it
+   * once it has printed its prompt: PowerShell drops what is typed before.
+   * So, as a new terminal's command waits (queueStartupInput), it is ready
+   * once its output goes quiet, or a while after it started if it prints
+   * nothing; at once when there is no shell to wait for.
+   */
+  private markReady(): void {
+    if (this.ready || this.disposed) return;
+    this.ready = true;
+    clearTimeout(this.readyQuietTimer);
+    clearTimeout(this.readyMaxTimer);
+    for (const waiter of [...this.readyWaiters]) waiter(true);
+  }
+
+  /** The shell printed: ready once it has been quiet for a moment. */
+  private noteStartingOutput(): void {
+    if (this.ready) return;
+    clearTimeout(this.readyQuietTimer);
+    this.readyQuietTimer = setTimeout(() => this.markReady(), STARTUP_INPUT_QUIET_MS);
+  }
+
   bracketedPaste(): boolean {
     return this.term?.modes.bracketedPasteMode ?? false;
   }
@@ -490,6 +539,9 @@ class XtermTerminalController implements TerminalController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    clearTimeout(this.readyQuietTimer);
+    clearTimeout(this.readyMaxTimer);
+    for (const waiter of [...this.readyWaiters]) waiter(false);
     for (const waiter of [...this.outputWaiters]) waiter(false);
     for (const listener of [...this.outputListeners]) listener(true);
     this.outputListeners.clear();
@@ -665,6 +717,8 @@ class XtermTerminalController implements TerminalController {
       cwd: this.options.cwd,
       shell: this.options.shell,
       onData: (chunk, replay) => {
+        // Replayed output too: a shell that printed before was at its prompt.
+        this.noteStartingOutput();
         if (!replay) {
           term.write(chunk, () => {
             for (const listener of [...this.outputListeners]) listener(false);
@@ -1054,14 +1108,24 @@ class XtermTerminalController implements TerminalController {
       ptyClient
         .spawn(initialDimensions)
         .then((result) => {
-          if (result) this.noteSpawned(result);
+          // null: the session was already running.
+          if (!result) {
+            this.markReady();
+            return;
+          }
+          this.noteSpawned(result);
+          this.readyMaxTimer = setTimeout(() => this.markReady(), STARTUP_INPUT_MAX_WAIT_MS);
         })
         .catch((error: unknown) => {
+          this.markReady();
           if (!this.disposed) {
             const reason = errorReason(error).replace(AGENT_SPAWN_FAILURE_LEAD, "");
             term.write(`\r\n[${i18next.t("common:terminal.spawn_failed", { reason })}]\r\n`);
           }
         });
+    } else {
+      // An ended terminal, not started again: nothing to wait for.
+      this.markReady();
     }
 
     this.resizeObserver = this.deps.createResizeObserver(() => {

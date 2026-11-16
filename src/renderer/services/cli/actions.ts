@@ -63,21 +63,27 @@ const ENTER_DELAY_MS = 120;
 const TERMINAL_START_MS = 10_000;
 
 /**
- * A terminal's controller. One whose workspace has not been opened yet, or
- * just opened by terminal.new, starts behind the view, and is waited for.
+ * A terminal's controller, once input reaches its shell. One whose
+ * workspace has not been opened yet, or just opened by terminal.new, starts
+ * behind the view, and is waited for: its view registers it before it opens,
+ * and its shell takes input once it has printed its prompt (whenReady).
  */
 export async function startedTerminal(
   workspaceId: string,
   tabId: string,
 ): Promise<TerminalController> {
-  const now = getTerminalController(tabId);
-  if (now) return now;
-  if (tabRecord(workspaceId, tabId).type !== "terminal") {
-    throw new UiRequestError("that tab is not a terminal");
+  const until = Date.now() + TERMINAL_START_MS;
+  let controller = getTerminalController(tabId);
+  if (!controller) {
+    if (tabRecord(workspaceId, tabId).type !== "terminal") {
+      throw new UiRequestError("that tab is not a terminal");
+    }
+    useMountedWorkspacesStore.getState().mount(workspaceId);
+    controller = await whenTerminalController(tabId, TERMINAL_START_MS);
   }
-  useMountedWorkspacesStore.getState().mount(workspaceId);
-  const controller = await whenTerminalController(tabId, TERMINAL_START_MS);
-  if (!controller) throw new UiRequestError("that terminal did not start");
+  if (!controller || !(await controller.whenReady(Math.max(0, until - Date.now())))) {
+    throw new UiRequestError("that terminal did not start");
+  }
   return controller;
 }
 
