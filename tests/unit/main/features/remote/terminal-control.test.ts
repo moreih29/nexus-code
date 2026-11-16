@@ -1,5 +1,6 @@
 /** A terminal's controls as another device uses them, and the answer to its Claude Code's request. */
 import { describe, expect, test } from "bun:test";
+import { RpcErrorCode } from "../../../../../packages/remote-protocol/src";
 import type { CliServices } from "../../../../../src/main/features/cli/context";
 import type { FsProvider } from "../../../../../src/main/features/fs/bridge/provider";
 import {
@@ -139,6 +140,55 @@ describe("a terminal's shells, opening, renaming and closing", () => {
       shell: "bash",
       placement: { background: true },
     });
+  });
+
+  test("with a profile's environment: by its id, or a name only one profile has", async () => {
+    const profiles = [
+      { id: "claude-default", name: "default", agent: "claude", isDefault: true },
+      { id: "codex-default", name: "default", agent: "codex", isDefault: true },
+      { id: "codex-ab12", name: "Work", agent: "codex", isDefault: false },
+    ];
+    const { s, calls } = services({
+      ui: async (op: string, args: Record<string, unknown>) => {
+        calls.push({ op, args });
+        if (op === "chat.profiles") return { profiles };
+        if (op === "terminal.open") return { tabId: "t9" };
+        return {};
+      },
+    });
+    const opened = () => calls.filter((c) => c.op === "terminal.open").map((c) => c.args.profile);
+    await openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "codex-ab12" });
+    await openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "work" });
+    await openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "codex-default" });
+    expect(opened()).toEqual(["codex-ab12", "codex-ab12", "codex-default"]);
+    // Never the default folder in place of one it has not, or of a name two profiles have.
+    await expect(
+      openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "Gone" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
+    await expect(
+      openTerminal(s, { workspaceId: "w1", command: "codex login", profile: "default" }),
+    ).rejects.toMatchObject({
+      code: RpcErrorCode.InvalidParams,
+      message: expect.stringContaining("claude-default, codex-default"),
+    });
+    expect(opened()).toHaveLength(3);
+  });
+
+  test("a profile gone before the app opens it is InvalidParams too", async () => {
+    const { s } = services({
+      ui: async (op: string) => {
+        if (op === "chat.profiles") {
+          return {
+            profiles: [{ id: "codex-ab12", name: "Work", agent: "codex", isDefault: false }],
+          };
+        }
+        if (op === "terminal.open") throw new Error('no profile "codex-ab12"');
+        return {};
+      },
+    });
+    await expect(
+      openTerminal(s, { workspaceId: "w1", profile: "codex-ab12" }),
+    ).rejects.toMatchObject({ code: RpcErrorCode.InvalidParams });
   });
 
   test("in a folder inside the workspace; not one outside it", async () => {

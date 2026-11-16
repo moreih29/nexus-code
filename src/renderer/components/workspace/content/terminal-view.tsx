@@ -264,6 +264,9 @@ export function TerminalView({
       cwd,
       // Fixed for the tab's life, so it isn't an effect dependency.
       shell: tab?.type === "terminal" ? tab.props.shell : undefined,
+      ...(tab?.type === "terminal" && tab.props.profile !== undefined
+        ? { profile: tab.props.profile }
+        : {}),
       container,
       autoSpawn: shouldAutoSpawn,
       onExit: () => {

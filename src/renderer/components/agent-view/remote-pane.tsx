@@ -42,8 +42,10 @@ import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspa
 import {
   type PeerReach,
   type PeerRead,
+  TERMINAL_PROFILE_SCHEMA,
   usePeerControls,
   usePeerReach,
+  usePeerSpeaks,
   usePeerTypes,
 } from "../../services/remote/room";
 import { useSelfDeviceId } from "../../services/remote/self-device";
@@ -135,28 +137,62 @@ export function changesCard(
 }
 
 /**
+ * The id there of the profile the chat runs with: the one profile of its
+ * agent its computer lists by the chat's profile's name.
+ */
+async function peerProfileIdOf(target: RemoteTarget): Promise<string> {
+  const name = target.profile;
+  if (!name || (target.kind !== "claude" && target.kind !== "codex")) {
+    throw new Error("this chat's profile is not known here");
+  }
+  const result = await ipcCallResult("remote", "peerProfiles", {
+    deviceId: target.deviceId,
+    agent: target.kind,
+  });
+  if (!result.ok) throw new Error(result.message);
+  const named = result.value.profiles.filter((p) => p.name === name);
+  if (named.length !== 1 || !named[0]) throw new Error(`no one profile "${name}" there`);
+  return named[0].id;
+}
+
+/**
  * Runs a command in a new terminal of the chat's computer, in the chat's
  * folder where that is in its workspace, and shows the terminal here, as a
- * chat here runs one in a terminal of its own.
+ * chat here runs one in a terminal of its own: in the chat's profile, as
+ * its program runs (a sign-in there is the profile's, not the default
+ * folder's).
  */
 function runInPeerTerminal(target: RemoteTarget, command: string): void {
-  const { deviceId, workspaceId } = target;
   // A folder outside its workspace is not one a terminal there opens in.
   const folder =
     target.cwd && target.cwd !== target.path && isUnder(target.cwd, target.path)
       ? target.cwd
       : undefined;
+  const failed = (message: string) =>
+    showToast({ kind: "error", message: i18next.t("agentView.remote.failed", { message }) });
+  void peerProfileIdOf(target).then(
+    (profile) => openPeerTerminal(target, command, profile, folder, failed),
+    (error: Error) => failed(error.message),
+  );
+}
+
+function openPeerTerminal(
+  target: RemoteTarget,
+  command: string,
+  profile: string,
+  folder: string | undefined,
+  failed: (message: string) => void,
+): void {
+  const { deviceId, workspaceId } = target;
   void ipcCallResult("remote", "peerTerminalOpen", {
     deviceId,
     workspaceId,
     command,
+    profile,
     ...(folder ? { folder } : {}),
   }).then((result) => {
     if (!result.ok) {
-      showToast({
-        kind: "error",
-        message: i18next.t("agentView.remote.failed", { message: result.message }),
-      });
+      failed(result.message);
       return;
     }
     const { profile: _theirs, cwd: _its, state: _was, ...rest } = target;
@@ -576,6 +612,8 @@ function RemoteChatView({
   const ref = { deviceId, workspaceId, tabId };
   const reachable = controls && reach === "online";
   const types = usePeerTypes(deviceId);
+  // Its terminal signs in the chat's profile from 0.13.1; one before signs in its default folder.
+  const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
 
   // Rewind, fork and background, as a chat here's buttons, where its computer serves them (0.11.0).
   const running = model.running;
@@ -773,7 +811,7 @@ function RemoteChatView({
             />
             <RemoteSignedOutBanner
               status={page.status}
-              {...(reachable && types ? { onSignIn: signInThere } : {})}
+              {...(reachable && types && inProfile ? { onSignIn: signInThere } : {})}
               {...(reachable
                 ? {
                     onCheck: () => told(ipcCallResult("remote", "peerChatCheckSignIn", ref)),
@@ -954,6 +992,8 @@ function RemoteControls({
   const { deviceId, workspaceId, tabId } = target;
   const folder = target.cwd ?? target.path;
   const types = usePeerTypes(deviceId);
+  // Claude's commands run in a terminal there in the chat's profile from 0.13.1; not before.
+  const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
   // A Codex chat's /resume and /config, which this pane runs, in its picker as in a Codex tab's.
   const configurable = page.panel?.can?.config === true;
   const paneCommands = useMemo(
@@ -1024,7 +1064,7 @@ function RemoteControls({
           const key = remoteSessionKey(target);
           useAgentViewStore.getState().update((layout) => removeKey(layout, key));
         }),
-      ...(types
+      ...(types && inProfile
         ? {
             terminal: {
               run: (line: string) => runInPeerTerminal(target, line),

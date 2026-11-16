@@ -6,6 +6,8 @@ export interface TerminalInput {
   cwd: string;
   /** The shell to open with; absent = the default shell setting. */
   shell?: ShellChoice;
+  /** An agent profile, by id: the shell runs with what a chat of it runs with. */
+  profile?: string;
 }
 
 export interface TerminalTabLocation {
@@ -31,6 +33,7 @@ export interface PtyClientOptions {
   tabId: string;
   cwd: string;
   shell?: ShellChoice;
+  profile?: string;
   /**
    * `replay` marks output the agent sends again to redraw the terminal (after
    * a reattach, or for a session that outlived the app or its window).
@@ -60,6 +63,7 @@ export interface TerminalControllerOptions {
   tabId: string;
   cwd: string;
   shell?: ShellChoice;
+  profile?: string;
   container: HTMLElement;
   autoSpawn?: boolean;
   onExit?: (args: { code: number | null }) => void;

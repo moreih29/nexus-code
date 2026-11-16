@@ -28,7 +28,11 @@ export function openTerminal(
   opts: OpenTerminalOptions = {},
 ): TerminalTabLocation {
   useLayoutStore.getState().ensureLayout(input.workspaceId);
-  const props = { cwd: input.cwd, ...(input.shell !== undefined ? { shell: input.shell } : {}) };
+  const props = {
+    cwd: input.cwd,
+    ...(input.shell !== undefined ? { shell: input.shell } : {}),
+    ...(input.profile !== undefined ? { profile: input.profile } : {}),
+  };
 
   if (opts.newSplit) {
     if (opts.groupId && opts.groupId !== "active") {

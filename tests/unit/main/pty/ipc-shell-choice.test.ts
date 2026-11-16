@@ -99,6 +99,7 @@ function setup(opts: {
   host?: ShellHost;
   wrapper?: { binDir: string; shell: string; shimDir: string };
   windowsAgentFiles?: PtyChannelOptions["windowsAgentFiles"];
+  profileEnv?: PtyChannelOptions["profileEnv"];
 }): { call: (method: string, args: unknown) => Promise<unknown>; agent: FakeAgentChannel } {
   const agent = new FakeAgentChannel();
   const agentHost = startAgentPtyHost({
@@ -123,6 +124,7 @@ function setup(opts: {
     getCustomShells: () => opts.customShells,
     shellHost: opts.host ?? windowsHost,
     windowsAgentFiles: opts.windowsAgentFiles,
+    ...(opts.profileEnv ? { profileEnv: opts.profileEnv } : {}),
   });
   const calls = mockHandle.mock.calls as [string, IpcHandler][];
   const handler = calls.filter(([channel]) => channel === "ipc:call").at(-1)?.[1];
@@ -303,5 +305,35 @@ describe("pty.spawn — claude's hooks and codex's --no-daemon in a local Window
     expect(sent?.args).toBeUndefined();
     expect(sent?.env?.NEXUS_WRAPPER_SELF_DIR).toBe(LAUNCHERS);
     expect(sent?.env?.NEXUS_CLAUDE_SETTINGS).toBeUndefined();
+  });
+});
+
+describe("pty.spawn — a terminal opened for an agent profile", () => {
+  const profileEnv: PtyChannelOptions["profileEnv"] = async (_w, id) =>
+    id === "codex-ab12"
+      ? { CODEX_HOME: "C:Usersme.codex-work", WORK: "1" }
+      : id === "codex-default"
+        ? {}
+        : null;
+
+  test("its shell runs with what a chat of the profile runs with", async () => {
+    const { call, agent } = setup({ profileEnv });
+    await call("spawn", spawnArgs({ profile: "codex-ab12", env: { TERM_PROGRAM: "nexus" } }));
+    expect(agent.spawnCalls[0]?.env).toMatchObject({
+      CODEX_HOME: "C:Usersme.codex-work",
+      WORK: "1",
+      TERM_PROGRAM: "nexus",
+    });
+    // The default folder's profile sets no folder: the shell's own is the chat's.
+    await call("spawn", spawnArgs({ profile: "codex-default" }));
+    expect(agent.spawnCalls[1]?.env?.CODEX_HOME).toBeUndefined();
+  });
+
+  test("one that is not there fails: never the default folder in its place", async () => {
+    const { call, agent } = setup({ profileEnv });
+    await expect(call("spawn", spawnArgs({ profile: "codex-gone" }))).rejects.toThrow(
+      /no profile codex-gone/,
+    );
+    expect(agent.spawnCalls).toEqual([]);
   });
 });

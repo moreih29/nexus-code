@@ -12,6 +12,7 @@ import { EMPTY_TREE } from "@/components/editor/diff-refs";
 import { ipcCallResult } from "@/ipc/client";
 import { holdsUnsavedChanges } from "@/state/operations/tabs";
 import { useActiveStore } from "@/state/stores/active";
+import { useAgentProfilesStore } from "@/state/stores/agent-profiles";
 import { isAgentViewShown, useAgentViewStore } from "@/state/stores/agent-view";
 import { useBrowserRuntimeStore } from "@/state/stores/browser-runtime";
 import { useGitStore } from "@/state/stores/git";
@@ -20,6 +21,7 @@ import { useMountedWorkspacesStore } from "@/state/stores/mounted-workspaces";
 import { type Tab, useTabsStore } from "@/state/stores/tabs";
 import { resolvedTaskAgent } from "@/state/stores/terminal";
 import { tasksOf, useWorkspacesStore } from "@/state/stores/workspaces";
+import { hasProfile, PROFILE_AGENTS } from "../../../shared/agent-profiles/profiles";
 import type { CliUiOp } from "../../../shared/cli/ui";
 import { untitledCacheUriFor } from "../../../shared/fs/workspace-uri";
 import { sameShellChoice } from "../../../shared/pty/shell";
@@ -47,6 +49,12 @@ import type { LayoutOp } from "./layout-actions";
 import { findTabs, groupOf, openTab, showOpenTab } from "./placement";
 
 export { type CliUiHandler, UiRequestError } from "./handler";
+
+/** Whether this computer has an agent profile of that id. */
+function hasAnyProfile(id: string): boolean {
+  const config = useAgentProfilesStore.getState().config;
+  return PROFILE_AGENTS.some((agent) => hasProfile(config, agent, id));
+}
 
 /**
  * How long Enter waits after pasted text. Sent with the paste, it can reach
@@ -220,9 +228,16 @@ export const actionHandlers: {
     return { tabId, sha, subject };
   },
 
-  "terminal.open": async ({ workspaceId, cwd, title, command, shell, placement }) => {
+  "terminal.open": async ({ workspaceId, cwd, title, command, shell, profile, placement }) => {
     const choice = shell === undefined ? undefined : (await shellByName(shell)).choice;
-    const props = { cwd, ...(choice ? { shell: choice } : {}) };
+    if (profile !== undefined && !hasAnyProfile(profile)) {
+      throw new UiRequestError(`no profile "${profile}"`);
+    }
+    const props = {
+      cwd,
+      ...(choice ? { shell: choice } : {}),
+      ...(profile !== undefined ? { profile } : {}),
+    };
     const tabId = openTab(workspaceId, { type: "terminal", props }, placement);
     if (title) useTabsStore.getState().renameTab(workspaceId, tabId, title);
     if (command) queueStartupInput(workspaceId, tabId, () => `${command}\r`);

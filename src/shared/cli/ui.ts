@@ -520,6 +520,8 @@ export interface CliUiOps {
       command?: string;
       /** A shell of this machine's, by its name, id or program (see "terminal.shells"). */
       shell?: string;
+      /** An agent profile, by id: the shell runs with what a chat of it runs with. */
+      profile?: string;
       placement: CliPlacement;
     };
     result: { tabId: string };

@@ -743,6 +743,8 @@ app.whenReady().then(async () => {
     },
     ports: portWatcher,
     forwards,
+    profileEnv: async (workspaceId, profileId) =>
+      (await chatHost?.terminalProfileEnv(workspaceId, profileId)) ?? null,
     getDefaultShell: () => stateService.getState().terminalShell,
     getCustomShells: () => stateService.getState().terminalShells,
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),

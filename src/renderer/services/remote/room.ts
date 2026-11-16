@@ -7,6 +7,7 @@ import type { RpcResult } from "../../../../packages/remote-protocol/src/rpc";
 import type { IpcResult } from "../../../shared/ipc/result";
 import type { RoomPeer, RoomState } from "../../../shared/remote/room";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
+import { compareVersions } from "../chat/versions";
 
 /** The room, kept up as it changes; null until main answered. */
 export function useRemoteRoom(): RoomState | null {
@@ -60,6 +61,27 @@ export function usePeerTypes(deviceId: string): boolean {
   const room = useRemoteRoom();
   const serves = room?.peers.find((p) => p.id === deviceId)?.serves;
   return serves?.includes("terminal.control") ?? false;
+}
+
+/** The protocol from which terminal.open runs a terminal with a profile's environment. */
+export const TERMINAL_PROFILE_SCHEMA = "0.13.1";
+
+/**
+ * Whether another device speaks the protocol from `version` on, as its
+ * hello's `schema` says. One before it drops what it does not know, as
+ * terminal.open's `profile`. No until its hello says.
+ */
+export function peerSpeaks(peer: RoomPeer | undefined, version: string): boolean {
+  return peer?.schema !== undefined && compareVersions(peer.schema, version) >= 0;
+}
+
+/** Whether another device speaks the protocol from `version` on. */
+export function usePeerSpeaks(deviceId: string, version: string): boolean {
+  const room = useRemoteRoom();
+  return peerSpeaks(
+    room?.peers.find((p) => p.id === deviceId),
+    version,
+  );
 }
 
 /** The devices in the room now that serve their sessions. */
