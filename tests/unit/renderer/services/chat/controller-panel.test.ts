@@ -25,6 +25,7 @@ const { ChatController, signInPageOf } = await import(
   "../../../../../src/renderer/services/chat/controller"
 );
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
+const { resetPlanUsage } = await import("../../../../../src/renderer/services/chat/plan-usage");
 type Controller = InstanceType<typeof ChatController>;
 
 let seq = 0;
@@ -139,6 +140,23 @@ describe("the side panel's MCP servers", () => {
     jest.advanceTimersByTime(10_000);
     await settle();
     expect(asked().filter((s) => s === "mcp_status")).toHaveLength(1);
+  });
+});
+
+describe("the side panel's plan usage", () => {
+  test("opened as the program comes up, is asked for once its initialize ended", async () => {
+    resetPlanUsage();
+    const { c, ended } = starting();
+    const init = c as unknown as { initPending: boolean };
+    init.initPending = true;
+    c.refreshPanel(["usage"]);
+    await settle();
+    expect(asked()).not.toContain("get_usage");
+    // As the initialize's end does: no longer pending, then done.
+    init.initPending = false;
+    ended();
+    await settle();
+    expect(asked()).toContain("get_usage");
   });
 });
 
