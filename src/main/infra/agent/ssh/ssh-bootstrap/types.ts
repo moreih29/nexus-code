@@ -92,7 +92,7 @@ export interface EnsureRemoteAgentResult {
   readonly remoteShell?: string;
   /**
    * Absolute path of the shim directory **on the remote host** that every
-   * workspace there shares, e.g. `/home/user/.nexus-code/shim/shared-<hash>`.
+   * workspace there shares, e.g. `/home/user/.nexus-code/shim/shared`.
    * Populated only when `EnsureRemoteAgentOptions.workspaceId` is provided.
    * The path is the remote analogue of `runtimeDirs.shimDir(workspaceId)`
    * and contains the

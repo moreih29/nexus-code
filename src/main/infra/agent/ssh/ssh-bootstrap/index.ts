@@ -692,14 +692,12 @@ const SHIM_FILES: ReadonlyArray<{ readonly name: string; readonly content: strin
 
 /**
  * The remote shim directory, under `~/.nexus-code/shim/`: one for every
- * workspace, named by what its files hold, so app versions that write them
- * differently (two machines on one host) keep to their own. It is never
- * removed: terminals and chats of any workspace may be reading it.
+ * workspace, and never removed, as terminals and chats of any of them may
+ * be reading it. Its name stays the same whatever its files hold: a shell
+ * keeps ZDOTDIR at it, and what zsh and its plugins keep there (history,
+ * completion dumps) must not start over when an app update changes them.
  */
-const SHIM_DIR_NAME = `shared-${createHash("sha256")
-  .update(SHIM_FILES.map((file) => `${file.name}\0${file.content}`).join("\0"), "utf8")
-  .digest("hex")
-  .slice(0, 12)}`;
+const SHIM_DIR_NAME = "shared";
 
 /**
  * Uploads the PTY shim files to `<remoteHome>/.nexus-code/shim/<SHIM_DIR_NAME>/`

@@ -774,11 +774,9 @@ describe("ssh-bootstrap", () => {
   it("uploads PTY shim rc files when workspaceId is provided and surfaces remoteShimDir", async () => {
     const { result, placed } = await bootstrapShims("ws-shim-upload-test");
 
-    // One directory for every workspace: the files name nothing of one. Its
-    // name follows their content, so app versions that write them
-    // differently do not overwrite each other's.
+    // One directory for every workspace: the files name nothing of one.
     const dir = result.remoteShimDir ?? "";
-    expect(dir).toMatch(/^\/home\/deploy\/\.nexus-code\/shim\/shared-[0-9a-f]{12}$/);
+    expect(dir).toBe("/home/deploy/.nexus-code/shim/shared");
 
     const zshrc = placed.get(`${dir}/.zshrc`);
     const zshenv = placed.get(`${dir}/.zshenv`);
