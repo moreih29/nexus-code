@@ -54,6 +54,7 @@ import { GoalTabBadge } from "../../chat/goal-bar";
 import { FileIcon } from "../../files/file-tree/file-icon";
 import { kindToColorVar } from "../../files/file-tree/git-decoration";
 import { MIME_TAB, type TabDragPayload } from "../dnd/types";
+import { followRenameDraft, type RenameDraft } from "./rename-draft";
 
 /**
  * Browser tab favicon: the page-advertised URL if there is one, otherwise the default
@@ -384,24 +385,33 @@ export const TabItem = memo(function TabItem({
   //   - Escape: cancel — the value is not applied
   // ---------------------------------------------------------------------
   const isEditing = useTabEditingStore((s) => s.editingTabId === tab.id);
-  // Initial input value: the customTitle the user set earlier if any, otherwise the display
-  // title. displayTitle may include a parent-dir suffix etc., which the caller adds, so the
-  // edit input uses tab.customTitle ?? tab.title.
-  const [editValue, setEditValue] = useState(tab.customTitle ?? tab.title);
+  // Input value: the customTitle the user set earlier if any, otherwise the
+  // title, as they are when editing starts (no stale value from an earlier
+  // edit session is kept). displayTitle may include a parent-dir suffix etc.,
+  // which the caller adds, so the edit input uses tab.customTitle ?? tab.title.
+  // Read only then: a terminal's title changing mid-edit must not reset it.
+  const [renameDraft, setRenameDraft] = useState<RenameDraft>(() => ({
+    editing: false,
+    value: tab.customTitle ?? tab.title,
+  }));
+  const nextRenameDraft = followRenameDraft(renameDraft, isEditing, tab.customTitle ?? tab.title);
+  if (nextRenameDraft !== renameDraft) setRenameDraft(nextRenameDraft);
+  const editValue = nextRenameDraft.value;
+  function setEditValue(value: string): void {
+    setRenameDraft((draft) => ({ ...draft, value }));
+  }
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // On entering edit mode: reset the input value to the latest customTitle/title, then
-  // focus/select. (Reset at entry so no stale value from an earlier edit session is kept.)
+  // On entering edit mode: focus/select the input.
   useEffect(() => {
     if (!isEditing) return;
-    setEditValue(tab.customTitle ?? tab.title);
     // Focus on the next paint — guaranteed to be after the input mounts.
     const id = requestAnimationFrame(() => {
       inputRef.current?.focus();
       inputRef.current?.select();
     });
     return () => cancelAnimationFrame(id);
-  }, [isEditing, tab.customTitle, tab.title]);
+  }, [isEditing]);
 
   function commitEdit(value: string): void {
     useTabsStore.getState().renameTab(workspaceId, tab.id, value);
