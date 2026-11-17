@@ -53,11 +53,12 @@ export interface RemoteFiles {
   /** The folders the workspace's chats were given, absolute. */
   folders: (workspaceId: string) => Promise<readonly string[]>;
   /**
-   * The files the workspace's chats' background jobs write their output
-   * to, absolute: read by name, where they are, as each chat's panel reads
+   * The files outside the workspace its chats name, absolute: what their
+   * tools took or wrote, their replies link, and their background jobs'
+   * outputs. Read by name, where they are, as each chat's previews read
    * them there.
    */
-  outputs?: (workspaceId: string) => Promise<readonly string[]>;
+  named?: (workspaceId: string) => Promise<readonly string[]>;
   /** An image drawn small enough that its base64 takes at most `maxChars`; null when it cannot be. */
   shrink: (bytes: Buffer, maxChars: number) => { mediaType: "image/jpeg"; data: string } | null;
 }
@@ -159,8 +160,9 @@ export function placeOf(root: string, folders: readonly string[], asked: string)
 
 /**
  * Where `asked` is, as placeOf finds it; outside the workspace's folders,
- * one of the files its chats' jobs write their output to, read by its name
- * wherever a link there leads (`output`), as the chat's panel reads it.
+ * one of the files its chats name (took, wrote, linked, or a job's output),
+ * read by its name wherever a link there leads (`output`), as the chat's
+ * previews read it.
  */
 async function placeToRead(
   files: RemoteFiles,
@@ -173,13 +175,13 @@ async function placeToRead(
     return placeOf(root, folders, asked);
   } catch (error) {
     if (!(error instanceof RpcFailure) || error.code !== RpcErrorCode.Forbidden) throw error;
-    if (!files.outputs || asked.includes("\0")) throw error;
+    if (!files.named || asked.includes("\0")) throw error;
     const style = styleOf(root);
     const wanted = clean(style, asked);
     const same = (a: string) =>
       style.windows ? a.toLowerCase() === wanted.toLowerCase() : a === wanted;
-    const outputs = await files.outputs(workspaceId);
-    if (!outputs.some((o) => same(clean(style, o)))) throw error;
+    const named = await files.named(workspaceId);
+    if (!named.some((o) => same(clean(style, o)))) throw error;
     return { kind: "folder", absolute: wanted, output: true };
   }
 }

@@ -68,13 +68,13 @@ function files(
   {
     folders = ["/home/me/shared"],
     kind = "ssh" as FsProvider["kind"],
-    outputs,
-  }: { folders?: string[]; kind?: FsProvider["kind"]; outputs?: string[] } = {},
+    named,
+  }: { folders?: string[]; kind?: FsProvider["kind"]; named?: string[] } = {},
 ): RemoteFiles {
   return {
     fs: async () => fakeFs(tree, kind),
     folders: async () => folders,
-    ...(outputs ? { outputs: async () => outputs } : {}),
+    ...(named ? { named: async () => named } : {}),
     shrink: () => (shrunk ? { mediaType: "image/jpeg", data: shrunk } : null),
   };
 }
@@ -339,7 +339,7 @@ describe("a chat's job's output file", () => {
   };
 
   test("is read by its name, though it is outside the workspace's folders", async () => {
-    const got = await readFile(files(tree, null, { outputs: [output] }), root, {
+    const got = await readFile(files(tree, null, { named: [output] }), root, {
       workspaceId: ws,
       path: output,
       as: "bytes",
@@ -352,7 +352,7 @@ describe("a chat's job's output file", () => {
 
   test("and no other file beside it, nor one when no job tells it", async () => {
     await expect(
-      readFile(files(tree, null, { outputs: [output] }), root, {
+      readFile(files(tree, null, { named: [output] }), root, {
         workspaceId: ws,
         path: "/tmp/claude-501/tasks/other.output",
       }),
