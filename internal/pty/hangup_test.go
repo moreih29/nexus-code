@@ -36,25 +36,57 @@ func spawnInteractiveBash(t *testing.T, service *Service, tabID, histfile string
 	}
 }
 
-var backgroundPID = regexp.MustCompile(`BG=(\d+)`)
+// backgroundPID matches a background job's pid as a whole line, so a pid
+// still arriving is not taken for a shorter one.
+var backgroundPID = regexp.MustCompile(`BG=(\d+)\r?\n`)
 
-// startBackgroundJob has the tab's shell run command as a background job and
-// returns its pid, which is killed when the test ends.
+// startBackgroundJob has the tab's shell run command — which ends up running
+// sleep — as a background job, and returns its pid once it runs sleep. The
+// job is killed when the test ends.
+//
+// A job is waited for until it runs sleep because a hangup it gets earlier,
+// between the shell's fork and its exec, is lost: the shell's own handler
+// takes it there, as it does on any terminal closed that early.
 func startBackgroundJob(t *testing.T, service *Service, recorder *eventRecorder, tabID, command string) int {
 	t.Helper()
-	writeSession(t, service, tabID, command+" & echo BG=$!\n")
-	deadline := time.Now().Add(3 * time.Second)
-	for {
+	writeSession(t, service, tabID, command+"\n")
+	pid := 0
+	for deadline := time.Now().Add(3 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
 		if match := backgroundPID.FindStringSubmatch(recorder.transcript()); match != nil {
-			pid, _ := strconv.Atoi(match[1])
-			t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+			pid, _ = strconv.Atoi(match[1])
+		} else if time.Now().After(deadline) {
+			t.Fatalf("the background job never started:\n%s", recorder.transcript())
+		}
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		out, _ := exec.Command("ps", "-o", "comm=", "-p", strconv.Itoa(pid)).Output()
+		if strings.HasSuffix(strings.TrimSpace(string(out)), "sleep") {
 			return pid
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the background job never started:\n%s", recorder.transcript())
+			t.Fatalf("the background job never started sleep: %q", out)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// processState describes pid for a failure message, where /proc shows it.
+func processState(pid int) string {
+	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
+	if err != nil {
+		return ""
+	}
+	cmdline, _ := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n  cmdline: %q", cmdline)
+	for _, line := range strings.Split(string(status), "\n") {
+		for _, field := range []string{"State:", "PPid:", "NSsid:", "NSpgid:", "SigBlk:", "SigIgn:", "SigCgt:", "SigPnd:", "ShdPnd:"} {
+			if strings.HasPrefix(line, field) {
+				b.WriteString("\n  " + line)
+			}
+		}
+	}
+	return b.String()
 }
 
 // processGone reports whether pid has ended: it is no more, or it is a
@@ -75,7 +107,7 @@ func requireGone(t *testing.T, pid int, within time.Duration, what string) {
 	deadline := time.Now().Add(within)
 	for !processGone(pid) {
 		if time.Now().After(deadline) {
-			t.Fatalf("%s (pid %d) still running %v after its tab closed", what, pid, within)
+			t.Fatalf("%s (pid %d) still running %v after its tab closed%s", what, pid, within, processState(pid))
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -89,7 +121,7 @@ func TestClosedTabsShellHangsUpItsJobsAndSavesItsHistory(t *testing.T) {
 	service, recorder := newTestService(t)
 	histfile := filepath.Join(t.TempDir(), "history")
 	spawnInteractiveBash(t, service, "bash", histfile)
-	job := startBackgroundJob(t, service, recorder, "bash", "sleep 3001")
+	job := startBackgroundJob(t, service, recorder, "bash", "sleep 3001 & echo BG=$!")
 
 	if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: "bash"})); err != nil {
 		t.Fatalf("kill: %v", err)
@@ -108,7 +140,7 @@ func TestClosedTabLeavesANohupJobRunning(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
 	spawnInteractiveBash(t, service, "nohup", filepath.Join(t.TempDir(), "history"))
-	job := startBackgroundJob(t, service, recorder, "nohup", "nohup sleep 3002 >/dev/null 2>&1")
+	job := startBackgroundJob(t, service, recorder, "nohup", "nohup sleep 3002 >/dev/null 2>&1 & echo BG=$!")
 
 	if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: "nohup"})); err != nil {
 		t.Fatalf("kill: %v", err)
@@ -117,6 +149,24 @@ func TestClosedTabLeavesANohupJobRunning(t *testing.T) {
 	time.Sleep(hangupGrace + 500*time.Millisecond)
 	if processGone(job) {
 		t.Fatal("the nohup job ended with its tab")
+	}
+}
+
+// A job the user disowned is no longer the shell's to hang up, and outlives
+// the tab as it outlives a closed terminal anywhere.
+func TestClosedTabLeavesADisownedJobRunning(t *testing.T) {
+	t.Parallel()
+	service, recorder := newTestService(t)
+	spawnInteractiveBash(t, service, "disown", filepath.Join(t.TempDir(), "history"))
+	job := startBackgroundJob(t, service, recorder, "disown", "sleep 3005 >/dev/null 2>&1 & disown; echo BG=$!")
+
+	if _, err := service.Kill(context.Background(), mustJSON(t, KillParams{WorkspaceID: testWorkspaceID, TabID: "disown"})); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	recorder.requireExit(t, "disown", 3*time.Second)
+	time.Sleep(hangupGrace + 500*time.Millisecond)
+	if processGone(job) {
+		t.Fatal("the disowned job ended with its tab")
 	}
 }
 
@@ -129,7 +179,8 @@ func TestClosedTabsShellThatIgnoresTheHangupIsKilledWithItsSession(t *testing.T)
 trap '' HUP
 set -m
 sleep 3003 &
-echo "BG=$! READY"
+echo "BG=$!"
+echo READY
 wait
 `)
 	recorder.requireTranscriptContains(t, "READY", 2*time.Second)
@@ -153,7 +204,7 @@ func TestServiceCloseHangsUpEveryShell(t *testing.T) {
 	t.Parallel()
 	service, recorder := newTestService(t)
 	spawnInteractiveBash(t, service, "bash", filepath.Join(t.TempDir(), "history"))
-	job := startBackgroundJob(t, service, recorder, "bash", "sleep 3004")
+	job := startBackgroundJob(t, service, recorder, "bash", "sleep 3004 & echo BG=$!")
 	spawnTestScript(t, service, "deaf", `
 trap '' HUP
 echo READY
