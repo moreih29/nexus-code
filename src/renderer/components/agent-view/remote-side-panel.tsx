@@ -380,7 +380,7 @@ export function RemoteSidePanel({
           </div>
         )}
       </Section>
-      <Section title={t("chat.panel.usage.title")} folded reveal={asked("usage")}>
+      <Section title={t("chat.panel.usage.title")} reveal={asked("usage")}>
         {cost !== undefined && cost > 0 && (
           <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
             <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
