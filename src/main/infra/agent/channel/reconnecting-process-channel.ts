@@ -48,6 +48,15 @@ const DEFAULT_RECONNECT_CALL_TIMEOUT_MS = 30_000;
 // ControlMaster — from respawning ssh every maxDelayMs forever.
 const MAX_CONSECUTIVE_FATAL_RECONNECT_FAILURES = 3;
 
+/**
+ * The last frame a remote daemon sends a connection that another one took it
+ * over from (cmd/agent/daemon.go). Its dialer then exits non-zero, as for any
+ * connection the daemon closed, which reconnects — but reconnecting this one
+ * would take the daemon back: the same remote folder open as two workspaces
+ * would trade it forever. So a close after it ends the channel.
+ */
+const AGENT_PREEMPTED_EVENT = "agent.preempted";
+
 export interface AgentReconnectOptions {
   readonly maxPendingCalls?: number;
   readonly callTimeoutMs?: number;
@@ -97,6 +106,8 @@ interface ActiveProcess {
   readonly pipe: NdjsonPipe;
   closed: boolean;
   ready: boolean;
+  /** The daemon said another connection took it over (AGENT_PREEMPTED_EVENT). */
+  preempted: boolean;
   forceKillTimer: NodeJS.Timeout | null;
 }
 
@@ -228,10 +239,14 @@ export function createReconnectingProcessChannel(
       pipe,
       closed: false,
       ready: false,
+      preempted: false,
       forceKillTimer: null,
     };
     active = attempt;
     attachAllEvents(attempt.pipe);
+    pipe.on(AGENT_PREEMPTED_EVENT, () => {
+      attempt.preempted = true;
+    });
 
     attempt.pipe.ready
       .then(() => {
@@ -371,7 +386,10 @@ export function createReconnectingProcessChannel(
     emitLifecycle({ type: "failure", error: wrapped });
   }
 
-  /** Handles process close, reconnecting only for non-clean post-ready exits. */
+  /**
+   * Handles process close, reconnecting only for non-clean post-ready exits:
+   * not for exit 0, nor for a connection another one took the daemon over from.
+   */
   function handleClose(
     attempt: ActiveProcess,
     code: number | null,
@@ -389,8 +407,12 @@ export function createReconnectingProcessChannel(
     );
 
     if (state === "disposed" || terminalError) return;
-    if (code === 0 && wasReady) {
-      getChannelLogger().info(`[${label}] clean agent exit; channel is now terminal`);
+    if (wasReady && (code === 0 || attempt.preempted)) {
+      getChannelLogger().info(
+        attempt.preempted
+          ? `[${label}] another connection took the agent over; channel is now terminal`
+          : `[${label}] clean agent exit; channel is now terminal`,
+      );
       state = "terminal";
       terminalError = options.closeError(true, closeContext);
       emitLifecycle({ type: "exit", code, signal });

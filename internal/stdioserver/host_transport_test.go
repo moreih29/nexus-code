@@ -45,7 +45,7 @@ func newRunHost(in io.Reader) (*Host, chan int) {
 	return host, exited
 }
 
-// A non-EOF inbound read error must exit transportErrorExitCode so the client's
+// A non-EOF inbound read error must exit TransportErrorExitCode so the client's
 // handleClose reconnects instead of treating the dropped link as clean.
 func TestRunExitsNonZeroOnTransportError(t *testing.T) {
 	host, exited := newRunHost(errReader{err: errors.New("read tcp: connection reset by peer")})
@@ -54,8 +54,8 @@ func TestRunExitsNonZeroOnTransportError(t *testing.T) {
 
 	select {
 	case code := <-exited:
-		if code != transportErrorExitCode {
-			t.Fatalf("exit code = %d, want %d (transport reset must trigger client reconnect)", code, transportErrorExitCode)
+		if code != TransportErrorExitCode {
+			t.Fatalf("exit code = %d, want %d (transport reset must trigger client reconnect)", code, TransportErrorExitCode)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not exit within 2s of a transport read error")

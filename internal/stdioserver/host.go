@@ -17,6 +17,7 @@ package stdioserver
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,14 +39,17 @@ import (
 // alive past the parent's expected shutdown window.
 const forceExitAfter = 75 * time.Millisecond
 
-// idleWatchdogExitCode is the process exit code used when the idle watchdog
+// errOutputClosed is what a frame written after WriteLastFrame fails with.
+var errOutputClosed = errors.New("stdioserver: output closed")
+
+// IdleWatchdogExitCode is the process exit code used when the idle watchdog
 // reaps the agent. It is deliberately non-zero so the client reconnects rather
 // than treating the close as a clean shutdown (see StartIdleWatchdog). 75 is
 // EX_TEMPFAIL from sysexits.h — "temporary failure, the user is invited to
 // retry" — which matches the intent exactly.
-const idleWatchdogExitCode = 75
+const IdleWatchdogExitCode = 75
 
-// transportErrorExitCode is the process exit code used when the inbound stdin
+// TransportErrorExitCode is the process exit code used when the inbound stdin
 // scanner fails with a non-EOF error — i.e. the transport (the SSH channel
 // carrying our stdin) was reset or broke mid-stream rather than closing
 // cleanly. It is deliberately non-zero so the client's handleClose reconnects
@@ -55,7 +59,7 @@ const idleWatchdogExitCode = 75
 // desired recovery. 74 is EX_IOERR from sysexits.h — "an error occurred while
 // doing I/O on some file" — which names the cause precisely and stays distinct
 // from the watchdog's EX_TEMPFAIL (75) in diagnostics.
-const transportErrorExitCode = 74
+const TransportErrorExitCode = 74
 
 // Host owns the stdio NDJSON server lifecycle. One Host per process —
 // stdin / stdout are not multiplexable, and the SIGTERM handler is a
@@ -71,6 +75,9 @@ type Host struct {
 
 	outMu sync.Mutex     // serializes response frames on `out`
 	wg    sync.WaitGroup // tracks in-flight handler goroutines
+	// outClosed is set by WriteLastFrame: nothing is written after it.
+	// Guarded by outMu.
+	outClosed bool
 
 	// orderedTail is closed when the last ordered request so far has been
 	// handled; the next one waits on it. Only Run's goroutine touches it.
@@ -163,6 +170,32 @@ func (h *Host) WriteFrame(frame any) error {
 	}
 	h.outMu.Lock()
 	defer h.outMu.Unlock()
+	if h.outClosed {
+		return errOutputClosed
+	}
+	_, err = h.out.Write(data)
+	return err
+}
+
+// WriteLastFrame writes frame as the last thing the host sends, to a peer
+// about to be cut off; later writes fail. A peer that stopped reading holds
+// it up for no more than within: when `out` takes a write deadline, as a
+// net.Conn does, the deadline cuts short this write and any other write stuck
+// on that peer, which would hold it up on outMu.
+func (h *Host) WriteLastFrame(frame any, within time.Duration) error {
+	data, err := proto.MarshalFrame(frame)
+	if err != nil {
+		return err
+	}
+	if out, ok := h.out.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = out.SetWriteDeadline(time.Now().Add(within))
+	}
+	h.outMu.Lock()
+	defer h.outMu.Unlock()
+	if h.outClosed {
+		return errOutputClosed
+	}
+	h.outClosed = true
 	_, err = h.out.Write(data)
 	return err
 }
@@ -198,7 +231,7 @@ func (h *Host) Run() {
 			// so a still-present client reconnects rather than treating this
 			// as a clean shutdown. A clean EOF falls through to exit 0.
 			_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
-			h.drainAndExit(transportErrorExitCode)
+			h.drainAndExit(TransportErrorExitCode)
 			return
 		}
 		if len(line) == 0 && !tooLong {
@@ -404,7 +437,7 @@ func (h *Host) StartIdleWatchdog(limit time.Duration) {
 					// (client alive but stalled past the limit) — exactly when an
 					// automatic reconnect is the desired recovery. When the client
 					// is genuinely gone, no one observes the code.
-					h.drainAndExit(idleWatchdogExitCode)
+					h.drainAndExit(IdleWatchdogExitCode)
 					return
 				}
 			case <-h.ctx.Done():
@@ -445,11 +478,11 @@ func (h *Host) runShutdownHooks() {
 }
 
 // SetExitFunc replaces the exit function called by drainAndExit. The default
-// is os.Exit. The daemon overrides this to intercept code 0 (clean dialer
-// EOF) so the daemon process itself keeps running for the next dialer to
-// reattach. Non-zero exits (idle watchdog = 75, transport error = 74) still
-// terminate the process via the replaced function calling os.Exit directly.
-// Must be called before Run.
+// is os.Exit. The daemon overrides this so that a dialer leaving — clean EOF
+// (0) or a broken connection (TransportErrorExitCode) — ends only this host
+// and the daemon keeps running for the next dialer to reattach; the idle
+// watchdog (IdleWatchdogExitCode) still ends the daemon. Must be called
+// before Run.
 func (h *Host) SetExitFunc(fn func(int)) {
 	if fn != nil {
 		h.exit = fn
