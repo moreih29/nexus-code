@@ -558,7 +558,17 @@ app.whenReady().then(async () => {
     getRepository: (workspaceId) => registry.getOrDetect(workspaceId),
   });
 
-  agentPtyHost = startAgentPtyHost(workspaceManager);
+  agentPtyHost = startAgentPtyHost(workspaceManager, {
+    // The terminal tabs the windows restore from: a daemon's session of none
+    // of them (closed while its kill could not reach the daemon) is killed
+    // when the app reaches the daemon again.
+    knownTerminalTabs: (workspaceId) =>
+      new Set(
+        (stateService.getState().layoutByWorkspace?.[workspaceId]?.tabs ?? [])
+          .filter((tab) => tab.type === "terminal")
+          .map((tab) => tab.id),
+      ),
+  });
   // Wire the PTY session closer into WorkspaceManager so remove() can
   // terminate PTY sessions on the main side before broadcasting removal.
   // This breaks the construction-time circular dependency: WorkspaceManager
