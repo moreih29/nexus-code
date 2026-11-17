@@ -34,7 +34,8 @@ export interface GitActionButtonInput {
   readonly capabilities: RepoCapabilities;
   readonly branch: BranchInfo | null;
   readonly dirty: GitDirtyCounts;
-  readonly commitDraft: string;
+  /** The commit message has more than white space. */
+  readonly hasDraft: boolean;
 }
 
 export interface GitActionButtonState {
@@ -55,7 +56,7 @@ export function selectGitActionButton(
   translate: GitActionButtonTranslate = (key) => i18next.t(key),
 ): GitActionButtonState {
   const label = (key: string): string => translate(`files:git.actionButton.${key}`);
-  const hasDraft = input.commitDraft.trim().length > 0;
+  const hasDraft = input.hasDraft;
   const staged = input.dirty.staged;
   const unstaged = input.dirty.working + input.dirty.untracked + (input.dirty.merge ?? 0);
   const dirty = staged + unstaged;

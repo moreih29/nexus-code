@@ -9,7 +9,7 @@
  * `group-tab-bar-menu.ts` as a pure builder so the branching logic can
  * be unit-tested without mounting React.
  */
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ContextMenuContent,
   ContextMenuItems,
@@ -63,6 +63,8 @@ export function GroupTabBar({
   onActivateGroup,
 }: GroupTabBarProps) {
   const [contextTabId, setContextTabId] = useState<string | null>(null);
+  // Kept across renders: every TabItem takes it, and they are memoized.
+  const handleTabContextMenu = useCallback((tabId: string) => setContextTabId(tabId), []);
 
   // Focus handoff guard — after closing, Radix ContextMenu returns focus to the trigger by
   // default, and right after clicking Rename Tab… mounts the inline input, that focus return
@@ -150,7 +152,7 @@ export function GroupTabBar({
             onShowAgentList={onShowAgentList}
             onNewClaudeTab={onNewClaudeTab}
             onNewCodexTab={onNewCodexTab}
-            onTabContextMenu={(tabId) => setContextTabId(tabId)}
+            onTabContextMenu={handleTabContextMenu}
           />
         </div>
       </ContextMenuTrigger>

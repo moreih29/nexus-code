@@ -21,6 +21,7 @@ import type {
 } from "../../../../../shared/git/types";
 import type { GitPushOptions } from "../../../../state/stores/git";
 import { useGitStore } from "../../../../state/stores/git";
+import { getCommitDraft } from "../../../../state/stores/git/commit-drafts";
 import { submitBranchCreate } from "../branch/create-dialog";
 import type { BranchPickerMode } from "../branch/picker";
 import { buildSquashCommitDraft } from "../pickers/merge-options-dialog";
@@ -45,7 +46,6 @@ export interface GitPanelActionsInput {
   pickers: GitPanelPickersState;
   /** Derived state the panel already computed */
   derived: {
-    trimmedDraft: string;
     hasStagedChanges: boolean;
     stageablePaths: string[];
     allChangedPaths: string[];
@@ -308,34 +308,33 @@ export function useGitPanelActions({
   // Commit operations
   // ---------------------------------------------------------------------------
 
+  // The message is read when committing: the panel does not render per
+  // keystroke, so it holds no copy of the text.
   const handleCommitStaged = useCallback(async (): Promise<void> => {
-    if (derived.trimmedDraft.length === 0 || !derived.hasStagedChanges) return;
-    await commitOps.commit(workspaceId, { message: derived.trimmedDraft });
-  }, [commitOps.commit, derived.hasStagedChanges, derived.trimmedDraft, workspaceId]);
+    const message = getCommitDraft(workspaceId).trim();
+    if (message.length === 0 || !derived.hasStagedChanges) return;
+    await commitOps.commit(workspaceId, { message });
+  }, [commitOps.commit, derived.hasStagedChanges, workspaceId]);
 
   const handleCommitAll = useCallback(async (): Promise<void> => {
-    if (derived.trimmedDraft.length === 0) return;
+    const message = getCommitDraft(workspaceId).trim();
+    if (message.length === 0) return;
     if (derived.stageablePaths.length > 0) {
       await commitOps.stage(workspaceId, derived.stageablePaths);
     }
-    await commitOps.commit(workspaceId, { message: derived.trimmedDraft });
-  }, [
-    commitOps.commit,
-    derived.stageablePaths,
-    derived.trimmedDraft,
-    commitOps.stage,
-    workspaceId,
-  ]);
+    await commitOps.commit(workspaceId, { message });
+  }, [commitOps.commit, derived.stageablePaths, commitOps.stage, workspaceId]);
 
   const handleAmend = useCallback(async (): Promise<void> => {
-    await commitOps.commitAmend(workspaceId, { message: derived.trimmedDraft });
-  }, [commitOps.commitAmend, derived.trimmedDraft, workspaceId]);
+    await commitOps.commitAmend(workspaceId, { message: getCommitDraft(workspaceId).trim() });
+  }, [commitOps.commitAmend, workspaceId]);
 
   const handleCommitAndPush = useCallback(async (): Promise<void> => {
-    if (derived.trimmedDraft.length === 0 || !derived.hasStagedChanges) return;
-    const result = await commitOps.commit(workspaceId, { message: derived.trimmedDraft });
+    const message = getCommitDraft(workspaceId).trim();
+    if (message.length === 0 || !derived.hasStagedChanges) return;
+    const result = await commitOps.commit(workspaceId, { message });
     if (result) await requestPush();
-  }, [commitOps.commit, derived.hasStagedChanges, derived.trimmedDraft, requestPush, workspaceId]);
+  }, [commitOps.commit, derived.hasStagedChanges, requestPush, workspaceId]);
 
   // ---------------------------------------------------------------------------
   // Sync

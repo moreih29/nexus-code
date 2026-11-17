@@ -11,9 +11,11 @@
  * now reached from the status bar's branch button; fetch/pull/push are
  * available from GitMoreMenu (header) and the commit button menu.
  *
- * Owns no state — all values and callbacks come from props.
+ * Owns one piece of state: which file the rows' shared context menu is
+ * open for. Every other value and callback comes from props.
  */
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   GitCommitOptions,
@@ -27,7 +29,13 @@ import type { GitActionButtonState } from "../../../../state/stores/git/action-b
 import { EmptyState } from "../../../ui/empty-state";
 import type { GitCommitMenuEnablement } from "../commit/commit-button";
 import { GitCommitInput } from "../commit/commit-input";
-import { GitGroup } from "../file-row/group";
+import {
+  type GitContextMenuPoint,
+  GitFileContextMenu,
+  type GitFileContextMenuActions,
+} from "../file-row/file-context-menu";
+import { GitGroup, type GitGroupActions } from "../file-row/group";
+import { gitFileMenuActions } from "../file-row/row";
 import { HistoryPanel } from "../history/panel";
 import { HistorySegmentToggle } from "../history/segment-toggle";
 import type { GitGroupDescriptor } from "../utils/status-utils";
@@ -53,8 +61,7 @@ export interface GitPanelBodyProps {
   onContinueOp: () => void;
   onAbortOp: () => void;
 
-  // Commit input props
-  draft: string;
+  // Commit input props: the input reads the draft itself, so typing renders only it.
   actionState: GitActionButtonState;
   commitOptions: GitCommitOptions;
   menuEnablement: GitCommitMenuEnablement;
@@ -79,24 +86,12 @@ export interface GitPanelBodyProps {
   viewMode: ViewMode;
   expandedGroups: Record<string, boolean>;
   expandedTreeNodes: Record<string, string[]>;
-  onToggleGroup: (key: GitExpandedGroupKey) => void;
-  onToggleTreeNode: (key: GitExpandedGroupKey, relPath: string) => void;
-  onStagePaths: (paths: string[]) => void;
-  onUnstagePaths: (paths: string[]) => void;
-  onDiscardPaths: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
-  onMarkResolved: (entry: GitStatusEntry) => void;
-  onOpenDiff: (
-    entry: GitStatusEntry,
-    groupKey: GitExpandedGroupKey,
-    opts?: { preview: boolean },
-  ) => void;
-  onOpenFile: (entry: GitStatusEntry) => void;
-  onRevealInOS: (entry: GitStatusEntry) => void;
-  onCopyPath: (entry: GitStatusEntry) => void;
-  onCopyRelativePath: (entry: GitStatusEntry) => void;
-  onAddToGitignore: (entry: GitStatusEntry) => void;
-  onAddPathsToGitignore: (paths: string[]) => void;
-  onStashGroup: (paths: string[], label: string) => void;
+  /**
+   * What the groups and their rows do, all but opening the file menu, which
+   * the body shares among them. Keeps its identity, so the groups render
+   * only for their own files.
+   */
+  fileActions: Omit<GitGroupActions, "openMenu">;
 }
 
 export function GitPanelBody({
@@ -111,7 +106,6 @@ export function GitPanelBody({
   inFlightKind,
   onContinueOp,
   onAbortOp,
-  draft,
   actionState,
   commitOptions,
   menuEnablement,
@@ -131,22 +125,31 @@ export function GitPanelBody({
   viewMode,
   expandedGroups,
   expandedTreeNodes,
-  onToggleGroup,
-  onToggleTreeNode,
-  onStagePaths,
-  onUnstagePaths,
-  onDiscardPaths,
-  onMarkResolved,
-  onOpenDiff,
-  onOpenFile,
-  onRevealInOS,
-  onCopyPath,
-  onCopyRelativePath,
-  onAddToGitignore,
-  onAddPathsToGitignore,
-  onStashGroup,
+  fileActions,
 }: GitPanelBodyProps) {
   const { t } = useTranslation("files");
+  // One context menu for every row, open for one file at a time: a menu for
+  // each row cost a Radix menu per file, and the panel lists every untracked one.
+  const [menu, setMenu] = useState<GitFileMenuTarget | null>(null);
+  const actions = useMemo<GitGroupActions>(
+    () => ({
+      ...fileActions,
+      openMenu: (entry, groupKey, point) => setMenu({ entry, groupKey, point }),
+    }),
+    [fileActions],
+  );
+  // Closed, it keeps its file: the item picked runs once the menu has closed.
+  const closeMenu = useCallback(
+    () => setMenu((open) => (open ? { ...open, point: null } : open)),
+    [],
+  );
+  // The file as its row now shows it. The menu goes with the row, as when
+  // each row had its own: a file that left its group closes its menu.
+  const menuEntry = menu ? listedEntry(groups, menu.groupKey, menu.entry) : null;
+  const menuPoint = menuEntry ? (menu?.point ?? null) : null;
+  useEffect(() => {
+    if (menu?.point && !menuEntry) closeMenu();
+  }, [menu, menuEntry, closeMenu]);
   return (
     <>
       <HistorySegmentToggle segment={panelSegment} disabled={isBusy} onChange={onSegmentChange} />
@@ -169,7 +172,7 @@ export function GitPanelBody({
             />
           ) : (
             <GitCommitInput
-              value={draft}
+              workspaceId={workspaceId}
               disabled={isBusy}
               busy={isBusy}
               hint={actionState.hint}
@@ -206,36 +209,56 @@ export function GitPanelBody({
                   expanded={expandedGroups[group.key]}
                   viewMode={viewMode}
                   expandedTreeNodes={expandedTreeNodes[group.key]}
-                  onToggle={() => onToggleGroup(group.key)}
-                  onToggleTreeNode={(relPath) => onToggleTreeNode(group.key, relPath)}
-                  onStagePaths={(paths) => {
-                    onStagePaths(paths);
-                  }}
-                  onUnstagePaths={(paths) => {
-                    onUnstagePaths(paths);
-                  }}
-                  onDiscardPaths={onDiscardPaths}
-                  onMarkResolved={(entry) => {
-                    onMarkResolved(entry);
-                  }}
-                  onOpenDiff={(entry, groupKey, opts) => {
-                    onOpenDiff(entry, groupKey, opts);
-                  }}
-                  onOpenFile={onOpenFile}
-                  onRevealInOS={onRevealInOS}
-                  onCopyPath={onCopyPath}
-                  onCopyRelativePath={onCopyRelativePath}
-                  onAddToGitignore={onAddToGitignore}
-                  onAddPathsToGitignore={(paths) => {
-                    void onAddPathsToGitignore(paths);
-                  }}
-                  onStashGroup={onStashGroup}
+                  actions={actions}
                 />
               ))
             )}
           </div>
+          <GitFileContextMenu
+            point={menuPoint}
+            groupKey={menu?.groupKey ?? "working"}
+            actions={
+              menu
+                ? gitFileMenuActions(menuEntry ?? menu.entry, menu.groupKey, actions)
+                : CLOSED_MENU
+            }
+            onClose={closeMenu}
+          />
         </>
       )}
     </>
   );
 }
+
+/** The file the rows' shared menu is for, and where it opened; no point once closed. */
+interface GitFileMenuTarget {
+  entry: GitStatusEntry;
+  groupKey: GitExpandedGroupKey;
+  point: GitContextMenuPoint | null;
+}
+
+/** The entry a group lists for the row `entry` was in (rows are keyed by both paths). */
+function listedEntry(
+  groups: readonly GitGroupDescriptor[],
+  groupKey: GitExpandedGroupKey,
+  entry: GitStatusEntry,
+): GitStatusEntry | null {
+  const group = groups.find((each) => each.key === groupKey);
+  return (
+    group?.entries.find(
+      (each) => each.relPath === entry.relPath && each.oldRelPath === entry.oldRelPath,
+    ) ?? null
+  );
+}
+
+function noop(): void {}
+
+/** The menu's actions before any row opened it, while it shows nothing. */
+const CLOSED_MENU: GitFileContextMenuActions = {
+  openFile: noop,
+  openChanges: noop,
+  revealInOS: noop,
+  copyPath: noop,
+  copyRelativePath: noop,
+  addToGitignore: noop,
+};
