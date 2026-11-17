@@ -4,7 +4,7 @@
 // It holds another computer's sessions as tabs too, drawn here.
 
 import { Columns2, Rows2, SquareArrowOutUpRight, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { SplitLeaf } from "@/engine";
 import { fadeMask, useStripOverflow } from "@/hooks/use-strip-overflow";
@@ -79,7 +79,9 @@ function focusKey(key: string): void {
   if (session) requestTabFocus(session.tabId);
 }
 
-export function AgentPane({
+// Memo: the view renders for each change of the agents' or the layout's,
+// and a panel only when its own leaf, the agents or the ended ones change.
+export const AgentPane = memo(function AgentPane({
   leaf,
   agents,
   ended,
@@ -371,7 +373,7 @@ export function AgentPane({
       )}
     </div>
   );
-}
+});
 
 /** The workspace an agent is from: its name, with its color's dot. */
 function WorkspaceChip({ workspaceId, className }: { workspaceId: string; className?: string }) {
