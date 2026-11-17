@@ -234,6 +234,10 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
         t != null ? t("menu:view.toggleAgentView") : "Toggle Agent View",
         COMMANDS.workbenchToggleAgentView,
       ),
+      cmd(
+        t != null ? t("menu:view.toggleAgentsPanel") : "Toggle Agents Panel",
+        COMMANDS.workbenchToggleAgentsPanel,
+      ),
       { type: "separator" },
       cmd(revealLabel(platform, t), COMMANDS.pathReveal),
       cmd(t != null ? t("menu:view.copyPath") : "Copy Path", COMMANDS.pathCopy),

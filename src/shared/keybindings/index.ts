@@ -211,6 +211,14 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
   { command: COMMANDS.workbenchToggleSidebar, primary: "CmdOrCtrl+Shift+B" },
   // From the terminal too: shells and agent TUIs don't bind Ctrl+Shift+letter.
   { command: COMMANDS.workbenchToggleAgentView, primary: "CmdOrCtrl+Shift+A" },
+  // A bare key, so only where it types nothing: not in a text field, an
+  // editor or the terminal. A page in a browser tab keeps it too, as the
+  // browser's key interceptor routes only the keys it lists.
+  {
+    command: COMMANDS.workbenchToggleAgentsPanel,
+    primary: "]",
+    when: "!inputFocus && !editorFocus && !terminalFocus",
+  },
 
   // (No DevTools binding: ⌘⌥I is owned by the Electron menu toggleDevTools
   // role for app-window DevTools. Browser page DevTools is button-only.)
