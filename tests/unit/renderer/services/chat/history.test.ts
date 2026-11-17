@@ -6,8 +6,13 @@ import {
   modelBefore,
   modelUuids,
   sessionTitleOf,
+  subagentIdOf,
+  subagentLines,
+  subagentLog,
   uuidBefore,
+  withSubagentLog,
 } from "../../../../../src/renderer/services/chat/history";
+import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 
 // A transcript's entries as Claude Code writes them: bookkeeping between
 // the messages, which have uuids.
@@ -178,5 +183,129 @@ describe("sessionTitleOf", () => {
     expect(sessionTitleOf([{ type: "custom-title", customTitle: "Test plan" }, ...made])).toBe(
       "Test plan",
     );
+  });
+});
+
+// A subagent's file as Claude Code 2.1 keeps it beside its session
+// (subagents/agent-<id>.jsonl): its prompt, its replies and its tools'
+// results, with the requests it logged between them.
+const SUBAGENT = [
+  {
+    parentUuid: null,
+    isSidechain: true,
+    agentId: "a1b2",
+    type: "user",
+    uuid: "s1",
+    timestamp: "2026-11-17T01:00:00.000Z",
+    message: { role: "user", content: "Look at the payments module." },
+  },
+  { type: "api-request", id: "r1" },
+  {
+    isSidechain: true,
+    agentId: "a1b2",
+    type: "assistant",
+    uuid: "s2",
+    timestamp: "2026-11-17T01:00:05.000Z",
+    message: {
+      id: "m1",
+      role: "assistant",
+      content: [
+        { type: "text", text: "Reading it." },
+        { type: "tool_use", id: "read1", name: "Read", input: { file_path: "/p/pay.ts" } },
+      ],
+    },
+  },
+  { type: "attachment", attachment: { type: "todo" } },
+  {
+    isSidechain: true,
+    agentId: "a1b2",
+    type: "user",
+    uuid: "s3",
+    timestamp: "2026-11-17T01:00:06.000Z",
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "read1", content: "1\texport {}" }],
+    },
+    toolUseResult: { type: "text", file: { filePath: "/p/pay.ts" } },
+  },
+  {
+    isSidechain: true,
+    agentId: "a1b2",
+    type: "assistant",
+    uuid: "s4",
+    timestamp: "2026-11-17T01:00:09.000Z",
+    message: { id: "m2", role: "assistant", content: [{ type: "text", text: "It is empty." }] },
+  },
+];
+
+describe("a subagent's file", () => {
+  test("is the lines of its Agent call: its replies and its tools' results, not its prompt", () => {
+    const lines = subagentLines(SUBAGENT, "toolu_agent");
+    expect(lines.map((line) => (line.message as { type: string }).type)).toEqual([
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    for (const line of lines) {
+      expect((line.message as { parent_tool_use_id: string }).parent_tool_use_id).toBe(
+        "toolu_agent",
+      );
+    }
+  });
+
+  test("makes the subagent's messages and its calls, under its Agent call", () => {
+    const log = subagentLog(SUBAGENT, "toolu_agent");
+    expect(
+      log.items.map((item) =>
+        item.blocks.map((b) =>
+          b.type === "text" ? b.text : `${b.type}:${"toolUseId" in b ? b.toolUseId : ""}`,
+        ),
+      ),
+    ).toEqual([["Reading it.", "tool:read1"], ["It is empty."]]);
+    expect(log.items[0]?.at).toBe(Date.parse("2026-11-17T01:00:05.000Z"));
+    expect(log.tools.read1).toMatchObject({
+      name: "Read",
+      status: "done",
+      parentToolUseId: "toolu_agent",
+    });
+    expect(log.tools.read1?.result?.text).toContain("export {}");
+  });
+
+  test("goes in the history, which keeps what it had", () => {
+    const history = historyModel(ENTRIES);
+    const log = subagentLog(SUBAGENT, "toolu_agent");
+    const joined = withSubagentLog(history, "toolu_agent", log);
+    expect(joined.items).toBe(history.items);
+    expect(joined.agentItems.toolu_agent).toBe(log.items);
+    expect(joined.tools.read1).toBe(log.tools.read1);
+    // A tab with no history has one for it.
+    const alone = withSubagentLog(null, "toolu_agent", log);
+    expect(alone.items).toEqual([]);
+    expect(alone.agentItems.toolu_agent).toBe(log.items);
+  });
+
+  test("is found by the agent id its call's result names", () => {
+    const tool = (structured: unknown) => ({
+      id: "t",
+      name: "Agent",
+      input: {},
+      status: "done" as const,
+      parentToolUseId: null,
+      result: { text: "", isError: false, images: [], structured },
+    });
+    expect(subagentIdOf(tool({ status: "completed", agentId: "a1b2" }))).toBe("a1b2");
+    expect(subagentIdOf(tool({ agent_id: "teammate-1" }))).toBe("teammate-1");
+    expect(subagentIdOf(tool({ status: "completed" }))).toBeUndefined();
+    expect(subagentIdOf(undefined)).toBeUndefined();
+  });
+
+  test("a joined history keeps the subagents' messages of both", () => {
+    const log = subagentLog(SUBAGENT, "toolu_agent");
+    const before = withSubagentLog(historyModel(ENTRIES), "toolu_agent", log);
+    const after = { ...emptyModel(), agentItems: { other: log.items } };
+    expect(Object.keys(joinHistory(before, after).agentItems).sort()).toEqual([
+      "other",
+      "toolu_agent",
+    ]);
   });
 });

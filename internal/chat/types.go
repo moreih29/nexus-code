@@ -192,6 +192,25 @@ type TranscriptResult struct {
 	Truncated bool              `json:"truncated,omitempty"`
 }
 
+// SubagentTranscriptParams is the wire shape for chat.subagentTranscript:
+// the subagent by its id (an Agent call's result tells it), else by the
+// Agent call it ran under.
+type SubagentTranscriptParams struct {
+	SessionID string `json:"sessionId"`
+	AgentID   string `json:"agentId,omitempty"`
+	ToolUseID string `json:"toolUseId,omitempty"`
+	// ConfigDir is as TranscriptParams has it.
+	ConfigDir string `json:"configDir,omitempty"`
+}
+
+// SubagentTranscriptResult is returned by chat.subagentTranscript: the
+// subagent's messages, the last ones when its file is larger than the cap.
+type SubagentTranscriptResult struct {
+	Found     bool              `json:"found"`
+	Lines     []json.RawMessage `json:"lines"`
+	Truncated bool              `json:"truncated,omitempty"`
+}
+
 // SessionFileParams is the wire shape for chat.sessionFile.
 type SessionFileParams struct {
 	SessionID string `json:"sessionId"`

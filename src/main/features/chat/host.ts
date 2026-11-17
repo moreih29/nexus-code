@@ -258,6 +258,20 @@ export class ChatHost {
     return channel.call("chat.transcript", { sessionId, ...this.configDir(profileId) });
   }
 
+  async subagentTranscript(
+    workspaceId: string,
+    sessionId: string,
+    agent: { agentId?: string; toolUseId?: string },
+    profileId?: string,
+  ): Promise<unknown> {
+    const channel = await this.channelFor(workspaceId);
+    return channel.call("chat.subagentTranscript", {
+      sessionId,
+      ...agent,
+      ...this.configDir(profileId),
+    });
+  }
+
   async sessionFile(workspaceId: string, sessionId: string, profileId?: string): Promise<unknown> {
     const channel = await this.channelFor(workspaceId);
     return channel.call("chat.sessionFile", { sessionId, ...this.configDir(profileId) });
