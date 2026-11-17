@@ -78,11 +78,13 @@ func runDialer(sockPath string) {
 	go func() {
 		if relay(conn, os.Stdin) {
 			// Stdin ended: tell the daemon this dialer is done, and let it
-			// close the connection.
+			// close the connection. Marked done first: the daemon's close
+			// that answers the half-close must find the app gone, not be
+			// taken for the daemon going (ExitCodeDaemonClosed).
+			close(appDone)
 			if unixConn, ok := conn.(*net.UnixConn); ok {
 				_ = unixConn.CloseWrite()
 			}
-			close(appDone)
 		}
 		// Otherwise the daemon's side failed, which daemonDone tells.
 	}()
