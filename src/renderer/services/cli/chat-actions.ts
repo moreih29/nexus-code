@@ -9,6 +9,7 @@
  */
 
 import i18next from "i18next";
+import type { ChatPage } from "../../../../packages/remote-protocol/src";
 import {
   defaultProfileId,
   isDefaultProfileId,
@@ -33,7 +34,7 @@ import {
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
-import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
+import { AGENT_TOOLS, jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -93,6 +94,21 @@ async function readableTab(workspaceId: string, tabId: string): Promise<AgentTab
     await (target.agent === "claude" ? target.controller.openToRead() : target.controller.open());
   }
   return target;
+}
+
+/**
+ * Reads the messages of the subagents a page names that the tab has none
+ * of, as a conversation read from its transcript has them: Claude Code
+ * keeps them apart. The device's watch sends them once read; a page read
+ * again has them.
+ */
+function readNamedSubagents(target: AgentTabController, page: ChatPage): void {
+  if (target.agent !== "claude") return;
+  for (const [id, tool] of Object.entries(page.tools)) {
+    if (tool.parentToolUseId !== null || !AGENT_TOOLS.has(tool.name) || page.agentItems[id])
+      continue;
+    void target.controller.loadSubagent(id);
+  }
 }
 
 /** The workspace's folder, where its past conversations ran. */
@@ -415,7 +431,9 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
     const target = await readableTab(workspaceId, tabId);
-    return chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
+    const page = chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
+    readNamedSubagents(target, page);
+    return page;
   },
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
@@ -431,7 +449,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
       () => askMcp(workspaceId, tabId, target),
     );
     askWhenItCan();
-    return startChatWatch(
+    const watched = startChatWatch(
       watchId,
       () => tabSource(workspaceId, tabId, target.agent),
       limit,
@@ -446,6 +464,8 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         },
       },
     );
+    readNamedSubagents(target, watched);
+    return watched;
   },
 
   "chat.unwatch": async ({ watchId }) => {

@@ -27,8 +27,11 @@ import {
   modelBefore,
   modelUuids,
   sessionTitleOf,
+  subagentIdOf,
+  subagentLog,
   transcriptGoal,
   uuidBefore,
+  withSubagentLog,
 } from "./history";
 import { LiveLines } from "./live-lines";
 import {
@@ -250,6 +253,9 @@ export class ChatController {
   private shown: Promise<void> | null = null;
   private disposed = false;
   private titled = false;
+  /** Subagents whose file is being read (loadSubagent), and those found nowhere. */
+  private subagentsReading = new Set<string>();
+  private subagentsMissing = new Set<string>();
   /** The tab as a source of its profile's plan usage, taken away as it closes. */
   private readonly leavePlanUsage: () => void;
   /** Whether the program's initialize is still on its way: until then it is asked nothing else. */
@@ -464,6 +470,70 @@ export class ChatController {
     } catch (err) {
       log.warn(`transcript of ${sessionId} not read: ${(err as Error).message}`);
     }
+  }
+
+  /**
+   * Reads the messages of a subagent that ended, where the tab has none of
+   * them: Claude Code keeps them apart from the session's transcript, so a
+   * conversation read from it shows only the subagent's call. They go in the
+   * history, where the pane and another device reading the chat find them.
+   * One being read, or found nowhere, is not asked for again.
+   */
+  async loadSubagent(toolUseId: string): Promise<void> {
+    if (this.subagentsReading.has(toolUseId) || this.subagentsMissing.has(toolUseId)) return;
+    const { history, model } = this.state;
+    if (model.agentItems[toolUseId] || history?.agentItems[toolUseId]) return;
+    const call = model.tools[toolUseId] ?? history?.tools[toolUseId];
+    if (!call || call.status === "running" || call.status === "streaming") return;
+    this.subagentsReading.add(toolUseId);
+    try {
+      if (!(await this.readSubagent(toolUseId, subagentIdOf(call)))) {
+        this.subagentsMissing.add(toolUseId);
+      }
+    } finally {
+      this.subagentsReading.delete(toolUseId);
+    }
+  }
+
+  private async readSubagent(toolUseId: string, agentId: string | undefined): Promise<boolean> {
+    const { model } = this.state;
+    // Its session's, or, for one a fork copied, the session the fork is of.
+    const fork = this.target.fork;
+    const places: { sessionId: string; profileId?: string }[] = [];
+    for (const sessionId of [model.sessionId, this.sessionId]) {
+      if (sessionId && !places.some((place) => place.sessionId === sessionId)) {
+        places.push({ sessionId, profileId: this.target.profileId });
+      }
+    }
+    if (fork && !places.some((place) => place.sessionId === fork.sessionId)) {
+      places.push({
+        sessionId: fork.sessionId,
+        profileId: this.forkProfile() ?? this.target.profileId,
+      });
+    }
+    for (const place of places) {
+      try {
+        const result = unwrapIpcResult(
+          await ipcCallResult("chat", "subagentTranscript", {
+            workspaceId: this.target.workspaceId,
+            sessionId: place.sessionId,
+            ...(agentId ? { agentId } : {}),
+            toolUseId,
+            ...profileArg(place.profileId),
+          }),
+        );
+        if (!result.found) continue;
+        const read = subagentLog(result.lines, toolUseId);
+        this.update((prev) => ({
+          ...prev,
+          history: withSubagentLog(prev.history, toolUseId, read),
+        }));
+        return true;
+      } catch (err) {
+        log.warn(`subagent ${toolUseId} of ${place.sessionId} not read: ${(err as Error).message}`);
+      }
+    }
+    return false;
   }
 
   private async start(resume: StartArgs): Promise<boolean> {
