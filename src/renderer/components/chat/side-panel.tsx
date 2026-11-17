@@ -21,7 +21,7 @@ import {
   RefreshCw,
   Square,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { AgentRun } from "../../../shared/claude/activity";
@@ -70,6 +70,10 @@ import { FileKindIcon } from "./file-kind-icon";
 
 interface SidePanelProps {
   controller: ChatController;
+  /**
+   * The state beside a streaming reply (beside-stream): its `model.streaming`,
+   * `model.turn` and `model.lastSeq` may be behind, and are not read here.
+   */
   state: ChatTabState;
   workspaceId: string;
   cwd: string;
@@ -86,7 +90,8 @@ interface SidePanelProps {
   className?: string;
 }
 
-export function SidePanel({
+/** Memoized: a chunk of a streaming reply changes nothing it shows. */
+export const SidePanel = memo(function SidePanel({
   controller,
   state,
   workspaceId,
@@ -242,7 +247,7 @@ export function SidePanel({
       <McpSection controller={controller} state={state} />
     </aside>
   );
-}
+});
 
 function stop(controller: ChatController, taskId: string, failed: string): void {
   controller.stopTask(taskId).catch((err: Error) => {

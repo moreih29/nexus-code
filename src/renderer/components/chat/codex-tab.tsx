@@ -103,7 +103,9 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       ),
     [workspaceId, tabId],
   );
-  const state = useChatTab(workspaceId, tabId);
+  // Followed while shown: a tab in the background draws nothing per chunk
+  // of a streaming reply, and shows the latest when it comes to the front.
+  const state = useChatTab(workspaceId, tabId, isVisible);
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
 

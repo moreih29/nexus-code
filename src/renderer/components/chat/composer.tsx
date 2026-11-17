@@ -15,6 +15,7 @@
 import type { TFunction } from "i18next";
 import { AtSign, FileText, Paperclip, Pencil, Plus, Send, Slash, Square, X } from "lucide-react";
 import {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -196,7 +197,12 @@ function parked(area: HTMLElement): boolean {
   return area.clientWidth === 0 || area.closest("[inert]") !== null;
 }
 
-export function Composer({
+/**
+ * Memoized: the Claude tab gives it the state beside a streaming reply
+ * (beside-stream) and functions that keep their identity, so a chunk of
+ * the reply does not render the box, its chips and their menus.
+ */
+export const Composer = memo(function Composer({
   controller,
   state,
   relayed,
@@ -869,7 +875,7 @@ export function Composer({
       </div>
     </div>
   );
-}
+});
 
 function showError(err: Error): void {
   showToast({ kind: "error", message: err.message });
