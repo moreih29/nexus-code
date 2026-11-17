@@ -167,6 +167,10 @@ export function LinkMenuRoot() {
   const { t } = useTranslation();
   const [shown, setShown] = useState<LinkMenuFor | null>(null);
   const triggerRef = useRef<HTMLSpanElement | null>(null);
+  // Quick look opens once the menu, closed, gave the focus back to the link:
+  // opened before, it lost the focus to it and closed, and it gives the focus
+  // back, when it closes, to where it was when it opened.
+  const afterClose = useRef<(() => void) | null>(null);
   useEffect(() => {
     openLinkMenu = (link, at) => {
       // The link's items first, then the menu opens at the pointer as a
@@ -191,19 +195,41 @@ export function LinkMenuRoot() {
       <ContextMenuTrigger>
         <span ref={triggerRef} aria-hidden className="pointer-events-none fixed size-0" />
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItems items={shown ? linkMenuItems(shown, t) : []} />
+      <ContextMenuContent
+        onCloseAutoFocus={() => {
+          const run = afterClose.current;
+          afterClose.current = null;
+          run?.();
+        }}
+      >
+        <ContextMenuItems
+          items={
+            shown
+              ? linkMenuItems(shown, t, (look) => {
+                  afterClose.current = look;
+                })
+              : []
+          }
+        />
       </ContextMenuContent>
     </ContextMenuRoot>
   );
 }
 
-/** A link's menu: open it the other way, or copy it. */
-function linkMenuItems({ links, target, href, kind }: LinkMenuFor, t: TFunction): MenuItemSpec[] {
+/** A link's menu: open it the other way, or copy it. `look` is handed quick look to open. */
+function linkMenuItems(
+  { links, target, href, kind }: LinkMenuFor,
+  t: TFunction,
+  look: (open: () => void) => void,
+): MenuItemSpec[] {
   const { openFileTab } = links;
   return kind === "file"
     ? [
-        { kind: "item", label: t("chat.links.look"), onSelect: () => links.openFile(href) },
+        {
+          kind: "item",
+          label: t("chat.links.look"),
+          onSelect: () => look(() => links.openFile(href)),
+        },
         ...(openFileTab
           ? [
               {
