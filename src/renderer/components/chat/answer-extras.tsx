@@ -1,7 +1,8 @@
 // Under a turn's last answer: the images its tools gave, and a card for
 // each file it wrote new or named. A card opens the file in quick look;
 // an image file in the workspace shows itself on its card. A file gets its
-// card once it is found to be one.
+// card once it is found to be one: from the chat's folder, or from where
+// the agent's shell went.
 
 import { useMemo } from "react";
 import { useChatFiles, useFilePicture } from "../../services/chat/chat-files";
@@ -25,11 +26,20 @@ export function AnswerExtrasView({
   cwd: string;
   rootPath: string;
 }) {
-  const found = useFoundFiles(workspaceId, rootPath, extras.files);
-  const files = useMemo(
-    () => extras.files.filter((path) => found.has(path)).slice(0, MAX_ANSWER_FILES),
-    [extras, found],
+  const lookedUp = useMemo(
+    () => [...extras.files, ...Object.values(extras.elsewhere ?? {}).flat()],
+    [extras],
   );
+  const found = useFoundFiles(workspaceId, rootPath, lookedUp);
+  // A file named from where the agent's shell went is at the first of its other places found.
+  const files = useMemo(() => {
+    const shown: string[] = [];
+    for (const path of extras.files) {
+      const at = found.has(path) ? path : extras.elsewhere?.[path]?.find((p) => found.has(p));
+      if (at && !shown.includes(at)) shown.push(at);
+    }
+    return shown.slice(0, MAX_ANSWER_FILES);
+  }, [extras, found]);
   const images = useMemo(() => extras.images.map(({ image }) => image), [extras]);
   if (extras.images.length === 0 && files.length === 0) return null;
   return (

@@ -3,10 +3,16 @@
 // the system browser. A link's context menu opens it the other way, or
 // copies it. Outside a Claude tab the links keep the plain behaviour.
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { isLocalAddress, type LineAt } from "../../services/chat/links";
-import type { ImageBlock } from "../../services/chat/model";
+import { type LinkPlaceIndex, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import {
+  type FileLink,
+  isLocalAddress,
+  type LineAt,
+  resolveFileLink,
+} from "../../services/chat/links";
+import type { ImageBlock, ToolCall } from "../../services/chat/model";
 import { copyText } from "../../utils/clipboard";
 import {
   ContextMenuContent,
@@ -54,6 +60,47 @@ export const ChatLinksContext = createContext<ChatLinks | null>(null);
 
 export function useChatLinks(): ChatLinks | null {
   return useContext(ChatLinksContext);
+}
+
+/**
+ * The files a link a reply wrote in `cwd` may name, the likeliest first
+ * (link-places): from the chat's folder, and from where its agent's shell
+ * went.
+ */
+export type PlacesOf = (target: string, cwd: string) => FileLink[];
+
+/** A conversation's PlacesOf, for the replies it shows. */
+export const LinkPlacesContext = createContext<PlacesOf | null>(null);
+
+/** Outside a conversation, a link names the one file it does from its folder. */
+const onePlace: PlacesOf = (target, cwd) => {
+  const link = resolveFileLink(target, cwd);
+  return link ? [link] : [];
+};
+
+/** The places a reply's links may name, as the conversation it is in tells them. */
+export function useLinkPlaces(): PlacesOf {
+  return useContext(LinkPlacesContext) ?? onePlace;
+}
+
+/**
+ * PlacesOf for a conversation of `tools`, as they are when a link is
+ * looked at; the same function throughout, so what shows a link is not
+ * drawn again each time a tool changes.
+ */
+export function usePlacesOf(tools: Readonly<Record<string, ToolCall>>): PlacesOf {
+  const latest = useRef(tools);
+  latest.current = tools;
+  return useMemo(() => {
+    let kept: { tools: Readonly<Record<string, ToolCall>>; index: LinkPlaceIndex } | null = null;
+    return (target, cwd) => {
+      const tools = latest.current;
+      if (kept?.tools !== tools || kept.index.cwd !== cwd) {
+        kept = { tools, index: linkPlaceIndex(tools, cwd) };
+      }
+      return linkPlaces(target, kept.index);
+    };
+  }, []);
 }
 
 /**

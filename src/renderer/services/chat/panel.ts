@@ -4,7 +4,8 @@
 
 import type { AgentRun } from "../../../shared/claude/activity";
 import { imageFileOf, type ShownImage } from "./image-look";
-import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
+import { linkPlaceIndex, linkPlaces } from "./link-places";
+import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -477,13 +478,18 @@ export function resultsOf(
 
 /**
  * `results` with each file once, however its path was written (`long.txt`,
- * `/p/long.txt`): under the first name it had, made new if it ever was.
+ * `/p/long.txt`): under the first name it had, made new if it ever was. A
+ * file is the one `pathOf` finds a target names, by default from `cwd`.
  */
-export function distinctResults(results: readonly ResultEntry[], cwd: string): ResultEntry[] {
+export function distinctResults(
+  results: readonly ResultEntry[],
+  cwd: string,
+  pathOf: (target: string) => string | null = (target) => resolveFilePath(target, cwd),
+): ResultEntry[] {
   const out: ResultEntry[] = [];
   const byPath = new Map<string, number>();
   for (const result of results) {
-    const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+    const path = result.kind === "file" ? pathOf(result.target) : null;
     const at = path ? byPath.get(path) : undefined;
     if (at !== undefined) {
       if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
@@ -663,6 +669,12 @@ export interface GivenImage {
 export interface AnswerExtras {
   /** Absolute paths, written new first, then linked: each shows once it is found. */
   files: string[];
+  /**
+   * By a file of `files` a reply named by a relative path, the other places
+   * it may be, the likeliest first (link-places): where the agent's shell
+   * went. The card is of the first found, when the file is not.
+   */
+  elsewhere?: Record<string, string[]>;
   images: GivenImage[];
 }
 
@@ -689,6 +701,7 @@ export function answerExtras(
 ): Map<ChatItem, AnswerExtras> {
   const out = new Map<ChatItem, AnswerExtras>();
   const touched = touchedFiles(tools, cwd);
+  const places = linkPlaceIndex(tools, cwd);
   let turn: ChatItem[] = [];
   const close = () => {
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
@@ -724,9 +737,12 @@ export function answerExtras(
       if (result.kind === "file") named.push(result.target);
     }
     const files: string[] = [];
+    const elsewhere: Record<string, string[]> = {};
     for (const target of named) {
-      const path = resolveFilePath(target, cwd);
-      if (path && !shown.has(path) && !files.includes(path)) files.push(path);
+      const [path, ...others] = linkPlaces(target, places).map((place) => place.path);
+      if (!path || shown.has(path) || files.includes(path)) continue;
+      files.push(path);
+      if (others.length > 0) elsewhere[path] = others;
     }
     const images = given
       .filter(
@@ -734,8 +750,11 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
+      const picked = files.slice(0, MAX_ANSWER_CANDIDATES);
+      const others = Object.entries(elsewhere).filter(([path]) => picked.includes(path));
       out.set(answer, {
-        files: files.slice(0, MAX_ANSWER_CANDIDATES),
+        files: picked,
+        ...(others.length > 0 ? { elsewhere: Object.fromEntries(others) } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }
@@ -763,9 +782,10 @@ export const MAX_OUTSIDE_DIRS = 200;
 
 /**
  * The files outside the workspace (`root`) that a session names: the ones
- * its tools took, its replies point at, and `looked` (opened from the tab
- * otherwise). An HTML file's folder comes too, unless it holds the
- * workspace, as the home folder does.
+ * its tools took, its replies point at (a relative path at each place it
+ * may name, link-places), and `looked` (opened from the tab otherwise). An
+ * HTML file's folder comes too, unless it holds the workspace, as the home
+ * folder does.
  */
 export function outsideLinksOf(
   items: ChatItem[],
@@ -784,8 +804,10 @@ export function outsideLinksOf(
       if (abs) named.add(abs);
     }
   }
-  for (const file of resultFiles(resultsOf(items, {}, cwd, touchedFiles(tools, cwd)), cwd)) {
-    named.add(file);
+  const places = linkPlaceIndex(tools, cwd);
+  for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
+    if (result.kind !== "file") continue;
+    for (const place of linkPlaces(result.target, places)) named.add(place.path);
   }
   const files = [...named].filter((file) => !isUnder(file, root));
   const dirs = new Set<string>();

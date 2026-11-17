@@ -17,18 +17,18 @@ import {
 } from "../../services/chat/controller";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
   fileKind,
   isLocalAddress,
   isUnder,
   type LineAt,
-  resolveFileLink,
 } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import {
-  fileLinkTarget,
+  followFileLink,
   openBrowserBeside,
   openFileBeside,
   revealTabById,
@@ -371,10 +371,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     const cwd = props.cwd;
     // Wide enough to share with a new group beside it.
     const split = () => latest.current.place === "beside";
-    /** The file a link names, and where in it, once it is known which file that is. */
+    /**
+     * The file a link names, and where in it, once it is known which file
+     * that is: from the tab's folder, or from where the agent's shell went.
+     */
     const follow = (target: string, then: (link: FileLink) => void) => {
-      const link = resolveFileLink(target, cwd);
-      if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
+      const { state, rootPath } = latest.current;
+      const { history, model } = state;
+      const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+      void followFileLink(workspaceId, rootPath, target, linkPlaceIndex(tools, cwd)).then(
+        (link) => link && then(link),
+      );
     };
     /** Lets the previews read a file outside the workspace the tab grants none of yet. */
     const grant = (path: string) => {
