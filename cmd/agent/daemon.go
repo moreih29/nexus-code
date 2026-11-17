@@ -2,7 +2,7 @@
 
 // daemon.go implements the `agent --daemon <rootPath>` execution path.
 //
-// The daemon detaches from the SSH session (setsid + SIGHUP ignore), acquires
+// The daemon detaches from the SSH session (setsid + SIGHUP caught), acquires
 // a workspace-scoped flock, binds a Unix socket, and runs the NDJSON server
 // loop per connected dialer. Its stderr is redirected to run/<wsId>.log so
 // boot failures remain diagnosable after the controlling terminal is gone.
@@ -100,6 +100,23 @@ const shutdownReplyDelay = 100 * time.Millisecond
 // the log is truncated rather than rotated — see agentrun.CapLogSize.
 const maxRunLogBytes = 1 << 20
 
+// keepHangupsAndInterrupts keeps the daemon alive through SIGHUP and SIGINT
+// without passing either on. A SIGHUP that still reaches it after setsid
+// must not end it, and the bootstrap's `( agent --daemon … & )` starts it
+// with SIGINT ignored. An ignored signal stays ignored across exec, so every
+// shell and program the daemon started ignored them too: a closed terminal
+// hangs up its programs with SIGHUP, and they ran on (nvtop spinning a CPU
+// with its terminal gone). A caught signal goes back to its default in what
+// the daemon starts, so it catches both and drops them.
+func keepHangupsAndInterrupts() {
+	dropped := make(chan os.Signal, 1)
+	signal.Notify(dropped, syscall.SIGHUP, syscall.SIGINT)
+	go func() {
+		for range dropped {
+		}
+	}()
+}
+
 // runDaemon is the `agent --daemon <root>` entry point. It never returns —
 // the process exits via cleanupAndExit, the idle watchdog, or a fatal error.
 func runDaemon(root string) {
@@ -108,14 +125,12 @@ func runDaemon(root string) {
 	// session leader and process group leader, cutting the tie to sshd.
 	// syscall.Setsid() is the portable Go wrapper (linux + darwin); EPERM
 	// means we are already a session leader, which is harmless.
-	// signal.Ignore(SIGHUP) adds belt-and-suspenders: even if a SIGHUP is
-	// somehow delivered it will not kill the daemon.
 	if _, err := syscall.Setsid(); err != nil && err != syscall.EPERM {
 		// Only truly unexpected errors are worth noting; EPERM is the normal
 		// "already a session leader" result in some container runtimes.
 		_ = err
 	}
-	signal.Ignore(syscall.SIGHUP)
+	keepHangupsAndInterrupts()
 
 	// Step 2: resolve per-workspace runtime file paths.
 	paths, err := agentrun.For(root, proto.ServerVersion)
