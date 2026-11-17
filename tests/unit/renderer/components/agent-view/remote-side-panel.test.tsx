@@ -201,12 +201,12 @@ describe("another computer's chat's side panel", () => {
     const titles = [
       "Environment",
       "Context",
+      "Usage",
       "To-dos",
       "Tasks",
       "Agents",
       "Results",
       "Changed files",
-      "Usage",
       "MCP",
     ];
     const at = titles.map((title) => html.indexOf(`>${title}<`));
