@@ -58,7 +58,7 @@ import { useChatFontStyle } from "../../state/stores/chat-font";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
-import { AgentStrip } from "../chat/agent-strip";
+import { AgentStrip, ShownState } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
@@ -791,6 +791,7 @@ function RemoteChatView({
           }
         : {})}
       {...(canFork ? { onForkSession: () => forkFrom.current() } : {})}
+      {...(actions.onBackground ? { onBackground: actions.onBackground } : {})}
       reveal={panelAsk}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
@@ -848,6 +849,7 @@ function RemoteChatView({
                         <span className="min-w-0 truncate text-muted-foreground">
                           {shown.description}
                         </span>
+                        <ShownState agent={shown} />
                       </div>
                     )}
                   </>

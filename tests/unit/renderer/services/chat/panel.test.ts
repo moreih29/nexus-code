@@ -17,7 +17,9 @@ import {
   jobOutputFile,
   jobOutputFiles,
   jobsOf,
+  joinAgents,
   outsideLinksOf,
+  pastAgentsOf,
   resultsOf,
   sentFilesOf,
   todosOf,
@@ -718,5 +720,94 @@ describe("distinctResults", () => {
       { kind: "file", target: "./src/a.ts", created: true, guessed: false },
       { kind: "url", target: "https://example.com/x", created: false, guessed: false },
     ]);
+  });
+});
+
+describe("the subagents of a history", () => {
+  // A transcript's calls, which no task tells: a subagent that ran in its
+  // turn, one sent to the background whose end came as news, and one the
+  // program left running when it ended.
+  const history: ChatModel = {
+    ...emptyModel(),
+    items: [
+      {
+        kind: "assistant",
+        key: "a1",
+        messageId: "m1",
+        blocks: [
+          { type: "tool", toolUseId: "sync" },
+          { type: "tool", toolUseId: "async" },
+          { type: "tool", toolUseId: "cut" },
+        ],
+        at: 1_000,
+      },
+      {
+        kind: "task_end",
+        key: "te-t1",
+        taskId: "t1",
+        status: "failed",
+        toolUseId: "async",
+        at: 9_000,
+      },
+    ],
+    tools: {
+      sync: {
+        id: "sync",
+        name: "Agent",
+        input: { description: "Plan it", subagent_type: "Plan" },
+        status: "done",
+        parentToolUseId: null,
+        result: {
+          text: "",
+          isError: false,
+          images: [],
+          structured: { status: "completed", agentId: "a1", totalDurationMs: 4_000 },
+        },
+      },
+      async: {
+        id: "async",
+        name: "Agent",
+        input: { description: "Look around", run_in_background: true },
+        status: "done",
+        parentToolUseId: null,
+        result: {
+          text: "",
+          isError: false,
+          images: [],
+          structured: { status: "async_launched", agentId: "a2" },
+        },
+      },
+      cut: {
+        id: "cut",
+        name: "Agent",
+        input: { description: "Cut short" },
+        status: "running",
+        parentToolUseId: null,
+      },
+    },
+  };
+
+  test("take their times from the conversation, and how they ended from its news", () => {
+    const rows = pastAgentsOf(history);
+    expect(rows.map((row) => [row.toolUseId, row.status, row.startedAt, row.endedAt])).toEqual([
+      ["sync", "completed", 1_000, 5_000],
+      ["async", "failed", 1_000, 9_000],
+      // Its program ended: it runs no more.
+      ["cut", "stopped", 1_000, undefined],
+    ]);
+    expect(rows[0]).toMatchObject({ description: "Plan it", subagentType: "Plan" });
+  });
+
+  test("come before the program's own and its runs, each once", () => {
+    const past = pastAgentsOf(history);
+    const live = agentsOf({ ...emptyModel(), tools: { sync: history.tools.sync } });
+    const runs = [{ ...live[0], toolUseId: "print:r" }];
+    expect(joinAgents(past, live, runs).map((row) => row.toolUseId)).toEqual([
+      "async",
+      "cut",
+      "sync",
+      "print:r",
+    ]);
+    expect(joinAgents([], live, [])).toBe(live);
   });
 });

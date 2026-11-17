@@ -42,7 +42,9 @@ import {
   imagesOf,
   jobOutputFiles,
   jobsOf,
+  joinAgents,
   outsideLinksOf,
+  pastAgentsOf,
 } from "../../services/chat/panel";
 import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import {
@@ -79,7 +81,7 @@ import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
-import { AgentStrip } from "./agent-strip";
+import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
@@ -228,10 +230,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       canFork,
       onRewind: (item) => setRewinding(item),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
-      onBackground: (toolUseId) =>
-        controller
-          .backgroundTool(toolUseId)
-          .catch((err: Error) => showToast({ kind: "error", message: err.message })),
+      onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       taskShower: (item) => taskShower.current(item),
     }),
@@ -302,12 +301,46 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // session started; input always goes to main.
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
-  const agents = useMemo(() => [...agentsOf(state.model), ...runRows], [state.model, runRows]);
+  // Its history's subagents too, which ended: a conversation resumed shows them.
+  const pastModel = state.history;
+  const { tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls } = state.model;
+  const pastAgents = useMemo(() => (pastModel ? pastAgentsOf(pastModel) : []), [pastModel]);
+  const liveAgents = useMemo(
+    () => agentsOf({ tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls }),
+    [agentTasks, agentTools, agentItems, agentCalls],
+  );
+  const agents = useMemo(
+    () => joinAgents(pastAgents, liveAgents, runRows),
+    [pastAgents, liveAgents, runRows],
+  );
   const [shownId, setShownId] = useState<string | null>(null);
   const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
   useEffect(() => {
     if (shownId && !shown) setShownId(null);
   }, [shownId, shown]);
+  // What the shown subagent wrote: its messages as the program's log has
+  // them, else as the history read from its file.
+  const pastAgentItems = pastModel?.agentItems;
+  const shownWrote = shown
+    ? (agentItems[shown.toolUseId] ?? pastAgentItems?.[shown.toolUseId])
+    : undefined;
+  const shownTranscript = useMemo(
+    () =>
+      shown && !shown.run
+        ? agentTranscript(
+            { agentItems: shownWrote ? { [shown.toolUseId]: shownWrote } : {} },
+            shown,
+          )
+        : undefined,
+    [shown, shownWrote],
+  );
+  // One that ended with none of its messages here, as a conversation read
+  // from its transcript has it, is read from the file Claude Code keeps it in.
+  const unread =
+    shown && !shown.run && shown.status !== "running" && !shownWrote ? shown.toolUseId : null;
+  useEffect(() => {
+    if (unread) void controller.loadSubagent(unread);
+  }, [controller, unread]);
   const showAgent = (toolUseId: string | null) => {
     setShownId(toolUseId);
     if (place !== "beside") setDrawerOpen(false);
@@ -520,6 +553,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // composer; each call runs what the latest render made.
   const stable = useStableHandlers({
     stopRun: (agentId: string) => void stopPrintRun(workspaceId, tabId, agentId),
+    background: (toolUseId: string) => backgroundCall(controller, toolUseId),
     showAgent,
     showCall,
     forkSession,
@@ -534,10 +568,11 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       workspaceId={workspaceId}
       cwd={props.cwd}
       rootPath={rootPath}
-      runs={runRows}
+      agents={agents}
       onStopRun={stable.stopRun}
       onShowAgent={stable.showAgent}
       onShowCall={stable.showCall}
+      onBackground={stable.background}
       onForkSession={stable.forkSession}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
@@ -605,6 +640,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                   <span className="min-w-0 truncate text-muted-foreground">
                     {shown.description}
                   </span>
+                  <ShownState agent={shown} />
                 </div>
               )}
             </>
@@ -634,7 +670,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               history={state.history}
               model={state.model}
               actions={shown ? undefined : actions}
-              items={shown ? agentTranscript(state.model, shown) : undefined}
+              items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
@@ -809,6 +845,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     </div>
   );
   return <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>;
+}
+
+/** Sends a call the turn waits on to the background, as Ctrl+B does in the terminal. */
+function backgroundCall(controller: ChatController, toolUseId: string): void {
+  controller
+    .backgroundTool(toolUseId)
+    .catch((err: Error) => showToast({ kind: "error", message: err.message }));
 }
 
 /**
