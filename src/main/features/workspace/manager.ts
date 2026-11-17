@@ -68,8 +68,14 @@ import { WorkspaceContext } from "./context";
 
 const log = createLogger("workspace");
 
-/** How long a removed SSH workspace's agent has to answer agent.shutdown. */
-const SSH_AGENT_SHUTDOWN_TIMEOUT_MS = 2_000;
+/**
+ * How long a removed SSH workspace's agent has to answer agent.shutdown,
+ * asked again included: one being reconnected to is asked once the link is
+ * back, as long as the channel's reconnect queue keeps a call.
+ */
+const SSH_AGENT_SHUTDOWN_TIMEOUT_MS = 30_000;
+/** The pause before agent.shutdown is asked again, after the link dropped under it. */
+const SSH_AGENT_SHUTDOWN_RETRY_MS = 250;
 /**
  * How long another agent on the host has to stop a removed workspace's
  * daemon; it dials that daemon and waits for its own agent.shutdown reply.
@@ -195,18 +201,35 @@ function isHookInfo(value: unknown): value is HookInfo {
  * Asks a removed workspace's remote agent to exit, then closes its channel
  * and connection. Closing them alone leaves the daemon holding the
  * workspace's terminals and language servers until its reattach grace ends.
+ * A channel that is reconnecting holds the request until the link is back;
+ * one the link drops under (an unstable link's ssh giving up) is asked
+ * again. Resolves whether the agent answered.
  */
 async function stopSshAgent(
   channel: SshChannel,
   bootstrap: EnsureRemoteAgentResult | undefined,
-): Promise<void> {
-  await channel
-    .call("agent.shutdown", undefined, { timeoutMs: SSH_AGENT_SHUTDOWN_TIMEOUT_MS })
-    .catch((error: unknown) => {
-      log.warn(`agent.shutdown failed: ${(error as Error).message}`);
-    });
+): Promise<boolean> {
+  const deadline = Date.now() + SSH_AGENT_SHUTDOWN_TIMEOUT_MS;
+  let stopped = false;
+  for (;;) {
+    try {
+      await channel.call("agent.shutdown", undefined, {
+        timeoutMs: Math.max(1, deadline - Date.now()),
+      });
+      stopped = true;
+      break;
+    } catch (error) {
+      const retryable = (error as { retryable?: unknown }).retryable === true;
+      if (!retryable || Date.now() + SSH_AGENT_SHUTDOWN_RETRY_MS >= deadline) {
+        log.warn(`agent.shutdown failed: ${(error as Error).message}`);
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SSH_AGENT_SHUTDOWN_RETRY_MS));
+    }
+  }
   channel.dispose();
   bootstrap?.dispose?.();
+  return stopped;
 }
 
 /**
@@ -599,7 +622,7 @@ export class WorkspaceManager {
    *
    * - Local workspace: local `~/.nexus-code/shim/<workspaceId>` (= `shimDir()`).
    *   The shim files were already written by `writeShimFiles()` when the workspace booted.
-   * - SSH workspace:  the absolute path `<remoteHome>/.nexus-code/shim/<workspaceId>` that
+   * - SSH workspace:  the absolute path `<remoteHome>/.nexus-code/shim/shared-<hash>` that
    *   bootstrap uploaded to the remote (`bootstrap.remoteShimDir`). Null when the bootstrap
    *   result lacks it (a missing workspaceId or a failed upload); applying the shim must be skipped.
    * - No workspace: null
@@ -1059,14 +1082,21 @@ export class WorkspaceManager {
     // Step 1c — a removed workspace's remote agent will not be dialed again,
     // so it is asked to exit. Its channel stays open for that, past the
     // provider teardown in ctx.close(), and after the daemons it is
-    // stopping for others. One not connected is stopped by another agent
-    // on its host, if one is connected.
+    // stopping for others. One reconnecting is asked once its link is back.
+    // One not connected, or whose agent cannot be reached, is stopped by
+    // another agent on its host, if one is connected.
     const sshChannel = this.sshChannels.get(id);
     const status = this.connectionStatuses.get(id);
-    if (sshChannel && (status === "connected" || status === "unstable")) {
+    if (
+      sshChannel &&
+      (status === "connected" || status === "unstable" || status === "reconnecting")
+    ) {
       this.stoppingSshChannels.add(sshChannel);
       const bootstrap = this.sshBootstraps.get(id);
-      const stop = () => stopSshAgent(sshChannel, bootstrap);
+      const meta = ctx.getMeta();
+      const stop = async () => {
+        if (!(await stopSshAgent(sshChannel, bootstrap))) this.stopDaemonThroughPeer(meta);
+      };
       const pending = this.peerDaemonStops.get(sshChannel);
       void (pending ? pending.then(stop) : stop()).finally(() => {
         this.stoppingSshChannels.delete(sshChannel);
@@ -1413,9 +1443,9 @@ export class WorkspaceManager {
                 remotePath: location.remotePath,
                 cachedRemoteArch: location.remoteArch,
                 controlPath: adoptedMaster?.controlPath,
-                // Pass workspaceId so the bootstrap also uploads the per-workspace
-                // shim rc files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's
-                // `~/.nexus-code/shim/<workspaceId>/`, making them available to the
+                // Pass workspaceId so the bootstrap also uploads the shim rc
+                // files (`.zshrc`/`.zshenv`/`bashrc`) into the remote's shared
+                // `~/.nexus-code/shim/shared-<hash>/`, making them available to the
                 // remote PTY's zsh `ZDOTDIR` / bash `--rcfile` activation.
                 workspaceId: meta.id,
               },

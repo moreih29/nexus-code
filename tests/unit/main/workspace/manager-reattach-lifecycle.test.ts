@@ -36,6 +36,9 @@ const { GlobalStorage } = await import("../../../../src/main/infra/storage/globa
 const { WorkspaceStorage } = await import("../../../../src/main/infra/storage/workspace-storage");
 const { StateService } = await import("../../../../src/main/infra/storage/state-service");
 const { WorkspaceManager } = await import("../../../../src/main/features/workspace/manager");
+const { createAgentReconnectError } = await import(
+  "../../../../src/main/infra/agent/channel/reconnecting-process-channel"
+);
 
 // ---------------------------------------------------------------------------
 // Minimal channel stub
@@ -741,6 +744,8 @@ describe("removing an SSH workspace", () => {
     private answer: () => void = () => {};
 
     private answerStop: () => void = () => {};
+    /** What the next agent.shutdown calls fail with, one each. */
+    readonly shutdownFailures: Error[] = [];
 
     override async call(method: string, params?: unknown): Promise<unknown> {
       if (method === "agent.stopDaemon") {
@@ -752,6 +757,8 @@ describe("removing an SSH workspace", () => {
       }
       if (method !== "agent.shutdown") return super.call(method, params);
       this.events.push("agent.shutdown");
+      const failure = this.shutdownFailures.shift();
+      if (failure) throw failure;
       await new Promise<void>((resolve) => {
         this.answer = resolve;
       });
@@ -806,13 +813,52 @@ describe("removing an SSH workspace", () => {
     globalDb.close();
   });
 
-  test("closes a channel that is not connected without asking", async () => {
+  test("asks an agent it is reconnecting to, once the call gets through", async () => {
     const { channel, manager, globalDb, meta } = await bootSsh();
     channel.emitLifecycle({ type: "reconnecting" });
 
+    // The channel holds the call until the agent is back; closing it now
+    // would leave the daemon running the terminals for its whole grace.
     manager.remove(meta.id);
+    expect(channel.events).toEqual(["agent.shutdown"]);
 
-    expect(channel.events).toEqual(["dispose", "bootstrap.dispose"]);
+    channel.answerShutdown();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual(["agent.shutdown", "dispose", "bootstrap.dispose"]);
+    globalDb.close();
+  });
+
+  test("asks again when the link drops under the request", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    channel.emitLifecycle({ type: "degraded" });
+    channel.shutdownFailures.push(createAgentReconnectError("agent.reconnect-in-progress"));
+
+    manager.remove(meta.id);
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(channel.events).toEqual(["agent.shutdown", "agent.shutdown"]);
+
+    channel.answerShutdown();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(channel.events).toEqual([
+      "agent.shutdown",
+      "agent.shutdown",
+      "dispose",
+      "bootstrap.dispose",
+    ]);
+    globalDb.close();
+  });
+
+  test("closes a channel whose agent cannot be reached without asking again", async () => {
+    const { channel, manager, globalDb, meta } = await bootSsh();
+    channel.emitLifecycle({ type: "reconnecting" });
+    channel.shutdownFailures.push(
+      Object.assign(new Error("SSH authentication failed"), { code: "ssh.auth-failed" }),
+    );
+
+    manager.remove(meta.id);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(channel.events).toEqual(["agent.shutdown", "dispose", "bootstrap.dispose"]);
     globalDb.close();
   });
 
@@ -842,6 +888,46 @@ describe("removing an SSH workspace", () => {
     manager.remove(task.id);
 
     expect(channel.events).toEqual(["agent.stopDaemon /home/user/worktrees/fix"]);
+    globalDb.close();
+  });
+
+  test("has a task's daemon stopped through its parent when its own agent cannot be reached", async () => {
+    const parent = new ShutdownChannel();
+    const taskChannel = new ShutdownChannel();
+    const channels = [parent, taskChannel];
+    const { manager, globalDb } = makeManager({
+      sshBootstrap: mock(async () => ({
+        remoteCommand: "exec agent",
+        remoteHome: "/home/user",
+        platform: { os: "linux" as const, arch: "amd64" as const },
+        uploaded: false,
+        remoteBinDir: "/home/user/.nexus-code/bin",
+      })),
+      sshChannelFactory: mock(() => {
+        const next = channels.shift();
+        if (!next) throw new Error("no more channels");
+        return next;
+      }),
+    });
+    const meta = makeSshMeta(manager);
+    const parentBoot = manager.getAgentChannel(meta.id);
+    parent.resolveChannel();
+    await parentBoot;
+    const task = makeTask(manager, meta.id, "/home/user/worktrees/fix");
+    const taskBoot = manager.getAgentChannel(task.id);
+    taskChannel.resolveChannel();
+    await taskBoot;
+
+    // The task's own link is down, for good: its agent never answers.
+    taskChannel.emitLifecycle({ type: "reconnecting" });
+    taskChannel.shutdownFailures.push(
+      Object.assign(new Error("SSH authentication failed"), { code: "ssh.auth-failed" }),
+    );
+    manager.remove(task.id);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(taskChannel.events).toEqual(["agent.shutdown", "dispose"]);
+    expect(parent.events).toEqual(["agent.stopDaemon /home/user/worktrees/fix"]);
     globalDb.close();
   });
 
