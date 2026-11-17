@@ -30,7 +30,7 @@ import type {
   TaskInfo,
   ToolCall,
 } from "../chat/model";
-import { jobOutputFile } from "../chat/panel";
+import { AGENT_TOOLS, jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
 import type { ChatTabState } from "../chat/store";
@@ -372,4 +372,43 @@ export function chatPageOf(
       [...window.agents].map(([id, items]) => [id, items.map(viewAssistantOf)]),
     ),
   };
+}
+
+/** How long a page read waits for the subagents it names to be read, before it goes without them. */
+export const SUBAGENTS_WAIT_MS = 3_000;
+
+/**
+ * The subagents a page names that it has no messages of: a conversation
+ * read back from its transcript has none, as Claude Code keeps a
+ * subagent's messages in a file of its own.
+ */
+export function unreadSubagentsOf(page: ChatPage): string[] {
+  return Object.entries(page.tools).flatMap(([id, tool]) =>
+    tool.parentToolUseId === null && AGENT_TOOLS.has(tool.name) && !page.agentItems[id] ? [id] : [],
+  );
+}
+
+/**
+ * A page with the messages of the subagents it names: `read` again once
+ * `load` has read those it has none of, or once `waitMs` passed, as another
+ * device opens a subagent that ended from the page it read. One that names
+ * none it lacks is read once.
+ */
+export async function pageWithSubagents(
+  read: () => ChatPage,
+  load: (toolUseIds: string[]) => Promise<unknown>,
+  waitMs = SUBAGENTS_WAIT_MS,
+): Promise<ChatPage> {
+  const page = read();
+  const unread = unreadSubagentsOf(page);
+  if (unread.length === 0) return page;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    load(unread).catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, waitMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  return read();
 }
