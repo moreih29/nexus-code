@@ -5,6 +5,13 @@ import type { PtyHostHandle } from "./types";
 
 const log = createLogger("agent-host");
 
+/**
+ * How long a kill sent to bring the agent's sessions in line waits for the
+ * session's exit before the tab's next spawn is sent: the agent answers the
+ * kill before the session is gone, and a spawn sent then attaches to it.
+ */
+const KILL_EXIT_WAIT_MS = 3_000;
+
 type EventCallback = (args: unknown) => void;
 
 /** pty.spawn result; `attached` is set when the tab's session was already running. */
@@ -101,6 +108,11 @@ class AgentPtyHostHandle implements PtyHostHandle {
   private readonly tabOps = new Map<string, Promise<unknown>>();
   /** Session keys whose spawn is requested and not yet answered. */
   private readonly spawning = new Set<string>();
+  /**
+   * Session keys whose session was killed to bring the agent's sessions in
+   * line, and whose exit is awaited, with what resolves the wait.
+   */
+  private readonly exitWaiters = new Map<string, () => void>();
   private disposed = false;
   private readonly disposeProviderReady: () => void;
 
@@ -212,6 +224,8 @@ class AgentPtyHostHandle implements PtyHostHandle {
     this.sessionsByWorkspace.clear();
     this.heldWorkspaces.clear();
     this.unwanted.clear();
+    for (const resolve of this.exitWaiters.values()) resolve();
+    this.exitWaiters.clear();
     this.listeners.clear();
   }
 
@@ -226,6 +240,10 @@ class AgentPtyHostHandle implements PtyHostHandle {
    *
    * The spawn follows the tab's kill in flight, if any, and a kill asked for
    * meanwhile follows it.
+   *
+   * A spawn that fails leaves the tab unwanted if it was (the agent may
+   * still run its old session) or if pty.spawn was sent (the agent may have
+   * started it all the same).
    */
   private spawn(
     args: unknown,
@@ -233,18 +251,25 @@ class AgentPtyHostHandle implements PtyHostHandle {
     tabId: string,
   ): Promise<{ pid: number; attached?: boolean }> {
     const key = sessionKey(workspaceId, tabId);
+    const wasUnwanted = this.isUnwanted(workspaceId, tabId);
     // Opened again (Reopen on an ended tab): its session is wanted.
     this.settleUnwanted(workspaceId, tabId);
     this.spawning.add(key);
+    let sent = false;
     const run = this.runTabOp(key, async () => {
       // Closed before its turn came: start nothing.
-      if (this.unwanted.get(workspaceId)?.has(tabId)) {
+      if (this.isUnwanted(workspaceId, tabId)) {
         throw new Error("terminal closed before it started");
       }
       const channel = await this.channelForWorkspace(workspaceId);
+      // Or while its agent was being reached.
+      if (this.isUnwanted(workspaceId, tabId)) {
+        throw new Error("terminal closed before it started");
+      }
       this.rememberSession(workspaceId, tabId);
       let result: AgentSpawnResult;
       try {
+        sent = true;
         result = await channel.call<AgentSpawnResult>("pty.spawn", args);
       } catch (error) {
         this.deleteSession(workspaceId, tabId);
@@ -260,7 +285,10 @@ class AgentPtyHostHandle implements PtyHostHandle {
     });
     void run.then(
       () => this.spawning.delete(key),
-      () => this.spawning.delete(key),
+      () => {
+        this.spawning.delete(key);
+        if (wasUnwanted || sent) this.markUnwanted(workspaceId, tabId);
+      },
     );
     return run;
   }
@@ -283,22 +311,52 @@ class AgentPtyHostHandle implements PtyHostHandle {
 
   /**
    * Sends one pty.kill for an unwanted tab, through the channel `getChannel`
-   * gives. Its success settles the tab; its failure leaves it unwanted.
+   * gives. Its success settles the tab, as does a workspace that is gone;
+   * its failure leaves it unwanted. Resolves whether the agent killed it.
    */
   private async sendKill(
     workspaceId: string,
     tabId: string,
     getChannel: () => Promise<AgentChannel | null>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       const channel = await getChannel();
-      if (!channel) return;
+      if (!channel) {
+        this.settleUnwanted(workspaceId, tabId);
+        return false;
+      }
       await channel.call("pty.kill", { workspaceId, tabId });
       this.settleUnwanted(workspaceId, tabId);
+      return true;
     } catch (err) {
       log.warn(
         `pty.kill failed for ${workspaceId}:${tabId}; sent again once the agent is reached: ${(err as Error).message}`,
       );
+      return false;
+    }
+  }
+
+  /**
+   * Kills a session the agent listed and no tab wants, and waits (a while)
+   * for its exit: a Reopen of its tab asked for meanwhile spawns after it,
+   * and gets a new session rather than the dying one.
+   */
+  private async killListedSession(
+    workspaceId: string,
+    tabId: string,
+    channel: AgentChannel,
+  ): Promise<void> {
+    const key = sessionKey(workspaceId, tabId);
+    let timer: NodeJS.Timeout | undefined;
+    const exited = new Promise<void>((resolve) => {
+      this.exitWaiters.set(key, resolve);
+      timer = setTimeout(resolve, KILL_EXIT_WAIT_MS);
+    });
+    try {
+      if (await this.sendKill(workspaceId, tabId, async () => channel)) await exited;
+    } finally {
+      clearTimeout(timer);
+      this.exitWaiters.delete(key);
     }
   }
 
@@ -318,6 +376,10 @@ class AgentPtyHostHandle implements PtyHostHandle {
       if (this.tabOps.get(key) === settled) this.tabOps.delete(key);
     });
     return run;
+  }
+
+  private isUnwanted(workspaceId: string, tabId: string): boolean {
+    return this.unwanted.get(workspaceId)?.has(tabId) === true;
   }
 
   /** Notes that no tab wants the session the agent may run for `tabId`. */
@@ -540,8 +602,16 @@ class AgentPtyHostHandle implements PtyHostHandle {
   private handleExit(payload: unknown): void {
     const parsed = parseAgentExitPayload(payload);
     if (!parsed) return;
+    const key = sessionKey(parsed.workspaceId, parsed.tabId);
     // The agent no longer runs it, killed or ended on its own.
     this.settleUnwanted(parsed.workspaceId, parsed.tabId);
+    const waiter = this.exitWaiters.get(key);
+    if (waiter) {
+      waiter();
+      // The exit of a session killed while its tab, shown as ended already,
+      // starts a new one: told, the tab would show its new terminal ended.
+      if (this.spawning.has(key) && !this.sessions.has(key)) return;
+    }
     this.emitExit(parsed.workspaceId, parsed.tabId, parsed.code);
   }
 
@@ -691,18 +761,29 @@ class AgentPtyHostHandle implements PtyHostHandle {
         (result.sessions ?? []).filter((s) => s.workspaceId === workspaceId).map((s) => s.tabId),
       );
     } catch (err) {
+      const message = (err as Error).message;
       if (held.size === 0) {
         log.warn(
-          `session.list failed for workspace ${workspaceId}; sessions no tab wants are killed once it answers: ${(err as Error).message}`,
+          `session.list failed for workspace ${workspaceId}; sessions no tab wants are killed once it answers: ${message}`,
+        );
+        return;
+      }
+      // The link dropped again under it: the new hold has the held tabs.
+      if (this.heldWorkspaces.has(workspaceId)) {
+        log.warn(
+          `session.list failed for workspace ${workspaceId} after reattach; tabs held again: ${message}`,
         );
         return;
       }
       log.warn(
-        `session.list failed for workspace ${workspaceId} after reattach; killing held sessions: ${(err as Error).message}`,
+        `session.list failed for workspace ${workspaceId} after reattach; ending held sessions: ${message}`,
       );
-      // Fall back to killing all held sessions.
+      // The tabs show their sessions ended. The agent may well run them
+      // still, but no answer of it says so: one a tab reopens is attached
+      // to, not killed.
       for (const tabId of held) {
-        if (this.sessions.has(sessionKey(workspaceId, tabId))) this.endSession(workspaceId, tabId);
+        if (this.sessions.has(sessionKey(workspaceId, tabId)))
+          this.emitExit(workspaceId, tabId, null);
       }
       return;
     }
@@ -714,7 +795,9 @@ class AgentPtyHostHandle implements PtyHostHandle {
   /**
    * After an epoch-match reattach, replays each held tab that is still
    * alive. Tabs no longer present in session.list receive pty.exit. A held
-   * tab closed meanwhile is left to the kill.
+   * tab closed meanwhile is left to the kill. One whose spawn waited out
+   * the outage is left to that spawn, which the agent may answer after the
+   * list.
    */
   private restoreHeldSessions(
     workspaceId: string,
@@ -723,7 +806,12 @@ class AgentPtyHostHandle implements PtyHostHandle {
     aliveTabs: ReadonlySet<string>,
   ): void {
     for (const tabId of heldTabIds) {
-      if (!this.sessions.has(sessionKey(workspaceId, tabId))) continue;
+      const key = sessionKey(workspaceId, tabId);
+      if (!this.sessions.has(key)) continue;
+      if (this.spawning.has(key)) {
+        this.emit("restored", { workspaceId, tabId, withReplay: false });
+        continue;
+      }
       if (aliveTabs.has(tabId)) {
         // Session is alive on the daemon: inject \x1bc into the data stream
         // BEFORE emitting restored and requesting replay. Because reset and
@@ -736,7 +824,6 @@ class AgentPtyHostHandle implements PtyHostHandle {
         this.emit("data", { workspaceId, tabId, chunk: "\x1bc" });
         this.emit("restored", { workspaceId, tabId, withReplay: true });
         // Reset the session's decoder so replay bytes decode cleanly.
-        const key = sessionKey(workspaceId, tabId);
         const session = this.sessions.get(key);
         if (session) {
           session.decoder = new TextDecoder("utf-8");
@@ -782,10 +869,10 @@ class AgentPtyHostHandle implements PtyHostHandle {
       const key = sessionKey(workspaceId, tabId);
       if (this.sessions.has(key) || this.spawning.has(key)) continue;
       const tabless = known !== undefined && !known.has(tabId);
-      if (!tabless && !this.unwanted.get(workspaceId)?.has(tabId)) continue;
+      if (!tabless && !this.isUnwanted(workspaceId, tabId)) continue;
       log.info(`killing ${workspaceId}:${tabId}, a session no tab wants`);
       this.markUnwanted(workspaceId, tabId);
-      void this.runTabOp(key, () => this.sendKill(workspaceId, tabId, async () => channel));
+      void this.runTabOp(key, () => this.killListedSession(workspaceId, tabId, channel));
     }
   }
 

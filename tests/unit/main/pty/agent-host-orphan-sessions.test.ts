@@ -32,6 +32,14 @@ class FakeDaemonChannel implements AgentChannel {
   killError: Error | null = null;
   /** When set, pty.spawn answers only once it resolves. */
   spawnGate: Promise<void> | null = null;
+  /** When set, pty.spawn fails with it; `spawnStarts` says whether the shell started. */
+  spawnError: Error | null = null;
+  spawnStarts = false;
+  /** When set, a killed session exits only once it resolves. */
+  exitGate: Promise<void> | null = null;
+  /** When set, session.list fails with it, once `onList` ran (a link that drops). */
+  listError: Error | null = null;
+  onList: (() => void) | null = null;
   readonly order: string[] = [];
   private readonly eventListeners = new Map<string, Set<ChannelEventCallback>>();
   private readonly lifecycleListeners = new Set<ChannelLifecycleCallback>();
@@ -43,6 +51,10 @@ class FakeDaemonChannel implements AgentChannel {
       case "pty.spawn": {
         this.order.push(`spawn sent ${tabId}`);
         if (this.spawnGate) await this.spawnGate;
+        if (this.spawnError) {
+          if (tabId && this.spawnStarts) this.sessions.add(tabId);
+          throw this.spawnError;
+        }
         const attached = tabId !== undefined && this.sessions.has(tabId);
         if (tabId) this.sessions.add(tabId);
         this.order.push(`spawn answered ${tabId}`);
@@ -51,15 +63,30 @@ class FakeDaemonChannel implements AgentChannel {
       case "pty.kill":
         this.order.push(`kill sent ${tabId}`);
         if (this.killError) throw this.killError;
-        if (tabId) this.sessions.delete(tabId);
+        // The agent answers the kill before the session is gone, and then
+        // tells its exit.
+        if (tabId && this.sessions.has(tabId)) void this.exitLater(tabId);
         return {} as T;
       case "session.list":
+        if (this.listError) {
+          const error = this.listError;
+          this.listError = null;
+          this.onList?.();
+          throw error;
+        }
         return {
           sessions: Array.from(this.sessions, (id) => ({ workspaceId: WS, tabId: id })),
         } as T;
       default:
         return {} as T;
     }
+  }
+
+  private async exitLater(tabId: string): Promise<void> {
+    await (this.exitGate ?? new Promise<void>((r) => setTimeout(r, 0)));
+    this.sessions.delete(tabId);
+    this.order.push(`exit ${tabId}`);
+    this.emit("pty.exit", { workspaceId: WS, tabId, code: null });
   }
 
   fire(): void {}
@@ -99,11 +126,12 @@ class FakeDaemonChannel implements AgentChannel {
 }
 
 /** A workspace manager whose channel can be replaced, as a new connection does. */
-function makeManager(first: FakeDaemonChannel) {
+function makeManager(first: FakeDaemonChannel, reached?: () => Promise<void>) {
   let channel = first;
   const readyListeners = new Set<(workspaceId: string) => void>();
   const manager: AgentPtyWorkspaceManager = {
     async getAgentChannel() {
+      await reached?.();
       return channel;
     },
     async tryGetAgentChannel(id) {
@@ -324,6 +352,7 @@ describe("a tab closed while it starts", () => {
       `spawn sent ${TAB_A}`,
       `spawn answered ${TAB_A}`,
       `kill sent ${TAB_A}`,
+      `exit ${TAB_A}`,
     ]);
     expect(channel.sessions.has(TAB_A)).toBe(false);
   });
@@ -347,5 +376,159 @@ describe("a tab closed while it starts", () => {
 
     expect(channel.replays(TAB_A)).toBe(0);
     expect(channel.sessions.has(TAB_A)).toBe(false);
+  });
+});
+
+describe("a held tab", () => {
+  test("is held again, not ended, when the link drops under the session list", async () => {
+    const channel = new FakeDaemonChannel();
+    const host = startAgentPtyHost(makeManager(channel).manager);
+    const exits: Array<{ tabId: string }> = [];
+    const restored: Array<{ tabId: string }> = [];
+    host.on("exit", (a) => exits.push(a as { tabId: string }));
+    host.on("restored", (a) => restored.push(a as { tabId: string }));
+    await host.call("spawn", spawnArgs(TAB_A));
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    // Back, and gone again under session.list: its call fails as the
+    // channel starts reconnecting once more.
+    channel.listError = createAgentReconnectError("agent.reconnect-in-progress");
+    channel.onList = () =>
+      channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    channel.emitLifecycle({ type: "ready" });
+    await settle();
+    channel.emitLifecycle({ type: "ready" });
+    await settle();
+
+    expect(exits).toEqual([]);
+    expect(channel.kills(TAB_A)).toBe(0);
+    expect(channel.sessions.has(TAB_A)).toBe(true);
+    expect(restored.map((r) => r.tabId)).toEqual([TAB_A]);
+    expect(channel.replays(TAB_A)).toBe(1);
+  });
+
+  test("whose spawn waited out the outage is not ended by a list that misses it", async () => {
+    const channel = new FakeDaemonChannel();
+    const host = startAgentPtyHost(makeManager(channel).manager);
+    const exits: Array<{ tabId: string }> = [];
+    host.on("exit", (a) => exits.push(a as { tabId: string }));
+    await host.call("spawn", spawnArgs(TAB_A));
+
+    channel.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    // Opened while reconnecting: its spawn waits in the reconnect queue, and
+    // the agent answers it after it answers the session list.
+    let answerSpawn = () => {};
+    channel.spawnGate = new Promise<void>((resolve) => {
+      answerSpawn = resolve;
+    });
+    const spawning = host.call("spawn", spawnArgs(TAB_B));
+    await settle();
+    channel.emitLifecycle({ type: "ready" });
+    await settle();
+    answerSpawn();
+    await spawning;
+    await settle();
+
+    expect(exits).toEqual([]);
+    expect(channel.kills(TAB_B)).toBe(0);
+    expect(channel.sessions.has(TAB_B)).toBe(true);
+  });
+});
+
+describe("an ended tab reopened", () => {
+  test("while its old session is being killed gets a new session, and is not told the old one exited", async () => {
+    const first = new FakeDaemonChannel();
+    const { manager, connect } = makeManager(first);
+    const host = startAgentPtyHost(manager);
+    await host.call("spawn", spawnArgs(TAB_A));
+    first.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    first.emitLifecycle({ type: "failure", error: new Error("ssh.auth-failed") });
+    host.releaseHeld(WS);
+
+    const second = new FakeDaemonChannel();
+    second.sessions.add(TAB_A);
+    let exitOld = () => {};
+    second.exitGate = new Promise<void>((resolve) => {
+      exitOld = resolve;
+    });
+    connect(second);
+    await settle();
+    expect(second.kills(TAB_A)).toBe(1);
+
+    // Reopen, while the killed session has not exited yet.
+    const exits: Array<{ tabId: string }> = [];
+    host.on("exit", (a) => exits.push(a as { tabId: string }));
+    const reopening = host.call("spawn", spawnArgs(TAB_A));
+    await settle();
+    exitOld();
+    const result = await reopening;
+    await settle();
+
+    expect(result).toEqual({ pid: 1 });
+    expect(second.replays(TAB_A)).toBe(0);
+    expect(exits).toEqual([]);
+    expect(second.sessions.has(TAB_A)).toBe(true);
+  });
+
+  test("whose spawn fails leaves its old session to be killed", async () => {
+    const first = new FakeDaemonChannel();
+    const { manager, connect } = makeManager(first);
+    const host = startAgentPtyHost(manager);
+    await host.call("spawn", spawnArgs(TAB_A));
+    first.emitLifecycle({ type: "reconnecting", cause: null, hadEpoch: true });
+    first.emitLifecycle({ type: "failure", error: new Error("ssh.auth-failed") });
+    host.releaseHeld(WS);
+
+    // The daemon still runs it. Reopen fails, its link dropping again.
+    const second = new FakeDaemonChannel();
+    second.sessions.add(TAB_A);
+    second.spawnError = createAgentReconnectError("agent.reconnect-in-progress");
+    second.killError = createAgentReconnectError("agent.reconnect-in-progress");
+    connect(second);
+    await settle();
+    await host.call("spawn", spawnArgs(TAB_A)).catch(() => {});
+
+    second.killError = null;
+    connect(second);
+    await settle();
+
+    expect(second.sessions.has(TAB_A)).toBe(false);
+  });
+
+  test("a spawn the link dropped under has the shell it may have started killed", async () => {
+    const channel = new FakeDaemonChannel();
+    const { manager, connect } = makeManager(channel);
+    const host = startAgentPtyHost(manager);
+    channel.spawnError = createAgentReconnectError("agent.reconnect-in-progress");
+    channel.spawnStarts = true;
+    await host.call("spawn", spawnArgs(TAB_B)).catch(() => {});
+    channel.spawnError = null;
+
+    connect(channel);
+    await settle();
+
+    expect(channel.kills(TAB_B)).toBe(1);
+    expect(channel.sessions.has(TAB_B)).toBe(false);
+  });
+});
+
+describe("a tab closed while its agent is being reached", () => {
+  test("never has its spawn sent", async () => {
+    const channel = new FakeDaemonChannel();
+    let reach = () => {};
+    const reaching = new Promise<void>((resolve) => {
+      reach = resolve;
+    });
+    const host = startAgentPtyHost(makeManager(channel, () => reaching).manager);
+
+    const spawning = host.call("spawn", spawnArgs(TAB_A)).catch((e: Error) => e);
+    await settle();
+    const killing = host.call("kill", { workspaceId: WS, tabId: TAB_A });
+    reach();
+    expect(await spawning).toBeInstanceOf(Error);
+    await killing;
+    await settle();
+
+    expect(channel.order).toEqual([`kill sent ${TAB_A}`]);
   });
 });
