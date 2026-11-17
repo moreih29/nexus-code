@@ -495,6 +495,59 @@ describe("chat panel", () => {
     ]);
   });
 
+  test("an image file read again shows once, and one the answer links is left to its card", () => {
+    seq = 0;
+    const read = (id: string, path: string, data: string): ChatLine[] => [
+      assistant(`a-${id}`, [{ type: "tool_use", id, name: "Read", input: { file_path: path } }]),
+      out({
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: id,
+              content: [
+                { type: "image", source: { type: "base64", media_type: "image/png", data } },
+              ],
+            },
+          ],
+        },
+      }),
+    ];
+    const model = applyLines(emptyModel(), [
+      {
+        seq: ++seq,
+        dir: "in",
+        message: { type: "user", message: { role: "user", content: "draw the mockup" } },
+      },
+      ...read("r1", "/tmp/mock.png", "AAAA"),
+      ...read("r2", "/tmp/shot.png", "BBBB"),
+      ...read("r3", "/tmp/mock.png", "CCCC"),
+      assistant("m", [{ type: "text", text: "Here it is: [mockup](/tmp/mock.png)." }]),
+    ]);
+    const images = (cardsAnywhere: boolean) => {
+      const [extras] = answerExtras(
+        model.items,
+        model.tools,
+        "/p",
+        "/p",
+        true,
+        cardsAnywhere,
+      ).values();
+      return extras?.images.map(({ image, file }) => [image.data, file]);
+    };
+    // Read again, the mockup shows once, as it was read last. Another computer's chat shows no
+    // picture on the card of a file outside its workspace, so the image stays.
+    expect(images(false)).toEqual([
+      ["BBBB", "/tmp/shot.png"],
+      ["CCCC", "/tmp/mock.png"],
+    ]);
+    // A chat here shows it on the card of the file the answer links.
+    expect(images(true)).toEqual([["BBBB", "/tmp/shot.png"]]);
+  });
+
   test("files sent the user, and images a reply shows, are results with no card of their own", () => {
     seq = 0;
     const ask: ChatLine = {

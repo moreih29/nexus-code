@@ -38,6 +38,7 @@ import type { ProfileMove } from "../../../shared/types/layout";
 import { sharedClock, useSharedClock } from "../../hooks/use-now";
 import { revealInWorkspace } from "../../services/agent-sessions/actions";
 import { artifactOf } from "../../services/chat/artifact";
+import { useChatFiles } from "../../services/chat/chat-files";
 import { splitAttachments } from "../../services/chat/composer-input";
 import { callsUnder, type ItemView, itemView, sameView } from "../../services/chat/item-view";
 import {
@@ -317,14 +318,24 @@ export function MessageList({
     () => (history ? { ...history.tools, ...model.tools } : model.tools),
     [history, model.tools],
   );
-  // What each finished turn's answer ends with; an agent's transcript has none.
+  // What each finished turn's answer ends with; an agent's transcript has none. A chat here
+  // shows an image file's picture on its card wherever the file is; another computer's, only
+  // from its workspace.
   const turnDone = !model.running && !streaming;
+  const chatFiles = useChatFiles();
   const extras = useMemo(
     () =>
       items
         ? new Map<ChatItem, AnswerExtras>()
-        : answerExtras([...(history?.items ?? []), ...model.items], tools, cwd, rootPath, turnDone),
-    [items, history, model.items, tools, cwd, rootPath, turnDone],
+        : answerExtras(
+            [...(history?.items ?? []), ...model.items],
+            tools,
+            cwd,
+            rootPath,
+            turnDone,
+            !chatFiles,
+          ),
+    [items, history, model.items, tools, cwd, rootPath, turnDone, chatFiles],
   );
   const shownItems = useMemo(() => [...historyItems, ...liveItems], [historyItems, liveItems]);
   // Only the last messages render (see message-window); earlier ones when

@@ -765,9 +765,12 @@ export const MAX_ANSWER_IMAGES = 4;
 /**
  * For each finished turn, what its last answer ends with, by that answer's
  * item. The last turn counts once `lastDone`: while it runs, its answer is
- * not the last yet. An image a tool read from a file the answer names, in
- * the workspace (`root`), is left to that file's card; one the turn shows
- * where it is (sent, or in its text), to that.
+ * not the last yet. An image a tool read from a file the answer names is
+ * left to that file's card, where the card shows its picture: in the
+ * workspace (`root`), or anywhere when `cardsAnywhere` (a chat here, whose
+ * previews read the files it names); one the turn shows where it is (sent,
+ * or in its text), to that. A file read more than once shows as it was read
+ * last.
  */
 export function answerExtras(
   items: ChatItem[],
@@ -775,6 +778,7 @@ export function answerExtras(
   cwd: string,
   root: string,
   lastDone: boolean,
+  cardsAnywhere = false,
 ): Map<ChatItem, AnswerExtras> {
   const out = new Map<ChatItem, AnswerExtras>();
   const touched = touchedFiles(tools, cwd);
@@ -784,7 +788,7 @@ export function answerExtras(
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
     if (!answer) return;
     const named: string[] = [];
-    const given: (GivenImage & { from?: string })[] = [];
+    const given: (GivenImage & { from?: string; call: string })[] = [];
     // What the turn shows where it is, as a file it sent or an image in its
     // text, gets no card of its own.
     const shown = new Set<string>();
@@ -804,7 +808,8 @@ export function answerExtras(
         const path = str(rec(tool.input)?.file_path);
         const from = path ? (resolveFilePath(path, cwd) ?? undefined) : undefined;
         const file = from && fileKind(from) === "image" ? from : undefined;
-        for (const image of tool.result?.images ?? []) given.push({ image, from, file });
+        for (const image of tool.result?.images ?? [])
+          given.push({ image, from, file, call: tool.id });
         if (tool.name === "Write" && tool.status === "done" && path) {
           if (rec(tool.result?.structured)?.type === "create") named.push(path);
         }
@@ -821,9 +826,14 @@ export function answerExtras(
       files.push(path);
       if (others.length > 0) elsewhere[path] = others;
     }
+    // The call that read each file last.
+    const lastRead = new Map<string, string>();
+    for (const { from, call } of given) if (from) lastRead.set(from, call);
+    const carded = (from: string) => files.includes(from) && (cardsAnywhere || isUnder(from, root));
     const images = given
       .filter(
-        ({ from }) => !(from && (shown.has(from) || (files.includes(from) && isUnder(from, root)))),
+        ({ from, call }) =>
+          !from || (lastRead.get(from) === call && !shown.has(from) && !carded(from)),
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
