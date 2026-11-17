@@ -84,6 +84,8 @@ export const COMMANDS = {
 
   // Voice input in the chat box focused last: starts dictating, or stops.
   chatVoiceToggle: "chat.voiceToggle",
+  // The side panel of the chat in front (its context, tasks, changed files): opens or closes it.
+  chatTogglePanel: "chat.togglePanel",
 
   // Settings
   settingsOpen: "settings.open",
@@ -101,8 +103,6 @@ export const COMMANDS = {
   // The agent view: the agents of every workspace side by side, in place
   // of the workspaces.
   workbenchToggleAgentView: "workbench.toggleAgentView",
-  // The files panel on its agent list, the workspace's sessions; again, hides it.
-  workbenchToggleAgentsPanel: "workbench.toggleAgentsPanel",
 
   // NOTE: DevTools has no app keybinding command. ⌘⌥I is owned by the
   // Electron menu `toggleDevTools` role (app-window DevTools, standard

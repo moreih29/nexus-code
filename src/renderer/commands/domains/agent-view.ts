@@ -57,6 +57,8 @@ const BOTH_VIEWS = new Set<CommandId>([
   COMMANDS.workbenchToggleAgentView,
   // Dictates into the composer focused last, in either view.
   COMMANDS.chatVoiceToggle,
+  // The side panel of the agent in front, in either view.
+  COMMANDS.chatTogglePanel,
 ]);
 
 /** What `id` does while the agent view is shown; undefined while it is not. */

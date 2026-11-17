@@ -42,6 +42,7 @@ import {
   jobsOf,
   outsideLinksOf,
 } from "../../services/chat/panel";
+import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import {
   printRunRows,
   stopPrintRun,
@@ -254,6 +255,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
+  // ⌘⇧] toggles it too, while this tab is in front.
+  const togglePanelRef = useRef(togglePanel);
+  togglePanelRef.current = togglePanel;
+  useEffect(() => registerPanelToggle(tabId, () => togglePanelRef.current()), [tabId]);
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);

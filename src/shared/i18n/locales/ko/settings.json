@@ -464,8 +464,7 @@
       "workbench": {
         "toggleFilesPanel": "파일 패널 토글",
         "toggleSidebar": "사이드바 토글",
-        "toggleAgentView": "에이전트 뷰 토글",
-        "toggleAgentsPanel": "에이전트 패널 토글"
+        "toggleAgentView": "에이전트 뷰 토글"
       },
       "terminal": {
         "new": "새 터미널"
@@ -486,7 +485,8 @@
         "releaseNotes": "릴리스 노트 보기"
       },
       "chat": {
-        "voiceToggle": "음성 입력"
+        "voiceToggle": "음성 입력",
+        "togglePanel": "채팅 사이드 패널 토글"
       }
     }
   },

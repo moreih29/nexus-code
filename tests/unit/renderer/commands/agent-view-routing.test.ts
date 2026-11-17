@@ -1,7 +1,7 @@
 /**
  * While the agent view is shown, the workspace's commands do nothing, but
- * the ones that mean the same in both views (voice input among them) run
- * as registered.
+ * the ones that mean the same in both views (voice input, the chat's side
+ * panel) run as registered.
  */
 import { afterEach, describe, expect, it } from "bun:test";
 
@@ -30,6 +30,7 @@ describe("commands in the agent view", () => {
   it("lets voice input run as registered in both views", () => {
     useAgentViewStore.setState({ mode: "agents" });
     expect(routeAgentViewCommand(COMMANDS.chatVoiceToggle)).toBeUndefined();
+    expect(routeAgentViewCommand(COMMANDS.chatTogglePanel)).toBeUndefined();
     expect(routeAgentViewCommand(COMMANDS.fileSave)).toBe("skip");
   });
 

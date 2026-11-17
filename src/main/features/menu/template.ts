@@ -235,8 +235,8 @@ function viewMenu(platform: NodeJS.Platform, t?: TFunction): MenuItemSpec {
         COMMANDS.workbenchToggleAgentView,
       ),
       cmd(
-        t != null ? t("menu:view.toggleAgentsPanel") : "Toggle Agents Panel",
-        COMMANDS.workbenchToggleAgentsPanel,
+        t != null ? t("menu:view.toggleChatPanel") : "Toggle Chat Side Panel",
+        COMMANDS.chatTogglePanel,
       ),
       { type: "separator" },
       cmd(revealLabel(platform, t), COMMANDS.pathReveal),

@@ -30,6 +30,7 @@ import type {
   UserItem,
 } from "../../services/chat/model";
 import { type AgentRow, agentTranscript } from "../../services/chat/panel";
+import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import type { CommandCard } from "../../services/chat/store";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
@@ -527,6 +528,13 @@ function RemoteChatView({
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
+  // ⌘⇧] toggles it too, while this session is in front. A Codex session has no panel.
+  const togglePanelRef = useRef(togglePanel);
+  togglePanelRef.current = togglePanel;
+  useEffect(
+    () => (claude ? registerPanelToggle(focusKey, () => togglePanelRef.current()) : undefined),
+    [claude, focusKey],
+  );
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
