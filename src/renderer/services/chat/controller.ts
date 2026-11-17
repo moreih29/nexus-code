@@ -1217,7 +1217,11 @@ export class ChatController {
       }
       if (part === "usage") {
         // The user opened it: the profile's store asks, sooner than it would.
-        void wantPlanUsage(this.usageKey(), { force: true });
+        // After the program's initialize: asked before it ends, no tab of the
+        // profile is ready to ask, and the store leaves it to the next ask.
+        void this.initializing
+          .catch(() => {})
+          .then(() => wantPlanUsage(this.usageKey(), { force: true }));
         continue;
       }
       const subtype = PANEL_REQUESTS[part];

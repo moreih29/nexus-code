@@ -983,10 +983,13 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   const limits = usageLimitsOf(plan ?? state.model.usage);
   const supported = controller.supports("get_usage");
   const cost = state.model.costUsd;
+  // Open from the start, it asks again as the program comes up: asked before, it is not answered.
+  const ready = state.phase === "ready" && state.model.process === "running";
   return (
     <Section
       title={t("chat.panel.usage.title")}
       onOpen={() => controller.refreshPanel(["usage"])}
+      openAgain={ready}
       reveal={revealSeq(state, "usage")}
       onRevealed={(seq) => takeReveal(controller.key, seq)}
     >
