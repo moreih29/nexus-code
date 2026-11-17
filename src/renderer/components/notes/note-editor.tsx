@@ -43,6 +43,9 @@ import { TranscriptPanel, type TranscriptQuote } from "./transcript-panel";
 
 const SAVE_DELAY_MS = 500;
 
+/** How long after the last key typed in the title the tab takes its name. */
+const TAB_TITLE_DELAY_MS = 150;
+
 type SaveState = "saved" | "saving" | "error";
 
 export function NoteEditor({
@@ -101,7 +104,9 @@ function LoadedNote({
   note: NoteContent;
 }) {
   const { t } = useTranslation("notes");
-  const [title, setTitle] = useState(note.title);
+  // The title as typed. The input keeps it itself: a key typed there draws
+  // nothing else again, not the header, nor the transcript beside it.
+  const title = useRef(note.title);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [agentOpen, setAgentOpen] = useState(false);
   const workspace = useWorkspacesStore((s) => s.workspaces.find((w) => w.id === workspaceId));
@@ -121,15 +126,26 @@ function LoadedNote({
 
   // A new note starts at its title (and the "New note" button loses focus,
   // so Enter does not make another one).
-  const titleRef = useRef<HTMLInputElement>(null);
+  const titleInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (!note.title && isEmptyDoc(note.doc)) titleRef.current?.focus();
+    if (!note.title && isEmptyDoc(note.doc)) titleInput.current?.focus();
   }, [note]);
 
-  // The tab is named after the note.
+  // The tab is named after the note: once the title is opened, and a moment
+  // after the last key typed in it, not at each key (naming it draws the
+  // tab bars, whose menus each set state again after drawing).
+  const tabTitleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nameTab = useCallback(() => {
+    if (tabTitleTimer.current) clearTimeout(tabTitleTimer.current);
+    tabTitleTimer.current = null;
+    useTabsStore.getState().setProcessTitle(workspaceId, tabId, title.current.trim() || null);
+  }, [workspaceId, tabId]);
   useEffect(() => {
-    useTabsStore.getState().setProcessTitle(workspaceId, tabId, title.trim() || null);
-  }, [workspaceId, tabId, title]);
+    nameTab();
+    return () => {
+      if (tabTitleTimer.current) clearTimeout(tabTitleTimer.current);
+    };
+  }, [nameTab]);
 
   // Saving: the latest title and document, a moment after the last change.
   const pending = useRef<{ title?: string; doc?: DocNode }>({});
@@ -367,9 +383,17 @@ function LoadedNote({
     });
   }, [note.id]);
 
+  const typeTitle = (value: string) => {
+    title.current = value;
+    schedule({ title: value });
+    if (tabTitleTimer.current) clearTimeout(tabTitleTimer.current);
+    tabTitleTimer.current = setTimeout(nameTab, TAB_TITLE_DELAY_MS);
+  };
+  const titleNow = useCallback(() => title.current.trim() || t("panel.untitled"), [t]);
+
   const remove = async () => {
     const ok = await showConfirmDialog({
-      title: t("editor.deleteConfirm.title", { title: title.trim() || t("panel.untitled") }),
+      title: t("editor.deleteConfirm.title", { title: titleNow() }),
       description: t("editor.deleteConfirm.description"),
       confirmLabel: t("editor.deleteConfirm.confirm"),
       variant: "destructive",
@@ -384,28 +408,32 @@ function LoadedNote({
   };
 
   /** A transcript line into the note, as a quote: who, when, what. */
-  const quote = (q: TranscriptQuote) => {
-    if (!editor) return;
-    editor
-      .chain()
-      .focus()
-      .insertContent([
-        {
-          type: "blockquote",
-          content: [
-            {
-              type: "paragraph",
-              content: [
-                { type: "text", marks: [{ type: "bold" }], text: q.speaker },
-                { type: "text", text: ` (${q.time}) ${q.text}` },
-              ],
-            },
-          ],
-        },
-        { type: "paragraph" },
-      ])
-      .run();
-  };
+  const quote = useCallback(
+    (q: TranscriptQuote) => {
+      if (!editor) return;
+      editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: "blockquote",
+            content: [
+              {
+                type: "paragraph",
+                content: [
+                  { type: "text", marks: [{ type: "bold" }], text: q.speaker },
+                  { type: "text", text: ` (${q.time}) ${q.text}` },
+                ],
+              },
+            ],
+          },
+          { type: "paragraph" },
+        ])
+        .run();
+    },
+    [editor],
+  );
+  const hideTranscript = useCallback(() => setTranscriptOpen(false), []);
 
   return (
     <div
@@ -415,13 +443,13 @@ function LoadedNote({
       <div className="flex shrink-0 flex-wrap items-start gap-2 border-b border-border px-6 pt-3 pb-2.5">
         <div className="flex min-w-48 flex-1 flex-col gap-0.5">
           <input
-            ref={titleRef}
-            value={title}
-            onChange={(e) => {
-              setTitle(e.target.value);
-              schedule({ title: e.target.value });
-            }}
+            ref={titleInput}
+            defaultValue={note.title}
+            onChange={(e) => typeTitle(e.target.value)}
+            onBlur={nameTab}
             onKeyDown={(e) => {
+              // Enter that ends a syllable being composed (Korean, Japanese) stays here.
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter" || e.key === "ArrowDown") {
                 e.preventDefault();
                 editor?.commands.focus("start");
@@ -467,7 +495,7 @@ function LoadedNote({
             workspaceId={workspaceId}
             cwd={workspace?.rootPath ?? ""}
             noteId={note.id}
-            title={title.trim() || t("panel.untitled")}
+            title={titleNow}
             beforeSend={flush}
             trigger={
               <button
@@ -527,7 +555,7 @@ function LoadedNote({
             workspaceId={workspaceId}
             noteId={note.id}
             onQuote={quote}
-            onClose={() => setTranscriptOpen(false)}
+            onClose={hideTranscript}
           />
         )}
       </div>
