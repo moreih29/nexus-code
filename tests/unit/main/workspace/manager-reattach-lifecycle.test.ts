@@ -891,6 +891,49 @@ describe("removing an SSH workspace", () => {
     globalDb.close();
   });
 
+  test("a workspace added again on its folder connects once the old agent has exited", async () => {
+    const first = new ShutdownChannel();
+    const second = new ShutdownChannel();
+    const channels = [first, second];
+    const sshBootstrap = mock(async () => ({
+      remoteCommand: "exec agent",
+      remoteHome: "/home/user",
+      platform: { os: "linux" as const, arch: "amd64" as const },
+      uploaded: false,
+      remoteBinDir: "/home/user/.nexus-code/bin",
+    }));
+    const { manager, globalDb } = makeManager({
+      sshBootstrap,
+      sshChannelFactory: mock(() => {
+        const next = channels.shift();
+        if (!next) throw new Error("no more channels");
+        return next;
+      }),
+    });
+    const meta = makeSshMeta(manager);
+    const boot = manager.getAgentChannel(meta.id);
+    first.resolveChannel();
+    await boot;
+
+    // Removed while reconnecting: its agent is asked to exit once the link
+    // is back. The folder, added again meanwhile, is one daemon: connecting
+    // to it now would have the old channel take it over, and the old
+    // agent's exit end the new workspace's terminals.
+    first.emitLifecycle({ type: "reconnecting" });
+    manager.remove(meta.id);
+    const again = makeSshMeta(manager);
+    const reboot = manager.getAgentChannel(again.id);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(sshBootstrap).toHaveBeenCalledTimes(1);
+
+    first.answerShutdown();
+    second.resolveChannel();
+    await reboot;
+    expect(sshBootstrap).toHaveBeenCalledTimes(2);
+    expect(first.events).toEqual(["agent.shutdown", "dispose"]);
+    globalDb.close();
+  });
+
   test("has a task's daemon stopped through its parent when its own agent cannot be reached", async () => {
     const parent = new ShutdownChannel();
     const taskChannel = new ShutdownChannel();
