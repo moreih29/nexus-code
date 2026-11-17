@@ -1,8 +1,8 @@
 // A Claude tab's side panel, its sections always in the same order: where
-// it runs, how full its context is, the to-do list Claude keeps, its tasks
-// and its agents (what runs now and what ended), and what it made; folded
-// at the end, the files it changed, the plan's usage and the MCP servers. A
-// section with nothing in it is its title and a 0. What only a request
+// it runs, how full its context is, the plan's usage, its goal (while it has
+// one), the to-do list Claude keeps, its tasks and its agents (what runs now
+// and what ended), and what it made; folded at the end, the files it changed
+// and the MCP servers. A section with nothing in it is its title and a 0. What only a request
 // tells is asked for when the panel opens and after each turn.
 
 import {
@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
+import { goalViewOf } from "../../services/chat/goal";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
 import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import { fileKind, slashWindowsPath } from "../../services/chat/links";
@@ -61,6 +62,7 @@ import { ArtifactRow } from "./artifact-card";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { Highlighted } from "./code-highlight";
 import { FileKindIcon } from "./file-kind-icon";
+import { GoalSummary, type TabGoal } from "./goal-bar";
 import { FirstFew, Row, Section } from "./panel-section";
 import { ActivitySections } from "./running-section";
 
@@ -197,6 +199,8 @@ export const SidePanel = memo(function SidePanel({
         onForkSession={onForkSession}
       />
       <ContextSection controller={controller} state={state} />
+      <UsageSection controller={controller} state={state} />
+      <GoalSection state={state} />
       <TodosSection todos={todos} />
       <ActivitySections
         activity={activity}
@@ -231,7 +235,6 @@ export const SidePanel = memo(function SidePanel({
           />
         ))}
       </Section>
-      <UsageSection controller={controller} state={state} />
       <McpSection controller={controller} state={state} />
     </aside>
   );
@@ -980,11 +983,13 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   const limits = usageLimitsOf(plan ?? state.model.usage);
   const supported = controller.supports("get_usage");
   const cost = state.model.costUsd;
+  // Open from the start, it asks again as the program comes up: asked before, it is not answered.
+  const ready = state.phase === "ready" && state.model.process === "running";
   return (
     <Section
       title={t("chat.panel.usage.title")}
-      folded
       onOpen={() => controller.refreshPanel(["usage"])}
+      openAgain={ready}
       reveal={revealSeq(state, "usage")}
       onRevealed={(seq) => takeReveal(controller.key, seq)}
     >
@@ -1045,16 +1050,40 @@ export function formatCost(usd: number, locale: string): string {
   }).format(usd);
 }
 
+/** The chat's goal, while it has one, as the bar over the composer tells it. */
+function GoalSection({ state }: { state: ChatTabState }) {
+  const { t } = useTranslation();
+  const { model } = state;
+  const goal = goalViewOf(model);
+  if (!goal) return null;
+  const tab: TabGoal = {
+    goal,
+    running: model.running,
+    ...(model.turn?.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
+  };
+  return (
+    <Section title={t("chat.goal.label")}>
+      <GoalSummary tab={tab} />
+    </Section>
+  );
+}
+
 function McpSection({ controller, state }: { controller: ChatController; state: ChatTabState }) {
   const { t } = useTranslation();
   const servers = state.model.mcp;
   const signIn = state.mcpSignIn;
   const ready = state.phase === "ready" && state.model.process === "running";
   const fail = (err: Error) => showToast({ kind: "error", message: err.message });
+  // Asked as the program comes up, open or not: with none, it is its title and a 0 and does
+  // not open, as a section with nothing; folded, it counts them.
+  useEffect(() => {
+    if (ready) controller.refreshPanel(["mcp"]);
+  }, [ready, controller]);
   return (
     <Section
       title={t("chat.panel.mcp.title")}
       count={servers?.length}
+      empty={servers?.length === 0}
       folded
       onOpen={() => controller.refreshPanel(["mcp"])}
       openAgain={ready}

@@ -707,14 +707,14 @@ function RemoteChatView({
     closedGoals.set(focusKey, key);
     goalClosed();
   };
-  const tabGoal: TabGoal | null =
-    goal && !(goal.ended && closedGoal === goal.key)
-      ? {
-          goal,
-          running: model.running,
-          ...(model.turn?.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
-        }
-      : null;
+  const goalNow: TabGoal | null = goal
+    ? {
+        goal,
+        running: model.running,
+        ...(model.turn?.startedAt !== undefined ? { startedAt: model.turn.startedAt } : {}),
+      }
+    : null;
+  const tabGoal = goal && !(goal.ended && closedGoal === goal.key) ? goalNow : null;
   const runningNow = useRef(model.running);
   runningNow.current = model.running;
   const asked = async (sent: Promise<IpcResult<unknown>>) => {
@@ -793,6 +793,7 @@ function RemoteChatView({
       {...(canFork ? { onForkSession: () => forkFrom.current() } : {})}
       {...(actions.onBackground ? { onBackground: actions.onBackground } : {})}
       reveal={panelAsk}
+      goal={goalNow}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
   ) : null;

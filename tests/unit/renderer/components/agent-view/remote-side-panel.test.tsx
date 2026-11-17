@@ -147,9 +147,10 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("Compact");
     expect(html).toContain("Write the test");
     expect(html).toContain("dev server");
-    // Folded, as a chat here's: the files and the usage count on their titles.
-    expect(html).toContain("Changed files");
+    // The usage open, as a chat here's; the changed files folded under their title.
     expect(html).toContain("Usage");
+    expect(html).toContain("40%");
+    expect(html).toContain("Changed files");
   });
 
   test("shows the jobs running, and counts those that ended on a folded line", () => {
@@ -196,24 +197,41 @@ describe("another computer's chat's side panel", () => {
         onShowAgent={() => {}}
         onCompact={() => {}}
         onStopTask={() => {}}
+        goal={{
+          goal: {
+            agent: "claude",
+            objective: "All tests pass",
+            status: "active",
+            key: "claude||All tests pass",
+            ended: false,
+            endedLive: false,
+            checks: [{ reason: "two still fail" }],
+          },
+          running: false,
+        }}
       />,
     );
     const titles = [
       "Environment",
       "Context",
+      "Usage",
+      "Goal",
       "To-dos",
       "Tasks",
       "Agents",
       "Results",
       "Changed files",
-      "Usage",
       "MCP",
     ];
     const at = titles.map((title) => html.indexOf(`>${title}<`));
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
-    // The to-dos, the results and the changed files, with none, do not open.
-    expect(html.match(/data-empty="true"/g)).toHaveLength(3);
+    // The goal, while there is one: what it is, that it waits for a turn, what its check found.
+    expect(html).toContain("All tests pass");
+    expect(html).toContain("Waiting");
+    expect(html).toContain("two still fail");
+    // The to-dos, the results, the changed files and the MCP servers, with none, do not open.
+    expect(html.match(/data-empty="true"/g)).toHaveLength(4);
   });
 
   test("lets only a computer that allows control be compacted or have its runs stopped", () => {

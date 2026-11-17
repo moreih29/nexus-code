@@ -1,8 +1,9 @@
 /**
  * Another computer's chat's side panel, as a chat here has it and with its
- * parts, in the same order: what it runs on and with, its context, its
- * to-dos, its tasks and agents (what runs now and what ended), what it made,
- * the files it changed, the plan's usage and its MCP servers. They come
+ * parts, in the same order: what it runs on and with, its context, the
+ * plan's usage, its goal (while it has one), its to-dos, its tasks and agents
+ * (what runs now and what ended), what it made, the files it changed and its
+ * MCP servers. They come
  * from the panel its computer tells (chat.watch's `panel`), the subagents'
  * details from the conversation shown. A changed file opens its change,
  * read from that computer. Its MCP servers are shown as they stand there,
@@ -32,6 +33,7 @@ import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
 import { useChatLinks } from "../chat/chat-links";
 import { Highlighted } from "../chat/code-highlight";
+import { GoalSummary, type TabGoal } from "../chat/goal-bar";
 import { Row, Section } from "../chat/panel-section";
 import { ActivitySections } from "../chat/running-section";
 import {
@@ -129,6 +131,7 @@ export function RemoteSidePanel({
   onRemoteControl,
   onForkSession,
   reveal,
+  goal,
   className,
 }: {
   target: RemoteTarget;
@@ -156,6 +159,8 @@ export function RemoteSidePanel({
    * comes into view; with `id`, the job of that task the conversation named.
    */
   reveal?: RemotePanelAsk | null;
+  /** The chat's goal, while it has one, as its bar over the composer shows it. */
+  goal?: TabGoal | null;
   className?: string;
 }) {
   const { t, i18n } = useTranslation();
@@ -380,6 +385,49 @@ export function RemoteSidePanel({
           </div>
         )}
       </Section>
+      <Section title={t("chat.panel.usage.title")} reveal={asked("usage")}>
+        {cost !== undefined && cost > 0 && (
+          <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
+            <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
+            <span className="tabular-nums">{formatCost(cost, i18n.language)}</span>
+          </Row>
+        )}
+        {limits.length === 0 ? (
+          <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
+        ) : (
+          limits.map((limit) => (
+            <div
+              key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
+              className="flex flex-col gap-0.5 py-0.5"
+            >
+              <Row className="text-app-micro">
+                <span className="min-w-0 flex-1 truncate">
+                  {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
+                </span>
+                <span className="tabular-nums">{Math.round(limit.percent)}%</span>
+              </Row>
+              <Meter percent={Math.min(100, limit.percent)} />
+              {limit.resetsAt !== undefined && (
+                <div className="text-app-micro text-muted-foreground">
+                  {t("chat.panel.usage.resets", {
+                    time: new Date(limit.resetsAt).toLocaleString(i18n.language, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                  })}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </Section>
+      {goal && (
+        <Section title={t("chat.goal.label")}>
+          <GoalSummary tab={goal} />
+        </Section>
+      )}
       <TodosSection todos={todos} />
       <ActivitySections
         activity={activity}
@@ -419,44 +467,6 @@ export function RemoteSidePanel({
           />
         ))}
       </Section>
-      <Section title={t("chat.panel.usage.title")} folded reveal={asked("usage")}>
-        {cost !== undefined && cost > 0 && (
-          <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
-            <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
-            <span className="tabular-nums">{formatCost(cost, i18n.language)}</span>
-          </Row>
-        )}
-        {limits.length === 0 ? (
-          <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
-        ) : (
-          limits.map((limit) => (
-            <div
-              key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
-              className="flex flex-col gap-0.5 py-0.5"
-            >
-              <Row className="text-app-micro">
-                <span className="min-w-0 flex-1 truncate">
-                  {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
-                </span>
-                <span className="tabular-nums">{Math.round(limit.percent)}%</span>
-              </Row>
-              <Meter percent={Math.min(100, limit.percent)} />
-              {limit.resetsAt !== undefined && (
-                <div className="text-app-micro text-muted-foreground">
-                  {t("chat.panel.usage.resets", {
-                    time: new Date(limit.resetsAt).toLocaleString(i18n.language, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })}
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </Section>
       {panel?.mcp && (
         <RemoteMcp
           target={target}
@@ -489,7 +499,13 @@ function RemoteMcp({
   const mcp = usePeerMcp(target);
   const fail = (err: Error) => showToast({ kind: "error", message: err.message });
   return (
-    <Section title={t("chat.panel.mcp.title")} count={servers.length} folded reveal={reveal}>
+    <Section
+      title={t("chat.panel.mcp.title")}
+      count={servers.length}
+      empty={servers.length === 0}
+      folded
+      reveal={reveal}
+    >
       {servers.length === 0 ? (
         <div className="text-app-micro text-muted-foreground">{t("chat.panel.mcp.none")}</div>
       ) : (
