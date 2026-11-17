@@ -305,13 +305,12 @@ func runDaemon(root string) {
 
 	// cleanupAndExit tears down all shared resources and terminates.
 	// Called only on genuine daemon shutdown — not on dialer disconnect.
-	// The pty.Close call here is the service.go:79-91 path (SIGKILL all PTYs).
 	// Only the first caller tears down; any other blocks until it exits.
 	var shutdown sync.Once
 	cleanupAndExit := func(code int) {
 		shutdown.Do(func() {
-			pty.Close()  // SIGKILL every PTY process group
-			chat.Close() // and every Claude tab's program
+			pty.Close()  // hang up every terminal, as closing its tab does
+			chat.Close() // and end every Claude tab's program
 			lsp.Close()
 			if hooksrv != nil {
 				_ = hooksrv.Close()
