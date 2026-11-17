@@ -485,7 +485,8 @@
         "releaseNotes": "Show Release Notes"
       },
       "chat": {
-        "voiceToggle": "Voice Input"
+        "voiceToggle": "Voice Input",
+        "togglePanel": "Toggle Chat Side Panel"
       }
     }
   },

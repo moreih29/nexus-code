@@ -29,6 +29,7 @@
     "openContainingFolder": "Open Containing Folder",
     "copyPath": "Copy Path",
     "copyRelativePath": "Copy Relative Path",
+    "toggleChatPanel": "Toggle Chat Side Panel",
     "toggleAgentView": "Toggle Agent View",
     "reloadWindow": "Reload Window"
   },

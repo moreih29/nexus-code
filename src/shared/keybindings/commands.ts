@@ -84,6 +84,8 @@ export const COMMANDS = {
 
   // Voice input in the chat box focused last: starts dictating, or stops.
   chatVoiceToggle: "chat.voiceToggle",
+  // The side panel of the chat in front (its context, tasks, changed files): opens or closes it.
+  chatTogglePanel: "chat.togglePanel",
 
   // Settings
   settingsOpen: "settings.open",

@@ -15,6 +15,7 @@
 import { useEffect } from "react";
 import { registerAgentViewCommands } from "../commands/domains/agent-view";
 import { registerBrowserCommands } from "../commands/domains/browser";
+import { registerChatPanelCommands } from "../commands/domains/chat-panel";
 import { registerFileCommands } from "../commands/domains/file";
 import { registerGroupCommands } from "../commands/domains/group";
 import { registerPaletteCommands } from "../commands/domains/palette";
@@ -44,6 +45,7 @@ export function useGlobalKeybindings(): void {
       ...registerBrowserCommands(),
       ...registerAgentViewCommands(),
       ...registerVoiceCommands(),
+      ...registerChatPanelCommands(),
     ];
 
     // Capture phase puts our handler ahead of Monaco's standalone

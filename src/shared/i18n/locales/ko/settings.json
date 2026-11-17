@@ -485,7 +485,8 @@
         "releaseNotes": "릴리스 노트 보기"
       },
       "chat": {
-        "voiceToggle": "음성 입력"
+        "voiceToggle": "음성 입력",
+        "togglePanel": "채팅 사이드 패널 토글"
       }
     }
   },
