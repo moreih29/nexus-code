@@ -1423,9 +1423,9 @@ export function serveWith(
               .ui("workspace.folders", { workspaceId: id })
               .then((r) => r.folders)
               .catch(() => []),
-          outputs: (id) =>
+          named: (id) =>
             s
-              .ui("chat.jobOutputs", { workspaceId: id })
+              .ui("chat.outsideFiles", { workspaceId: id })
               .then((r) => r.files)
               .catch(() => []),
         };
