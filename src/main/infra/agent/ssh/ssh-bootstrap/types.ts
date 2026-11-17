@@ -63,11 +63,12 @@ export interface EnsureRemoteAgentOptions extends Omit<SshMasterOptions, "remote
   readonly authMode?: "interactive" | "key-only";
   /**
    * Workspace identifier. When provided, the bootstrap additionally uploads
-   * the per-workspace PTY shim rc files (`.zshrc` / `.zshenv` / `bashrc`)
-   * into `${remoteHome}/.nexus-code/shim/<workspaceId>/` and surfaces that
-   * absolute path back as `remoteShimDir`. Omit on the LSP path or other
-   * callers that do not spawn an interactive shell — the bootstrap stays
-   * backwards-compatible and simply does not write any shim files.
+   * the PTY shim rc files (`.zshrc` / `.zshenv` / `bashrc`, …) into the
+   * directory under `${remoteHome}/.nexus-code/shim/` that every workspace
+   * on the host shares, and surfaces that absolute path back as
+   * `remoteShimDir`. Omit on the LSP path or other callers that do not
+   * spawn an interactive shell — the bootstrap stays backwards-compatible
+   * and simply does not write any shim files.
    */
   readonly workspaceId?: string;
 }
@@ -90,10 +91,11 @@ export interface EnsureRemoteAgentResult {
    */
   readonly remoteShell?: string;
   /**
-   * Absolute path of the workspace-specific shim directory **on the remote
-   * host**, e.g. `/home/user/.nexus-code/shim/<workspaceId>`. Populated only
-   * when `EnsureRemoteAgentOptions.workspaceId` is provided. The path is the
-   * remote analogue of `runtimeDirs.shimDir(workspaceId)` and contains the
+   * Absolute path of the shim directory **on the remote host** that every
+   * workspace there shares, e.g. `/home/user/.nexus-code/shim/shared-<hash>`.
+   * Populated only when `EnsureRemoteAgentOptions.workspaceId` is provided.
+   * The path is the remote analogue of `runtimeDirs.shimDir(workspaceId)`
+   * and contains the
    * uploaded `.zshrc` / `.zshenv` / `bashrc` shim files that the remote zsh
    * / bash should source via `ZDOTDIR` or `--rcfile`. `undefined` when the
    * caller opted out of shim deployment (e.g. LSP-only bootstrap).

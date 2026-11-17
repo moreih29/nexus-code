@@ -720,9 +720,11 @@ describe("ssh-bootstrap", () => {
     expect(result.remoteShell).toBe("/bin/zsh");
   });
 
-  it("uploads PTY shim rc files when workspaceId is provided and surfaces remoteShimDir", async () => {
+  /** Runs a bootstrap for `workspaceId`, noting the shim files as they land in place. */
+  async function bootstrapShims(workspaceId: string) {
     const { distDir, sha256 } = writeDist();
-    const uploadedShimContents = new Map<string, string>();
+    const tmpContents = new Map<string, string>();
+    const placed = new Map<string, string>();
     const runner = mock(async (command: string, args: string[], input?: Buffer | string) => {
       const remoteCommand = args.at(-1) ?? "";
       if (command === "ssh" && remoteCommand === "uname -ms") return { stdout: "Linux x86_64\n" };
@@ -746,59 +748,64 @@ describe("ssh-bootstrap", () => {
       if (command === "ssh" && remoteCommand.startsWith("mkdir -p")) {
         return { stdout: "" };
       }
-      if (command === "ssh" && remoteCommand.startsWith("cat >")) {
-        // The shim files arrive as `cat > <remoteShimDir>/<name>` with
-        // content streamed via stdin. `quoteShellArg` leaves the path
-        // unquoted when it's all safe chars (alnum, `-`, `_`, `.`, `/`,
-        // `~`, etc.), which is always the case for our shim paths — so we
-        // capture everything after `cat > ` rather than expecting quotes.
-        const match = remoteCommand.match(/^cat > (\S+)$/);
-        if (match) {
-          uploadedShimContents.set(match[1], String(input ?? ""));
-        }
+      // A shim file goes to a temporary name and is renamed into place, so
+      // a shell starting meanwhile never reads half of one.
+      const write = remoteCommand.match(/^cat > (\S+) && mv -f (\S+) (\S+)$/);
+      if (command === "ssh" && write) {
+        const [, tmp, from, to] = write;
+        expect(from).toBe(tmp);
+        expect(path.posix.dirname(tmp)).toBe(path.posix.dirname(to));
+        expect(tmp).not.toBe(to);
+        tmpContents.set(tmp, String(input ?? ""));
+        placed.set(to, String(input ?? ""));
         return { stdout: "" };
       }
       if (command === "ssh" && String(args.at(-1) ?? "").startsWith("mv -f")) return { stdout: "" };
       throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
     }) as SshBootstrapRunner;
 
-    const WS_ID = "ws-shim-upload-test";
     const result = await ensureRemoteAgent(
-      {
-        host: "dev.example.com",
-        user: "deploy",
-        remotePath: "/repo",
-        workspaceId: WS_ID,
-      },
+      { host: "dev.example.com", user: "deploy", remotePath: "/repo", workspaceId },
       { distDir, runner },
     );
+    return { result, placed };
+  }
 
-    // remoteShimDir must be the remote absolute path that mirrors the
-    // local layout: `<remoteHome>/.nexus-code/shim/<workspaceId>`.
-    expect(result.remoteShimDir).toBe(`/home/deploy/.nexus-code/shim/${WS_ID}`);
+  it("uploads PTY shim rc files when workspaceId is provided and surfaces remoteShimDir", async () => {
+    const { result, placed } = await bootstrapShims("ws-shim-upload-test");
 
-    // All three shim files must have been uploaded to that directory.
-    const expectedZshrc = `/home/deploy/.nexus-code/shim/${WS_ID}/.zshrc`;
-    const expectedZshenv = `/home/deploy/.nexus-code/shim/${WS_ID}/.zshenv`;
-    const expectedBashrc = `/home/deploy/.nexus-code/shim/${WS_ID}/bashrc`;
-    expect(uploadedShimContents.has(expectedZshrc)).toBe(true);
-    expect(uploadedShimContents.has(expectedZshenv)).toBe(true);
-    expect(uploadedShimContents.has(expectedBashrc)).toBe(true);
+    // One directory for every workspace: the files name nothing of one. Its
+    // name follows their content, so app versions that write them
+    // differently do not overwrite each other's.
+    const dir = result.remoteShimDir ?? "";
+    expect(dir).toMatch(/^\/home\/deploy\/\.nexus-code\/shim\/shared-[0-9a-f]{12}$/);
 
+    const zshrc = placed.get(`${dir}/.zshrc`);
+    const zshenv = placed.get(`${dir}/.zshenv`);
+    const bashrc = placed.get(`${dir}/bashrc`);
     // Content sanity: the zshrc must contain the precmd hook + the env var
     // it depends on. Bashrc must contain the PROMPT_COMMAND wiring.
-    expect(uploadedShimContents.get(expectedZshrc)).toContain("_nexus_prepend_wrapper");
-    expect(uploadedShimContents.get(expectedZshrc)).toContain("NEXUS_WRAPPER_SELF_DIR");
-    expect(uploadedShimContents.get(expectedZshrc)).toContain("add-zsh-hook precmd");
-    expect(uploadedShimContents.get(expectedBashrc)).toContain("PROMPT_COMMAND");
-    expect(uploadedShimContents.get(expectedZshenv)).toContain("NEXUS_USER_ZDOTDIR");
+    expect(zshrc).toContain("_nexus_prepend_wrapper");
+    expect(zshrc).toContain("NEXUS_WRAPPER_SELF_DIR");
+    expect(zshrc).toContain("add-zsh-hook precmd");
+    expect(bashrc).toContain("PROMPT_COMMAND");
+    expect(zshenv).toContain("NEXUS_USER_ZDOTDIR");
     // The zsh login files and the bash BASH_ENV a Codex tab's commands read.
     for (const name of [".zprofile", ".zlogin", ".zlogout", "bashenv"]) {
-      expect(uploadedShimContents.has(`/home/deploy/.nexus-code/shim/${WS_ID}/${name}`)).toBe(true);
+      expect(placed.has(`${dir}/${name}`)).toBe(true);
     }
-    expect(uploadedShimContents.get(`/home/deploy/.nexus-code/shim/${WS_ID}/bashenv`)).toContain(
-      "NEXUS_WRAPPER_SELF_DIR",
-    );
+    expect(placed.get(`${dir}/bashenv`)).toContain("NEXUS_WRAPPER_SELF_DIR");
+    expect(placed.size).toBe(7);
+  });
+
+  it("puts every workspace's shim files in the same remote directory", async () => {
+    const first = await bootstrapShims("11111111-1111-4111-8111-111111111111");
+    const task = await bootstrapShims("22222222-2222-4222-8222-222222222222");
+
+    // A task is a new workspace id each time: a directory per id would pile
+    // up on the host, as nothing removes them there.
+    expect(task.result.remoteShimDir).toBe(first.result.remoteShimDir);
+    expect(first.result.remoteShimDir).not.toContain("1111");
   });
 
   it("omits PTY shim upload when workspaceId is not provided (LSP-only bootstrap stays compatible)", async () => {
