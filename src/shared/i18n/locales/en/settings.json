@@ -464,8 +464,7 @@
       "workbench": {
         "toggleFilesPanel": "Toggle Files Panel",
         "toggleSidebar": "Toggle Sidebar",
-        "toggleAgentView": "Toggle Agent View",
-        "toggleAgentsPanel": "Toggle Agents Panel"
+        "toggleAgentView": "Toggle Agent View"
       },
       "terminal": {
         "new": "New Terminal"

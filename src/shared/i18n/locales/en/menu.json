@@ -30,7 +30,6 @@
     "copyPath": "Copy Path",
     "copyRelativePath": "Copy Relative Path",
     "toggleAgentView": "Toggle Agent View",
-    "toggleAgentsPanel": "Toggle Agents Panel",
     "reloadWindow": "Reload Window"
   },
   "workspace": {

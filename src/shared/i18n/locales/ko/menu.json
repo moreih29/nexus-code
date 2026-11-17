@@ -30,7 +30,6 @@
     "copyPath": "경로 복사",
     "copyRelativePath": "상대 경로 복사",
     "toggleAgentView": "에이전트 뷰 전환",
-    "toggleAgentsPanel": "에이전트 패널 전환",
     "reloadWindow": "창 다시 불러오기"
   },
   "workspace": {

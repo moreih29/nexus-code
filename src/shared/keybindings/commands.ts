@@ -101,8 +101,6 @@ export const COMMANDS = {
   // The agent view: the agents of every workspace side by side, in place
   // of the workspaces.
   workbenchToggleAgentView: "workbench.toggleAgentView",
-  // The files panel on its agent list, the workspace's sessions; again, hides it.
-  workbenchToggleAgentsPanel: "workbench.toggleAgentsPanel",
 
   // NOTE: DevTools has no app keybinding command. ⌘⌥I is owned by the
   // Electron menu `toggleDevTools` role (app-window DevTools, standard
