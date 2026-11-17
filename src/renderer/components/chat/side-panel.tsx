@@ -1,14 +1,12 @@
-// A Claude tab's side panel: what the session runs now and what ended,
-// where it runs, how full its context is, the to-do list Claude keeps, and
-// what it made. Folded at the end: the files it changed, the plan's usage
-// and the MCP servers. What only a request tells is asked for when the
-// panel opens and after each turn.
+// A Claude tab's side panel, its sections always in the same order: where
+// it runs, how full its context is, the to-do list Claude keeps, its tasks
+// and its agents (what runs now and what ended), and what it made; folded
+// at the end, the files it changed, the plan's usage and the MCP servers. A
+// section with nothing in it is its title and a 0. What only a request
+// tells is asked for when the panel opens and after each turn.
 
 import {
   Check,
-  Circle,
-  CircleCheck,
-  CircleDot,
   Copy,
   ExternalLink,
   FilePlus,
@@ -17,6 +15,9 @@ import {
   Globe,
   MessageSquare,
   RefreshCw,
+  Square,
+  SquareCheck,
+  SquareDot,
 } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -61,7 +62,7 @@ import { LinkMenu, useChatLinks } from "./chat-links";
 import { Highlighted } from "./code-highlight";
 import { FileKindIcon } from "./file-kind-icon";
 import { FirstFew, Row, Section } from "./panel-section";
-import { RunningSection } from "./running-section";
+import { ActivitySections } from "./running-section";
 
 interface SidePanelProps {
   controller: ChatController;
@@ -187,16 +188,6 @@ export const SidePanel = memo(function SidePanel({
       aria-label={t("chat.panel.aria")}
       data-testid="chat-side-panel"
     >
-      <RunningSection
-        activity={activity}
-        reveal={jobsAsked}
-        onRevealed={onRevealed}
-        onOpen={openRow}
-        stopOf={stopOf}
-        stopNote={stopNote}
-        onBackground={onBackground}
-        jobDetail={jobDetail}
-      />
       <EnvSection
         controller={controller}
         state={state}
@@ -206,32 +197,18 @@ export const SidePanel = memo(function SidePanel({
         onForkSession={onForkSession}
       />
       <ContextSection controller={controller} state={state} />
-      {todos.length > 0 && (
-        <Section
-          title={t("chat.panel.todos.title")}
-          count={`${todos.filter((todo) => todo.status === "completed").length}/${todos.length}`}
-        >
-          {todos.map((todo) => (
-            <Row key={todo.id}>
-              {todo.status === "completed" ? (
-                <CircleCheck className="size-3.5 shrink-0 text-[var(--git-status-added-fg)]" />
-              ) : todo.status === "in_progress" ? (
-                <CircleDot className="size-3.5 shrink-0 text-[var(--tab-claude-running-fg)]" />
-              ) : (
-                <Circle className="size-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span
-                className={cn(
-                  "min-w-0 flex-1 break-words",
-                  todo.status === "completed" && "text-muted-foreground line-through",
-                )}
-              >
-                {todo.content}
-              </span>
-            </Row>
-          ))}
-        </Section>
-      )}
+      <TodosSection todos={todos} />
+      <ActivitySections
+        activity={activity}
+        foldKey={controller.key}
+        reveal={jobsAsked}
+        onRevealed={onRevealed}
+        onOpen={openRow}
+        stopOf={stopOf}
+        stopNote={stopNote}
+        onBackground={onBackground}
+        jobDetail={jobDetail}
+      />
       <ResultsSection
         items={items}
         tools={tools}
@@ -239,23 +216,77 @@ export const SidePanel = memo(function SidePanel({
         workspaceId={workspaceId}
         rootPath={rootPath}
       />
-      {changed.length > 0 && (
-        <Section title={t("chat.panel.changed.title")} count={changed.length} folded>
-          {changed.map((file) => (
-            <ChangedRow
-              key={file.path}
-              file={file}
-              cwd={cwd}
-              onOpen={() => links?.openChange(file.path)}
-            />
-          ))}
-        </Section>
-      )}
+      <Section
+        title={t("chat.panel.changed.title")}
+        count={changed.length}
+        empty={changed.length === 0}
+        folded
+      >
+        {changed.map((file) => (
+          <ChangedRow
+            key={file.path}
+            file={file}
+            cwd={cwd}
+            onOpen={() => links?.openChange(file.path)}
+          />
+        ))}
+      </Section>
       <UsageSection controller={controller} state={state} />
       <McpSection controller={controller} state={state} />
     </aside>
   );
 });
+
+/**
+ * The to-do list Claude keeps, as a checklist: done, the one it works on,
+ * and what waits; counted as done of all.
+ */
+export function TodosSection({
+  todos,
+}: {
+  todos: readonly { id?: string; content: string; status: string }[];
+}) {
+  const { t } = useTranslation();
+  const done = todos.filter((todo) => todo.status === "completed").length;
+  return (
+    <Section
+      title={t("chat.panel.todos.title")}
+      count={todos.length > 0 ? `${done}/${todos.length}` : 0}
+      empty={todos.length === 0}
+    >
+      {todos.map((todo, i) => (
+        // A to-do another computer tells has no id: its list is replaced whole.
+        <Row key={todo.id ?? i}>
+          {todo.status === "completed" ? (
+            <SquareCheck
+              aria-label={t("chat.panel.todos.completed")}
+              className="size-3.5 shrink-0 text-[var(--state-success-fg)]"
+            />
+          ) : todo.status === "in_progress" ? (
+            <SquareDot
+              aria-label={t("chat.panel.todos.in_progress")}
+              className="size-3.5 shrink-0 text-[var(--tab-claude-running-fg)]"
+            />
+          ) : (
+            <Square
+              aria-label={t("chat.panel.todos.pending")}
+              className="size-3.5 shrink-0 text-muted-foreground"
+            />
+          )}
+          <span
+            className={cn(
+              "min-w-0 flex-1 break-words",
+              todo.status === "completed" && "text-muted-foreground line-through",
+              todo.status === "in_progress" && "font-medium text-foreground",
+            )}
+          >
+            {todo.content}
+          </span>
+        </Row>
+      ))}
+    </Section>
+  );
+}
 
 function stop(controller: ChatController, taskId: string, failed: string): void {
   controller.stopTask(taskId).catch((err: Error) => {
@@ -341,9 +372,12 @@ export function ResultsSection({
   const links = useChatLinks();
   const open = (target: string, kind: ResultEntry["kind"]) =>
     kind === "file" ? links?.openFile(target) : links?.openUrl(target);
-  if (made.length + artifacts.length === 0) return null;
   return (
-    <Section title={t("chat.panel.results.title")} count={made.length + artifacts.length}>
+    <Section
+      title={t("chat.panel.results.title")}
+      count={made.length + artifacts.length}
+      empty={made.length + artifacts.length === 0}
+    >
       <FirstFew>
         {[
           ...artifacts.map((page) => (

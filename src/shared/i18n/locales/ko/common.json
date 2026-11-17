@@ -1175,7 +1175,7 @@
       },
       "running": {
         "title": "실행 중",
-        "ended": "종료됨 {{count}}",
+        "ended": "종료됨",
         "search": "검색",
         "no_match": "없음",
         "background": "백그라운드",
@@ -1188,6 +1188,7 @@
         }
       },
       "agents": {
+        "title": "에이전트",
         "open": "대화 보기",
         "teammate": "팀원",
         "tools_one": "도구 {{count}}회",
@@ -1196,6 +1197,7 @@
         "open_run": "실행 보기"
       },
       "jobs": {
+        "title": "작업",
         "live": "실시간",
         "exit_code": "종료 코드 {{code}}",
         "reading": "출력을 읽는 중…",
@@ -1206,7 +1208,10 @@
         "output_file": "출력 파일"
       },
       "todos": {
-        "title": "할 일"
+        "title": "할 일",
+        "completed": "완료",
+        "in_progress": "진행 중",
+        "pending": "대기"
       },
       "results": {
         "title": "결과물",

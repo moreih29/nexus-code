@@ -9,7 +9,6 @@
  */
 
 import i18next from "i18next";
-import type { ChatPage } from "../../../../packages/remote-protocol/src";
 import {
   defaultProfileId,
   isDefaultProfileId,
@@ -34,7 +33,7 @@ import {
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
-import { AGENT_TOOLS, jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
+import { jobOutputFile, jobsOf, outsideLinksOf } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { planUsageKeyFor } from "../chat/plan-usage";
 import { sameProfile } from "../chat/profile-moves";
@@ -50,7 +49,14 @@ import {
 } from "../remote/chat-config";
 import { fitImage, imageOf } from "../remote/chat-image";
 import { originalOf } from "../remote/chat-original";
-import { type ChatSource, chatPageOf, conversationOf, viewToolOf } from "../remote/chat-page";
+import {
+  type ChatSource,
+  chatPageOf,
+  conversationOf,
+  pageWithSubagents,
+  unreadSubagentsOf,
+  viewToolOf,
+} from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
 import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
@@ -97,18 +103,17 @@ async function readableTab(workspaceId: string, tabId: string): Promise<AgentTab
 }
 
 /**
- * Reads the messages of the subagents a page names that the tab has none
- * of, as a conversation read from its transcript has them: Claude Code
- * keeps them apart. The device's watch sends them once read; a page read
- * again has them.
+ * Reads the messages of subagents the tab has none of (unreadSubagentsOf),
+ * as a conversation read from its transcript has them: Claude Code keeps
+ * them apart. The device's watch sends them once read; a page read again
+ * has them. Done once all are read, or found nowhere.
  */
-function readNamedSubagents(target: AgentTabController, page: ChatPage): void {
-  if (target.agent !== "claude") return;
-  for (const [id, tool] of Object.entries(page.tools)) {
-    if (tool.parentToolUseId !== null || !AGENT_TOOLS.has(tool.name) || page.agentItems[id])
-      continue;
-    void target.controller.loadSubagent(id);
-  }
+function readSubagents(target: AgentTabController, toolUseIds: readonly string[]): Promise<void> {
+  if (target.agent !== "claude" || toolUseIds.length === 0) return Promise.resolve();
+  return Promise.all(toolUseIds.map((id) => target.controller.loadSubagent(id))).then(
+    () => {},
+    () => {},
+  );
 }
 
 /** The workspace's folder, where its past conversations ran. */
@@ -431,9 +436,10 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
 
   "chat.page": async ({ workspaceId, tabId, before, limit }) => {
     const target = await readableTab(workspaceId, tabId);
-    const page = chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
-    readNamedSubagents(target, page);
-    return page;
+    const read = () => chatPageOf(sourceOf(workspaceId, tabId, target.agent), { before, limit });
+    if (target.agent !== "claude") return read();
+    // A subagent that ended opens on the device from the page it read: with its messages.
+    return pageWithSubagents(read, (ids) => readSubagents(target, ids));
   },
 
   "chat.watch": async ({ workspaceId, tabId, watchId, limit, appends }) => {
@@ -464,7 +470,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
         },
       },
     );
-    readNamedSubagents(target, watched);
+    void readSubagents(target, unreadSubagentsOf(watched));
     return watched;
   },
 

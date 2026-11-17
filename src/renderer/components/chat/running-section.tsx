@@ -1,8 +1,10 @@
-// The side panel's first section: what the session runs now, in one list
-// (its subagents, background commands, `claude -p` runs, and the calls its
-// turn waits on, which can go to the background from here), and under it
-// one folded line of what ended, which opens to a list to search. A chat
-// here and another computer's chat both show it.
+// The side panel's Tasks and Agents sections: what the session runs, its
+// commands in one (background jobs, and the commands its turn waits on,
+// once they have run a moment), its subagents and `claude -p` runs in the
+// other. Each has two folds: what runs now, open while something does (a
+// call the turn waits on can go to the background from there), and what
+// ended, which opens to a list to search. The folds stay as they were left.
+// A chat here and another computer's chat both show them.
 
 import type { TFunction } from "i18next";
 import {
@@ -27,7 +29,9 @@ import {
   type Activity,
   type ActivityKind,
   type ActivityRow,
+  activityParts,
   endedAtOf,
+  heldBack,
   type JobLike,
   sameEndedRows,
   searchActivity,
@@ -37,7 +41,7 @@ import { elapsedLabel } from "../agent-list/agent-status";
 import { IconButton } from "../ui/icon-button";
 import { SearchInput } from "../ui/search-input";
 import { relativeTime } from "./message-list";
-import { FirstFew, Row, Section, useRevealedRow } from "./panel-section";
+import { FirstFew, Row, Section, useFold, useRevealedRow } from "./panel-section";
 import { BackgroundIcon } from "./tool-row";
 
 /** How many ended rows show before the rest is asked for. */
@@ -49,8 +53,11 @@ export interface RunningReveal {
   id?: string;
 }
 
-export interface RunningSectionProps {
+export interface ActivitySectionsProps {
   activity: Activity;
+  /** Whose folds these are: the tab's key, kept apart from another tab's. */
+  foldKey: string;
+  /** A job asked for: the Tasks section's. */
   reveal?: RunningReveal;
   /** The ask was answered: shown. */
   onRevealed?: (seq: number) => void;
@@ -66,9 +73,69 @@ export interface RunningSectionProps {
   jobDetail: (job: JobLike) => React.ReactNode;
 }
 
-/** Memoized: it renders when what it lists changes, not for each change of the chat. */
-export const RunningSection = memo(function RunningSection({
+/** The Tasks section, then the Agents section, always both, in their places. */
+export function ActivitySections({ activity, reveal, ...rest }: ActivitySectionsProps) {
+  const { t } = useTranslation();
+  const running = useShownRunning(activity.running);
+  const parts = useMemo(
+    () => activityParts({ running, ended: activity.ended }),
+    [running, activity.ended],
+  );
+  return (
+    <>
+      <ActivitySection
+        part="commands"
+        title={t("chat.panel.jobs.title")}
+        activity={parts.commands}
+        reveal={reveal}
+        {...rest}
+      />
+      <ActivitySection
+        part="agents"
+        title={t("chat.panel.agents.title")}
+        activity={parts.agents}
+        {...rest}
+      />
+    </>
+  );
+}
+
+/**
+ * The running rows to list now: a command the turn waits on only once it
+ * has run WAITED_CALL_DELAY_MS, drawn again when the first held back is due.
+ */
+function useShownRunning(rows: ActivityRow[]): ActivityRow[] {
+  // When each waited command was first seen, for one whose message tells no time.
+  const seen = useRef(new Map<string, number>());
+  // Counts the times one fell due: a timer that fires a moment early is set again.
+  const [dues, setDues] = useState(0);
+  const now = Date.now();
+  const firstSeen = seen.current;
+  for (const row of rows) if (row.call && !firstSeen.has(row.key)) firstSeen.set(row.key, now);
+  if (firstSeen.size > 0) {
+    const keys = new Set(rows.map((row) => row.key));
+    for (const key of firstSeen.keys()) if (!keys.has(key)) firstSeen.delete(key);
+  }
+  const { shown, nextAt } = heldBack(rows, now, firstSeen);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: set again each time one falls due
+  useEffect(() => {
+    if (nextAt === undefined) return;
+    const timer = setTimeout(() => setDues((n) => n + 1), Math.max(0, nextAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [nextAt, dues]);
+  return shown;
+}
+
+/**
+ * One of the two sections: what runs, then what ended, each a fold under
+ * the title that counts it. Memoized: it renders when what it lists changes,
+ * not for each change of the chat.
+ */
+const ActivitySection = memo(function ActivitySection({
+  part,
+  title,
   activity,
+  foldKey,
   reveal,
   onRevealed,
   onOpen,
@@ -76,7 +143,11 @@ export const RunningSection = memo(function RunningSection({
   stopNote,
   onBackground,
   jobDetail,
-}: RunningSectionProps) {
+}: Omit<ActivitySectionsProps, "activity"> & {
+  part: "commands" | "agents";
+  title: string;
+  activity: Activity;
+}) {
   const { t } = useTranslation();
   const { running } = activity;
   // Kept while it shows the same, so the list, which may be long, is not drawn again.
@@ -90,19 +161,27 @@ export const RunningSection = memo(function RunningSection({
   // A bare ask, or one for a job no longer listed, shows the section; with
   // nothing running, what ended.
   const bare = reveal !== undefined && !runningAsked && !endedAsked;
-  if (running.length === 0 && ended.length === 0) return null;
-  // One section headed or not, so what ended stays open, and as searched, as what runs comes and goes.
+  const [runningOpen, setRunningOpen] = useFold(`${foldKey}:${part}:running`, true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
+  useEffect(() => {
+    if (runningAsked) setRunningOpen(true);
+  }, [reveal?.seq]);
   return (
     <Section
-      title={t("chat.panel.running.title")}
-      count={running.length}
-      headless={running.length === 0}
+      title={title}
       reveal={bare ? reveal?.seq : undefined}
       onRevealed={onRevealed}
       opened={runningAsked || endedAsked ? reveal?.seq : undefined}
     >
-      {running.length > 0 && (
-        <div className="flex flex-col gap-0.5" data-testid="panel-running">
+      <div className="flex flex-col" data-testid={`panel-${part}`}>
+        <Fold
+          label={t("chat.panel.running.title")}
+          count={running.length}
+          live
+          open={runningOpen || runningAsked}
+          onToggle={() => setRunningOpen(!runningOpen)}
+          testId="panel-running"
+        >
           {running.map((row) => (
             <RunningRow
               key={row.key}
@@ -116,22 +195,83 @@ export const RunningSection = memo(function RunningSection({
               jobDetail={jobDetail}
             />
           ))}
-        </div>
-      )}
-      {ended.length > 0 && (
+        </Fold>
         <EndedFold
           rows={ended}
+          foldKey={`${foldKey}:${part}:ended`}
           opened={endedAsked || (bare && running.length === 0) ? reveal?.seq : undefined}
           reveal={endedAsked ? reveal : undefined}
           onRevealed={onRevealed}
           onOpen={onOpen}
           jobDetail={jobDetail}
-          divided={running.length > 0}
         />
-      )}
+      </div>
     </Section>
   );
 });
+
+/**
+ * A fold under a section's title, its rows set in under it: its label and
+ * how many it holds; with none, only that, and it does not open.
+ */
+function Fold({
+  label,
+  count,
+  live = false,
+  open,
+  onToggle,
+  testId,
+  children,
+}: {
+  label: string;
+  count: number;
+  /** Counts what runs now: its count in the color of a link while it does. */
+  live?: boolean;
+  open: boolean;
+  onToggle: () => void;
+  testId: string;
+  children?: React.ReactNode;
+}) {
+  const empty = count === 0;
+  const shown = open && !empty;
+  return (
+    <div className="flex flex-col" data-testid={testId}>
+      <button
+        type="button"
+        onClick={empty ? undefined : onToggle}
+        aria-expanded={empty ? undefined : shown}
+        aria-disabled={empty || undefined}
+        className={cn(
+          "flex min-h-6 w-full items-center gap-1 pl-3 text-left text-app-ui-sm",
+          empty ? "cursor-default text-muted-foreground" : "hover:text-foreground",
+        )}
+      >
+        {shown ? (
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight
+            className={cn("size-3 shrink-0 text-muted-foreground", empty && "opacity-40")}
+          />
+        )}
+        <span>{label}</span>
+        <span
+          className={cn(
+            "tabular-nums",
+            live && !empty ? "font-semibold text-[var(--state-info-fg)]" : "text-muted-foreground",
+          )}
+          data-testid={`${testId}-count`}
+        >
+          {count}
+        </span>
+      </button>
+      {shown && (
+        <div className="mb-1 ml-4 flex flex-col gap-0.5 border-l border-border pl-2.5">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** A row's state as a small glyph: spinning while it runs. */
 export function ActivityGlyph({ status }: { status: AgentStatus }) {
@@ -358,19 +498,21 @@ function OpenButton({
 }
 
 /**
- * What ended, as one folded line that counts it; opened, a box to search it
- * and the newest first, a few and then the rest when asked.
+ * What ended, as a fold that counts it; opened, a box to search it and the
+ * newest first, a few and then the rest when asked.
  */
 const EndedFold = memo(function EndedFold({
   rows,
+  foldKey,
   opened,
   reveal,
   onRevealed,
   onOpen,
   jobDetail,
-  divided,
 }: {
   rows: readonly ActivityRow[];
+  /** Where it is kept open or folded. */
+  foldKey: string;
   /** Set when it was asked to open: by a bare /tasks with nothing running, or for a row of it. */
   opened?: number;
   /** The job of its rows asked for. */
@@ -378,12 +520,11 @@ const EndedFold = memo(function EndedFold({
   onRevealed?: (seq: number) => void;
   onOpen: (row: ActivityRow) => void;
   jobDetail: (job: JobLike) => React.ReactNode;
-  /** Under the running rows, with a line between. */
-  divided: boolean;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useFold(foldKey, false);
   const [query, setQuery] = useState("");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once
   useEffect(() => {
     if (opened === undefined) return;
     setOpen(true);
@@ -391,31 +532,23 @@ const EndedFold = memo(function EndedFold({
     setQuery("");
   }, [opened]);
   return (
-    <div
-      className={cn("flex flex-col", divided && "mt-1.5 border-t border-dashed border-border pt-1")}
+    <Fold
+      label={t("chat.panel.running.ended")}
+      count={rows.length}
+      open={open}
+      onToggle={() => setOpen(!open)}
+      testId="panel-ended"
     >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1 text-left text-app-ui-sm text-muted-foreground hover:text-foreground"
-        data-testid="panel-ended"
-      >
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        <span className="font-medium">{t("chat.panel.running.ended", { count: rows.length })}</span>
-      </button>
-      {open && (
-        <EndedList
-          rows={rows}
-          query={query}
-          onQuery={setQuery}
-          reveal={reveal}
-          onRevealed={onRevealed}
-          onOpen={onOpen}
-          jobDetail={jobDetail}
-        />
-      )}
-    </div>
+      <EndedList
+        rows={rows}
+        query={query}
+        onQuery={setQuery}
+        reveal={reveal}
+        onRevealed={onRevealed}
+        onOpen={onOpen}
+        jobDetail={jobDetail}
+      />
+    </Fold>
   );
 });
 
@@ -447,7 +580,7 @@ function EndedList({
   const at = asked === undefined ? -1 : found.findIndex((row) => row.job?.taskId === asked);
   const justNow = t("chat.time.now");
   return (
-    <div className="mt-1 flex flex-col gap-0.5" data-testid="panel-ended-list">
+    <div className="flex flex-col gap-0.5" data-testid="panel-ended-list">
       <SearchInput
         value={query}
         onChange={onQuery}

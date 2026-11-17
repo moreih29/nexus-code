@@ -1,11 +1,38 @@
 // The parts a chat's side panel is made of: a section that folds, opens
-// when a bare command asks for it and comes into view; its rows; a long
-// list's first few rows; and a row the conversation asks to see.
+// when a bare command asks for it and comes into view, and shows only its
+// title and a 0 when it has nothing; its rows; a long list's first few rows;
+// a row the conversation asks to see; and folds that stay as they were left.
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../utils/cn";
+
+/** The folds the panel's parts were left in, by tab and part: kept while the app runs. */
+const folds = new Map<string, boolean>();
+
+/**
+ * Whether a part of the panel is open, as it was left for `key` (its tab's
+ * and its own), else `initial`: the panel draws again, and comes back after
+ * it was hidden, as the user left it.
+ */
+export function useFold(key: string, initial: boolean): [boolean, (open: boolean) => void] {
+  const [open, setOpen] = useState(() => folds.get(key) ?? initial);
+  // Another tab's panel in the same place starts as that tab left it.
+  const [shown, setShown] = useState(key);
+  if (shown !== key) {
+    setShown(key);
+    setOpen(folds.get(key) ?? initial);
+  }
+  const set = useCallback(
+    (next: boolean) => {
+      folds.set(key, next);
+      setOpen(next);
+    },
+    [key],
+  );
+  return [open, set];
+}
 
 /** How long a section a bare command opened keeps itself at the top as it fills. */
 const REVEAL_FOLLOW_MS = 1500;
@@ -119,7 +146,7 @@ export function FirstFew({
 export function Section({
   title,
   count,
-  headless = false,
+  empty = false,
   folded = false,
   onOpen,
   openAgain,
@@ -130,8 +157,8 @@ export function Section({
 }: {
   title: string;
   count?: number | string;
-  /** Shown with no heading, always open: a section with only a line of its own (RunningSection). */
-  headless?: boolean;
+  /** Has nothing to show: only its title and its count, folded, and it does not open. */
+  empty?: boolean;
   /** Starts folded. */
   folded?: boolean;
   /** Called each time the section opens. */
@@ -143,7 +170,7 @@ export function Section({
   onRevealed?: (seq: number) => void;
   /** Set when one of its rows was asked for: it opens, and the row shows itself. */
   opened?: number;
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(!folded);
   useEffect(() => {
@@ -155,8 +182,8 @@ export function Section({
   const [scrollFor, setScrollFor] = useState<number | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: asked for each time it opens, not when the callback changes
   useEffect(() => {
-    if (open) onOpen?.();
-  }, [open, openAgain]);
+    if (open && !empty) onOpen?.();
+  }, [open, empty, openAgain]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
   useEffect(() => {
     if (reveal === undefined) return;
@@ -178,24 +205,29 @@ export function Section({
       observer.disconnect();
     };
   }, [scrollFor]);
+  const shown = open && !empty;
   return (
     <section ref={ref} className="border-b border-border px-3 py-2">
-      {!headless && (
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex w-full items-center gap-1 text-left text-app-ui-sm text-muted-foreground hover:text-foreground"
-        >
-          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          <span className="font-medium">{title}</span>
-          {count !== undefined && <span className="ml-auto tabular-nums">{count}</span>}
-        </button>
-      )}
-      {/* In the same place headed or not, so what it holds stays as it is when that changes. */}
-      {(open || headless) && (
-        <div className={cn("flex flex-col gap-0.5", !headless && "mt-1.5")}>{children}</div>
-      )}
+      <button
+        type="button"
+        onClick={empty ? undefined : () => setOpen(!open)}
+        aria-expanded={empty ? undefined : shown}
+        aria-disabled={empty || undefined}
+        className={cn(
+          "flex w-full items-center gap-1 text-left text-app-ui-sm text-muted-foreground",
+          empty ? "cursor-default" : "hover:text-foreground",
+        )}
+        data-empty={empty || undefined}
+      >
+        {shown ? (
+          <ChevronDown className="size-3.5" />
+        ) : (
+          <ChevronRight className={cn("size-3.5", empty && "opacity-40")} />
+        )}
+        <span className={cn(!empty && "font-medium")}>{title}</span>
+        {count !== undefined && <span className="ml-auto tabular-nums">{count}</span>}
+      </button>
+      {shown && <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>}
     </section>
   );
 }

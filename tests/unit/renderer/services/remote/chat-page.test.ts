@@ -9,7 +9,12 @@ import type {
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { scopesOf } from "../../../../../src/renderer/services/chat/permission-scopes";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
-import { chatPageOf, conversationOf } from "../../../../../src/renderer/services/remote/chat-page";
+import {
+  chatPageOf,
+  conversationOf,
+  pageWithSubagents,
+  unreadSubagentsOf,
+} from "../../../../../src/renderer/services/remote/chat-page";
 
 const user = (key: string, text = key): ChatItem => ({
   kind: "user",
@@ -420,5 +425,66 @@ describe("a page drawn as this app's chat", () => {
       }),
     );
     expect(modelOfPage(page).tools.t1?.result?.text.endsWith("…")).toBe(true);
+  });
+});
+
+describe("a page with its subagents' messages", () => {
+  const page = (agentItems: Record<string, never[]> = {}) => ({
+    status: { state: "idle" as const },
+    start: 0,
+    total: 1,
+    items: [],
+    tools: {
+      a1: { id: "a1", name: "Agent", input: {}, status: "done" as const, parentToolUseId: null },
+      r1: { id: "r1", name: "Read", input: {}, status: "done" as const, parentToolUseId: "a1" },
+    },
+    tasks: {},
+    agentItems,
+  });
+
+  test("names the subagents a page has no messages of", () => {
+    expect(unreadSubagentsOf(page() as never)).toEqual(["a1"]);
+    expect(unreadSubagentsOf(page({ a1: [] }) as never)).toEqual([]);
+  });
+
+  test("is read again once they are read, or once it waited long enough", async () => {
+    let reads = 0;
+    let loaded: string[] = [];
+    const got = await pageWithSubagents(
+      () => {
+        reads += 1;
+        return (reads === 1 ? page() : page({ a1: [] })) as never;
+      },
+      async (ids) => {
+        loaded = ids;
+      },
+    );
+    expect(loaded).toEqual(["a1"]);
+    expect(reads).toBe(2);
+    expect(got.agentItems).toEqual({ a1: [] });
+    // A read that never ends is waited on only so long.
+    let slow = 0;
+    const late = await pageWithSubagents(
+      () => {
+        slow += 1;
+        return page() as never;
+      },
+      () => new Promise(() => {}),
+      5,
+    );
+    expect(slow).toBe(2);
+    expect(late.agentItems).toEqual({});
+    // One with none to read is read once.
+    let once = 0;
+    await pageWithSubagents(
+      () => {
+        once += 1;
+        return page({ a1: [] }) as never;
+      },
+      async () => {
+        throw new Error("not asked");
+      },
+    );
+    expect(once).toBe(1);
   });
 });
