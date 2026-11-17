@@ -309,17 +309,26 @@ type supervised struct {
 // app stops it as the session's ^C would. False when it could not start,
 // which is told on stderr. release, deferred, stops taking the signals.
 func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*supervised, bool) {
-	signals := make(chan os.Signal, 4)
-	signal.Notify(signals, forwardedSignals...)
-	// A write to output no one reads fails rather than kill the run's end.
+	// A signal the run was started with ignored stays ignored, for the run
+	// and for the program it starts: taking it would bring it back. `nohup
+	// claude -p …` must outlive the terminal's hangup, and a run in the
+	// background of a script its ^C.
 	// (Notify with no signals would take them all.)
+	var signals chan os.Signal
+	if taken := notIgnored(forwardedSignals); len(taken) > 0 {
+		signals = make(chan os.Signal, 4)
+		signal.Notify(signals, taken...)
+	}
+	// A write to output no one reads fails rather than kill the run's end.
 	var quiet chan os.Signal
-	if len(swallowedSignals) > 0 {
+	if taken := notIgnored(swallowedSignals); len(taken) > 0 {
 		quiet = make(chan os.Signal, 1)
-		signal.Notify(quiet, swallowedSignals...)
+		signal.Notify(quiet, taken...)
 	}
 	release := func() {
-		signal.Stop(signals)
+		if signals != nil {
+			signal.Stop(signals)
+		}
 		if quiet != nil {
 			signal.Stop(quiet)
 		}
@@ -331,15 +340,17 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 	}
 	tree := holdTree(cmd.Process)
 	stopped := make(chan os.Signal, 1)
-	go func() {
-		for s := range signals {
-			select {
-			case stopped <- s:
-			default:
+	if signals != nil {
+		go func() {
+			for s := range signals {
+				select {
+				case stopped <- s:
+				default:
+				}
+				_ = cmd.Process.Signal(s)
 			}
-			_ = cmd.Process.Signal(s)
-		}
-	}()
+		}()
+	}
 	teller.onStop(func() {
 		if s := stopProcess(cmd.Process, tree); s != nil {
 			select {
@@ -352,6 +363,17 @@ func startSupervised(cmd *exec.Cmd, teller *printTeller, stderr io.Writer) (*sup
 		release()
 		tree.release()
 	}}, true
+}
+
+// notIgnored is those of sigs the process was not started with ignored.
+func notIgnored(sigs []os.Signal) []os.Signal {
+	var taken []os.Signal
+	for _, sig := range sigs {
+		if !signal.Ignored(sig) {
+			taken = append(taken, sig)
+		}
+	}
+	return taken
 }
 
 // ending is how the run's process ended, once waited for: its exit code,

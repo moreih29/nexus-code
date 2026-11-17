@@ -6,9 +6,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -533,4 +535,30 @@ func TestRunPrint_AnAppGoneDoesNotHoldTheRun(t *testing.T) {
 func (f toldFrame) String() string {
 	b, _ := json.Marshal(f.Payload)
 	return f.Subcommand + string(b)
+}
+
+// A run started with a signal ignored — `nohup claude -p …`, or one run in
+// the background of a script — leaves it ignored for claude: taking it to
+// pass on would bring it back, and the closed terminal's hangup would end
+// the run nohup was there to keep.
+func TestRunPrint_LeavesAnIgnoredSignalIgnored(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGHUP, syscall.SIGINT} {
+		t.Run(sig.String(), func(t *testing.T) {
+			signal.Ignore(sig)
+			t.Cleanup(func() {
+				// Back to Go's own handling of it, which Reset alone does not undo.
+				c := make(chan os.Signal, 1)
+				signal.Notify(c, sig)
+				signal.Stop(c)
+			})
+			_, socket := newFrameServer(t)
+			claude := fakeClaude(t, fmt.Sprintf(`kill -%d $$; echo SURVIVED`, int(sig)))
+			var stdout bytes.Buffer
+			code, died := runPrint(claude, []string{"-p", "hi"}, strings.NewReader(""), &stdout,
+				&bytes.Buffer{}, newPrintTeller(socket, "tok", "ws", "t1"))
+			if code != 0 || died != 0 || !strings.Contains(stdout.String(), "SURVIVED") {
+				t.Fatalf("claude did not start with %v ignored: exit %d, signal %d, out %q", sig, code, died, stdout.String())
+			}
+		})
+	}
 }
