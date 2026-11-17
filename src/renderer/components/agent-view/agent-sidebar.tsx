@@ -16,9 +16,7 @@ import type { ActivityByKey } from "@/services/agent-sessions/agents";
 import type { InboxItem } from "@/services/agent-sessions/inbox";
 import type { AgentSession, SessionFamily, WorktreeEntry } from "@/services/agent-sessions/model";
 import {
-  chatRowFacts,
   groupOf,
-  hookRowFacts,
   listed,
   matchesQuery,
   ROW_GROUPS,
@@ -27,17 +25,18 @@ import {
 } from "@/services/agent-sessions/rows";
 import { useSessionActivity } from "@/services/agent-sessions/use-family";
 import { markRead } from "@/services/agent-sessions/use-inbox";
+import { useRowFacts } from "@/services/agent-sessions/use-row-facts";
 import { type Agents, workspaceColor } from "@/services/agent-view/agents";
 import { parseSessionKey } from "@/services/agent-view/layout";
 import { moveKey, orderSessions } from "@/services/agent-view/order";
 import { showInAgentView } from "@/services/agent-view/show";
 import { useAgents } from "@/services/agent-view/use-agents";
-import { type ChatTabState, chatKey, useChatStore } from "@/services/chat/store";
 import { openClaudeTab, openCodexTab } from "@/state/operations/tabs";
 import { type AgentListGrouping, useAgentViewStore } from "@/state/stores/agent-view";
 import { useUIStore } from "@/state/stores/ui";
 import { selectWorkspaceConnectionStatus, useWorkspacesStore } from "@/state/stores/workspaces";
 import { cn } from "@/utils/cn";
+import type { SessionActivity } from "../../../shared/claude/activity";
 import type { WorkspaceMeta } from "../../../shared/types/workspace";
 import { AgentRows } from "../agent-list/agent-rows";
 import { StateGlyph, stateLabel, useDurationLabel } from "../agent-list/session-status";
@@ -75,7 +74,6 @@ export const AgentSidebar = memo(function AgentSidebar() {
     [agents],
   );
   const activity = useSessionActivity(ids, true);
-  const chats = useChatStore((s) => s.tabs);
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -139,9 +137,9 @@ export const AgentSidebar = memo(function AgentSidebar() {
               {t("sidebar.no_workspaces")}
             </p>
           ) : grouping === "status" ? (
-            <StatusGroups agents={agents} activity={activity} chats={chats} query={query} />
+            <StatusGroups agents={agents} activity={activity} query={query} />
           ) : (
-            <WorkspaceGroups agents={agents} activity={activity} chats={chats} query={query} />
+            <WorkspaceGroups agents={agents} activity={activity} query={query} />
           )}
           <RemoteSessions query={query} />
         </div>
@@ -193,7 +191,6 @@ function fromSearch(event: KeyboardEvent<HTMLInputElement>, list: HTMLElement | 
 interface GroupsProps {
   agents: Agents;
   activity: ActivityByKey;
-  chats: Record<string, ChatTabState>;
   /** What the search box holds: only the agents it finds are listed, in groups that are open. */
   query: string;
 }
@@ -214,7 +211,7 @@ function NoMatch() {
  * tells the workspace it runs in; one with none shows as a dim line, so the
  * groups keep their places.
  */
-function StatusGroups({ agents, activity, chats, query }: GroupsProps) {
+function StatusGroups({ agents, activity, query }: GroupsProps) {
   const { t } = useTranslation();
   const folded = useAgentViewStore((s) => s.folded);
   const sessions = useMemo(
@@ -284,8 +281,7 @@ function StatusGroups({ agents, activity, chats, query }: GroupsProps) {
                 <AgentItem
                   key={session.key}
                   session={session}
-                  activity={activity}
-                  chat={chats[chatKey(session.workspaceId, session.tabId)]}
+                  run={activity.get(session.key)}
                   where={agents.byKey.get(session.key)}
                 />
               ))}
@@ -311,7 +307,7 @@ function MarkAllRead({ items }: { items: readonly InboxItem[] }) {
 }
 
 /** Every workspace with its tasks and their agents, in the sidebar's order and the one dragged into. */
-function WorkspaceGroups({ agents, activity, chats, query }: GroupsProps) {
+function WorkspaceGroups({ agents, activity, query }: GroupsProps) {
   const order = useAgentViewStore((s) => s.order);
   const folded = useAgentViewStore((s) => s.folded);
 
@@ -354,7 +350,6 @@ function WorkspaceGroups({ agents, activity, chats, query }: GroupsProps) {
         folded={!searching && folded.has(key)}
         onToggle={() => useAgentViewStore.getState().toggleFolded(key)}
         activity={activity}
-        chats={chats}
         onReorder={reorder}
       />
     );
@@ -392,7 +387,6 @@ function FamilyGroup({
   folded,
   onToggle,
   activity,
-  chats,
   onReorder,
 }: {
   family: SessionFamily;
@@ -400,7 +394,6 @@ function FamilyGroup({
   folded: boolean;
   onToggle: () => void;
   activity: ActivityByKey;
-  chats: Record<string, ChatTabState>;
   onReorder: Reorder;
 }) {
   const { t } = useTranslation();
@@ -462,8 +455,7 @@ function FamilyGroup({
               <AgentItem
                 key={session.key}
                 session={session}
-                activity={activity}
-                chat={chats[chatKey(session.workspaceId, session.tabId)]}
+                run={activity.get(session.key)}
                 onReorder={onReorder}
               />
             ))}
@@ -503,7 +495,8 @@ function WhereLabel({ workspace }: { workspace: WorkspaceMeta }) {
  * a panel: with the profile the workspace gives, or, where there is more
  * than one, another picked from its submenu, as the tab bar's + does.
  */
-function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
+// Memo: a Radix menu for each workspace and task, which their list renders with each change of any agent's.
+const NewAgentMenu = memo(function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
   const { t } = useTranslation();
   const start = (kind: "claude" | "codex", profileId?: string) => {
     const open = kind === "claude" ? openClaudeTab : openCodexTab;
@@ -534,7 +527,7 @@ function NewAgentMenu({ workspace }: { workspace: WorkspaceMeta }) {
       </DropdownMenuContent>
     </DropdownMenuRoot>
   );
-}
+});
 
 /**
  * Where a row takes an agent dragged over it: before or after it, by the
@@ -549,16 +542,20 @@ function dropEdgeOf(e: DragEvent<HTMLElement>, session: AgentSession): DropEdge 
   return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 }
 
-function AgentItem({
+/**
+ * Memoized, and reads its own conversation's facts (use-row-facts): a
+ * chunk of a reply streaming in, here or in another tab, renders no row
+ * whose facts it leaves as they were.
+ */
+const AgentItem = memo(function AgentItem({
   session,
-  activity,
-  chat,
+  run,
   onReorder,
   where: placed,
 }: {
   session: AgentSession;
-  activity: ActivityByKey;
-  chat: ChatTabState | undefined;
+  /** What its hooks report, when they do. */
+  run: SessionActivity | undefined;
   /** Its place among its workspace's agents, dragged; none where the list is by state. */
   onReorder?: Reorder;
   /** Where the list is by state, the workspace it runs in, which its row tells; its group tells its state. */
@@ -567,13 +564,7 @@ function AgentItem({
   const key = session.key;
   const where = useAgentViewStore((s) => panelPlaceOf(s.root, key));
   const duration = useDurationLabel(session.since);
-  const run = activity.get(key);
-  const facts =
-    session.kind === "terminal"
-      ? hookRowFacts(run)
-      : chat
-        ? chatRowFacts(chat.model, run)
-        : hookRowFacts(undefined);
+  const facts = useRowFacts(session, run);
   const show = () => showInAgentView(session.workspaceId, session.tabId);
   const hover = (on: boolean) => useAgentViewStore.getState().setHovered(on ? key : null);
   const [dropEdge, setDropEdge] = useState<DropEdge | null>(null);
@@ -689,7 +680,7 @@ function AgentItem({
       />
     </div>
   );
-}
+});
 
 /** The workspace an agent runs in, by its color and name, where the list is by state. */
 function WorkspaceTag({ workspace, root }: { workspace: WorkspaceMeta; root: WorkspaceMeta }) {

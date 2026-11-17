@@ -3,7 +3,17 @@
 // the system browser. A link's context menu opens it the other way, or
 // copies it. Outside a Claude tab the links keep the plain behaviour.
 
-import { createContext, useContext, useMemo, useRef } from "react";
+import type { TFunction } from "i18next";
+import {
+  cloneElement,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { type LinkPlaceIndex, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
 import {
@@ -103,9 +113,24 @@ export function usePlacesOf(tools: Readonly<Record<string, ToolCall>>): PlacesOf
   }, []);
 }
 
+/** The link a menu is open for, in the chat whose links open it. */
+interface LinkMenuFor {
+  readonly links: ChatLinks;
+  readonly target: string;
+  readonly href: string;
+  readonly kind: "file" | "url";
+}
+
+/** What the root mounted to open the links' menu, while it is mounted. */
+let openLinkMenu: ((link: LinkMenuFor, at: { x: number; y: number }) => void) | null = null;
+
 /**
  * A link with the menu that opens it the other way, or copies it. A file
  * opens as `href` names it, at its line; `target` is what is copied.
+ *
+ * The menu is LinkMenuRoot's, one for every link: a menu of its own on
+ * each link of a conversation cost a Radix menu per link, drawn again with
+ * each chunk of a streaming reply.
  */
 export function LinkMenu({
   target,
@@ -118,47 +143,92 @@ export function LinkMenu({
   kind: "file" | "url";
   children: React.ReactElement;
 }) {
-  const { t } = useTranslation();
   const links = useChatLinks();
   if (!links) return children;
-  const { openFileTab } = links;
-  const items: MenuItemSpec[] =
-    kind === "file"
-      ? [
-          { kind: "item", label: t("chat.links.look"), onSelect: () => links.openFile(href) },
-          ...(openFileTab
-            ? [
-                {
-                  kind: "item",
-                  label: t("chat.links.open_tab"),
-                  onSelect: () => openFileTab(href),
-                } satisfies MenuItemSpec,
-              ]
-            : []),
-          { kind: "separator" },
-          { kind: "item", label: t("chat.links.copy_path"), onSelect: () => copyText(target) },
-        ]
-      : [
-          ...(links.urlsOneWay
-            ? []
-            : [
-                {
-                  kind: "item",
-                  label: isLocalAddress(target)
-                    ? t("chat.links.open_system")
-                    : t("chat.links.open_app_browser"),
-                  onSelect: () => links.openUrl(target, true),
-                } satisfies MenuItemSpec,
-                { kind: "separator" } satisfies MenuItemSpec,
-              ]),
-          { kind: "item", label: t("chat.links.copy_link"), onSelect: () => copyText(target) },
-        ];
+  // The menu's trigger was the link itself (asChild), so the link takes the handler.
+  const link = children as React.ReactElement<{ onContextMenu?: React.MouseEventHandler }>;
+  const own = link.props.onContextMenu;
+  return cloneElement(link, {
+    onContextMenu: (event: React.MouseEvent) => {
+      own?.(event);
+      if (event.defaultPrevented || !openLinkMenu) return;
+      event.preventDefault();
+      openLinkMenu({ links, target, href, kind }, { x: event.clientX, y: event.clientY });
+    },
+  });
+}
+
+/**
+ * The menu of every chat link, mounted once at the app's root. A link's
+ * right-click hands it the link and the pointer; it opens there as the
+ * link's own context menu did.
+ */
+export function LinkMenuRoot() {
+  const { t } = useTranslation();
+  const [shown, setShown] = useState<LinkMenuFor | null>(null);
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    openLinkMenu = (link, at) => {
+      // The link's items first, then the menu opens at the pointer as a
+      // context menu does: from a right-click on its trigger.
+      flushSync(() => setShown(link));
+      triggerRef.current?.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          button: 2,
+          clientX: at.x,
+          clientY: at.y,
+        }),
+      );
+    };
+    return () => {
+      openLinkMenu = null;
+    };
+  }, []);
   return (
     <ContextMenuRoot>
-      <ContextMenuTrigger>{children}</ContextMenuTrigger>
+      <ContextMenuTrigger>
+        <span ref={triggerRef} aria-hidden className="pointer-events-none fixed size-0" />
+      </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItems items={items} />
+        <ContextMenuItems items={shown ? linkMenuItems(shown, t) : []} />
       </ContextMenuContent>
     </ContextMenuRoot>
   );
+}
+
+/** A link's menu: open it the other way, or copy it. */
+function linkMenuItems({ links, target, href, kind }: LinkMenuFor, t: TFunction): MenuItemSpec[] {
+  const { openFileTab } = links;
+  return kind === "file"
+    ? [
+        { kind: "item", label: t("chat.links.look"), onSelect: () => links.openFile(href) },
+        ...(openFileTab
+          ? [
+              {
+                kind: "item",
+                label: t("chat.links.open_tab"),
+                onSelect: () => openFileTab(href),
+              } satisfies MenuItemSpec,
+            ]
+          : []),
+        { kind: "separator" },
+        { kind: "item", label: t("chat.links.copy_path"), onSelect: () => copyText(target) },
+      ]
+    : [
+        ...(links.urlsOneWay
+          ? []
+          : [
+              {
+                kind: "item",
+                label: isLocalAddress(target)
+                  ? t("chat.links.open_system")
+                  : t("chat.links.open_app_browser"),
+                onSelect: () => links.openUrl(target, true),
+              } satisfies MenuItemSpec,
+              { kind: "separator" } satisfies MenuItemSpec,
+            ]),
+        { kind: "item", label: t("chat.links.copy_link"), onSelect: () => copyText(target) },
+      ];
 }
