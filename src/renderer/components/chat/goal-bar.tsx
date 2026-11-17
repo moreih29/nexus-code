@@ -1,5 +1,6 @@
 // The goal a conversation works toward (/goal), where it is seen: a bar
-// over the composer, a badge on the tab, a line in the agent view's row.
+// over the composer, a badge on the tab, a line in the agent view's row, a
+// section of the side panel.
 // The bar is one line, and a second for the last check's reason, however
 // long the goal; opened, it shows the whole goal, its checks, and what can
 // be done to it.
@@ -355,6 +356,64 @@ export function GoalBar({ tab, onClear, onStatus, onClose }: GoalBarProps) {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A chat's goal in its side panel: the whole goal, where it stands, how long
+ * and how many checks, and what the last check found or why it ended. What
+ * can be done to it is the bar's, over the composer.
+ */
+export function GoalSummary({ tab }: { tab: TabGoal }) {
+  const { t } = useTranslation();
+  const { goal } = tab;
+  const now = useNow(ticks(tab), 1000);
+  const status = shownStatus(tab);
+  const seconds = goalSeconds(goal, now, tab);
+  const checks = goal.iterations ?? goal.checks.length;
+  const lastCheck = goal.checks[goal.checks.length - 1];
+  const last = goal.ended
+    ? goal.reason
+    : lastCheck
+      ? `${t("chat.goal.check_n", { count: goal.checks.length })} · ${lastCheck.reason}`
+      : undefined;
+  return (
+    <div className="flex flex-col gap-1" data-testid="panel-goal" data-status={status}>
+      <div className="flex min-w-0 items-start gap-2 text-app-ui-sm">
+        <StatusIcon status={status} className="mt-0.5" />
+        <span className="app-scrollbar max-h-32 min-w-0 flex-1 overflow-y-auto break-words whitespace-pre-wrap text-foreground">
+          {goal.objective}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 pl-5.5 text-app-micro text-muted-foreground">
+        <span style={{ color: STATUS_COLOR[status] }}>{t(`chat.goal.status.${status}`)}</span>
+        {seconds !== null && (
+          <span className="flex items-center gap-1 font-mono tabular-nums">
+            <Clock aria-hidden className="size-3" />
+            {clockLabel(seconds)}
+          </span>
+        )}
+        {goal.agent === "claude" && checks > 0 && (
+          <span>{t("chat.goal.checks", { count: checks })}</span>
+        )}
+        {goal.tokenBudget ? (
+          <span>
+            {t("chat.goal.budget", {
+              used: formatTokens(goal.tokens ?? 0),
+              budget: formatTokens(goal.tokenBudget),
+            })}
+          </span>
+        ) : (
+          (goal.agent === "codex" || goal.ended) &&
+          (goal.tokens ?? 0) > 0 && (
+            <span>{t("chat.goal.tokens", { used: formatTokens(goal.tokens ?? 0) })}</span>
+          )
+        )}
+      </div>
+      {last && (
+        <div className="pl-5.5 text-app-micro break-words text-muted-foreground">{last}</div>
+      )}
+    </div>
   );
 }
 
