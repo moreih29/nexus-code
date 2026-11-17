@@ -147,9 +147,10 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("Compact");
     expect(html).toContain("Write the test");
     expect(html).toContain("dev server");
-    // Folded, as a chat here's: the files and the usage count on their titles.
-    expect(html).toContain("Changed files");
+    // The usage open, as a chat here's; the changed files folded under their title.
     expect(html).toContain("Usage");
+    expect(html).toContain("40%");
+    expect(html).toContain("Changed files");
   });
 
   test("shows the jobs running, and counts those that ended on a folded line", () => {

@@ -1,8 +1,8 @@
 // A Claude tab's side panel, its sections always in the same order: where
-// it runs, how full its context is, the plan's usage (folded), the to-do
-// list Claude keeps, its tasks and its agents (what runs now and what
-// ended), and what it made; folded at the end, the files it changed and the
-// MCP servers. A section with nothing in it is its title and a 0. What only a request
+// it runs, how full its context is, the plan's usage, the to-do list Claude
+// keeps, its tasks and its agents (what runs now and what ended), and what
+// it made; folded at the end, the files it changed and the MCP servers. A
+// section with nothing in it is its title and a 0. What only a request
 // tells is asked for when the panel opens and after each turn.
 
 import {
@@ -983,7 +983,6 @@ function UsageSection({ controller, state }: { controller: ChatController; state
   return (
     <Section
       title={t("chat.panel.usage.title")}
-      folded
       onOpen={() => controller.refreshPanel(["usage"])}
       reveal={revealSeq(state, "usage")}
       onRevealed={(seq) => takeReveal(controller.key, seq)}
