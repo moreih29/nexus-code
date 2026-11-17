@@ -14,7 +14,8 @@ export type ChannelLifecycleCallback = (event: ChannelLifecycleEvent) => void;
 
 /**
  * Lifecycle events emitted to `onLifecycle` subscribers. The terminal events
- * (`exit` / `failure` / `disposed`) fire at most once per channel. The
+ * (`exit` / `failure` / `disposed`) fire at most once per channel. `exit` is
+ * a clean agent exit, or a remote daemon another connection took over. The
  * transient `reconnecting` event may fire when the channel detects it has
  * lost its current process and is about to retry; it does NOT imply the
  * channel is dead — a subsequent successful reconnect leaves the channel

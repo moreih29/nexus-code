@@ -22,7 +22,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/utils/cn";
 import type { PermissionAsk, SessionActivity } from "../../../shared/claude/activity";
@@ -38,8 +38,6 @@ import {
 } from "../../services/agent-sessions/model";
 import { plainPreview } from "../../services/agent-sessions/preview";
 import {
-  chatRowFacts,
-  hookRowFacts,
   ROW_GROUPS,
   type RowFacts,
   type RowGroup,
@@ -47,9 +45,9 @@ import {
 } from "../../services/agent-sessions/rows";
 import type { WorktreeChanges } from "../../services/agent-sessions/use-family";
 import { markRead } from "../../services/agent-sessions/use-inbox";
+import { useFirstPermission, useRowFacts } from "../../services/agent-sessions/use-row-facts";
 import { existingCodexController } from "../../services/chat/codex-controller";
 import { existingChatController } from "../../services/chat/controller";
-import { type ChatTabState, chatKey, useChatStore } from "../../services/chat/store";
 import { useUIStore } from "../../state/stores/ui";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
 import { Button } from "../ui/button";
@@ -95,7 +93,6 @@ export function StatusView({
   query,
 }: StatusViewProps) {
   const { t } = useTranslation();
-  const chats = useChatStore((s) => s.tabs);
   // Every group is open until the user folds it; the folds are kept across restarts.
   const folds = useUIStore((s) => s.agentListFoldedGroups);
   const sessions = allSessions(family);
@@ -184,7 +181,6 @@ export function StatusView({
                     workspace={worktree?.workspace}
                     branch={worktree?.branch ?? changes.get(session.workspaceId)?.branch}
                     changed={changes.get(session.workspaceId)?.files.length ?? 0}
-                    chat={chats[chatKey(session.workspaceId, session.tabId)]}
                     activity={activity.get(session.key)}
                     selected={isSessionSelected(selection, session.key)}
                     selectedAgentId={
@@ -192,10 +188,7 @@ export function StatusView({
                         ? selection.agentId
                         : undefined
                     }
-                    onSelect={(from) => onSelect({ kind: "session", key: session.key }, from)}
-                    onSelectAgent={(agentId, from) =>
-                      onSelect({ kind: "agent", key: session.key, agentId }, from)
-                    }
+                    onSelect={onSelect}
                   />
                 );
               })}
@@ -206,38 +199,38 @@ export function StatusView({
   );
 }
 
-function SessionRow({
+/**
+ * Memoized, and reads its own conversation's facts (use-row-facts): a
+ * chunk of a reply streaming in another tab, or in its own that changes
+ * nothing it says, does not render it.
+ */
+const SessionRow = memo(function SessionRow({
   session,
   group,
   workspace,
   branch,
   changed,
-  chat,
   activity,
   selected,
   selectedAgentId,
-  onSelect,
-  onSelectAgent,
+  onSelect: select,
 }: {
   session: AgentSession;
   group: RowGroup;
   workspace: WorkspaceMeta | undefined;
   branch: string | undefined;
   changed: number;
-  chat: ChatTabState | undefined;
   activity: SessionActivity | undefined;
   selected: boolean;
   /** Its agent selected, when one is. */
   selectedAgentId: string | undefined;
-  onSelect: (from: HTMLElement) => void;
-  onSelectAgent: (agentId: string, from: HTMLElement) => void;
+  /** The list's: the row picked, or one of its agents. */
+  onSelect: StatusViewProps["onSelect"];
 }) {
-  const facts =
-    session.kind === "terminal"
-      ? hookRowFacts(activity)
-      : chat
-        ? chatRowFacts(chat.model, activity)
-        : hookRowFacts(undefined);
+  const facts = useRowFacts(session, activity);
+  const onSelect = (from: HTMLElement) => select({ kind: "session", key: session.key }, from);
+  const onSelectAgent = (agentId: string, from: HTMLElement) =>
+    select({ kind: "agent", key: session.key, agentId }, from);
   const duration = useDurationLabel(session.since);
   const compact = group === "idle";
   // The row of the tab the user went to stays in sight, as the file tree's does.
@@ -303,7 +296,6 @@ function SessionRow({
             workspace={workspace}
             branch={branch}
             changed={changed}
-            chat={chat}
             activity={activity}
           />
         )}
@@ -317,7 +309,7 @@ function SessionRow({
       />
     </div>
   );
-}
+});
 
 /** Claude's or Codex's mark, or a terminal's for an agent known only by its output. */
 export function AgentMark({ session, className }: { session: AgentSession; className?: string }) {
@@ -436,7 +428,6 @@ function RowFooter({
   workspace,
   branch,
   changed,
-  chat,
   activity,
 }: {
   session: AgentSession;
@@ -445,7 +436,6 @@ function RowFooter({
   workspace: WorkspaceMeta | undefined;
   branch: string | undefined;
   changed: number;
-  chat: ChatTabState | undefined;
   activity: SessionActivity | undefined;
 }) {
   const { t } = useTranslation();
@@ -491,8 +481,7 @@ function RowFooter({
       </span>
     ),
   ].filter(Boolean);
-  const answer =
-    group === "attention" ? <RowAnswer session={session} chat={chat} activity={activity} /> : null;
+  const answer = group === "attention" ? <RowAnswer session={session} activity={activity} /> : null;
   const done = group === "done";
   if (chips.length === 0 && !answer && !done) return null;
   return (
@@ -540,20 +529,20 @@ const NO_ASKS: readonly PermissionAsk[] = [];
  */
 function RowAnswer({
   session,
-  chat,
   activity,
 }: {
   session: AgentSession;
-  chat: ChatTabState | undefined;
   activity: SessionActivity | undefined;
 }) {
   const { t } = useTranslation();
   const [sending, setSending] = useState(false);
+  // Its conversation's own: the list does not follow every conversation.
+  const firstRequest = useFirstPermission(session);
   // A terminal's request answered here leaves at once, not with the next poll.
   const asks = useUnansweredAsks(session, activity?.asks ?? NO_ASKS);
   let answer: ((allow: boolean) => Promise<void>) | null = null;
   if (session.kind !== "terminal") {
-    const request = chat?.model.permissions[0];
+    const request = firstRequest;
     const controller =
       session.kind === "codex"
         ? existingCodexController(session.workspaceId, session.tabId)

@@ -38,7 +38,8 @@ export function SendToAgent({
   workspaceId: string;
   cwd: string;
   noteId: string;
-  title: string;
+  /** The note's title as it is now. */
+  title: () => string;
   /** Saves what is not saved yet, so the agent reads the note as it is. */
   beforeSend: () => Promise<void>;
   trigger: ReactNode;
@@ -52,7 +53,7 @@ export function SendToAgent({
 
   const send = async () => {
     await beforeSend();
-    openAgentTab(workspaceId, agent, cwd, agentPrompt(message, title, noteId));
+    openAgentTab(workspaceId, agent, cwd, agentPrompt(message, title(), noteId));
     onOpenChange(false);
   };
 

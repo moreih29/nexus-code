@@ -4,7 +4,8 @@
 // look and an address where the tab sends it; elsewhere files under the
 // workspace open in the editor, allowed external schemes in the system
 // browser. A link to a file is one once the file is found: one to a folder,
-// or to a file that is not there, shows as its words, the path on hover.
+// or to a file that is not there, shows as its words, the path on hover. A
+// relative link is found from where the agent's shell was too (link-places).
 
 import { Check, Copy } from "lucide-react";
 import { memo, useCallback, useMemo, useState } from "react";
@@ -17,7 +18,7 @@ import { openOrRevealEditor } from "../../services/editor";
 import { classifyLinkHref } from "../../services/editor/preview/link-router";
 import { copyText } from "../../utils/clipboard";
 import { REMARK_PLUGINS } from "../../utils/remark-plugins";
-import { LinkMenu, useChatLinks } from "./chat-links";
+import { LinkMenu, useChatLinks, useLinkPlaces } from "./chat-links";
 import { FileImage, ImageChip } from "./file-image";
 import { FileKindIcon } from "./file-kind-icon";
 
@@ -40,6 +41,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   shownEarlier,
 }: ChatMarkdownProps) {
   const links = useChatLinks();
+  const placesOf = useLinkPlaces();
   const onLink = useCallback(
     (href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
       event.preventDefault();
@@ -50,8 +52,9 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       });
       if (links) {
         if (classified.kind === "external") links.openUrl(classified.href);
+        // As written: the tab finds it from where the agent's shell was too.
+        else if (resolveFilePath(href, cwd)) links.openFile(href);
         else if (classified.kind === "internal-file") links.openFile(classified.absPath);
-        else if (classified.kind === "blocked" && resolveFilePath(href, cwd)) links.openFile(href);
         return;
       }
       if (classified.kind === "external") {
@@ -75,10 +78,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           </a>
         );
         if (kind === "file") {
-          const path = resolveFilePath(safe, cwd) ?? safe;
+          const places = placesOf(safe, cwd).map((place) => place.path);
+          const path = places[0] ?? safe;
           return (
             <FileLink
-              path={path}
+              places={places}
               href={safe}
               workspaceId={workspaceId}
               rootPath={rootPath}
@@ -104,16 +108,31 @@ export const ChatMarkdown = memo(function ChatMarkdown({
       // web image is not loaded from where it names it.
       img({ src, alt }) {
         const label = <span className="text-muted-foreground">[{alt || "image"}]</span>;
-        const path =
+        const places =
           typeof src === "string" && linkKind(src, cwd) === "file"
-            ? resolveFilePath(src, cwd)
-            : null;
+            ? placesOf(src, cwd).map((place) => place.path)
+            : [];
+        const [path] = places;
         if (!path || fileKind(path) !== "image") return label;
         if (shownEarlier?.has(path)) return <ImageChip path={path} />;
-        return <FileImage path={path} workspaceId={workspaceId} alt={alt ?? ""} fallback={label} />;
+        if (places.length === 1) {
+          return (
+            <FileImage path={path} workspaceId={workspaceId} alt={alt ?? ""} fallback={label} />
+          );
+        }
+        return (
+          <PlacedImage
+            places={places}
+            workspaceId={workspaceId}
+            rootPath={rootPath}
+            alt={alt ?? ""}
+            shownEarlier={shownEarlier}
+            fallback={label}
+          />
+        );
       },
     }),
-    [onLink, cwd, workspaceId, rootPath, shownEarlier],
+    [onLink, placesOf, cwd, workspaceId, rootPath, shownEarlier],
   );
 
   return (
@@ -146,31 +165,59 @@ function keepFileUrls(url: string): string {
 }
 
 /**
- * A link to a file, as a link once the file is found (`link`); until then,
- * and for a folder or a file that is not there, its words (`children`).
+ * A link to a file, as a link once the file is found (`link`), at the
+ * first of its places it is; until then, and for a folder or a file that
+ * is not there, its words (`children`).
  */
 function FileLink({
-  path,
+  places,
   href,
   workspaceId,
   rootPath,
   link,
   children,
 }: {
-  path: string;
+  /** Where the file may be, the likeliest first (link-places). */
+  places: readonly string[];
   href: string;
   workspaceId: string;
   rootPath: string;
   link: React.ReactElement;
   children: React.ReactNode;
 }) {
-  const found = useFoundFiles(workspaceId, rootPath, [path]);
-  if (!found.has(path)) return <span title={href}>{children}</span>;
+  const found = useFoundFiles(workspaceId, rootPath, places);
+  const path = places.find((place) => found.has(place));
+  if (!path) return <span title={href}>{children}</span>;
   return (
     <LinkMenu target={path} href={href} kind="file">
       {link}
     </LinkMenu>
   );
+}
+
+/**
+ * An image file a reply shows by a path that may name it in more than one
+ * place: the first of them it is found at, or the likeliest until then.
+ */
+function PlacedImage({
+  places,
+  workspaceId,
+  rootPath,
+  alt,
+  shownEarlier,
+  fallback,
+}: {
+  places: readonly string[];
+  workspaceId: string;
+  rootPath: string;
+  alt: string;
+  shownEarlier: ReadonlySet<string> | undefined;
+  fallback: React.ReactNode;
+}) {
+  const found = useFoundFiles(workspaceId, rootPath, places);
+  const path = places.find((place) => found.has(place)) ?? places[0];
+  if (shownEarlier?.has(path)) return <ImageChip path={path} />;
+  return <FileImage path={path} workspaceId={workspaceId} alt={alt} fallback={fallback} />;
 }
 
 /** Whether a link names a file or a web address; null for anything else. */

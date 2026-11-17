@@ -5,12 +5,14 @@
 
 import type { ClaudeGoal } from "./goal";
 import {
+  type AssistantItem,
   applyLines,
   type ChatLine,
   type ChatModel,
   emptyModel,
   isCommandOutput,
   SENDER_KINDS,
+  type ToolCall,
   typedCommand,
 } from "./model";
 
@@ -174,6 +176,80 @@ function goalLine(entry: Rec, seq: number): ChatLine | null {
   };
 }
 
+/**
+ * A subagent's file as lines of its Agent call (`toolUseId`): its replies,
+ * and its tools' results. Claude Code keeps a subagent's messages apart
+ * from its session's transcript (subagents/agent-<id>.jsonl), which tells
+ * only the call. Its prompt is left out: the call's input tells it.
+ */
+export function subagentLines(entries: readonly unknown[], toolUseId: string): ChatLine[] {
+  const lines: ChatLine[] = [];
+  for (const raw of entries) {
+    const entry = rec(raw);
+    const message = rec(entry?.message);
+    if (!entry || !message) continue;
+    const base = { uuid: entry.uuid, timestamp: entry.timestamp, parent_tool_use_id: toolUseId };
+    if (entry.type === "assistant") {
+      lines.push({
+        seq: lines.length + 1,
+        dir: "out",
+        replay: true,
+        message: { type: "assistant", message, ...base },
+      });
+    } else if (
+      entry.type === "user" &&
+      Array.isArray(message.content) &&
+      message.content.some((block) => rec(block)?.type === "tool_result")
+    ) {
+      lines.push({
+        seq: lines.length + 1,
+        dir: "out",
+        replay: true,
+        message: { type: "user", message, tool_use_result: entry.toolUseResult, ...base },
+      });
+    }
+  }
+  return lines;
+}
+
+/** What a subagent's file tells: its messages, and its calls, under its Agent call's id. */
+export interface SubagentLog {
+  items: AssistantItem[];
+  tools: Record<string, ToolCall>;
+}
+
+export function subagentLog(entries: readonly unknown[], toolUseId: string): SubagentLog {
+  const model = applyLines(emptyModel(), subagentLines(entries, toolUseId));
+  return { items: model.agentItems[toolUseId] ?? [], tools: model.tools };
+}
+
+/**
+ * The history with a subagent's messages read from its file: a history
+ * with nothing else when there was none, so what the tab's log has stays.
+ */
+export function withSubagentLog(
+  history: ChatModel | null,
+  toolUseId: string,
+  log: SubagentLog,
+): ChatModel {
+  const base = history ?? emptyModel();
+  return {
+    ...base,
+    agentItems: { ...base.agentItems, [toolUseId]: log.items },
+    tools: { ...log.tools, ...base.tools },
+  };
+}
+
+/**
+ * The agent id an Agent call's result names, by which Claude Code keeps
+ * the subagent's file; a teammate's result names it as agent_id.
+ */
+export function subagentIdOf(tool: ToolCall | undefined): string | undefined {
+  const structured = rec(tool?.result?.structured);
+  const id = structured?.agentId ?? structured?.agent_id;
+  return typeof id === "string" && id ? id : undefined;
+}
+
 /** The goal a session's transcript ends with, as far as it goes. */
 export function transcriptGoal(entries: readonly unknown[]): ClaudeGoal | null | undefined {
   return applyLines(emptyModel(), transcriptLines(entries)).goal;
@@ -292,5 +368,6 @@ export function joinHistory(before: ChatModel | null, after: ChatModel): ChatMod
     ...emptyModel(),
     items,
     tools: { ...before.tools, ...after.tools },
+    agentItems: { ...before.agentItems, ...after.agentItems },
   };
 }

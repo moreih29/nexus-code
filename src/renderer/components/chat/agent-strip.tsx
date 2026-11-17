@@ -6,8 +6,10 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNow } from "../../hooks/use-now";
 import type { AgentRow, AgentStatus } from "../../services/chat/panel";
 import { cn } from "../../utils/cn";
+import { elapsedLabel } from "../agent-list/agent-status";
 import { IconButton } from "../ui/icon-button";
 
 interface AgentStripProps {
@@ -49,6 +51,7 @@ export function AgentStrip({ agents, shown, onShow, panel }: AgentStripProps) {
           >
             <StatusDot status={agent.status} />
             <span className="max-w-40 truncate">{agent.description}</span>
+            {shown === agent.toolUseId && <ShownState agent={agent} />}
           </StripButton>
         ))}
         {finished.length > 0 && (
@@ -108,6 +111,28 @@ function StripButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * The state of the agent the pane shows, and how long it ran, as "완료 ·
+ * 3분 12초": the time goes on while it runs.
+ */
+export function ShownState({ agent }: { agent: AgentRow }) {
+  const { t } = useTranslation();
+  const running = agent.status === "running";
+  const { startedAt, endedAt } = agent;
+  const now = useNow(running && startedAt !== undefined);
+  const to = endedAt ?? (running ? now : undefined);
+  const took =
+    startedAt !== undefined && to !== undefined ? elapsedLabel(Math.max(0, to - startedAt)) : null;
+  return (
+    <span
+      className="shrink-0 text-app-micro text-muted-foreground tabular-nums"
+      data-testid="shown-agent-state"
+    >
+      {[t(`chat.panel.status.${agent.status}`), took].filter(Boolean).join(" · ")}
+    </span>
   );
 }
 

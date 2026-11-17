@@ -1010,6 +1010,25 @@ export const ipcContract = {
         }),
       ),
       /**
+       * One subagent's messages, which Claude Code keeps apart from its
+       * session's transcript: found by its agent id (its Agent call's result
+       * tells it), else by that call's id.
+       */
+      subagentTranscript: call(
+        z.object({
+          workspaceId: WorkspaceIdPrimitive,
+          sessionId: z.string().max(128),
+          agentId: z.string().max(128).optional(),
+          toolUseId: z.string().max(128).optional(),
+          profileId: z.string().max(64).optional(),
+        }),
+        z.object({
+          found: z.boolean(),
+          lines: z.array(z.unknown()),
+          truncated: z.boolean(),
+        }),
+      ),
+      /**
        * The settings Claude Code's /config keeps in its global config file
        * (~/.claude.json) on the workspace's host, by their keys there:
        * get_settings tells only what settings.json has.

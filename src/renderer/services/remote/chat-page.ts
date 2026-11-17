@@ -158,11 +158,26 @@ export function viewToolOf(tool: ToolCall, maxText = MAX_RESULT_TEXT): ViewToolC
     result: {
       text: truncated ? result.text.slice(0, maxText) : result.text,
       isError: result.isError,
-      ...(result.structured !== undefined ? { structured: result.structured } : {}),
+      ...(result.structured !== undefined
+        ? { structured: structuredToSend(result.structured) }
+        : {}),
       images: result.images.map(imageRef),
       ...(truncated ? { truncated: true } : {}),
     },
   };
+}
+
+/**
+ * A result's structured part as another device takes it: a file a Read gave whole (an image, a
+ * PDF) without its bytes. No device shows them from there (an image comes by its ref), and an
+ * image's alone could make its item too large to send, stopping the chat being read back past it.
+ */
+function structuredToSend(structured: unknown): unknown {
+  if (!structured || typeof structured !== "object") return structured;
+  const file = (structured as { file?: unknown }).file;
+  if (!file || typeof file !== "object" || !("base64" in file)) return structured;
+  const { base64: _bytes, ...rest } = file as Record<string, unknown>;
+  return { ...structured, file: rest };
 }
 
 /**

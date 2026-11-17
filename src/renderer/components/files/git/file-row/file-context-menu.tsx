@@ -1,7 +1,7 @@
 /**
  * Git file/group context menus for the Source Control panel.
  *
- * A row keeps where its menu is open; the menu is the shared
+ * The panel keeps which row's menu is open, and where; the menu is the shared
  * DropdownMenuAtPoint. Its items come from builders that tests assert
  * without a DOM.
  */

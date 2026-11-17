@@ -427,6 +427,86 @@ describe("agentEpoch reattach handshake", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// A daemon connection that ends from the daemon's side
+// ────────────────────────────────────────────────────────────────────────────
+describe("daemon connection closed by the daemon", () => {
+  it("reconnects when the daemon went away under a ready connection", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeSshHarness({ delayMs: 1 });
+      const lifecycle: ChannelLifecycleEvent[] = [];
+      channel.onLifecycle((e) => lifecycle.push(e));
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 7 })}\n`);
+      await expect(channel.ready).resolves.toBeUndefined();
+
+      // The dialer's exit when the daemon closed its connection.
+      children[0]?.emit("close", 5, null);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+
+      expect(children).toHaveLength(2);
+      expect(lifecycle.map((e) => e.type)).toEqual(["reconnecting"]);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("ends without reconnecting when another connection took the daemon over", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeSshHarness({ delayMs: 1 });
+      const lifecycle: ChannelLifecycleEvent[] = [];
+      channel.onLifecycle((e) => lifecycle.push(e));
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 7 })}\n`);
+      await expect(channel.ready).resolves.toBeUndefined();
+
+      children[0]?.stdout.emitData(`${JSON.stringify({ event: "agent.preempted" })}\n`);
+      children[0]?.emit("close", 5, null);
+      jest.advanceTimersByTime(10);
+      await flushMicrotasks();
+
+      // Reconnecting would take the daemon back, and the other connection
+      // would do the same: two workspaces on one folder would trade it forever.
+      expect(children).toHaveLength(1);
+      expect(lifecycle.map((e) => e.type)).toEqual(["exit"]);
+      await expect(channel.call("fs.stat", { relPath: "a" })).rejects.toBeInstanceOf(Error);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("ends a reconnected connection that was taken over too", async () => {
+    jest.useFakeTimers();
+    try {
+      const { channel, children } = makeSshHarness({ delayMs: 1 });
+      const lifecycle: ChannelLifecycleEvent[] = [];
+      channel.onLifecycle((e) => lifecycle.push(e));
+      children[0]?.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 7 })}\n`);
+      await expect(channel.ready).resolves.toBeUndefined();
+      children[0]?.emit("close", 255, null);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      const child1 = children[1] as FakeAgentChild;
+      child1.stdout.emitData(`${JSON.stringify({ type: "ready", agentEpoch: 7 })}\n`);
+      await flushMicrotasks();
+
+      child1.stdout.emitData(`${JSON.stringify({ event: "agent.preempted" })}\n`);
+      child1.emit("close", 5, null);
+      jest.advanceTimersByTime(10);
+      await flushMicrotasks();
+
+      expect(children).toHaveLength(2);
+      expect(lifecycle.map((e) => e.type)).toEqual(["reconnecting", "ready", "exit"]);
+      channel.dispose();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // degraded / degraded-recovered lifecycle event tests
 // ────────────────────────────────────────────────────────────────────────────
 describe("heartbeat degraded signal", () => {

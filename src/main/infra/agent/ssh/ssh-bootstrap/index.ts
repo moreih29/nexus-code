@@ -11,7 +11,7 @@
  * orchestration and the public surface — type and constant re-exports stay
  * here so existing callers keep their import paths.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -211,12 +211,11 @@ export async function ensureRemoteAgent(
 
     // PTY shim files: only when the caller scoped the bootstrap to a
     // workspace (the PTY spawn path always does; the LSP path does not).
-    // We mirror runtimeDirs.shimDir's `<root>/shim/<workspaceId>` layout on
-    // the remote so the spawned shell's ZDOTDIR / --rcfile points at a path
-    // that actually exists there. The content is workspace-agnostic —
-    // every shim file is the same bytes, only the directory is per-workspace.
+    // The content is workspace-agnostic, so every workspace on the host
+    // shares one directory: one per workspace would pile up there, a task
+    // being a new workspace each time, with nothing to remove them.
     const remoteShimDir = options.workspaceId
-      ? await ensureRemoteShimFiles(sshOptions, runner, remoteHome, options.workspaceId)
+      ? await ensureRemoteShimFiles(sshOptions, runner, remoteHome)
       : undefined;
 
     // On success, ownership of a ControlMaster authenticated *here* passes to
@@ -674,49 +673,67 @@ async function ensureRemoteLspArchive(
 }
 
 /**
- * Uploads the per-workspace shim files (`.zshrc`, `.zshenv`, the zsh login
- * files, `bashrc`, `bashenv`) to `<remoteHome>/.nexus-code/shim/<workspaceId>/`
- * and returns that directory's absolute path. The content of every file is
- * identical to what `runtimeDirs.writeShimFiles()` writes locally — both ends
- * share the same exported constants (`ZSHRC_CONTENT`, `BASHRC_CONTENT`, …)
- * so there is exactly one source of truth.
+ * The PTY shim files (`.zshrc`, `.zshenv`, the zsh login files, `bashrc`,
+ * `bashenv`), the same as `runtimeDirs.writeShimFiles()` writes locally:
+ * both ends share the exported constants, so there is exactly one source of
+ * truth. The zsh login files are there because ZDOTDIR at the shim
+ * directory would hide the user's own from a login zsh, as a Codex tab's
+ * commands start.
+ */
+const SHIM_FILES: ReadonlyArray<{ readonly name: string; readonly content: string }> = [
+  { name: ".zshrc", content: ZSHRC_CONTENT },
+  { name: ".zshenv", content: ZSHENV_CONTENT },
+  { name: ".zprofile", content: ZPROFILE_CONTENT },
+  { name: ".zlogin", content: ZLOGIN_CONTENT },
+  { name: ".zlogout", content: ZLOGOUT_CONTENT },
+  { name: "bashrc", content: BASHRC_CONTENT },
+  { name: "bashenv", content: BASHENV_CONTENT },
+];
+
+/**
+ * The remote shim directory, under `~/.nexus-code/shim/`: one for every
+ * workspace, and never removed, as terminals and chats of any of them may
+ * be reading it. Its name stays the same whatever its files hold: a shell
+ * keeps ZDOTDIR at it, and what zsh and its plugins keep there (history,
+ * completion dumps) must not start over when an app update changes them.
+ */
+const SHIM_DIR_NAME = "shared";
+
+/**
+ * Uploads the PTY shim files to `<remoteHome>/.nexus-code/shim/<SHIM_DIR_NAME>/`
+ * and returns that directory's absolute path.
  *
  * The shim files reference runtime env vars (`NEXUS_USER_ZDOTDIR` /
- * `NEXUS_WRAPPER_SELF_DIR`) only, so a single write is correct for any
- * subsequent spawn against this workspace — no per-spawn re-upload needed.
+ * `NEXUS_WRAPPER_SELF_DIR`) only, so the same files serve every workspace
+ * and every spawn — no per-spawn re-upload needed.
  *
- * Each file is written via `cat > path` with the content streamed as
- * runner stdin, matching the existing pattern used for `manifest.json`
- * and the LSP launcher script. Idempotent: re-runs overwrite in place.
+ * Each file is streamed as runner stdin to a temporary name and renamed into
+ * place: another workspace's bootstrap may write the same directory at the
+ * same time, and a shell starting meanwhile must never read half a file.
+ * Idempotent: re-runs replace the files with the same bytes.
  */
 async function ensureRemoteShimFiles(
   options: EnsureRemoteAgentOptions,
   runner: SshBootstrapRunner,
   remoteHome: string,
-  workspaceId: string,
 ): Promise<string> {
-  const remoteShimDir = absoluteRemotePath(remoteHome, `${REMOTE_AGENT_ROOT}/shim/${workspaceId}`);
-  // mkdir -p first; subsequent `cat > <file>` will inherit the 0o700-ish
-  // umask of the remote user. We do not chmod the files explicitly —
-  // they are plain rc files, not executables, and the default user-owned
-  // mode is sufficient.
+  const remoteShimDir = absoluteRemotePath(
+    remoteHome,
+    `${REMOTE_AGENT_ROOT}/shim/${SHIM_DIR_NAME}`,
+  );
+  // We do not chmod the files explicitly — they are plain rc files, not
+  // executables, and the default user-owned mode is sufficient.
   await runSsh(options, runner, `mkdir -p ${quoteShellArg(remoteShimDir)}`);
 
-  // The zsh login files too: ZDOTDIR at the shim directory would hide the
-  // user's own from a login zsh, as a Codex tab's commands start.
-  const files: ReadonlyArray<{ name: string; content: string }> = [
-    { name: ".zshrc", content: ZSHRC_CONTENT },
-    { name: ".zshenv", content: ZSHENV_CONTENT },
-    { name: ".zprofile", content: ZPROFILE_CONTENT },
-    { name: ".zlogin", content: ZLOGIN_CONTENT },
-    { name: ".zlogout", content: ZLOGOUT_CONTENT },
-    { name: "bashrc", content: BASHRC_CONTENT },
-    { name: "bashenv", content: BASHENV_CONTENT },
-  ];
-
-  for (const file of files) {
+  for (const file of SHIM_FILES) {
     const remotePath = `${remoteShimDir}/${file.name}`;
-    await runSsh(options, runner, `cat > ${quoteShellArg(remotePath)}`, file.content);
+    const tmpRemotePath = `${remotePath}.tmp.${randomBytes(6).toString("hex")}`;
+    await runSsh(
+      options,
+      runner,
+      `cat > ${quoteShellArg(tmpRemotePath)} && mv -f ${quoteShellArg(tmpRemotePath)} ${quoteShellArg(remotePath)}`,
+      file.content,
+    );
   }
 
   return remoteShimDir;

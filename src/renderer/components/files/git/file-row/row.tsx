@@ -1,8 +1,14 @@
 /**
  * GitFileRow renders a changed file with RTL front-truncation and inline actions.
+ *
+ * Memoized: a panel lists every untracked file, as many as there are, so a
+ * row renders only when its own file changes, compared by value, since each
+ * status refresh brings new entries for the same files. Its actions come
+ * from the panel as one object that keeps its identity, and its context
+ * menu is the one the panel shares among its rows.
  */
 import { Check, Minus, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import type { GitExpandedGroupKey, GitStatusEntry } from "../../../../../shared/git/types";
 import { Button } from "../../../ui/button";
@@ -10,55 +16,102 @@ import { ROW_HEIGHT_PX } from "../../file-tree/metrics";
 import { formatGitEntryPath, getGitStatusCode } from "../utils/status-utils";
 import {
   type GitContextMenuPoint,
-  GitFileContextMenu,
+  type GitFileContextMenuActions,
   pointFromMouseEvent,
 } from "./file-context-menu";
 import { GitStatusBadge } from "./status-badge";
 
-interface GitFileRowProps {
-  groupKey: GitExpandedGroupKey;
-  entry: GitStatusEntry;
+/** What a file's row does, for any row: the panel gives one, which keeps its identity. */
+export interface GitFileActions {
+  readonly stage: (paths: string[]) => void;
+  readonly unstage: (paths: string[]) => void;
+  readonly discard: (paths: string[], description: string, source: GitExpandedGroupKey) => void;
+  readonly markResolved: (entry: GitStatusEntry) => void;
   /**
-   * Diff-open behavior decided by the caller. When `opts` is not given, the parent applies a
-   * default so it is interpreted as the preview (temporary) slot reuse flow — the same
-   * pattern as a file tree single-click. On double-click `{ preview: false }` is passed
-   * explicitly to promote to permanent.
+   * Diff-open behavior decided by the caller. When `opts` is not given it is
+   * the preview (temporary) slot reuse flow — the same pattern as a file tree
+   * single-click. On double-click `{ preview: false }` promotes to permanent.
    */
-  onOpenDiff: (opts?: { preview: boolean }) => void;
-  onStage?: () => void;
-  onUnstage?: () => void;
-  onDiscard: () => void;
-  onMarkResolved?: () => void;
-  onOpenFile?: () => void;
-  onRevealInOS?: () => void;
-  onCopyPath?: () => void;
-  onCopyRelativePath?: () => void;
-  onAddToGitignore?: () => void;
+  readonly openDiff: (
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    opts?: { preview: boolean },
+  ) => void;
+  readonly openFile: (entry: GitStatusEntry) => void;
+  readonly revealInOS: (entry: GitStatusEntry) => void;
+  readonly copyPath: (entry: GitStatusEntry) => void;
+  readonly copyRelativePath: (entry: GitStatusEntry) => void;
+  readonly addToGitignore: (entry: GitStatusEntry) => void;
+  /** Opens the panel's file menu for the row at `point`. */
+  readonly openMenu: (
+    entry: GitStatusEntry,
+    groupKey: GitExpandedGroupKey,
+    point: GitContextMenuPoint,
+  ) => void;
 }
 
-export function GitFileRow({
-  groupKey,
-  entry,
-  onOpenDiff,
-  onStage,
-  onUnstage,
-  onDiscard,
-  onMarkResolved,
-  onOpenFile,
-  onRevealInOS,
-  onCopyPath,
-  onCopyRelativePath,
-  onAddToGitignore,
-}: GitFileRowProps) {
+/** A conflicted file's row has no stage toggle; a staged one's unstages. */
+function canStageIn(groupKey: GitExpandedGroupKey): boolean {
+  return groupKey !== "staged" && groupKey !== "merge";
+}
+
+/** What the file menu does for the row of `entry` in `groupKey`. */
+export function gitFileMenuActions(
+  entry: GitStatusEntry,
+  groupKey: GitExpandedGroupKey,
+  actions: GitFileActions,
+): GitFileContextMenuActions {
+  return {
+    openFile: () => actions.openFile(entry),
+    openChanges: () => actions.openDiff(entry, groupKey),
+    markResolved: groupKey === "merge" ? () => actions.markResolved(entry) : undefined,
+    stage: canStageIn(groupKey) ? () => actions.stage([entry.relPath]) : undefined,
+    unstage: groupKey === "staged" ? () => actions.unstage([entry.relPath]) : undefined,
+    discard: () => actions.discard([entry.relPath], entry.relPath, groupKey),
+    revealInOS: () => actions.revealInOS(entry),
+    copyPath: () => actions.copyPath(entry),
+    copyRelativePath: () => actions.copyRelativePath(entry),
+    addToGitignore: () => actions.addToGitignore(entry),
+  };
+}
+
+export interface GitFileRowProps {
+  groupKey: GitExpandedGroupKey;
+  entry: GitStatusEntry;
+  actions: GitFileActions;
+}
+
+/** Every field of an entry: one added to the type fails to compile here until compared. */
+const ENTRY_FIELDS = {
+  relPath: true,
+  oldRelPath: true,
+  xy: true,
+  conflictType: true,
+} as const satisfies Record<keyof GitStatusEntry, true>;
+const ENTRY_KEYS = Object.keys(ENTRY_FIELDS) as (keyof GitStatusEntry)[];
+
+/** A row shows nothing but its entry's fields, so an equal entry renders the same row. */
+export function sameGitFileRow(prev: GitFileRowProps, next: GitFileRowProps): boolean {
+  return (
+    prev.groupKey === next.groupKey &&
+    prev.actions === next.actions &&
+    ENTRY_KEYS.every((key) => prev.entry[key] === next.entry[key])
+  );
+}
+
+export const GitFileRow = memo(function GitFileRow({ groupKey, entry, actions }: GitFileRowProps) {
   const { t } = useTranslation("files");
-  const [contextMenuPoint, setContextMenuPoint] = useState<GitContextMenuPoint | null>(null);
   const pathLabel = formatGitEntryPath(entry);
   const code = getGitStatusCode(groupKey, entry);
   const isConflictRow = groupKey === "merge";
+  const onStage = canStageIn(groupKey) ? () => actions.stage([entry.relPath]) : undefined;
+  const onUnstage = groupKey === "staged" ? () => actions.unstage([entry.relPath]) : undefined;
+  const onDiscard = () => actions.discard([entry.relPath], entry.relPath, groupKey);
+  const onMarkResolved = isConflictRow ? () => actions.markResolved(entry) : undefined;
+  const onOpenDiff = (opts?: { preview: boolean }) => actions.openDiff(entry, groupKey, opts);
   const toggleStage = groupKey === "staged" ? onUnstage : onStage;
   const toggleLabel =
     groupKey === "staged" ? t("git.fileRow.unstageChanges") : t("git.fileRow.stageChanges");
-
   function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
     if (event.key === " " && toggleStage) {
       event.preventDefault();
@@ -87,7 +140,7 @@ export function GitFileRow({
         onDoubleClick={() => onOpenDiff({ preview: false })}
         onContextMenu={(event) => {
           event.preventDefault();
-          setContextMenuPoint(pointFromMouseEvent(event));
+          actions.openMenu(entry, groupKey, pointFromMouseEvent(event));
         }}
         onKeyDown={handleKeyDown}
       >
@@ -145,25 +198,6 @@ export function GitFileRow({
           <Trash2 className="size-3.5" aria-hidden="true" />
         </Button>
       </div>
-      {onOpenFile && onRevealInOS && onCopyPath && onCopyRelativePath && onAddToGitignore ? (
-        <GitFileContextMenu
-          point={contextMenuPoint}
-          groupKey={groupKey}
-          actions={{
-            openFile: onOpenFile,
-            openChanges: onOpenDiff,
-            markResolved: onMarkResolved,
-            stage: onStage,
-            unstage: onUnstage,
-            discard: onDiscard,
-            revealInOS: onRevealInOS,
-            copyPath: onCopyPath,
-            copyRelativePath: onCopyRelativePath,
-            addToGitignore: onAddToGitignore,
-          }}
-          onClose={() => setContextMenuPoint(null)}
-        />
-      ) : null}
     </div>
   );
-}
+}, sameGitFileRow);

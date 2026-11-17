@@ -154,6 +154,12 @@ export function ContentHost({
   const leafId = placed ? placedLeafId : null;
   const parentEl = placed ? currentParent : null;
 
+  // The tab as its view is made of it: its id, kind and props. Its title,
+  // pin and preview state are the tab bar's, so a title that changes (a
+  // note's typed in, a terminal's from its shell) leaves the view as it is.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: what the view reads of the tab
+  const viewTab = useMemo(() => tab, [tab.id, tab.type, tab.props]);
+
   // No CSS-based visibility masking on the inner wrapper: when the tab is
   // not visible, its portalTarget lives in the view park (off-screen, inert,
   // visibility:hidden, contain:strict), so it is already neither painted nor
@@ -165,6 +171,7 @@ export function ContentHost({
   // view (each transcript, composer and menu) with it. A view still renders
   // for its own stores and contexts.
   const inner = useMemo(() => {
+    const tab = viewTab;
     if (deferred) return null;
     const mediaKind = tab.type === "editor" ? mediaKindFor(tab.props.filePath) : null;
     return (
@@ -293,7 +300,7 @@ export function ContentHost({
         ) : null}
       </div>
     );
-  }, [tab, workspaceId, isVisible, leafId, parentEl, deferred]);
+  }, [viewTab, workspaceId, isVisible, leafId, parentEl, deferred]);
 
   return createPortal(inner, portalTarget);
 }

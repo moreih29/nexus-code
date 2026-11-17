@@ -50,6 +50,7 @@ VSCode 호환 매핑. `CmdOrCtrl` 은 OS 에 맞게 자동 매핑되며 (macOS =
 | Files 패널 토글 | ⌘B |
 | Sidebar 토글 | ⌘⇧B |
 | 워크스페이스 / 에이전트 뷰 전환 | ⌘⇧A |
+| 채팅 사이드 패널 토글 | ⌘⇧] <sub>(Claude 탭, 입력창에서도)</sub> |
 
 ## 터미널
 

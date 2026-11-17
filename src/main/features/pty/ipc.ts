@@ -27,6 +27,7 @@ import type { PtyHostHandle } from "./types";
 import { applyWindowsShellShim, type WindowsAgentFiles } from "./windows-shell-shim";
 
 const c = ipcContract.pty.call;
+type SpawnRequest = ReturnType<typeof validateArgs<typeof c.spawn.args>>;
 
 export interface PtyChannelOptions {
   agentHost: PtyHostHandle;
@@ -117,6 +118,11 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
   // so a tab that reconnects to its running session reports that shell.
   const sessionShellPaths = new Map<string, string>();
   const sessionKey = (workspaceId: string, tabId: string) => `${workspaceId}:${tabId}`;
+  // Each tab's spawn while it is prepared here (a profile's environment,
+  // the workspace's agent) and sent. A kill of the tab waits for it: sent
+  // first, the kill would find no session, and the shell would then start
+  // with no tab to close it.
+  const spawnsInFlight = new Map<string, Promise<unknown>>();
   const dispatcher = new OscNotificationDispatcher({
     workspaceManager: wm ?? { getName: () => null },
     getFocusedWindow: getFocusedAppWindow,
@@ -179,167 +185,180 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
     broadcast("pty", "expired", { workspaceId, tabId });
   });
 
+  /** Prepares one tab's spawn (its environment, shell and shim) and sends it. */
+  const spawnSession = async (request: SpawnRequest) => {
+    const {
+      workspaceId,
+      tabId,
+      cwd,
+      cols,
+      rows,
+      env: givenEnv,
+      args: spawnArgs,
+      shell: tabShell,
+      profile,
+    } = request;
+    // A terminal opened for a profile (a sign-in for it) runs as its chat
+    // does; without it, it would sign in or out of the default folder.
+    let env = givenEnv;
+    if (profile !== undefined) {
+      const fromProfile = await options.profileEnv?.(workspaceId, profile);
+      if (!fromProfile) throw new Error(`no profile ${profile}`);
+      env = { ...givenEnv, ...fromProfile };
+    }
+    recorder.start(workspaceId, tabId, cols, rows);
+    // hookInfo must be read after channel.ready for it to be guaranteed fresh.
+    // Called right after a channel reconnect, a stale cache (the previous boot's socket path)
+    // could be baked into the env, creating a hook client that points at a dead socket.
+    // wm.getAgentChannel triggers ensureProviderReady, and at its end the hook.getInfo
+    // result is set in hookInfoByWorkspace, so a getHookInfo after this await is
+    // structurally guaranteed to be the latest. The returned channel object is not used.
+    if (wm) {
+      await wm.getAgentChannel(workspaceId);
+    }
+    // Look up the socket/token by pull with workspaceManager.getHookInfo and inject them into the env.
+    const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
+    // Decide the wrapper bin directory and agent binary path by workspace kind.
+    // When null, skip the wrapper-related env injection (keeps the graceful pattern).
+    const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
+    const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
+    let enrichedEnv =
+      wrapperBinDir !== null
+        ? injectHarnessTerminalEnv(env, {
+            binDir: wrapperBinDir,
+            workspaceId,
+            tabId,
+            agentBin: wrapperAgentBin ?? undefined,
+            agentSocket: hookInfo?.socketPath,
+            hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
+          })
+        : injectHarnessTerminalEnv(env);
+
+    // Shell shim activation: requires three things from WorkspaceManager.
+    //   1. wrapperBinDir   — the bin directory whose contents the shim
+    //                        re-prepends to PATH on every prompt.
+    //   2. wrapperShell    — the actual login shell that will run on the
+    //                        target host (local `$SHELL`, or the
+    //                        bootstrap-cached remote `$SHELL`). Without
+    //                        it `applyShellPathShim` cannot pick the
+    //                        right activation strategy (ZDOTDIR vs
+    //                        --rcfile), so we skip.
+    //   3. wrapperShimDir  — the directory that actually contains the
+    //                        `.zshrc`/`.zshenv`/`bashrc` shim files on
+    //                        the host where the spawned shell runs.
+    //                        For local workspaces this is a local fs
+    //                        path; for SSH workspaces it is the remote
+    //                        absolute path that the SSH bootstrap
+    //                        uploaded the shim files into.
+    //
+    // When any of the three is missing, the agent still puts
+    // NEXUS_WRAPPER_SELF_DIR first on PATH at spawn (just not
+    // re-prepended on every prompt). This is the safe degraded mode —
+    // wrapper still wins on a clean rc, only loses ground when the user
+    // rc explicitly reorders PATH.
+    // A local terminal runs the tab's shell, else the default shell from
+    // the settings, else the system default (left to the agent). One
+    // that can't be found falls back to the next, and the renderer says
+    // so.
+    let shell: { path: string; args: string[] } | undefined;
+    let shellPath: string | undefined;
+    let missingShell: string | undefined;
+    if (wm?.isLocal?.(workspaceId)) {
+      const host = options.shellHost ?? nodeShellHost();
+      const customShells = options.getCustomShells?.();
+      for (const choice of [tabShell, options.getDefaultShell?.()]) {
+        if (choice === undefined) continue;
+        const resolved = resolveShellChoice(host, choice, customShells);
+        if ("shell" in resolved) {
+          shell = resolved.shell;
+          break;
+        }
+        missingShell ??= resolved.missing;
+      }
+      shellPath = shell?.path ?? systemDefaultShell(host).path;
+    }
+
+    let shimmedArgs: string[] | undefined = shell?.args ?? spawnArgs;
+    if (wrapperBinDir !== null && options.windowsAgentFiles && shellPath !== undefined) {
+      const files = await options.windowsAgentFiles();
+      const shimResult = applyWindowsShellShim({
+        shell: shellPath,
+        env: enrichedEnv,
+        args: shimmedArgs,
+        settingsPath: files?.settingsPath,
+        wrapperDir: files?.binDir,
+        ...(files ? { codex: { cmd: files.cmdCodexNoDaemon } } : {}),
+        // A local agent, and so the shell, inherits this process's environment.
+        originalPath: process.env.ORIGINAL_PATH,
+      });
+      enrichedEnv = shimResult.env;
+      shimmedArgs = shimResult.args;
+      // The arguments are for this shell: name it rather than leave the
+      // choice to the agent.
+      shell ??= { path: shellPath, args: [] };
+    } else if (wrapperBinDir !== null) {
+      // The shim's activation (ZDOTDIR for zsh, --rcfile for bash) has
+      // to match the shell that actually starts.
+      const wrapperShell = shell?.path ?? wm?.getWrapperShell(workspaceId) ?? null;
+      const wrapperShimDir = wm?.getWrapperShimDir(workspaceId) ?? null;
+      if (wrapperShell !== null && wrapperShimDir !== null) {
+        const shimResult = applyShellPathShim({
+          shell: wrapperShell,
+          env: enrichedEnv,
+          args: shimmedArgs,
+          shimDir: wrapperShimDir,
+        });
+        enrichedEnv = shimResult.env;
+        shimmedArgs = shimResult.args;
+      }
+    }
+
+    try {
+      // Without a chosen shell the agent resolves one on its own host —
+      // for a remote workspace that is the SSH host, not this machine.
+      // Sending a shell from here would force the local macOS shell
+      // onto a remote that may not have it.
+      const result = (await agentHost.call("spawn", {
+        workspaceId,
+        tabId,
+        cwd,
+        cols,
+        rows,
+        env: enrichedEnv,
+        ...(shell !== undefined ? { shell: shell.path } : {}),
+        ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
+      })) as { pid: number; attached?: boolean };
+      const key = sessionKey(workspaceId, tabId);
+      if (result.attached) {
+        // The tab reconnected to the shell it already runs, which the
+        // settings may no longer name: report that one, and no fallback.
+        const running = sessionShellPaths.get(key);
+        return { pid: result.pid, ...(running !== undefined ? { shellPath: running } : {}) };
+      }
+      if (shellPath !== undefined) sessionShellPaths.set(key, shellPath);
+      return {
+        pid: result.pid,
+        ...(shellPath !== undefined ? { shellPath } : {}),
+        ...(missingShell !== undefined ? { missingShell } : {}),
+      };
+    } catch (error) {
+      recorder.stop(workspaceId, tabId);
+      throw error;
+    }
+  };
+
   register("pty", {
     call: {
       spawn: async (args: unknown) => {
-        const {
-          workspaceId,
-          tabId,
-          cwd,
-          cols,
-          rows,
-          env: givenEnv,
-          args: spawnArgs,
-          shell: tabShell,
-          profile,
-        } = validateArgs(c.spawn.args, args);
-        // A terminal opened for a profile (a sign-in for it) runs as its chat
-        // does; without it, it would sign in or out of the default folder.
-        let env = givenEnv;
-        if (profile !== undefined) {
-          const fromProfile = await options.profileEnv?.(workspaceId, profile);
-          if (!fromProfile) throw new Error(`no profile ${profile}`);
-          env = { ...givenEnv, ...fromProfile };
-        }
-        recorder.start(workspaceId, tabId, cols, rows);
-        // hookInfo must be read after channel.ready for it to be guaranteed fresh.
-        // Called right after a channel reconnect, a stale cache (the previous boot's socket path)
-        // could be baked into the env, creating a hook client that points at a dead socket.
-        // wm.getAgentChannel triggers ensureProviderReady, and at its end the hook.getInfo
-        // result is set in hookInfoByWorkspace, so a getHookInfo after this await is
-        // structurally guaranteed to be the latest. The returned channel object is not used.
-        if (wm) {
-          await wm.getAgentChannel(workspaceId);
-        }
-        // Look up the socket/token by pull with workspaceManager.getHookInfo and inject them into the env.
-        const hookInfo = wm?.getHookInfo(workspaceId) ?? null;
-        // Decide the wrapper bin directory and agent binary path by workspace kind.
-        // When null, skip the wrapper-related env injection (keeps the graceful pattern).
-        const wrapperBinDir = wm?.getWrapperBinDir(workspaceId) ?? null;
-        const wrapperAgentBin = wm?.getWrapperAgentBin(workspaceId) ?? null;
-        let enrichedEnv =
-          wrapperBinDir !== null
-            ? injectHarnessTerminalEnv(env, {
-                binDir: wrapperBinDir,
-                workspaceId,
-                tabId,
-                agentBin: wrapperAgentBin ?? undefined,
-                agentSocket: hookInfo?.socketPath,
-                hookToken: hookInfo ? tabHookToken(hookInfo, workspaceId, tabId) : undefined,
-              })
-            : injectHarnessTerminalEnv(env);
-
-        // Shell shim activation: requires three things from WorkspaceManager.
-        //   1. wrapperBinDir   — the bin directory whose contents the shim
-        //                        re-prepends to PATH on every prompt.
-        //   2. wrapperShell    — the actual login shell that will run on the
-        //                        target host (local `$SHELL`, or the
-        //                        bootstrap-cached remote `$SHELL`). Without
-        //                        it `applyShellPathShim` cannot pick the
-        //                        right activation strategy (ZDOTDIR vs
-        //                        --rcfile), so we skip.
-        //   3. wrapperShimDir  — the directory that actually contains the
-        //                        `.zshrc`/`.zshenv`/`bashrc` shim files on
-        //                        the host where the spawned shell runs.
-        //                        For local workspaces this is a local fs
-        //                        path; for SSH workspaces it is the remote
-        //                        absolute path that the SSH bootstrap
-        //                        uploaded the shim files into.
-        //
-        // When any of the three is missing, the agent still puts
-        // NEXUS_WRAPPER_SELF_DIR first on PATH at spawn (just not
-        // re-prepended on every prompt). This is the safe degraded mode —
-        // wrapper still wins on a clean rc, only loses ground when the user
-        // rc explicitly reorders PATH.
-        // A local terminal runs the tab's shell, else the default shell from
-        // the settings, else the system default (left to the agent). One
-        // that can't be found falls back to the next, and the renderer says
-        // so.
-        let shell: { path: string; args: string[] } | undefined;
-        let shellPath: string | undefined;
-        let missingShell: string | undefined;
-        if (wm?.isLocal?.(workspaceId)) {
-          const host = options.shellHost ?? nodeShellHost();
-          const customShells = options.getCustomShells?.();
-          for (const choice of [tabShell, options.getDefaultShell?.()]) {
-            if (choice === undefined) continue;
-            const resolved = resolveShellChoice(host, choice, customShells);
-            if ("shell" in resolved) {
-              shell = resolved.shell;
-              break;
-            }
-            missingShell ??= resolved.missing;
-          }
-          shellPath = shell?.path ?? systemDefaultShell(host).path;
-        }
-
-        let shimmedArgs: string[] | undefined = shell?.args ?? spawnArgs;
-        if (wrapperBinDir !== null && options.windowsAgentFiles && shellPath !== undefined) {
-          const files = await options.windowsAgentFiles();
-          const shimResult = applyWindowsShellShim({
-            shell: shellPath,
-            env: enrichedEnv,
-            args: shimmedArgs,
-            settingsPath: files?.settingsPath,
-            wrapperDir: files?.binDir,
-            ...(files ? { codex: { cmd: files.cmdCodexNoDaemon } } : {}),
-            // A local agent, and so the shell, inherits this process's environment.
-            originalPath: process.env.ORIGINAL_PATH,
-          });
-          enrichedEnv = shimResult.env;
-          shimmedArgs = shimResult.args;
-          // The arguments are for this shell: name it rather than leave the
-          // choice to the agent.
-          shell ??= { path: shellPath, args: [] };
-        } else if (wrapperBinDir !== null) {
-          // The shim's activation (ZDOTDIR for zsh, --rcfile for bash) has
-          // to match the shell that actually starts.
-          const wrapperShell = shell?.path ?? wm?.getWrapperShell(workspaceId) ?? null;
-          const wrapperShimDir = wm?.getWrapperShimDir(workspaceId) ?? null;
-          if (wrapperShell !== null && wrapperShimDir !== null) {
-            const shimResult = applyShellPathShim({
-              shell: wrapperShell,
-              env: enrichedEnv,
-              args: shimmedArgs,
-              shimDir: wrapperShimDir,
-            });
-            enrichedEnv = shimResult.env;
-            shimmedArgs = shimResult.args;
-          }
-        }
-
-        try {
-          // Without a chosen shell the agent resolves one on its own host —
-          // for a remote workspace that is the SSH host, not this machine.
-          // Sending a shell from here would force the local macOS shell
-          // onto a remote that may not have it.
-          const result = (await agentHost.call("spawn", {
-            workspaceId,
-            tabId,
-            cwd,
-            cols,
-            rows,
-            env: enrichedEnv,
-            ...(shell !== undefined ? { shell: shell.path } : {}),
-            ...(shimmedArgs !== undefined && shimmedArgs.length > 0 ? { args: shimmedArgs } : {}),
-          })) as { pid: number; attached?: boolean };
-          const key = sessionKey(workspaceId, tabId);
-          if (result.attached) {
-            // The tab reconnected to the shell it already runs, which the
-            // settings may no longer name: report that one, and no fallback.
-            const running = sessionShellPaths.get(key);
-            return { pid: result.pid, ...(running !== undefined ? { shellPath: running } : {}) };
-          }
-          if (shellPath !== undefined) sessionShellPaths.set(key, shellPath);
-          return {
-            pid: result.pid,
-            ...(shellPath !== undefined ? { shellPath } : {}),
-            ...(missingShell !== undefined ? { missingShell } : {}),
-          };
-        } catch (error) {
-          recorder.stop(workspaceId, tabId);
-          throw error;
-        }
+        const request = validateArgs(c.spawn.args, args);
+        const key = sessionKey(request.workspaceId, request.tabId);
+        const run = spawnSession(request);
+        spawnsInFlight.set(key, run);
+        const forget = () => {
+          if (spawnsInFlight.get(key) === run) spawnsInFlight.delete(key);
+        };
+        run.then(forget, forget);
+        return run;
       },
 
       write: async (args: unknown) => {
@@ -367,6 +386,7 @@ export function registerPtyChannel(options: PtyChannelOptions): void {
 
       kill: async (args: unknown) => {
         const { workspaceId, tabId } = validateArgs(c.kill.args, args);
+        await spawnsInFlight.get(sessionKey(workspaceId, tabId))?.catch(() => {});
         // The workspace may already be removed when this arrives from the
         // renderer's workspace-cleanup fan-out. agentHost.call returns
         // undefined (no-op) in that case; ipcOk keeps the router silent.

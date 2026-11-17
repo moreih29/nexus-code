@@ -8,6 +8,7 @@ import { posix, win32 } from "node:path";
 import {
   type AgentSender,
   type Capability,
+  type ChatPage,
   type ChatRun,
   MAX_AGENT_DESCRIPTION,
   MAX_CHAT_RUNS,
@@ -22,6 +23,7 @@ import {
   type RpcParams,
   type RpcResult,
   type SessionState,
+  type ViewToolCall,
 } from "../../../../packages/remote-protocol/src";
 import type { RelaySender } from "../../../shared/chat/relay";
 import type { AgentRun } from "../../../shared/claude/activity";
@@ -334,10 +336,55 @@ export async function readChat(
       .catch(unavailable);
     if (fitsAsResult(page)) return page;
     if (page.items.length <= 1) {
+      const fitted = fitPage(page);
+      if (fitted) return fitted;
       throw new RpcFailure(RpcErrorCode.Unavailable, "that part of the chat is too large to send");
     }
     count = Math.max(1, Math.floor(page.items.length / 2));
   }
+}
+
+/** The most of each tool's result a page keeps, in turn, when one item is too large to send. */
+const FITTED_RESULT_CHARS = [8 * 1024, 1024, 0];
+
+/**
+ * A page of one item too large for a frame as it is (a reply whose calls gave long results, a
+ * subagent's whole run), made to go in one: its tools' results cut shorter, each marked
+ * `truncated` (the other device reads a call whole by chat.tool), and at last its subagents'
+ * messages and calls left out. Refused, the item would stop the chat being read further back
+ * there at all. Null when even that is too large.
+ */
+export function fitPage<P extends ChatPage>(page: P): P | null {
+  for (const most of FITTED_RESULT_CHARS) {
+    const cut = { ...page, tools: cutResults(page.tools, most) };
+    if (fitsAsResult(cut)) return cut;
+  }
+  const mainThread = Object.fromEntries(
+    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
+  );
+  const bare = { ...page, tools: cutResults(mainThread, 0), agentItems: {} };
+  return fitsAsResult(bare) ? bare : null;
+}
+
+/** Tools with at most `most` characters of each result, and no structured result where cut. */
+function cutResults(
+  tools: Record<string, ViewToolCall>,
+  most: number,
+): Record<string, ViewToolCall> {
+  const cut: Record<string, ViewToolCall> = {};
+  for (const [id, tool] of Object.entries(tools)) {
+    const result = tool.result;
+    if (!result || (result.text.length <= most && result.structured === undefined)) {
+      cut[id] = tool;
+      continue;
+    }
+    const { structured: _left, ...rest } = result;
+    let text = result.text.slice(0, most);
+    // A character of two halves is not split.
+    if (/[\uD800-\uDBFF]$/.test(text)) text = text.slice(0, -1);
+    cut[id] = { ...tool, result: { ...rest, text, truncated: true } };
+  }
+  return cut;
 }
 
 export async function readTerminal(
@@ -1376,9 +1423,9 @@ export function serveWith(
               .ui("workspace.folders", { workspaceId: id })
               .then((r) => r.folders)
               .catch(() => []),
-          outputs: (id) =>
+          named: (id) =>
             s
-              .ui("chat.jobOutputs", { workspaceId: id })
+              .ui("chat.outsideFiles", { workspaceId: id })
               .then((r) => r.files)
               .catch(() => []),
         };

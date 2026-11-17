@@ -30,6 +30,7 @@ import type {
   UserItem,
 } from "../../services/chat/model";
 import { type AgentRow, agentTranscript } from "../../services/chat/panel";
+import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import type { CommandCard } from "../../services/chat/store";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
@@ -57,7 +58,7 @@ import { useChatFontStyle } from "../../state/stores/chat-font";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { ClaudeIcon, CodexIcon } from "../chat/agent-icons";
-import { AgentStrip } from "../chat/agent-strip";
+import { AgentStrip, ShownState } from "../chat/agent-strip";
 import { ChatAgentContext } from "../chat/chat-agent";
 import { ImageLoaderContext } from "../chat/chat-image";
 import { ChatLinksContext, useChatLinks } from "../chat/chat-links";
@@ -527,6 +528,13 @@ function RemoteChatView({
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
+  // ⌘⇧] toggles it too, while this session is in front. A Codex session has no panel.
+  const togglePanelRef = useRef(togglePanel);
+  togglePanelRef.current = togglePanel;
+  useEffect(
+    () => (claude ? registerPanelToggle(focusKey, () => togglePanelRef.current()) : undefined),
+    [claude, focusKey],
+  );
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
@@ -783,6 +791,7 @@ function RemoteChatView({
           }
         : {})}
       {...(canFork ? { onForkSession: () => forkFrom.current() } : {})}
+      {...(actions.onBackground ? { onBackground: actions.onBackground } : {})}
       reveal={panelAsk}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
@@ -840,6 +849,7 @@ function RemoteChatView({
                         <span className="min-w-0 truncate text-muted-foreground">
                           {shown.description}
                         </span>
+                        <ShownState agent={shown} />
                       </div>
                     )}
                   </>

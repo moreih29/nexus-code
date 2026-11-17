@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { create } from "zustand";
 import type { RelaySender } from "../../../shared/chat/relay";
 import { type ChatModel, emptyModel, type ImageBlock } from "./model";
@@ -164,8 +165,23 @@ export function chatKey(workspaceId: string, tabId: string): string {
   return `${workspaceId}:${tabId}`;
 }
 
-export function useChatTab(workspaceId: string, tabId: string): ChatTabState {
-  return useChatStore((state) => state.tabs[chatKey(workspaceId, tabId)] ?? EMPTY);
+/**
+ * A tab's state, rendering the component again as it changes while `shown`.
+ * Out of sight the component does not follow it (a reply streams some 60
+ * updates a second into each tab that runs, and drawing them in a tab no
+ * one sees was most of the app's work), and it reads the state as it is
+ * whenever it renders: the render that shows it again reads the latest.
+ */
+export function useChatTab(workspaceId: string, tabId: string, shown = true): ChatTabState {
+  const key = chatKey(workspaceId, tabId);
+  return useSyncExternalStore(
+    shown ? useChatStore.subscribe : followNothing,
+    () => useChatStore.getState().tabs[key] ?? EMPTY,
+  );
+}
+
+function followNothing(): () => void {
+  return () => {};
 }
 
 const EMPTY = emptyTabState();

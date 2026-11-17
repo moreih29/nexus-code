@@ -66,10 +66,12 @@ describe("another computer's chat's side panel", () => {
       }),
       model,
     );
+    // One only the conversation names is its history's: its call ran in a
+    // program before this one, and runs no more.
     expect(rows.map((row) => [row.toolUseId, row.status])).toEqual([
       ["a1", "completed"],
       ["a3", "stopped"],
-      ["a2", "running"],
+      ["a2", "stopped"],
     ]);
     // The list's empty description takes the conversation's.
     expect(rows[0]?.description).toBe("Read the tests");
@@ -150,7 +152,7 @@ describe("another computer's chat's side panel", () => {
     expect(html).toContain("Usage");
   });
 
-  test("shows the first few jobs, those running and the newest, and counts the rest", () => {
+  test("shows the jobs running, and counts those that ended on a folded line", () => {
     const job = (n: number, status: "running" | "completed") => ({
       taskId: `j${n}`,
       type: "local_bash",
@@ -178,8 +180,10 @@ describe("another computer's chat's side panel", () => {
     );
     // Each once, though a row names its job twice (its text and its title).
     const shown = [...new Set([...html.matchAll(/job number (\d)/g)].map((match) => match[1]))];
-    expect(shown).toEqual(["1", "5", "4"]);
-    expect(html).toContain("Show 2 more");
+    expect(shown).toEqual(["1"]);
+    expect(html).toContain("Running");
+    expect(html).toContain("Ended 4");
+    expect(html).toContain("background");
   });
 
   test("lets only a computer that allows control be compacted or have its runs stopped", () => {

@@ -188,9 +188,9 @@ func main() {
 	// PTY cleanup runs as a shutdown hook, not a defer: every termination path
 	// (EOF, SIGTERM, idle watchdog) ends in drainAndExit → os.Exit, which skips
 	// defers. Pdeathsig (Linux only) and the master-fd-close SIGHUP are not
-	// enough on their own — a non-Linux remote has no Pdeathsig, and a child
-	// that ignores SIGHUP would orphan. The hook calls SIGKILL on each PTY
-	// process group, so children are reaped deterministically on every OS.
+	// enough on their own — a non-Linux remote has no Pdeathsig, and a shell
+	// that ignores SIGHUP would orphan. The hook hangs up each shell and kills
+	// what is left of its session if it does not end (pty.Service.Close).
 	host.RegisterShutdownHook(pty.Close)
 	// The Claude tabs' programs end with the agent the same way.
 	host.RegisterShutdownHook(chat.Close)

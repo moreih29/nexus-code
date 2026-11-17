@@ -770,10 +770,12 @@ export interface CliUiOps {
     result: { signedOut: boolean };
   };
   /**
-   * The files a workspace's Claude and Codex tabs' background jobs write
-   * their output to, absolute: what each tab's side panel reads of them.
+   * The files outside the workspace that its Claude and Codex tabs name,
+   * absolute: what their tools took or wrote, what their replies link, and
+   * what their background jobs write their output to. What each tab lets
+   * its previews read there.
    */
-  "chat.jobOutputs": {
+  "chat.outsideFiles": {
     args: { workspaceId: string };
     result: { files: string[] };
   };

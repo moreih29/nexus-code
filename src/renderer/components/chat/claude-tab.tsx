@@ -6,8 +6,10 @@ import { ArrowLeft } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
+import { useStableHandlers } from "../../hooks/use-stable-handlers";
 import { claudeTabHooks } from "../../services/chat/agent-tab";
 import { parseAppCommand, revealOf } from "../../services/chat/app-commands";
+import { useStateBesideStream } from "../../services/chat/beside-stream";
 import { configCommandOf } from "../../services/chat/claude-config";
 import {
   type ChatController,
@@ -17,18 +19,18 @@ import {
 } from "../../services/chat/controller";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
   fileKind,
   isLocalAddress,
   isUnder,
   type LineAt,
-  resolveFileLink,
 } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { AssistantItem, PermissionRequest, UserItem } from "../../services/chat/model";
 import {
-  fileLinkTarget,
+  followFileLink,
   openBrowserBeside,
   openFileBeside,
   revealTabById,
@@ -40,8 +42,11 @@ import {
   imagesOf,
   jobOutputFiles,
   jobsOf,
+  joinAgents,
   outsideLinksOf,
+  pastAgentsOf,
 } from "../../services/chat/panel";
+import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import {
   printRunRows,
   stopPrintRun,
@@ -76,7 +81,7 @@ import { ProfileUsageChip, type TabUse } from "../agent-profiles/tab-profile";
 import { Banner, type BannerAction } from "../ui/banner";
 import { showToast } from "../ui/toast";
 import { ClaudeIcon } from "./agent-icons";
-import { AgentStrip } from "./agent-strip";
+import { AgentStrip, ShownState } from "./agent-strip";
 import { ChatLinksContext, type LocalChatLinks } from "./chat-links";
 import { CommandCardView } from "./command-card";
 import { Composer } from "./composer";
@@ -132,7 +137,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       ),
     [workspaceId, tabId],
   );
-  const state = useChatTab(workspaceId, tabId);
+  // Followed while shown: a tab in the background draws nothing per chunk
+  // of a streaming reply, and shows the latest when it comes to the front.
+  const state = useChatTab(workspaceId, tabId, isVisible);
+  // For the side panel and the composer, which show nothing of a streaming
+  // reply's text: the same state while only that changes, so they and what
+  // they hold do not render for each chunk of it.
+  const steady = useStateBesideStream(state);
   const goal = useTabGoal(workspaceId, tabId);
 
   // The line under the composer: the context and the plan's usage when the
@@ -219,10 +230,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       canFork,
       onRewind: (item) => setRewinding(item),
       onFork: (item) => forkFrom(controller, workspaceId, props.cwd, item),
-      onBackground: (toolUseId) =>
-        controller
-          .backgroundTool(toolUseId)
-          .catch((err: Error) => showToast({ kind: "error", message: err.message })),
+      onBackground: (toolUseId) => backgroundCall(controller, toolUseId),
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       taskShower: (item) => taskShower.current(item),
     }),
@@ -254,6 +262,10 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
+  // ⌘⇧] toggles it too, while this tab is in front.
+  const togglePanelRef = useRef(togglePanel);
+  togglePanelRef.current = togglePanel;
+  useEffect(() => registerPanelToggle(tabId, () => togglePanelRef.current()), [tabId]);
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
@@ -289,12 +301,46 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
   // session started; input always goes to main.
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runRows = useMemo(() => printRunRows(printRuns), [printRuns]);
-  const agents = useMemo(() => [...agentsOf(state.model), ...runRows], [state.model, runRows]);
+  // Its history's subagents too, which ended: a conversation resumed shows them.
+  const pastModel = state.history;
+  const { tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls } = state.model;
+  const pastAgents = useMemo(() => (pastModel ? pastAgentsOf(pastModel) : []), [pastModel]);
+  const liveAgents = useMemo(
+    () => agentsOf({ tasks: agentTasks, tools: agentTools, agentItems, items: agentCalls }),
+    [agentTasks, agentTools, agentItems, agentCalls],
+  );
+  const agents = useMemo(
+    () => joinAgents(pastAgents, liveAgents, runRows),
+    [pastAgents, liveAgents, runRows],
+  );
   const [shownId, setShownId] = useState<string | null>(null);
   const shown = shownId ? agents.find((a) => a.toolUseId === shownId) : undefined;
   useEffect(() => {
     if (shownId && !shown) setShownId(null);
   }, [shownId, shown]);
+  // What the shown subagent wrote: its messages as the program's log has
+  // them, else as the history read from its file.
+  const pastAgentItems = pastModel?.agentItems;
+  const shownWrote = shown
+    ? (agentItems[shown.toolUseId] ?? pastAgentItems?.[shown.toolUseId])
+    : undefined;
+  const shownTranscript = useMemo(
+    () =>
+      shown && !shown.run
+        ? agentTranscript(
+            { agentItems: shownWrote ? { [shown.toolUseId]: shownWrote } : {} },
+            shown,
+          )
+        : undefined,
+    [shown, shownWrote],
+  );
+  // One that ended with none of its messages here, as a conversation read
+  // from its transcript has it, is read from the file Claude Code keeps it in.
+  const unread =
+    shown && !shown.run && shown.status !== "running" && !shownWrote ? shown.toolUseId : null;
+  useEffect(() => {
+    if (unread) void controller.loadSubagent(unread);
+  }, [controller, unread]);
   const showAgent = (toolUseId: string | null) => {
     setShownId(toolUseId);
     if (place !== "beside") setDrawerOpen(false);
@@ -366,10 +412,17 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     const cwd = props.cwd;
     // Wide enough to share with a new group beside it.
     const split = () => latest.current.place === "beside";
-    /** The file a link names, and where in it, once it is known which file that is. */
+    /**
+     * The file a link names, and where in it, once it is known which file
+     * that is: from the tab's folder, or from where the agent's shell went.
+     */
     const follow = (target: string, then: (link: FileLink) => void) => {
-      const link = resolveFileLink(target, cwd);
-      if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
+      const { state, rootPath } = latest.current;
+      const { history, model } = state;
+      const tools = history ? { ...history.tools, ...model.tools } : model.tools;
+      void followFileLink(workspaceId, rootPath, target, linkPlaceIndex(tools, cwd)).then(
+        (link) => link && then(link),
+      );
     };
     /** Lets the previews read a file outside the workspace the tab grants none of yet. */
     const grant = (path: string) => {
@@ -496,22 +549,61 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
       });
     }
   };
+  // The same functions throughout, for the memoized side panel and
+  // composer; each call runs what the latest render made.
+  const stable = useStableHandlers({
+    stopRun: (agentId: string) => void stopPrintRun(workspaceId, tabId, agentId),
+    background: (toolUseId: string) => backgroundCall(controller, toolUseId),
+    showAgent,
+    showCall,
+    forkSession,
+    runCommand,
+    switchProfile,
+    continueInProfile,
+  });
   const panel = (
     <SidePanel
       controller={controller}
-      state={state}
+      state={steady}
       workspaceId={workspaceId}
       cwd={props.cwd}
       rootPath={rootPath}
-      runs={runRows}
-      onStopRun={(agentId) => void stopPrintRun(workspaceId, tabId, agentId)}
-      onShowAgent={showAgent}
-      onShowCall={showCall}
-      onForkSession={forkSession}
+      agents={agents}
+      onStopRun={stable.stopRun}
+      onShowAgent={stable.showAgent}
+      onShowCall={stable.showCall}
+      onBackground={stable.background}
+      onForkSession={stable.forkSession}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
   );
   const permissions = state.model.permissions;
+  // Made again only when what it shows changes, so the composer it goes in
+  // need not render.
+  const { contextUsage, usage } = state.model;
+  const usageLine = useMemo(
+    () => (
+      <ClaudeUsageLine
+        workspaceId={workspaceId}
+        profileId={props.profileId}
+        visible={isVisible}
+        contextUsage={contextUsage}
+        usage={usage}
+        trailing={(compact) => (
+          <ProfileUsageChip
+            agent="claude"
+            workspaceId={workspaceId}
+            profileId={props.profileId}
+            use={tabUse}
+            onSwitch={stable.switchProfile}
+            onContinue={stable.continueInProfile}
+            compact={compact}
+          />
+        )}
+      />
+    ),
+    [workspaceId, props.profileId, isVisible, contextUsage, usage, tabUse, stable],
+  );
 
   const view = (
     // biome-ignore lint/a11y/noStaticElementInteractions: ⌘[ and ⌘] step through the agents from anywhere in the tab
@@ -548,6 +640,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                   <span className="min-w-0 truncate text-muted-foreground">
                     {shown.description}
                   </span>
+                  <ShownState agent={shown} />
                 </div>
               )}
             </>
@@ -577,7 +670,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
               history={state.history}
               model={state.model}
               actions={shown ? undefined : actions}
-              items={shown ? agentTranscript(state.model, shown) : undefined}
+              items={shownTranscript}
               reveal={shown ? null : callAsk}
               moves={props.moves}
               relayed={props.relayed}
@@ -651,7 +744,7 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
           <TwinBanner workspaceId={workspaceId} tabId={tabId} sessionId={state.model.sessionId} />
           <Composer
             controller={controller}
-            state={state}
+            state={steady}
             relayed={props.relayed}
             local={isLocal}
             placeholder={shown ? t("chat.strip.input_to_main") : undefined}
@@ -682,27 +775,8 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
                 )
               )
             }
-            onCommand={runCommand}
-            below={
-              <ClaudeUsageLine
-                workspaceId={workspaceId}
-                profileId={props.profileId}
-                visible={isVisible}
-                contextUsage={state.model.contextUsage}
-                usage={state.model.usage}
-                trailing={(compact) => (
-                  <ProfileUsageChip
-                    agent="claude"
-                    workspaceId={workspaceId}
-                    profileId={props.profileId}
-                    use={tabUse}
-                    onSwitch={switchProfile}
-                    onContinue={continueInProfile}
-                    compact={compact}
-                  />
-                )}
-              />
-            }
+            onCommand={stable.runCommand}
+            below={usageLine}
           />
         </div>
         {place === "beside" && besideOpen && panel}
@@ -771,6 +845,13 @@ export function ClaudeTabView({ workspaceId, tabId, props, isVisible }: ClaudeTa
     </div>
   );
   return <ChatLinksContext.Provider value={links}>{view}</ChatLinksContext.Provider>;
+}
+
+/** Sends a call the turn waits on to the background, as Ctrl+B does in the terminal. */
+function backgroundCall(controller: ChatController, toolUseId: string): void {
+  controller
+    .backgroundTool(toolUseId)
+    .catch((err: Error) => showToast({ kind: "error", message: err.message }));
 }
 
 /**

@@ -78,12 +78,17 @@ export function GroupView({
     }
   }
 
-  function handleCloseTab(tabId: string) {
-    // Fire-and-forget: the dispatcher runs the dirty confirm flow (async for
-    // editor and untitled tabs). Group-view doesn't react to the outcome —
-    // the close itself updates layout via the tabs store, which re-renders us.
-    void closeTabWithConfirm(workspaceId, tabId);
-  }
+  // One identity per workspace: every TabItem takes it, and a new one each
+  // render drew every tab again whenever any tab of the workspace changed.
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      // Fire-and-forget: the dispatcher runs the dirty confirm flow (async for
+      // editor and untitled tabs). Group-view doesn't react to the outcome —
+      // the close itself updates layout via the tabs store, which re-renders us.
+      void closeTabWithConfirm(workspaceId, tabId);
+    },
+    [workspaceId],
+  );
 
   function handleNewTerminalTab(shell?: ShellChoice) {
     openTerminal({ workspaceId, cwd: workspaceRootPath, shell }, { groupId: leaf.id });

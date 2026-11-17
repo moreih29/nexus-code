@@ -1,12 +1,22 @@
 // One tool call as a row under its turn: what ran and how it ended, folded
 // by default. Open, an edit shows its patch and a command its output.
 
-import { Ban, Check, ChevronDown, ChevronRight, CircleStop, LoaderCircle, X } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Ban,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  CircleStop,
+  LoaderCircle,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { imageFileOf } from "../../services/chat/image-look";
 import { slashWindowsPath } from "../../services/chat/links";
 import type { ToolCall } from "../../services/chat/model";
+import { canBackground } from "../../services/chat/running";
 import { cn } from "../../utils/cn";
 import { ChatImage, ToolThumbs } from "./chat-image";
 import { Highlighted, highlightCode, languageOf } from "./code-highlight";
@@ -34,6 +44,9 @@ export function toolTint(name: string): string {
   if (EDIT_TOOLS.has(name)) return "text-[var(--syntax-type)]";
   return "text-[var(--syntax-constant)]";
 }
+
+/** What sends a running call to the background, here and in the side panel. */
+export const BackgroundIcon = ArrowDownToLine;
 
 /** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -96,8 +109,9 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
             type="button"
             onClick={() => onBackground(toolUseId)}
             title={t("chat.tool.background_hint")}
-            className="shrink-0 rounded-(--radius-control) px-1.5 py-1 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
+            className="flex shrink-0 items-center gap-1 rounded-(--radius-control) px-1.5 py-1 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
           >
+            <BackgroundIcon className="size-3" aria-hidden />
             {t("chat.tool.background")}
           </button>
         )}
@@ -112,16 +126,6 @@ export function ToolRow({ tool, toolUseId, tools, cwd, onBackground }: ToolRowPr
       {open && tool && <ToolDetail tool={tool} />}
     </div>
   );
-}
-
-/**
- * Whether a running call can go to the background: a command or a
- * subagent on the main thread that was not started there already.
- */
-export function canBackground(tool: ToolCall): boolean {
-  if (tool.status !== "running" || tool.parentToolUseId) return false;
-  if (tool.name !== "Bash" && !AGENT_TOOLS.has(tool.name)) return false;
-  return (tool.input as { run_in_background?: unknown } | null)?.run_in_background !== true;
 }
 
 /**

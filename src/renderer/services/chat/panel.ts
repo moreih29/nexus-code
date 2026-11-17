@@ -4,7 +4,8 @@
 
 import type { AgentRun } from "../../../shared/claude/activity";
 import { imageFileOf, type ShownImage } from "./image-look";
-import { fileKind, isUnder, resolveFilePath, resultFiles, slashWindowsPath } from "./links";
+import { linkPlaceIndex, linkPlaces } from "./link-places";
+import { fileKind, isUnder, resolveFilePath, slashWindowsPath } from "./links";
 import {
   type AssistantBlock,
   type AssistantItem,
@@ -27,6 +28,10 @@ function rec(value: unknown): Rec | null {
 
 function str(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function num(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /** The tools that start a subagent. */
@@ -80,8 +85,40 @@ function agentStatus(task: TaskInfo | undefined, tool: ToolCall | undefined): Ag
   }
 }
 
+/**
+ * When a call began and how a task it started ended, as the conversation
+ * tells them: by the message that made the call, and by the news of the
+ * task's end. For a call no task of the tab's tells (one of a transcript).
+ */
+interface CallTimes {
+  started: Map<string, number>;
+  ended: Map<string, { at?: number; status: string }>;
+}
+
+function callTimesOf(items: readonly ChatItem[]): CallTimes {
+  const started = new Map<string, number>();
+  const ended = new Map<string, { at?: number; status: string }>();
+  for (const item of items) {
+    if (item.kind === "task_end" && item.toolUseId) {
+      ended.set(item.toolUseId, { at: item.at, status: item.status });
+    } else if (item.kind === "assistant" && item.at !== undefined) {
+      for (const block of item.blocks) {
+        if (block.type === "tool") started.set(block.toolUseId, item.at);
+      }
+    }
+  }
+  return { started, ended };
+}
+
+/** A task's end as an agent's: killed is stopped. */
+function endStatus(status: string): AgentStatus {
+  return status === "completed" ? "completed" : status === "failed" ? "failed" : "stopped";
+}
+
 /** The subagents and teammates of the session, in the order they started. */
-export function agentsOf(model: ChatModel): AgentRow[] {
+export function agentsOf(
+  model: Pick<ChatModel, "tasks" | "tools" | "agentItems" | "items">,
+): AgentRow[] {
   const tasksByTool = new Map<string, TaskInfo>();
   for (const task of Object.values(model.tasks)) {
     if (task.toolUseId) tasksByTool.set(task.toolUseId, task);
@@ -95,6 +132,7 @@ export function agentsOf(model: ChatModel): AgentRow[] {
   }
   const rows: AgentRow[] = [];
   const seen = new Set<string>();
+  let times: CallTimes | undefined;
   const row = (toolUseId: string, tool: ToolCall | undefined, task: TaskInfo | undefined) => {
     seen.add(toolUseId);
     const input = rec(tool?.input) ?? {};
@@ -102,15 +140,32 @@ export function agentsOf(model: ChatModel): AgentRow[] {
     const own = children.get(toolUseId) ?? [];
     const running = [...own].reverse().find((t) => t.status === "running");
     const lastText = lastTextOf(model.agentItems[toolUseId]);
+    let status = agentStatus(task, tool);
+    let startedAt = task?.startedAt;
+    let endedAt = task?.endedAt;
+    if (!task && tool) {
+      // A call no task tells, as a transcript has it: its times from the
+      // conversation, and how it ended from the news of it.
+      times ??= callTimesOf(model.items);
+      startedAt = times.started.get(toolUseId);
+      const end = times.ended.get(toolUseId);
+      const took = num(structured?.totalDurationMs);
+      if (end && status !== "running") status = endStatus(end.status);
+      endedAt =
+        end?.at ??
+        (startedAt !== undefined && took !== undefined && status !== "running"
+          ? startedAt + took
+          : undefined);
+    }
     rows.push({
       toolUseId,
       taskId: task?.taskId,
       description: task?.description || str(input.description) || tool?.name || "",
       subagentType: task?.subagentType ?? str(input.subagent_type),
       model: str(structured?.resolvedModel) ?? str(input.model),
-      status: agentStatus(task, tool),
-      startedAt: task?.startedAt,
-      endedAt: task?.endedAt,
+      status,
+      startedAt,
+      endedAt,
       toolCount: Math.max(own.length, task?.toolUses ?? 0),
       currentTool: running ? toolLabel(running) : (task?.activity ?? task?.lastToolName),
       lastText,
@@ -129,6 +184,29 @@ export function agentsOf(model: ChatModel): AgentRow[] {
     if (!seen.has(id)) row(id, undefined, task);
   }
   return rows;
+}
+
+/**
+ * The subagents of a history (a transcript, or the log of a program before
+ * this one): none of them runs any more, whatever its call last said.
+ */
+export function pastAgentsOf(
+  history: Pick<ChatModel, "tasks" | "tools" | "agentItems" | "items">,
+): AgentRow[] {
+  return agentsOf(history).map((agent) =>
+    agent.status === "running" ? { ...agent, status: "stopped" } : agent,
+  );
+}
+
+/** A tab's agents: its history's, then its program's, then the runs it started; each once. */
+export function joinAgents(
+  past: readonly AgentRow[],
+  live: readonly AgentRow[],
+  runs: readonly AgentRow[],
+): AgentRow[] {
+  if (past.length === 0) return runs.length === 0 ? (live as AgentRow[]) : [...live, ...runs];
+  const now = new Set(live.map((agent) => agent.toolUseId));
+  return [...past.filter((agent) => !now.has(agent.toolUseId)), ...live, ...runs];
 }
 
 function toolLabel(tool: ToolCall): string {
@@ -151,7 +229,7 @@ function lastTextOf(items: AssistantItem[] | undefined): string | undefined {
 }
 
 /** What an agent's pane shows: the prompt it got, then its messages. */
-export function agentTranscript(model: ChatModel, agent: AgentRow): ChatItem[] {
+export function agentTranscript(model: Pick<ChatModel, "agentItems">, agent: AgentRow): ChatItem[] {
   const prompt: UserItem[] = agent.prompt
     ? [
         {
@@ -477,13 +555,18 @@ export function resultsOf(
 
 /**
  * `results` with each file once, however its path was written (`long.txt`,
- * `/p/long.txt`): under the first name it had, made new if it ever was.
+ * `/p/long.txt`): under the first name it had, made new if it ever was. A
+ * file is the one `pathOf` finds a target names, by default from `cwd`.
  */
-export function distinctResults(results: readonly ResultEntry[], cwd: string): ResultEntry[] {
+export function distinctResults(
+  results: readonly ResultEntry[],
+  cwd: string,
+  pathOf: (target: string) => string | null = (target) => resolveFilePath(target, cwd),
+): ResultEntry[] {
   const out: ResultEntry[] = [];
   const byPath = new Map<string, number>();
   for (const result of results) {
-    const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
+    const path = result.kind === "file" ? pathOf(result.target) : null;
     const at = path ? byPath.get(path) : undefined;
     if (at !== undefined) {
       if (result.created && !out[at].created) out[at] = { ...out[at], created: true };
@@ -663,6 +746,12 @@ export interface GivenImage {
 export interface AnswerExtras {
   /** Absolute paths, written new first, then linked: each shows once it is found. */
   files: string[];
+  /**
+   * By a file of `files` a reply named by a relative path, the other places
+   * it may be, the likeliest first (link-places): where the agent's shell
+   * went. The card is of the first found, when the file is not.
+   */
+  elsewhere?: Record<string, string[]>;
   images: GivenImage[];
 }
 
@@ -689,6 +778,7 @@ export function answerExtras(
 ): Map<ChatItem, AnswerExtras> {
   const out = new Map<ChatItem, AnswerExtras>();
   const touched = touchedFiles(tools, cwd);
+  const places = linkPlaceIndex(tools, cwd);
   let turn: ChatItem[] = [];
   const close = () => {
     const answer = [...turn].reverse().find((item) => item.kind === "assistant");
@@ -724,9 +814,12 @@ export function answerExtras(
       if (result.kind === "file") named.push(result.target);
     }
     const files: string[] = [];
+    const elsewhere: Record<string, string[]> = {};
     for (const target of named) {
-      const path = resolveFilePath(target, cwd);
-      if (path && !shown.has(path) && !files.includes(path)) files.push(path);
+      const [path, ...others] = linkPlaces(target, places).map((place) => place.path);
+      if (!path || shown.has(path) || files.includes(path)) continue;
+      files.push(path);
+      if (others.length > 0) elsewhere[path] = others;
     }
     const images = given
       .filter(
@@ -734,8 +827,11 @@ export function answerExtras(
       )
       .map(({ image, file }) => (file ? { image, file } : { image }));
     if (files.length > 0 || images.length > 0) {
+      const picked = files.slice(0, MAX_ANSWER_CANDIDATES);
+      const others = Object.entries(elsewhere).filter(([path]) => picked.includes(path));
       out.set(answer, {
-        files: files.slice(0, MAX_ANSWER_CANDIDATES),
+        files: picked,
+        ...(others.length > 0 ? { elsewhere: Object.fromEntries(others) } : {}),
         images: images.slice(0, MAX_ANSWER_IMAGES),
       });
     }
@@ -763,9 +859,10 @@ export const MAX_OUTSIDE_DIRS = 200;
 
 /**
  * The files outside the workspace (`root`) that a session names: the ones
- * its tools took, its replies point at, and `looked` (opened from the tab
- * otherwise). An HTML file's folder comes too, unless it holds the
- * workspace, as the home folder does.
+ * its tools took, its replies point at (a relative path at each place it
+ * may name, link-places), and `looked` (opened from the tab otherwise). An
+ * HTML file's folder comes too, unless it holds the workspace, as the home
+ * folder does.
  */
 export function outsideLinksOf(
   items: ChatItem[],
@@ -784,8 +881,10 @@ export function outsideLinksOf(
       if (abs) named.add(abs);
     }
   }
-  for (const file of resultFiles(resultsOf(items, {}, cwd, touchedFiles(tools, cwd)), cwd)) {
-    named.add(file);
+  const places = linkPlaceIndex(tools, cwd);
+  for (const result of resultsOf(items, {}, cwd, touchedFiles(tools, cwd))) {
+    if (result.kind !== "file") continue;
+    for (const place of linkPlaces(result.target, places)) named.add(place.path);
   }
   const files = [...named].filter((file) => !isUnder(file, root));
   const dirs = new Set<string>();

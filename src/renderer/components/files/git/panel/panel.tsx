@@ -19,9 +19,10 @@ import {
   type GitStatusEntry,
   type RepoCapabilities,
 } from "../../../../../shared/git/types";
+import { useStableHandlers } from "../../../../hooks/use-stable-handlers";
 import { useGitSession, useGitStore } from "../../../../state/stores/git";
 import { selectGitActionButton } from "../../../../state/stores/git/action-button";
-import { useCommitDraft } from "../../../../state/stores/git/commit-drafts";
+import { getCommitDraft, useCommitDraftStore } from "../../../../state/stores/git/commit-drafts";
 import { gitErrorPlacement } from "../../../../state/stores/git/error-placement";
 import {
   usePanelViewOptionsStore,
@@ -33,6 +34,7 @@ import type { FormDialogField } from "../../../ui/form-dialog";
 import { Skeleton, SkeletonLine } from "../../../ui/skeleton";
 import { useLoaderDelay } from "../../search/use-loader-delay";
 import { createCommitPickerSource } from "../commit/picker-source";
+import type { GitGroupActions } from "../file-row/group";
 import { useGitHelperOccupancy } from "../hooks/use-helper-prompts";
 import { useGitOpHotkey } from "../hooks/use-op-hotkey";
 import { createMergeTargetPickerSource } from "../pickers/merge-target-picker-source";
@@ -197,8 +199,10 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const isRefreshing = session?.inFlightOp?.kind === "refresh" || Boolean(session?.statusFetching);
   const isLoading = !session || session.repoInfo.kind === "detecting" || session.statusFetching;
   const showSkeleton = useLoaderDelay(isLoading ? "running" : "done");
-  const draft = useCommitDraft(workspaceId);
-  const trimmedDraft = draft.trim();
+  // Whether the message has words, not the message: typing renders the
+  // commit input alone (it reads the draft), and the panel only when the
+  // message turns empty or not. What is committed is read when it is.
+  const hasDraft = useCommitDraftStore((s) => (s.drafts.get(workspaceId) ?? "").trim().length > 0);
   const operationState = session?.status?.operationState ?? { kind: "none" as const };
   const activeOperation = operationState.kind === "none" ? null : operationState;
   const hasActiveOperation = activeOperation !== null;
@@ -215,11 +219,11 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
             untracked: session?.status?.untracked.length ?? 0,
             merge: session?.status?.merge.length ?? 0,
           },
-          commitDraft: draft,
+          hasDraft,
         },
         (key) => t(key),
       ),
-    [branchInfo, capabilities, draft, session?.repoInfo.kind, session?.status, t],
+    [branchInfo, capabilities, hasDraft, session?.repoInfo.kind, session?.status, t],
   );
   const commitActionEnabled =
     (actionState.kind === "commit" || actionState.kind === "make-initial-commit") &&
@@ -256,7 +260,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
     dialogs,
     pickers,
     derived: {
-      trimmedDraft,
       hasStagedChanges,
       stageablePaths,
       allChangedPaths,
@@ -436,6 +439,38 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   });
 
   // ---------------------------------------------------------------------------
+  // File list actions — one object for every group and row, which keeps its
+  // identity, so the memoized rows render only when their files change.
+  // ---------------------------------------------------------------------------
+  const fileActions = useStableHandlers<Omit<GitGroupActions, "openMenu">>({
+    toggleGroup: (key) =>
+      panelUiOps.setExpandedGroup(workspaceId, key, !(session?.expandedGroups[key] ?? false)),
+    toggleTreeNode: (key, relPath) => panelUiOps.toggleExpandedTreeNode(workspaceId, key, relPath),
+    stage: (paths) => {
+      void directOps.stage(workspaceId, paths);
+    },
+    unstage: (paths) => {
+      void directOps.unstage(workspaceId, paths);
+    },
+    discard: requestDiscard,
+    markResolved: (entry) => {
+      void directOps.markResolved(workspaceId, [entry.relPath]);
+    },
+    openDiff: (entry, groupKey, opts) => {
+      openChanges(entry, groupKey, opts);
+    },
+    openFile: openWorkingTreeFile,
+    revealInOS: revealEntryInOS,
+    copyPath: copyEntryPath,
+    copyRelativePath: copyEntryRelativePath,
+    addToGitignore: addEntryToGitignore,
+    addPathsToGitignore: (paths) => {
+      void addPathsToGitignore(paths);
+    },
+    stashGroup: requestStashGroup,
+  });
+
+  // ---------------------------------------------------------------------------
   // Render helpers
   // ---------------------------------------------------------------------------
   const headerDisabled = isBusy || isLoading;
@@ -444,9 +479,9 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
   const panelSegment = session?.panelSegment ?? DEFAULT_GIT_PANEL_STATE.panelSegment;
   const historyRef = session?.historyRef ?? DEFAULT_GIT_PANEL_STATE.historyRef;
   const menuEnablement = {
-    canCommitStaged: trimmedDraft.length > 0 && hasStagedChanges,
-    canCommitAll: trimmedDraft.length > 0 && (hasStagedChanges || stageablePaths.length > 0),
-    canCommitAndPush: trimmedDraft.length > 0 && hasStagedChanges && hasRemote,
+    canCommitStaged: hasDraft && hasStagedChanges,
+    canCommitAll: hasDraft && (hasStagedChanges || stageablePaths.length > 0),
+    canCommitAndPush: hasDraft && hasStagedChanges && hasRemote,
     canPush: hasRemote && capabilities.hasHEAD,
     canPull: hasRemote,
   };
@@ -603,7 +638,6 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           onAbortOp={() => {
             void directOps.abortOp(workspaceId);
           }}
-          draft={draft}
           actionState={actionState}
           commitOptions={commitOptions}
           menuEnablement={menuEnablement}
@@ -620,7 +654,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
               description: t("git.commit.emptyCommit.description"),
               label: t("git.commit.emptyCommit.label"),
               placeholder: t("git.commit.emptyCommit.placeholder"),
-              defaultValue: trimmedDraft,
+              defaultValue: getCommitDraft(workspaceId).trim(),
               confirmLabel: t("git.commit.emptyCommit.confirmLabel"),
             });
           }}
@@ -640,34 +674,7 @@ export function GitPanel({ workspaceId, workspaceRootPath, onOpenDiff }: GitPane
           viewMode={viewMode}
           expandedGroups={session?.expandedGroups ?? {}}
           expandedTreeNodes={session?.expandedTreeNodes ?? {}}
-          onToggleGroup={(key) =>
-            panelUiOps.setExpandedGroup(workspaceId, key, !(session?.expandedGroups[key] ?? false))
-          }
-          onToggleTreeNode={(key, relPath) =>
-            panelUiOps.toggleExpandedTreeNode(workspaceId, key, relPath)
-          }
-          onStagePaths={(paths) => {
-            void directOps.stage(workspaceId, paths);
-          }}
-          onUnstagePaths={(paths) => {
-            void directOps.unstage(workspaceId, paths);
-          }}
-          onDiscardPaths={requestDiscard}
-          onMarkResolved={(entry) => {
-            void directOps.markResolved(workspaceId, [entry.relPath]);
-          }}
-          onOpenDiff={(entry, groupKey, opts) => {
-            openChanges(entry, groupKey, opts);
-          }}
-          onOpenFile={openWorkingTreeFile}
-          onRevealInOS={revealEntryInOS}
-          onCopyPath={copyEntryPath}
-          onCopyRelativePath={copyEntryRelativePath}
-          onAddToGitignore={addEntryToGitignore}
-          onAddPathsToGitignore={(paths) => {
-            void addPathsToGitignore(paths);
-          }}
-          onStashGroup={requestStashGroup}
+          fileActions={fileActions}
         />
       )}
 

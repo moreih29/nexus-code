@@ -21,17 +21,17 @@ import { type CodexModel, originalsFor } from "../../services/chat/codex-model";
 import type { PermissionAnswer } from "../../services/chat/controller";
 import { filesThere } from "../../services/chat/file-presence";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
+import { linkPlaceIndex } from "../../services/chat/link-places";
 import {
   type FileLink,
   fileKind,
   isLocalAddress,
   isUnder,
   type LineAt,
-  resolveFileLink,
 } from "../../services/chat/links";
 import { lookAreaOf } from "../../services/chat/look-area";
 import type { PermissionRequest } from "../../services/chat/model";
-import { fileLinkTarget, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
+import { followFileLink, openBrowserBeside, openFileBeside } from "../../services/chat/open-beside";
 import { imagesOf, outsideLinksOf } from "../../services/chat/panel";
 import { printRunRows, useAgentAsk, usePrintRuns } from "../../services/chat/print-runs";
 import { withRelayed } from "../../services/chat/relayed";
@@ -103,7 +103,9 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
       ),
     [workspaceId, tabId],
   );
-  const state = useChatTab(workspaceId, tabId);
+  // Followed while shown: a tab in the background draws nothing per chunk
+  // of a streaming reply, and shows the latest when it comes to the front.
+  const state = useChatTab(workspaceId, tabId, isVisible);
   const goal = useTabGoal(workspaceId, tabId);
   const model = state.model as CodexModel;
 
@@ -238,10 +240,14 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
         ...(line?.line ? { at: { path, line: line.line, column: line.column } } : {}),
       });
     };
-    /** The file a link names, and where in it, once it is known which file that is. */
+    /**
+     * The file a link names, and where in it, once it is known which file
+     * that is: from the tab's folder, or from where the agent's shell went.
+     */
     const follow = (target: string, then: (link: FileLink) => void) => {
-      const link = resolveFileLink(target, cwd);
-      if (link) void fileLinkTarget(workspaceId, latest.current.rootPath, link).then(then);
+      const { state, rootPath } = latest.current;
+      const places = linkPlaceIndex(state.model.tools, cwd);
+      void followFileLink(workspaceId, rootPath, target, places).then((link) => link && then(link));
     };
     const openFileTab = (target: string, at?: LineAt) => {
       follow(target, ({ path, ...line }) => {

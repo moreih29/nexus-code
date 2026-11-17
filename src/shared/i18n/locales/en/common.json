@@ -928,7 +928,7 @@
       "no_output": "(no output)",
       "subagent_calls_one": "{{count}} call",
       "subagent_calls_other": "{{count}} calls",
-      "background": "To background",
+      "background": "Send to background",
       "background_hint": "Keep it running in the background, and go on with the turn",
       "run": {
         "commands_one": "Ran {{count}} command",
@@ -1173,8 +1173,21 @@
         "compact": "Compact",
         "compact_busy": "Compact once Claude finishes"
       },
+      "running": {
+        "title": "Running",
+        "ended": "Ended {{count}}",
+        "search": "Search",
+        "no_match": "None",
+        "background": "background",
+        "to_background": "Send to background",
+        "output": "Show output",
+        "kind": {
+          "agent": "Subagent",
+          "command": "Shell command",
+          "run": "claude -p"
+        }
+      },
       "agents": {
-        "title": "Subagents",
         "open": "Show its transcript",
         "teammate": "Teammate",
         "tools_one": "{{count}} tool call",
@@ -1183,7 +1196,6 @@
         "open_run": "Show the run"
       },
       "jobs": {
-        "title": "Tasks",
         "live": "Live",
         "exit_code": "Exit code {{code}}",
         "reading": "Reading the output…",

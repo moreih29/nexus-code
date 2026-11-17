@@ -14,6 +14,8 @@ import { showInAgentView } from "../agent-view/show";
 import { revealEditorAt } from "../editor/tabs";
 import { openExternalEditor } from "../editor/tabs/open-external-editor";
 import { requestEditorReveal } from "../editor/tabs/pending-reveal";
+import { filesThere } from "./file-presence";
+import { findLinkPlace, type LinkPlaceIndex, linkPlaces } from "./link-places";
 import { type FileLink, isUnder, type LineAt } from "./links";
 
 /**
@@ -84,6 +86,24 @@ export async function fileLinkTarget(
   const relPath = literal.slice(root.replace(/\/+$/, "").length + 1);
   const stat = await ipcCallResult("fs", "stat", { workspaceId, relPath }).catch(() => null);
   return stat?.ok ? { path: literal } : link;
+}
+
+/**
+ * The file a link a reply wrote opens: of the places it may name
+ * (link-places), the first that is a file, in the workspace or granted
+ * outside it, or the likeliest; then as fileLinkTarget picks it. Null for
+ * a link to no file.
+ */
+export async function followFileLink(
+  workspaceId: string,
+  root: string,
+  target: string,
+  places: LinkPlaceIndex,
+): Promise<FileLink | null> {
+  const place = await findLinkPlace(linkPlaces(target, places), (paths) =>
+    filesThere(workspaceId, root, paths),
+  );
+  return place && fileLinkTarget(workspaceId, root, place);
 }
 
 /**

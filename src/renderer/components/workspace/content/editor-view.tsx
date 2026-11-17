@@ -1,6 +1,7 @@
 import Editor from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { fontFamily, typeScale } from "../../../../shared/design-tokens";
 import { MAX_READABLE_FILE_SIZE } from "../../../../shared/fs/defaults";
@@ -9,6 +10,7 @@ import { ipcCallResult } from "../../../ipc/client";
 import { useSharedModel } from "../../../services/editor";
 import { hasConflictMarkers } from "../../../services/editor/conflict/conflict-parser";
 import { delimiterFor } from "../../../services/editor/preview/delimited";
+import { previewUpdateDelay } from "../../../services/editor/preview/pace";
 import {
   defaultViewMode,
   isPreviewable,
@@ -128,8 +130,20 @@ function useIsFileConflicted(filePath: string, workspaceId: string): boolean {
  *   document can latch and the pane stays blank. We use the "adjust state
  *   during render" pattern (React docs §Derived State) to pull the new
  *   model's value synchronously whenever its identity changes.
+ *
+ * A PREVIEW IN A VIEW (`view`)
+ *   Given the element the preview shows in, the text is held while that
+ *   element is out of sight (a tab in the background is parked at 0×0) and
+ *   read again as it comes back, before it paints, so a background preview
+ *   parses nothing and a shown one is never behind. While the text keeps
+ *   changing (typing in a split, an agent writing), updates are spaced by
+ *   what the last one cost: a light document still follows every frame, a
+ *   heavy one leaves the main thread twice its render time between.
  */
-export function useModelSource(model: Monaco.editor.ITextModel | null): string {
+export function useModelSource(
+  model: Monaco.editor.ITextModel | null,
+  view?: React.RefObject<HTMLElement | null>,
+): string {
   const [trackedModel, setTrackedModel] = useState(model);
   const [source, setSource] = useState<string>(() =>
     model && !model.isDisposed() ? model.getValue() : "",
@@ -140,24 +154,80 @@ export function useModelSource(model: Monaco.editor.ITextModel | null): string {
     setSource(model && !model.isDisposed() ? model.getValue() : "");
   }
 
+  // What the last update cost, from setting the text to its commit.
+  const updateCost = useRef(0);
+  const updateAskedAt = useRef<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: measures each commit of a new text
+  useLayoutEffect(() => {
+    if (updateAskedAt.current === null) return;
+    updateCost.current = performance.now() - updateAskedAt.current;
+    updateAskedAt.current = null;
+  }, [source]);
+
   useEffect(() => {
     if (!model || model.isDisposed()) return;
+    const viewEl = view?.current ?? null;
 
     let rafId: number | null = null;
+    let timerId: ReturnType<typeof setTimeout> | null = null;
+    // Out of sight, as the view's size last reported; text left unread meanwhile.
+    let parked = false;
+    let behind = false;
+    let lastUpdate = 0;
+    const read = (): void => {
+      const text = model.getValue();
+      lastUpdate = performance.now();
+      updateAskedAt.current = lastUpdate;
+      setSource((shown) => {
+        // The same text commits nothing, so there is no cost to measure.
+        if (shown === text) updateAskedAt.current = null;
+        return text;
+      });
+    };
     const flush = () => {
       rafId = null;
-      if (!model.isDisposed()) setSource(model.getValue());
+      timerId = null;
+      if (model.isDisposed()) return;
+      if (parked) {
+        behind = true;
+        return;
+      }
+      read();
     };
     const sub = model.onDidChangeContent(() => {
       if (model.isDisposed()) return;
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(flush);
+      if (parked) {
+        behind = true;
+        return;
+      }
+      if (rafId !== null || timerId !== null) return;
+      const wait = viewEl
+        ? previewUpdateDelay(lastUpdate, updateCost.current, performance.now())
+        : 0;
+      if (wait > 0) timerId = setTimeout(flush, wait);
+      else rafId = requestAnimationFrame(flush);
     });
+    // Reported after layout and before paint: text read as the view comes
+    // back is drawn in the frame that shows it.
+    const resize = viewEl
+      ? new ResizeObserver(([entry]) => {
+          // A view taken out of the document (the editor shows its loading
+          // state) is not watched any more: the text follows as it did before.
+          parked =
+            viewEl.isConnected && entry.contentRect.width === 0 && entry.contentRect.height === 0;
+          if (parked || !behind || model.isDisposed()) return;
+          behind = false;
+          flushSync(read);
+        })
+      : null;
+    if (viewEl) resize?.observe(viewEl);
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
+      if (timerId !== null) clearTimeout(timerId);
+      resize?.disconnect();
       sub.dispose();
     };
-  }, [model]);
+  }, [model, view]);
 
   return source;
 }
@@ -227,7 +297,8 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   // since react-markdown re-parses on every state update and we don't want to
   // pay that cost when the user keeps the toggle on Raw.
   const showPreview = viewMode === "preview" && previewSupport === "supported";
-  const previewSource = useModelSource(showPreview ? (model ?? null) : null);
+  const viewRef = useRef<HTMLDivElement | null>(null);
+  const previewSource = useModelSource(showPreview ? (model ?? null) : null, viewRef);
 
   // Toggle a GFM task checkbox from the markdown preview back into the model.
   // The edit goes through `pushEditOperations` so it lands on the undo stack
@@ -295,7 +366,7 @@ export function EditorView({ filePath, workspaceId, tabId, origin }: EditorViewP
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div ref={viewRef} className="flex flex-col h-full">
       {readOnly && (
         <ReadOnlyBanner
           filePath={filePath}

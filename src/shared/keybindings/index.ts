@@ -202,6 +202,9 @@ export const KEYBINDINGS: readonly KeybindingDecl[] = [
 
   // Voice input: D for dictate. Shells and agent TUIs don't bind Ctrl+Shift+letter.
   { command: COMMANDS.chatVoiceToggle, primary: "CmdOrCtrl+Shift+D" },
+  // The chat's side panel, from its box too. Only while a chat with one is in
+  // front: elsewhere the key stays with what has the keyboard.
+  { command: COMMANDS.chatTogglePanel, primary: "CmdOrCtrl+Shift+]", when: "chatPanelActive" },
 
   // Settings
   { command: COMMANDS.settingsOpen, primary: "CmdOrCtrl+," },

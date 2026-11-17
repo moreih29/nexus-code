@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef } from "react";
+import { useShallow } from "zustand/shallow";
 import type { SplitNode } from "@/engine";
 import { useAgentViewStore } from "../../state/stores/agent-view";
 import { useTabsStore } from "../../state/stores/tabs";
@@ -39,7 +40,18 @@ export function useEndedAgents(
     }
   }
   const activity = useSessionActivity([...claudeIn].sort(), shown);
-  const tabs = useTabsStore((s) => s.byWorkspace);
+  // The held agents whose tab is a terminal still running, all this reads
+  // of the tabs: the view, kept mounted while hidden, rendered with each
+  // change to any tab (a terminal's title, a tab picked) when it read them all.
+  const liveTerminals = useTabsStore(
+    useShallow((s) =>
+      held.filter((key) => {
+        const at = parseSessionKey(key);
+        const tab = at ? s.byWorkspace[at.workspaceId]?.[at.tabId] : undefined;
+        return tab?.type === "terminal" && !tab.props.dead;
+      }),
+    ),
+  );
   // What the store keeps: what a panel showed before a restart, once it is
   // restored, and what this wrote since.
   const stored = useAgentViewStore((s) => s.ended);
@@ -54,11 +66,7 @@ export function useEndedAgents(
     held,
     seen.current,
     (key) => agents.byKey.has(key),
-    (key) => {
-      const at = parseSessionKey(key);
-      const tab = at ? tabs[at.workspaceId]?.[at.tabId] : undefined;
-      return tab?.type === "terminal" && !tab.props.dead;
-    },
+    (key) => liveTerminals.includes(key),
   );
   const kept = useRef(NONE);
   if (!sameEnded(kept.current, next)) kept.current = next;

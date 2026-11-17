@@ -1,17 +1,15 @@
 /**
  * Another computer's chat's side panel, as a chat here has it and with its
- * parts: what it runs on and with, its context, its subagents and
- * background runs, its to-dos, the files it changed and the plan's usage.
- * They come from the panel its computer tells (chat.watch's `panel`), the
- * subagents' details from the conversation shown. A changed file opens its
- * change, read from that computer. Its MCP servers are shown as they stand
- * there, and worked as a chat's here are where that computer lets this one
- * control its chats (a sign-in in the browser here).
+ * parts: what it runs now and what ended, what it runs on and with, its
+ * context, its to-dos, the files it changed and the plan's usage. They come
+ * from the panel its computer tells (chat.watch's `panel`), the subagents'
+ * details from the conversation shown. A changed file opens its change,
+ * read from that computer. Its MCP servers are shown as they stand there,
+ * and worked as a chat's here are where that computer lets this one control
+ * its chats (a sign-in in the browser here).
  */
 
 import {
-  ChevronDown,
-  ChevronRight,
   Circle,
   CircleCheck,
   CircleDot,
@@ -20,13 +18,10 @@ import {
   GitFork,
   MessageSquare,
   RefreshCw,
-  Square,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
-import type { AgentRun } from "../../../shared/claude/activity";
-import { useNow } from "../../hooks/use-now";
 import type { ChatModel, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
@@ -36,33 +31,28 @@ import {
   exitCodeOf,
   jobCommand,
 } from "../../services/chat/panel";
+import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
 import { formatTokens } from "../../services/chat/usage-line";
 import { usePeerMcp } from "../../services/remote/peer-mcp";
 import { peerWorkspaceId } from "../../services/remote/peer-workspace";
 import type { RemoteTarget } from "../../state/stores/remote-view";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
-import { StatusDot } from "../chat/agent-strip";
 import { useChatLinks } from "../chat/chat-links";
 import { Highlighted } from "../chat/code-highlight";
+import { Row, Section } from "../chat/panel-section";
+import { RunningSection } from "../chat/running-section";
 import {
-  AgentEntry,
   ChangedRow,
   CopyIcon,
-  Elapsed,
   Field,
-  FirstFew,
   formatCost,
   JobButton,
   JobOutputView,
   Meter,
-  newestJobsFirst,
   ResultsSection,
-  Row,
-  Section,
   TextButton,
   useJobOutput,
-  useRevealedRow,
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
 import { IconButton } from "../ui/icon-button";
@@ -70,6 +60,8 @@ import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
 import { peerProfileName } from "./remote-profile-chip";
 import { usageLineOf } from "./remote-usage";
+
+const NO_JOBS: ChatPanel["tasks"] = [];
 
 /** The panel's parts a bare command shows: /status, /context, /usage; /diff its changed files. */
 export type RemotePanelPart = "status" | "context" | "usage" | "jobs" | "changes" | "mcp";
@@ -105,6 +97,13 @@ const AGENT_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "fa
  */
 export function remoteAgentsOf(panel: ChatPanel | undefined, model: ChatModel): AgentRow[] {
   const known = new Map(agentsOf(model).map((row) => [row.toolUseId, row]));
+  // Its list has every subagent its program runs: one only the conversation
+  // names is its history's, and runs no more.
+  if (panel) {
+    for (const [id, row] of known) {
+      if (row.status === "running") known.set(id, { ...row, status: "stopped" });
+    }
+  }
   const rows: AgentRow[] = [];
   for (const agent of panel?.agents ?? []) {
     const seen = known.get(agent.toolUseId);
@@ -133,6 +132,7 @@ export function RemoteSidePanel({
   onCompact,
   onStopTask,
   onStopRun,
+  onBackground,
   onRemoteControl,
   onForkSession,
   reveal,
@@ -152,6 +152,8 @@ export function RemoteSidePanel({
   onCompact: () => void;
   onStopTask: (taskId: string) => void;
   onStopRun?: (runId: string) => void;
+  /** Sends a call its turn waits on to the background, where that computer lets this one. */
+  onBackground?: (toolUseId: string) => void;
   /** Turns its Remote Control on or off there, where it may. */
   onRemoteControl?: (enabled: boolean) => Promise<void>;
   /** Forks its whole session into a new tab there, where it may. */
@@ -166,7 +168,7 @@ export function RemoteSidePanel({
   const { t, i18n } = useTranslation();
   const links = useChatLinks();
   const agents = useMemo(() => [...remoteAgentsOf(panel, model), ...runs], [panel, model, runs]);
-  const jobs = panel?.tasks ?? [];
+  const jobs = panel?.tasks ?? NO_JOBS;
   const todos = panel?.todos ?? [];
   const changed = panel?.changedFiles ?? [];
   // A computer before 0.13.0 tells no file it made: the calls read here may.
@@ -174,9 +176,16 @@ export function RemoteSidePanel({
     () => new Set(changedFilesOf(model.tools).flatMap((f) => (f.created ? [f.path] : []))),
     [model.tools],
   );
-  const anyRunning =
-    agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
-  const now = useNow(anyRunning);
+  const { permissions, running: turnRunning } = model;
+  const waiting = useMemo(
+    () => new Set(permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+    [permissions],
+  );
+  const activity = useMemo(
+    () =>
+      activityOf({ agents, jobs, tools: model.tools, items: model.items, waiting, turnRunning }),
+    [agents, jobs, model.tools, model.items, waiting, turnRunning],
+  );
   const context = panel?.context ?? null;
   const percent =
     context && context.maxTokens > 0
@@ -185,10 +194,42 @@ export function RemoteSidePanel({
   const usage = usageLineOf(panel);
   const limits = usage ? [...usage.meters, ...usage.more] : [];
   const cost = panel?.costUsd;
-  // The task a subagent runs as, which stops it.
-  const taskOf = (toolUseId: string) =>
-    Object.values(model.tasks).find((task) => task.toolUseId === toolUseId)?.taskId;
   const asked = (part: RemotePanelPart) => (reveal?.part === part ? reveal.seq : undefined);
+  const peerWorkspace = peerWorkspaceId(target.deviceId, target.workspaceId);
+  // Its rows' handlers stay the same as the chat changes, so its list of
+  // what ended draws only when that does; each reads what the chat has now.
+  const latest = useRef({ model, controls, onShowAgent, onShowCall, onStopTask, onStopRun });
+  latest.current = { model, controls, onShowAgent, onShowCall, onStopTask, onStopRun };
+  const openRow = useCallback((row: ActivityRow) => {
+    const { onShowAgent, onShowCall } = latest.current;
+    if (row.agent) onShowAgent(row.agent.toolUseId);
+    else if (row.call) onShowCall?.(row.call.id);
+  }, []);
+  const stopOf = useCallback((row: ActivityRow): (() => void) | undefined => {
+    const { model, controls, onStopTask, onStopRun } = latest.current;
+    if (!controls || row.status !== "running") return undefined;
+    const run = row.agent?.run;
+    if (run) return onStopRun && (() => onStopRun(run.id));
+    // The task a subagent runs as, which stops it.
+    const taskId =
+      row.job?.taskId ??
+      row.agent?.taskId ??
+      Object.values(model.tasks).find((task) => task.toolUseId === row.key)?.taskId;
+    return taskId ? () => onStopTask(taskId) : undefined;
+  }, []);
+  const jobDetail = useCallback(
+    (job: JobLike) => (
+      <RemoteJobDetail
+        job={job as ChatPanel["tasks"][number]}
+        tools={latest.current.model.tools}
+        workspaceId={peerWorkspace}
+        rootPath={target.path}
+        onShowCall={latest.current.onShowCall}
+        onOpenFile={links?.openFile}
+      />
+    ),
+    [peerWorkspace, target.path, links],
+  );
   const session = panel?.session;
   const remote = panel?.remoteControl;
   const [switching, setSwitching] = useState(false);
@@ -217,6 +258,14 @@ export function RemoteSidePanel({
       aria-label={t("chat.panel.aria")}
       data-testid="remote-side-panel"
     >
+      <RunningSection
+        activity={activity}
+        reveal={reveal?.part === "jobs" ? reveal : undefined}
+        onOpen={openRow}
+        stopOf={stopOf}
+        onBackground={controls ? onBackground : undefined}
+        jobDetail={jobDetail}
+      />
       <Section title={t("chat.panel.env.title")} reveal={asked("status")}>
         {remote && (
           <Field label={t("chat.panel.env.remote_control")}>
@@ -346,52 +395,6 @@ export function RemoteSidePanel({
           </div>
         )}
       </Section>
-      {agents.length > 0 && (
-        <Section title={t("chat.panel.agents.title")} count={agents.length}>
-          {agents.map((agent) => {
-            const taskId = agent.taskId ?? taskOf(agent.toolUseId);
-            return (
-              <AgentEntry
-                key={agent.toolUseId}
-                agent={agent}
-                now={now}
-                onOpen={() => onShowAgent(agent.toolUseId)}
-                onStop={
-                  !controls || agent.status !== "running"
-                    ? undefined
-                    : agent.run
-                      ? onStopRun && (() => onStopRun((agent.run as AgentRun).id))
-                      : taskId
-                        ? () => onStopTask(taskId)
-                        : undefined
-                }
-              />
-            );
-          })}
-        </Section>
-      )}
-      {jobs.length > 0 && (
-        <Section title={t("chat.panel.jobs.title")} count={jobs.length} reveal={asked("jobs")}>
-          <FirstFew>
-            {newestJobsFirst(jobs).map((job) => (
-              <RemoteJob
-                key={job.taskId}
-                job={job}
-                tools={model.tools}
-                now={now}
-                workspaceId={peerWorkspaceId(target.deviceId, target.workspaceId)}
-                rootPath={target.path}
-                onOpenFile={links?.openFile}
-                reveal={
-                  reveal?.part === "jobs" && reveal.id === job.taskId ? reveal.seq : undefined
-                }
-                onStop={controls ? () => onStopTask(job.taskId) : undefined}
-                {...(onShowCall ? { onShowCall } : {})}
-              />
-            ))}
-          </FirstFew>
-        </Section>
-      )}
       {todos.length > 0 && (
         <Section
           title={t("chat.panel.todos.title")}
@@ -423,7 +426,7 @@ export function RemoteSidePanel({
         items={model.items}
         tools={model.tools}
         cwd={target.cwd ?? target.path}
-        workspaceId={peerWorkspaceId(target.deviceId, target.workspaceId)}
+        workspaceId={peerWorkspace}
         rootPath={target.path}
       />
       {changed.length > 0 && (
@@ -570,85 +573,12 @@ function RemoteMcp({
 }
 
 /**
- * A background run, as a chat here lists one: what it is, how long; opened,
- * the command it runs, the end of its output (as it comes, while it runs),
- * how it ended, and its call and its output file a click away. The output
- * is read from that computer, which tells where it is from 0.13.0; before,
- * what the run said last stands for it.
+ * A background run opened, as a chat here shows one: the command it runs,
+ * the end of its output (as it comes, while it runs), how it ended, and its
+ * call and its output file a click away. The output is read from that
+ * computer, which tells where it is from 0.13.0; before, what the run said
+ * last stands for it.
  */
-function RemoteJob({
-  job,
-  tools,
-  now,
-  reveal,
-  workspaceId,
-  rootPath,
-  onStop,
-  onShowCall,
-  onOpenFile,
-}: {
-  job: ChatPanel["tasks"][number];
-  tools: Record<string, ToolCall>;
-  now: number;
-  /** Set when the conversation asked for this job: it opens and comes into view. */
-  reveal?: number | undefined;
-  /** Its workspace as previews here read it (a peer workspace), and its folder there. */
-  workspaceId: string;
-  rootPath: string;
-  onStop?: (() => void) | undefined;
-  onShowCall?: (toolUseId: string) => void;
-  onOpenFile?: ((path: string) => void) | undefined;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const { ref, lit } = useRevealedRow(reveal, () => setOpen(true));
-  const running = job.status === "running";
-  return (
-    <div
-      ref={ref}
-      className={cn(
-        "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
-        lit && "bg-[var(--state-hover-bg)]",
-      )}
-      data-testid="remote-job"
-    >
-      <Row>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={job.summary || job.description}
-        >
-          <StatusDot status={job.status} />
-          <span className="min-w-0 flex-1 truncate">{job.description || job.taskId}</span>
-          <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
-          {open ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          )}
-        </button>
-        {running && onStop && (
-          <IconButton label={t("chat.panel.stop")} onClick={onStop}>
-            <Square className="size-3" />
-          </IconButton>
-        )}
-      </Row>
-      {open && (
-        <RemoteJobDetail
-          job={job}
-          tools={tools}
-          workspaceId={workspaceId}
-          rootPath={rootPath}
-          onShowCall={onShowCall}
-          onOpenFile={onOpenFile}
-        />
-      )}
-    </div>
-  );
-}
-
 function RemoteJobDetail({
   job,
   tools,

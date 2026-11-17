@@ -1,13 +1,11 @@
-// A Claude tab's side panel: where the session runs, how full its context
-// is, the agents and tasks it runs, the to-do list Claude keeps, and what
-// it made. Folded at the end: the files it changed, the plan's usage and
-// the MCP servers. What only a request tells is asked for when the panel
-// opens and after each turn.
+// A Claude tab's side panel: what the session runs now and what ended,
+// where it runs, how full its context is, the to-do list Claude keeps, and
+// what it made. Folded at the end: the files it changed, the plan's usage
+// and the MCP servers. What only a request tells is asked for when the
+// panel opens and after each turn.
 
 import {
   Check,
-  ChevronDown,
-  ChevronRight,
   Circle,
   CircleCheck,
   CircleDot,
@@ -19,22 +17,19 @@ import {
   Globe,
   MessageSquare,
   RefreshCw,
-  Square,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import type { AgentRun } from "../../../shared/claude/activity";
-import { useNow } from "../../hooks/use-now";
 import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
-import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
+import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { fileKind, slashWindowsPath } from "../../services/chat/links";
 import type { ChatItem, TaskInfo, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
-  agentsOf,
   type ChangedFile,
   changedFilesOf,
   contextOf,
@@ -49,6 +44,7 @@ import {
   usageLimitsOf,
 } from "../../services/chat/panel";
 import { usePlanUsageStore } from "../../services/chat/plan-usage";
+import { type ActivityRow, activityOf, type JobLike } from "../../services/chat/running";
 import { type ChatTabState, type RevealPart, takeReveal } from "../../services/chat/store";
 import { formatTokens, shownReset } from "../../services/chat/usage-line";
 import { firstVersionOf } from "../../services/chat/versions";
@@ -56,45 +52,56 @@ import { useGitStore } from "../../state/stores/git";
 import { copyText } from "../../utils/clipboard";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
-import { elapsedLabel } from "../agent-list/agent-status";
 import { useWorkspaceFile } from "../editor/preview/use-workspace-file";
 import { IconButton } from "../ui/icon-button";
 import { Switch } from "../ui/switch";
 import { showToast } from "../ui/toast";
-import { StatusDot } from "./agent-strip";
 import { ArtifactRow } from "./artifact-card";
 import { LinkMenu, useChatLinks } from "./chat-links";
 import { Highlighted } from "./code-highlight";
 import { FileKindIcon } from "./file-kind-icon";
+import { FirstFew, Row, Section } from "./panel-section";
+import { RunningSection } from "./running-section";
 
 interface SidePanelProps {
   controller: ChatController;
+  /**
+   * The state beside a streaming reply (beside-stream): its `model.streaming`,
+   * `model.turn` and `model.lastSeq` may be behind, and are not read here.
+   */
   state: ChatTabState;
   workspaceId: string;
   cwd: string;
   rootPath: string;
-  /** The `claude -p` runs the session started, listed after its agents. */
-  runs: readonly AgentRow[];
+  /**
+   * The session's subagents, those of its history too, then the `claude -p`
+   * runs it started (sessionAgentsOf).
+   */
+  agents: readonly AgentRow[];
   /** Stops a running run, by its agent id. */
   onStopRun: (agentId: string) => void;
   onShowAgent: (toolUseId: string) => void;
   /** Brings a call into view in the conversation, by its id. */
   onShowCall?: (toolUseId: string) => void;
+  /** Sends a call the turn waits on to the background, by its id, as its row's button does. */
+  onBackground?: (toolUseId: string) => void;
   /** Opens a new Claude tab from the whole session. */
   onForkSession: () => void;
   className?: string;
 }
 
-export function SidePanel({
+/** Memoized: a chunk of a streaming reply changes nothing it shows. */
+export const SidePanel = memo(function SidePanel({
   controller,
   state,
   workspaceId,
   cwd,
   rootPath,
-  runs,
+  agents,
   onStopRun,
   onShowAgent,
   onShowCall,
+  onBackground,
   onForkSession,
   className,
 }: SidePanelProps) {
@@ -108,20 +115,71 @@ export function SidePanel({
     () => (history ? [...history.items, ...model.items] : model.items),
     [history, model.items],
   );
-  const agents = useMemo(() => [...agentsOf(model), ...runs], [model, runs]);
-  const jobs = useMemo(() => jobsOf(model), [model]);
-  const listed = useMemo(() => newestJobsFirst(jobs), [jobs]);
+  const { tasks, permissions, running: turnRunning } = model;
+  const jobs = useMemo(() => jobsOf({ tasks }), [tasks]);
+  // A call waiting on the user's answer cannot go to the background yet, as in the conversation.
+  const waiting = useMemo(
+    () => new Set(permissions.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
+    [permissions],
+  );
+  // The calls the turn waits on are the program's, never its history's.
+  const activity = useMemo(
+    () =>
+      activityOf({
+        agents,
+        jobs,
+        tools: model.tools,
+        items: model.items,
+        waiting,
+        turnRunning,
+      }),
+    [agents, jobs, model.tools, model.items, waiting, turnRunning],
+  );
   const todos = useMemo(() => todosOf(tools), [tools]);
   const changed = useMemo(() => changedFilesOf(tools), [tools]);
-  const anyRunning =
-    agents.some((a) => a.status === "running") || jobs.some((j) => j.status === "running");
-  const now = useNow(anyRunning);
 
   const links = useChatLinks();
   // A version without stop_task keeps the button, saying which version has it.
   const stopNote = controller.supports("stop_task")
     ? undefined
     : t("chat.panel.needs_version", { version: firstVersionOf("stop_task") });
+  const stopFailed = t("chat.panel.stop_failed");
+  const openRow = useCallback(
+    (row: ActivityRow) => {
+      if (row.agent) onShowAgent(row.agent.toolUseId);
+      else if (row.call) onShowCall?.(row.call.id);
+    },
+    [onShowAgent, onShowCall],
+  );
+  const stopOf = useCallback(
+    (row: ActivityRow): (() => void) | undefined => {
+      if (row.status !== "running") return undefined;
+      const run = row.agent?.run;
+      if (run) return () => onStopRun(run.id);
+      const taskId = row.agent?.taskId ?? row.job?.taskId;
+      return taskId ? () => stop(controller, taskId, stopFailed) : undefined;
+    },
+    [controller, onStopRun, stopFailed],
+  );
+  // The same while the calls change (one streaming in): a job opened reads
+  // them as its row draws, and the rows, which may be many, do not draw for it.
+  const toolsNow = useRef(tools);
+  toolsNow.current = tools;
+  const jobDetail = useCallback(
+    (job: JobLike) => (
+      <JobDetail
+        job={job as TaskInfo}
+        tools={toolsNow.current}
+        workspaceId={workspaceId}
+        rootPath={rootPath}
+        onShowCall={onShowCall}
+        onOpenFile={(path) => links?.openFile(path)}
+      />
+    ),
+    [workspaceId, rootPath, onShowCall, links],
+  );
+  const onRevealed = useCallback((seq: number) => takeReveal(controller.key, seq), [controller]);
+  const jobsAsked = state.reveal?.part === "jobs" ? state.reveal : undefined;
 
   return (
     <aside
@@ -129,6 +187,16 @@ export function SidePanel({
       aria-label={t("chat.panel.aria")}
       data-testid="chat-side-panel"
     >
+      <RunningSection
+        activity={activity}
+        reveal={jobsAsked}
+        onRevealed={onRevealed}
+        onOpen={openRow}
+        stopOf={stopOf}
+        stopNote={stopNote}
+        onBackground={onBackground}
+        jobDetail={jobDetail}
+      />
       <EnvSection
         controller={controller}
         state={state}
@@ -138,60 +206,6 @@ export function SidePanel({
         onForkSession={onForkSession}
       />
       <ContextSection controller={controller} state={state} />
-      {agents.length > 0 && (
-        <Section title={t("chat.panel.agents.title")} count={agents.length}>
-          {agents.map((agent) => (
-            <AgentEntry
-              key={agent.toolUseId}
-              agent={agent}
-              now={now}
-              onOpen={() => onShowAgent(agent.toolUseId)}
-              onStop={
-                agent.status !== "running"
-                  ? undefined
-                  : agent.run
-                    ? () => onStopRun((agent.run as AgentRun).id)
-                    : agent.taskId
-                      ? () => stop(controller, agent.taskId as string, t("chat.panel.stop_failed"))
-                      : undefined
-              }
-              stopNote={agent.run ? undefined : stopNote}
-            />
-          ))}
-        </Section>
-      )}
-      {jobs.length > 0 && (
-        <Section
-          title={t("chat.panel.jobs.title")}
-          count={jobs.length}
-          opened={revealSeq(state, "jobs")}
-        >
-          <FirstFew
-            opened={
-              listed.findIndex((job) => job.taskId === state.reveal?.id) >= FIRST_FEW
-                ? revealSeq(state, "jobs")
-                : undefined
-            }
-          >
-            {listed.map((job) => (
-              <JobEntry
-                key={job.taskId}
-                job={job}
-                reveal={state.reveal?.id === job.taskId ? revealSeq(state, "jobs") : undefined}
-                onRevealed={(seq) => takeReveal(controller.key, seq)}
-                tools={tools}
-                now={now}
-                workspaceId={workspaceId}
-                rootPath={rootPath}
-                onStop={() => stop(controller, job.taskId, t("chat.panel.stop_failed"))}
-                stopNote={stopNote}
-                onShowCall={onShowCall}
-                onOpenFile={(path) => links?.openFile(path)}
-              />
-            ))}
-          </FirstFew>
-        </Section>
-      )}
       {todos.length > 0 && (
         <Section
           title={t("chat.panel.todos.title")}
@@ -241,7 +255,7 @@ export function SidePanel({
       <McpSection controller={controller} state={state} />
     </aside>
   );
-}
+});
 
 function stop(controller: ChatController, taskId: string, failed: string): void {
   controller.stopTask(taskId).catch((err: Error) => {
@@ -275,17 +289,20 @@ export function ResultsSection({
   rootPath: string;
 }) {
   const { t } = useTranslation();
-  // A file is listed once it is found to be one.
+  // A file is listed once it is found to be one: from the chat's folder, or
+  // from where the agent's shell went (link-places).
   const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
-  const filePaths = useMemo(() => {
-    const paths = new Map<string, string>();
+  const filePlaces = useMemo(() => {
+    const index = linkPlaceIndex(tools, cwd);
+    const places = new Map<string, string[]>();
     for (const result of named) {
-      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
-      if (path) paths.set(result.target, path);
+      if (result.kind !== "file") continue;
+      const paths = linkPlaces(result.target, index).map((place) => place.path);
+      if (paths.length > 0) places.set(result.target, paths);
     }
-    return paths;
-  }, [named, cwd]);
-  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
+    return places;
+  }, [named, tools, cwd]);
+  const lookedUp = useMemo(() => [...new Set([...filePlaces.values()].flat())], [filePlaces]);
   // A file named before the agent made it is found once a tool of its is done.
   const toolsDone = useMemo(
     () =>
@@ -293,17 +310,23 @@ export function ResultsSection({
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
+  // Each file's target by the first of its places found.
+  const filePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const [target, places] of filePlaces) {
+      const path = places.find((place) => found.has(place));
+      if (path) paths.set(target, path);
+    }
+    return paths;
+  }, [filePlaces, found]);
   const results = useMemo(
     () =>
       distinctResults(
-        named.filter((result) => {
-          if (result.kind !== "file") return true;
-          const path = filePaths.get(result.target);
-          return path !== undefined && found.has(path);
-        }),
+        named.filter((result) => result.kind !== "file" || filePaths.has(result.target)),
         cwd,
+        (target) => filePaths.get(target) ?? null,
       ),
-    [named, filePaths, found, cwd],
+    [named, filePaths, cwd],
   );
   // The pages it published to claude.ai, newest first, as what it made; a
   // reply's link to one is that page.
@@ -335,6 +358,7 @@ export function ResultsSection({
             <ResultRow
               key={result.target}
               result={result}
+              path={filePaths.get(result.target) ?? null}
               cwd={cwd}
               workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
@@ -346,210 +370,9 @@ export function ResultsSection({
   );
 }
 
-/** How long a section a bare command opened keeps itself at the top as it fills. */
-const REVEAL_FOLLOW_MS = 1500;
-
-/**
- * Scrolls the panel so a section starts at its top, moving only the panel:
- * scrollIntoView would move every box around it that can scroll.
- */
-function scrollToTop(el: HTMLElement): void {
-  for (let box = el.parentElement; box; box = box.parentElement) {
-    const { overflowY } = getComputedStyle(box);
-    if (overflowY === "auto" || overflowY === "scroll") {
-      box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top;
-      return;
-    }
-  }
-}
-
-/** Scrolls the panel just far enough to show all of a row, or its start when it is taller. */
-function scrollIntoPanel(el: HTMLElement): void {
-  for (let box = el.parentElement; box; box = box.parentElement) {
-    const { overflowY } = getComputedStyle(box);
-    if (overflowY !== "auto" && overflowY !== "scroll") continue;
-    const row = el.getBoundingClientRect();
-    const view = box.getBoundingClientRect();
-    if (row.top < view.top || row.height > view.height) box.scrollTop += row.top - view.top;
-    else if (row.bottom > view.bottom) box.scrollTop += row.bottom - view.bottom;
-    return;
-  }
-}
-
-/**
- * A row the conversation asked for (a job its end names): it opens, comes
- * into view and is lit for a moment, which tells which of the rows was meant.
- * Each ask (`reveal`, its seq) once.
- */
-export function useRevealedRow(
-  reveal: number | undefined,
-  open: () => void,
-  onRevealed?: (seq: number) => void,
-): { ref: React.RefObject<HTMLDivElement | null>; lit: boolean } {
-  const ref = useRef<HTMLDivElement>(null);
-  const [lit, setLit] = useState<number | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callbacks change
-  useEffect(() => {
-    if (reveal === undefined) return;
-    open();
-    setLit(reveal);
-    onRevealed?.(reveal);
-  }, [reveal]);
-  useEffect(() => {
-    const el = ref.current;
-    if (lit === null || !el) return;
-    scrollIntoPanel(el);
-    // What it shows opened comes a moment later and makes it taller: it follows for a while.
-    const observer = new ResizeObserver(() => scrollIntoPanel(el));
-    observer.observe(el);
-    const timer = setTimeout(() => {
-      observer.disconnect();
-      setLit(null);
-    }, REVEAL_FOLLOW_MS);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [lit]);
-  return { ref, lit: lit !== null };
-}
-
 /** The part of the tab a bare command asked to see, when it is this one: its ask's seq. */
 function revealSeq(state: ChatTabState, part: RevealPart): number | undefined {
   return state.reveal?.part === part ? state.reveal.seq : undefined;
-}
-
-/** How many rows of a long list (the jobs, the results) show before the rest is asked for. */
-export const FIRST_FEW = 3;
-
-/** Jobs as a list shows them: those running, then the newest. */
-export function newestJobsFirst<T extends { status: string }>(jobs: readonly T[]): T[] {
-  const newest = [...jobs].reverse();
-  return [
-    ...newest.filter((job) => job.status === "running"),
-    ...newest.filter((job) => job.status !== "running"),
-  ];
-}
-
-/**
- * The first few rows of a list, the rest behind a button that counts them.
- * `opened`, set when a row among the rest was asked for, shows them all.
- */
-export function FirstFew({ opened, children }: { opened?: number; children: React.ReactNode[] }) {
-  const { t } = useTranslation();
-  const [all, setAll] = useState(false);
-  useEffect(() => {
-    if (opened !== undefined) setAll(true);
-  }, [opened]);
-  const rest = children.length - FIRST_FEW;
-  return (
-    <>
-      {all || rest <= 0 ? children : children.slice(0, FIRST_FEW)}
-      {rest > 0 && (
-        <button
-          type="button"
-          onClick={() => setAll((v) => !v)}
-          aria-expanded={all}
-          className="self-start rounded-(--radius-control) px-1 py-0.5 text-app-micro text-muted-foreground hover:bg-[var(--state-hover-bg)] hover:text-foreground"
-          data-testid="panel-first-few"
-        >
-          {all ? t("chat.panel.less") : t("chat.panel.more", { count: rest })}
-        </button>
-      )}
-    </>
-  );
-}
-
-export function Section({
-  title,
-  count,
-  folded = false,
-  onOpen,
-  openAgain,
-  reveal,
-  onRevealed,
-  opened,
-  children,
-}: {
-  title: string;
-  count?: number | string;
-  /** Starts folded. */
-  folded?: boolean;
-  /** Called each time the section opens. */
-  onOpen?: () => void;
-  /** Called again, while open, when this changes: as the program comes up. */
-  openAgain?: unknown;
-  /** Set when a bare command asked for this section: it opens and comes into view. */
-  reveal?: number;
-  onRevealed?: (seq: number) => void;
-  /** Set when one of its rows was asked for: it opens, and the row shows itself. */
-  opened?: number;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(!folded);
-  useEffect(() => {
-    if (opened !== undefined) setOpen(true);
-  }, [opened]);
-  const ref = useRef<HTMLElement>(null);
-  // The ask to scroll to, once the section has opened: before, the panel
-  // may be too short to bring it to the top.
-  const [scrollFor, setScrollFor] = useState<number | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: asked for each time it opens, not when the callback changes
-  useEffect(() => {
-    if (open) onOpen?.();
-  }, [open, openAgain]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each ask once, not when the callback changes
-  useEffect(() => {
-    if (reveal === undefined) return;
-    setOpen(true);
-    setScrollFor(reveal);
-    onRevealed?.(reveal);
-  }, [reveal]);
-  useEffect(() => {
-    const el = ref.current;
-    if (scrollFor === null || !el) return;
-    scrollToTop(el);
-    // What it shows may come a moment later (the MCP servers, the usage),
-    // and only then can the panel scroll far enough: it follows for a while.
-    const observer = new ResizeObserver(() => scrollToTop(el));
-    observer.observe(el);
-    const timer = setTimeout(() => observer.disconnect(), REVEAL_FOLLOW_MS);
-    return () => {
-      clearTimeout(timer);
-      observer.disconnect();
-    };
-  }, [scrollFor]);
-  return (
-    <section ref={ref} className="border-b border-border px-3 py-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-1 text-left text-app-ui-sm text-muted-foreground hover:text-foreground"
-      >
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        <span className="font-medium">{title}</span>
-        {count !== undefined && <span className="ml-auto tabular-nums">{count}</span>}
-      </button>
-      {open && <div className="mt-1.5 flex flex-col gap-0.5">{children}</div>}
-    </section>
-  );
-}
-
-export function Row({
-  title,
-  children,
-  className,
-}: {
-  title?: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div className={cn("flex min-h-6 items-center gap-2 text-app-ui-sm", className)} title={title}>
-      {children}
-    </div>
-  );
 }
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -847,92 +670,6 @@ function sameOutput(a: JobOutput | null | undefined, b: JobOutput | null): boole
 }
 
 /**
- * A background job: its state and how long it ran; opened, the command it
- * runs, the end of its output (as it comes, while it runs) and how it
- * ended, with the call that started it and its output file a click away.
- */
-function JobEntry({
-  job,
-  tools,
-  now,
-  workspaceId,
-  rootPath,
-  onStop,
-  stopNote,
-  onShowCall,
-  onOpenFile,
-  reveal,
-  onRevealed,
-}: {
-  job: TaskInfo;
-  /** Set when the conversation asked for this job: it opens and comes into view. */
-  reveal?: number;
-  onRevealed?: (seq: number) => void;
-  tools: Record<string, ToolCall>;
-  now: number;
-  workspaceId: string;
-  rootPath: string;
-  onStop: () => void;
-  /** Why stopping is not possible, as on a version without it. */
-  stopNote?: string;
-  onShowCall?: (toolUseId: string) => void;
-  onOpenFile: (path: string) => void;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const running = job.status === "running";
-  const { ref, lit } = useRevealedRow(reveal, () => setOpen(true), onRevealed);
-  return (
-    <div
-      ref={ref}
-      className={cn(
-        "-mx-1 flex flex-col rounded-(--radius-control) px-1 transition-colors duration-500",
-        lit && "bg-[var(--state-hover-bg)]",
-      )}
-      data-testid="chat-job"
-    >
-      <Row>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={job.summary || job.description}
-        >
-          <StatusDot status={job.status} />
-          <span className="min-w-0 flex-1 truncate">{job.description || job.taskId}</span>
-          <Elapsed from={job.startedAt} to={job.endedAt} now={now} />
-          {open ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          )}
-        </button>
-        {running && (
-          <IconButton
-            label={stopNote ?? t("chat.panel.stop")}
-            blocked={stopNote !== undefined}
-            onClick={onStop}
-          >
-            <Square className="size-3" />
-          </IconButton>
-        )}
-      </Row>
-      {open && (
-        <JobDetail
-          job={job}
-          tools={tools}
-          workspaceId={workspaceId}
-          rootPath={rootPath}
-          onShowCall={onShowCall}
-          onOpenFile={onOpenFile}
-        />
-      )}
-    </div>
-  );
-}
-
-/**
  * The end of a job's output, following its end as it comes unless scrolled
  * up from it; or why there is none to show.
  */
@@ -1075,90 +812,21 @@ export function JobButton({
   );
 }
 
-export function AgentEntry({
-  agent,
-  now,
-  onOpen,
-  onStop,
-  stopNote,
-}: {
-  agent: AgentRow;
-  now: number;
-  onOpen: () => void;
-  onStop?: () => void;
-  /** Why stopping is not possible, as on a version without it. */
-  stopNote?: string;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const meta = [
-    agent.teammate ? t("chat.panel.agents.teammate") : agent.subagentType,
-    agent.model,
-    agent.endpoint,
-    t("chat.panel.agents.tools", { count: agent.toolCount }),
-  ].filter(Boolean);
-  return (
-    <div className="flex flex-col">
-      <Row>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          title={agent.description}
-        >
-          <StatusDot status={agent.status} />
-          <span className="min-w-0 flex-1 truncate">{agent.description}</span>
-        </button>
-        <Elapsed from={agent.startedAt} to={agent.endedAt} now={now} />
-        <IconButton
-          label={agent.run ? t("chat.panel.agents.open_run") : t("chat.panel.agents.open")}
-          onClick={onOpen}
-        >
-          <ExternalLink className="size-3.5" />
-        </IconButton>
-        {onStop && (
-          <IconButton
-            label={stopNote ?? t("chat.panel.stop")}
-            blocked={stopNote !== undefined}
-            onClick={onStop}
-          >
-            <Square className="size-3" />
-          </IconButton>
-        )}
-      </Row>
-      <div className="truncate pl-4 text-app-micro text-muted-foreground">{meta.join(" · ")}</div>
-      {open && (
-        <div className="mt-0.5 ml-4 flex flex-col gap-0.5 border-l border-border pl-2 text-app-micro">
-          {agent.currentTool && agent.status === "running" && (
-            <div className="truncate font-mono text-muted-foreground" title={agent.currentTool}>
-              {agent.currentTool}
-            </div>
-          )}
-          {agent.lastText ? (
-            <div className="line-clamp-4 whitespace-pre-wrap break-words">{agent.lastText}</div>
-          ) : (
-            <div className="text-muted-foreground">{t("chat.panel.agents.no_text")}</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ResultRow({
   result,
+  path,
   cwd,
   workspaceId,
   onOpen,
 }: {
   result: ResultEntry;
+  /** The file it names, where it was found; null for an address. */
+  path: string | null;
   cwd: string;
   workspaceId: string;
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
   const label = result.kind === "file" ? shortPath(result.target, cwd) : result.target;
   // An image shows itself while the pointer is on its row.
   const [hover, setHover] = useState<DOMRect | null>(null);
@@ -1428,15 +1096,5 @@ export function TextButton({
     >
       {children}
     </button>
-  );
-}
-
-export function Elapsed({ from, to, now }: { from?: number; to?: number; now: number }) {
-  if (from === undefined) return null;
-  const seconds = Math.max(0, Math.floor(((to ?? now) - from) / 1000));
-  return (
-    <span className="shrink-0 text-app-micro text-muted-foreground tabular-nums">
-      {elapsedLabel(seconds * 1_000)}
-    </span>
   );
 }

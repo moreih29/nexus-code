@@ -98,7 +98,7 @@ export function shimDir(workspaceId: string): string {
 //
 // These constants are exported so that callers running on hosts other than
 // the local machine (notably the SSH bootstrap, which uploads the same shim
-// files to the remote `~/.nexus-code/shim/<workspaceId>/`) can write the
+// files to the remote `~/.nexus-code/shim/shared/`) can write the
 // exact same content without duplicating the templates.
 //
 // The shim is shell-rooted (zsh / bash) and references the runtime env

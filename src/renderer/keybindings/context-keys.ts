@@ -35,6 +35,10 @@
  *                           this — the embedded WebContentsView is a
  *                           native view outside the renderer's DOM, so
  *                           the keydown target is never "inside" it.
+ *   - `chatPanelActive`   — STATE probe: the chat in front (the active
+ *                           tab, or the agent view's active panel) has a
+ *                           side panel. Registered by the chat-panel
+ *                           command domain.
  *
  * Unknown names resolve to `false`. Treating an unknown context key
  * as "not active" matches VSCode's behaviour and keeps a typo'd

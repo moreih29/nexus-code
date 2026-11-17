@@ -156,6 +156,30 @@ describe("a chat's page for another device", () => {
     expect(page.tools.t1?.result?.truncated).toBe(true);
   });
 
+  test("leaves out the bytes of a file a Read gave whole, keeping what it says of them", () => {
+    const image = { base64: "A".repeat(600 * 1024), type: "image/png", originalSize: 450_000 };
+    const page = chatPageOf(
+      source({
+        items: [said("b", "t1")],
+        tools: {
+          t1: tool("t1", {
+            name: "Read",
+            result: {
+              text: "",
+              isError: false,
+              images: [],
+              structured: { type: "image", file: image },
+            },
+          }),
+        },
+      }),
+    );
+    expect(page.tools.t1?.result?.structured).toEqual({
+      type: "image",
+      file: { type: "image/png", originalSize: 450_000 },
+    });
+  });
+
   test("tells where the turn stands: the reply being written, the request waiting", () => {
     const page = chatPageOf(
       source({

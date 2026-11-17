@@ -21,7 +21,7 @@ import {
   kindToLetter,
 } from "../../file-tree/git-decoration";
 import { INDENT_STEP_PX } from "../../file-tree/metrics";
-import { GitFileRow } from "./row";
+import { type GitFileActions, GitFileRow } from "./row";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,17 +60,8 @@ interface GitTreeRowDirProps extends GitTreeRowBase {
 interface GitTreeRowLeafProps extends GitTreeRowBase {
   kind: "leaf";
   entry: GitStatusEntry;
-  /** See `GitFileRowProps.onOpenDiff` — preview default with double-click promote. */
-  onOpenDiff: (opts?: { preview: boolean }) => void;
-  onStage?: () => void;
-  onUnstage?: () => void;
-  onDiscard: () => void;
-  onMarkResolved?: () => void;
-  onOpenFile?: () => void;
-  onRevealInOS?: () => void;
-  onCopyPath?: () => void;
-  onCopyRelativePath?: () => void;
-  onAddToGitignore?: () => void;
+  /** What the file's row does; see `GitFileActions`. */
+  actions: GitFileActions;
 }
 
 export type GitTreeRowProps = GitTreeRowDirProps | GitTreeRowLeafProps;
@@ -193,20 +184,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
   }
 
   // Leaf: wrap GitFileRow with indentation override.
-  const {
-    entry,
-    groupKey,
-    onOpenDiff,
-    onStage,
-    onUnstage,
-    onDiscard,
-    onMarkResolved,
-    onOpenFile,
-    onRevealInOS,
-    onCopyPath,
-    onCopyRelativePath,
-    onAddToGitignore,
-  } = props;
+  const { entry, groupKey, actions } = props;
 
   return (
     <div
@@ -216,20 +194,7 @@ export function GitTreeRow(props: GitTreeRowProps) {
       onFocus={onFocus}
       tabIndex={treeItemProps.tabIndex ?? -1}
     >
-      <GitFileRow
-        groupKey={groupKey}
-        entry={entry}
-        onOpenDiff={onOpenDiff}
-        onStage={onStage}
-        onUnstage={onUnstage}
-        onDiscard={onDiscard}
-        onMarkResolved={onMarkResolved}
-        onOpenFile={onOpenFile}
-        onRevealInOS={onRevealInOS}
-        onCopyPath={onCopyPath}
-        onCopyRelativePath={onCopyRelativePath}
-        onAddToGitignore={onAddToGitignore}
-      />
+      <GitFileRow groupKey={groupKey} entry={entry} actions={actions} />
     </div>
   );
 }

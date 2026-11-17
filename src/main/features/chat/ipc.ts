@@ -85,6 +85,23 @@ export function registerChatChannel(options: Omit<ChatHostOptions, "broadcast">)
           truncated: result.truncated === true,
         });
       },
+      subagentTranscript: async (args: unknown) => {
+        const { workspaceId, sessionId, agentId, toolUseId, profileId } = validateArgs(
+          c.subagentTranscript.args,
+          args,
+        );
+        const result = (await host.subagentTranscript(
+          workspaceId,
+          sessionId,
+          { ...(agentId ? { agentId } : {}), ...(toolUseId ? { toolUseId } : {}) },
+          profileId,
+        )) as { found?: boolean; lines?: unknown[]; truncated?: boolean };
+        return ipcOk({
+          found: result.found === true,
+          lines: result.lines ?? [],
+          truncated: result.truncated === true,
+        });
+      },
       sessionFile: async (args: unknown) => {
         const { workspaceId, sessionId, profileId } = validateArgs(c.sessionFile.args, args);
         const result = (await host.sessionFile(workspaceId, sessionId, profileId)) as {

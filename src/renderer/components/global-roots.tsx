@@ -8,6 +8,7 @@
 // feature must work independently of the active workspace panel.
 
 import { memo } from "react";
+import { LinkMenuRoot } from "./chat/chat-links";
 import { CliConsentDialogRoot } from "./cli/consent-dialog";
 import { ConflictResolutionDialogRoot } from "./editor/conflict-dialog";
 import { SaveConfirmDialogRoot } from "./editor/save-confirm-dialog";
@@ -49,6 +50,7 @@ export const GlobalRoots = memo(function GlobalRoots(): React.JSX.Element {
       <LspLogDialogRoot />
       <ToastRoot />
       <TooltipRoot />
+      <LinkMenuRoot />
     </>
   );
 });

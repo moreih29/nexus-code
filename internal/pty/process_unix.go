@@ -6,13 +6,53 @@ import (
 	"errors"
 	"os"
 	"syscall"
+	"time"
 )
 
-// stopChild closes the PTY master, which hangs up the shell's foreground job,
-// and then signals the shell's process group.
-func (s *session) stopChild(signal syscall.Signal) {
+// hangupGrace is how long a closed tab's shell has to end on the hangup
+// before what is left of its session is killed.
+const hangupGrace = time.Second
+
+// stopChild closes the PTY master, which hangs up the shell as closing a
+// terminal does: the shell passes SIGHUP on to its jobs and saves its history
+// before it ends, and its foreground job gets SIGHUP from the kernel. A shell
+// killed at once instead left its background jobs running with no terminal and
+// lost the history. What ignores the hangup — a nohup'd job — goes on, as it
+// does anywhere.
+//
+// finish waits for the shell to end. One still running after hangupGrace
+// never passed the hangup on, and is killed with all that is left of its
+// session.
+func (s *session) stopChild() (finish func()) {
 	s.stopReading()
-	_ = s.child.signalGroup(signal)
+	select {
+	case <-s.exited:
+		// Its pid may be another process's by now.
+	default:
+		s.child.hangUp()
+	}
+	return func() {
+		select {
+		case <-s.exited:
+		case <-time.After(hangupGrace):
+			s.child.killSession()
+		}
+	}
+}
+
+// killSession kills the shell and every process left in its session, which
+// the shell leads. Processes started meanwhile are caught by another pass.
+func (c *child) killSession() {
+	_ = c.signalGroup(syscall.SIGKILL)
+	for pass := 0; pass < 3; pass++ {
+		left := sessionProcesses(c.Pid)
+		if len(left) == 0 {
+			return
+		}
+		for _, pid := range left {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}
 }
 
 // signalGroup sends signal to the child process group rooted at the shell.
