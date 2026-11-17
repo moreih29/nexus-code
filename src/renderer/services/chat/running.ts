@@ -1,6 +1,7 @@
-// What the side panel's Running section lists: what the session runs now
-// (its subagents, its background jobs, the `claude -p` runs it started, and
-// the calls its turn waits on), and below, folded, what ended, newest first.
+// What the side panel's Tasks and Agents sections list: what the session
+// runs now (its background jobs and the commands its turn waits on; its
+// subagents and the `claude -p` runs it started), and below, folded, what
+// ended, newest first.
 
 import type { ChatItem, ToolCall } from "./model";
 import { AGENT_TOOLS, type AgentRow, type AgentStatus } from "./panel";
@@ -99,7 +100,7 @@ function startsOf(items: readonly ChatItem[], ids: ReadonlySet<string>): Map<str
 }
 
 /**
- * The session's activity as the Running section lists it. A call the turn
+ * The session's activity as the panel lists it. A call the turn
  * waits on is one row with what it runs: a subagent's, or a command's job
  * once it has one.
  */
@@ -197,6 +198,51 @@ export function activityOf<J extends JobLike>({
         (order.get(a) ?? 0) - (order.get(b) ?? 0),
     );
   return { running, ended: newestEndedFirst(rows.filter((row) => row.status !== "running")) };
+}
+
+/**
+ * The session's activity as the panel's two sections list it: its commands
+ * (the Tasks section), and its subagents and `claude -p` runs (the Agents
+ * section), each with what runs and what ended in the same order.
+ */
+export function activityParts<J extends JobLike>(
+  activity: Activity<J>,
+): { commands: Activity<J>; agents: Activity<J> } {
+  const commands: Activity<J> = { running: [], ended: [] };
+  const agents: Activity<J> = { running: [], ended: [] };
+  for (const row of activity.running)
+    (row.kind === "command" ? commands : agents).running.push(row);
+  for (const row of activity.ended) (row.kind === "command" ? commands : agents).ended.push(row);
+  return { commands, agents };
+}
+
+/**
+ * How long a command the turn waits on runs before it is listed: most end
+ * sooner, and a row for each would come and go as the turn calls them.
+ */
+export const WAITED_CALL_DELAY_MS = 3_000;
+
+/**
+ * The running rows to list at `now`: all but the commands the turn waits on
+ * (with no job yet) that began less than WAITED_CALL_DELAY_MS ago, by their
+ * start, else by when they were first `seen`. `nextAt`: when the first of
+ * those held back is due.
+ */
+export function heldBack<R extends ActivityRow>(
+  rows: readonly R[],
+  now: number,
+  seen: ReadonlyMap<string, number> = new Map(),
+): { shown: R[]; nextAt?: number } {
+  let nextAt: number | undefined;
+  const shown = rows.filter((row) => {
+    if (!row.call) return true;
+    const from = row.startedAt ?? seen.get(row.key) ?? now;
+    const due = from + WAITED_CALL_DELAY_MS;
+    if (due <= now) return true;
+    nextAt = nextAt === undefined ? due : Math.min(nextAt, due);
+    return false;
+  });
+  return shown.length === rows.length ? { shown: rows as R[] } : { shown, nextAt };
 }
 
 /** When a row ended, as far as it is known: its end, else its start. */

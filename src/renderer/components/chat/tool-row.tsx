@@ -2,12 +2,12 @@
 // by default. Open, an edit shows its patch and a command its output.
 
 import {
-  ArrowDownToLine,
   Ban,
   Check,
   ChevronDown,
   ChevronRight,
   CircleStop,
+  Layers2,
   LoaderCircle,
   X,
 } from "lucide-react";
@@ -45,8 +45,11 @@ export function toolTint(name: string): string {
   return "text-[var(--syntax-constant)]";
 }
 
-/** What sends a running call to the background, here and in the side panel. */
-export const BackgroundIcon = ArrowDownToLine;
+/**
+ * What sends a running call to the background, here and in the side panel:
+ * a layer put behind, not an arrow down, which reads as a download.
+ */
+export const BackgroundIcon = Layers2;
 
 /** Longest output an open row shows; the rest is cut. */
 const MAX_OUTPUT_CHARS = 20_000;

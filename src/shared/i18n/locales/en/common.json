@@ -1175,7 +1175,7 @@
       },
       "running": {
         "title": "Running",
-        "ended": "Ended {{count}}",
+        "ended": "Ended",
         "search": "Search",
         "no_match": "None",
         "background": "background",
@@ -1188,6 +1188,7 @@
         }
       },
       "agents": {
+        "title": "Agents",
         "open": "Show its transcript",
         "teammate": "Teammate",
         "tools_one": "{{count}} tool call",
@@ -1196,6 +1197,7 @@
         "open_run": "Show the run"
       },
       "jobs": {
+        "title": "Tasks",
         "live": "Live",
         "exit_code": "Exit code {{code}}",
         "reading": "Reading the output…",
@@ -1206,7 +1208,10 @@
         "output_file": "Output file"
       },
       "todos": {
-        "title": "To-dos"
+        "title": "To-dos",
+        "completed": "Done",
+        "in_progress": "In progress",
+        "pending": "To do"
       },
       "results": {
         "title": "Results",

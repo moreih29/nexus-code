@@ -1,7 +1,8 @@
 /**
  * Another computer's chat's side panel, as a chat here has it and with its
- * parts: what it runs now and what ended, what it runs on and with, its
- * context, its to-dos, the files it changed and the plan's usage. They come
+ * parts, in the same order: what it runs on and with, its context, its
+ * to-dos, its tasks and agents (what runs now and what ended), what it made,
+ * the files it changed, the plan's usage and its MCP servers. They come
  * from the panel its computer tells (chat.watch's `panel`), the subagents'
  * details from the conversation shown. A changed file opens its change,
  * read from that computer. Its MCP servers are shown as they stand there,
@@ -9,16 +10,7 @@
  * its chats (a sign-in in the browser here).
  */
 
-import {
-  Circle,
-  CircleCheck,
-  CircleDot,
-  ExternalLink,
-  FileText,
-  GitFork,
-  MessageSquare,
-  RefreshCw,
-} from "lucide-react";
+import { ExternalLink, FileText, GitFork, MessageSquare, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
@@ -41,7 +33,7 @@ import { formatBytes } from "../../utils/format-bytes";
 import { useChatLinks } from "../chat/chat-links";
 import { Highlighted } from "../chat/code-highlight";
 import { Row, Section } from "../chat/panel-section";
-import { RunningSection } from "../chat/running-section";
+import { ActivitySections } from "../chat/running-section";
 import {
   ChangedRow,
   CopyIcon,
@@ -52,6 +44,7 @@ import {
   Meter,
   ResultsSection,
   TextButton,
+  TodosSection,
   useJobOutput,
 } from "../chat/side-panel";
 import { usageMeterLabel } from "../chat/usage-line";
@@ -258,14 +251,6 @@ export function RemoteSidePanel({
       aria-label={t("chat.panel.aria")}
       data-testid="remote-side-panel"
     >
-      <RunningSection
-        activity={activity}
-        reveal={reveal?.part === "jobs" ? reveal : undefined}
-        onOpen={openRow}
-        stopOf={stopOf}
-        onBackground={controls ? onBackground : undefined}
-        jobDetail={jobDetail}
-      />
       <Section title={t("chat.panel.env.title")} reveal={asked("status")}>
         {remote && (
           <Field label={t("chat.panel.env.remote_control")}>
@@ -395,33 +380,16 @@ export function RemoteSidePanel({
           </div>
         )}
       </Section>
-      {todos.length > 0 && (
-        <Section
-          title={t("chat.panel.todos.title")}
-          count={`${todos.filter((todo) => todo.status === "completed").length}/${todos.length}`}
-        >
-          {todos.map((todo, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: a to-do has no id of its own, and the list is replaced whole
-            <Row key={i}>
-              {todo.status === "completed" ? (
-                <CircleCheck className="size-3.5 shrink-0 text-[var(--git-status-added-fg)]" />
-              ) : todo.status === "in_progress" ? (
-                <CircleDot className="size-3.5 shrink-0 text-[var(--tab-claude-running-fg)]" />
-              ) : (
-                <Circle className="size-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span
-                className={cn(
-                  "min-w-0 flex-1 break-words",
-                  todo.status === "completed" && "text-muted-foreground line-through",
-                )}
-              >
-                {todo.content}
-              </span>
-            </Row>
-          ))}
-        </Section>
-      )}
+      <TodosSection todos={todos} />
+      <ActivitySections
+        activity={activity}
+        foldKey={`remote:${target.deviceId}:${target.workspaceId}:${target.tabId}`}
+        reveal={reveal?.part === "jobs" ? reveal : undefined}
+        onOpen={openRow}
+        stopOf={stopOf}
+        onBackground={controls ? onBackground : undefined}
+        jobDetail={jobDetail}
+      />
       <ResultsSection
         items={model.items}
         tools={model.tools}
@@ -429,29 +397,28 @@ export function RemoteSidePanel({
         workspaceId={peerWorkspace}
         rootPath={target.path}
       />
-      {changed.length > 0 && (
-        <Section
-          title={t("chat.panel.changed.title")}
-          count={changed.length}
-          folded
-          reveal={asked("changes")}
-        >
-          {changed.map((file) => (
-            <ChangedRow
-              key={file.path}
-              file={{
-                path: file.path,
-                added: file.added ?? 0,
-                removed: file.removed ?? 0,
-                created: file.created ?? madeHere.has(file.path),
-                toolUseIds: [],
-              }}
-              cwd={target.cwd ?? target.path}
-              {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
-            />
-          ))}
-        </Section>
-      )}
+      <Section
+        title={t("chat.panel.changed.title")}
+        count={changed.length}
+        empty={changed.length === 0}
+        folded
+        reveal={asked("changes")}
+      >
+        {changed.map((file) => (
+          <ChangedRow
+            key={file.path}
+            file={{
+              path: file.path,
+              added: file.added ?? 0,
+              removed: file.removed ?? 0,
+              created: file.created ?? madeHere.has(file.path),
+              toolUseIds: [],
+            }}
+            cwd={target.cwd ?? target.path}
+            {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
+          />
+        ))}
+      </Section>
       <Section title={t("chat.panel.usage.title")} folded reveal={asked("usage")}>
         {cost !== undefined && cost > 0 && (
           <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>

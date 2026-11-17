@@ -182,8 +182,38 @@ describe("another computer's chat's side panel", () => {
     const shown = [...new Set([...html.matchAll(/job number (\d)/g)].map((match) => match[1]))];
     expect(shown).toEqual(["1"]);
     expect(html).toContain("Running");
-    expect(html).toContain("Ended 4");
+    expect(html).toMatch(/data-testid="panel-ended-count">4</);
     expect(html).toContain("background");
+  });
+
+  test("has its sections in a chat's order, those with nothing in them a 0", () => {
+    const html = renderToStaticMarkup(
+      <RemoteSidePanel
+        target={target}
+        panel={panel({ mcp: [] })}
+        model={emptyModel()}
+        controls
+        onShowAgent={() => {}}
+        onCompact={() => {}}
+        onStopTask={() => {}}
+      />,
+    );
+    const titles = [
+      "Environment",
+      "Context",
+      "To-dos",
+      "Tasks",
+      "Agents",
+      "Results",
+      "Changed files",
+      "Usage",
+      "MCP",
+    ];
+    const at = titles.map((title) => html.indexOf(`>${title}<`));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    // The to-dos, the results and the changed files, with none, do not open.
+    expect(html.match(/data-empty="true"/g)).toHaveLength(3);
   });
 
   test("lets only a computer that allows control be compacted or have its runs stopped", () => {

@@ -3,10 +3,13 @@ import type { ChatItem, TaskInfo, ToolCall } from "../../../../../src/renderer/s
 import type { AgentRow } from "../../../../../src/renderer/services/chat/panel";
 import {
   activityOf,
+  activityParts,
   canBackground,
+  heldBack,
   jobStatus,
   newestEndedFirst,
   searchActivity,
+  WAITED_CALL_DELAY_MS,
 } from "../../../../../src/renderer/services/chat/running";
 
 function call(id: string, name: string, input: unknown, over: Partial<ToolCall> = {}): ToolCall {
@@ -182,5 +185,62 @@ describe("searchActivity", () => {
     expect(searchActivity(ended, "haiku").map((row) => row.key)).toEqual(["y"]);
     expect(searchActivity(ended, "local_bash").map((row) => row.key)).toEqual(["job:z"]);
     expect(searchActivity(ended, "nothing")).toEqual([]);
+  });
+});
+
+describe("activityParts", () => {
+  test("puts the commands in one part, the subagents and runs in the other, each in order", () => {
+    const activity = activityOf({
+      agents: [
+        agent("a1", { startedAt: 1 }),
+        agent("r1", { startedAt: 2, run: { id: "run-1" } as AgentRow["run"] }),
+        agent("a0", { status: "completed", endedAt: 5 }),
+      ],
+      jobs: [job("j1", { startedAt: 3 }), job("j0", { status: "completed", endedAt: 6 })],
+      tools: {},
+      items: [],
+    });
+    const { commands, agents } = activityParts(activity);
+    expect(commands.running.map((row) => row.key)).toEqual(["job:j1"]);
+    expect(commands.ended.map((row) => row.key)).toEqual(["job:j0"]);
+    expect(agents.running.map((row) => row.key)).toEqual(["a1", "r1"]);
+    expect(agents.ended.map((row) => row.key)).toEqual(["a0"]);
+  });
+});
+
+describe("heldBack", () => {
+  const tools: Record<string, ToolCall> = {
+    fresh: call("fresh", "Bash", { command: "ls" }),
+    old: call("old", "Bash", { command: "bun test" }),
+    sub: call("sub", "Agent", { description: "look" }),
+  };
+  const now = 100_000;
+  const activity = activityOf({
+    agents: [agent("sub", { startedAt: now })],
+    jobs: [job("j1", { startedAt: now })],
+    tools,
+    items: [said(now - 1_000, "fresh"), said(now - WAITED_CALL_DELAY_MS, "old")],
+  });
+
+  test("keeps a command the turn waits on back until it has run a moment, nothing else", () => {
+    const { shown, nextAt } = heldBack(activity.running, now);
+    expect(shown.map((row) => row.key).sort()).toEqual(["call:old", "job:j1", "sub"]);
+    expect(nextAt).toBe(now - 1_000 + WAITED_CALL_DELAY_MS);
+    // Once due, it shows, and nothing waits.
+    const later = heldBack(activity.running, now + 2_000);
+    expect(later.shown).toBe(activity.running);
+    expect(later.nextAt).toBeUndefined();
+  });
+
+  test("counts one whose message tells no time from when it was first seen", () => {
+    const rows = activityOf({
+      agents: [],
+      jobs: [],
+      tools: { fresh: tools.fresh as ToolCall },
+      items: [],
+    }).running;
+    expect(heldBack(rows, now).shown).toHaveLength(0);
+    const seen = new Map([["call:fresh", now - WAITED_CALL_DELAY_MS]]);
+    expect(heldBack(rows, now, seen).shown).toHaveLength(1);
   });
 });
