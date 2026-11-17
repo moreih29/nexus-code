@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -103,7 +105,7 @@ func readReady(t *testing.T, sockPath string) (net.Conn, string) {
 //   - dialer B connects while A is still alive
 //   - the daemon closes A's connection (takeover) and serves B
 //   - B receives its own Ready frame with the same agentEpoch as A (same daemon)
-//   - after takeover A's conn is closed — read returns an error
+//   - after takeover A's conn is closed — after a last frame telling A so
 //
 // PTY survival is structural: pty.Close is only called inside cleanupAndExit,
 // which is not reachable via the preempted code path.
@@ -145,12 +147,14 @@ func TestDaemonTakeover(t *testing.T) {
 		t.Errorf("epoch mismatch A=%v B=%v — different daemon instances", frameA["agentEpoch"], frameB["agentEpoch"])
 	}
 
-	// A's connection must have been closed by the takeover.
-	_ = connA.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	buf := make([]byte, 1)
-	_, err := connA.Read(buf)
-	if err == nil {
-		t.Error("dialer A conn still readable after takeover — expected EOF or read error")
+	// A's connection must have been closed by the takeover, once A was told.
+	_ = connA.SetReadDeadline(time.Now().Add(2 * time.Second))
+	rest, err := io.ReadAll(connA)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Error("dialer A conn still open after takeover — expected EOF or read error")
+	}
+	if !strings.Contains(string(rest), `"event":"`+preemptedEvent+`"`) {
+		t.Errorf("dialer A was not told it was taken over: %q", rest)
 	}
 }
 

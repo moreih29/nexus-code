@@ -10,10 +10,11 @@ import (
 
 // stopChild terminates the shell and then closes its console. A console
 // closed under a live shell can keep its output open, and closing the
-// terminal waits for that output to end.
-func (s *session) stopChild(signal syscall.Signal) {
-	_ = s.child.signalGroup(signal)
+// terminal waits for that output to end. Windows has no hangup to wait on.
+func (s *session) stopChild() (finish func()) {
+	_ = s.child.signalGroup(syscall.SIGKILL)
 	s.stopReading()
+	return func() {}
 }
 
 // signalGroup terminates the shell. Windows has no signals to send it, so it

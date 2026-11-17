@@ -159,3 +159,46 @@ func TestDrainAndExitCallsExitOnceWhenHandlerIsStuck(t *testing.T) {
 		t.Fatal("host context not cancelled on forced exit")
 	}
 }
+
+// A handler that outlives the drain deadline does not keep the shutdown
+// hooks from running: they are what kills the terminals and removes the
+// hook socket, and an exit without them left both behind.
+func TestDrainThatGivesUpStillRunsShutdownHooks(t *testing.T) {
+	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
+	exited := make(chan struct{})
+	host.SetExitFunc(func(int) { close(exited) })
+	hooked := make(chan struct{})
+	host.RegisterShutdownHook(func() { close(hooked) })
+
+	host.wg.Add(1) // a handler that never finishes
+	defer host.wg.Done()
+
+	go host.drainAndExit(0)
+	select {
+	case <-exited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("exit func was not called")
+	}
+	select {
+	case <-hooked:
+	default:
+		t.Fatal("exited without running the shutdown hooks")
+	}
+}
+
+// A shutdown hook that hangs cannot hold the exit off for good.
+func TestHungShutdownHookDoesNotHoldTheExit(t *testing.T) {
+	host := New(dispatch.New(), io.NopCloser(strings_reader("")), io.Discard, slog.Default())
+	exited := make(chan struct{})
+	host.SetExitFunc(func(int) { close(exited) })
+	hang := make(chan struct{})
+	defer close(hang)
+	host.RegisterShutdownHook(func() { <-hang })
+
+	go host.drainAndExit(0)
+	select {
+	case <-exited:
+	case <-time.After(shutdownHooksGrace + 5*time.Second):
+		t.Fatal("a hung shutdown hook held the exit")
+	}
+}

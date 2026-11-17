@@ -24,6 +24,19 @@
 // error. The exit function sees the preempted flag and treats it as a clean
 // disconnect rather than a daemon shutdown.
 //
+// Before it closes the conn, the daemon sends preemptedEvent on it, as its
+// last frame. The app does not reconnect a connection that got it: the same
+// remote folder opened as two workspaces would otherwise take the daemon
+// from each other without end. Its dialer exits ExitCodeDaemonClosed, as for
+// any connection the daemon closed, and the app reconnects on every other.
+//
+// # Dialer gone
+//
+// A dialer leaving never ends the daemon, however its connection ends: with
+// EOF, or with a read error — Linux reports a socket closed with unread data
+// as reset, which is how an SSH session ending while a terminal pours out
+// output looks. Only the idle watchdog, or a shutdown, ends it.
+//
 // # Grace period
 //
 // reattachGrace only applies while the daemon is *waiting for a dialer* (idle
@@ -94,6 +107,14 @@ const lockRetryWindow = 250 * time.Millisecond
 // shutdownReplyDelay is how long the daemon waits after answering
 // agent.shutdown before it exits, so the reply reaches the dialer.
 const shutdownReplyDelay = 100 * time.Millisecond
+
+// preemptedEvent is the last frame a dialer gets when another dialer takes
+// the daemon over. The app reads it as "another connection has it now".
+const preemptedEvent = "agent.preempted"
+
+// preemptedNoticeWithin bounds how long telling a preempted dialer so may
+// hold up the dialer taking over: one that stopped reading is not told.
+const preemptedNoticeWithin = 250 * time.Millisecond
 
 // maxRunLogBytes caps the append-only run/<wsId>.log at daemon boot.
 // 1 MiB of NDJSON boot/lifecycle lines is months of normal use; beyond that
@@ -284,13 +305,12 @@ func runDaemon(root string) {
 
 	// cleanupAndExit tears down all shared resources and terminates.
 	// Called only on genuine daemon shutdown — not on dialer disconnect.
-	// The pty.Close call here is the service.go:79-91 path (SIGKILL all PTYs).
 	// Only the first caller tears down; any other blocks until it exits.
 	var shutdown sync.Once
 	cleanupAndExit := func(code int) {
 		shutdown.Do(func() {
-			pty.Close()  // SIGKILL every PTY process group
-			chat.Close() // and every Claude tab's program
+			pty.Close()  // hang up every terminal, as closing its tab does
+			chat.Close() // and end every Claude tab's program
 			lsp.Close()
 			if hooksrv != nil {
 				_ = hooksrv.Close()
@@ -366,6 +386,23 @@ func runDaemon(root string) {
 
 		host := stdioserver.New(d, conn, conn, agentLogger)
 
+		// Ready goes first: the client takes the first frame it gets for the
+		// handshake, and an event ahead of it reads as an agent without an
+		// epoch. Until the sinks are wired below, events go to the previous
+		// host, whose connection is closed, and the terminals keep their
+		// output for pty.replay.
+		if writeErr := host.WriteFrame(proto.Ready(
+			d.Methods(),
+			proto.HeartbeatAdvertiseMs,
+			int(reattachGrace/time.Millisecond),
+			epoch,
+			[]string{"reattach"},
+		)); writeErr != nil {
+			agentLogger.Error("failed to write ready frame", "err", writeErr)
+			_ = conn.Close()
+			return nil, true // keep running; dialer may reconnect
+		}
+
 		// Wire event sinks to this host. On the next dialer, they are re-wired.
 		fsys.SetEventSink(func(event string, payload any) error {
 			emitErr := host.EmitEvent(event, payload)
@@ -401,20 +438,27 @@ func runDaemon(root string) {
 		host.SetExitFunc(func(code int) {
 			keep := false
 			switch {
-			case code == 0:
-				// Clean dialer EOF — daemon stays alive for reattach.
-				// CRITICAL: PTYs must NOT be killed here.
-				agentLogger.Info("dialer disconnected cleanly; daemon entering reattach grace")
-				keep = true
 			case preempted.Load() == 1:
 				// This conn was closed by a takeover (new dialer arrived).
 				// The resulting transport read error (code 74) is expected.
 				// CRITICAL: PTYs must NOT be killed here.
 				agentLogger.Info("dialer preempted by new connection; daemon continuing")
 				keep = true
+			case code == 0:
+				// Clean dialer EOF — daemon stays alive for reattach.
+				// CRITICAL: PTYs must NOT be killed here.
+				agentLogger.Info("dialer disconnected cleanly; daemon entering reattach grace")
+				keep = true
+			case code == stdioserver.TransportErrorExitCode:
+				// The connection broke — a reset, as Linux reports a dialer
+				// that exited with output unread. The dialer is gone all the
+				// same, and the app reconnects to the terminals it left.
+				// CRITICAL: PTYs must NOT be killed here.
+				agentLogger.Info("dialer connection broke; daemon entering reattach grace", "code", code)
+				keep = true
 			default:
-				// Watchdog fired (75) or genuine transport error without a
-				// concurrent takeover — real daemon shutdown.
+				// The idle watchdog fired: no dialer came back — real daemon
+				// shutdown.
 				agentLogger.Info("daemon exiting", "code", code)
 				cleanupAndExit(code)
 			}
@@ -429,18 +473,6 @@ func runDaemon(root string) {
 			}
 			close(hostDone)
 		})
-
-		if writeErr := host.WriteFrame(proto.Ready(
-			d.Methods(),
-			proto.HeartbeatAdvertiseMs,
-			int(reattachGrace/time.Millisecond),
-			epoch,
-			[]string{"reattach"},
-		)); writeErr != nil {
-			agentLogger.Error("failed to write ready frame", "err", writeErr)
-			_ = conn.Close()
-			return nil, true // keep running; dialer may reconnect
-		}
 
 		// PTY output debt the previous dialer never acked belongs to it; the
 		// new renderer will never ack it. Left in place, a session that went
@@ -474,6 +506,8 @@ func runDaemon(root string) {
 			case newConn := <-nextConn:
 				agentLogger.Info("new dialer arrived; preempting current connection")
 				preempted.Store(1)
+				// Tell the app on this connection not to take the daemon back.
+				_ = host.WriteLastFrame(proto.Event(preemptedEvent, nil), preemptedNoticeWithin)
 				_ = conn.Close() // causes host scanner to get read error → exit 74
 				takeoverConn <- newConn
 			case <-hostDone:

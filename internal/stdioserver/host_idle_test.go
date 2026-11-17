@@ -38,8 +38,8 @@ func TestIdleWatchdogExitsWhenClientVanishes(t *testing.T) {
 	case code := <-exited:
 		// Non-zero (EX_TEMPFAIL) so the client reconnects instead of treating
 		// the close as a clean shutdown.
-		if code != idleWatchdogExitCode {
-			t.Fatalf("exit code = %d, want %d", code, idleWatchdogExitCode)
+		if code != IdleWatchdogExitCode {
+			t.Fatalf("exit code = %d, want %d", code, IdleWatchdogExitCode)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("idle watchdog did not terminate within 2s of client silence")

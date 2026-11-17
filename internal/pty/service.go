@@ -24,7 +24,14 @@ type Service struct {
 	mu       sync.Mutex
 	sink     EventSink
 	sessions map[tabKey]*session
+	// closedTabs are the tabs a kill came for while they had no session,
+	// and when: see Kill.
+	closedTabs map[tabKey]time.Time
 }
+
+// closedTabMemory is how long a kill that found no session is kept for the
+// spawn it may have overtaken.
+const closedTabMemory = 10 * time.Second
 
 // spawnSpec is the shell a session starts and the terminal it starts under.
 type spawnSpec struct {
@@ -69,6 +76,10 @@ type session struct {
 	stopped     bool
 
 	readDone chan struct{}
+	// exited is closed once the shell has ended and been waited for.
+	exited chan struct{}
+	// stopDone is closed once stop has ended the shell.
+	stopDone chan struct{}
 	stopOnce sync.Once
 	exitOnce sync.Once
 
@@ -129,7 +140,7 @@ const wiggleRestoreDelay = 200 * time.Millisecond
 
 // New constructs an empty PTY service registry.
 func New() *Service {
-	return &Service{sessions: make(map[tabKey]*session)}
+	return &Service{sessions: make(map[tabKey]*session), closedTabs: make(map[tabKey]time.Time)}
 }
 
 // Register binds every pty.* and session.* method onto the dispatcher.
@@ -182,7 +193,8 @@ func (s *Service) ResetFlowControl() {
 	}
 }
 
-// Close terminates all active PTY sessions.
+// Close ends every PTY session, as closing each tab does, and returns once
+// their shells are gone: hung up, or killed hangupGrace later.
 func (s *Service) Close() {
 	s.mu.Lock()
 	sessions := make([]*session, 0, len(s.sessions))
@@ -192,8 +204,12 @@ func (s *Service) Close() {
 	}
 	s.mu.Unlock()
 
+	stopped := make([]<-chan struct{}, 0, len(sessions))
 	for _, session := range sessions {
-		session.stop(syscall.SIGKILL)
+		stopped = append(stopped, session.stop())
+	}
+	for _, done := range stopped {
+		<-done
 	}
 }
 
@@ -244,13 +260,19 @@ func (s *Service) Spawn(_ context.Context, raw json.RawMessage) (any, error) {
 	session.lastRows = p.Rows
 	session.sizeMu.Unlock()
 
-	if stored := s.storeSession(key, session); stored != session {
-		session.stop(syscall.SIGKILL)
+	stored, closed := s.storeSession(key, session)
+	if stored != session {
+		// Another spawn of the tab, racing this one, got there first.
+		session.discard()
 		return SpawnResult{PID: stored.child.Pid}, nil
 	}
 
 	go session.readLoop()
 	go session.waitLoop()
+	if closed {
+		// The tab's kill overtook this spawn: end the shell as it would have.
+		session.stop()
+	}
 	return SpawnResult{PID: child.Pid}, nil
 }
 
@@ -319,7 +341,14 @@ func (s *Service) Ack(_ context.Context, raw json.RawMessage) (any, error) {
 	return struct{}{}, nil
 }
 
-// Kill terminates a PTY session's child process group.
+// Kill ends a tab's session: it hangs up the shell, which ends its jobs
+// (see stopChild). It returns without waiting for the shell to end.
+//
+// Each request runs on a goroutine of its own, and a spawn takes a fork and
+// exec, so a tab closed as soon as it opened can have its kill handled before
+// the spawn that came first stores the session. A kill that finds no session
+// is kept for closedTabMemory, and the tab's spawn ends its shell then; a tab
+// id is a UUID, never opened again once closed.
 func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	var p KillParams
 	if err := decodeParams(raw, &p, "pty.kill params must include workspaceId and tabId"); err != nil {
@@ -329,11 +358,21 @@ func (s *Service) Kill(_ context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	session := s.lookup(key)
+	s.mu.Lock()
+	session := s.sessions[key]
 	if session == nil {
-		return struct{}{}, nil
+		now := time.Now()
+		for closed, at := range s.closedTabs {
+			if now.Sub(at) > closedTabMemory {
+				delete(s.closedTabs, closed)
+			}
+		}
+		s.closedTabs[key] = now
 	}
-	session.stop(syscall.SIGKILL)
+	s.mu.Unlock()
+	if session != nil {
+		session.stop()
+	}
 	return struct{}{}, nil
 }
 
@@ -424,6 +463,8 @@ func newSession(service *Service, key tabKey, child *child, master *terminal) *s
 		child:     child,
 		master:    master,
 		readDone:  make(chan struct{}),
+		exited:    make(chan struct{}),
+		stopDone:  make(chan struct{}),
 		ring:      make([]byte, RingCapBytes),
 		createdAt: time.Now(),
 	}
@@ -482,6 +523,7 @@ func (s *session) resize(cols int, rows int) error {
 // waitLoop reports exactly one exit event after the child has terminated.
 func (s *session) waitLoop() {
 	state, err := s.child.wait()
+	close(s.exited)
 	s.exitOnce.Do(func() {
 		select {
 		case <-s.readDone:
@@ -622,9 +664,29 @@ func (s *session) write(data []byte) error {
 	return nil
 }
 
-// stop terminates the child process group and unblocks the reader.
-func (s *session) stop(signal syscall.Signal) {
-	s.stopOnce.Do(func() { s.stopChild(signal) })
+// stop ends the session's shell (see stopChild) and unblocks the reader. It
+// returns at once, with a channel closed once the shell is gone.
+func (s *session) stop() <-chan struct{} {
+	s.stopOnce.Do(func() {
+		finish := s.stopChild()
+		go func() {
+			defer close(s.stopDone)
+			finish()
+		}()
+	})
+	return s.stopDone
+}
+
+// discard ends the shell of a session no tab took, as another spawn of the
+// tab won: it never ran anything of the user's, so it is killed outright.
+// Nothing else waits for it, so this does, or it stays a zombie.
+func (s *session) discard() {
+	s.stopOnce.Do(func() {
+		_ = s.child.signalGroup(syscall.SIGKILL)
+		s.stopReading()
+		close(s.stopDone)
+	})
+	go func() { _, _ = s.child.wait() }()
 }
 
 // stopReading wakes any paused reader and closes the PTY master.
@@ -784,15 +846,20 @@ func writeFull(writer io.Writer, data []byte) error {
 	return nil
 }
 
-// storeSession inserts a session unless another goroutine already claimed the key.
-func (s *Service) storeSession(key tabKey, session *session) *session {
+// storeSession inserts a session unless another goroutine already claimed
+// the key, and reports whether a kill for the tab came first (see Kill).
+func (s *Service) storeSession(key tabKey, session *session) (stored *session, closed bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing := s.sessions[key]; existing != nil {
-		return existing
+		return existing, false
 	}
 	s.sessions[key] = session
-	return session
+	if at, ok := s.closedTabs[key]; ok {
+		delete(s.closedTabs, key)
+		closed = time.Since(at) <= closedTabMemory
+	}
+	return session, closed
 }
 
 // lookup returns the active session for key, if any.

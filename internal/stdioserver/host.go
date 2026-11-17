@@ -17,6 +17,7 @@ package stdioserver
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -38,14 +39,23 @@ import (
 // alive past the parent's expected shutdown window.
 const forceExitAfter = 75 * time.Millisecond
 
-// idleWatchdogExitCode is the process exit code used when the idle watchdog
+// shutdownHooksGrace caps how long the shutdown hooks may take once the
+// drain is over. They hang up the terminals, which wait up to a second for
+// their shells, so it is longer than forceExitAfter; a hung hook still cannot
+// keep the process alive past it.
+const shutdownHooksGrace = 3 * time.Second
+
+// errOutputClosed is what a frame written after WriteLastFrame fails with.
+var errOutputClosed = errors.New("stdioserver: output closed")
+
+// IdleWatchdogExitCode is the process exit code used when the idle watchdog
 // reaps the agent. It is deliberately non-zero so the client reconnects rather
 // than treating the close as a clean shutdown (see StartIdleWatchdog). 75 is
 // EX_TEMPFAIL from sysexits.h — "temporary failure, the user is invited to
 // retry" — which matches the intent exactly.
-const idleWatchdogExitCode = 75
+const IdleWatchdogExitCode = 75
 
-// transportErrorExitCode is the process exit code used when the inbound stdin
+// TransportErrorExitCode is the process exit code used when the inbound stdin
 // scanner fails with a non-EOF error — i.e. the transport (the SSH channel
 // carrying our stdin) was reset or broke mid-stream rather than closing
 // cleanly. It is deliberately non-zero so the client's handleClose reconnects
@@ -55,7 +65,7 @@ const idleWatchdogExitCode = 75
 // desired recovery. 74 is EX_IOERR from sysexits.h — "an error occurred while
 // doing I/O on some file" — which names the cause precisely and stays distinct
 // from the watchdog's EX_TEMPFAIL (75) in diagnostics.
-const transportErrorExitCode = 74
+const TransportErrorExitCode = 74
 
 // Host owns the stdio NDJSON server lifecycle. One Host per process —
 // stdin / stdout are not multiplexable, and the SIGTERM handler is a
@@ -71,6 +81,9 @@ type Host struct {
 
 	outMu sync.Mutex     // serializes response frames on `out`
 	wg    sync.WaitGroup // tracks in-flight handler goroutines
+	// outClosed is set by WriteLastFrame: nothing is written after it.
+	// Guarded by outMu.
+	outClosed bool
 
 	// orderedTail is closed when the last ordered request so far has been
 	// handled; the next one waits on it. Only Run's goroutine touches it.
@@ -83,11 +96,11 @@ type Host struct {
 	accepting bool      // accept new requests until SIGTERM flips this
 	acceptMu  sync.Mutex
 
-	// shutdownHooks 는 drainAndExit가 os.Exit 호출 직전에 등록 순서대로 동기 실행할
-	// 콜백 목록이다. SIGTERM 경로에서는 defer가 우회되므로(os.Exit), 소켓 파일
-	// 정리처럼 명시적 cleanup이 필요한 자원은 이 훅으로 등록해야 한다.
-	// forceExitAfter 데드라인 안에서 hooks가 끝나지 않으면 hook은 잘리지만 프로세스는
-	// 종료된다 — 멈춘 hook이 셧다운을 막을 수 없다.
+	// shutdownHooks are run in order by drainAndExit right before it exits.
+	// os.Exit skips defers, so a resource that needs explicit cleanup, such
+	// as a socket file, registers a hook. They run even when the drain gave
+	// up on a stuck handler; one that has not finished within
+	// shutdownHooksGrace is cut off and the process exits anyway.
 	hooksMu       sync.Mutex
 	shutdownHooks []func()
 
@@ -163,6 +176,32 @@ func (h *Host) WriteFrame(frame any) error {
 	}
 	h.outMu.Lock()
 	defer h.outMu.Unlock()
+	if h.outClosed {
+		return errOutputClosed
+	}
+	_, err = h.out.Write(data)
+	return err
+}
+
+// WriteLastFrame writes frame as the last thing the host sends, to a peer
+// about to be cut off; later writes fail. A peer that stopped reading holds
+// it up for no more than within: when `out` takes a write deadline, as a
+// net.Conn does, the deadline cuts short this write and any other write stuck
+// on that peer, which would hold it up on outMu.
+func (h *Host) WriteLastFrame(frame any, within time.Duration) error {
+	data, err := proto.MarshalFrame(frame)
+	if err != nil {
+		return err
+	}
+	if out, ok := h.out.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		_ = out.SetWriteDeadline(time.Now().Add(within))
+	}
+	h.outMu.Lock()
+	defer h.outMu.Unlock()
+	if h.outClosed {
+		return errOutputClosed
+	}
+	h.outClosed = true
 	_, err = h.out.Write(data)
 	return err
 }
@@ -198,7 +237,7 @@ func (h *Host) Run() {
 			// so a still-present client reconnects rather than treating this
 			// as a clean shutdown. A clean EOF falls through to exit 0.
 			_ = h.WriteFrame(proto.ProtocolFailure(proto.ProtocolErrorID, err.Error()))
-			h.drainAndExit(transportErrorExitCode)
+			h.drainAndExit(TransportErrorExitCode)
 			return
 		}
 		if len(line) == 0 && !tooLong {
@@ -404,7 +443,7 @@ func (h *Host) StartIdleWatchdog(limit time.Duration) {
 					// (client alive but stalled past the limit) — exactly when an
 					// automatic reconnect is the desired recovery. When the client
 					// is genuinely gone, no one observes the code.
-					h.drainAndExit(idleWatchdogExitCode)
+					h.drainAndExit(IdleWatchdogExitCode)
 					return
 				}
 			case <-h.ctx.Done():
@@ -414,12 +453,13 @@ func (h *Host) StartIdleWatchdog(limit time.Duration) {
 	}()
 }
 
-// RegisterShutdownHook 는 drainAndExit가 os.Exit 호출 직전에 등록 순서대로
-// 실행할 cleanup 콜백을 추가한다. SIGTERM 시 defer가 우회되므로, hookserver
-// 소켓 파일 정리 등 명시적 정리가 필요한 자원은 이 훅을 사용한다.
+// RegisterShutdownHook adds a cleanup callback that drainAndExit runs, in
+// registration order, right before it exits. SIGTERM skips defers, so a
+// resource that needs explicit cleanup, such as the hookserver's socket file,
+// uses a hook.
 //
-// hooks 자체가 hang하더라도 forceExitAfter 데드라인이 프로세스 종료를 보장한다.
-// Run() 전에 한 번 이상 호출 가능하다.
+// A hook that hangs cannot keep the process alive: shutdownHooksGrace bounds
+// them. May be called more than once before Run().
 func (h *Host) RegisterShutdownHook(fn func()) {
 	if fn == nil {
 		return
@@ -429,9 +469,10 @@ func (h *Host) RegisterShutdownHook(fn func()) {
 	h.shutdownHooks = append(h.shutdownHooks, fn)
 }
 
-// runShutdownHooks 는 등록된 cleanup 콜백을 순서대로 실행한다. drainAndExit가
-// in-flight handler를 기다린 직후, os.Exit 호출 직전에 한 번 호출된다.
-// 개별 hook panic은 격리되어 다음 hook 진행을 막지 않는다.
+// runShutdownHooks runs the registered cleanup callbacks in order. drainAndExit
+// calls it once, after the in-flight handlers drained or it gave up on them,
+// right before it exits. A hook's panic is contained so the next hook still
+// runs.
 func (h *Host) runShutdownHooks() {
 	h.hooksMu.Lock()
 	hooks := append([]func(){}, h.shutdownHooks...)
@@ -445,11 +486,11 @@ func (h *Host) runShutdownHooks() {
 }
 
 // SetExitFunc replaces the exit function called by drainAndExit. The default
-// is os.Exit. The daemon overrides this to intercept code 0 (clean dialer
-// EOF) so the daemon process itself keeps running for the next dialer to
-// reattach. Non-zero exits (idle watchdog = 75, transport error = 74) still
-// terminate the process via the replaced function calling os.Exit directly.
-// Must be called before Run.
+// is os.Exit. The daemon overrides this so that a dialer leaving — clean EOF
+// (0) or a broken connection (TransportErrorExitCode) — ends only this host
+// and the daemon keeps running for the next dialer to reattach; the idle
+// watchdog (IdleWatchdogExitCode) still ends the daemon. Must be called
+// before Run.
 func (h *Host) SetExitFunc(fn func(int)) {
 	if fn != nil {
 		h.exit = fn
@@ -499,52 +540,41 @@ func (h *Host) isAccepting() bool {
 // drainAndExit stops accepting new work, waits up to forceExitAfter for
 // in-flight handlers to flush, runs registered shutdown hooks, then exits.
 // termOnce guarantees that a race between EOF and SIGTERM cannot enter
-// this path twice.
+// this path twice, and so that the exit func runs exactly once: the
+// daemon's closes a channel, and in daemon mode the process outlives it.
 //
-// shutdownHooks run AFTER handler drain (so cleanup sees no concurrent
-// activity) but UNDER the same forceExit ceiling — a hung hook cannot
-// stall shutdown past forceExitAfter.
+// The hooks run after the drain, so cleanup sees no concurrent activity —
+// or, when a handler is stuck (on a dead transport, say), after the drain
+// gives up on it: they kill the terminals and remove the hook socket, which
+// an exit without them leaves behind. shutdownHooksGrace bounds them.
 func (h *Host) drainAndExit(code int) {
 	h.termOnce.Do(func() {
 		h.acceptMu.Lock()
 		h.accepting = false
 		h.acceptMu.Unlock()
 
-		// The exit func must run exactly once: the daemon's closes a
-		// channel, and in daemon mode the process outlives it, so a
-		// second call from a racing path is a panic, not a no-op.
-		// Cancelling first aborts handlers still stuck on a dead
-		// dialer.
-		var exitOnce sync.Once
-		exit := func() {
-			exitOnce.Do(func() {
-				h.cancel()
-				h.exit(code)
-			})
-		}
-
-		// AfterFunc + a select on the same deadline gives us "exit
-		// even if Wait() itself blocks", which Wait can do when a
-		// handler is stuck in a syscall. The same forceExit covers
-		// the shutdown-hook execution window below.
-		forceExit := time.AfterFunc(forceExitAfter, exit)
-		done := make(chan struct{})
+		drained := make(chan struct{})
 		go func() {
 			h.wg.Wait()
-			close(done)
+			close(drained)
 		}()
 		select {
-		case <-done:
-			// Continue past the select to run shutdown hooks before exit.
+		case <-drained:
 		case <-time.After(forceExitAfter):
-			exit()
-			return
 		}
-		// Hooks run synchronously under the same forceExit timer.
-		// If a hook hangs the AfterFunc above still trips exit on time.
-		h.runShutdownHooks()
-		forceExit.Stop()
-		exit()
+		// Abort the handlers still stuck on a dead dialer.
+		h.cancel()
+
+		hooksDone := make(chan struct{})
+		go func() {
+			h.runShutdownHooks()
+			close(hooksDone)
+		}()
+		select {
+		case <-hooksDone:
+		case <-time.After(shutdownHooksGrace):
+		}
+		h.exit(code)
 	})
 }
 
