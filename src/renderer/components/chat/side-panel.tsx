@@ -1,8 +1,8 @@
 // A Claude tab's side panel, its sections always in the same order: where
-// it runs, how full its context is, the to-do list Claude keeps, its tasks
-// and its agents (what runs now and what ended), and what it made; folded
-// at the end, the files it changed, the plan's usage and the MCP servers. A
-// section with nothing in it is its title and a 0. What only a request
+// it runs, how full its context is, the plan's usage (folded), the to-do
+// list Claude keeps, its tasks and its agents (what runs now and what
+// ended), and what it made; folded at the end, the files it changed and the
+// MCP servers. A section with nothing in it is its title and a 0. What only a request
 // tells is asked for when the panel opens and after each turn.
 
 import {
@@ -197,6 +197,7 @@ export const SidePanel = memo(function SidePanel({
         onForkSession={onForkSession}
       />
       <ContextSection controller={controller} state={state} />
+      <UsageSection controller={controller} state={state} />
       <TodosSection todos={todos} />
       <ActivitySections
         activity={activity}
@@ -231,7 +232,6 @@ export const SidePanel = memo(function SidePanel({
           />
         ))}
       </Section>
-      <UsageSection controller={controller} state={state} />
       <McpSection controller={controller} state={state} />
     </aside>
   );

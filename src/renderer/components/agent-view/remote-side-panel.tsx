@@ -1,8 +1,8 @@
 /**
  * Another computer's chat's side panel, as a chat here has it and with its
- * parts, in the same order: what it runs on and with, its context, its
- * to-dos, its tasks and agents (what runs now and what ended), what it made,
- * the files it changed, the plan's usage and its MCP servers. They come
+ * parts, in the same order: what it runs on and with, its context, the
+ * plan's usage, its to-dos, its tasks and agents (what runs now and what
+ * ended), what it made, the files it changed and its MCP servers. They come
  * from the panel its computer tells (chat.watch's `panel`), the subagents'
  * details from the conversation shown. A changed file opens its change,
  * read from that computer. Its MCP servers are shown as they stand there,
@@ -380,6 +380,44 @@ export function RemoteSidePanel({
           </div>
         )}
       </Section>
+      <Section title={t("chat.panel.usage.title")} folded reveal={asked("usage")}>
+        {cost !== undefined && cost > 0 && (
+          <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
+            <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
+            <span className="tabular-nums">{formatCost(cost, i18n.language)}</span>
+          </Row>
+        )}
+        {limits.length === 0 ? (
+          <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
+        ) : (
+          limits.map((limit) => (
+            <div
+              key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
+              className="flex flex-col gap-0.5 py-0.5"
+            >
+              <Row className="text-app-micro">
+                <span className="min-w-0 flex-1 truncate">
+                  {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
+                </span>
+                <span className="tabular-nums">{Math.round(limit.percent)}%</span>
+              </Row>
+              <Meter percent={Math.min(100, limit.percent)} />
+              {limit.resetsAt !== undefined && (
+                <div className="text-app-micro text-muted-foreground">
+                  {t("chat.panel.usage.resets", {
+                    time: new Date(limit.resetsAt).toLocaleString(i18n.language, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    }),
+                  })}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </Section>
       <TodosSection todos={todos} />
       <ActivitySections
         activity={activity}
@@ -418,44 +456,6 @@ export function RemoteSidePanel({
             {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
           />
         ))}
-      </Section>
-      <Section title={t("chat.panel.usage.title")} folded reveal={asked("usage")}>
-        {cost !== undefined && cost > 0 && (
-          <Row className="text-app-micro" title={t("chat.panel.usage.cost_hint")}>
-            <span className="min-w-0 flex-1 truncate">{t("chat.panel.usage.cost")}</span>
-            <span className="tabular-nums">{formatCost(cost, i18n.language)}</span>
-          </Row>
-        )}
-        {limits.length === 0 ? (
-          <div className="text-app-micro text-muted-foreground">{t("chat.panel.usage.none")}</div>
-        ) : (
-          limits.map((limit) => (
-            <div
-              key={`${limit.kind}-${limit.scope ?? ""}-${limit.windowMins ?? ""}`}
-              className="flex flex-col gap-0.5 py-0.5"
-            >
-              <Row className="text-app-micro">
-                <span className="min-w-0 flex-1 truncate">
-                  {usageMeterLabel(t, limit, (usage?.more.length ?? 0) > 0)}
-                </span>
-                <span className="tabular-nums">{Math.round(limit.percent)}%</span>
-              </Row>
-              <Meter percent={Math.min(100, limit.percent)} />
-              {limit.resetsAt !== undefined && (
-                <div className="text-app-micro text-muted-foreground">
-                  {t("chat.panel.usage.resets", {
-                    time: new Date(limit.resetsAt).toLocaleString(i18n.language, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    }),
-                  })}
-                </div>
-              )}
-            </div>
-          ))
-        )}
       </Section>
       {panel?.mcp && (
         <RemoteMcp
