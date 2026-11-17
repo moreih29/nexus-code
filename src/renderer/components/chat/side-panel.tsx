@@ -30,7 +30,8 @@ import { artifactsOf } from "../../services/chat/artifact";
 import type { ChatController } from "../../services/chat/controller";
 import { useFoundFiles } from "../../services/chat/file-presence";
 import { type JobOutput, readJobOutput } from "../../services/chat/job-output";
-import { fileKind, resolveFilePath, slashWindowsPath } from "../../services/chat/links";
+import { linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { fileKind, slashWindowsPath } from "../../services/chat/links";
 import type { ChatItem, TaskInfo, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
@@ -275,17 +276,20 @@ export function ResultsSection({
   rootPath: string;
 }) {
   const { t } = useTranslation();
-  // A file is listed once it is found to be one.
+  // A file is listed once it is found to be one: from the chat's folder, or
+  // from where the agent's shell went (link-places).
   const named = useMemo(() => resultsOf(items, tools, cwd), [items, tools, cwd]);
-  const filePaths = useMemo(() => {
-    const paths = new Map<string, string>();
+  const filePlaces = useMemo(() => {
+    const index = linkPlaceIndex(tools, cwd);
+    const places = new Map<string, string[]>();
     for (const result of named) {
-      const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
-      if (path) paths.set(result.target, path);
+      if (result.kind !== "file") continue;
+      const paths = linkPlaces(result.target, index).map((place) => place.path);
+      if (paths.length > 0) places.set(result.target, paths);
     }
-    return paths;
-  }, [named, cwd]);
-  const lookedUp = useMemo(() => [...new Set(filePaths.values())], [filePaths]);
+    return places;
+  }, [named, tools, cwd]);
+  const lookedUp = useMemo(() => [...new Set([...filePlaces.values()].flat())], [filePlaces]);
   // A file named before the agent made it is found once a tool of its is done.
   const toolsDone = useMemo(
     () =>
@@ -293,17 +297,23 @@ export function ResultsSection({
     [tools],
   );
   const found = useFoundFiles(workspaceId, rootPath, lookedUp, toolsDone);
+  // Each file's target by the first of its places found.
+  const filePaths = useMemo(() => {
+    const paths = new Map<string, string>();
+    for (const [target, places] of filePlaces) {
+      const path = places.find((place) => found.has(place));
+      if (path) paths.set(target, path);
+    }
+    return paths;
+  }, [filePlaces, found]);
   const results = useMemo(
     () =>
       distinctResults(
-        named.filter((result) => {
-          if (result.kind !== "file") return true;
-          const path = filePaths.get(result.target);
-          return path !== undefined && found.has(path);
-        }),
+        named.filter((result) => result.kind !== "file" || filePaths.has(result.target)),
         cwd,
+        (target) => filePaths.get(target) ?? null,
       ),
-    [named, filePaths, found, cwd],
+    [named, filePaths, cwd],
   );
   // The pages it published to claude.ai, newest first, as what it made; a
   // reply's link to one is that page.
@@ -335,6 +345,7 @@ export function ResultsSection({
             <ResultRow
               key={result.target}
               result={result}
+              path={filePaths.get(result.target) ?? null}
               cwd={cwd}
               workspaceId={workspaceId}
               onOpen={() => open(result.target, result.kind)}
@@ -1148,17 +1159,19 @@ export function AgentEntry({
 
 function ResultRow({
   result,
+  path,
   cwd,
   workspaceId,
   onOpen,
 }: {
   result: ResultEntry;
+  /** The file it names, where it was found; null for an address. */
+  path: string | null;
   cwd: string;
   workspaceId: string;
   onOpen: () => void;
 }) {
   const { t } = useTranslation();
-  const path = result.kind === "file" ? resolveFilePath(result.target, cwd) : null;
   const label = result.kind === "file" ? shortPath(result.target, cwd) : result.target;
   // An image shows itself while the pointer is on its row.
   const [hover, setHover] = useState<DOMRect | null>(null);

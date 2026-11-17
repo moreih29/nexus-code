@@ -653,7 +653,53 @@ describe("chat panel", () => {
   });
 });
 
+describe("links written from where the agent's shell went", () => {
+  test("a card and a grant for each place a relative link may name", () => {
+    seq = 0;
+    const model = applyLines(emptyModel(), [
+      {
+        seq: ++seq,
+        dir: "in",
+        message: { type: "user", message: { role: "user", content: "plot it" } },
+      },
+      assistant("m1", [
+        {
+          type: "tool_use",
+          id: "b",
+          name: "Bash",
+          input: { command: "cd /p/tracks/P && python run.py && cd /tmp/x" },
+        },
+      ]),
+      result("b", "ok", undefined),
+      assistant("m2", [{ type: "text", text: "See [plot](outputs/a.png) and [log](/p/run.log)." }]),
+    ]);
+    const [extras] = answerExtras(model.items, model.tools, "/p", "/p", true).values();
+    expect(extras.files).toEqual(["/p/outputs/a.png", "/p/run.log"]);
+    // The card is of the first of these found, when the file is not in the chat's folder.
+    expect(extras.elsewhere).toEqual({
+      "/p/outputs/a.png": ["/tmp/x/outputs/a.png", "/p/tracks/P/outputs/a.png"],
+    });
+    // The previews may read it where the shell went outside the workspace.
+    expect(outsideLinksOf(model.items, model.tools, "/p", "/p").files).toEqual([
+      "/tmp/x/outputs/a.png",
+    ]);
+  });
+});
+
 describe("distinctResults", () => {
+  test("a file is the one found for its target, when that is given", () => {
+    const found: Record<string, string> = { "a.png": "/p/P/a.png", "/p/P/a.png": "/p/P/a.png" };
+    const results = distinctResults(
+      [
+        { kind: "file", target: "a.png", created: false },
+        { kind: "file", target: "/p/P/a.png", created: true },
+      ],
+      "/p",
+      (target) => found[target] ?? null,
+    );
+    expect(results).toEqual([{ kind: "file", target: "a.png", created: true }]);
+  });
+
   test("lists a file once however its path was written, made new if it ever was", () => {
     const results = distinctResults(
       [

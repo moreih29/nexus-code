@@ -64,6 +64,38 @@ export function resolveFilePath(target: string, cwd: string): string | null {
 
 /** The file a link names, as resolveFilePath finds it, with the line it points at. */
 export function resolveFileLink(target: string, cwd: string): FileLink | null {
+  const link = readLink(target, cwd);
+  if (!link) return null;
+  const absolute = absolutePath(link.path, link.windows, cwd);
+  if (absolute === null) return null;
+  const { written, windows, at } = link;
+  const literal = written !== undefined && !windows ? absolutePath(written, false, cwd) : null;
+  return { path: absolute, ...at, ...(literal ? { literal } : {}) };
+}
+
+/**
+ * The path a link names from the session's folder, as written, without its
+ * line: null for an absolute path, a Windows one, one from the home folder,
+ * and anything that names no file.
+ */
+export function relativeLinkPath(target: string, cwd: string): string | null {
+  const link = readLink(target, cwd);
+  if (!link || link.windows) return null;
+  const { path } = link;
+  return path && !path.startsWith("/") && !path.startsWith("~") ? path : null;
+}
+
+/** A link as written: its path without the line, the line, and the path with it. */
+interface WrittenLink {
+  path: string;
+  at: Omit<FileLink, "path" | "literal">;
+  written?: string;
+  /** A Windows path, or one from a Windows folder. */
+  windows: boolean;
+}
+
+/** What a link writes of a file, as resolveFileLink reads it; null for an address. */
+function readLink(target: string, cwd: string): WrittenLink | null {
   let path = target.trim();
   if (!path) return null;
   let windows = DRIVE_PATH.test(cwd);
@@ -93,12 +125,9 @@ export function resolveFileLink(target: string, cwd: string): FileLink | null {
     path = safeDecode(path);
     if (written !== undefined) written = safeDecode(written);
   }
-  const absolute = absolutePath(path, windows, cwd);
-  if (absolute === null) return null;
   const line = LINE_ANCHOR.exec(anchor);
   if (at.line === undefined && line) at = { line: Number(line[1]) };
-  const literal = written !== undefined && !windows ? absolutePath(written, false, cwd) : null;
-  return { path: absolute, ...at, ...(literal ? { literal } : {}) };
+  return { path, at, ...(written !== undefined ? { written } : {}), windows };
 }
 
 /**

@@ -12,7 +12,8 @@ import { isExternalSchemeAllowed } from "../../../shared/security/url-scheme";
 import { ipcCallResult } from "../../ipc/client";
 import type { ChatFiles } from "../../services/chat/chat-files";
 import { imageLook, lookAtImage, type ShownImage } from "../../services/chat/image-look";
-import { fileKind, isLocalAddress, resolveFileLink } from "../../services/chat/links";
+import { findLinkPlace, linkPlaceIndex, linkPlaces } from "../../services/chat/link-places";
+import { type FileLink, fileKind, isLocalAddress } from "../../services/chat/links";
 import type { ChatModel, ImageBlock, RemoteImageRef } from "../../services/chat/model";
 import { changedFilesOf, imagesOf } from "../../services/chat/panel";
 import type { RemoteTarget } from "../../state/stores/remote-view";
@@ -212,10 +213,7 @@ export function useRemoteLinks(
         ),
       );
     };
-    const openFile = (written: string) => {
-      const link = resolveFileLink(written, cwd);
-      if (!link) return;
-      const { path, line, column } = link;
+    const showFile = ({ path, line, column }: FileLink) => {
       if (fileKind(path) === "image") {
         lookAt({ file: path });
         return;
@@ -225,6 +223,13 @@ export function useRemoteLinks(
         index: 0,
         ...(line ? { at: { path, line, ...(column ? { column } : {}) } } : {}),
       });
+    };
+    /** A file a reply names: from the chat's folder, or from where the agent's shell went there. */
+    const openFile = (written: string) => {
+      const places = linkPlaces(written, linkPlaceIndex(latest.current.model.tools, cwd));
+      void findLinkPlace(places, (paths) => files.there(paths)).then(
+        (link) => link && showFile(link),
+      );
     };
     return {
       openFile,

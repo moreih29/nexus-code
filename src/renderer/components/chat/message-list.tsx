@@ -91,6 +91,7 @@ import { AnswerExtrasView } from "./answer-extras";
 import { ArtifactCard } from "./artifact-card";
 import { ChatAgentContext, useAgentContext } from "./chat-agent";
 import { ChatImage, ToolThumbs } from "./chat-image";
+import { LinkPlacesContext, usePlacesOf } from "./chat-links";
 import { ChatMarkdown } from "./chat-markdown";
 import { AnsweredQuestions, PlanOutcome, showsAsPrompt } from "./prompt-rows";
 import { SentFiles } from "./sent-files";
@@ -361,6 +362,8 @@ export function MessageList({
   // The calls the side panel asked to see: a folded run that holds one opens.
   const latestTools = useRef(tools);
   latestTools.current = tools;
+  // A reply's relative links are found from where the agent's shell went too.
+  const placesOf = usePlacesOf(tools);
   const shownCall = useMemo<ShownCall | undefined>(
     () =>
       reveal
@@ -443,7 +446,7 @@ export function MessageList({
     return out;
   }, [windowItems, tools, under, shown, extras, earlier, shownCall]);
 
-  return (
+  const list = (
     <div className="relative min-h-0 flex-1">
       <div
         ref={scrollRef}
@@ -512,6 +515,7 @@ export function MessageList({
       )}
     </div>
   );
+  return <LinkPlacesContext.Provider value={placesOf}>{list}</LinkPlacesContext.Provider>;
 }
 
 function lastUserKey(items: ChatItem[]): string | undefined {
