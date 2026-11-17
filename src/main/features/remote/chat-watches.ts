@@ -14,7 +14,7 @@ import {
 } from "../../../../packages/remote-protocol/src";
 import type { CliServices } from "../cli/context";
 import { fitsInFrame, RpcFailure } from "./room";
-import { DEFAULT_READ_ITEMS, fitsAsResult, tabOf, unavailable } from "./serve";
+import { DEFAULT_READ_ITEMS, fitPage, fitsAsResult, tabOf, unavailable } from "./serve";
 
 /** Most chats one device may watch here at once; a new one beyond ends its oldest. */
 export const MAX_WATCHES_PER_DEVICE = 8;
@@ -74,6 +74,9 @@ export class ChatWatches {
       if (watch) watch.total = page.total;
       const result = { ...page, watchId };
       if (fitsAsResult(result)) return result;
+      // One item too large as it is goes with less of it, and the watch stays.
+      const fitted = page.items.length <= 1 ? fitPage(result) : null;
+      if (fitted) return fitted;
       await this.end(watchId);
       if (page.items.length <= 1) {
         throw new RpcFailure(
