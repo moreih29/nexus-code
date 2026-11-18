@@ -73,6 +73,18 @@ export const ChatChosenSchema = z
   .optional();
 export type ChatChosen = NonNullable<z.infer<typeof ChatChosenSchema>>;
 
+/** Recent authenticated send IDs, retained with the tab through a host restart. */
+export const MAX_CHAT_PEER_SUBMISSIONS = 256;
+const PeerSubmissionsSchema = z
+  .record(
+    z.object({
+      clientNonce: z.string().uuid(),
+      clientDeviceId: z.string().min(1).max(64),
+      written: z.boolean().optional(),
+    }),
+  )
+  .optional();
+
 export const ClaudeTabPropsSchema = z.object({
   cwd: z.string(),
   sessionId: z.string().max(128).optional(),
@@ -92,6 +104,7 @@ export const ClaudeTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen: ChatChosenSchema,
 });
@@ -121,6 +134,7 @@ export const CodexTabPropsSchema = z.object({
   moves: ProfileMovesSchema,
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed: RelayedMessagesSchema,
+  peerSubmissions: PeerSubmissionsSchema,
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen: ChatChosenSchema,
 });

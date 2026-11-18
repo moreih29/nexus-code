@@ -8,6 +8,7 @@ import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
   type CodexFork,
+  MAX_CHAT_PEER_SUBMISSIONS,
   type NoteTabProps,
   PROFILE_MOVES_KEPT,
   type ProfileMove,
@@ -18,6 +19,7 @@ import type {
   DiffTabPayload,
   GitCommitTabPayload,
 } from "../../../shared/types/tab";
+import type { PeerSubmission } from "../../services/chat/store";
 import { registerWorkspaceCleanup } from "../workspace-cleanup";
 import {
   recordTerminalDeathForAggregate,
@@ -69,6 +71,7 @@ export interface ClaudeTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next program to take. */
   chosen?: ChatChosen;
 }
@@ -88,6 +91,7 @@ export interface CodexTabProps {
   moves?: readonly ProfileMove[];
   /** Who sent the messages other agents sent it through the nexus command. */
   relayed?: readonly RelayedMessage[];
+  peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** The model and effort the user picked in the tab, for its next turn to take. */
   chosen?: ChatChosen;
 }
@@ -315,6 +319,12 @@ interface TabsState {
    */
   setChatChosen: (workspaceId: string, tabId: string, chosen: ChatChosen) => void;
   /** Keeps who sent a message through the nexus command; one with its id is replaced. */
+  addChatPeerSubmission: (
+    workspaceId: string,
+    tabId: string,
+    id: string,
+    submission: PeerSubmission,
+  ) => void;
   addChatRelayed: (workspaceId: string, tabId: string, record: RelayedMessage) => void;
   /** Keep the thread a Codex tab now has. No-op on other tab types. */
   setCodexThread: (workspaceId: string, tabId: string, threadId: string) => void;
@@ -720,6 +730,7 @@ export const useTabsStore = create<TabsState>((set, get) => {
             cwd: tab.props.cwd,
             ...(profileId ? { profileId } : {}),
             ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+            ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
             ...(tab.type === "claude" && tab.props.chosen ? { chosen: tab.props.chosen } : {}),
           };
           return { ...tab, props } as Tab;
@@ -779,6 +790,19 @@ export const useTabsStore = create<TabsState>((set, get) => {
           const merged = { ...before, ...chosen };
           const same = merged.model === before?.model && merged.effort === before?.effort;
           return same ? tab : ({ ...tab, props: { ...tab.props, chosen: merged } } as Tab);
+        }),
+      );
+    },
+
+    addChatPeerSubmission(workspaceId, tabId, id, submission) {
+      set((state) =>
+        withTab(state, workspaceId, tabId, (tab) => {
+          if (tab.type !== "claude" && tab.type !== "codex") return tab;
+          const recent = Object.entries(tab.props.peerSubmissions ?? {}).slice(
+            1 - MAX_CHAT_PEER_SUBMISSIONS,
+          );
+          const peerSubmissions = { ...Object.fromEntries(recent), [id]: submission };
+          return { ...tab, props: { ...tab.props, peerSubmissions } } as Tab;
         }),
       );
     },

@@ -26,6 +26,7 @@ import {
   startAgentTab,
 } from "../chat/agent-tab";
 import { CodexConfigRefusal } from "../chat/codex-config";
+import { CodexReplyError } from "../chat/codex-controller";
 import { fileMention } from "../chat/composer-input";
 import type { ForkPoint } from "../chat/controller";
 import { type ChatItem, isWaiting, type UserItem } from "../chat/model";
@@ -49,7 +50,13 @@ import {
 } from "../remote/chat-page";
 import { chatPanelOf } from "../remote/chat-panel";
 import { eachTimeItCan, startChatWatch, stopChatWatch, tabSource } from "../remote/chat-watch";
-import { claudeSessions, codexThreads, pastSessionsOf, tabWithSession } from "../remote/history";
+import {
+  claudeSessions,
+  codexThreads,
+  pastSessionsOf,
+  peerCodexThreads,
+  tabWithSession,
+} from "../remote/history";
 import { cliProfileName } from "../remote/profile-name";
 import { type ChatSettingsPlan, chatChoicesOf, planChatSettings } from "./chat-settings";
 import {
@@ -502,6 +509,7 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     files = [],
     when,
     device,
+    submission,
   }) => {
     const target = await openedTab(workspaceId, tabId);
     if (!user && infoOf(workspaceId, tabId, target).state === "asking") {
@@ -516,7 +524,23 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     );
     const mentions = paths.map(fileMention).join(" ");
     const body = mentions === "" ? text : text.trim() ? `${text}\n\n${mentions}` : mentions;
-    return sendToAgentTab(workspaceId, tabId, target, body, from, images, when, device);
+    const trustedSubmission = user && !from ? submission : undefined;
+    try {
+      return await sendToAgentTab(
+        workspaceId,
+        tabId,
+        target,
+        body,
+        from,
+        images,
+        when,
+        device,
+        trustedSubmission,
+      );
+    } catch (error) {
+      if (trustedSubmission && error instanceof CodexReplyError) return { rejected: error.message };
+      throw error;
+    }
   },
 
   "chat.unqueue": async ({ workspaceId, tabId, id }) => {
@@ -885,8 +909,11 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
     return {};
   },
 
-  "chat.history": async ({ workspaceId, agent, query, limit }) => {
-    const cwd = workspaceRoot(workspaceId);
+  "chat.history": async ({ workspaceId, agent, query, limit, peer }) => {
+    const { workspaces, connectionStatusByWorkspaceId } = useWorkspacesStore.getState();
+    const workspace = workspaces.find((w) => w.id === workspaceId);
+    if (!workspace?.rootPath) throw new UiRequestError("no such workspace");
+    const cwd = workspace.rootPath;
     const config = useAgentProfilesStore.getState().config;
     const listed =
       agent === "claude"
@@ -895,11 +922,18 @@ export const chatHandlers: { [K in ChatOp]: CliUiHandler<K> } = {
             cwd,
             profilesOf(config, "claude").map((p) => p.id),
           )
-        : await codexThreads(
-            workspaceId,
-            cwd,
-            profilesOf(config, "codex").map((p) => p.id),
-          );
+        : peer
+          ? await peerCodexThreads(
+              workspace,
+              config,
+              connectionStatusByWorkspaceId[workspaceId],
+              query,
+            )
+          : await codexThreads(
+              workspaceId,
+              cwd,
+              profilesOf(config, "codex").map((p) => p.id),
+            );
     const name = (profileId: string) => cliProfileName(profileOf(config, agent, profileId));
     const openIn = (sessionId: string) => tabWithSession(workspaceId, agent, sessionId);
     return { sessions: pastSessionsOf(listed, cwd, name, query, limit, openIn) };

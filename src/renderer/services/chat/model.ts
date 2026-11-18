@@ -54,6 +54,18 @@ export interface UserItem {
   state: "sent" | "taken";
   /** The uuid the app wrote it with, which the CLI's echo and lifecycle name. */
   sentUuid?: string;
+  clientNonce?: string;
+  clientDeviceId?: string;
+  /** Internal projection of a provisional host stdin write. */
+  peerWritePending?: boolean;
+  /** Local preview of a send to another device. Never included on the wire. */
+  optimistic?: {
+    status: "sending" | "accepted" | "failed" | "unconfirmed";
+    queued: boolean;
+    fileNames: string[];
+    submittedAt: number;
+    error?: string;
+  };
   /**
    * Written during a turn: the CLI reads it after the tool it runs, and till
    * then it waits above the box, where it can still be taken back.

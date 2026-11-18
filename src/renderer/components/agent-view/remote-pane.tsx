@@ -36,8 +36,17 @@ import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
-import { putPeerDraft, usePeerComposition } from "../../services/remote/peer-drafts";
+import {
+  putPeerDraft,
+  restorePeerComposition,
+  usePeerComposition,
+} from "../../services/remote/peer-drafts";
 import { peerRunRows, usePeerRuns } from "../../services/remote/peer-runs";
+import {
+  previewOf,
+  recoverPeerSubmission,
+  usePeerSubmissions,
+} from "../../services/remote/peer-submissions";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
 import {
@@ -425,6 +434,7 @@ function RemoteChat({
         visible={visible}
         reach={reach}
         controls={controls}
+        selfId={selfId}
       />
     </ChatAgentContext.Provider>
   );
@@ -464,6 +474,7 @@ function RemoteChatView({
   visible,
   reach,
   controls,
+  selfId,
 }: {
   target: RemoteTarget;
   page: WatchedChat;
@@ -473,9 +484,25 @@ function RemoteChatView({
   visible: boolean;
   reach: PeerReach;
   controls: boolean;
+  selfId?: string;
 }) {
   const { t } = useTranslation();
   const { deviceId, workspaceId, tabId } = target;
+  const submissions = usePeerSubmissions({ deviceId, workspaceId, tabId });
+  const previewItems = useMemo(() => {
+    const visible = submissions.filter(
+      (entry) => entry.status !== "sending" || !entry.provisionalEcho,
+    );
+    return visible.length ? [...model.items, ...visible.map(previewOf)] : model.items;
+  }, [model.items, submissions]);
+  const recover = (key: string) => {
+    const ref = { deviceId, workspaceId, tabId };
+    const submission = recoverPeerSubmission(ref, key.replace(/^pending:/, ""));
+    if (submission) {
+      restorePeerComposition(ref, submission);
+      focusChatTab(rootRef.current);
+    }
+  };
   const fontStyle = useChatFontStyle();
   const claude = target.kind !== "codex";
   const rootRef = useRef<HTMLDivElement>(null);
@@ -882,8 +909,12 @@ function RemoteChatView({
                     cwd={target.cwd ?? target.path}
                     rootPath={target.path}
                     history={null}
-                    model={model}
-                    actions={shown ? undefined : actions}
+                    model={
+                      shown || previewItems === model.items
+                        ? model
+                        : { ...model, items: previewItems }
+                    }
+                    actions={shown ? undefined : { ...actions, onRecoverSubmission: recover }}
                     items={shown ? agentTranscript(model, shown) : undefined}
                     reveal={shown ? null : callAsk}
                     {...(moves ? { moves } : {})}
@@ -923,6 +954,7 @@ function RemoteChatView({
                     onShowMain={() => showAgent(null)}
                     goalBar={goalBar}
                     onPanelPart={askPanel}
+                    selfId={selfId}
                   />
                 )}
               </div>
@@ -993,8 +1025,10 @@ function RemoteControls({
   onShowMain,
   goalBar,
   onPanelPart,
+  selfId,
 }: {
   target: RemoteTarget;
+  selfId?: string;
   model: ChatModel;
   page: WatchedChat;
   visible: boolean;
@@ -1037,6 +1071,7 @@ function RemoteControls({
     agent: target.kind === "codex" ? "codex" : "claude",
     model,
     panel: page.panel,
+    submissionContext: () => ({ selfId, baseline: page.total, showMain: onShowMain }),
     active: visible,
     filesRefused: t("agentView.remote.filesRefused"),
     onError,

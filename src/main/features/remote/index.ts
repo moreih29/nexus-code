@@ -104,6 +104,9 @@ async function askPeer<T>(question: () => Promise<T>): Promise<IpcResult<T>> {
     return ipcOk(await question());
   } catch (error) {
     if (error instanceof RpcFailure) {
+      const data = error.data as { outcome?: unknown } | undefined;
+      if (data?.outcome === "rejected") return ipcErr("send-rejected", error.message);
+      if (data?.outcome === "unknown") return ipcErr("send-unconfirmed", error.message);
       const kind =
         error.code === RpcErrorCode.NotFound
           ? "not-found"

@@ -72,6 +72,42 @@ test("keeps the latest own-thread plan and ignores a child thread's plan", () =>
   expect(nextThreadModel(model).plan).toBeUndefined();
 });
 
+test("a correlated remote Codex send appears once after app-server acceptance", () => {
+  const clientId = "peer-6745e6bb-a47f-483d-9f34-98e3fe3dcb50";
+  const sent = inn({
+    id: "remote-request",
+    method: "turn/start",
+    params: {
+      threadId: T,
+      clientUserMessageId: clientId,
+      input: [{ type: "text", text: "repeat" }],
+    },
+  });
+  const staged = run([...started(), sent]);
+  expect(staged.items).toEqual([]);
+  const rejected = run([out({ id: "remote-request", error: { message: "rejected" } })], staged);
+  expect(rejected.items.some((item) => item.kind === "user")).toBe(false);
+  const success = run([out({ id: "remote-request", result: { turn: { id: "turn-1" } } })], staged);
+  const confirmed = run(
+    [
+      note("item/started", {
+        threadId: T,
+        turnId: "turn-1",
+        item: {
+          type: "userMessage",
+          id: "server-item",
+          clientId,
+          content: [{ type: "text", text: "repeat" }],
+        },
+      }),
+    ],
+    success,
+  );
+  expect(confirmed.items).toMatchObject([
+    { kind: "user", key: `u-${clientId}`, state: "taken", uuid: "server-item", text: "repeat" },
+  ]);
+});
+
 function sendTurn(text: string, clientId = "c1", turnId = "turn_1"): ChatLine[] {
   return [
     inn({

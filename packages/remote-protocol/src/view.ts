@@ -20,8 +20,19 @@ export type ImageRef = z.infer<typeof ImageRefSchema>;
 
 const at = z.number().optional();
 
+/** A submission ID generated once by the sending client. */
+export const ClientNonceSchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+const ClientSubmission = {
+  clientNonce: ClientNonceSchema.optional(),
+  /** Set by the host from the authenticated connection. */
+  clientDeviceId: z.string().min(1).max(64).optional(),
+};
+
 export const UserItemSchema = z.object({
   kind: z.literal("user"),
+  ...ClientSubmission,
   key: z.string(),
   text: z.string(),
   images: z.array(ImageRefSchema),
@@ -477,6 +488,8 @@ export const ChatPanelSchema = z.object({
       mcp: z.boolean().optional(),
       /** Refresh Codex MCP inventory with chat.command (mcp refresh). */
       mcpStatus: z.boolean().optional(),
+      /** Correlates user submissions in chat.send, watch and read. */
+      clientNonce: z.boolean().optional(),
       /** Read and change its Claude Code settings, or a Codex chat's defaults (chat.config). Since 0.13.0. */
       config: z.boolean().optional(),
     })
@@ -490,6 +503,9 @@ export const ChatPanelSchema = z.object({
     .array(
       z.object({
         id: z.string(),
+        ...ClientSubmission,
+        status: z.enum(["sending", "failed", "unconfirmed"]).optional(),
+        error: z.string().max(1000).optional(),
         text: z.string(),
         truncated: z.boolean().optional(),
         images: z.number().int().positive().optional(),

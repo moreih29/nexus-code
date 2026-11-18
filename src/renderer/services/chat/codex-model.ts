@@ -20,11 +20,16 @@ import {
 } from "./codex-collaboration";
 import { CODEX_INIT_PROMPT, type CodexMcpServer } from "./codex-commands";
 import {
+  appendCodexForkPage,
+  type CodexForkPages,
   codexForkPrefix,
+  codexForkSourceStatus,
   codexHistoryAvailable,
   codexTurnIds,
+  emptyCodexForkPages,
   validCodexFork,
 } from "./codex-history";
+import { matchesProfileForkSettings } from "./codex-profile-fork";
 import { fileMention } from "./composer-input";
 import { CODEX_GOAL_STATUSES, type CodexGoal, type CodexGoalStatus } from "./goal";
 import {
@@ -83,7 +88,9 @@ export interface CodexModel extends ChatModel {
   threadId?: string;
   appServerVersion?: string;
   canonicalCwd?: string;
-  forkSource?: { threadId: string; turns: string[] };
+  forkSource?:
+    | { threadId: string; legacyTurns: string[] }
+    | { threadId: string; pages: CodexForkPages };
   nativeTranscripts?: Record<string, ChatItem[]>;
   /** The turn that runs, to steer or stop. */
   turnId?: string;
@@ -173,6 +180,7 @@ const QUIET_REQUESTS = new Set([
   "thread/goal/get",
   "thread/list",
   "thread/read",
+  "thread/turns/list",
   "thread/fork",
   "thread/delete",
   "thread/unsubscribe",
@@ -182,6 +190,7 @@ const QUIET_REQUESTS = new Set([
   "config/read",
   "configRequirements/read",
   "collaborationMode/list",
+  "thread/unsubscribe",
   "config/batchWrite",
 ]);
 
@@ -213,6 +222,7 @@ export function applyCodexLine(
       // A program's requests and turn end with it; the thread goes on.
       draft.next.requests = {};
       draft.next.blocks = {};
+      draft.next.forkSource = undefined;
       draft.next.turnId = undefined;
       draft.next.mcpServers = undefined;
       draft.next.mcpLogin = undefined;
@@ -248,8 +258,11 @@ function applyIn(draft: CodexDraft, message: Rec, seq: number, at: number | unde
     switch (method) {
       case "turn/start":
       case "turn/steer": {
-        const { text, images } = userInputOf(params.input);
-        draft.push({ kind: "user", key: userKey(params, seq), text, images, state: "sent", at });
+        const clientId = str(params.clientUserMessageId);
+        if (!clientId?.startsWith("peer-")) {
+          const { text, images } = userInputOf(params.input);
+          draft.push({ kind: "user", key: userKey(params, seq), text, images, state: "sent", at });
+        }
         if (method === "turn/start") {
           applySettings(m, {
             model: params.model,
@@ -316,6 +329,14 @@ function applyResponse(
   m.outgoing = rest;
   const error = rec(message.error);
   if (error) {
+    if (
+      sent.request.threadId === m.forkSource?.threadId &&
+      (sent.subtype === "thread/turns/list" ||
+        sent.subtype === "thread/fork" ||
+        (sent.subtype === "thread/read" && sent.request.includeTurns === false))
+    ) {
+      m.forkSource = undefined;
+    }
     if (QUIET_REQUESTS.has(sent.subtype)) return;
     if (sent.subtype === "turn/steer") {
       // The turn ended first: the app sends the message as the next turn's.
@@ -358,6 +379,7 @@ function applyResponse(
       return;
     case "thread/start":
     case "thread/resume":
+      if (sent.request.ephemeral === true) return;
       applyThread(draft, result, seq);
       return;
     case "thread/list":
@@ -378,17 +400,48 @@ function applyResponse(
     case "thread/read": {
       const thread = rec(result.thread);
       const id = str(thread?.id);
-      if (id && thread && id === sent.request.threadId && m.tasks[id]?.type === "codex_subagent") {
+      if (
+        id &&
+        thread &&
+        id === sent.request.threadId &&
+        sent.request.includeTurns === true &&
+        m.tasks[id]?.type === "codex_subagent"
+      ) {
         applyNativeAgent(m, id, thread);
         applyAgentTranscript(draft, id, thread, seq);
+      } else if (
+        sent.request.includeTurns === false &&
+        (!m.threadId || sent.request.threadId === m.threadId)
+      ) {
+        const sourceId = str(sent.request.threadId);
+        const status = sourceId && codexForkSourceStatus(sourceId, result);
+        m.forkSource =
+          sourceId && status && status !== "active"
+            ? { threadId: sourceId, pages: emptyCodexForkPages() }
+            : undefined;
       } else if (
         id &&
         id === sent.request.threadId &&
         sent.request.includeTurns === true &&
         (!m.threadId || id === m.threadId)
       ) {
+        // Existing logs used a full thread/read to verify their historical forks.
         const turns = codexTurnIds(thread);
-        if (turns) m.forkSource = { threadId: id, turns };
+        m.forkSource = turns && { threadId: id, legacyTurns: turns };
+      }
+      return;
+    }
+    case "thread/turns/list": {
+      const source = m.forkSource;
+      if (
+        source &&
+        "pages" in source &&
+        source.threadId === sent.request.threadId &&
+        sent.request.sortDirection === "asc" &&
+        sent.request.itemsView === "notLoaded"
+      ) {
+        const pages = appendCodexForkPage(source.pages, sent.request.cursor, result);
+        m.forkSource = pages && { threadId: source.threadId, pages };
       }
       return;
     }
@@ -403,10 +456,18 @@ function applyResponse(
       const source = m.forkSource;
       m.forkSource = undefined;
       if (
+        !matchesProfileForkSettings(sent.request, result) ||
         !validCodexFork(
           fork,
           result,
-          codexForkPrefix(fork, source?.threadId === threadId ? source.turns : undefined),
+          codexForkPrefix(
+            fork,
+            source?.threadId === threadId
+              ? "pages" in source
+                ? source.pages.turns
+                : source.legacyTurns
+              : undefined,
+          ),
         )
       )
         return;
@@ -444,7 +505,14 @@ function applyResponse(
           rememberCollaborationEffort(m, sent.request.effort);
       }
       const clientId = str(sent.request.clientUserMessageId);
-      if (clientId) takeUser(draft, `u-${clientId}`, undefined, turnId);
+      if (clientId) {
+        const key = `u-${clientId}`;
+        const found = takeUser(draft, key, undefined, turnId);
+        if (!found && clientId.startsWith("peer-")) {
+          const { text, images } = userInputOf(sent.request.input);
+          draft.push({ kind: "user", key, text, images, state: "taken", turnId, at });
+        }
+      }
       return;
     }
     case "collaborationMode/list":
@@ -1036,7 +1104,7 @@ function applyItem(
       const { text, images } = userInputOf(item.content);
       draft.push({
         kind: "user",
-        key: `u${tag}`,
+        key: clientId?.startsWith("peer-") ? `u-${clientId}` : `u${tag}`,
         uuid: id,
         text,
         images,

@@ -6,7 +6,9 @@
  * under a spy, so later files keep its other exports.
  */
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { defaultProfileId } from "../../../../../src/shared/agent-profiles/profiles";
 import { ipcContract } from "../../../../../src/shared/ipc/contract";
+import type { WorkspaceMeta } from "../../../../../src/shared/types/workspace";
 
 // The version the app tells Codex it is.
 (globalThis as { __APP_VERSION__?: string }).__APP_VERSION__ ??= "0.0.0";
@@ -50,6 +52,12 @@ mock.module("../../../../../src/renderer/ipc/client", () => ({
 const { CodexController } = await import(
   "../../../../../src/renderer/services/chat/codex-controller"
 );
+const { invalidateCodexHistory } = await import(
+  "../../../../../src/renderer/services/chat/codex-history-catalog"
+);
+const { pastSessionsOf, peerCodexThreads } = await import(
+  "../../../../../src/renderer/services/remote/history"
+);
 const { useChatStore } = await import("../../../../../src/renderer/services/chat/store");
 type Controller = InstanceType<typeof CodexController>;
 
@@ -66,6 +74,7 @@ afterEach(() => {
   sent.length = 0;
   starts.length = 0;
   catalogCalls.length = 0;
+  invalidateCodexHistory(catalogWorkspace);
   hostFolder = {};
 });
 
@@ -162,9 +171,14 @@ test("rewind excludes a concurrent send and keeps the parent when the prefix is 
     switch (message.method) {
       case "thread/resume":
         return source;
-      case "thread/read": {
-        didRead();
-        return pendingRead.then(() => source);
+      case "thread/read":
+        return { thread: { id: "t1", status: { type: "idle" } } };
+      case "thread/turns/list": {
+        if ((message.params as Message).cursor === "second") {
+          didRead();
+          return pendingRead.then(() => ({ data: [{ id: cut.id }], nextCursor: "unused" }));
+        }
+        return { data: [{ id: first.id }], nextCursor: "second" };
       }
       case "thread/fork":
         return { thread: { id: "improper", forkedFromId: "t1", turns: [] } };
@@ -180,6 +194,14 @@ test("rewind excludes a concurrent send and keeps the parent when the prefix is 
   release();
   await expect(rewind).rejects.toThrow("unexpected fork history");
   expect(c.currentThread()).toBe("t1");
+  expect(sent.find((m) => m.method === "thread/read")?.params).toEqual({
+    threadId: "t1",
+    includeTurns: false,
+  });
+  expect(sent.filter((m) => m.method === "thread/turns/list").map((m) => m.params)).toEqual([
+    { threadId: "t1", sortDirection: "asc", itemsView: "notLoaded", limit: 100 },
+    { threadId: "t1", sortDirection: "asc", itemsView: "notLoaded", limit: 100, cursor: "second" },
+  ]);
   expect(order()).not.toContain("turn/start");
   expect(sent.find((m) => m.method === "thread/delete")?.params).toEqual({ threadId: "improper" });
 });
@@ -240,6 +262,163 @@ test("an isolated profile catalog passes all chat IPC schemas and uses the canon
         .filter(({ method }) => method === "send")
         .map(({ args }) => (args.message as Message).method),
     ).toEqual(["initialize", "initialized", "thread/list", "thread/list"]);
+  } finally {
+    wire.mockRestore();
+  }
+});
+
+test("a busy metadata response blocks a historical rewind before paging", async () => {
+  const turn = {
+    id: "cut",
+    status: "completed",
+    items: [{ id: "prompt", type: "userMessage", content: [{ type: "text", text: "again" }] }],
+  };
+  const c = tab((message) => {
+    if (message.method === "thread/resume") return { thread: { id: "t1", turns: [turn] } };
+    if (message.method === "thread/read")
+      return { thread: { id: "t1", status: { type: "active" } } };
+  });
+  await c.prepareSend();
+  const item = c.model.items[0];
+  if (item?.kind !== "user") throw new Error("missing test user message");
+  await expect(c.rewind(item, { files: false })).rejects.toThrow("The source Codex thread is busy");
+  expect(order()).not.toContain("thread/turns/list");
+  expect(order()).not.toContain("thread/fork");
+});
+
+test("child events refresh only that child, including an event during its cooldown", async () => {
+  const children = ["child-a", "child-b"].map((id) => ({
+    id,
+    parentThreadId: "t1",
+    updatedAt: 1,
+    status: { type: "idle" },
+  }));
+  const c = tab(({ method, params }) => {
+    if (method === "thread/list") return { data: children };
+    if (method === "thread/read") {
+      const { threadId } = params as { threadId: string };
+      return { thread: { ...children.find(({ id }) => id === threadId), turns: [] } };
+    }
+  });
+  const childRequests = () =>
+    sent
+      .filter(({ method }) => method === "thread/list" || method === "thread/read")
+      .map(({ method, params }) => [method, (params as { threadId?: string }).threadId]);
+  await c.prepareSend();
+  await Bun.sleep(500);
+  expect(childRequests()).toEqual([
+    ["thread/list", undefined],
+    ["thread/read", "child-a"],
+    ["thread/read", "child-b"],
+  ]);
+  sent.length = 0;
+  c.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: {
+      method: "item/completed",
+      params: { threadId: "child-a", item: { type: "agentMessage", id: "child-message" } },
+    },
+  } as never);
+  c.receive({
+    seq: ++lineSeq,
+    dir: "out",
+    message: {
+      method: "item/agentMessage/delta",
+      params: { threadId: "t1", turnId: "parent-turn", itemId: "parent-message", delta: "token" },
+    },
+  } as never);
+  await Bun.sleep(500);
+  expect(childRequests()).toEqual([]);
+  const deadline = Date.now() + 2_000;
+  while (childRequests().length === 0 && Date.now() < deadline) await Bun.sleep(25);
+  expect(childRequests()).toEqual([["thread/read", "child-a"]]);
+});
+
+test("peer history filter requests share eight real catalog lifecycles", async () => {
+  const profiles = Array.from({ length: 7 }, (_, i) => ({
+    id: `account-${i}`,
+    name: `Account ${i}`,
+    dir: `~/account-${i}`,
+    agent: "codex" as const,
+    color: "cyan",
+  }));
+  const config = { profiles, rules: [], defaults: {} };
+  const workspace = {
+    id: catalogWorkspace,
+    rootPath: "/p",
+    location: { kind: "local", rootPath: "/p" },
+  } as WorkspaceMeta;
+  let newest = 60;
+  let name: string | undefined;
+  const prototype = CodexController.prototype as unknown as {
+    write(this: Controller, message: Message): Promise<void>;
+  };
+  const write = prototype.write;
+  const wire = spyOn(prototype, "write").mockImplementation(async function (
+    this: Controller,
+    message: Message,
+  ) {
+    await write.call(this, message);
+    if (!message.id) return;
+    if (message.method === "thread/name/set") name = String((message.params as Message).name);
+    const result =
+      message.method === "thread/list"
+        ? {
+            data: [
+              {
+                id: this.profileId,
+                name: this.profileId === "account-0" ? name : undefined,
+                preview:
+                  this.profileId === defaultProfileId("codex")
+                    ? `${"long ".repeat(100)}find needle here`
+                    : "ordinary",
+                updatedAt: this.profileId === "account-0" ? newest : 1,
+              },
+            ],
+          }
+        : {};
+    this.receive({ seq: ++lineSeq, dir: "out", message: { id: message.id, result } } as never);
+  });
+  const search = async (query?: string, openIn?: (id: string) => string | undefined) => {
+    const listed = await peerCodexThreads(workspace, config, undefined, query);
+    return pastSessionsOf(listed, workspace.rootPath, (id) => id, query, 1, openIn);
+  };
+  const count = () => [
+    catalogCalls.filter(({ method }) => method === "codexStart").length,
+    catalogCalls.filter(
+      ({ method, args }) => method === "send" && (args.message as Message).method === "thread/list",
+    ).length,
+    catalogCalls.filter(({ method }) => method === "close").length,
+  ];
+  try {
+    const [first, overlapping] = await Promise.all([search(), search("needle")]);
+    expect(first[0]?.sessionId).toBe("account-0");
+    expect(overlapping[0]?.sessionId).toBe(defaultProfileId("codex"));
+    expect(count()).toEqual([8, 8, 8]);
+    for (const query of ["find", "find NEED", "needle here"]) {
+      const matches = await search(query, () => "open-tab");
+      expect(matches[0]).toMatchObject({ sessionId: defaultProfileId("codex"), tabId: "open-tab" });
+    }
+    expect(count()).toEqual([8, 8, 8]);
+    newest = 80;
+    expect((await search())[0]?.at).toBe(80_000);
+    expect(count()).toEqual([16, 16, 16]);
+    const tab = new CodexController({
+      workspaceId: catalogWorkspace,
+      tabId: crypto.randomUUID(),
+      cwd: workspace.rootPath,
+      threadId: "account-0",
+    });
+    live.push(tab);
+    useChatStore.getState().update(tab.key, (prev) => ({
+      ...prev,
+      phase: "ready",
+      model: { ...prev.model, process: "running" },
+    }));
+    await tab.ask("thread/name/set", { threadId: "account-0", name: "renamed profile" });
+    expect((await search("RENAMED"))[0]?.title).toBe("renamed profile");
+    expect(count()).toEqual([24, 24, 24]);
   } finally {
     wire.mockRestore();
   }

@@ -121,6 +121,13 @@ export interface ComposerController {
     images: ImageBlock[],
     uploads: readonly string[],
   ): Promise<void>;
+  /** Submits to a peer immediately, before images or files are uploaded. */
+  submitPeer?(
+    how: "send" | "now" | "queue",
+    text: string,
+    images: ImageBlock[],
+    files: readonly ComposerAttachment[],
+  ): boolean;
   /** The most images and files one message carries; any number when left out. */
   readonly maxAttachments?: number;
   fileSuggestions(query: string): Promise<string[]>;
@@ -164,6 +171,8 @@ interface ComposerProps {
   composition?: {
     text: string;
     images: ImageBlock[];
+    files?: ComposerAttachment[];
+    setFiles?: React.Dispatch<React.SetStateAction<ComposerAttachment[]>>;
     setText: React.Dispatch<React.SetStateAction<string>>;
     setImages: React.Dispatch<React.SetStateAction<ImageBlock[]>>;
   };
@@ -172,7 +181,7 @@ interface ComposerProps {
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
 
 /** A file attached to the message, sent as a mention of its path. */
-interface Attachment {
+export interface ComposerAttachment {
   id: number;
   file: File;
   /** Its path on this machine, which a local program reads as it is. */
@@ -234,7 +243,9 @@ export const Composer = memo(function Composer({
     setText: setLocalText,
     setImages: setLocalImages,
   };
-  const [files, setFiles] = useState<Attachment[]>([]);
+  const [localFiles, setLocalFiles] = useState<ComposerAttachment[]>([]);
+  const files = composition?.files ?? localFiles;
+  const setFiles = composition?.setFiles ?? setLocalFiles;
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -469,6 +480,11 @@ export const Composer = memo(function Composer({
       showToast({ kind: "warning", message: t("chat.composer.too_many_attachments", { max }) });
       return;
     }
+    const as = how === "queue" && running ? "queue" : how === "now" && running ? "now" : "send";
+    if (controller.submitPeer) {
+      if (controller.submitPeer(as, body, images, files)) clear();
+      return;
+    }
     let message: string;
     let uploads: string[];
     setSending(true);
@@ -482,7 +498,6 @@ export const Composer = memo(function Composer({
     }
     const sendUploaded = controller.sendUploaded?.bind(controller);
     if (uploads.length > 0 && sendUploaded) {
-      const as = how === "queue" && running ? "queue" : how === "now" && running ? "now" : "send";
       void sendUploaded(as, message, images, uploads).catch((err: Error) => showError(err));
     } else if (how === "queue" && running) controller.enqueue(message, images);
     else if (how === "now" && running && controller.sendNow) {
@@ -497,7 +512,7 @@ export const Composer = memo(function Composer({
   const addFiles = useCallback(
     async (picked: Iterable<File>) => {
       const added: ImageBlock[] = [];
-      const attached: Attachment[] = [];
+      const attached: ComposerAttachment[] = [];
       for (const file of picked) {
         if (IMAGE_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES) {
           added.push({ mediaType: file.type, data: await base64Of(file) });
@@ -516,7 +531,7 @@ export const Composer = memo(function Composer({
       if (added.length > 0) setImages((prev) => [...prev, ...added]);
       if (attached.length > 0) setFiles((prev) => [...prev, ...attached]);
     },
-    [t, local, setImages],
+    [t, local, setImages, setFiles],
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -681,7 +696,7 @@ export const Composer = memo(function Composer({
 
   /** The last message waiting, the app's queue's first: ↑ again takes the one before. */
   const takeBackLast = () => {
-    const last = state.queue[state.queue.length - 1];
+    const last = state.queue.findLast((item) => item.status !== "sending");
     if (last) {
       void takeBackQueued(last.id, true);
       return;
@@ -718,10 +733,12 @@ export const Composer = memo(function Composer({
             {state.queue.map((item) => (
               <QueueRow
                 key={item.id}
-                label={t("chat.queue.after_turn")}
+                label={item.status ? t(`chat.queue.${item.status}`) : t("chat.queue.after_turn")}
                 item={item}
-                onEdit={() => pullBack(item.id)}
-                onRemove={() => controller.removeQueued(item.id)}
+                onEdit={item.status !== "sending" ? () => pullBack(item.id) : undefined}
+                onRemove={
+                  item.status !== "sending" ? () => controller.removeQueued(item.id) : undefined
+                }
               />
             ))}
             {canTakeBack && (
@@ -1065,14 +1082,16 @@ function QueueRow({
   onRemove,
 }: {
   label: string;
-  item: { text: string; images: readonly ImageBlock[] };
+  item: { text: string; images: readonly ImageBlock[]; error?: string };
   onEdit?: () => void;
   onRemove?: () => void;
 }) {
   const { t } = useTranslation();
   return (
     <li className="flex items-center gap-2 rounded-(--radius-control) bg-muted px-2 py-1 text-app-ui-sm">
-      <span className="shrink-0 text-app-micro text-muted-foreground">{label}</span>
+      <span className="shrink-0 text-app-micro text-muted-foreground" title={item.error}>
+        {label}
+      </span>
       <span className="min-w-0 flex-1 truncate" title={item.text}>
         {item.text || t("chat.queue.images", { count: item.images.length })}
       </span>

@@ -56,7 +56,72 @@ function source(model: Partial<ChatModel>, history?: Partial<ChatModel>) {
   };
 }
 
+test("Claude remote user echoes wait for confirmed stdin or a taken event, including after replay", () => {
+  const clientNonce = "4df598dc-f794-42a4-b204-d43a3a137be3";
+  const id = "6745e6bb-a47f-483d-9f34-98e3fe3dcb50";
+  const user = {
+    kind: "user" as const,
+    key: "u1",
+    sentUuid: id,
+    text: "repeat",
+    state: "sent" as const,
+    images: [],
+  };
+  const base = {
+    agent: "claude" as const,
+    title: "Test",
+    chat: { ...emptyTabState(), model: { ...emptyModel(), items: [user] } },
+  };
+  const peerSubmissions = { [id]: { clientNonce, clientDeviceId: "sender" } };
+  expect(chatPageOf({ ...base, peerSubmissions }).items).toEqual([
+    { kind: "pending-peer-write", key: "u1" },
+  ]);
+  expect(
+    chatPageOf({
+      ...base,
+      peerSubmissions: { [id]: { ...peerSubmissions[id], written: true } },
+    }).items[0],
+  ).toMatchObject({ kind: "user", clientNonce, clientDeviceId: "sender", state: "sent" });
+  expect(
+    chatPageOf({
+      ...base,
+      peerSubmissions,
+      chat: {
+        ...base.chat,
+        model: {
+          ...base.chat.model,
+          items: [{ ...user, sentUuid: undefined, uuid: id, state: "taken" }],
+        },
+      },
+    }).items[0],
+  ).toMatchObject({ kind: "user", clientNonce, clientDeviceId: "sender", state: "taken" });
+});
+
 describe("a chat's page for another device", () => {
+  test("the latest Codex page finds native child calls without a parent message reference", () => {
+    const native = {
+      ...source({
+        items: [said("earlier"), said("latest")],
+        tools: {
+          a: tool("a", { parentToolUseId: "child-a" }),
+          b: tool("b", { parentToolUseId: "child-b" }),
+          unreferenced: tool("unreferenced"),
+        },
+        agentItems: {
+          "child-a": [said("first child", "a") as Extract<ChatItem, { kind: "assistant" }>],
+          "child-b": [said("second child", "b") as Extract<ChatItem, { kind: "assistant" }>],
+        },
+      }),
+      agent: "codex" as const,
+    };
+    const latest = chatPageOf(native, { limit: 1 });
+    expect(Object.keys(latest.agentItems)).toEqual(["child-a", "child-b"]);
+    expect(Object.keys(latest.tools)).toEqual(["a", "b"]);
+    const earlier = chatPageOf(native, { before: 1 });
+    expect(earlier.agentItems).toEqual({});
+    expect(earlier.tools).toEqual({});
+  });
+
   test("gives the last items, its history first, and what only this app uses is left out", () => {
     const page = chatPageOf(
       source(

@@ -47,6 +47,11 @@ import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
 import { clearPeerDraft } from "./peer-drafts";
+import {
+  beginPeerSubmission,
+  peerSubmissionHasRoom,
+  settlePeerSubmission,
+} from "./peer-submissions";
 
 /** The chat, by the device it runs on and its tab there. */
 export interface PeerChatRef {
@@ -96,6 +101,7 @@ export interface PeerComposerDeps {
   /** Its workspace's folder and its own there, for an @ from a device before 0.13.0. */
   folders?: () => PeerFolders | undefined;
   call?: typeof ipcCallResult;
+  submissionContext?: () => { selfId?: string; baseline: number; showMain?: () => void };
 }
 
 /** Where another computer's chat runs: its workspace's folder, and its own. */
@@ -195,7 +201,9 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     images: ImageBlock[] = [],
     uploads: readonly string[] = [],
     when?: "now" | "after",
-  ): Promise<void> => {
+    clientNonce?: string,
+    dispatch?: () => void,
+  ) => {
     const attachments: string[] = [];
     for (const image of images) {
       const fitted = await fitImage(image, { maxChars: ATTACH_CHARS });
@@ -209,26 +217,40 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       attachments.push(attachmentId);
     }
     attachments.push(...uploads);
-    await answerOf(
-      call("remote", "peerChatSend", {
-        ...ref,
-        text,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(when ? { when } : {}),
-      }),
-    );
+    dispatch?.();
+    return call("remote", "peerChatSend", {
+      ...ref,
+      text,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(when ? { when } : {}),
+      ...(clientNonce ? { clientNonce } : {}),
+    });
   };
+  const sendChecked = async (
+    text: string,
+    images?: ImageBlock[],
+    uploads?: readonly string[],
+    when?: "now" | "after",
+  ): Promise<void> => {
+    await answerOf(send(text, images, uploads, when));
+  };
+  const timingOf = (how: "send" | "now" | "queue") =>
+    how === "queue"
+      ? "after"
+      : how === "now" && agent === "claude" && can()?.now
+        ? "now"
+        : undefined;
   const tell = (error: Error) => deps.onError?.(error.message);
   return {
     key: `remote:${ref.deviceId}:${ref.workspaceId}:${ref.tabId}`,
     modes: CHAT_MODES[agent],
-    send: (text, images) => send(text, images),
+    send: (text, images) => sendChecked(text, images),
     // A Claude chat's ↩ waits for the tool it runs, ⌘↩ does not (as its
     // device lets it); a Codex chat's ↩ goes into the turn already.
     ...(agent === "claude"
       ? {
           sendNow: (text: string, images?: ImageBlock[]) =>
-            send(text, images, [], can()?.now ? "now" : undefined),
+            sendChecked(text, images, [], can()?.now ? "now" : undefined),
           readHeldNow: async () => {
             if (can()?.hurry) await answerOf(call("remote", "peerChatHurry", ref));
           },
@@ -238,7 +260,7 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
         }
       : {}),
     enqueue: (text, images) => {
-      void send(text, images, [], "after").catch(tell);
+      void sendChecked(text, images, [], "after").catch(tell);
     },
     removeQueued: (id) => {
       void answerOf(call("remote", "peerChatUnqueue", { ...ref, id })).catch(tell);
@@ -246,8 +268,11 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
     },
     takeBackQueued: async (id): Promise<QueuedMessage> => {
       // Its images read first: once it is taken back, that device has them no more.
-      const count = deps.held?.()?.find((item) => item.id === id)?.images ?? 0;
+      const item = deps.held?.()?.find((item) => item.id === id);
+      const count = item?.images ?? 0;
       const images = await heldImagesOf(call, ref, id, count);
+      if (item?.status && images.length !== count)
+        throw new Error("Could not recover all images. The queued message is still on the host.");
       const { text } = await answerOf(call("remote", "peerChatUnqueue", { ...ref, id }));
       return { id, text, images };
     },
@@ -258,17 +283,67 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
       throw new Error(filesRefused);
     },
     upload,
-    sendUploaded: (how, text, images, uploads) =>
-      send(
+    sendUploaded: (how, text, images, uploads) => sendChecked(text, images, uploads, timingOf(how)),
+    submitPeer: (how, text, images, files) => {
+      if (!peerSubmissionHasRoom(ref)) {
+        deps.onError?.(i18next.t("chat.message.peer_limit"));
+        return false;
+      }
+      const context = deps.submissionContext?.();
+      const timing = timingOf(how);
+      const clientDeviceId = can()?.clientNonce === true ? context?.selfId : undefined;
+      const entry = beginPeerSubmission(ref, {
         text,
         images,
-        uploads,
-        how === "queue"
-          ? "after"
-          : how === "now" && agent === "claude" && can()?.now
-            ? "now"
-            : undefined,
-      ),
+        files,
+        timing,
+        baseline: context?.baseline ?? 0,
+        clientDeviceId,
+      });
+      context?.showMain?.();
+      let dispatched = false;
+      const fail = (error: string, definite = false) =>
+        settlePeerSubmission(ref, entry, {
+          status: dispatched && !definite ? "unconfirmed" : "failed",
+          error,
+        });
+      void (async () => {
+        const uploads = await Promise.all(files.map(({ file }) => upload(file)));
+        const result = await send(
+          text,
+          images,
+          uploads,
+          timing,
+          clientDeviceId ? entry.nonce : undefined,
+          () => {
+            dispatched = true;
+          },
+        );
+        if (!result.ok) {
+          fail(
+            result.message,
+            [
+              "not-found",
+              "permission-denied",
+              "unsupported",
+              "invalid-args",
+              "send-rejected",
+            ].includes(result.kind),
+          );
+          return;
+        }
+        if (clientDeviceId && result.value.clientNonce !== entry.nonce) {
+          fail(i18next.t("chat.message.peer_unconfirmed"));
+          return;
+        }
+        settlePeerSubmission(ref, entry, {
+          status: "accepted",
+          heldId: result.value.heldId,
+          itemKey: result.value.itemKey,
+        });
+      })().catch((error: Error) => fail(error.message));
+      return true;
+    },
     maxAttachments: MAX_ATTACHMENTS,
     fileSuggestions,
     supports: (subtype) =>
@@ -291,6 +366,8 @@ export function peerComposerController(deps: PeerComposerDeps): ComposerControll
 export function heldQueueOf(held: ChatPanel["held"]): QueuedMessage[] {
   return (held ?? []).map((item) => ({
     id: item.id,
+    ...(item.status ? { status: item.status } : {}),
+    ...(item.error ? { error: item.error } : {}),
     text: item.truncated ? `${item.text}…` : item.text,
     images: Array.from({ length: item.images ?? 0 }, (_, index) => ({
       mediaType: "",
@@ -463,6 +540,7 @@ export function usePeerComposer({
   here,
   paneCommands = NO_COMMANDS,
   onOpened,
+  submissionContext,
 }: {
   ref: PeerChatRef;
   agent: "claude" | "codex";
@@ -484,6 +562,7 @@ export function usePeerComposer({
    * its box (/fork's prompt), for the pane to show it as a chat here does.
    */
   onOpened?: (tabId: string, draft?: string) => void;
+  submissionContext?: PeerComposerDeps["submissionContext"];
 }): PeerComposer {
   const { deviceId, workspaceId, tabId } = ref;
   const [settings, setSettings] = useState<ChatSettings | null>(null);
@@ -505,6 +584,9 @@ export function usePeerComposer({
     };
   }, [deviceId, workspaceId, tabId, active, runsWith]);
 
+  const codexThread = agent === "codex" ? model.sessionId : undefined;
+  const codexProcess = agent === "codex" ? model.process : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a Codex restart or profile move changes its capabilities
   useEffect(() => {
     if (!active) return;
     let live = true;
@@ -516,7 +598,7 @@ export function usePeerComposer({
     return () => {
       live = false;
     };
-  }, [deviceId, workspaceId, tabId, active]);
+  }, [deviceId, workspaceId, tabId, active, codexThread, codexProcess]);
 
   // The latest settings, error handler and panel, for a controller made once a chat.
   const [held] = useState<{
@@ -527,7 +609,17 @@ export function usePeerComposer({
     folders: PeerFolders | undefined;
     here: HereCommandDeps | undefined;
     onOpened: ((tabId: string, draft?: string) => void) | undefined;
-  }>({ settings: null, onError, can: undefined, queued: undefined, folders, here, onOpened });
+    submissionContext: PeerComposerDeps["submissionContext"];
+  }>({
+    settings: null,
+    onError,
+    can: undefined,
+    queued: undefined,
+    folders,
+    here,
+    onOpened,
+    submissionContext,
+  });
   held.settings = settings;
   held.onError = onError;
   held.can = panel?.can;
@@ -535,6 +627,7 @@ export function usePeerComposer({
   held.folders = folders;
   held.here = here;
   held.onOpened = onOpened;
+  held.submissionContext = submissionContext;
   const controller = useMemo(
     () =>
       peerComposerController({
@@ -548,6 +641,7 @@ export function usePeerComposer({
         can: () => held.can,
         held: () => held.queued,
         folders: () => held.folders,
+        submissionContext: () => held.submissionContext?.() ?? { baseline: 0 },
       }),
     [deviceId, workspaceId, tabId, agent, filesRefused, held],
   );

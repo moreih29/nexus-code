@@ -193,6 +193,7 @@ export interface MessageActions {
   canRewindItem?: (item: UserItem) => boolean;
   /** Absent where the conversation cannot be rewound from here. */
   onRewind?: (item: UserItem) => void;
+  onRecoverSubmission?: (itemKey: string) => void;
   /** Sends a running command or subagent to the background. */
   onBackground?: (toolUseId: string) => void;
   /** Tool calls that wait for the user to allow them, which have not started. */
@@ -852,7 +853,25 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
   const agent = useAgentContext();
   const { actions } = ctx;
   const taken = item.uuid !== undefined;
-  const { text, files } = splitAttachments(item.text);
+  const optimistic = item.optimistic;
+  const parts = splitAttachments(item.text);
+  const text = optimistic ? item.text : parts.text;
+  const files = optimistic?.fileNames ?? parts.files;
+  const status = optimistic?.status;
+  const submittedAt = optimistic?.submittedAt;
+  useEffect(() => {
+    if (!import.meta.env.DEV || submittedAt === undefined) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        performance.clearMeasures("peer-chat.submit-to-painted-frame");
+        performance.measure("peer-chat.submit-to-painted-frame", {
+          start: submittedAt,
+          end: performance.now(),
+        });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [submittedAt]);
   return (
     <div className="group/user flex flex-col items-end gap-1">
       {item.images.length > 0 && (
@@ -887,39 +906,58 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
           {text}
         </div>
       )}
-      <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
-        <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
-          <MessageTime at={item.at} />
-          <CopyButton text={item.text} />
-          {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
-            <IconButton
-              label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
-              blocked={actions.running}
-              onClick={() => actions.onRewind?.(item)}
+      {optimistic ? (
+        <div className="flex items-center gap-2 text-app-micro text-muted-foreground">
+          <span role="status" title={optimistic.error}>
+            {t(`chat.message.peer_${status}`, {
+              context: optimistic.queued ? "queued" : undefined,
+            })}
+          </span>
+          {(status === "failed" || status === "unconfirmed") && actions?.onRecoverSubmission && (
+            <button
+              type="button"
+              className="rounded-(--radius-control) px-1 text-primary hover:bg-[var(--state-hover-bg)]"
+              onClick={() => actions.onRecoverSubmission?.(item.key)}
             >
-              <RotateCcw className="size-3.5" />
-            </IconButton>
-          )}
-          {actions?.onFork && (actions.canForkItem?.(item) ?? taken) && (
-            <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
-              <GitFork className="size-3.5" />
-            </IconButton>
+              {t("chat.message.peer_recover")}
+            </button>
           )}
         </div>
-        <span
-          title={item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")}
-          role="img"
-          aria-label={
-            item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
-          }
-        >
-          {item.state === "taken" ? (
-            <CheckCheck className="size-3.5" />
-          ) : (
-            <Check className="size-3.5" />
-          )}
-        </span>
-      </div>
+      ) : (
+        <div className="flex items-center gap-1 text-app-micro text-muted-foreground">
+          <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
+            <MessageTime at={item.at} />
+            <CopyButton text={item.text} />
+            {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
+              <IconButton
+                label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
+                blocked={actions.running}
+                onClick={() => actions.onRewind?.(item)}
+              >
+                <RotateCcw className="size-3.5" />
+              </IconButton>
+            )}
+            {actions?.onFork && (actions.canForkItem?.(item) ?? taken) && (
+              <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
+                <GitFork className="size-3.5" />
+              </IconButton>
+            )}
+          </div>
+          <span
+            title={item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")}
+            role="img"
+            aria-label={
+              item.state === "taken" ? t("chat.message.taken", agent) : t("chat.message.sent")
+            }
+          >
+            {item.state === "taken" ? (
+              <CheckCheck className="size-3.5" />
+            ) : (
+              <Check className="size-3.5" />
+            )}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

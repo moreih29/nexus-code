@@ -19,6 +19,7 @@ import {
   PhotoQuota,
   type RemoteNotes,
 } from "../../../../../src/main/features/remote/notes";
+import { MAX_MESSAGE_BYTES } from "../../../../../src/main/features/remote/room";
 import {
   chatRun,
   chatRuns,
@@ -447,6 +448,32 @@ describe("serving a chat and a terminal to read", () => {
     expect(asked).toEqual([
       ["chat.page", { workspaceId: "w1", tabId: "t1", before: 40, limit: 20 }],
     ]);
+  });
+
+  test("reads the full parent page when Codex child messages alone exceed a frame", async () => {
+    const items = Array.from({ length: 200 }, (_, i) => ({
+      kind: "shell",
+      key: `parent-${i}`,
+      command: "pwd",
+    }));
+    const { s, asked } = recording(() => ({
+      start: 0,
+      total: items.length,
+      status: { agent: "codex" },
+      items,
+      tools: {},
+      tasks: {},
+      agentItems: {
+        child: [{ blocks: [{ type: "text", text: "x".repeat(MAX_MESSAGE_BYTES) }] }],
+      },
+    }));
+    const page = await serveWith(() => s)({
+      from: "d",
+      method: "chat.read",
+      params: { workspaceId: "w1", tabId: "t1", limit: 200 },
+    });
+    expect(asked).toHaveLength(1);
+    expect(page).toMatchObject({ items, agentItems: {} });
   });
 
   test("reads a terminal's last 1000 lines unless told", async () => {
@@ -1048,6 +1075,21 @@ describe("serving the conversations of the past", () => {
     ]);
   });
 
+  test("marks only peer Codex picker requests for scoped catalog reuse", async () => {
+    const { serve, asked } = historyServices();
+    await serve({
+      from: "d",
+      method: "history.list",
+      params: { workspaceId: "w1", agent: "codex", query: "build", limit: 100 },
+    });
+    expect(asked).toEqual([
+      [
+        "chat.history",
+        { workspaceId: "w1", agent: "codex", query: "build", limit: 100, peer: true },
+      ],
+    ]);
+  });
+
   test("NotFound for no such workspace or conversation", async () => {
     const params = { workspaceId: "nope", agent: "claude", sessionId: "s9" };
     await expect(
@@ -1276,6 +1318,40 @@ describe("when a message goes, and the ones held for after the turn", () => {
       ["chat.send", { ...tab, text: "now", user: true, when: "now" }],
       ["chat.send", { ...tab, text: "next", user: true }],
     ]);
+  });
+
+  test("a user nonce is scoped to the authenticated sender and echoed only on acceptance", async () => {
+    const clientNonce = "4df598dc-f794-42a4-b204-d43a3a137be3";
+    const { serve, asked } = sendServices(() => ({ itemKey: "u-57" }));
+    const params = { ...tab, text: "repeat", clientNonce, clientDeviceId: "spoofed" };
+    expect(await serve({ from: "actual", method: "chat.send", params })).toEqual({
+      at: 1000,
+      itemKey: "u-57",
+      clientNonce,
+    });
+    expect(asked).toEqual([
+      [
+        "chat.send",
+        {
+          ...tab,
+          text: "repeat",
+          user: true,
+          submission: { clientNonce, clientDeviceId: "actual" },
+        },
+      ],
+    ]);
+    const timedOut = sendServices(() => new Error("NexusCode's window did not answer"));
+    await expect(
+      timedOut.serve({ from: "actual", method: "chat.send", params }),
+    ).rejects.toMatchObject({
+      data: { outcome: "unknown" },
+    });
+    const rejected = sendServices(() => ({ rejected: "input refused" }));
+    await expect(
+      rejected.serve({ from: "actual", method: "chat.send", params }),
+    ).rejects.toMatchObject({
+      data: { outcome: "rejected" },
+    });
   });
 
   test("a held message is taken back whole, or changed; an unread one withdrawn; the unread hurried", async () => {

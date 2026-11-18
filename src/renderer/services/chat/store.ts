@@ -14,10 +14,19 @@ import { type ChatModel, emptyModel, type ImageBlock } from "./model";
  */
 export type ChatPhase = "idle" | "starting" | "ready" | "held" | "ended" | "not-found" | "failed";
 
+export interface PeerSubmission {
+  clientNonce: string;
+  clientDeviceId: string;
+  /** A Claude stdin write has returned successfully. */
+  written?: boolean;
+}
+
 export interface QueuedMessage {
   id: string;
   text: string;
   images: ImageBlock[];
+  status?: "sending" | "failed" | "unconfirmed";
+  error?: string;
   /** The agent that sent it through the nexus command, when one did. */
   from?: RelaySender;
   /**
@@ -25,6 +34,62 @@ export interface QueuedMessage {
    * if control from other computers is turned off before it goes.
    */
   device?: string;
+}
+
+/** Keeps the payload available for recovery until delivery has been confirmed. */
+export function dispatchQueuedMessage(
+  queue: readonly QueuedMessage[],
+  update: (change: (prev: ChatTabState) => ChatTabState) => void,
+  send: (item: QueuedMessage) => Promise<string | void>,
+  rejected: (error: unknown) => boolean,
+  observed: (id: string) => boolean,
+  settled: () => void,
+): void {
+  if (queue.some((item) => item.status === "sending")) return;
+  const next = queue.find((item) => !item.status);
+  if (!next) return;
+  const sending: QueuedMessage = { ...next, status: "sending" };
+  const replace = (item?: QueuedMessage) => {
+    let changed = false;
+    update((prev) => {
+      if (!prev.queue.includes(next) && !prev.queue.includes(sending)) return prev;
+      changed = true;
+      return {
+        ...prev,
+        queue: prev.queue.flatMap((entry) =>
+          entry === next || entry === sending ? (item ? [item] : []) : [entry],
+        ),
+      };
+    });
+    return changed;
+  };
+  replace(sending);
+  void send(next).then(
+    (stillHeld) => {
+      if (replace(stillHeld === next.id ? next : undefined)) settled();
+    },
+    (error: unknown) => {
+      if (observed(next.id)) {
+        if (replace()) settled();
+        return;
+      }
+      const failed = rejected(error);
+      const changed = replace({
+        ...next,
+        status: failed ? "failed" : "unconfirmed",
+        error: String(error instanceof Error ? error.message : error).slice(0, 1000),
+      });
+      if (changed && failed) settled();
+    },
+  );
+}
+
+export function clearObservedQueued(
+  state: ChatTabState,
+  observed: (id: string) => boolean,
+): ChatTabState {
+  const queue = state.queue.filter((item) => item.status !== "unconfirmed" || !observed(item.id));
+  return queue.length === state.queue.length ? state : { ...state, queue };
 }
 
 /** Text the app puts in the composer: a rewound or forked message, a command the agent list passed on. */
@@ -43,6 +108,9 @@ export interface ChatTabState {
   history: ChatModel | null;
   /** Messages the app holds until the turn ends (⌘⇧↩). */
   queue: QueuedMessage[];
+  /** Authenticated remote user submissions, keyed by the host-generated message ID. */
+  peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
+
   /** `claude --version` where the program runs. */
   version: string | null;
   /** The log dropped its oldest lines. */

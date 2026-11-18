@@ -33,7 +33,7 @@ import type {
 import { AGENT_TOOLS, jobOutputFile } from "../chat/panel";
 import { scopesOf } from "../chat/permission-scopes";
 import { withRelayed } from "../chat/relayed";
-import type { ChatTabState } from "../chat/store";
+import type { ChatTabState, PeerSubmission } from "../chat/store";
 
 /** How many items a read gives when it does not say. */
 export const DEFAULT_READ_ITEMS = 200;
@@ -50,6 +50,7 @@ export interface ChatSource {
   chat: ChatTabState;
   /** The messages other agents sent it through the nexus command, told as theirs. */
   relayed?: readonly RelayedMessage[];
+  peerSubmissions?: Readonly<Record<string, PeerSubmission>>;
   /** Its profile's plan usage as this app last heard it, as its composer's line shows it. */
   plan?: { claude?: Record<string, unknown>; codex?: CodexRateLimits };
   /**
@@ -118,7 +119,16 @@ function imageRef({ mediaType, data }: ImageBlock): ImageRef {
 export function viewItemOf(item: ChatItem): ViewItem {
   switch (item.kind) {
     case "user": {
-      const { uuid: _u, sentUuid: _s, turnId: _t, images, ...rest } = item;
+      if (item.peerWritePending) return { kind: "pending-peer-write", key: item.key };
+      const {
+        uuid: _u,
+        sentUuid: _s,
+        turnId: _t,
+        optimistic: _o,
+        peerWritePending: _p,
+        images,
+        ...rest
+      } = item;
       return { ...rest, images: images.map(imageRef) };
     }
     case "assistant": {
@@ -268,6 +278,7 @@ export function namedBy(
   items: readonly ChatItem[],
   tools: Record<string, ToolCall>,
   agentItems: Record<string, AssistantItem[]>,
+  includeNativeAgents = false,
 ): { tools: Set<string>; agents: Set<string> } {
   const named = new Set<string>();
   const agents = new Set<string>();
@@ -283,6 +294,14 @@ export function namedBy(
     }
   };
   for (const item of items) if (item.kind === "assistant") visit(item.blocks);
+  // Codex can discover a child independently of the parent messages in this page.
+  if (includeNativeAgents) {
+    for (const [id, messages] of Object.entries(agentItems)) {
+      if (agents.has(id)) continue;
+      agents.add(id);
+      for (const item of messages) visit(item.blocks);
+    }
+  }
   // A subagent's calls that its messages do not name (still streaming in) run under a named one.
   for (const tool of Object.values(tools)) {
     if (tool.parentToolUseId && named.has(tool.parentToolUseId)) named.add(tool.id);
@@ -319,22 +338,51 @@ export interface ChatWindow {
   agents: ReadonlyMap<string, AssistantItem[]>;
 }
 
+/** Correlation for this window's user rows. Changed messages retain stable objects for watch diffs. */
+const submissionsInView = new WeakMap<ChatItem, { submission: PeerSubmission; view: ChatItem }>();
+
+function withPeerSubmission(item: ChatItem, source: ChatSource): ChatItem {
+  if (item.kind !== "user") return item;
+  const id =
+    source.agent === "codex"
+      ? /^(?:h-)?u-peer-(.+)$/.exec(item.key)?.[1]
+      : (item.sentUuid ?? item.uuid);
+  const submission = id ? (source.peerSubmissions ?? source.chat.peerSubmissions)?.[id] : undefined;
+  if (!submission) return item;
+  const cached = submissionsInView.get(item);
+  if (cached?.submission === submission) return cached.view;
+  const { clientNonce, clientDeviceId } = submission;
+  const view = {
+    ...item,
+    clientNonce,
+    clientDeviceId,
+    ...(source.agent === "claude" && item.state === "sent" && !submission.written
+      ? { peerWritePending: true }
+      : {}),
+  };
+  submissionsInView.set(item, { submission, view });
+  return view;
+}
+
 export function chatWindowOf(source: ChatSource, start: number, end?: number): ChatWindow {
-  const { items, tools, agentItems } = conversationOf(source);
+  return windowOf(source, conversationOf(source), start, end);
+}
+
+function windowOf(
+  source: ChatSource,
+  { items, tools, agentItems }: ReturnType<typeof conversationOf>,
+  start: number,
+  end?: number,
+): ChatWindow {
   const total = items.length;
   const last = Math.min(end ?? total, total);
   const first = Math.min(start, last);
-  const shown = items.slice(first, last);
-  const named = namedBy(shown, tools, agentItems);
-  // Codex children can be discovered from native metadata independently of
-  // the parent messages in this page.
-  if (source.agent === "codex" && last === total) {
-    for (const id of Object.keys(agentItems)) {
-      named.agents.add(id);
-      const child = namedBy(agentItems[id] ?? [], tools, agentItems);
-      for (const tool of child.tools) named.tools.add(tool);
-    }
-  }
+  const window = items.slice(first, last);
+  const shown =
+    (source.peerSubmissions ?? source.chat.peerSubmissions)
+      ? window.map((item) => withPeerSubmission(item, source))
+      : window;
+  const named = namedBy(shown, tools, agentItems, source.agent === "codex" && last === total);
   // The reply being written names its calls before any item does.
   if (last === total) {
     for (const block of Object.values(source.chat.model.streaming?.blocks ?? {})) {
@@ -367,7 +415,7 @@ export function chatPageOf(
   const total = conversation.items.length;
   const end = Math.min(before ?? total, total);
   const count = Math.min(limit ?? DEFAULT_READ_ITEMS, MAX_READ_ITEMS);
-  const window = chatWindowOf(source, Math.max(0, end - count), end);
+  const window = windowOf(source, conversation, Math.max(0, end - count), end);
   return {
     status: chatStatusOf(source),
     start: window.start,

@@ -337,6 +337,8 @@ export async function readChat(
       })
       .catch(unavailable);
     if (fitsAsResult(page)) return page;
+    const fittedChildren = fitOversizeCodexChildren(page);
+    if (fittedChildren) return fittedChildren;
     if (page.items.length <= 1) {
       const fitted = fitPage(page);
       if (fitted) return fitted;
@@ -344,6 +346,30 @@ export async function readChat(
     }
     count = Math.max(1, Math.floor(page.items.length / 2));
   }
+}
+
+/**
+ * Native Codex children appear on the latest page regardless of its parent
+ * item count. If their messages alone exceed the frame, the existing
+ * subagent fallback can keep the parent page before it is narrowed.
+ */
+export function fitOversizeCodexChildren<P extends ChatPage>(page: P): P | null {
+  if (
+    page.status?.agent !== "codex" ||
+    page.start + page.items.length !== page.total ||
+    fitsAsResult({ agentItems: page.agentItems })
+  ) {
+    return null;
+  }
+  const parent = withoutSubagentItems(page);
+  return fitsAsResult(parent) ? parent : null;
+}
+
+function withoutSubagentItems<P extends ChatPage>(page: P): P {
+  const tools = Object.fromEntries(
+    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
+  );
+  return { ...page, tools, agentItems: {} };
 }
 
 /** The most of each tool's result a page keeps, in turn, when one item is too large to send. */
@@ -361,10 +387,8 @@ export function fitPage<P extends ChatPage>(page: P): P | null {
     const cut = { ...page, tools: cutResults(page.tools, most) };
     if (fitsAsResult(cut)) return cut;
   }
-  const mainThread = Object.fromEntries(
-    Object.entries(page.tools).filter(([, tool]) => tool.parentToolUseId === null),
-  );
-  const bare = { ...page, tools: cutResults(mainThread, 0), agentItems: {} };
+  const parent = withoutSubagentItems(page);
+  const bare = { ...parent, tools: cutResults(parent.tools, 0) };
   return fitsAsResult(bare) ? bare : null;
 }
 
@@ -435,7 +459,7 @@ export async function readTerminal(
  */
 export async function sendChat(
   services: CliServices,
-  { workspaceId, tabId, text, attachments: ids = [], when }: RpcParams<"chat.send">,
+  { workspaceId, tabId, text, attachments: ids = [], when, clientNonce }: RpcParams<"chat.send">,
   attached?: { device: string; attachments: Attachments },
   relay?: RelaySender,
 ): Promise<RpcResult<"chat.send">> {
@@ -464,7 +488,11 @@ export async function sendChat(
   const files = held.flatMap((h) => (h.kind === "file" ? [{ name: h.name, data: h.data }] : []));
   // Before it goes: what the chat shows from here on is from this message on.
   const at = services.clock.now();
-  const { heldId } = await services
+  const submission =
+    !relay && attached && clientNonce
+      ? { clientNonce, clientDeviceId: attached.device }
+      : undefined;
+  const { heldId, itemKey, rejected } = await services
     .ui("chat.send", {
       workspaceId,
       tabId,
@@ -476,10 +504,25 @@ export async function sendChat(
       ...(when ? { when } : {}),
       // Held, it is dropped if control from other computers is turned off first.
       ...(when === "after" && attached ? { device: attached.device } : {}),
+      ...(submission ? { submission } : {}),
     })
-    .catch(unavailable);
+    .catch((error: unknown) => {
+      throw new RpcFailure(
+        RpcErrorCode.Unavailable,
+        error instanceof Error ? error.message : String(error),
+        { outcome: "unknown" },
+      );
+    });
+  if (rejected !== undefined) {
+    throw new RpcFailure(RpcErrorCode.Unavailable, rejected, { outcome: "rejected" });
+  }
   attached?.attachments.drop(ids);
-  return { at, ...(heldId ? { heldId } : {}) };
+  return {
+    at,
+    ...(heldId ? { heldId } : {}),
+    ...(itemKey ? { itemKey } : {}),
+    ...(submission ? { clientNonce: submission.clientNonce } : {}),
+  };
 }
 
 /** Takes back a message a chat holds for after its turn, with its whole text. */
@@ -745,10 +788,13 @@ export async function runChatCommand(
 ): Promise<RpcResult<"chat.command">> {
   await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const bare = name.replace(/^\//, "");
+  const lower = bare.toLowerCase();
   const { commands } = await services
     .ui("chat.commands", { workspaceId, tabId })
     .catch(unavailable);
-  const command = commands.find((c) => c.name === bare || c.aliases?.includes(bare));
+  const command =
+    commands.find((c) => c.name.toLowerCase() === lower) ??
+    commands.find((c) => c.aliases?.some((alias) => alias.toLowerCase() === lower));
   if (command?.runs !== "command") {
     throw new RpcFailure(
       RpcErrorCode.InvalidParams,
@@ -1246,6 +1292,7 @@ export async function listHistory(
     .ui("chat.history", {
       workspaceId,
       agent,
+      ...(agent === "codex" ? { peer: true } : {}),
       ...(query ? { query } : {}),
       ...(limit ? { limit } : {}),
     })

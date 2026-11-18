@@ -105,8 +105,14 @@ func (p *process) withCodexContext(data []byte, context codexContext) []byte {
 		return data
 	}
 	params["additionalContext"], _ = json.Marshal(fragments)
-	request["params"], _ = json.Marshal(params)
-	result, _ := json.Marshal(request)
+	// Encode the edited request once. In particular, params may contain
+	// several MiB of image data that should not be encoded on its own first.
+	out := make(map[string]any, len(request))
+	for key, value := range request {
+		out[key] = value
+	}
+	out["params"] = params
+	result, _ := json.Marshal(out)
 	return result
 }
 
@@ -207,16 +213,17 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 		end = info.Size()
 	}
 	start := max(0, end-codexGuidanceScanBytes)
-	reader := bufio.NewReader(io.NewSectionReader(file, start, end-start))
+	lines := bufio.NewScanner(io.NewSectionReader(file, start, end-start))
+	lines.Buffer(make([]byte, 8*1024), codexGuidanceScanBytes+1)
 	if start > 0 {
-		_, _ = readLine(reader, codexGuidanceScanBytes) // partial first line
+		lines.Scan() // partial first line
 	}
 
 	latest := make(map[string]string)
 	var parent string
 	var parentEnd int64
-	for {
-		line, err := readLine(reader, codexGuidanceScanBytes)
+	for lines.Scan() {
+		line := lines.Bytes()
 		if bytes.Contains(line, []byte("session_meta")) ||
 			bytes.Contains(line, []byte("compacted")) ||
 			bytes.Contains(line, []byte("thread_rolled_back")) ||
@@ -243,9 +250,6 @@ func codexGuidanceInRollout(path string, end int64) (map[string]string, string, 
 					}
 				}
 			}
-		}
-		if err != nil {
-			break
 		}
 	}
 	return latest, parent, parentEnd

@@ -23,10 +23,68 @@ export function codexHistoryBusy(state: ChatTabState): boolean {
   );
 }
 
-export function codexTurnIds(thread: unknown): string[] | undefined {
-  const turns = (thread as { turns?: unknown } | undefined)?.turns;
-  if (!Array.isArray(turns) || !turns.every((turn) => typeof turn?.id === "string")) return;
+function turnIds(turns: unknown): string[] | undefined {
+  if (!Array.isArray(turns) || !turns.every((turn) => typeof turn?.id === "string" && turn.id))
+    return;
   return turns.map((turn) => turn.id);
+}
+
+export function codexTurnIds(thread: unknown): string[] | undefined {
+  return turnIds((thread as { turns?: unknown } | undefined)?.turns);
+}
+
+/** Fork preflight needs ordered turn IDs, without the items in each turn. */
+export interface CodexForkPages {
+  turns: string[];
+  nextCursor: string | null | undefined;
+  cursors: string[];
+}
+
+export function emptyCodexForkPages(): CodexForkPages {
+  return { turns: [], nextCursor: undefined, cursors: [] };
+}
+
+export function appendCodexForkPage(
+  previous: CodexForkPages,
+  cursor: unknown,
+  result: Record<string, unknown>,
+): CodexForkPages | undefined {
+  if (previous.nextCursor === null || cursor !== previous.nextCursor) return;
+  const ids = turnIds(result.data);
+  const nextCursor = result.nextCursor;
+  if (
+    !ids ||
+    (nextCursor !== null &&
+      (typeof nextCursor !== "string" ||
+        !nextCursor ||
+        ids.length === 0 ||
+        previous.cursors.includes(nextCursor)))
+  )
+    return;
+  const turns = [...previous.turns, ...ids];
+  if (new Set(turns).size !== turns.length) return;
+  return {
+    turns,
+    nextCursor,
+    cursors: nextCursor === null ? previous.cursors : [...previous.cursors, nextCursor],
+  };
+}
+
+export function codexForkSourceStatus(
+  threadId: string,
+  result: Record<string, unknown>,
+): string | undefined {
+  const thread = result.thread as { id?: unknown; status?: { type?: unknown } } | undefined;
+  if (thread?.id !== threadId) return;
+  const status = thread.status?.type;
+  if (
+    status === "idle" ||
+    status === "notLoaded" ||
+    status === "active" ||
+    status === "systemError"
+  ) {
+    return status;
+  }
 }
 
 export function codexForkPrefix(

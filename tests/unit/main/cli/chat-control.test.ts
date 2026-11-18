@@ -277,6 +277,23 @@ describe("chat commands and chat command", () => {
     ],
   };
 
+  test("uses the desktop composer's case-insensitive command names and aliases", async () => {
+    const app = withChat();
+    app.uiAnswers.set("chat.commands", {
+      commands: [
+        { name: "new", aliases: ["clear"], description: "New conversation", runs: "command" },
+        { name: "plan", description: "Plan mode", runs: "command" },
+      ],
+    });
+    app.uiAnswers.set("chat.command", {});
+    await nexus(app, ["chat", "command", "eeee", "/CLEAR"]);
+    await nexus(app, ["chat", "command", "eeee", "/PLAN"]);
+    expect(calls(app, "chat.command")).toEqual([
+      { ...TARGET, name: "new" },
+      { ...TARGET, name: "plan" },
+    ]);
+  });
+
   test("lists them; the agent's own goes as a message, the app's own runs", async () => {
     const app = withChat();
     app.uiAnswers.set("chat.commands", COMMANDS);

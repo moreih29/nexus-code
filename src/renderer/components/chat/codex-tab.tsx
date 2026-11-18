@@ -162,7 +162,7 @@ export function CodexTabView({ workspaceId, tabId, props, isVisible }: CodexTabV
   // started; input always goes to the conversation.
   const printRuns = usePrintRuns(workspaceId, tabId, isVisible);
   const runs = useMemo(() => printRunRows(printRuns), [printRuns]);
-  const agents = useMemo(() => [...agentsOf(model), ...runs], [model, runs]);
+  const agents = useMemo(() => [...agentsOf(steady.model), ...runs], [steady.model, runs]);
   const [shownId, setShownId] = useState<string | null>(null);
   const shown = shownId ? agents.find((run) => run.toolUseId === shownId) : undefined;
   useEffect(() => {

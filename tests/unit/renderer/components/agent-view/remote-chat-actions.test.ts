@@ -95,6 +95,7 @@ test("a fork preserves the selected prompt on the child when the reply omits the
   expect(peerContentsOf(child)).toEqual({
     text: "try again",
     images: [{ mediaType: "image/png", data: "png0" }],
+    files: [],
   });
   expect(peerContentsOf(chat).text).toBe("");
 });

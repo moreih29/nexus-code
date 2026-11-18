@@ -91,6 +91,22 @@ describe("a chat's side panel", () => {
     expect(panel).toMatchObject({ tasks: [], agents: [] });
   });
 
+  test("streams reuse changed-file summaries until the tool map changes", () => {
+    const first = chatPanelOf(source({ tools }, "codex")).changedFiles;
+    expect(chatPanelOf(source({ tools, running: true }, "codex")).changedFiles).toBe(first);
+    const added = call(
+      "new",
+      "Write",
+      { file_path: "/p/b.ts", content: "new" },
+      {
+        result: { text: "", images: [], isError: false, structured: { type: "create" } },
+      },
+    );
+    const next = chatPanelOf(source({ tools: { ...tools, new: added } }, "codex")).changedFiles;
+    expect(next).toContainEqual({ path: "/p/b.ts", added: 1, removed: 0, created: true });
+    expect(first).toHaveLength(1);
+  });
+
   test("a background run tells where its output is written: as its end said, or its start", () => {
     const bash = call(
       "bash",
@@ -235,7 +251,13 @@ describe("a chat's side panel", () => {
       can: { rewind: true, fork: true, background: true, moveNow: true },
     });
     expect(panel.moves).toEqual([{ after: "a1", profile: "work", at: 9 }]);
-    expect(panel.can).toEqual({ rewind: true, fork: true, background: true, moveNow: true });
+    expect(panel.can).toEqual({
+      rewind: true,
+      fork: true,
+      background: true,
+      moveNow: true,
+      clientNonce: true,
+    });
   });
 
   test("the messages held for after the turn, each's text cut short, and its images counted", () => {

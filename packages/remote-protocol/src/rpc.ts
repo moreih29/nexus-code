@@ -11,6 +11,7 @@ import {
   AssistantItemSchema,
   ChatPanelSchema,
   ChatStatusSchema,
+  ClientNonceSchema,
   ViewItemSchema,
   ViewTaskSchema,
   ViewToolCallSchema,
@@ -1065,6 +1066,7 @@ export const RPC_METHODS = {
     params: z.object({
       ...TabRef,
       text: z.string(),
+      clientNonce: ClientNonceSchema.optional(),
       /** Images chat.attach took and files chat.upload took, at most MAX_ATTACHMENTS. */
       attachments: z.array(z.string()).max(MAX_ATTACHMENTS).optional(),
       from: AgentSenderSchema.optional(),
@@ -1074,7 +1076,12 @@ export const RPC_METHODS = {
      * `at`: when the serving device took it, by its clock, for chat.wait's
      * `after`. `heldId`: the held message's id, when `after` held it.
      */
-    result: z.object({ at: z.number().optional(), heldId: z.string().optional() }),
+    result: z.object({
+      at: z.number().optional(),
+      heldId: z.string().optional(),
+      clientNonce: ClientNonceSchema.optional(),
+      itemKey: z.string().optional(),
+    }),
   },
   /**
    * What an @ in the chat's composer may name for `query`, as its agent

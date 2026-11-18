@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatPage, ChatPanel } from "../../../../packages/remote-protocol/src";
 import { ipcCallResult, ipcListen } from "../../ipc/client";
 import { applyUpdate, keepEarlier, withEarlier } from "./chat-model";
+import { forgetPeerSubmissions, observePeerEchoes } from "./peer-submissions";
 import type { PeerRead } from "./room";
 import { usePeerRejoins, useRemoteRoom } from "./room";
 
@@ -63,6 +64,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `round` and `rejoins` start the watch again
   useEffect(() => {
     if (!shown || !online) return;
+    const ref = { deviceId, workspaceId, tabId };
     let live = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const again = () => {
@@ -92,6 +94,16 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
           return now;
         }
         const panel = update.panel ?? now.value.panel;
+        if (update.items.length || update.panel) {
+          queueMicrotask(() => {
+            if (live)
+              observePeerEchoes(
+                ref,
+                update.items,
+                update.panel ? (update.panel.held ?? []) : undefined,
+              );
+          });
+        }
         return { status: "ready", value: panel ? { ...value, panel } : value };
       });
     });
@@ -114,6 +126,11 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         const { watchId, ...page } = result.value;
         watch.current = { id: watchId, rev: 0 };
         heardAt.current = Date.now();
+        observePeerEchoes(
+          ref,
+          page.items.map((item, i) => ({ index: page.start + i, item })),
+          page.panel?.held ?? [],
+        );
         // Watched again, the items shown before stay in front.
         setRead((now) => ({
           status: "ready",
@@ -122,6 +139,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         return;
       }
       if (result.kind === "not-found") {
+        forgetPeerSubmissions(ref);
         setRead({ status: "gone" });
         return;
       }
@@ -135,7 +153,10 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
         (result) => {
           if (!live) return;
           if (!result.ok) {
-            if (result.kind === "not-found") setRead({ status: "gone" });
+            if (result.kind === "not-found") {
+              forgetPeerSubmissions(ref);
+              setRead({ status: "gone" });
+            }
             return;
           }
           // Longer there than here, and the watch quiet: it was lost, as when the device

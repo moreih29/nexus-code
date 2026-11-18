@@ -348,6 +348,7 @@ export function tabSource(
     title: tab.title,
     chat,
     ...(tab.props.relayed ? { relayed: tab.props.relayed } : {}),
+    ...(tab.props.peerSubmissions ? { peerSubmissions: tab.props.peerSubmissions } : {}),
     ...(moves && moves.length > 0 ? { moves } : {}),
     ...(tab.type === "claude"
       ? {

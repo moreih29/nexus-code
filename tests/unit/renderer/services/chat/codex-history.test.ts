@@ -120,6 +120,37 @@ describe("Codex message history boundaries", () => {
     expect(h.model.items[0]).toMatchObject({ kind: "user", text: "prompt", rewindable: true });
   });
 
+  test("replays paginated prefix checks, requiring an unbroken cursor chain", () => {
+    const h = harness();
+    const fork = { threadId: "parent", lastTurnId: "second" };
+    const page = { threadId: "parent", itemsView: "notLoaded", sortDirection: "asc" };
+    for (const cursor of ["skipped", "second"]) {
+      h.send("read", "thread/read", { threadId: "parent", includeTurns: false });
+      h.reply("read", { thread: { id: "parent", status: { type: "idle" } } });
+      h.send("p1", "thread/turns/list", page);
+      h.reply("p1", { data: [{ id: "first" }], nextCursor: "second" });
+      h.send("p2", "thread/turns/list", { ...page, cursor });
+      h.reply("p2", { data: [{ id: "second" }], nextCursor: null });
+      h.send("fork", "thread/fork", fork);
+      h.reply("fork", { thread: { id: "copy", turns: [first, second] } });
+      expect(h.model.threadId).toBe(cursor === "skipped" ? "parent" : "copy");
+    }
+  });
+
+  test("a repeated cursor cannot establish a fork prefix", () => {
+    const h = harness();
+    const page = { threadId: "parent", itemsView: "notLoaded", sortDirection: "asc" };
+    h.send("read", "thread/read", { threadId: "parent", includeTurns: false });
+    h.reply("read", { thread: { id: "parent", status: { type: "idle" } } });
+    h.send("p1", "thread/turns/list", page);
+    h.reply("p1", { data: [{ id: "first" }], nextCursor: "second" });
+    h.send("p2", "thread/turns/list", { ...page, cursor: "second" });
+    h.reply("p2", { data: [{ id: "second" }], nextCursor: "second" });
+    h.send("fork", "thread/fork", { threadId: "parent", lastTurnId: "second" });
+    h.reply("fork", { thread: { id: "wrong", turns: [first, second] } });
+    expect(h.model.threadId).toBe("parent");
+  });
+
   test("marks existing peer items through a watch replacement at turn completion", () => {
     const h = harness();
     h.line("out", {

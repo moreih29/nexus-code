@@ -87,11 +87,10 @@ export function codexConfigSnapshot(
   const origins = record(result.origins);
   // Layers are in descending precedence. App-server writes the active user
   // layer, which may be a Codex named profile inside this Nexus profile's home.
-  const userLayer = Array.isArray(result.layers)
-    ? result.layers
-        .map(record)
-        .find((layer) => record(layer?.name)?.type === "user" && !layer?.disabledReason)
-    : undefined;
+  const enabledLayers = (Array.isArray(result.layers) ? result.layers.map(record) : []).filter(
+    (layer): layer is RecordValue => !!layer && !layer.disabledReason,
+  );
+  const userLayer = enabledLayers.find((layer) => record(layer.name)?.type === "user");
   const userConfig = record(userLayer?.config);
   const activeProfile = text(record(userLayer?.name)?.profile);
   const filePath = text(record(userLayer?.name)?.file);
@@ -148,6 +147,28 @@ export function codexConfigSnapshot(
     return tiers.length || text(config.service_tier) ? [...new Set(["default", ...tiers])] : [];
   };
 
+  // The batch sets a profile default. A trusted project or this server's
+  // flags can narrow the sandbox locally while another thread inherits
+  // broader settings from the profile. Check both scopes.
+  const workspaceWrite = record(config.sandbox_workspace_write);
+  const profileWorkspaceWrite = enabledLayers.flatMap<RecordValue>((layer) => {
+    const type = record(layer.name)?.type;
+    if (type === "project" || type === "sessionFlags") return [];
+    return record(record(layer.config)?.sandbox_workspace_write) ?? [];
+  });
+  const profileNetwork = profileWorkspaceWrite.find((value) =>
+    Object.hasOwn(value, "network_access"),
+  )?.network_access;
+  const profileRoots = profileWorkspaceWrite.find((value) =>
+    Object.hasOwn(value, "writable_roots"),
+  )?.writable_roots;
+  const widerWorkspaceWrite =
+    workspaceWrite?.network_access === true ||
+    profileNetwork === true ||
+    [workspaceWrite?.writable_roots, profileRoots].some(
+      (roots) => Array.isArray(roots) && roots.length > 0,
+    );
+
   const keys = [
     keyOf(
       "model",
@@ -166,19 +187,12 @@ export function codexConfigSnapshot(
         (Array.isArray(allowed) && allowed.includes("indexed")))
         ? [...choices[key], "indexed"]
         : choices[key];
-    const workspaceWrite = record(config.sandbox_workspace_write);
-    const widerWorkspaceWrite =
-      remote &&
-      key === "sandbox_mode" &&
-      (workspaceWrite?.network_access === true ||
-        (Array.isArray(workspaceWrite?.writable_roots) &&
-          workspaceWrite.writable_roots.length > 0));
     const options = supported.filter(
       (value) =>
         ((key === "web_search" && value === "disabled") ||
           !Array.isArray(allowed) ||
           allowed.includes(value)) &&
-        (!widerWorkspaceWrite || value !== "workspace-write"),
+        !(remote && key === "sandbox_mode" && widerWorkspaceWrite && value === "workspace-write"),
     );
     const namedPermissions =
       key === "sandbox_mode" &&

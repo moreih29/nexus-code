@@ -260,6 +260,33 @@ describe("Codex profile defaults over chat.config", () => {
     ).toThrow(CodexConfigRefusal);
   });
 
+  test("a trusted project cannot mask broader profile-wide workspace-write settings", () => {
+    const scoped = {
+      config: {
+        ...read.config,
+        sandbox_mode: "read-only",
+        sandbox_workspace_write: { network_access: false, writable_roots: [] },
+      },
+      layers: [
+        {
+          name: { type: "project" },
+          config: { sandbox_workspace_write: { network_access: false, writable_roots: [] } },
+        },
+        {
+          name: { type: "user" },
+          config: { sandbox_workspace_write: { network_access: true, writable_roots: ["/tmp"] } },
+        },
+      ],
+    };
+    const remote = codexConfigSnapshot(scoped, noRequirements, models, true);
+    expect(options(remote, "sandbox_mode")).toEqual(["read-only"]);
+    expect(() =>
+      codexConfigEdits({ changes: { sandbox_mode: "workspace-write" } }, remote, true),
+    ).toThrow(CodexConfigRefusal);
+    const local = codexConfigSnapshot(scoped, noRequirements, models, false);
+    expect(options(local, "sandbox_mode")).toContain("workspace-write");
+  });
+
   test("validates effort and service tier against the requested model", () => {
     const snapshot = codexConfigSnapshot(
       { config: { ...read.config, service_tier: null } },

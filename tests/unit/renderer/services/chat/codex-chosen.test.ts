@@ -57,7 +57,12 @@ afterEach(() => {
 function tab(
   chosen?: { model?: string; effort?: string },
   onChosen?: (pick: unknown) => void,
-  configReply?: (message: Message) => { result?: unknown; error?: unknown } | undefined,
+  configReply?: (
+    message: Message,
+  ) =>
+    | { result?: unknown; error?: unknown }
+    | Promise<{ result?: unknown; error?: unknown }>
+    | undefined,
   ref?: { workspaceId: string; tabId: string },
 ) {
   const target = {
@@ -84,7 +89,7 @@ function tab(
             : message.method === "config/read"
               ? { config: {} }
               : {};
-    queueMicrotask(() => {
+    queueMicrotask(async () => {
       if (message.method === "initialize") {
         c.receive({ seq: ++lineSeq, dir: "sys", message: { event: "start", pid: 1 } } as never);
       }
@@ -92,7 +97,7 @@ function tab(
       c.receive({
         seq: ++lineSeq,
         dir: "out",
-        message: { id: message.id, ...(configReply?.(message) ?? { result }) },
+        message: { id: message.id, ...((await configReply?.(message)) ?? { result }) },
       } as never);
     });
   };
@@ -171,6 +176,53 @@ describe("the pick a Codex tab keeps", () => {
     tabs().setChatChosen("ws-codex-chosen-store", t.id, { effort: "low" });
     tabs().setChatProfile("ws-codex-chosen-store", t.id, "work");
     expect(props()).toEqual({ cwd: "/p", profileId: "work" });
+  });
+});
+
+describe("delivering a Codex queue entry", () => {
+  test("keeps a rejected prompt and its image recoverable without retrying it", async () => {
+    let rejectDelivery!: (reply: { error: { code: number; message: string } }) => void;
+    const delivery = new Promise<{ error: { code: number; message: string } }>((resolve) => {
+      rejectDelivery = resolve;
+    });
+    const c = tab(undefined, undefined, ({ method, params }) =>
+      method === "turn/start" && params?.clientUserMessageId === "peer-queued-id"
+        ? delivery
+        : undefined,
+    );
+    await c.sendPeer("first turn", [], "first-id");
+    const images = [{ mediaType: "image/png", data: "image bytes" }];
+    expect(c.enqueue("recover me", images, undefined, "phone", "queued-id")).toBe("queued-id");
+
+    c.receive({
+      seq: ++lineSeq,
+      dir: "out",
+      message: {
+        method: "turn/completed",
+        params: { threadId: "t1", turn: { id: "turn-1", status: "completed" } },
+      },
+    } as never);
+    c.flushNow();
+    expect(c.state.queue).toMatchObject([{ id: "queued-id", status: "sending" }]);
+    expect(c.removeQueued("queued-id")).toBeUndefined();
+    expect(c.editQueued("queued-id", "changed")).toBe(false);
+    rejectDelivery({ error: { code: -32602, message: "message rejected" } });
+    await Bun.sleep(25);
+
+    expect(c.state.queue).toMatchObject([
+      {
+        id: "queued-id",
+        status: "failed",
+        error: "message rejected",
+        text: "recover me",
+        images,
+      },
+    ]);
+    expect(
+      sent.filter(({ params }) => params?.clientUserMessageId === "peer-queued-id"),
+    ).toHaveLength(1);
+    expect(c.removeQueued("queued-id")).toMatchObject({ text: "recover me", images });
+    expect(c.state.queue).toEqual([]);
   });
 });
 
@@ -493,6 +545,27 @@ describe("Codex collaboration modes", () => {
     } finally {
       closeCodexTab(workspaceId, t.id);
     }
+  });
+
+  test("a send issued while Plan is switching waits for the app-server acknowledgement", async () => {
+    const updating = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<{ result: unknown }>();
+    const c = tab(undefined, undefined, (message) => {
+      if (message.method !== "thread/settings/update") return collaborationServer(message);
+      updating.resolve();
+      return finish.promise;
+    });
+    await c.prepareSend();
+    const mode = c.setCollaborationMode("plan");
+    await updating.promise;
+    const send = c.send("plan this");
+    await Bun.sleep(5);
+    const wentBeforeAck = sent.some((message) => message.method === "turn/start");
+    finish.resolve({ result: {} });
+    await Promise.all([mode, send]);
+    expect(wentBeforeAck).toBe(false);
+    expect(sent.some((message) => message.method === "turn/start")).toBe(true);
+    expect(c.model.collaborationMode).toBe("plan");
   });
 
   test("an unsupported older host neither switches settings nor sends a prompt", async () => {

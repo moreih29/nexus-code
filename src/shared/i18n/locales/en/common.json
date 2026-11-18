@@ -856,6 +856,14 @@
       "ran": "Run in the terminal"
     },
     "message": {
+      "peer_sending": "Sending…",
+      "peer_sending_queued": "Sending to queue…",
+      "peer_accepted": "Accepted by host",
+      "peer_accepted_queued": "Queued by host",
+      "peer_failed": "Could not send",
+      "peer_unconfirmed": "Delivery unconfirmed",
+      "peer_recover": "Restore draft",
+      "peer_limit": "Restore a recent draft before sending more messages",
       "sent": "Sent",
       "taken": "Read by Claude",
       "taken_codex": "Read by Codex"
@@ -1036,6 +1044,9 @@
       "aria": "Messages waiting to be read",
       "label": "Unread",
       "after_turn": "After the turn",
+      "sending": "Sending…",
+      "failed": "Delivery failed",
+      "unconfirmed": "Delivery unconfirmed",
       "images_one": "{{count}} image",
       "images_other": "{{count}} images",
       "edit": "Edit",

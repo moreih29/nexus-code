@@ -6,6 +6,7 @@
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo } from "react";
 import { create } from "zustand";
+import type { ComposerAttachment } from "../../components/chat/composer";
 import type { ImageBlock } from "../chat/model";
 import type { ComposerDraft } from "../chat/store";
 
@@ -18,8 +19,8 @@ interface PeerChat {
 
 const keyOf = ({ deviceId, workspaceId, tabId }: PeerChat) => `${deviceId}:${workspaceId}:${tabId}`;
 
-type Contents = Pick<ComposerDraft, "text" | "images">;
-const empty: Contents = { text: "", images: [] };
+type Contents = Pick<ComposerDraft, "text" | "images"> & { files: ComposerAttachment[] };
+const empty: Contents = { text: "", images: [], files: [] };
 
 const usePeerDrafts = create<{
   drafts: Readonly<Record<string, ComposerDraft>>;
@@ -67,6 +68,27 @@ export function applyPeerDraft(chat: PeerChat): void {
         [key]: {
           text: [current.text, draft.text].filter(Boolean).join("\n"),
           images: [...current.images, ...draft.images],
+          files: current.files,
+        },
+      },
+    };
+  });
+}
+
+export function restorePeerComposition(
+  chat: PeerChat,
+  draft: { text: string; images: ImageBlock[]; files: readonly ComposerAttachment[] },
+): void {
+  const key = keyOf(chat);
+  usePeerDrafts.setState((state) => {
+    const current = state.contents[key] ?? empty;
+    return {
+      contents: {
+        ...state.contents,
+        [key]: {
+          text: [current.text, draft.text].filter(Boolean).join("\n"),
+          images: [...current.images, ...draft.images],
+          files: [...current.files, ...draft.files],
         },
       },
     };
@@ -86,7 +108,7 @@ function setContents<K extends keyof Contents>(
     const current = state.contents[key] ?? empty;
     const update = typeof action === "function" ? action(current[field]) : action;
     const next = { ...current, [field]: update };
-    if (next.text || next.images.length > 0) {
+    if (next.text || next.images.length > 0 || next.files.length > 0) {
       return { contents: { ...state.contents, [key]: next } };
     }
     const { [key]: _empty, ...contents } = state.contents;
@@ -97,6 +119,7 @@ function setContents<K extends keyof Contents>(
 export function usePeerComposition(chat: PeerChat): Contents & {
   setText: Dispatch<SetStateAction<string>>;
   setImages: Dispatch<SetStateAction<ImageBlock[]>>;
+  setFiles: Dispatch<SetStateAction<ComposerAttachment[]>>;
 } {
   const { deviceId, workspaceId, tabId } = chat;
   const key = keyOf(chat);
@@ -109,6 +132,7 @@ export function usePeerComposition(chat: PeerChat): Contents & {
     () => ({
       setText: (action: SetStateAction<string>) => setContents(key, "text", action),
       setImages: (action: SetStateAction<ImageBlock[]>) => setContents(key, "images", action),
+      setFiles: (action: SetStateAction<ComposerAttachment[]>) => setContents(key, "files", action),
     }),
     [key],
   );
