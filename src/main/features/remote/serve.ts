@@ -1155,12 +1155,12 @@ function chatFailure(error: unknown): never {
   return unavailable(error);
 }
 
-/** What rewinding a Claude chat to before one of the user's messages would undo in the files. */
+/** Whether rewinding to before a user message can restore files. */
 export async function previewChatRewind(
   services: CliServices,
   { workspaceId, tabId, itemKey }: RpcParams<"chat.rewindPreview">,
 ): Promise<RpcResult<"chat.rewindPreview">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   const preview = await services
     .ui("chat.rewindPreview", { workspaceId, tabId, itemKey })
     .catch(chatFailure);
@@ -1172,22 +1172,22 @@ export async function previewChatRewind(
   return { ...preview, filesChanged };
 }
 
-/** Rewinds a Claude chat to before one of the user's messages, as its rewind dialog does. */
+/** Rewinds a chat to before one of the user's messages. */
 export async function rewindChat(
   services: CliServices,
   { workspaceId, tabId, itemKey, files }: RpcParams<"chat.rewind">,
 ): Promise<RpcResult<"chat.rewind">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   await services.ui("chat.rewind", { workspaceId, tabId, itemKey, files }).catch(chatFailure);
   return {};
 }
 
-/** Forks a Claude chat into a new one, behind what this computer shows. */
+/** Forks a chat into a new tab in the background. */
 export async function forkChat(
   services: CliServices,
   { workspaceId, tabId, itemKey }: RpcParams<"chat.fork">,
 ): Promise<RpcResult<"chat.fork">> {
-  await tabOf(services, workspaceId, tabId, ["claude"]);
+  await tabOf(services, workspaceId, tabId, ["claude", "codex"]);
   return services
     .ui("chat.fork", { workspaceId, tabId, ...(itemKey ? { itemKey } : {}) })
     .catch(chatFailure);

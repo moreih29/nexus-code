@@ -160,6 +160,13 @@ interface ComposerProps {
    * not another box on the same conversation (the agent list's).
    */
   takesDraft?: boolean;
+  /** An editor that owns text and images across mounts, such as a peer chat. */
+  composition?: {
+    text: string;
+    images: ImageBlock[];
+    setText: React.Dispatch<React.SetStateAction<string>>;
+    setImages: React.Dispatch<React.SetStateAction<ImageBlock[]>>;
+  };
 }
 
 type ChipProps = Pick<ComposerProps, "controller" | "state">;
@@ -214,12 +221,19 @@ export const Composer = memo(function Composer({
   appCommands = true,
   commands: ownCommands,
   takesDraft = true,
+  composition,
 }: ComposerProps) {
   const { t } = useTranslation();
   const agent = useAgentContext();
   const program = useContext(ChatAgentContext);
-  const [text, setText] = useState("");
-  const [images, setImages] = useState<ImageBlock[]>([]);
+  const [localText, setLocalText] = useState("");
+  const [localImages, setLocalImages] = useState<ImageBlock[]>([]);
+  const { text, images, setText, setImages } = composition ?? {
+    text: localText,
+    images: localImages,
+    setText: setLocalText,
+    setImages: setLocalImages,
+  };
   const [files, setFiles] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
@@ -502,7 +516,7 @@ export const Composer = memo(function Composer({
       if (added.length > 0) setImages((prev) => [...prev, ...added]);
       if (attached.length > 0) setFiles((prev) => [...prev, ...attached]);
     },
-    [t, local],
+    [t, local, setImages],
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -617,7 +631,7 @@ export const Composer = memo(function Composer({
     setImages((prev) => [...prev, ...draft.images]);
     areaRef.current?.focus();
     controller.clearDraft();
-  }, [draft, controller]);
+  }, [draft, controller, setText, setImages]);
 
   /**
    * A message taken back into the box: before what is typed with the caret

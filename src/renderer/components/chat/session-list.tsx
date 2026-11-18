@@ -26,6 +26,7 @@ import {
   useSessionTabs,
   withTranscriptSizes,
 } from "../../services/chat/sessions";
+import { codexThreads } from "../../services/remote/history";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { cn } from "../../utils/cn";
 import { formatBytes } from "../../utils/format-bytes";
@@ -77,14 +78,15 @@ export function SessionList(props: ListProps & { cwd: string }) {
 }
 
 /** A Codex tab's: the threads its profile's Codex keeps of the folder. */
-export function CodexSessionList(props: ListProps & { controller: CodexController }) {
-  const { controller, profileId, workspaceId } = props;
+export function CodexSessionList(props: ListProps & { controller: CodexController; cwd: string }) {
+  const { controller, profileId, workspaceId, cwd } = props;
+  const config = useAgentProfilesStore((s) => s.config);
+  const profileIds = useMemo(() => profilesOf(config, "codex").map((p) => p.id), [config]);
   const [listed, setListed] = useState<ListedSession[] | null>(null);
   useEffect(() => {
     let live = true;
-    controller.listThreads().then(
-      (threads) => {
-        const sessions = threads.map((thread) => ({ ...thread, profileId }));
+    void codexThreads(workspaceId, cwd, profileIds, controller).then(
+      (sessions) => {
         if (!live) return;
         setListed(sessions);
         // Their sizes after: Codex's list has their files, not how big they are.
@@ -98,7 +100,7 @@ export function CodexSessionList(props: ListProps & { controller: CodexControlle
     return () => {
       live = false;
     };
-  }, [controller, profileId, workspaceId]);
+  }, [controller, workspaceId, cwd, profileIds]);
   const openIn = useCodexThreadTabs(props.workspaceId, props.tabId);
   return (
     <SessionPicker
@@ -107,6 +109,7 @@ export function CodexSessionList(props: ListProps & { controller: CodexControlle
       listed={listed}
       openIn={openIn}
       onDelete={(session) => controller.deleteThread(session.sessionId)}
+      canDelete={(session) => session.profileId === profileId}
     />
   );
 }
@@ -126,6 +129,7 @@ export function SessionPicker({
   onClose,
   exceptSessionId,
   onDelete,
+  canDelete,
   profiles: theirProfiles,
   onShowTab,
 }: ListProps & {
@@ -136,6 +140,7 @@ export function SessionPicker({
   openIn: ReadonlyMap<string, string>;
   /** Deletes one; none for a list whose sessions cannot be. */
   onDelete?: DeleteSession;
+  canDelete?: (session: ListedSession) => boolean;
   /** The profiles the sessions are kept by, where they are not this app's (another computer's). */
   profiles?: readonly AgentProfile[];
   /** Shows the tab a session is open in, where it is not one of this app's (another computer's). */
@@ -365,6 +370,7 @@ export function SessionPicker({
                 </span>
               </button>
               {onDelete &&
+                (canDelete?.(session) ?? true) &&
                 (tab ? (
                   // One open in a tab is not deleted under it; the space keeps the rows' ends in line.
                   <span aria-hidden className="size-6 shrink-0" />

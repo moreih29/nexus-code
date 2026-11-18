@@ -29,6 +29,9 @@ export const UserItemSchema = z.object({
   state: z.enum(["sent", "taken"]),
   /** Written during a turn and not read yet: it waits above the composer. */
   queued: z.boolean().optional(),
+  /** Codex turn boundary before this message. */
+  forkable: z.boolean().optional(),
+  rewindable: z.boolean().optional(),
   at,
 });
 
@@ -43,6 +46,8 @@ export const AssistantItemSchema = z.object({
   key: z.string(),
   messageId: z.string(),
   blocks: z.array(AssistantBlockSchema),
+  /** Codex turn boundary after this answer. */
+  forkable: z.boolean().optional(),
   at,
 });
 export type ViewAssistantItem = z.infer<typeof AssistantItemSchema>;
@@ -292,6 +297,7 @@ export const ViewTodoSchema = z.object({
 export const ViewAgentRowSchema = z.object({
   toolUseId: z.string(),
   description: z.string(),
+  prompt: z.string().optional(),
   /** running, completed, failed or stopped. */
   status: z.string(),
   startedAt: z.number().optional(),
@@ -469,6 +475,8 @@ export const ChatPanelSchema = z.object({
       moveNow: z.boolean().optional(),
       /** Work its MCP servers: sign in, connect again, turn on or off (chat.mcp). Since 0.13.0. */
       mcp: z.boolean().optional(),
+      /** Refresh Codex MCP inventory with chat.command (mcp refresh). */
+      mcpStatus: z.boolean().optional(),
       /** Read and change its Claude Code settings, or a Codex chat's defaults (chat.config). Since 0.13.0. */
       config: z.boolean().optional(),
     })

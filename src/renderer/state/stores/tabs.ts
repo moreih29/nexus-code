@@ -7,6 +7,7 @@ import { type RelayedMessage, withRelayedMessage } from "../../../shared/chat/re
 import type { ShellChoice } from "../../../shared/pty/shell";
 import {
   type ChatChosen,
+  type CodexFork,
   type NoteTabProps,
   PROFILE_MOVES_KEPT,
   type ProfileMove,
@@ -80,7 +81,7 @@ export interface CodexTabProps {
    * The thread a tab opened as a fork copies, until the copy has its own id
    * (/fork); one another profile keeps names it (`profileId`).
    */
-  fork?: { threadId: string; title?: string; profileId?: string };
+  fork?: CodexFork;
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
   /** Where the conversation went on in another profile. */

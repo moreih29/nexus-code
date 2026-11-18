@@ -38,7 +38,12 @@ function num(value: unknown): number | undefined {
 export const AGENT_TOOLS = new Set(["Agent", "Task"]);
 
 /** Task types that are agents, shown in the strip and 에이전트, not 작업. */
-const AGENT_TASK_TYPES = new Set(["local_agent", "remote_agent", "in_process_teammate"]);
+const AGENT_TASK_TYPES = new Set([
+  "local_agent",
+  "remote_agent",
+  "in_process_teammate",
+  "codex_subagent",
+]);
 
 export type AgentStatus = "running" | "completed" | "failed" | "stopped";
 
@@ -159,7 +164,7 @@ export function agentsOf(
     }
     rows.push({
       toolUseId,
-      taskId: task?.taskId,
+      taskId: task?.type === "codex_subagent" ? undefined : task?.taskId,
       description: task?.description || str(input.description) || tool?.name || "",
       subagentType: task?.subagentType ?? str(input.subagent_type),
       model: str(structured?.resolvedModel) ?? str(input.model),

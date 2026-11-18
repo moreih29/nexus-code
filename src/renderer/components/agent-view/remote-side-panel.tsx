@@ -15,6 +15,7 @@ import { ExternalLink, FileText, GitFork, MessageSquare, RefreshCw } from "lucid
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatPanel } from "../../../../packages/remote-protocol/src/view";
+import { useNow } from "../../hooks/use-now";
 import type { ChatModel, ToolCall } from "../../services/chat/model";
 import {
   type AgentRow,
@@ -68,19 +69,26 @@ export interface RemotePanelAsk {
   id?: string;
 }
 
-/**
- * The part of the panel a bare /status, /context, /usage or /mcp shows; null for
- * another. A Codex chat has no side panel, as its tab here has none: its
- * /status is a card.
- */
-export function remotePanelPartOf(
-  text: string,
-  agent: "claude" | "codex" = "claude",
-): RemotePanelPart | null {
-  const match = /^\/(status|context|usage|mcp)\s*$/i.exec(text.trim());
-  const part = match?.[1]?.toLowerCase() as RemotePanelPart | undefined;
-  if (!part || agent === "codex") return null;
-  return part;
+/** The panel section a bare command reveals. */
+export function remotePanelPartOf(text: string): RemotePanelPart | null {
+  const match = /^\/(status|context|usage|mcp)$/i.exec(text.trim());
+  return (match?.[1]?.toLowerCase() as RemotePanelPart | undefined) ?? null;
+}
+
+/** Jobs, agents, checklist and context shown when the pane gets narrow. */
+export function panelSummaryCounts(panel: ChatPanel | undefined, agents: readonly AgentRow[]) {
+  const todos = panel?.todos ?? [];
+  const context = panel?.context;
+  return {
+    jobs: (panel?.tasks ?? []).filter((job) => job.status === "running").length,
+    agents: agents.filter((agent) => agent.status === "running").length,
+    todos: todos.length
+      ? { done: todos.filter((todo) => todo.status === "completed").length, total: todos.length }
+      : null,
+    contextPercent: context
+      ? Math.min(100, Math.round((context.usedTokens / context.maxTokens) * 100))
+      : null,
+  };
 }
 
 const AGENT_STATUSES: ReadonlySet<string> = new Set(["running", "completed", "failed", "stopped"]);
@@ -108,6 +116,7 @@ export function remoteAgentsOf(panel: ChatPanel | undefined, model: ChatModel): 
       ...(seen ?? { toolCount: 0, teammate: false }),
       toolUseId: agent.toolUseId,
       description: agent.description || seen?.description || "",
+      ...(agent.prompt ? { prompt: agent.prompt } : {}),
       status,
       ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
       ...(agent.endedAt !== undefined ? { endedAt: agent.endedAt } : {}),
@@ -118,6 +127,86 @@ export function remoteAgentsOf(panel: ChatPanel | undefined, model: ChatModel): 
 
 export function RemoteSidePanel({
   target,
+  ...props
+}: Omit<SessionPanelProps, "scope" | "mcp" | "onRefreshAccount" | "contextUsed" | "branch"> & {
+  target: RemoteTarget;
+  onRefreshMcp?: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const { panel, controls, reveal, onRefreshMcp, ...rest } = props;
+  const codex = target.kind === "codex";
+  return (
+    <SessionSidePanel
+      {...rest}
+      panel={panel}
+      controls={controls}
+      reveal={reveal}
+      scope={{
+        agent: codex ? "codex" : "claude",
+        foldKey: `remote:${target.deviceId}:${target.workspaceId}:${target.tabId}`,
+        computer: target.deviceName,
+        cwd: target.cwd ?? target.path,
+        rootPath: target.path,
+        workspaceId: peerWorkspaceId(target.deviceId, target.workspaceId),
+        profile: target.profile ? peerProfileName(target.profile, t) : undefined,
+      }}
+      mcp={
+        codex ? (
+          <CodexPanelMcp
+            servers={panel?.mcp}
+            onRefresh={onRefreshMcp}
+            reveal={reveal?.part === "mcp" ? reveal.seq : undefined}
+          />
+        ) : panel?.mcp ? (
+          <RemoteMcp
+            target={target}
+            servers={panel.mcp}
+            controls={controls && panel.can?.mcp === true}
+            reveal={reveal?.part === "mcp" ? reveal.seq : undefined}
+          />
+        ) : undefined
+      }
+      testId="remote-side-panel"
+    />
+  );
+}
+
+interface SessionPanelProps {
+  scope: {
+    agent: "claude" | "codex";
+    foldKey: string;
+    computer: string;
+    cwd: string;
+    rootPath: string;
+    workspaceId: string;
+    profile?: string;
+  };
+  panel: ChatPanel | undefined;
+  model: ChatModel;
+  runs?: readonly AgentRow[];
+  controls: boolean;
+  onShowAgent: (toolUseId: string) => void;
+  onShowCall?: (toolUseId: string) => void;
+  onCompact?: () => void | Promise<void>;
+  onStopTask?: (taskId: string) => void;
+  onStopRun?: (runId: string) => void;
+  onBackground?: (toolUseId: string) => void;
+  onRemoteControl?: (enabled: boolean) => Promise<void>;
+  onForkSession?: () => void;
+  onRefreshAccount?: () => Promise<void>;
+  reveal?: RemotePanelAsk | null;
+  goal?: TabGoal | null;
+  signedOut?: boolean;
+  contextUsed?: number;
+  branch?: string | null;
+  mcp?: React.ReactNode;
+  className?: string;
+  testId?: string;
+}
+
+/** The common panel sections for a peer's chat and a Codex tab here. */
+export function SessionSidePanel({
+  scope,
   panel,
   model,
   runs = [],
@@ -130,41 +219,20 @@ export function RemoteSidePanel({
   onBackground,
   onRemoteControl,
   onForkSession,
+  onRefreshAccount,
   reveal,
   goal,
+  signedOut,
+  contextUsed,
+  branch,
+  mcp,
   className,
-}: {
-  target: RemoteTarget;
-  /** What the computer tells of the chat's panel; none before it said. */
-  panel: ChatPanel | undefined;
-  model: ChatModel;
-  /** The `claude -p` and `codex exec` runs its session started, listed after its subagents. */
-  runs?: readonly AgentRow[];
-  /** The computer lets this one control its chats: stop a run, compact. */
-  controls: boolean;
-  onShowAgent: (toolUseId: string) => void;
-  /** Brings a call into view in the conversation, as a job's "show the call" asks. */
-  onShowCall?: (toolUseId: string) => void;
-  onCompact: () => void;
-  onStopTask: (taskId: string) => void;
-  onStopRun?: (runId: string) => void;
-  /** Sends a call its turn waits on to the background, where that computer lets this one. */
-  onBackground?: (toolUseId: string) => void;
-  /** Turns its Remote Control on or off there, where it may. */
-  onRemoteControl?: (enabled: boolean) => Promise<void>;
-  /** Forks its whole session into a new tab there, where it may. */
-  onForkSession?: () => void;
-  /**
-   * The part a bare command asked for, each ask its own seq: it opens and
-   * comes into view; with `id`, the job of that task the conversation named.
-   */
-  reveal?: RemotePanelAsk | null;
-  /** The chat's goal, while it has one, as its bar over the composer shows it. */
-  goal?: TabGoal | null;
-  className?: string;
-}) {
+  testId,
+}: SessionPanelProps) {
   const { t, i18n } = useTranslation();
   const links = useChatLinks();
+  const { agent, foldKey, computer, cwd, rootPath, workspaceId, profile } = scope;
+  const codex = agent === "codex";
   const agents = useMemo(() => [...remoteAgentsOf(panel, model), ...runs], [panel, model, runs]);
   const jobs = panel?.tasks ?? NO_JOBS;
   const todos = panel?.todos ?? [];
@@ -189,11 +257,11 @@ export function RemoteSidePanel({
     context && context.maxTokens > 0
       ? Math.min(100, Math.round((context.usedTokens / context.maxTokens) * 100))
       : null;
-  const usage = usageLineOf(panel);
+  const now = useNow(true, 60_000);
+  const usage = usageLineOf(panel, now);
   const limits = usage ? [...usage.meters, ...usage.more] : [];
   const cost = panel?.costUsd;
   const asked = (part: RemotePanelPart) => (reveal?.part === part ? reveal.seq : undefined);
-  const peerWorkspace = peerWorkspaceId(target.deviceId, target.workspaceId);
   // Its rows' handlers stay the same as the chat changes, so its list of
   // what ended draws only when that does; each reads what the chat has now.
   const latest = useRef({ model, controls, onShowAgent, onShowCall, onStopTask, onStopRun });
@@ -213,22 +281,33 @@ export function RemoteSidePanel({
       row.job?.taskId ??
       row.agent?.taskId ??
       Object.values(model.tasks).find((task) => task.toolUseId === row.key)?.taskId;
-    return taskId ? () => onStopTask(taskId) : undefined;
+    return taskId && onStopTask ? () => onStopTask(taskId) : undefined;
   }, []);
   const jobDetail = useCallback(
     (job: JobLike) => (
       <RemoteJobDetail
         job={job as ChatPanel["tasks"][number]}
         tools={latest.current.model.tools}
-        workspaceId={peerWorkspace}
-        rootPath={target.path}
+        workspaceId={workspaceId}
+        rootPath={rootPath}
         onShowCall={latest.current.onShowCall}
         onOpenFile={links?.openFile}
       />
     ),
-    [peerWorkspace, target.path, links],
+    [workspaceId, rootPath, links],
   );
   const session = panel?.session;
+  const version = session?.version ?? model.version;
+  let account = session?.account;
+  if (signedOut) account = t("chat.codex.commands.status.signed_out");
+  else if (codex && (account === "apiKey" || account === "apikey"))
+    account = t("chat.panel.env.api_key");
+  else if (codex && (account === "chatgpt" || account === "chatgptAuthTokens")) account = "ChatGPT";
+  else if (codex && account === "unknown") account = t("chat.panel.env.account_unknown");
+  const [compacting, setCompacting] = useState(false);
+  const busy = model.running || compacting;
+  const [refreshingAccount, setRefreshingAccount] = useState(false);
+  const fail = (error: Error) => showToast({ kind: "error", message: error.message });
   const remote = panel?.remoteControl;
   const [switching, setSwitching] = useState(false);
   const canRemote =
@@ -254,7 +333,7 @@ export function RemoteSidePanel({
     <aside
       className={cn("app-scrollbar flex flex-col overflow-y-auto bg-background", className)}
       aria-label={t("chat.panel.aria")}
-      data-testid="remote-side-panel"
+      data-testid={testId}
     >
       <Section title={t("chat.panel.env.title")} reveal={asked("status")}>
         {remote && (
@@ -286,18 +365,22 @@ export function RemoteSidePanel({
           </Field>
         )}
         <Field label={t("chat.panel.env.computer")}>
-          <span className="min-w-0 truncate text-app-micro" title={target.deviceName}>
-            {target.deviceName}
+          <span className="min-w-0 truncate text-app-micro" title={computer}>
+            {computer}
           </span>
         </Field>
         <Field label={t("chat.panel.env.folder")}>
-          <span
-            className="min-w-0 truncate font-mono text-app-micro"
-            title={target.cwd ?? target.path}
-          >
-            {target.cwd ?? target.path}
+          <span className="min-w-0 truncate font-mono text-app-micro" title={cwd}>
+            {cwd}
           </span>
         </Field>
+        {branch && (
+          <Field label={t("chat.panel.env.branch")}>
+            <span className="min-w-0 truncate font-mono text-app-micro" title={branch}>
+              {branch}
+            </span>
+          </Field>
+        )}
         {session?.id && (
           <Field label={t("chat.panel.env.session")}>
             <span className="min-w-0 truncate font-mono text-app-micro" title={session.id}>
@@ -316,23 +399,42 @@ export function RemoteSidePanel({
             <span className="min-w-0 truncate font-mono text-app-micro">{model.model}</span>
           </Field>
         )}
-        {session?.version && (
+        {codex && model.effort && (
+          <Field label={t("chat.codex.commands.status.effort")}>
+            <span className="min-w-0 truncate text-app-micro">{model.effort}</span>
+          </Field>
+        )}
+        {version && (
           <Field label={t("chat.panel.env.version")}>
-            <span className="font-mono text-app-micro">{session.version}</span>
+            <span className="font-mono text-app-micro">{version}</span>
           </Field>
         )}
-        {session?.account && (
+        {(account || onRefreshAccount) && (
           <Field label={t("chat.panel.env.account")}>
-            <span className="min-w-0 truncate text-app-micro" title={session.account}>
-              {session.account}
-            </span>
+            {account && (
+              <span className="min-w-0 truncate text-app-micro" title={account}>
+                {account}
+              </span>
+            )}
+            {onRefreshAccount && (
+              <IconButton
+                label={t("chat.panel.env.account_check")}
+                disabled={refreshingAccount}
+                onClick={() => {
+                  setRefreshingAccount(true);
+                  void onRefreshAccount()
+                    .catch(fail)
+                    .finally(() => setRefreshingAccount(false));
+                }}
+              >
+                <RefreshCw className="size-3" />
+              </IconButton>
+            )}
           </Field>
         )}
-        {target.profile && (
+        {profile && (
           <Field label={t("chat.panel.env.profile")}>
-            <span className="min-w-0 truncate text-app-micro">
-              {peerProfileName(target.profile, t)}
-            </span>
+            <span className="min-w-0 truncate text-app-micro">{profile}</span>
           </Field>
         )}
       </Section>
@@ -343,7 +445,9 @@ export function RemoteSidePanel({
       >
         {!context ? (
           <div className="text-app-micro text-muted-foreground">
-            {t("chat.panel.context.unknown")}
+            {contextUsed === undefined
+              ? t("chat.panel.context.unknown")
+              : t("chat.panel.context.tokens_used", { used: formatTokens(contextUsed) })}
           </div>
         ) : (
           <>
@@ -366,16 +470,26 @@ export function RemoteSidePanel({
             ))}
           </>
         )}
-        {controls && (
+        {controls && onCompact && (
           <div className="mt-1">
             <button
               type="button"
-              onClick={model.running ? undefined : onCompact}
-              aria-disabled={model.running || undefined}
-              title={model.running ? t("chat.panel.context.compact_busy") : undefined}
+              onClick={
+                busy
+                  ? undefined
+                  : () => {
+                      setCompacting(true);
+                      void Promise.resolve()
+                        .then(onCompact)
+                        .catch(fail)
+                        .finally(() => setCompacting(false));
+                    }
+              }
+              aria-disabled={busy || undefined}
+              title={busy ? t("chat.panel.context.compact_busy", { context: agent }) : undefined}
               className={cn(
                 "rounded-(--radius-control) border border-border px-2 py-0.5 text-app-ui-sm",
-                model.running
+                busy
                   ? "cursor-not-allowed opacity-40"
                   : "hover:bg-[var(--state-hover-bg)] hover:text-foreground",
               )}
@@ -431,7 +545,7 @@ export function RemoteSidePanel({
       <TodosSection todos={todos} />
       <ActivitySections
         activity={activity}
-        foldKey={`remote:${target.deviceId}:${target.workspaceId}:${target.tabId}`}
+        foldKey={foldKey}
         reveal={reveal?.part === "jobs" ? reveal : undefined}
         onOpen={openRow}
         stopOf={stopOf}
@@ -441,9 +555,9 @@ export function RemoteSidePanel({
       <ResultsSection
         items={model.items}
         tools={model.tools}
-        cwd={target.cwd ?? target.path}
-        workspaceId={peerWorkspace}
-        rootPath={target.path}
+        cwd={cwd}
+        workspaceId={workspaceId}
+        rootPath={rootPath}
       />
       <Section
         title={t("chat.panel.changed.title")}
@@ -462,20 +576,102 @@ export function RemoteSidePanel({
               created: file.created ?? madeHere.has(file.path),
               toolUseIds: [],
             }}
-            cwd={target.cwd ?? target.path}
+            cwd={cwd}
             {...(links ? { onOpen: () => links.openChange(file.path) } : {})}
           />
         ))}
       </Section>
-      {panel?.mcp && (
-        <RemoteMcp
-          target={target}
-          servers={panel.mcp}
-          controls={controls && panel.can?.mcp === true}
-          reveal={asked("mcp")}
-        />
-      )}
+      {mcp}
     </aside>
+  );
+}
+
+export function CodexPanelMcp({
+  servers,
+  onRefresh,
+  onReload,
+  onSignIn,
+  signInNames,
+  signingIn,
+  refreshKey,
+  reveal,
+}: {
+  servers?: ChatPanel["mcp"];
+  onRefresh?: () => Promise<void>;
+  onReload?: () => Promise<void>;
+  onSignIn?: (name: string) => Promise<void>;
+  signInNames?: readonly string[];
+  signingIn?: string;
+  refreshKey?: number;
+  reveal?: number;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const run = (action: () => Promise<void>) => {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    void action()
+      .catch((error: Error) => showToast({ kind: "error", message: error.message }))
+      .finally(() => {
+        pending.current = false;
+        setBusy(false);
+      });
+  };
+  return (
+    <Section
+      title={t("chat.panel.mcp.title")}
+      count={servers?.length}
+      folded
+      reveal={reveal}
+      onOpen={onRefresh ? () => run(onRefresh) : undefined}
+      openAgain={refreshKey ?? Boolean(onRefresh)}
+    >
+      {(onRefresh || onReload) && (
+        <Row>
+          {onRefresh && (
+            <IconButton
+              label={t("chat.panel.mcp.refresh")}
+              disabled={busy}
+              onClick={() => run(onRefresh)}
+            >
+              <RefreshCw className="size-3" />
+            </IconButton>
+          )}
+          {onReload && (
+            <TextButton onClick={() => run(onReload)} disabled={busy}>
+              {t("chat.panel.mcp.reload")}
+            </TextButton>
+          )}
+        </Row>
+      )}
+      {!servers?.length && (
+        <div className="text-app-micro text-muted-foreground" role="status">
+          {busy
+            ? t("chat.panel.mcp.refreshing")
+            : t(servers ? "chat.panel.mcp.none" : "chat.panel.mcp.unread")}
+        </div>
+      )}
+      {servers?.map((server) => (
+        <Row key={server.name} title={server.name}>
+          <span className="min-w-0 flex-1 truncate">{server.name}</span>
+          <span className="shrink-0 text-app-micro text-muted-foreground">
+            {signingIn === server.name
+              ? t("chat.panel.mcp.signing_in")
+              : t(`chat.panel.mcp.status.${server.status}`, { defaultValue: server.status })}
+          </span>
+          {onSignIn &&
+            signInNames?.includes(server.name) &&
+            server.status === "needs-auth" &&
+            !signingIn && (
+              <TextButton onClick={() => run(() => onSignIn(server.name))} disabled={busy}>
+                {t("chat.panel.mcp.sign_in")}
+              </TextButton>
+            )}
+        </Row>
+      ))}
+    </Section>
   );
 }
 

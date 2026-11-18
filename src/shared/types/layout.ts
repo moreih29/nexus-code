@@ -108,6 +108,8 @@ export const CodexTabPropsSchema = z.object({
   fork: z
     .object({
       threadId: z.string().max(128),
+      beforeTurnId: z.string().max(128).optional(),
+      lastTurnId: z.string().max(128).optional(),
       title: z.string().max(200).optional(),
       /** The profile that keeps the thread, where it is not the tab's. */
       profileId: z.string().max(64).optional(),
@@ -123,6 +125,7 @@ export const CodexTabPropsSchema = z.object({
   chosen: ChatChosenSchema,
 });
 export type CodexTabProps = z.infer<typeof CodexTabPropsSchema>;
+export type CodexFork = NonNullable<CodexTabProps["fork"]>;
 
 // ---------------------------------------------------------------------------
 // SerializedTab

@@ -2,7 +2,7 @@
  * What a chat's side panel shows, as another device reads it (chat.panel,
  * and chat.watch's `panel`): the to-do list, the tasks and subagents, the
  * files the chat changed, the context it fills, what it cost, and its goal;
- * a Claude chat's MCP servers, program and Remote Control too, where it
+ * MCP servers, program details and Claude Remote Control too, where it
  * went on in another profile, and what another device can do with it.
  */
 
@@ -163,18 +163,48 @@ function claudeExtrasOf(source: ChatSource): Partial<ChatPanel> {
   };
 }
 
+function codexMcpStatus(status: string, needsLogin?: boolean): string {
+  if (status === "disabled") return status;
+  if (needsLogin || status === "notLoggedIn" || status === "authenticationRequired")
+    return "needs-auth";
+  if (status === "starting") return "pending";
+  return status || "unknown";
+}
+
+function codexExtrasOf(source: ChatSource, model: CodexModel): Partial<ChatPanel> {
+  const version = model.appServerVersion ?? source.chat.version ?? model.version;
+  const session = {
+    ...(model.threadId ? { id: model.threadId } : {}),
+    ...(version ? { version } : {}),
+    ...(model.account ? { account: model.account.type } : {}),
+  };
+  return {
+    ...(Object.keys(session).length > 0 ? { session } : {}),
+    ...(model.mcpServers
+      ? {
+          mcp: model.mcpServers.map(({ name, status, needsLogin }) => ({
+            name,
+            status: codexMcpStatus(status, needsLogin),
+          })),
+        }
+      : {}),
+  };
+}
+
 export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
   const { tools, items } = conversationOf(source);
   const { model } = source.chat;
+  const codex = source.agent === "codex" ? (model as CodexModel) : null;
   const goal = shownGoalOf(source.chat);
   const planLimits = planLimitsOf(source, now);
   const moves = movesOf(source, items);
   return {
-    todos: todosOf(tools).map(({ content, status }) => ({ content, status })),
+    todos: codex?.plan ?? todosOf(tools).map(({ content, status }) => ({ content, status })),
     tasks: jobsOf(model).map((job) => viewTaskOf(job, tools)),
     agents: agentsOf(model).map((agent) => ({
       toolUseId: agent.toolUseId,
       description: agent.description,
+      ...(codex && agent.prompt ? { prompt: agent.prompt.slice(0, 8_192) } : {}),
       status: agent.status,
       ...(agent.startedAt !== undefined ? { startedAt: agent.startedAt } : {}),
       ...(agent.endedAt !== undefined ? { endedAt: agent.endedAt } : {}),
@@ -189,9 +219,9 @@ export function chatPanelOf(source: ChatSource, now = Date.now()): ChatPanel {
     ...(model.costUsd !== undefined ? { costUsd: model.costUsd } : {}),
     ...(planLimits.length > 0 ? { planLimits } : {}),
     goal: goal ? viewGoalOf(goal) : null,
-    ...(source.agent === "claude" ? claudeExtrasOf(source) : {}),
+    ...(codex ? codexExtrasOf(source, codex) : claudeExtrasOf(source)),
     ...(moves.length > 0 ? { moves } : {}),
-    ...(source.can ? { can: source.can } : {}),
+    ...(source.can ? { can: { ...source.can, ...(codex ? { mcpStatus: true } : {}) } } : {}),
     ...(source.chat.queue.length > 0 ? { held: source.chat.queue.map(heldOf) } : {}),
   };
 }

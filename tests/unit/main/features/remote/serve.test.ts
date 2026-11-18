@@ -1200,7 +1200,7 @@ describe("rewinding, forking and more of a Claude chat", () => {
     ]);
   });
 
-  test("only a Claude chat's; NotFound for an item it does not have", async () => {
+  test("Codex fork reaches the same busy guard; a missing rewind item returns NotFound", async () => {
     const { serve } = actionServices((op) =>
       op === "chat.rewind" ? new Error("no item u9 in that tab") : new Error("a turn is running"),
     );
@@ -1210,7 +1210,7 @@ describe("rewinding, forking and more of a Claude chat", () => {
         method: "chat.fork",
         params: { workspaceId: "w2", tabId: "t4" },
       }),
-    ).rejects.toMatchObject({ code: 1001 });
+    ).rejects.toMatchObject({ code: 1003 });
     await expect(
       serve({ from: "d", method: "chat.rewind", params: { ...tab, itemKey: "u9", files: false } }),
     ).rejects.toMatchObject({ code: 1001 });

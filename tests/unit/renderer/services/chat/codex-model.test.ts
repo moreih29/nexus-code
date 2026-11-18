@@ -53,6 +53,25 @@ function started(): ChatLine[] {
   ];
 }
 
+test("keeps the latest own-thread plan and ignores a child thread's plan", () => {
+  const plan = (threadId: string, steps: unknown[]) =>
+    note("turn/plan/updated", { threadId, turnId: "turn_1", plan: steps });
+  const model = run([
+    ...started(),
+    plan(T, [
+      { step: "Read the project", status: "completed" },
+      { step: "Edit", status: "inProgress" },
+    ]),
+    plan("child", [{ step: "Other work", status: "pending" }]),
+  ]);
+  expect(model.plan).toEqual([
+    { content: "Read the project", status: "completed" },
+    { content: "Edit", status: "in_progress" },
+  ]);
+  expect(run([plan(T, [])], model).plan).toEqual([]);
+  expect(nextThreadModel(model).plan).toBeUndefined();
+});
+
 function sendTurn(text: string, clientId = "c1", turnId = "turn_1"): ChatLine[] {
   return [
     inn({
@@ -751,6 +770,7 @@ describe("codex model", () => {
         value: "gpt-5.5-codex",
         displayName: "GPT-5.5 Codex",
         description: "Coding",
+        serviceTiers: ["priority"],
         fastTier: { id: "priority", description: "2x speed", isDefault: false },
         supportedEffortLevels: ["low", "high"],
       },

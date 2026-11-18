@@ -79,6 +79,12 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       heardAt.current = Date.now();
       setRead((now) => {
         if (now.status !== "ready") return now;
+        const former = now.value.panel?.session?.id;
+        const next = update.panel?.session?.id;
+        if (former && update.panel && former !== next) {
+          queueMicrotask(again);
+          return { status: "loading" };
+        }
         const value = applyUpdate(now.value, update);
         // An append with nothing to go on: something was missed.
         if (!value) {
@@ -161,6 +167,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
     const now = latest.current;
     if (loadingEarlier || now.status !== "ready" || now.value.start === 0) return;
     const before = now.value.start;
+    const sessionId = now.value.panel?.session?.id;
     setLoadingEarlier(true);
     void ipcCallResult("remote", "peerChat", {
       deviceId,
@@ -172,7 +179,7 @@ export function usePeerChat(ref: ChatRef, shown: boolean): PeerChat {
       .then((result) => {
         if (!result.ok) return;
         setRead((was) =>
-          was.status === "ready"
+          was.status === "ready" && was.value.panel?.session?.id === sessionId
             ? { status: "ready", value: withEarlier(was.value, result.value) }
             : was,
         );

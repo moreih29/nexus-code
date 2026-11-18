@@ -10,9 +10,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nexus-code/nexus-code/internal/dispatch"
@@ -54,14 +56,18 @@ type session struct {
 
 // process is one run of a tab's program.
 type process struct {
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
+	canonicalCwd string
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
 	// outputs are the stdout and stderr pipes, closed once the exit is
 	// reported, in case a process the program left behind holds them open.
 	outputs []io.Closer
 	// writeMu orders writes to stdin.
 	writeMu sync.Mutex
-	done    chan struct{}
+	// codexGuidance is used under writeMu, alongside the requests it accompanies.
+	codexGuidance    map[string]*codexGuidance
+	codexCompactions atomic.Uint64
+	done             chan struct{}
 
 	stderrMu   sync.Mutex
 	stderrTail []byte
@@ -143,7 +149,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if sess.proc != nil {
-		return StartResult{PID: sess.proc.cmd.Process.Pid, Attached: true}, nil
+		return StartResult{PID: sess.proc.cmd.Process.Pid, Attached: true, CanonicalCwd: sess.proc.canonicalCwd}, nil
 	}
 
 	// A node package's command runs as node on its script: through npm's
@@ -168,11 +174,13 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		s.dropIfEmpty(sess)
 		return nil, requestFailed("chat.start: %s", err)
 	}
+	canonicalCwd, _ := filepath.EvalSymlinks(p.Cwd)
 	proc := &process{
-		cmd:     cmd,
-		stdin:   stdin,
-		outputs: []io.Closer{stdout, stderr},
-		done:    make(chan struct{}),
+		canonicalCwd: canonicalCwd,
+		cmd:          cmd,
+		stdin:        stdin,
+		outputs:      []io.Closer{stdout, stderr},
+		done:         make(chan struct{}),
 	}
 	proc.holdTree()
 	sess.proc = proc
@@ -184,6 +192,9 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		sess.snaps = newSnapshots(p.Cwd)
 	}
 	start := map[string]any{"event": "start", "pid": cmd.Process.Pid}
+	if canonicalCwd != "" {
+		start["canonicalCwd"] = canonicalCwd
+	}
 	if p.Resumed {
 		start["resumed"] = true
 	}
@@ -200,7 +211,7 @@ func (s *Service) Start(_ context.Context, raw json.RawMessage) (any, error) {
 		proc.readStderr(stderr)
 	}()
 	go sess.wait(proc, stdoutDone, stderrDone)
-	return StartResult{PID: cmd.Process.Pid}, nil
+	return StartResult{PID: cmd.Process.Pid, CanonicalCwd: canonicalCwd}, nil
 }
 
 // Send writes one message to the tab's program and logs it.
@@ -233,8 +244,7 @@ func (s *Service) Send(_ context.Context, raw json.RawMessage) (any, error) {
 
 	// Written outside the log's lock: a program that stops reading its
 	// input must not hold up its output.
-	line.WriteByte('\n')
-	if err := proc.write(line.Bytes()); err != nil {
+	if err := proc.write(line.Bytes(), p.CodexContext); err != nil {
 		return nil, requestFailed("chat.send: %s", err)
 	}
 	return struct{}{}, nil
@@ -478,6 +488,9 @@ func (sess *session) addOutput(line []byte) {
 	sess.mu.Lock()
 	defer sess.mu.Unlock()
 	if json.Valid(line) {
+		if sess.proc != nil && isCodexCompaction(line) {
+			sess.proc.codexCompactions.Add(1)
+		}
 		sess.addLocked(DirOut, json.RawMessage(line), "")
 		if sess.snaps != nil {
 			for _, snap := range sess.snaps.take(line) {
@@ -533,10 +546,13 @@ drain:
 	}
 }
 
-func (p *process) write(data []byte) error {
+func (p *process) write(data []byte, context *codexContext) error {
 	p.writeMu.Lock()
 	defer p.writeMu.Unlock()
-	_, err := p.stdin.Write(data)
+	if context != nil {
+		data = p.withCodexContext(data, *context)
+	}
+	_, err := p.stdin.Write(append(data, '\n'))
 	return err
 }
 

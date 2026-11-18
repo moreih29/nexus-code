@@ -61,6 +61,8 @@ export interface UserItem {
   queued?: boolean;
   /** Codex: the turn it went into, which a resumed thread keeps (not `uuid`). */
   turnId?: string;
+  forkable?: boolean;
+  rewindable?: boolean;
   at?: number;
 }
 
@@ -80,6 +82,7 @@ export interface AssistantItem {
   messageId: string;
   uuid?: string;
   blocks: AssistantBlock[];
+  forkable?: boolean;
   at?: number;
 }
 
@@ -252,6 +255,8 @@ export interface ModelInfo {
   displayName?: string;
   description?: string;
   supportedEffortLevels?: string[];
+  isDefault?: boolean;
+  serviceTiers?: string[];
   fastTier?: { id: string; description?: string; isDefault: boolean };
 }
 

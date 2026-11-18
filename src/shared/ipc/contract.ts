@@ -924,6 +924,7 @@ export const ipcContract = {
             attached: z.boolean(),
             /** `codex --version`'s x.y.z; null when it could not be read. */
             version: z.string().nullable(),
+            canonicalCwd: z.string().optional(),
           }),
           z.object({
             ok: z.literal(false),

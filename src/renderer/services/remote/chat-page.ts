@@ -326,6 +326,15 @@ export function chatWindowOf(source: ChatSource, start: number, end?: number): C
   const first = Math.min(start, last);
   const shown = items.slice(first, last);
   const named = namedBy(shown, tools, agentItems);
+  // Codex children can be discovered from native metadata independently of
+  // the parent messages in this page.
+  if (source.agent === "codex" && last === total) {
+    for (const id of Object.keys(agentItems)) {
+      named.agents.add(id);
+      const child = namedBy(agentItems[id] ?? [], tools, agentItems);
+      for (const tool of child.tools) named.tools.add(tool);
+    }
+  }
   // The reply being written names its calls before any item does.
   if (last === total) {
     for (const block of Object.values(source.chat.model.streaming?.blocks ?? {})) {

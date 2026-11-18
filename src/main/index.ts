@@ -763,6 +763,7 @@ app.whenReady().then(async () => {
   // Claude tabs: their programs run through the same agents as terminals.
   chatHost = registerChatChannel({
     workspaceManager,
+    agentContext: (workspaceId, tabId) => cliFeature?.agentContextForChat(workspaceId, tabId),
     profile: (id) => findProfile(stateService, id),
     ...(isWindows() ? { windowsAgentFiles: installWindowsAgentFiles } : {}),
     onTurnStopped: (workspaceId, tabId) => claudeSetup.noteTurnStopped(workspaceId, tabId),

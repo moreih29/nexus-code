@@ -29,14 +29,14 @@ import type {
   PermissionRequest,
   UserItem,
 } from "../../services/chat/model";
-import { type AgentRow, agentTranscript } from "../../services/chat/panel";
+import { agentTranscript } from "../../services/chat/panel";
 import { registerPanelToggle } from "../../services/chat/panel-toggle";
 import type { CommandCard } from "../../services/chat/store";
 import { modelOfPage } from "../../services/remote/chat-model";
 import { remoteGoalView } from "../../services/remote/goal";
 import { usePeerChat, type WatchedChat } from "../../services/remote/peer-chat";
 import { usePeerComposer } from "../../services/remote/peer-composer";
-import { putPeerDraft } from "../../services/remote/peer-drafts";
+import { putPeerDraft, usePeerComposition } from "../../services/remote/peer-drafts";
 import { peerRunRows, usePeerRuns } from "../../services/remote/peer-runs";
 import { usePeerTerminal } from "../../services/remote/peer-terminal";
 import { peerWorkspaceId, setPeerRoot } from "../../services/remote/peer-workspace";
@@ -80,7 +80,7 @@ import { RateLimitBanner } from "../chat/rate-limit-banner";
 import { RewindDialog } from "../chat/rewind-dialog";
 import { shortPath } from "../chat/side-panel";
 import { StatusLine } from "../chat/status-line";
-import { type SummaryCounts, SummaryLine } from "../chat/summary-line";
+import { SummaryLine } from "../chat/summary-line";
 import { UsageLineView } from "../chat/usage-line";
 import { showToast } from "../ui/toast";
 import { forkPeerChat, peerRewinder } from "./remote-chat-actions";
@@ -92,6 +92,7 @@ import { RemotePrintRunPane } from "./remote-print-run-pane";
 import { peerProfileName, RemoteProfileChip } from "./remote-profile-chip";
 import { closePeerSession } from "./remote-session-actions";
 import {
+  panelSummaryCounts,
   type RemotePanelAsk,
   type RemotePanelPart,
   RemoteSidePanel,
@@ -454,34 +455,7 @@ function useRemoteGoal(
   return untimed;
 }
 
-/** What another computer's chat's one-line summary tells: as a chat here's, from its panel. */
-export function remoteSummaryCounts(
-  panel: WatchedChat["panel"],
-  agents: readonly AgentRow[],
-): SummaryCounts {
-  const todos = panel?.todos ?? [];
-  const context = panel?.context;
-  return {
-    agents: agents.filter((a) => a.status === "running").length,
-    jobs: (panel?.tasks ?? []).filter((j) => j.status === "running").length,
-    todos:
-      todos.length > 0
-        ? { done: todos.filter((todo) => todo.status === "completed").length, total: todos.length }
-        : null,
-    contextPercent:
-      context && context.maxTokens > 0
-        ? Math.round((context.usedTokens / context.maxTokens) * 100)
-        : null,
-  };
-}
-
-/**
- * Another computer's chat laid out as a chat here: the agents' strip (or,
- * narrow, the one-line summary) above the conversation or a subagent's,
- * the controls below, and a Claude chat's side panel beside it or over it
- * as a drawer, by the pane's width. A Codex chat has no side panel, as a
- * Codex tab here has none.
- */
+/** The chat, composer and side panel in the current pane. */
 function RemoteChatView({
   target,
   page,
@@ -530,13 +504,9 @@ function RemoteChatView({
       setBesideOpen(!besideOpen);
     } else setDrawerOpen((v) => !v);
   };
-  // ⌘⇧] toggles it too, while this session is in front. A Codex session has no panel.
   const togglePanelRef = useRef(togglePanel);
   togglePanelRef.current = togglePanel;
-  useEffect(
-    () => (claude ? registerPanelToggle(focusKey, () => togglePanelRef.current()) : undefined),
-    [claude, focusKey],
-  );
+  useEffect(() => registerPanelToggle(focusKey, () => togglePanelRef.current()), [focusKey]);
   useEffect(() => {
     if (place === "beside") setDrawerOpen(false);
   }, [place]);
@@ -624,6 +594,7 @@ function RemoteChatView({
   const types = usePeerTypes(deviceId);
   // Its terminal signs in the chat's profile from 0.13.1; one before signs in its default folder.
   const inProfile = usePeerSpeaks(deviceId, TERMINAL_PROFILE_SCHEMA);
+  const hasCodexCommands = usePeerSpeaks(deviceId, "0.13.0");
 
   // Rewind, fork and background, as a chat here's buttons, where its computer serves them (0.11.0).
   const running = model.running;
@@ -639,7 +610,7 @@ function RemoteChatView({
     const from = itemKey
       ? model.items.find((i) => i.kind === "user" && (i.uuid ?? i.key) === itemKey)
       : undefined;
-    void forkPeerChat(target, itemKey, from?.kind === "user" ? from.images : undefined);
+    void forkPeerChat(target, itemKey, from?.kind === "user" ? from : undefined);
   };
   const canRewind = can?.rewind === true;
   const canFork = can?.fork === true;
@@ -649,6 +620,12 @@ function RemoteChatView({
     () => ({
       running,
       canFork,
+      ...(!claude
+        ? {
+            canForkItem: (item: UserItem | AssistantItem) => item.forkable === true,
+            canRewindItem: (item: UserItem) => item.rewindable === true,
+          }
+        : {}),
       ...(canRewind ? { onRewind: (item: UserItem) => setRewinding(item) } : {}),
       ...(canFork
         ? { onFork: (item: UserItem | AssistantItem) => forkFrom.current(item.uuid ?? item.key) }
@@ -669,7 +646,7 @@ function RemoteChatView({
       waiting: new Set(asking.flatMap((p) => (p.toolUseId ? [p.toolUseId] : []))),
       taskShower: (item) => taskShower.current(item),
     }),
-    [running, canFork, canRewind, canBackground, asking, deviceId, workspaceId, tabId],
+    [running, canFork, canRewind, canBackground, claude, asking, deviceId, workspaceId, tabId],
   );
 
   // Where it went on in another of that computer's profiles, by its name there.
@@ -774,7 +751,7 @@ function RemoteChatView({
   // As a Codex tab here signs in, in a terminal of its computer, shown here: by a code, as
   // a browser here cannot reach a sign-in that waits there.
   const signInThere = () => runInPeerTerminal(target, CODEX_SIGN_IN);
-  const panel = claude ? (
+  const panel = (
     <RemoteSidePanel
       target={target}
       panel={page.panel}
@@ -783,8 +760,36 @@ function RemoteChatView({
       controls={reachable}
       onShowAgent={showAgent}
       onShowCall={showCall}
-      onCompact={() => told(ipcCallResult("remote", "peerChatSend", { ...ref, text: "/compact" }))}
-      onStopTask={(taskId) => told(ipcCallResult("remote", "peerChatStopTask", { ...ref, taskId }))}
+      onCompact={
+        claude
+          ? () => told(ipcCallResult("remote", "peerChatSend", { ...ref, text: "/compact" }))
+          : (hasCodexCommands || can?.mcpStatus) &&
+              page.status.phase === "ready" &&
+              !page.status.signedOut
+            ? () =>
+                asked(
+                  ipcCallResult("remote", "peerChatCommand", { ...ref, name: "compact", args: "" }),
+                )
+            : undefined
+      }
+      onStopTask={
+        claude
+          ? (taskId) => told(ipcCallResult("remote", "peerChatStopTask", { ...ref, taskId }))
+          : undefined
+      }
+      signedOut={page.status.signedOut}
+      onRefreshMcp={
+        can?.mcpStatus && page.status.phase === "ready" && model.process === "running"
+          ? () =>
+              asked(
+                ipcCallResult("remote", "peerChatCommand", {
+                  ...ref,
+                  name: "mcp",
+                  args: "refresh",
+                }),
+              )
+          : undefined
+      }
       onStopRun={(runId) => told(ipcCallResult("remote", "peerChatStopRun", { ...ref, runId }))}
       {...(reachable && page.panel?.remoteControl
         ? {
@@ -798,7 +803,7 @@ function RemoteChatView({
       goal={goalNow}
       className={place === "beside" ? "w-72 shrink-0 border-l border-border" : "h-full"}
     />
-  ) : null;
+  );
 
   return (
     <ImageLoaderContext.Provider value={loadImage}>
@@ -832,10 +837,10 @@ function RemoteChatView({
             />
             <div className="relative flex min-h-0 flex-1">
               <div className="flex min-w-0 flex-1 flex-col">
-                {claude && place === "summary" ? (
+                {place === "summary" ? (
                   <>
                     <SummaryLine
-                      counts={remoteSummaryCounts(page.panel, agents)}
+                      counts={panelSummaryCounts(page.panel, agents)}
                       open={drawerOpen}
                       onToggle={togglePanel}
                     />
@@ -861,7 +866,7 @@ function RemoteChatView({
                     agents={agents}
                     shown={shown ? shown.toolUseId : null}
                     onShow={showAgent}
-                    {...(claude ? { panel: { open: panelOpen, onToggle: togglePanel } } : {})}
+                    panel={{ open: panelOpen, onToggle: togglePanel }}
                   />
                 )}
                 {shown?.run ? (
@@ -921,8 +926,8 @@ function RemoteChatView({
                   />
                 )}
               </div>
-              {panel && place === "beside" && besideOpen && panel}
-              {panel && place !== "beside" && drawerOpen && (
+              {place === "beside" && besideOpen && panel}
+              {place !== "beside" && drawerOpen && (
                 <>
                   <button
                     type="button"
@@ -955,6 +960,7 @@ function RemoteChatView({
             {canRewind && (
               <RewindDialog
                 controller={rewinder}
+                conversationOnly={!claude}
                 item={rewinding}
                 cwd={target.cwd ?? target.path}
                 onClose={() => setRewinding(null)}
@@ -1012,7 +1018,11 @@ function RemoteControls({
   const paneCommands = useMemo(
     () =>
       agent === "codex"
-        ? CODEX_COMMANDS.filter((c) => c.name === "resume" || (c.name === "config" && configurable))
+        ? CODEX_COMMANDS.filter(
+            (c) =>
+              ["resume", "context", "usage"].includes(c.name) ||
+              (c.name === "config" && configurable),
+          )
         : [],
     [agent, configurable],
   );
@@ -1021,6 +1031,7 @@ function RemoteControls({
       showToast({ kind: "error", message: t("agentView.remote.failed", { message }) }),
     [t],
   );
+  const composition = usePeerComposition({ deviceId, workspaceId, tabId });
   const composer = usePeerComposer({
     ref: { deviceId, workspaceId, tabId },
     agent: target.kind === "codex" ? "codex" : "claude",
@@ -1038,7 +1049,7 @@ function RemoteControls({
           showToast({ kind: "info", message: t("agentView.remote.noChanges") });
           return undefined;
         }
-        // A Codex chat has no side panel to open: its files in a card, each to its diff.
+        // Keep Codex's /diff card, with a link to each file's diff.
         if (agent === "codex")
           return changesCard(changed, folder, t, (path) => links?.openChange(path));
         onPanelPart?.("changes");
@@ -1119,8 +1130,12 @@ function RemoteControls({
       setConfig(opened);
       return true;
     }
-    const part = onPanelPart ? remotePanelPartOf(text, agent) : null;
-    if (part && onPanelPart) {
+    const part = remotePanelPartOf(text);
+    if (
+      part &&
+      onPanelPart &&
+      (agent === "claude" || (part !== "status" && part !== "mcp") || page.panel?.can?.mcpStatus)
+    ) {
       onPanelPart(part);
       return true;
     }
@@ -1183,6 +1198,8 @@ function RemoteControls({
       <RateLimitBanner limit={limit} />
       <Composer
         controller={composer.controller}
+        composition={composition}
+        takesDraft={false}
         state={composer.state}
         local={false}
         appCommands={false}

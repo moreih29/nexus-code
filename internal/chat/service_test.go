@@ -421,6 +421,35 @@ func TestExitIsReportedWhenAChildHoldsTheOutputs(t *testing.T) {
 	}
 }
 
+func TestStartReportsCanonicalCwdFromAgentHost(t *testing.T) {
+	service := New()
+	defer service.Close()
+	root := t.TempDir()
+	target := filepath.Join(root, "project")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Skipf("symlinking a directory: %v", err)
+	}
+	canonical, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := func() StartResult {
+		return startFakeWith(t, service, "tab", nil, func(p *StartParams) {
+			p.Cwd = alias
+		})
+	}
+	if got := start(); got.CanonicalCwd != canonical {
+		t.Fatalf("start cwd = %q, want %q", got.CanonicalCwd, canonical)
+	}
+	if got := start(); !got.Attached || got.CanonicalCwd != canonical {
+		t.Fatalf("attached result = %+v, want canonical cwd %q", got, canonical)
+	}
+}
+
 func TestResetLogStartsTheReplayAtTheNewProgram(t *testing.T) {
 	service := New()
 	rec := newRecorder()

@@ -1,6 +1,6 @@
 /** A chat's side panel as another device reads it, and a watch sending it as it changes. */
 import { describe, expect, test } from "bun:test";
-import { MAX_HELD_TEXT } from "../../../../../packages/remote-protocol/src";
+import { ChatPanelSchema, MAX_HELD_TEXT } from "../../../../../packages/remote-protocol/src";
 import type { ChatModel, ToolCall } from "../../../../../src/renderer/services/chat/model";
 import { emptyModel } from "../../../../../src/renderer/services/chat/model";
 import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
@@ -188,6 +188,37 @@ describe("a chat's side panel", () => {
     for (const key of ["rateLimit", "mcp", "session", "remoteControl", "can"]) {
       expect(codex).not.toHaveProperty(key);
     }
+  });
+
+  test("Codex publishes its actual checklist, thread environment and read-only MCP inventory", () => {
+    const base = source(
+      {
+        threadId: "thread-1",
+        appServerVersion: "0.166.0",
+        account: { type: "chatgpt" },
+        plan: [{ content: "Check the changes", status: "in_progress" }],
+        mcpServers: [
+          { name: "issues", status: "failed", needsLogin: true, tools: 0 },
+          { name: "docs", status: "connected", tools: 2 },
+          { name: "off", status: "disabled", needsLogin: true, tools: 0 },
+        ],
+      },
+      "codex",
+    );
+    const before = sentOf(base, 0);
+    const withControls = { ...base, can: { rewind: false, fork: false, background: false } };
+    const after = sentOf(withControls, 0);
+    const wire = ChatPanelSchema.parse(JSON.parse(after.panel));
+    expect(wire.todos).toEqual([{ content: "Check the changes", status: "in_progress" }]);
+    expect(wire.session).toEqual({ id: "thread-1", version: "0.166.0", account: "chatgpt" });
+    expect(wire.mcp).toEqual([
+      { name: "issues", status: "needs-auth" },
+      { name: "docs", status: "connected" },
+      { name: "off", status: "disabled" },
+    ]);
+    expect(wire.can?.mcpStatus).toBe(true);
+    expect(wire.can?.mcp).toBeUndefined();
+    expect(changesOf(before, after, true)?.panel).toEqual(wire);
   });
 
   test("where it went on in another profile, by the item each move follows", () => {

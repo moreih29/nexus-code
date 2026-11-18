@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { RemoteTarget } from "../../../../../src/renderer/state/stores/remote-view";
 
-const { draftImagesOf, peerRewinder } = await import(
+const { draftImagesOf, forkPeerChat, peerRewinder } = await import(
   "../../../../../src/renderer/components/agent-view/remote-chat-actions"
 );
-const { peerDraftOf } = await import("../../../../../src/renderer/services/remote/peer-drafts");
+const { applyPeerDraft, peerContentsOf, peerDraftOf } = await import(
+  "../../../../../src/renderer/services/remote/peer-drafts"
+);
 
 interface Call {
   method: string;
@@ -31,6 +34,7 @@ beforeEach(() => {
             ? { __nexusIpcResult_a3f8b1d2: true, ok: false, kind: "unavailable", message: "gone" }
             : { mediaType: "image/png", data: `png${index}` };
         }
+        if (method === "peerChatFork") return { tabId: "copy" };
         return {};
       },
       cancel: () => {},
@@ -75,4 +79,22 @@ describe("a message's images in the draft a rewind or fork leaves here", () => {
       images: [{ mediaType: "image/png", data: "png0" }],
     });
   });
+});
+
+test("a fork preserves the selected prompt on the child when the reply omits the draft", async () => {
+  await forkPeerChat({ ...chat, kind: "codex", path: "/p", state: "idle" } as RemoteTarget, "u1", {
+    text: "try again",
+    images: [{ mediaType: "image/png", data: "", remote: ref(0) }],
+  });
+  const child = { ...chat, tabId: "copy" };
+  expect(calls.map((c) => c.method)).toEqual(["peerChatFork", "peerChatImage"]);
+  expect(peerDraftOf(child)).toMatchObject({ text: "try again" });
+  applyPeerDraft(child);
+  applyPeerDraft(child);
+  expect(peerDraftOf(child)).toBeUndefined();
+  expect(peerContentsOf(child)).toEqual({
+    text: "try again",
+    images: [{ mediaType: "image/png", data: "png0" }],
+  });
+  expect(peerContentsOf(chat).text).toBe("");
 });

@@ -189,6 +189,8 @@ export interface MessageActions {
   canFork: boolean;
   /** Absent where the conversation forks into no tab. */
   onFork?: (item: UserItem | AssistantItem) => void;
+  canForkItem?: (item: UserItem | AssistantItem) => boolean;
+  canRewindItem?: (item: UserItem) => boolean;
   /** Absent where the conversation cannot be rewound from here. */
   onRewind?: (item: UserItem) => void;
   /** Sends a running command or subagent to the background. */
@@ -889,7 +891,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
         <div className="flex items-center gap-1 opacity-0 group-focus-within/user:opacity-100 group-hover/user:opacity-100">
           <MessageTime at={item.at} />
           <CopyButton text={item.text} />
-          {actions?.onRewind && taken && (
+          {actions?.onRewind && (actions.canRewindItem?.(item) ?? taken) && (
             <IconButton
               label={actions.running ? t("chat.rewind.busy") : t("chat.rewind.action")}
               blocked={actions.running}
@@ -898,7 +900,7 @@ function UserBubble({ item, ctx }: { item: UserItem; ctx: ItemContext }) {
               <RotateCcw className="size-3.5" />
             </IconButton>
           )}
-          {actions?.onFork && taken && (
+          {actions?.onFork && (actions.canForkItem?.(item) ?? taken) && (
             <IconButton label={t("chat.fork.from_user")} onClick={() => actions.onFork?.(item)}>
               <GitFork className="size-3.5" />
             </IconButton>
@@ -940,8 +942,8 @@ function AssistantMessage({
   const forkable =
     ctx.actions?.canFork &&
     ctx.actions.onFork !== undefined &&
-    item.uuid !== undefined &&
-    item.blocks.at(-1)?.type === "text";
+    (ctx.actions.canForkItem?.(item) ??
+      (item.uuid !== undefined && item.blocks.at(-1)?.type === "text"));
   const { blocks, extras } = view;
   // Its calls went into a run an earlier message shows.
   if (blocks.length === 0 && !extras) return null;

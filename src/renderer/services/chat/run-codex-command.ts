@@ -20,13 +20,12 @@ import {
   nthAnswer,
 } from "./app-commands";
 import {
-  CODEX_COMMANDS,
   CODEX_INIT_PROMPT,
+  codexCommandsListed,
   codexSkillsOf,
   codexStatusMarkdown,
   goalCommandOf,
   goalOf,
-  mcpServersOf,
   reviewTargetOf,
 } from "./codex-commands";
 import type { CodexController } from "./codex-controller";
@@ -67,6 +66,12 @@ export async function runCodexCommand(
     case "fast":
       await runFast(controller, command.args);
       return;
+    case "plan":
+    case "default":
+      if (command.args) throw new Error(t("chat.codex.commands.collaboration.usage"));
+      await controller.setCollaborationMode(command.name);
+      showToast({ kind: "info", message: t(`chat.codex.commands.collaboration.${command.name}`) });
+      return;
     case "model":
     case "effort": {
       const plan = planChatSettings(
@@ -93,8 +98,8 @@ export async function runCodexCommand(
       const chosen = controller.inheritedChoice();
       openCodexTab(ctx.workspaceId, {
         cwd: ctx.cwd,
-        fork: { threadId, ...(shown ? { title: shown } : {}) },
-        ...(ctx.profileId ? { profileId: ctx.profileId } : {}),
+        fork: { ...controller.forkPoint(), ...(shown ? { title: shown } : {}) },
+        profileId: controller.profileId,
         ...(chosen ? { chosen } : {}),
       });
       return;
@@ -151,7 +156,8 @@ export async function runCodexCommand(
       await exportConversation(ctx, command.args);
       return;
     case "mcp":
-      await showMcp(ctx, title);
+      if (command.args === "refresh") await controller.listMcpServers();
+      else await showMcp(ctx, title);
       return;
     case "skills":
       await showSkills(ctx, title);
@@ -169,9 +175,12 @@ export async function runCodexCommand(
       return;
     }
     case "help": {
-      const lines = CODEX_COMMANDS.map(
-        (c) =>
-          `- \`/${c.name}${c.argumentHint ? ` ${c.argumentHint}` : ""}\` — ${t(`chat.codex.commands.describe.${c.name}`)}`,
+      const listed = codexCommandsListed(
+        (name) => t(`chat.codex.commands.describe.${name}`),
+        await controller.availableCollaborationModes(),
+      );
+      const lines = listed.map(
+        (c) => `- \`/${c.name}${c.argumentHint ? ` ${c.argumentHint}` : ""}\` — ${c.description}`,
       );
       controller.showCard({
         title,
@@ -327,13 +336,7 @@ async function showMcp(ctx: CodexCommandContext, title: string): Promise<void> {
   const { controller } = ctx;
   const id = controller.showCard({ title, loading: true });
   try {
-    const threadId = controller.currentThread();
-    const servers = mcpServersOf(
-      await controller.ask("mcpServerStatus/list", {
-        detail: "toolsAndAuthOnly",
-        ...(threadId ? { threadId } : {}),
-      }),
-    );
+    const servers = await controller.listMcpServers();
     controller.updateCard(id, {
       loading: false,
       sections: [

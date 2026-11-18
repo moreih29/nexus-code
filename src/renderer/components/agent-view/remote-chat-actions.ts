@@ -1,5 +1,5 @@
 /**
- * What another computer's Claude chat does from its messages, as a chat
+ * What another computer's chat does from its messages, as a chat
  * here's buttons do (chat.rewindPreview, chat.rewind, chat.fork): rewind
  * it to before one of the user's messages, or fork it into a new tab
  * there, which opens here. The message they start from comes back in the
@@ -11,7 +11,7 @@ import i18next from "i18next";
 import type { IpcResult } from "../../../shared/ipc/result";
 import { ipcCallResult } from "../../ipc/client";
 import type { ChatController } from "../../services/chat/controller";
-import type { ImageBlock } from "../../services/chat/model";
+import type { ImageBlock, UserItem } from "../../services/chat/model";
 import { putPeerDraft } from "../../services/remote/peer-drafts";
 import { type RemoteTarget, useRemoteViewStore } from "../../state/stores/remote-view";
 import { showToast } from "../ui/toast";
@@ -41,8 +41,8 @@ export async function draftImagesOf(
         workspaceId: chat.workspaceId,
         tabId: chat.tabId,
         ref: image.remote,
-      });
-      return result.ok ? { mediaType: result.value.mediaType, data: result.value.data } : null;
+      }).catch(() => null);
+      return result?.ok ? { mediaType: result.value.mediaType, data: result.value.data } : null;
     }),
   );
   return read.filter((image): image is ImageBlock => image !== null);
@@ -77,18 +77,18 @@ export function peerRewinder(chat: Chat): Pick<ChatController, "previewRewind" |
 export async function forkPeerChat(
   target: RemoteTarget,
   itemKey?: string,
-  /** The images of the message it forks from, which come back with it. */
-  images?: readonly ImageBlock[],
+  /** The selected user prompt, including the images still on its parent. */
+  user?: Pick<UserItem, "text" | "images">,
 ): Promise<void> {
   const ref = { deviceId: target.deviceId, workspaceId: target.workspaceId, tabId: target.tabId };
   try {
     const forked = await answerOf(
       ipcCallResult("remote", "peerChatFork", { ...ref, ...(itemKey ? { itemKey } : {}) }),
     );
-    // Only a message of the user's comes back as a draft.
-    const drafted = forked.draft !== undefined ? await draftImagesOf(ref, images) : [];
-    if (forked.draft || drafted.length > 0) {
-      putPeerDraft({ ...ref, tabId: forked.tabId }, forked.draft ?? "", drafted);
+    const text = forked.draft ?? user?.text;
+    const images = user ? await draftImagesOf(ref, user.images) : [];
+    if (text || images.length > 0) {
+      putPeerDraft({ ...ref, tabId: forked.tabId }, text ?? "", images);
     }
     useRemoteViewStore.getState().open({ ...target, tabId: forked.tabId, state: "idle" });
   } catch (error) {

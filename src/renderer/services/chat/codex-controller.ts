@@ -12,21 +12,38 @@ import { defaultProfileId, isDefaultProfileId } from "../../../shared/agent-prof
 import { type RelayedMessage, type RelaySender, relayedText } from "../../../shared/chat/relay";
 import { createLogger } from "../../../shared/log/renderer";
 import { CHAT_MODES } from "../../../shared/sessions/chat-modes";
-import type { ChatChosen, ProfileMove } from "../../../shared/types/layout";
+import type { ChatChosen, CodexFork, ProfileMove } from "../../../shared/types/layout";
 import { ipcCallResult, unwrapIpcResult } from "../../ipc/client";
+import { type CodexCollaborationMode, collaborationPresetsOf } from "./codex-collaboration";
+import { type CodexMcpServer, mcpServersOf } from "./codex-commands";
+import {
+  CODEX_CONFIG_PROFILE_KEY,
+  CodexConfigRefusal,
+  type CodexConfigSet,
+  codexConfigEdits,
+  codexConfigSnapshot,
+} from "./codex-config";
+import {
+  codexForkPrefix,
+  codexHistoryAvailable,
+  codexHistoryBusy,
+  codexTurnIds,
+  validCodexFork,
+} from "./codex-history";
 import {
   applyCodexLines,
   type CodexMode,
   type CodexModel,
+  codexModelsOf,
   emptyCodexModel,
   idKey,
   nextThreadModel,
   shownUserText,
 } from "./codex-model";
-import type { PermissionAnswer } from "./controller";
+import type { PermissionAnswer, RewindPreview } from "./controller";
 import { addLineReceiver } from "./controller";
 import { LiveLines } from "./live-lines";
-import type { ChatLine, ImageBlock, PermissionRequest } from "./model";
+import type { AssistantItem, ChatLine, ImageBlock, PermissionRequest, UserItem } from "./model";
 import {
   forgetPlanWait,
   ingestCodexPush,
@@ -107,7 +124,7 @@ export interface CodexTabTarget {
    * (/fork); `profileId` is the profile that keeps it, where it is not the
    * tab's (a thread gone on with in another profile).
    */
-  fork?: { threadId: string; title?: string; profileId?: string };
+  fork?: CodexFork;
   /** The agent profile its program runs with; absent = the default. */
   profileId?: string;
   /** Where the conversation went on in another profile. */
@@ -180,6 +197,14 @@ export class CodexController {
   private introduced: Promise<boolean> = Promise.resolve(true);
   private disposed = false;
   private titled = false;
+  private rewinding = false;
+  private startingTurn = false;
+  private resumingSelection = false;
+  private canonicalCwd: string | undefined;
+  private agentRefresh: ReturnType<typeof setTimeout> | undefined;
+  private readonly readingAgents = new Map<string, Promise<void>>();
+  private readonly readAgentAt = new Map<string, number>();
+  private mcpRead: object | undefined;
   /** What the user picked for the next turn. */
   private next: CodexPicks = {};
   private readonly removeReceiver: () => void;
@@ -187,6 +212,8 @@ export class CodexController {
   private readonly leavePlanUsage: () => void;
   /** Whether the program is past its handshake, where it can be asked for its limits. */
   private limitsReadable = false;
+  private collaborationProbe?: Promise<ReturnType<typeof collaborationPresetsOf>>;
+  private changingCollaboration = false;
 
   constructor(target: CodexTabTarget, hooks: CodexTabHooks = {}) {
     this.target = target;
@@ -265,13 +292,14 @@ export class CodexController {
         this.ready = Promise.resolve(this.model.threadId !== undefined);
         // The limits may have moved while no window watched, or never been read.
         this.readRateLimits();
+        this.scheduleSubagents();
       }
       return;
     }
     await this.start({});
   }
 
-  private async start(options: { resetLog?: boolean }): Promise<boolean> {
+  private async start(options: { resetLog?: boolean }, catalogOnly = false): Promise<boolean> {
     const { workspaceId, tabId, cwd, profileId } = this.target;
     this.update((prev) => ({ ...prev, phase: "starting", error: undefined }));
     let result: Awaited<ReturnType<typeof startCodex>>;
@@ -305,17 +333,21 @@ export class CodexController {
       }));
       return false;
     }
+    this.canonicalCwd = result.canonicalCwd;
     this.update((prev) => ({ ...prev, phase: "ready", version: result.version }));
     if (result.attached) {
       // A program this controller started a moment ago, whose start line has
       // not come yet: its handshake still decides.
       this.ready = this.handshaking ?? Promise.resolve(this.model.threadId !== undefined);
       this.readRateLimits();
+      void this.availableCollaborationModes();
       this.showPicks();
       return true;
     }
+    this.collaborationProbe = undefined;
     const introduced = this.introduce();
     this.introduced = introduced;
+    if (catalogOnly) return introduced;
     const handshake = this.handshake(introduced)
       .then((ok) => {
         if (ok) this.showPicks();
@@ -349,6 +381,7 @@ export class CodexController {
     if (!(await introduced)) return false;
     void this.request("account/read", {}).catch(() => {});
     void this.request("model/list", {}).catch(() => {});
+    void this.probeCollaborationModes();
     this.readRateLimits();
     const { cwd } = this.target;
     const threadId = this.model.threadId ?? this.target.threadId;
@@ -356,10 +389,7 @@ export class CodexController {
     if (!threadId && fork) {
       const staged = await this.stage(fork);
       try {
-        const forked = await this.request("thread/fork", {
-          threadId: fork.threadId,
-          cwd,
-        });
+        const forked = await this.forkThread(fork);
         const id = (forked.thread as { id?: unknown } | undefined)?.id;
         const copy = typeof id === "string" ? id : undefined;
         this.readGoal(copy);
@@ -376,7 +406,10 @@ export class CodexController {
         }
         return true;
       } catch (err) {
-        log.warn(`thread ${fork.threadId} not forked: ${(err as Error).message}`);
+        const message = (err as Error).message;
+        log.warn(`thread ${fork.threadId} not forked: ${message}`);
+        this.update((prev) => ({ ...prev, phase: "failed", error: message }));
+        return false;
       }
     }
     if (threadId) {
@@ -390,7 +423,12 @@ export class CodexController {
         this.readGoal(threadId);
         return true;
       } catch (err) {
-        log.warn(`thread ${threadId} not resumed: ${(err as Error).message}`);
+        const message = (err as Error).message;
+        log.warn(`thread ${threadId} not resumed: ${message}`);
+        if (this.resumingSelection) {
+          this.update((prev) => ({ ...prev, phase: "failed", error: message }));
+          return false;
+        }
       }
     }
     try {
@@ -399,6 +437,115 @@ export class CodexController {
     } catch (err) {
       log.warn(`thread/start failed: ${(err as Error).message}`);
       return false;
+    }
+  }
+
+  private async forkThread(fork: CodexFork): Promise<Record<string, unknown>> {
+    const { threadId, beforeTurnId, lastTurnId } = fork;
+    if (
+      (beforeTurnId || lastTurnId) &&
+      !codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)
+    ) {
+      throw new Error("This Codex version cannot fork at a turn boundary");
+    }
+    let expected: string[] | undefined;
+    if (beforeTurnId || lastTurnId) {
+      const source = await this.request("thread/read", { threadId, includeTurns: true });
+      const thread = source.thread as { id?: unknown; status?: { type?: unknown } } | undefined;
+      if (thread?.status?.type === "active") throw new Error("The source Codex thread is busy");
+      if (thread?.id === threadId) {
+        expected = codexForkPrefix(fork, codexTurnIds(source.thread));
+      }
+      if (!expected) throw new Error("Codex could not verify the source turn");
+      this.flushNow();
+      if (threadId === this.model.threadId && codexHistoryBusy(this.state)) {
+        throw new Error("The source Codex thread is busy");
+      }
+    }
+    const result = await this.request("thread/fork", {
+      threadId,
+      cwd: this.target.cwd,
+      ...(beforeTurnId ? { beforeTurnId, deferGoalContinuation: true } : {}),
+      ...(lastTurnId ? { lastTurnId, deferGoalContinuation: true } : {}),
+    });
+    if (!validCodexFork(fork, result, expected)) {
+      const copy = result.thread as { id?: unknown; forkedFromId?: unknown } | undefined;
+      if (typeof copy?.id === "string" && copy.id !== threadId && copy.forkedFromId === threadId) {
+        await this.request("thread/delete", { threadId: copy.id }).catch(() => {});
+      }
+      throw new Error("Codex returned an unexpected fork history");
+    }
+    return result;
+  }
+
+  private requireHistoryIdle(): void {
+    this.flushNow();
+    if (
+      this.rewinding ||
+      this.resumingSelection ||
+      this.startingTurn ||
+      codexHistoryBusy(this.state)
+    ) {
+      throw new Error("Wait for the current turn, approvals and queued messages to finish");
+    }
+  }
+
+  get profileId(): string {
+    return this.target.profileId ?? defaultProfileId("codex");
+  }
+
+  forkPoint(item?: UserItem | AssistantItem): CodexFork {
+    this.requireHistoryIdle();
+    const threadId = this.currentThread();
+    if (!threadId || this.model.items.length === 0) throw new Error("Codex has no history to fork");
+    if (!item) return { threadId };
+    if (!codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)) {
+      throw new Error("This Codex version cannot fork at a turn boundary");
+    }
+    const current = this.model.items.find((each) => each.key === item.key);
+    if (current?.kind === "user" && current.forkable && current.turnId) {
+      return { threadId, beforeTurnId: current.turnId };
+    }
+    if (current?.kind === "assistant" && current.forkable) {
+      return { threadId, lastTurnId: current.messageId };
+    }
+    throw new Error("This message is not at a Codex turn boundary");
+  }
+
+  async previewRewind(itemKey: string): Promise<RewindPreview> {
+    const item = this.model.items.find((each) => each.key === itemKey);
+    if (item?.kind !== "user" || !item.rewindable) {
+      throw new Error("This message is not at the start of a Codex turn");
+    }
+    this.forkPoint(item);
+    return { canRewind: false, filesChanged: [], insertions: 0, deletions: 0 };
+  }
+
+  async rewind(item: UserItem, options: { files: boolean; draft?: boolean }): Promise<void> {
+    if (options.files) throw new Error("Codex conversation rewind cannot restore files");
+    this.requireHistoryIdle();
+    await this.prepareSend();
+    const fork = this.forkPoint(item);
+    if (!fork.beforeTurnId) throw new Error("This message is not at the start of a Codex turn");
+    this.rewinding = true;
+    try {
+      const copy = await this.forkThread(fork);
+      this.flushNow();
+      const thread = copy.thread as { id: string };
+      if (this.currentThread() !== thread.id) throw new Error("Codex could not load the rewind");
+      void this.request("thread/unsubscribe", { threadId: fork.threadId }).catch(() => {});
+      this.readGoal(thread.id);
+      this.showPicks();
+      this.update((prev) => ({
+        ...prev,
+        card: undefined,
+        goalClosed: undefined,
+        ...(options.draft !== false
+          ? { draft: { text: item.text, images: item.images, nonce: Date.now() } }
+          : {}),
+      }));
+    } finally {
+      this.rewinding = false;
     }
   }
 
@@ -449,6 +596,8 @@ export class CodexController {
 
   /** Starts the program again, going on with the thread. */
   async restart(): Promise<void> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     const { workspaceId, tabId } = this.target;
     if (this.model.process === "running") {
       await ipcCallResult("chat", "stop", { workspaceId, tabId });
@@ -457,20 +606,55 @@ export class CodexController {
     await this.start({});
   }
 
+  /** Lists a profile without opening a conversation in it. */
+  static async catalog(
+    target: Omit<CodexTabTarget, "tabId">,
+  ): Promise<Omit<ListedSession, "profileId">[]> {
+    const controller = new CodexController({
+      ...target,
+      tabId: crypto.randomUUID(),
+    });
+    try {
+      if (!(await controller.start({}, true))) {
+        throw new Error(controller.state.error ?? "Codex could not list threads");
+      }
+      return await controller.readThreadList();
+    } finally {
+      await controller.close();
+    }
+  }
+
   /**
    * The folder's threads that this profile's Codex keeps, newest first
    * (thread/list), but the tab's own: for /resume and a new tab's list.
    */
   async listThreads(): Promise<Omit<ListedSession, "profileId">[]> {
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
-    const own = this.currentThread();
-    const result = await this.request("thread/list", {
-      cwd: this.target.cwd,
-      sortKey: "updated_at",
-      limit: THREAD_LIST_LIMIT,
-      ...(own ? { excludedThreadIds: [own] } : {}),
-    });
-    return threadsOf(result.data);
+    return this.readThreadList(this.currentThread());
+  }
+
+  private async readThreadList(own?: string): Promise<Omit<ListedSession, "profileId">[]> {
+    const cwd = this.target.cwd;
+    const canonical = this.canonicalCwd ?? this.model.canonicalCwd;
+    const aliases = canonical && canonical !== cwd ? [cwd, canonical] : [cwd];
+    const lists = await Promise.all(
+      aliases.map(async (directory) => {
+        const result = await this.request("thread/list", {
+          cwd: directory,
+          sortKey: "updated_at",
+          limit: THREAD_LIST_LIMIT,
+          modelProviders: [],
+          ...(own ? { excludedThreadIds: [own] } : {}),
+        });
+        return threadsOf(result.data);
+      }),
+    );
+    const seen = new Set<string>();
+    return lists
+      .flat()
+      .sort((a, b) => b.lastModified - a.lastModified)
+      .filter((thread) => !seen.has(thread.sessionId) && seen.add(thread.sessionId))
+      .slice(0, THREAD_LIST_LIMIT);
   }
 
   /**
@@ -488,27 +672,49 @@ export class CodexController {
    * the program starts again with it, and the tab shows its turns, under
    * the thread's name or first prompt.
    */
-  async resumeThread(threadId: string, title: string): Promise<void> {
-    if (this.model.running) throw new Error("a turn is running");
-    const { workspaceId, tabId } = this.target;
-    if (this.model.process === "running") {
-      await ipcCallResult("chat", "stop", { workspaceId, tabId });
+  async resumeThread(threadId: string, title: string, profileId = this.profileId): Promise<void> {
+    this.requireHistoryIdle();
+    this.resumingSelection = true;
+    try {
+      const { workspaceId, tabId } = this.target;
+      if (this.model.process === "running") {
+        unwrapIpcResult(await ipcCallResult("chat", "stop", { workspaceId, tabId }));
+      }
+      this.flushNow();
+      const switching = !sameProfile(profileId, this.target.profileId);
+      if (switching) {
+        this.next = { mode: this.next.mode ?? picksOf(this.model).mode };
+        this.hooks.onProfile?.(profileId);
+        this.hooks.onChosen?.({});
+      }
+      this.target = {
+        ...this.target,
+        threadId,
+        fork: undefined,
+        moves: undefined,
+        profileId: isDefaultProfileId(profileId) ? undefined : profileId,
+      };
+      this.hooks.onThread?.(threadId);
+      this.hooks.onMoves?.([]);
+      this.hooks.onTitle?.(title);
+      this.titled = true;
+      // A command's card told of the thread the tab had.
+      this.update((prev) => ({
+        ...prev,
+        history: null,
+        queue: [],
+        card: undefined,
+        model: switching
+          ? { ...emptyCodexModel(), lastSeq: this.model.lastSeq }
+          : nextThreadModel(this.model),
+      }));
+      if (!(await this.start({ resetLog: true })) || !(await this.ready)) {
+        throw new Error(this.state.error ?? "Codex could not resume this thread");
+      }
+      this.flushNow();
+    } finally {
+      this.resumingSelection = false;
     }
-    this.flushNow();
-    this.target = { ...this.target, threadId, moves: undefined };
-    this.hooks.onThread?.(threadId);
-    this.hooks.onMoves?.([]);
-    this.hooks.onTitle?.(title);
-    this.titled = true;
-    // A command's card told of the thread the tab had.
-    this.update((prev) => ({
-      ...prev,
-      history: null,
-      queue: [],
-      card: undefined,
-      model: nextThreadModel(this.model),
-    }));
-    await this.start({ resetLog: true });
   }
 
   /**
@@ -516,6 +722,8 @@ export class CodexController {
    * without one, and the tab takes its default name until the first message.
    */
   async newThread(): Promise<void> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     if (this.model.running) throw new Error("a turn is running");
     const { workspaceId, tabId } = this.target;
     if (this.model.process === "running") {
@@ -554,6 +762,8 @@ export class CodexController {
    * starts with its own; the permission preset goes on.
    */
   async switchProfile(profileId: string): Promise<void> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     if (sameProfile(profileId, this.target.profileId)) return;
     const { workspaceId, tabId } = this.target;
     if (this.model.process === "running") {
@@ -594,6 +804,8 @@ export class CodexController {
    * in the log, and a new thread start anyway).
    */
   async continueInProfile(profileId: string): Promise<void> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     if (sameProfile(profileId, this.target.profileId)) return;
     // The lines come in first: a thread just read has its turns.
     this.flushNow();
@@ -646,8 +858,47 @@ export class CodexController {
     method: string,
     params: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     return this.request(method, params);
+  }
+
+  /** Read and publish MCP status for this thread, including to devices watching its panel. */
+  async listMcpServers(): Promise<CodexMcpServer[]> {
+    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
+    this.flushNow();
+    const threadId = this.currentThread();
+    const request = {};
+    this.mcpRead = request;
+    const ready = this.ready;
+    const servers: CodexMcpServer[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const result = await this.request("mcpServerStatus/list", {
+        detail: "toolsAndAuthOnly",
+        ...(threadId ? { threadId } : {}),
+        ...(cursor ? { cursor } : {}),
+      });
+      servers.push(...mcpServersOf(result));
+      cursor =
+        typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : undefined;
+      if (cursor && seen.has(cursor)) throw new Error("Codex returned a repeated MCP cursor");
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    this.flushNow();
+    if (
+      this.mcpRead === request &&
+      this.ready === ready &&
+      this.currentThread() === threadId &&
+      this.model.process === "running"
+    ) {
+      this.patchModel({ mcpServers: servers });
+    }
+    return servers;
   }
 
   async setServiceTier(threadId: string, serviceTier: string): Promise<void> {
@@ -661,6 +912,74 @@ export class CodexController {
       ...(effort ? { effort } : {}),
     });
     if (this.currentThread() === threadId) this.patchModel({ serviceTier });
+  }
+
+  private probeCollaborationModes() {
+    this.collaborationProbe ??= this.request("collaborationMode/list", {}, 5_000).then(
+      (result) => collaborationPresetsOf(result.data),
+      () => collaborationPresetsOf(undefined),
+    );
+    return this.collaborationProbe;
+  }
+
+  /** Discovery uses the current app server, including a previously attached process. */
+  async availableCollaborationModes() {
+    if (!(await this.introduced)) return false;
+    const presets = await this.probeCollaborationModes();
+    this.flushNow();
+    return !!presets.plan && !!presets.default;
+  }
+
+  async setCollaborationMode(mode: CodexCollaborationMode): Promise<void> {
+    await this.prepareSend();
+    if (this.changingCollaboration) throw new Error("Codex is already changing collaboration mode");
+    this.changingCollaboration = true;
+    try {
+      if (!(await this.availableCollaborationModes())) {
+        throw new Error("This Codex server does not offer Plan and Default modes");
+      }
+      const threadId = this.currentThread();
+      const ready = this.ready;
+      if (!threadId) throw new Error("Codex has no thread");
+      if (this.model.collaborationMode === mode) return;
+      const result = await this.request("config/read", { cwd: this.target.cwd });
+      if (this.ready !== ready || this.currentThread() !== threadId) {
+        throw new Error("The Codex thread changed");
+      }
+      const config = result.config as Record<string, unknown> | undefined;
+      const { model, collaborationPresets, collaborationSettings } = this.model;
+      if (!model) throw new Error("Codex did not tell this thread's model");
+      const previous = collaborationSettings?.[mode];
+      const configEffort =
+        mode === "plan" ? config?.plan_mode_reasoning_effort : config?.model_reasoning_effort;
+      const configured = typeof configEffort === "string" ? configEffort : undefined;
+      const fallback = previous
+        ? previous.reasoning_effort
+        : (configured ?? collaborationPresets?.[mode]?.effort ?? null);
+      const effort = this.next.effort ?? (mode === "plan" ? configured : undefined) ?? fallback;
+      await this.request("thread/settings/update", {
+        threadId,
+        collaborationMode: {
+          mode,
+          settings: {
+            model,
+            reasoning_effort: effort,
+            // A null value asks Codex to load its built-in mode instructions.
+            developer_instructions:
+              config?.include_collaboration_mode_instructions === false
+                ? ""
+                : (previous?.developer_instructions ?? null),
+          },
+        },
+      });
+      this.flushNow();
+      if (this.ready !== ready || this.currentThread() !== threadId) {
+        throw new Error("The Codex thread changed");
+      }
+      this.showPicks();
+    } finally {
+      this.changingCollaboration = false;
+    }
   }
 
   /** Shows what a command answered above the composer, until it is closed. */
@@ -776,7 +1095,7 @@ export class CodexController {
    */
   async prepareSend(): Promise<void> {
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
-    if (!(await this.ready)) throw new Error("Codex has no thread to send to");
+    if (!(await this.ready)) throw new Error(this.state.error ?? "Codex has no thread to send to");
     this.flushNow();
   }
 
@@ -786,12 +1105,16 @@ export class CodexController {
    * by a line that tells Codex who sent it.
    */
   async send(text: string, images: ImageBlock[] = [], from?: RelaySender): Promise<void> {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     if (!(await this.ensureRunning())) return;
-    if (!(await this.ready)) throw new Error("Codex has no thread to send to");
+    if (!(await this.ready)) throw new Error(this.state.error ?? "Codex has no thread to send to");
     // The thread's answer settles `ready` as it comes, a frame before its
     // line reaches the model: a message sent at once (a new task's, the
     // CLI's) would find no thread yet.
     this.flushNow();
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     const threadId = this.model.threadId;
     if (!threadId) throw new Error("Codex has no thread to send to");
     const said = from && text ? relayedText(from, text) : text;
@@ -847,6 +1170,7 @@ export class CodexController {
     // until it is sent, so a thread changed since is not overridden.
     if (model || effort) this.hooks.onChosen?.({});
     // Its answer, or its error as a notice, comes in the log.
+    this.startingTurn = true;
     void this.request("turn/start", {
       threadId,
       clientUserMessageId,
@@ -856,7 +1180,11 @@ export class CodexController {
       ...(mode ? MODE_SETTINGS[mode] : {}),
     })
       .then((result) => told(result))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        this.flushNow();
+        this.startingTurn = false;
+      });
   }
 
   /** The composer took the message the app put back. */
@@ -874,6 +1202,8 @@ export class CodexController {
     from?: RelaySender,
     device?: string,
   ): string | undefined {
+    if (this.rewinding || this.resumingSelection)
+      throw new Error("Codex is changing the conversation");
     const item: QueuedMessage = {
       id: nextId(),
       text,
@@ -970,33 +1300,80 @@ export class CodexController {
     this.patchModel({ ...(model ? { model } : {}), ...(effort ? { effort } : {}) });
   }
 
-  /**
-   * The model and reasoning effort a new conversation starts with, as
-   * Codex's config has them for the tab's folder (config/read).
-   */
-  async readDefaults(): Promise<{ model?: string; effort?: string }> {
+  private async configSnapshot(remote: boolean) {
     if (!(await this.ensureRunning())) throw new Error("Codex is not running");
-    const result = await this.request("config/read", { cwd: this.target.cwd });
-    const config = (result.config ?? {}) as { model?: unknown; model_reasoning_effort?: unknown };
-    const text = (v: unknown) => (typeof v === "string" && v ? v : undefined);
-    return { model: text(config.model), effort: text(config.model_reasoning_effort) };
+    this.flushNow();
+    const models = this.model.init?.models;
+    const [result, requirements, catalog] = await Promise.all([
+      this.request("config/read", { cwd: this.target.cwd, includeLayers: true }),
+      this.request("configRequirements/read", {}).catch((error: Error & { code?: number }) => {
+        if (
+          error.code === -32601 ||
+          (error.code === -32600 &&
+            error.message.includes("unknown variant `configRequirements/read`"))
+        )
+          return undefined;
+        throw error;
+      }),
+      models ?? this.request("model/list", {}).then((result) => codexModelsOf(result.data)),
+    ]);
+    return codexConfigSnapshot(
+      result,
+      requirements,
+      catalog,
+      remote,
+      this.model.model,
+      this.model.appServerVersion ?? this.state.version,
+    );
   }
 
-  /**
-   * Saves new defaults in the profile's config.toml (config/batchWrite),
-   * where Codex's /model would. Conversations already open keep theirs,
-   * but this tab takes them, as the CLI's session does.
-   */
-  async saveDefaults(defaults: { model?: string; effort?: string }): Promise<void> {
-    const edits = [
-      ...(defaults.model ? [{ keyPath: "model", value: defaults.model }] : []),
-      ...(defaults.effort ? [{ keyPath: "model_reasoning_effort", value: defaults.effort }] : []),
-    ].map((edit) => ({ ...edit, mergeStrategy: "replace" }));
-    if (edits.length === 0) return;
-    if (!(await this.ensureRunning())) throw new Error("Codex is not running");
-    await this.request("config/batchWrite", { edits });
-    if (defaults.model) await this.setModel(defaults.model);
-    if (defaults.effort) await this.setEffort(defaults.effort);
+  /** Defaults for this Codex home as seen from the tab's working directory. */
+  async readDefaults(remote = false) {
+    const profileId = this.profileId;
+    const { shown } = await this.configSnapshot(remote);
+    if (profileId !== this.profileId) throw new CodexConfigRefusal("The Codex profile changed");
+    shown.keys.push({
+      key: CODEX_CONFIG_PROFILE_KEY,
+      group: "other",
+      kind: "choice",
+      options: [],
+      value: profileId,
+    });
+    return shown;
+  }
+
+  /** Model and effort also take effect in this tab on its next turn. */
+  async saveDefaults(set: CodexConfigSet, remote = false): Promise<void> {
+    const profileId = this.profileId;
+    const { [CODEX_CONFIG_PROFILE_KEY]: expectedProfileId, ...changes } = set.changes;
+    if (expectedProfileId !== undefined && expectedProfileId !== profileId) {
+      throw new CodexConfigRefusal(
+        "The Codex profile changed. Reopen the defaults for this profile.",
+      );
+    }
+    const snapshot = await this.configSnapshot(remote);
+    if (profileId !== this.profileId) {
+      throw new CodexConfigRefusal("The Codex profile changed while reading defaults");
+    }
+    const edits = codexConfigEdits({ ...set, changes }, snapshot, remote);
+    if (!edits.length) return;
+    // Bind the batch to the active user layer. Leaving hot reload off keeps
+    // the other defaults out of loaded threads.
+    const result = await this.request("config/batchWrite", {
+      edits,
+      ...(snapshot.filePath ? { filePath: snapshot.filePath } : {}),
+      ...(snapshot.version ? { expectedVersion: snapshot.version } : {}),
+    });
+    if (result.status === "okOverridden") {
+      throw new Error("Codex saved the defaults, but another config layer overrides a saved value");
+    }
+    if (result.status !== "ok") throw new Error("Codex did not confirm the config write");
+    if (profileId !== this.profileId) return;
+    for (const { keyPath, value } of edits) {
+      if (typeof value !== "string") continue;
+      if (keyPath === "model") await this.setModel(value);
+      if (keyPath === "model_reasoning_effort") await this.setEffort(value);
+    }
   }
 
   private patchModel(patch: Partial<CodexModel>): void {
@@ -1085,6 +1462,50 @@ export class CodexController {
     return (await this.start({})) && (await this.introduced);
   }
 
+  /** Reads a discovered child in the same profile as its parent. */
+  loadSubagent(id: string): Promise<void> {
+    const known = this.readingAgents.get(id);
+    if (known) return known;
+    if (this.state.phase !== "ready" || this.model.tasks[id]?.type !== "codex_subagent")
+      return Promise.resolve();
+    if (Date.now() - (this.readAgentAt.get(id) ?? 0) < 2_000) return Promise.resolve();
+    this.readAgentAt.set(id, Date.now());
+    const read = this.request("thread/read", { threadId: id, includeTurns: true })
+      .then(() => this.flushNow())
+      .catch(() => {})
+      .finally(() => this.readingAgents.delete(id));
+    this.readingAgents.set(id, read);
+    return read;
+  }
+
+  private scheduleSubagents(): void {
+    if (this.disposed || this.agentRefresh !== undefined) return;
+    this.agentRefresh = setTimeout(() => {
+      this.agentRefresh = undefined;
+      void this.refreshSubagents();
+    }, 400);
+  }
+
+  private async refreshSubagents(): Promise<void> {
+    const threadId = this.model.threadId;
+    if (!threadId || this.state.phase !== "ready" || this.disposed) return;
+    if (codexHistoryAvailable(this.model.appServerVersion ?? this.state.version)) {
+      await this.request("thread/list", {
+        parentThreadId: threadId,
+        sourceKinds: ["subAgentThreadSpawn"],
+        sortKey: "updated_at",
+        limit: 20,
+      }).catch(() => {});
+      this.flushNow();
+    }
+    if (this.model.threadId !== threadId || this.disposed) return;
+    const children = Object.values(this.model.tasks)
+      .filter((task) => task.type === "codex_subagent")
+      .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))
+      .slice(0, 20);
+    await Promise.all(children.map((task) => this.loadSubagent(task.taskId)));
+  }
+
   /** A line from the agent, buffered for the next frame. */
   receive(line: ChatLine): void {
     if (this.disposed) return;
@@ -1105,9 +1526,12 @@ export class CodexController {
       if (!entry) return;
       clearTimeout(entry.timer);
       this.pending.delete(key);
-      const error = message.error as { message?: unknown } | undefined;
-      if (error) entry.reject(new Error(String(error.message ?? "error")));
-      else entry.resolve((message.result as Record<string, unknown>) ?? {});
+      const error = message.error as { message?: unknown; code?: unknown } | undefined;
+      if (error) {
+        entry.reject(
+          Object.assign(new Error(String(error.message ?? "error")), { code: error.code }),
+        );
+      } else entry.resolve((message.result as Record<string, unknown>) ?? {});
       return;
     }
     if (key && method && !CARD_REQUESTS.has(method)) {
@@ -1118,6 +1542,21 @@ export class CodexController {
           : { id: message.id, error: UNSUPPORTED };
       void this.write(reply).catch(() => {});
       return;
+    }
+    const params = message.params as { threadId?: string; item?: { type?: string } } | undefined;
+    if (
+      method === "item/completed" &&
+      params?.threadId &&
+      params.threadId !== this.model.threadId &&
+      this.model.tasks[params.threadId]?.type === "codex_subagent"
+    ) {
+      this.scheduleSubagents();
+    }
+    if (
+      method === "item/completed" &&
+      ["collabAgentToolCall", "subAgentActivity"].includes(params?.item?.type ?? "")
+    ) {
+      this.scheduleSubagents();
     }
     if (method === "account/login/completed") void this.refreshAccount();
     // After a turn: the profile's limits as they are now, for all its tabs.
@@ -1143,12 +1582,16 @@ export class CodexController {
       this.target = { ...this.target, threadId: model.threadId, fork: undefined };
       this.hooks.onThread?.(model.threadId);
     }
+    if (model.threadId && model.threadId !== before.threadId) this.scheduleSubagents();
     // The thread's name, when it gets one or another (/rename), is the tab's.
     if (model.threadName && model.threadName !== before.threadName) {
       this.titled = true;
       this.hooks.onTitle?.(model.threadName);
     }
-    if (before.running && !model.running) this.sendNextQueued();
+    if (before.running && !model.running) {
+      this.sendNextQueued();
+      this.scheduleSubagents();
+    }
     if (model.process === "exited" && before.process !== "exited") {
       this.limitsReadable = false;
       this.ready = Promise.resolve(false);
@@ -1176,6 +1619,7 @@ export class CodexController {
     this.rejectPending("the tab closed");
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.disposed = true;
+    clearTimeout(this.agentRefresh);
     this.removeReceiver();
     this.leavePlanUsage();
     useChatStore.getState().remove(this.key);

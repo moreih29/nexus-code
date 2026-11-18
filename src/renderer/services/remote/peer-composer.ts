@@ -46,7 +46,7 @@ import {
 import { bytesToBase64 } from "../editor/encoding/text-encoding";
 import { fitImage } from "./chat-image";
 import { hereCommandOf, hereCommandsOf, hereLinkOf, inTerminalLineOf } from "./here-commands";
-import { clearPeerDraft, usePeerDraft } from "./peer-drafts";
+import { clearPeerDraft } from "./peer-drafts";
 
 /** The chat, by the device it runs on and its tab there. */
 export interface PeerChatRef {
@@ -731,8 +731,6 @@ export function usePeerComposer({
     [agent, commands, deviceId, workspaceId, tabId, onError, held, runHere],
   );
 
-  // A message rewound or forked there, back in this composer.
-  const draft = usePeerDraft(ref);
   const queue = useMemo(() => heldQueueOf(panel?.held), [panel?.held]);
   const state = useMemo<ChatTabState>(
     () => ({
@@ -741,9 +739,8 @@ export function usePeerComposer({
       model: withSettings(model, settings),
       queue,
       ...(reveal ? { reveal } : {}),
-      ...(draft ? { draft } : {}),
     }),
-    [model, settings, reveal, draft, queue],
+    [model, settings, reveal, queue],
   );
   const infos = useMemo(
     () => [

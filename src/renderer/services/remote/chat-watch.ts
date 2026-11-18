@@ -23,6 +23,8 @@ import { MAX_READ_ITEMS } from "../../../../packages/remote-protocol/src";
 import { profileOf } from "../../../shared/agent-profiles/profiles";
 import { useAgentProfilesStore } from "../../state/stores/agent-profiles";
 import { useTabsStore } from "../../state/stores/tabs";
+import { codexHistoryAvailable, codexHistoryBusy } from "../chat/codex-history";
+import type { CodexModel } from "../chat/codex-model";
 import type { ToolCall } from "../chat/model";
 import { planUsageKeyFor, usePlanUsageStore, watchPlanUsageAfar } from "../chat/plan-usage";
 import { chatKey, useChatStore } from "../chat/store";
@@ -87,7 +89,13 @@ export function appendsOf(
   // The union's item of a kind not known yet keeps TypeScript from narrowing.
   const was = wasItem as ViewAssistantItem;
   const now = nowItem as ViewAssistantItem;
-  if (was.key !== now.key || was.messageId !== now.messageId || was.at !== now.at) return null;
+  if (
+    was.key !== now.key ||
+    was.messageId !== now.messageId ||
+    was.at !== now.at ||
+    was.forkable !== now.forkable
+  )
+    return null;
   if (was.blocks.length !== now.blocks.length) return null;
   const appends: ChatAppend[] = [];
   for (const [block, after] of now.blocks.entries()) {
@@ -333,6 +341,8 @@ export function tabSource(
     profile: cliProfileName(profileOf(config, agent, move.profileId)),
     at: move.at,
   }));
+  const codex = chat.model as CodexModel;
+  const codexIdle = Boolean(codex.threadId && !codexHistoryBusy(chat));
   return {
     agent,
     title: tab.title,
@@ -354,7 +364,18 @@ export function tabSource(
             config: true,
           },
         }
-      : { can: { rewind: false, fork: false, background: false, moveNow: true, config: true } }),
+      : {
+          can: {
+            rewind:
+              codexIdle &&
+              codexHistoryAvailable(codex.appServerVersion ?? chat.version) &&
+              codex.items.some((item) => item.kind === "user" && item.rewindable),
+            fork: codexIdle && codex.items.length > 0,
+            background: false,
+            moveNow: true,
+            config: true,
+          },
+        }),
     ...(plan?.claude || plan?.codex
       ? {
           plan: {

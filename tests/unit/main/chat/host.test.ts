@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { ChatHost, type ChatWorkspaceManager } from "../../../../src/main/features/chat/host";
+import {
+  ChatHost,
+  type ChatHostOptions,
+  type ChatWorkspaceManager,
+} from "../../../../src/main/features/chat/host";
 import {
   CLAUDE_TAB_ARGS,
   CLAUDE_TAB_PROMPT,
@@ -63,7 +67,10 @@ class FakeChannel implements AgentChannel {
   dispose(): void {}
 }
 
-function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
+function setup(
+  overrides: Partial<ChatWorkspaceManager> = {},
+  agentContext?: ChatHostOptions["agentContext"],
+) {
   const channel = new FakeChannel();
   const events: Array<{ event: string; args: unknown }> = [];
   const status: string[] = [];
@@ -84,6 +91,7 @@ function setup(overrides: Partial<ChatWorkspaceManager> = {}) {
   };
   const host = new ChatHost({
     workspaceManager: manager,
+    agentContext,
     broadcast: (event, args) => events.push({ event, args }),
     onTurnStopped: (ws, tab) => status.push(`stopped ${ws} ${tab}`),
     onProgramExit: (ws, tab) => status.push(`exit ${ws} ${tab}`),
@@ -407,6 +415,41 @@ describe("ChatHost", () => {
     channel.found = { path: "" };
     const missing = await host.startCodex(WS, TAB, "/repo", {});
     expect(missing.ok === false && missing.reason).toBe("not-found");
+  });
+
+  test("Codex turns carry host guidance alongside the original message", async () => {
+    let enabled = true;
+    const { channel, host } = setup({}, (workspace, tab) =>
+      enabled ? { status: `guidance for ${workspace}/${tab}`, commands: "nexus help" } : undefined,
+    );
+    const message = { method: "turn/start", params: { input: [{ type: "text", text: "hi" }] } };
+    await host.send(WS, TAB, message);
+    expect(channel.calls.at(-1)).toEqual({
+      method: "chat.send",
+      params: {
+        workspaceId: WS,
+        tabId: TAB,
+        message,
+        codexContext: {
+          files: CLAUDE_TAB_PROMPT,
+          cli: { status: `guidance for ${WS}/${TAB}`, commands: "nexus help" },
+        },
+      },
+    });
+    enabled = false;
+    await host.send(WS, TAB, message);
+    expect(channel.calls.at(-1)?.params).toMatchObject({
+      message,
+      codexContext: { files: CLAUDE_TAB_PROMPT, cli: undefined },
+    });
+    for (const method of ["thread/start", "thread/resume", "thread/fork", "turn/steer"]) {
+      await host.send(WS, TAB, { method });
+      expect(channel.calls.at(-1)?.params).toEqual({
+        workspaceId: WS,
+        tabId: TAB,
+        message: { method },
+      });
+    }
   });
 
   test("start says when claude is not found", async () => {
