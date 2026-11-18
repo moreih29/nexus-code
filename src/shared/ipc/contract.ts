@@ -2539,6 +2539,16 @@ export const ipcContract = {
         z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.close"].params),
         RPC_METHODS["chat.close"].result,
       ),
+      /** Opens a chat in one of another device's workspaces, as the user. */
+      peerChatNew: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.new"].params),
+        RPC_METHODS["chat.new"].result,
+      ),
+      /** Renames another device's chat, as the user. */
+      peerChatRename: call(
+        z.object({ deviceId: z.string().min(1).max(64) }).merge(RPC_METHODS["chat.rename"].params),
+        RPC_METHODS["chat.rename"].result,
+      ),
       /** Asks another device's Codex chat's program again whether it is signed in. */
       peerChatCheckSignIn: call(
         z
@@ -2801,6 +2811,41 @@ export const ipcContract = {
           .object({ deviceId: z.string().min(1).max(64) })
           .merge(RPC_METHODS["terminal.open"].params),
         RPC_METHODS["terminal.open"].result,
+      ),
+      /** The shells a new terminal on another device can run, as its "New terminal with" lists them. */
+      peerTerminalShells: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.shells"].params),
+        RPC_METHODS["terminal.shells"].result,
+      ),
+      /** Renames another device's terminal, where it lets this one (terminal.control). */
+      peerTerminalRename: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.rename"].params),
+        RPC_METHODS["terminal.rename"].result,
+      ),
+      /** Closes another device's terminal; one running a program only with `force`. */
+      peerTerminalClose: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.close"].params),
+        RPC_METHODS["terminal.close"].result,
+      ),
+      /** Answers the permission request another device's terminal's Claude Code holds. */
+      peerTerminalAnswer: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["terminal.answer"].params),
+        RPC_METHODS["terminal.answer"].result,
+      ),
+      /** Answers one of another device's consent prompts (sessions.list's `consents`), as the user. */
+      peerConsentAnswer: call(
+        z
+          .object({ deviceId: z.string().min(1).max(64) })
+          .merge(RPC_METHODS["consent.answer"].params),
+        RPC_METHODS["consent.answer"].result,
       ),
       key: call(z.void(), AccountKeyStateSchema),
       refreshKey: call(z.void(), AccountKeyStateSchema),

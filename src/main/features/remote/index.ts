@@ -586,6 +586,14 @@ export async function registerRemoteChannel(options: {
         const { deviceId, ...params } = validateArgs(c.peerChatClose.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.close", params));
       },
+      peerChatNew: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatNew.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.new", params));
+      },
+      peerChatRename: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerChatRename.args, args);
+        return askPeer(() => inRoom().request(deviceId, "chat.rename", params));
+      },
       peerChatCheckSignIn: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerChatCheckSignIn.args, args);
         return askPeer(() => inRoom().request(deviceId, "chat.checkSignIn", params));
@@ -741,6 +749,26 @@ export async function registerRemoteChannel(options: {
       peerTerminalOpen: (args: unknown) => {
         const { deviceId, ...params } = validateArgs(c.peerTerminalOpen.args, args);
         return askPeer(() => inRoom().request(deviceId, "terminal.open", params));
+      },
+      peerTerminalShells: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalShells.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.shells", params));
+      },
+      peerTerminalRename: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalRename.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.rename", params));
+      },
+      peerTerminalClose: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalClose.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.close", params));
+      },
+      peerTerminalAnswer: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerTerminalAnswer.args, args);
+        return askPeer(() => inRoom().request(deviceId, "terminal.answer", params));
+      },
+      peerConsentAnswer: (args: unknown) => {
+        const { deviceId, ...params } = validateArgs(c.peerConsentAnswer.args, args);
+        return askPeer(() => inRoom().request(deviceId, "consent.answer", params));
       },
       key: async () => ipcOk(accountKeys.state()),
       refreshKey: () => keyFlow(() => accountKeys.refresh()),

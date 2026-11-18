@@ -1804,7 +1804,12 @@
       "disconnectedLast": "Not connected to the server. Showing what came last.",
       "offlineTag": "Offline",
       "profileBusy": "It can change once the reply ends or the request is answered",
-      "localAddress": "{{url}} is an address on {{device}}: open it there"
+      "localAddress": "{{url}} is an address on {{device}}: open it there",
+      "newIn": "New in {{name}}",
+      "closeTerminalTitle": "Close the terminal on {{device}}?",
+      "closeTerminalBody": "It closes on that computer.",
+      "consentThere": "Answer it on {{device}}",
+      "consentGone": "Already answered, or timed out"
     }
   },
   "releaseNotes": {
