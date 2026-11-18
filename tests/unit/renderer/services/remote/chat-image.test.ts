@@ -6,6 +6,7 @@ import { emptyTabState } from "../../../../../src/renderer/services/chat/store";
 import {
   fitImage,
   imageOf,
+  readChatImage,
   type Shrink,
 } from "../../../../../src/renderer/services/remote/chat-image";
 import type { ChatSource } from "../../../../../src/renderer/services/remote/chat-page";
@@ -85,6 +86,33 @@ describe("an image of a chat", () => {
       width: 2,
       height: 2,
     });
+  });
+
+  test("versioned reads prove only the requested source and representation", async () => {
+    const image = pic(pngData(10, 10));
+    const limits = { maxChars: 100, maxEdge: 20 };
+    const first = await readChatImage(image, { ...limits, versioned: true });
+    expect(first.data).toBe(image.data);
+    expect(first.version).toMatch(/^[a-f0-9]{64}$/);
+    const ifVersion = first.version;
+    expect(await readChatImage(image, { ...limits, ifVersion })).toEqual({
+      mediaType: "image/png",
+      data: "",
+      version: ifVersion,
+      notModified: true,
+    });
+    const differentSource = pic(pngData(10, 11));
+    const changed = await readChatImage(differentSource, { ...limits, ifVersion });
+    expect(changed.data).toBe(differentSource.data);
+    expect(changed.version).not.toBe(ifVersion);
+    const differentRepresentation = await readChatImage(image, {
+      ...limits,
+      maxEdge: 21,
+      ifVersion,
+    });
+    expect(differentRepresentation.data).toBe(image.data);
+    expect(differentRepresentation.version).not.toBe(ifVersion);
+    expect(await readChatImage(image, limits)).not.toHaveProperty("version");
   });
 
   test("asked for one no bigger than it is, goes as it is", async () => {

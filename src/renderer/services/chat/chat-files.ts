@@ -44,10 +44,18 @@ export function useFilePicture(
     if (!files || files.epoch === null) return;
     let live = true;
     const show = (image: ImageBlock | null) => {
-      if (live) setState({ files, path, image, failed: image === null });
+      if (!live) return;
+      setState((previous) =>
+        previous.files === files &&
+        previous.path === path &&
+        previous.image === image &&
+        previous.failed === (image === null)
+          ? previous
+          : { files, path, image, failed: image === null },
+      );
     };
     const off = files.subscribePicture(path, show);
-    void files.picture(path).catch(() => show(null));
+    void files.picture(path).then(show, () => show(null));
     return () => {
       live = false;
       off();

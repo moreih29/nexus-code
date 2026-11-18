@@ -38,7 +38,15 @@ export function useImageBytes(image: ImageBlock | undefined): {
     if (!load || !image || !remote) return;
     let live = true;
     const show = (loaded: ImageBlock | null) => {
-      if (live) setGot({ load, ref, image: loaded, failed: loaded === null });
+      if (!live) return;
+      setGot((previous) =>
+        previous.load === load &&
+        previous.ref === ref &&
+        previous.image === loaded &&
+        previous.failed === (loaded === null)
+          ? previous
+          : { load, ref, image: loaded, failed: loaded === null },
+      );
     };
     const off = load.subscribe(remote, show);
     void load(image).then(show, () => show(null));

@@ -10,6 +10,7 @@ import type { ImageBlock, ImageLoader, RemoteImageRef } from "../chat/model";
 
 interface Access {
   id: number;
+  cacheId: number;
   signal: AbortSignal;
 }
 
@@ -21,11 +22,17 @@ interface CacheLimits<T> {
   revalidate?: boolean;
 }
 
-const MAX_PENDING = 64;
+const MAX_ACTIVE = 64;
+const MAX_WAITING = 256;
 
-function peerReads<T>(limits?: CacheLimits<T>) {
-  const cached = new Map<string, { access: Access; value: T; bytes: number; until: number }>();
+function peerReads<T>(limits?: CacheLimits<T>, maxActive = MAX_ACTIVE) {
+  const cached = new Map<string, { cacheId: number; value: T; bytes: number; until: number }>();
   const pending = new Map<string, Promise<T>>();
+  const waiting = new Map<
+    string,
+    { access: Access; start(): void; reject(reason: unknown): void }
+  >();
+  let active = 0;
   const results = createKeyedListenerBus<string, T | null>();
   let bytes = 0;
 
@@ -53,9 +60,17 @@ function peerReads<T>(limits?: CacheLimits<T>) {
         ? results.subscribe(scoped(access, key), listener)
         : () => {};
     },
-    evict(access: Access) {
-      for (const [key, item] of cached) {
-        if (item.access === access) drop(key);
+    revoke(access: Access, keepCandidates = false) {
+      for (const [key, job] of waiting) {
+        if (job.access === access) {
+          waiting.delete(key);
+          job.reject(access.signal.reason);
+        }
+      }
+      if (!keepCandidates) {
+        for (const [key, item] of cached) {
+          if (item.cacheId === access.cacheId) drop(key);
+        }
       }
     },
     async read(
@@ -65,27 +80,26 @@ function peerReads<T>(limits?: CacheLimits<T>) {
     ) {
       if (!access || access.signal.aborted) throw new Error("peer connection unavailable");
       const slot = scoped(access, key);
-      const value = hit(slot, Date.now());
-      if (value !== undefined && !limits?.revalidate) return value;
+      const cacheKey = `${access.cacheId}:${key}`;
+      if (!limits?.revalidate) {
+        const value = hit(cacheKey, Date.now());
+        if (value !== undefined) return value;
+      }
       const existing = pending.get(slot);
       if (existing) return existing;
-      if (pending.size >= MAX_PENDING) throw new Error("too many peer chat reads");
+      if (waiting.size >= MAX_WAITING) throw new Error("too many peer chat reads");
 
-      // Install the promise before invoking IPC; synchronous throws and
-      // asynchronous rejections both release the slot.
-      const request = Promise.resolve()
-        .then(() => {
+      const run = async () => {
+        try {
           access.signal.throwIfAborted();
-          return load(access.signal, value);
-        })
-        .then((next) => {
+          const next = await load(access.signal, hit(cacheKey, Date.now()));
           access.signal.throwIfAborted();
           if (limits) {
-            drop(slot);
-            const weight = 2 * slot.length + limits.size(next);
+            drop(cacheKey);
+            const weight = 2 * cacheKey.length + limits.size(next);
             if (weight <= limits.bytes) {
-              cached.set(slot, {
-                access,
+              cached.set(cacheKey, {
+                cacheId: access.cacheId,
                 value: next,
                 bytes: weight,
                 until: Date.now() + limits.freshMs,
@@ -99,13 +113,31 @@ function peerReads<T>(limits?: CacheLimits<T>) {
           }
           results.notify(slot, next);
           return next;
-        })
-        .catch((error) => {
-          drop(slot);
-          if (!access.signal.aborted) results.notify(slot, null);
+        } catch (error) {
+          if (!access.signal.aborted) {
+            drop(cacheKey);
+            results.notify(slot, null);
+          }
           throw error;
-        })
-        .finally(() => pending.delete(slot));
+        } finally {
+          active--;
+          const queued = waiting.entries().next().value;
+          if (queued) {
+            const [queuedKey, job] = queued;
+            waiting.delete(queuedKey);
+            job.start();
+          }
+        }
+      };
+      const request = new Promise<T>((resolve, reject) => {
+        const start = () => {
+          active++;
+          // Start after recording the promise, including when IPC throws immediately.
+          Promise.resolve().then(run).then(resolve, reject);
+        };
+        if (active < maxActive) start();
+        else waiting.set(slot, { access, start, reject });
+      }).finally(() => pending.delete(slot));
       pending.set(slot, request);
       return request;
     },
@@ -142,7 +174,8 @@ const folderNames = peerReads<ReadonlySet<string>>({
   },
 });
 
-const pictures = peerReads<ImageBlock>();
+// The host limits concurrent whole-file image reads and queues only a few.
+const pictures = peerReads<ImageBlock>(undefined, 8);
 
 function imageKey(ref: RemoteImageRef): string {
   const id = ref.kind === "user" ? ref.itemKey : ref.kind === "tool" ? ref.toolUseId : ref.id;
@@ -205,10 +238,11 @@ function splitPath(path: string): { dir: string; name: string } | null {
 }
 
 export function peerChatFiles(
-  where: { deviceId: string; workspaceId: string },
+  { deviceId, workspaceId }: { deviceId: string; workspaceId: string },
   access: Access | null,
 ): ChatFiles {
-  const key = (path: string) => JSON.stringify([where.deviceId, where.workspaceId, path]);
+  const where = { deviceId, workspaceId };
+  const key = (path: string) => JSON.stringify([deviceId, workspaceId, path]);
   const namesIn = (path: string) =>
     folderNames.read(access, key(path), async (signal) => {
       const result = await ipcCallResult("remote", "peerFilesList", { ...where, path }, { signal });
@@ -218,6 +252,7 @@ export function peerChatFiles(
   return {
     epoch: access?.id ?? null,
     async there(paths) {
+      if (!access || access.signal.aborted) return new Set<string>();
       const byDir = new Map<string, { path: string; name: string }[]>();
       for (const path of paths) {
         const parts = splitPath(path);
@@ -230,9 +265,9 @@ export function peerChatFiles(
       // starting an IPC for every directory at once.
       const dirs = [...byDir];
       const found = new Set<string>();
-      for (let i = 0; i < dirs.length; i += MAX_PENDING) {
+      for (let i = 0; i < dirs.length && !access.signal.aborted; i += MAX_ACTIVE) {
         await Promise.all(
-          dirs.slice(i, i + MAX_PENDING).map(async ([dir, entries]) => {
+          dirs.slice(i, i + MAX_ACTIVE).map(async ([dir, entries]) => {
             const names = await namesIn(dir).catch(() => null);
             for (const { path, name } of entries) {
               if (names?.has(name)) found.add(path);
@@ -240,7 +275,7 @@ export function peerChatFiles(
           }),
         );
       }
-      return access?.signal.aborted ? new Set() : new Set(paths.filter((path) => found.has(path)));
+      return access.signal.aborted ? new Set() : new Set(paths.filter((path) => found.has(path)));
     },
     picture(path) {
       return pictures.read(access, key(path), async (signal) => {
@@ -276,28 +311,38 @@ let nextAccess = 0;
 let stopWatching: (() => void) | undefined;
 
 function reset(peer: WatchedPeer, connection: string | null) {
-  if (peer.access) {
+  const previous = peer.access;
+  const foreground = previous !== null && connection === peer.connection;
+  if (previous) {
     peer.controller?.abort();
-    attachments.evict(peer.access);
-    folderNames.evict(peer.access);
+    attachments.revoke(previous, foreground);
+    folderNames.revoke(previous);
+    pictures.revoke(previous);
   }
   const controller = connection === null ? undefined : new AbortController();
+  const id = ++nextAccess;
   peer.controller = controller;
   peer.connection = connection;
-  peer.access = controller ? { id: ++nextAccess, signal: controller.signal } : null;
+  peer.access = controller
+    ? { id, cacheId: foreground ? previous.cacheId : id, signal: controller.signal }
+    : null;
   peer.listeners.notify(undefined);
+}
+
+function updatePeer(id: string, watcher: WatchedPeer, refresh = false) {
+  const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
+  const connection = peer?.online
+    ? JSON.stringify([peer.rejoins ?? 0, peer.schema, peer.serves?.slice().sort()])
+    : null;
+  if (connection !== watcher.connection || (refresh && connection !== null)) {
+    reset(watcher, connection);
+  }
 }
 
 function applyRoom(next: RoomState | null, refresh = false) {
   room = next;
-  for (const [id, watcher] of watched) {
-    const peer = room?.status === "online" ? room.peers.find((p) => p.id === id) : undefined;
-    const connection = peer?.online
-      ? JSON.stringify([peer.rejoins ?? 0, peer.schema, peer.serves?.slice().sort()])
-      : null;
-    if (connection !== watcher.connection || (refresh && connection !== null)) {
-      reset(watcher, connection);
-    }
+  for (const [id, watcher] of [...watched]) {
+    if (watched.get(id) === watcher) updatePeer(id, watcher, refresh);
   }
 }
 
@@ -349,9 +394,10 @@ export function watchPeerChatAccess(deviceId: string, notify: () => void): () =>
   watched.set(deviceId, peer);
   const off = peer.listeners.subscribe(notify);
   stopWatching ??= listenForAccess();
-  applyRoom(room);
+  updatePeer(deviceId, peer);
   return () => {
     off();
+    if (watched.get(deviceId) !== peer) return;
     if (peer.listeners.size === 0) {
       reset(peer, null);
       watched.delete(deviceId);
